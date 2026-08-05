@@ -106,8 +106,18 @@ fn lower_spread_elements(
 fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type, bool) {
     let mut v = ctx.lower_expr(inner);
     let mut v_ty = ctx.operand_ty(&v);
-    // S134 — string spread `[...str]` unfolds per code unit. Substr
-    // first materializes to owned Str.
+    // String spread `[...str]` unfolds per Unicode **code point**, not
+    // per code unit: §13.2.4.1 runs the spread through GetIterator, and
+    // the String iterator (§22.1.5) yields code points, so `[..."👋a"]`
+    // has two elements rather than three.
+    //
+    // Pre-fix this split on `""`, which is code-unit-correct for
+    // `String.prototype.split` and wrong here — a surrogate pair came
+    // back as its two halves. `for (const c of s)` and
+    // `Array.from(s)` were already right, so the bug needed a string
+    // outside the BMP *and* the spread spelling specifically.
+    //
+    // Substr first materializes to owned Str.
     if matches!(v_ty, Type::Substr) {
         let cur_block = ctx.cur_block;
         let owned = ctx.f.append_inst(
@@ -120,17 +130,18 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         v_ty = Type::Str;
     }
     if matches!(v_ty, Type::Str) {
-        let empty_sep = ctx.intern_string_literal("");
-        let substr_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Substr);
+        // The same intrinsic `Array.from(str)` lowers to — one
+        // code-point-correct walk, already declared, and it hands back
+        // `Arr<Str>` directly instead of a split-then-materialize pair.
+        let str_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
         let cur_block = ctx.cur_block;
-        let substr_arr = ctx.f.append_inst(
+        let arr = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.str_split, vec![v, Operand::Value(empty_sep)]),
-            Type::Arr(substr_arr_id),
+            InstKind::Call(ctx.intrinsics.arr_from_string, vec![v]),
+            Type::Arr(str_arr_id),
             None,
         );
-        let str_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
-        v = ctx.materialize_arr_substr_to_str(Operand::Value(substr_arr), Type::Arr(str_arr_id));
+        v = Operand::Value(arr);
         v_ty = Type::Arr(str_arr_id);
     }
     if matches!(v_ty, Type::Set) {
