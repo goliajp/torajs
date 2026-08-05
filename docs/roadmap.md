@@ -1530,7 +1530,44 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `e6e616f5`** (2026-08-05, rotation 303 — a generator's
+**Latest @ `4b2659f7`** (2026-08-05, rotation 308 — five knives, four
+of them silent-wrong, three of them the same shape: the checker had
+already worked the answer out and the runtime was not reading it. A
+heterogeneous `Promise.all` decoded every slot of its result array
+through the FIRST element's repr (a string surfaced as its pointer,
+`true` as 1), while the checker types that call `Promise<Array(Any)>`
+and hands the element form down as `target_repr`; the same for
+`allSettled`, one level in, at the value slot of each `{status, value}`
+record; and half the binary operators refused an object operand
+outright — `t * 2` ran while `t + 1` was a compile error for the same
+`t` — though the any-lane kernels have always carried the whole
+ToPrimitive walk, because an `any` operand uses them. Plus a rest
+parameter that was an ALIAS of the caller's array (§10.4.2 wants
+CreateArrayFromList, so `g(...arr)` pushing to `xs` grew `arr`), and
+`{ *[Symbol.iterator]() {} }` — the ordinary way to write an iterable —
+falling between two parser arms, each of which declined for a locally
+correct reason): passTotal 26340 → **26422 (+82)**, bug 11881 →
+**11832 (−49)**, trAccepted 38221 → **38254 (+33)** / incompatible
+14953 → **14920 (−33)** — conservation exact (33 = 82 + −49); the +82
+is entirely in the oracle-backed `pass` bucket, `passNoOracle` flat at
+639, so none of it is dilution. Gate predicate **321 clusters / 8145
+cases** (−6 / −30), core **9122 (−33)** — clusters and cases moving
+DOWN together, as in rotation 227. Regressions **zero** (82 verdict
+moves, all forward), no new timeouts or crashes (exit 139 at 30,
+tr-timeout 36, exit 138 at 3, all flat). Attribution: 60 of the 82 are
+`class/elements` cases that collect six async methods through
+`Promise.all([...]).then(...)` — the fan-in lane the first knife fixed,
+previously `bug:exit 1`, which is the TypeError that lane threw; ~12
+are operator cases (greater-than, less-than-or-equal, addition,
+bitwise, exponentiation); one is `Promise/allSettled`; one is
+`computed-property-names/object/method/generator.js`, the parser knife
+named exactly. Top clusters unchanged: eval 1433 / `__this` 253 /
+globalThis 216. Note the span: this delta is measured against rotation
+307's sweep (`f3af5bb4`), while the previous entry below is rotation
+303 — rotations 304-307 recorded their sweeps in plan-state and
+handoff without refreshing this section.
+
+**Previous @ `e6e616f5`** (2026-08-05, rotation 303 — a generator's
 lifted locals keep the types their initializers say they have. The
 let-lift moves every `let` in a generator body to a field of the
 synthesized `__Gen_*` class so the binding survives a yield boundary,
@@ -1560,7 +1597,7 @@ which contributed no test262 movement, being a revert plus three
 narrow correctness fixes. Top clusters unchanged: eval 1433 /
 `__this` 253 / globalThis 216.
 
-**Previous @ `4b3c3ee5`** (2026-08-05, rotation 301 — the promise
+**Earlier @ `4b3c3ee5`** (2026-08-05, rotation 301 — the promise
 combinator family closes out and one leak underneath it: an
 all-rejected `Promise.any` answers a real AggregateError built through
 torajs-throw's factory registry (the call site implies the class the
