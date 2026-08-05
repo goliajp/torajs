@@ -236,12 +236,14 @@ pub fn apply_default_args(ast: &mut Ast) {
     // name-keyed table only serves unresolvable receivers.
     let mut binding_counts: HashMap<String, usize> = HashMap::new();
     let mut objlit_inits: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
+    let mut class_inits: HashMap<String, String> = HashMap::new();
     super::apply_args_recv::collect_objlit_recv_fields(
         ast,
         &ast.stmts,
         &synthetic_fn_ident,
         &mut binding_counts,
         &mut objlit_inits,
+        &mut class_inits,
     );
     // A name enters the map only when it is bound exactly once
     // program-wide, that binding is an ObjectLit, and it is never
@@ -257,11 +259,20 @@ pub fn apply_default_args(ast: &mut Ast) {
             recv_fields.insert(name, fields);
         }
     }
+    // A class-instance receiver earns the same trust on the same
+    // terms: bound exactly once program-wide and never reassigned.
+    let mut recv_class: HashMap<String, String> = HashMap::new();
+    for (name, class) in class_inits {
+        if binding_counts.get(&name) == Some(&1) {
+            recv_class.insert(name, class);
+        }
+    }
     for e in &ast.exprs {
         if let Expr::Assign { target, .. } = e
             && let Expr::Ident(nm) = ast.get_expr(*target)
         {
             recv_fields.remove(nm);
+            recv_class.remove(nm);
         }
     }
 
@@ -293,34 +304,21 @@ pub fn apply_default_args(ast: &mut Ast) {
                         None => continue,
                     },
                 },
+                // Receiver-precise gate — see `member_call_defaults`
+                // for the three sources and why the receiver's own
+                // class outranks the name-keyed table.
                 Expr::Member { obj, name } => {
-                    // Receiver-precise gate (see recv_fields above):
-                    // a provably-unique ObjectLit-bound receiver
-                    // answers from its own field — own method without
-                    // defaults or a plain value field means NO padding
-                    // (honest beats a wrong default). An absent field
-                    // (dynamic add) or any receiver outside the map
-                    // falls to the name-keyed table as before.
-                    let own = match ast.get_expr(obj) {
-                        Expr::Ident(recv) => recv_fields.get(recv),
-                        _ => None,
-                    };
-                    match own {
-                        Some(fields) => match fields.get(&name) {
-                            Some(Some(fname)) => match fn_defaults.get(fname) {
-                                Some(d) => d.clone(),
-                                None => continue,
-                            },
-                            Some(None) => continue,
-                            None => match method_defaults.get(&name) {
-                                Some(d) => d.clone(),
-                                None => continue,
-                            },
-                        },
-                        None => match method_defaults.get(&name) {
-                            Some(d) => d.clone(),
-                            None => continue,
-                        },
+                    match super::apply_args_recv::member_call_defaults(
+                        ast,
+                        obj,
+                        &name,
+                        &recv_fields,
+                        &recv_class,
+                        &fn_defaults,
+                        &method_defaults,
+                    ) {
+                        Some(d) => d,
+                        None => continue,
                     }
                 }
                 _ => continue,
