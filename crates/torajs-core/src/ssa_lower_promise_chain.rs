@@ -256,9 +256,10 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// (finally takes no value, nothing to adapt).
     fn lower_chain_one_arg(&mut self, m_name: &str, src_op: Operand, args: &[ExprId]) -> ValueId {
         let cb_op = self.lower_expr(args[0]);
-        // Before the bits-ABI wrapper replaces it — see
-        // `chain_cb_param_repr` for why the wrapped operand cannot
-        // answer what the handler's parameter is.
+        // Before the bits-ABI wrapper replaces it — the wrap's own
+        // signature is `(i64) -> i64`, so it can answer neither what
+        // the handler's parameter is nor what its return is. See
+        // `chain_cb_repr_word` / `chain_cb_param_repr`.
         let cb_pre_ty = self.operand_ty(&cb_op);
         let cb_op = if m_name == "finally" {
             cb_op
@@ -288,9 +289,9 @@ impl crate::ssa_lower::LowerCtx<'_> {
         // anything and in what form. Nothing to unbox on the way in,
         // hence no param word and no throw-check.
         let repr_word = if m_name == "finally" {
-            self.chain_cb_repr_word(&cb_ty)
+            self.chain_cb_repr_word(&cb_pre_ty)
         } else {
-            self.chain_cb_repr_word(&cb_ty) | self.chain_cb_param_repr(&cb_pre_ty)
+            self.chain_cb_repr_word(&cb_pre_ty) | self.chain_cb_param_repr(&cb_pre_ty)
         };
         let mut call_args = vec![src_op.clone(), cb_op];
         call_args.push(Operand::ConstI64(repr_word));

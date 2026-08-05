@@ -27,12 +27,14 @@ impl LowerCtx<'_> {
         let on_ok_ty = self.operand_ty(&on_ok);
         let on_err_ty = self.operand_ty(&on_err);
         let mut ok_word =
-            self.chain_cb_repr_word(&on_ok_ty) | self.chain_cb_param_repr(&on_ok_pre_ty);
+            self.chain_cb_repr_word(&on_ok_pre_ty) | self.chain_cb_param_repr(&on_ok_pre_ty);
+        // The CLOSURE flag is the one bit that IS about the operand
+        // the kernel receives, so it alone reads the post-wrap type.
         if matches!(on_ok_ty, Type::Closure(_)) {
             ok_word |= crate::ssa_lower_promise_repr_mark::THEN2_CLOSURE_FLAG;
         }
         let mut err_word =
-            self.chain_cb_repr_word(&on_err_ty) | self.chain_cb_param_repr(&on_err_pre_ty);
+            self.chain_cb_repr_word(&on_err_pre_ty) | self.chain_cb_param_repr(&on_err_pre_ty);
         if matches!(on_err_ty, Type::Closure(_)) {
             err_word |= crate::ssa_lower_promise_repr_mark::THEN2_CLOSURE_FLAG;
         }
@@ -78,12 +80,32 @@ impl LowerCtx<'_> {
     /// word: low byte the cb-return repr (knife 3 above), bit 8 set
     /// when the cb's first parameter is `any` (the kernel boxes the
     /// settled value per the source cell's repr stamp before the
-    /// call). Judged on the post-wrap type — a pthunk-wrapped f64
-    /// face carries an I64 sig, so the two adapters stay mutually
-    /// exclusive by construction.
-    pub(crate) fn chain_cb_repr_word(&self, cb_ty: &Type) -> i64 {
-        let mut w = self.chain_cb_ret_repr(cb_ty);
-        if let Type::Closure(sig) | Type::FnSig(sig) = cb_ty
+    /// call).
+    ///
+    /// **Takes the cb type BEFORE `maybe_wrap_promise_cb`**, and both
+    /// halves need it: the wrap's signature is `(i64) -> i64`, which
+    /// names neither end of the handler inside it. Asking the wrapped
+    /// operand instead
+    ///
+    /// - lost the `any` parameter face of a handler wrapped for its
+    ///   RETURN alone — `(v: any) => 0` on an f64 value read
+    ///   `Promise.resolve(12.5)` back as `9`, exactly one
+    ///   `DOUBLE_ENCODE_OFFSET` short, because the kernel skipped the
+    ///   boxing an unflagged handler does not ask for;
+    /// - reported the cb-leg result as I64 whatever the handler
+    ///   actually returned, so a downstream any-lane reader of
+    ///   `.then((v: number) => v * 2)` boxed raw f64 bits as an
+    ///   integer, and of a string-returning handler boxed the Str
+    ///   pointer as one.
+    ///
+    /// The wrap is transparent to both faces, which is why the
+    /// pre-wrap answer is the true one: an `any` parameter is never
+    /// the f64 face the adapter converts, so the value reaches the
+    /// handler untouched; and the adapter's outbound bitcast leaves
+    /// precisely the bits the pre-wrap return face names.
+    pub(crate) fn chain_cb_repr_word(&self, pre_wrap_ty: &Type) -> i64 {
+        let mut w = self.chain_cb_ret_repr(pre_wrap_ty);
+        if let Type::Closure(sig) | Type::FnSig(sig) = pre_wrap_ty
             && matches!(self.fn_sigs[sig.0 as usize].0.first(), Some(Type::Any))
         {
             w |= crate::ssa_lower_promise_repr_mark::PARAM_ANY_FLAG;
