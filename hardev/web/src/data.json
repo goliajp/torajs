@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T05:22:56.022Z",
+  "generatedAt": "2026-08-05T08:05:10.089Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T05:21:33Z",
-    "headSha": "9617d757",
-    "elapsedSec": 395.09,
+    "ranAt": "2026-08-05T07:57:59Z",
+    "headSha": "48cd29a1",
+    "elapsedSec": 395.41,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 68.91
   },
   "torajs": {
-    "commit": "9617d757",
-    "commitSubject": "fix: a generator local holding null, a bigint, or what a global ctor answers",
+    "commit": "48cd29a1",
+    "commitSubject": "fix: an array element kept its class only until you gave it a name",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "48cd29a1",
+      "subject": "fix: an array element kept its class only until you gave it a name"
+    },
+    {
+      "hash": "09a1a86b",
+      "subject": "refactor: give the pre-chain desugar passes the same one home the chain has"
+    },
+    {
+      "hash": "2adbb512",
+      "subject": "fix: the generator receivers the factory record alone could not resolve"
+    },
+    {
+      "hash": "f3f19af7",
+      "subject": "fix: a class owning the name next stopped every generator compiling"
+    },
+    {
+      "hash": "ceb7defe",
+      "subject": "fix: a promise handler's repr word describes the handler, not its wrapper"
+    },
+    {
+      "hash": "17acf7aa",
+      "subject": "docs: rotation 305 sweep at 9617d757 — D1 11 to 9, zero test262 movement"
+    },
+    {
       "hash": "9617d757",
       "subject": "fix: a generator local holding null, a bigint, or what a global ctor answers"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "21a38d86",
       "subject": "docs: rotation 304 sweep at ca15dc13 — D1 12 to 11, one fix reverted on bench"
-    },
-    {
-      "hash": "ca15dc13",
-      "subject": "fix: a generator local holding what Promise.resolve answers"
-    },
-    {
-      "hash": "981bc448",
-      "subject": "fix: a generator local holding an arrow whose return nothing can read"
-    },
-    {
-      "hash": "3dafa0c0",
-      "subject": "fix: two same-named lets in different scopes of one generator"
-    },
-    {
-      "hash": "2b7bc404",
-      "subject": "fix: a generator local holding a class generator method's iterator"
-    },
-    {
-      "hash": "c9f51bdb",
-      "subject": "chore(hardev): dashboard snapshot at e6e616f5"
-    },
-    {
-      "hash": "9c215754",
-      "subject": "docs: rotation 303 sweep at e6e616f5 — D0 lands, D1 re-measured 20 to 12"
     }
   ],
-  "headSha": "9617d757",
+  "headSha": "48cd29a1",
   "autorun": {
-    "total": 608,
+    "total": 609,
     "baselineTarget": 10,
-    "bySelf": 603,
+    "bySelf": 604,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785899786-4e7d",
-      "at": "2026-08-05T03:16:26Z",
-      "ts": 1785899786,
+      "rotationId": "r-1785907434-53cc",
+      "at": "2026-08-05T05:23:54Z",
+      "ts": 1785907434,
       "trigger": "self",
-      "prevHead": "21a38d86",
-      "handoffSha": "sha256:37e3a3c552498291488a7ac632341b5b4bdacbac5c673d6ce4c8251d824ac4e9",
-      "handoffAgeSec": 13,
+      "prevHead": "17acf7aa",
+      "handoffSha": "sha256:9ed57244a000128a47f261d8302c9d4b889e55610753f5f3920fa53106200860",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785907434-53cc",
+        "at": "2026-08-05T05:23:54Z",
+        "ts": 1785907434,
+        "trigger": "self",
+        "prevHead": "17acf7aa",
+        "handoffSha": "sha256:9ed57244a000128a47f261d8302c9d4b889e55610753f5f3920fa53106200860",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785899786-4e7d",
         "at": "2026-08-05T03:16:26Z",
@@ -876,17 +887,6 @@
         "prevHead": "68383264",
         "handoffSha": "sha256:8f53bca2d2c8c6a8cec8ba3ca7ef292d32ad9dd5cff57f61afbc71de6d810749",
         "handoffAgeSec": 31,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785803233-446d",
-        "at": "2026-08-04T00:27:13Z",
-        "ts": 1785803233,
-        "trigger": "self",
-        "prevHead": "2e244f90",
-        "handoffSha": "sha256:644ec112531c83b0bf93f5d14640119319bd6993f111b7aeeed36daf84dd2e4e",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
