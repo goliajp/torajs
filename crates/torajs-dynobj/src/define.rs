@@ -33,10 +33,25 @@ use crate::probe::{
 };
 use crate::resize::resize;
 
+/// `torajs_rc::FLAG_NON_EXTENSIBLE` mirror — the universal heap
+/// header's bit 8, which a `Tag::Obj` cell carries and its expando
+/// dict does not.
+const OBJ_HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
+
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_value_drop_heap(child: *mut c_void);
+    // torajs-structmeta (W-J Phase A4) — the read side over the
+    // link-emitted `__torajs_class_layouts` table.
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    fn __torajs_struct_accessor_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        kind: u8,
+    ) -> u32;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
     /// torajs-arr — Array DefineOwnProperty kernel (RFC
@@ -209,12 +224,26 @@ pub(crate) unsafe fn define_apply(
             return define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal);
         }
     }
-    // Any other non-dynobj cell (typed Struct / Date / RegExp / Map /
-    // ...) — same family as the three arms above: walking a foreign
-    // layout as a dynobj header (count/cap read off arbitrary field
-    // bytes) is silent corruption. These receivers have no expando
-    // define storage yet (RFC 20260721 刀 2b backlog — mirrored by the
-    // lowering's typed-receiver no-op in ssa_lower_object_define);
+    // Class-instance receiver — an `any`-typed variable holding one
+    // reaches here rather than through the lowering's typed arm, and
+    // the two spellings have to define the same entry. Same recursion
+    // as the Closure arm: the instance's own properties live in the
+    // lazy expando dynobj at +24, so recurse with that slot and the
+    // full §10.1.6.3 validate/apply runs against the entry table.
+    //
+    // A DECLARED field is refused instead, because accepting it would
+    // put a second own property of the same name in the dict while
+    // every reader consults the layout first. Redefining a field
+    // needs per-field attribute storage the layout has no room for.
+    if htag == crate::layout::TAG_OBJ && unsafe { !struct_declares(obj, key) } {
+        return unsafe { struct_define(obj, key, tag, value, flags_byte, throw_on_refusal) };
+    }
+    // Any other non-dynobj cell (a declared struct field, typed Date /
+    // RegExp / Map / ...) — same family as the three arms above:
+    // walking a foreign layout as a dynobj header (count/cap read off
+    // arbitrary field bytes) is silent corruption. These receivers
+    // have no expando define storage yet (RFC 20260721 刀 2b backlog —
+    // mirrored by the lowering's typed-receiver no-op);
     // release the transferred [[Value]] stake and leave the cell
     // intact. The boolean flavor answers 0 — nothing was defined, and
     // false is the honest spelling (the prop_delete Tag::Obj
@@ -311,5 +340,79 @@ pub(crate) unsafe fn define_apply(
             set_count(obj, count(obj) + 1);
         }
         1
+    }
+}
+
+/// The class-instance arm of [`define_apply`], lifted out so that fn
+/// stays inside the 200-line bar.
+///
+/// Same recursion as the Closure receiver: the instance's own
+/// properties live in the lazy expando dynobj at `+24`, so the full
+/// §10.1.6.3 validate/apply runs against that entry table. What the
+/// Closure arm does not need is the extensibility read below.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer whose key is known not to
+/// name a declared field; `key` is a live key cell. Same [[Value]]
+/// stake contract as [`define_apply`].
+unsafe fn struct_define(
+    obj: *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    let props_slot =
+        unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
+    unsafe {
+        // §10.1.6.3 step 2 — a non-extensible object refuses a key it
+        // does not already carry. The flag sits on the STRUCT header,
+        // not on the dict the recursion targets, so it has to be read
+        // before descending.
+        if (obj.cast::<u8>().add(6) as *const u16).read() & OBJ_HDR_FLAG_NON_EXTENSIBLE != 0
+            && ((*props_slot).is_null() || !probe(*props_slot, key as *const c_void).found)
+        {
+            return refuse(
+                throw_on_refusal,
+                c"Attempting to define property on object that is not extensible.".as_ptr()
+                    as *const u8,
+                flags_byte & DEFINE_PRESENT_VALUE != 0,
+                tag,
+                value,
+            );
+        }
+        if (*props_slot).is_null() {
+            *props_slot = crate::alloc::__torajs_dynobj_alloc();
+        }
+        define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal)
+    }
+}
+
+/// Does the class instance `obj` DECLARE `key` — as a data field or
+/// as an accessor member? Read off the toolchain-emitted layout
+/// metadata, the same table every struct reflection surface consults.
+///
+/// A NULL layout row (anonymous struct interned too late) declares
+/// nothing, which is the honest answer: such a cell carries only
+/// expandos.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer; `key` is a live key cell.
+unsafe fn struct_declares(obj: *const c_void, key: *const c_void) -> bool {
+    let Some((data, len)) = (unsafe { key_str_bytes(key) }) else {
+        // A symbol key names no declared field by construction.
+        return false;
+    };
+    let class_tag = unsafe { (obj.cast::<u8>().add(8) as *const u32).read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return false;
+    }
+    let len = len as u32;
+    unsafe {
+        __torajs_struct_field_find(layout, data, len) != u32::MAX
+            || __torajs_struct_accessor_find(layout, data, len, 0) != u32::MAX
+            || __torajs_struct_accessor_find(layout, data, len, 1) != u32::MAX
     }
 }

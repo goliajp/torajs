@@ -100,9 +100,19 @@ pub(super) fn emit_define_literal(
         );
         return true;
     }
-    // Non-Any/non-Arr obj (typed Struct / Date / RegExp / Error) —
-    // no expando define storage yet (RFC 20260721 刀 2b backlog).
-    // Handled (no-op).
+    // A class instance DECLINES rather than claiming a no-op: the
+    // objlit-runtime road defines into its `+24` expando dict, and
+    // sending every struct spelling down that one road is what keeps
+    // them agreeing. It costs a descriptor materialization the
+    // compile-time flag extraction would have saved — worth it while
+    // there is one writer; a struct-aware fast path can come back
+    // once the read side stops being the only thing that has one.
+    if matches!(obj_ty, Type::Obj(_)) {
+        return false;
+    }
+    // Non-Any/non-Arr obj (typed Date / RegExp / Error) — no expando
+    // define storage yet (RFC 20260721 刀 2b backlog). Handled
+    // (no-op).
     if !matches!(obj_ty, Type::Any) {
         return true;
     }

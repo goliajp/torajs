@@ -480,6 +480,7 @@ pub(crate) mod ssa_lower_number_coerce;
 pub mod ssa_lower_obj_escape;
 pub(crate) mod ssa_lower_object_define;
 pub(crate) mod ssa_lower_object_define_properties;
+pub(crate) mod ssa_lower_object_define_runtime;
 pub(crate) mod ssa_lower_object_lit;
 pub(crate) mod ssa_lower_objlit_layout;
 pub(crate) mod ssa_lower_optcall;

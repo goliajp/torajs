@@ -242,8 +242,11 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
             ctx.emit_arr_mark_kind(&obj_op);
             obj_op.clone()
         }
-        Type::Closure(_) | Type::FnSig(_) => obj_op.clone(),
-        // Typed Struct / Date / RegExp / ... — no expando define
+        // A class instance rides the same kernel dispatch as the
+        // Closure receiver: §10.1.6 into its `+24` expando dict, with
+        // a declared field refused there rather than shadowed here.
+        Type::Closure(_) | Type::FnSig(_) | Type::Obj(_) => obj_op.clone(),
+        // Typed Date / RegExp / ... — no expando define
         // storage yet (RFC 20260721 刀 2b backlog; mirrors the Object
         // flavor's no-op). Nothing gets defined, and `false` is the
         // honest spelling (the prop_delete Tag::Obj precedent; the
