@@ -74,7 +74,7 @@ pub use registry::{
     NativeErrorFactory, SLOT_AGGREGATE_ERROR, SLOT_ERROR, SLOT_RANGE_ERROR, SLOT_REFERENCE_ERROR,
     SLOT_SYNTAX_ERROR, SLOT_TYPE_ERROR,
 };
-use registry::{SLOT_COUNT, lookup_factory};
+use registry::{ANY_VALUE_UNDEFINED, SLOT_COUNT, lookup_factory};
 
 // ============================================================
 // External Str helpers (still in C; Layer-2 `torajs-str` rewrite
@@ -244,7 +244,7 @@ unsafe fn throw_native_str(slot: i64, err: *mut u8) {
             // SAFETY: factory is a valid NativeErrorFactory per the
             // safety contract of __torajs_register_native_error;
             // err is a valid freshly-allocated Str.
-            let inst = unsafe { factory(err as *mut c_void) };
+            let inst = unsafe { factory(err as *mut c_void, ANY_VALUE_UNDEFINED) };
             // The factory is a codegen'd TS-level `__new_<C>` fn:
             // its `message` param follows the standard borrow
             // convention and the ctor's `this.message = message`

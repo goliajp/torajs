@@ -40,18 +40,44 @@ pub const SLOT_SYNTAX_ERROR: usize = 4;
 pub const SLOT_AGGREGATE_ERROR: usize = 5;
 pub(crate) const SLOT_COUNT: usize = 6;
 
+/// `undefined` in AnyValue NaN-box form (`torajs_anyvalue::nanbox::
+/// VALUE_UNDEFINED` = `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED`).
+/// Mirrored rather than imported — torajs-throw is Layer-1 and keeps
+/// no upstream crate deps, the same convention as the crate's
+/// `ANY_TAG_HEAP`.
+///
+/// This is what the runtime passes for the ctors' §20.5.8.1 `options`
+/// param: a native throw supplies no options bag, and `undefined` is
+/// exactly what the TS-level default would have bound.
+pub(crate) const ANY_VALUE_UNDEFINED: i64 = 0x0A;
+
 /// Factory fn-ptr type: takes a `*mut Str` (borrowed — the codegen'd
 /// TS-level `__new_<C>` fn's ctor field store retains its own
-/// reference) and returns a fresh Error-subclass instance with
-/// `.message` filled in. The caller keeps its own stake on the Str
-/// and must release it after the call.
-pub type NativeErrorFactory = unsafe extern "C" fn(message_str: *mut c_void) -> *mut c_void;
+/// reference) plus the §20.5.8.1 `options` param in NaN-box form, and
+/// returns a fresh Error-subclass instance with `.message` filled in.
+/// The caller keeps its own stake on the Str and must release it
+/// after the call.
+///
+/// **This signature is pinned to the synthesized ctor's parameter
+/// list** (`ast::inject_builtin_classes`): codegen emits `__new_<C>`
+/// straight from it, so adding or removing a ctor param here without
+/// changing that list — or the reverse — leaves the runtime calling
+/// with the wrong arity. The second register then holds whatever was
+/// left in it, and *every* runtime-thrown TypeError / RangeError is
+/// built from garbage while the compiler stays silent. Measured: 99
+/// conformance fixtures red, nearly all reading `threw: true` →
+/// `threw: false`.
+pub type NativeErrorFactory =
+    unsafe extern "C" fn(message_str: *mut c_void, options: i64) -> *mut c_void;
 
-/// §20.5.7's factory shape — `__new_AggregateError(errors, message)`.
-/// The first param is the class's own `any` field, so it arrives as
-/// NaN-box bits rather than a pointer.
+/// §20.5.7's factory shape — `__new_AggregateError(errors, message,
+/// options)`. The first param is the class's own `any` field, so it
+/// arrives as NaN-box bits rather than a pointer; `options` is the
+/// same §20.5.8.1 tail every Error ctor carries. Pinned to the
+/// synthesized ctor's parameter list exactly as
+/// [`NativeErrorFactory`] is.
 pub type AggregateErrorFactory =
-    unsafe extern "C" fn(errors: i64, message_str: *mut c_void) -> *mut c_void;
+    unsafe extern "C" fn(errors: i64, message_str: *mut c_void, options: i64) -> *mut c_void;
 
 /// 3-slot registry. `AtomicPtr<()>` rather than `*mut c_void`
 /// because raw pointers aren't `Sync`. Each slot is a fn-ptr
@@ -72,9 +98,9 @@ static REGISTRY: [AtomicPtr<()>; SLOT_COUNT] = [
 /// builtin Error-family class (`Error` / `TypeError` / `RangeError`)
 /// emitted by `inject_builtin_classes`.
 ///
-/// `fnptr` is a raw fn-ptr to the codegen'd `__new_<C>(message)`
-/// factory; out-of-range slots are silently ignored (defensive —
-/// codegen always emits valid slots).
+/// `fnptr` is a raw fn-ptr to the codegen'd
+/// `__new_<C>(message, options)` factory; out-of-range slots are
+/// silently ignored (defensive — codegen always emits valid slots).
 ///
 /// # Safety
 ///
@@ -147,7 +173,13 @@ pub unsafe extern "C" fn __torajs_make_aggregate_error(errors: i64) -> *mut c_vo
     };
     // SAFETY: the factory is the codegen'd `__new_AggregateError`;
     // the sentinel address is immortal read-only rodata.
-    unsafe { factory(errors, __torajs_str_undef() as *mut c_void) }
+    unsafe {
+        factory(
+            errors,
+            __torajs_str_undef() as *mut c_void,
+            ANY_VALUE_UNDEFINED,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -192,7 +224,7 @@ mod tests {
     fn lookup_factory_after_register_returns_some() {
         // Register a sentinel fn-ptr in SLOT_RANGE_ERROR (we use
         // it explicitly below; ok to leave installed).
-        unsafe extern "C" fn sentinel_factory(_msg: *mut c_void) -> *mut c_void {
+        unsafe extern "C" fn sentinel_factory(_msg: *mut c_void, _opts: i64) -> *mut c_void {
             0xCAFEF00D as *mut c_void
         }
         let fnptr = sentinel_factory as *mut c_void;

@@ -12,13 +12,13 @@ use torajs_throw::{
 };
 
 // Three distinct marker fns so we can verify slot independence.
-unsafe extern "C" fn factory_error(_msg: *mut c_void) -> *mut c_void {
+unsafe extern "C" fn factory_error(_msg: *mut c_void, _opts: i64) -> *mut c_void {
     0x1111_1111 as *mut c_void
 }
-unsafe extern "C" fn factory_type(_msg: *mut c_void) -> *mut c_void {
+unsafe extern "C" fn factory_type(_msg: *mut c_void, _opts: i64) -> *mut c_void {
     0x2222_2222 as *mut c_void
 }
-unsafe extern "C" fn factory_range(_msg: *mut c_void) -> *mut c_void {
+unsafe extern "C" fn factory_range(_msg: *mut c_void, _opts: i64) -> *mut c_void {
     0x3333_3333 as *mut c_void
 }
 
