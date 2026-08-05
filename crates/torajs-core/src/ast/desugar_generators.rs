@@ -23,7 +23,7 @@
 //!   * `desugar_generators_class::assemble_generator_class_and_factory`
 //!     — final ClassDecl + `__new_<name>` factory splice.
 
-use super::{Ast, ClassCtor, Expr, Param, Stmt, default_init_for_type};
+use super::{Ast, ClassCtor, ClassMethod, Expr, Param, Stmt, default_init_for_type};
 
 /// M5.1 — desugar `class C { ... }` into `type C = {...}` + a series of
 /// top-level `function` declarations (ctor / methods / `__new_C` factory).
@@ -94,6 +94,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         return;
     }
 
+    let fn_sigs = collect_declared_fn_return_types(ast);
     let mut appended: Vec<Stmt> = Vec::new();
     for (idx, gen_name, gen_params, gen_ret, gen_body) in gen_indices {
         desugar_one_generator(
@@ -103,10 +104,34 @@ pub fn desugar_generators(ast: &mut Ast) {
             gen_params,
             gen_ret,
             gen_body,
+            &fn_sigs,
             &mut appended,
         );
     }
     ast.stmts.extend(appended);
+}
+
+/// Every top-level function's *declared* return type, keyed by name —
+/// the `fn_sigs` map D0's let-lift consults when a generator local is
+/// initialized by a call.
+///
+/// Declared, not inferred: this pass runs well before
+/// `desugar_implicit_generics`, so an inferred signature does not
+/// exist yet. A call to a function that never wrote its return type
+/// is simply absent from the map, and the lift falls back exactly as
+/// it did before.
+fn collect_declared_fn_return_types(ast: &Ast) -> std::collections::HashMap<String, String> {
+    ast.stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl {
+                name,
+                return_type: Some(rt),
+                ..
+            } => Some((name.clone(), rt.clone())),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Snapshot every top-level `function*` decl's index + signature +
@@ -151,6 +176,7 @@ fn desugar_one_generator(
     mut gen_params: Vec<Param>,
     gen_ret: Option<String>,
     mut gen_body: Vec<Stmt>,
+    fn_sigs: &std::collections::HashMap<String, String>,
     appended: &mut Vec<Stmt>,
 ) {
     // Un-annotated generator params flow through the Any-tier.
@@ -220,6 +246,7 @@ fn desugar_one_generator(
         &gen_name,
         &rewrite_params,
         &yield_ty,
+        fn_sigs,
     );
 
     // Class name + struct return type for next().
@@ -276,43 +303,15 @@ fn desugar_one_generator(
             })
         })],
     };
-    // J.4 — next() takes an optional `__yield_arg: <yield_ty> = 0`
-    // parameter and stashes it in `this.__sent` before re-entering
-    // the state machine. YieldInto-expanded `let v = this.__sent`
-    // sites read that field to receive the value passed to
-    // `g.next(arg)`. First call's arg is ignored per JS spec; tr's
-    // typed-default uses zero/empty depending on yield type.
-    // NOT default_init_for_type(&yield_ty): apply_default_args
-    // groups method defaults by NAME ("next"), so every __Gen
-    // class's __yield_arg default must stay shape-uniform — the
-    // first-seen class's default ExprId pads every `it.next()`
-    // call site. An any-lane `undefined` default here would leak
-    // into a number-lane next() (gate-caught: "argument 0:
-    // expected Number, got Undefined"). The first call's arg is
-    // ignored per spec, so the numeric zero is only ever a
-    // placeholder.
-    let yield_arg_default = if yield_ty == "any" {
-        Expr::Number(0.0)
-    } else {
-        default_init_for_type(&yield_ty)
-    };
-    let yield_arg_default_id = ast.add_expr(yield_arg_default);
-    let next_method = crate::ast::desugar_generators_methods::build_next_method(
+    let (next_method, return_method, throw_method) = build_iterator_method_trio(
         ast,
-        yield_arg_default_id,
         &yield_ty,
         &step_ann,
         next_body,
-    );
-    let return_method = crate::ast::desugar_generators_methods::build_return_method(
-        ast,
-        &yield_ty,
-        &step_ann,
+        has_try_regions,
         has_finally_ret,
         is_async_gen,
     );
-    let throw_method =
-        crate::ast::desugar_generators_methods::build_throw_method(ast, &step_ann, has_try_regions);
     // For Phase J MVP, generator parameters are stored as fields on
     // the iterator object so the body can reference them through
     // `this.<name>`. The fields are auto-prepended to the class
@@ -351,6 +350,60 @@ fn desugar_one_generator(
         captures_arguments,
         appended,
     );
+}
+
+/// The `next()` / `return()` / `throw()` trio every `__Gen_*` class
+/// carries, built together because they share the step-record
+/// annotation and the yield type.
+///
+/// J.4 — `next()` takes an optional `__yield_arg: <yield_ty> = 0`
+/// parameter and stashes it in `this.__sent` before re-entering the
+/// state machine. YieldInto-expanded `let v = this.__sent` sites read
+/// that field to receive the value passed to `g.next(arg)`. The first
+/// call's arg is ignored per JS spec; tr's typed default uses
+/// zero/empty depending on the yield type.
+///
+/// The default is NOT `default_init_for_type(&yield_ty)` for the any
+/// lane: `apply_default_args` groups method defaults by NAME
+/// ("next"), so every `__Gen` class's `__yield_arg` default must stay
+/// shape-uniform — the first-seen class's default ExprId pads every
+/// `it.next()` call site. An any-lane `undefined` default here leaked
+/// into a number-lane `next()` (gate-caught: "argument 0: expected
+/// Number, got Undefined"). Since the first call's arg is ignored per
+/// spec, the numeric zero is only ever a placeholder.
+#[allow(clippy::too_many_arguments)]
+fn build_iterator_method_trio(
+    ast: &mut Ast,
+    yield_ty: &str,
+    step_ann: &str,
+    next_body: Vec<Stmt>,
+    has_try_regions: bool,
+    has_finally_ret: bool,
+    is_async_gen: bool,
+) -> (ClassMethod, ClassMethod, ClassMethod) {
+    let yield_arg_default = if yield_ty == "any" {
+        Expr::Number(0.0)
+    } else {
+        default_init_for_type(yield_ty)
+    };
+    let yield_arg_default_id = ast.add_expr(yield_arg_default);
+    let next_method = crate::ast::desugar_generators_methods::build_next_method(
+        ast,
+        yield_arg_default_id,
+        yield_ty,
+        step_ann,
+        next_body,
+    );
+    let return_method = crate::ast::desugar_generators_methods::build_return_method(
+        ast,
+        yield_ty,
+        step_ann,
+        has_finally_ret,
+        is_async_gen,
+    );
+    let throw_method =
+        crate::ast::desugar_generators_methods::build_throw_method(ast, step_ann, has_try_regions);
+    (next_method, return_method, throw_method)
 }
 
 /// RFC 20260801-arguments-method-face knife 2a — true when a

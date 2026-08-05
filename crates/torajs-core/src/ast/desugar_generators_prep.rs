@@ -23,6 +23,7 @@
 //! Returns `(prepared_body, lifted_locals)` so the caller can pass
 //! both into the class-assembly step.
 
+use super::desugar_generators_walkers::LiftCtx;
 use super::{Ast, Param, Stmt, expand_yield_into_in_stmt, lift_lets_in_stmt};
 
 pub(super) fn prep_generator_body(
@@ -31,6 +32,7 @@ pub(super) fn prep_generator_body(
     gen_name: &str,
     gen_params: &[Param],
     yield_ty: &str,
+    fn_sigs: &std::collections::HashMap<String, String>,
 ) -> (Vec<Stmt>, Vec<(String, String)>) {
     // F1 (RFC 20260728-gen-forof-yieldstar) — pass 0: rewrite every
     // yield-bearing `for…of` into the manual iterator protocol
@@ -50,8 +52,17 @@ pub(super) fn prep_generator_body(
     // Multi just fine.
 
     let mut lifted_locals: Vec<(String, String)> = Vec::new();
+    // D0 — the lift asks each initializer what the local is (see
+    // `LiftCtx`). The generator's own params seed the lookup; each
+    // lifted local joins `binds` as it lands, so a local reading an
+    // earlier one resolves.
+    let mut lift_ctx = LiftCtx {
+        params: gen_params,
+        fn_sigs,
+        binds: std::collections::HashMap::new(),
+    };
     for s in &mut gen_body {
-        lift_lets_in_stmt(ast, s, &mut lifted_locals);
+        lift_lets_in_stmt(ast, s, &mut lifted_locals, &mut lift_ctx);
     }
     for i in 0..lifted_locals.len() {
         for j in (i + 1)..lifted_locals.len() {

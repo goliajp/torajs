@@ -7,7 +7,27 @@
 //! (`super::{expand_yield_into_in_stmt, lift_lets_in_stmt}`) keeps
 //! resolving.
 
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Expr, Param, Stmt};
+
+/// What the let-lift knows about the generator it is lifting out of,
+/// so an unannotated local can be typed by what its initializer says
+/// rather than by a constant guessed before anything is read.
+///
+/// RFC 20260805-async-fn-state-machine D0. `params` are the
+/// generator's own parameters (annotated by
+/// `desugar_one_generator` before the prep runs, so every one of
+/// them answers); `binds` accumulates the locals already lifted in
+/// this body, which is what lets `const b = a + 1` follow `const a
+/// = 1`; `fn_sigs` maps a top-level function's name to its declared
+/// return type. The pass runs before `desugar_implicit_generics`, so
+/// only annotations the source actually wrote are available — an
+/// inferred one would not exist yet, and guessing at one here would
+/// be a second inference disagreeing with the checker's.
+pub(crate) struct LiftCtx<'a> {
+    pub(crate) params: &'a [Param],
+    pub(crate) fn_sigs: &'a std::collections::HashMap<String, String>,
+    pub(crate) binds: std::collections::HashMap<String, String>,
+}
 
 /// J.4 — recursively expand every `Stmt::YieldInto { var, type_ann,
 /// value }` in `s` into the pair `[Stmt::Yield(value);
@@ -99,7 +119,12 @@ pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &
 /// in `lifted`. Used by `desugar_generators` so locals declared in
 /// for-init / if-branches / while-bodies survive yield boundaries
 /// the same way top-level lets do.
-pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, String)>) {
+pub(crate) fn lift_lets_in_stmt(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    lifted: &mut Vec<(String, String)>,
+    ctx: &mut LiftCtx,
+) {
     match s {
         Stmt::LetDecl {
             name,
@@ -150,9 +175,30 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
                     // number fallback — it really is the counter.
                     "any".into()
                 } else {
-                    "number".into()
+                    // D0 (RFC 20260805-async-fn-state-machine) — ask
+                    // the initializer. `number` was right for the loop
+                    // counters a hand-written generator lifts and
+                    // wrong for everything else a body can hold: a
+                    // `function*` with `const xs = [1, 2]` in it does
+                    // not compile today ("field is Number, value is
+                    // Array(Number)"). The carve-outs above outrank
+                    // this — each is a deliberate `any` for a slot
+                    // whose value the syntax cannot see (a resumption
+                    // temp, an `arguments` alias) — and `number`
+                    // stays as what is left when the sniff declines,
+                    // so every shape it cannot read keeps today's
+                    // behaviour.
+                    super::infer_expr_ann_with(
+                        &ast.exprs,
+                        *init,
+                        ctx.params,
+                        &ctx.binds,
+                        ctx.fn_sigs,
+                    )
+                    .unwrap_or_else(|| "number".into())
                 }
             });
+            ctx.binds.insert(n.clone(), t.clone());
             lifted.push((n.clone(), t));
             let this_id = ast.add_expr(Expr::This);
             let m = ast.add_expr(Expr::Member {
@@ -170,26 +216,26 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
             else_branch,
             ..
         } => {
-            lift_lets_in_stmt(ast, then_branch, lifted);
+            lift_lets_in_stmt(ast, then_branch, lifted, ctx);
             if let Some(eb) = else_branch.as_deref_mut() {
-                lift_lets_in_stmt(ast, eb, lifted);
+                lift_lets_in_stmt(ast, eb, lifted, ctx);
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            lift_lets_in_stmt(ast, body, lifted);
+            lift_lets_in_stmt(ast, body, lifted, ctx);
         }
         Stmt::Labeled { body, .. } => {
-            lift_lets_in_stmt(ast, body, lifted);
+            lift_lets_in_stmt(ast, body, lifted, ctx);
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init.as_deref_mut() {
-                lift_lets_in_stmt(ast, i, lifted);
+                lift_lets_in_stmt(ast, i, lifted, ctx);
             }
-            lift_lets_in_stmt(ast, body, lifted);
+            lift_lets_in_stmt(ast, body, lifted, ctx);
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for s in stmts {
-                lift_lets_in_stmt(ast, s, lifted);
+                lift_lets_in_stmt(ast, s, lifted, ctx);
             }
         }
         // RFC 20260802 — a yield-bearing try gets region-lowered, so
@@ -209,11 +255,11 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
                 .any(super::desugar_generators_sm_rewrite::stmt_contains_yield);
             if has_yield {
                 for s in body.iter_mut().chain(catch_body.iter_mut()) {
-                    lift_lets_in_stmt(ast, s, lifted);
+                    lift_lets_in_stmt(ast, s, lifted, ctx);
                 }
                 if let Some(fs) = finally_body {
                     for s in fs {
-                        lift_lets_in_stmt(ast, s, lifted);
+                        lift_lets_in_stmt(ast, s, lifted, ctx);
                     }
                 }
             }
