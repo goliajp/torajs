@@ -188,7 +188,7 @@ pub(crate) unsafe fn own_prop_probe(
     let hit = if mid == ANY_METHOD_HAS_OWN_PROPERTY {
         unsafe { crate::prop_has::__torajs_any_prop_has(recv, key) }
     } else {
-        unsafe { crate::prop_has::__torajs_any_prop_enumerable(recv, key) }
+        unsafe { crate::prop_enumerable::__torajs_any_prop_enumerable(recv, key) }
     };
     if sym_key.is_none() {
         unsafe { __torajs_str_drop(key as *mut c_void) };

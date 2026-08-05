@@ -176,6 +176,7 @@ mod name_get;
 mod promise_subclass;
 mod promise_with_resolvers;
 mod prop_delete;
+mod prop_enumerable;
 mod prop_has;
 mod prop_has_proto;
 mod reflect_apply;

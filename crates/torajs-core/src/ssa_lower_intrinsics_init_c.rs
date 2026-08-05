@@ -21,6 +21,7 @@ use std::collections::HashMap;
 pub(crate) struct InitC {
     pub any_substrate: crate::ssa_lower_intrinsics_any_substrate::AnySubstrateIds,
     pub error_slots: crate::ssa_lower_intrinsics_error_slots::ErrorSlotIds,
+    pub struct_expando: crate::ssa_lower_intrinsics_struct_expando::StructExpandoIds,
     pub subclass: crate::ssa_lower_intrinsics_subclass::ExoticSubclassIds,
     pub class_computed: crate::ssa_lower_intrinsics_class_computed::ClassComputedIds,
     pub private: crate::ssa_lower_intrinsics_private::PrivateIds,
@@ -36,6 +37,7 @@ pub(crate) struct InitC {
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> InitC {
     let any_substrate = crate::ssa_lower_intrinsics_any_substrate::declare(module, fn_table);
     let error_slots = crate::ssa_lower_intrinsics_error_slots::declare(module, fn_table);
+    let struct_expando = crate::ssa_lower_intrinsics_struct_expando::declare(module, fn_table);
     let subclass = crate::ssa_lower_intrinsics_subclass::declare(module, fn_table);
     let class_computed = crate::ssa_lower_intrinsics_class_computed::declare(module, fn_table);
     let private = crate::ssa_lower_intrinsics_private::declare(module, fn_table);
@@ -55,6 +57,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     InitC {
         any_substrate,
         error_slots,
+        struct_expando,
         subclass,
         class_computed,
         private,

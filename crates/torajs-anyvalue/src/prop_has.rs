@@ -66,10 +66,10 @@ unsafe extern "C" {
 /// props-dynobj slot at +24 (`torajs_arr::layout::ARR_PROPS_OFF`);
 /// Closure props-dynobj slot at +24.
 const OBJ_CLASS_TAG_OFF: usize = 8;
-const STR_LEN_OFF: usize = 8;
+pub(crate) const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
-const ARR_LEN_OFF: usize = 8;
-const ARR_PROPS_OFF: usize = 24;
+pub(crate) const ARR_LEN_OFF: usize = 8;
+pub(crate) const ARR_PROPS_OFF: usize = 24;
 /// `arr_index_flags` result bit 3 — the index was deleted (hole;
 /// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
 pub(crate) const ARR_F_HOLE: u64 = 1 << 3;
@@ -115,7 +115,7 @@ pub(crate) unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
-unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i64 {
+pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i64 {
     // Blade 2 — an expando entry is an own property; probed first so
     // an anonymous struct without a layout row (NULL lookup below)
     // still answers its expandos.
@@ -390,110 +390,5 @@ pub unsafe extern "C" fn __torajs_str_prop_has(s: *const c_void, key: *const c_v
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_prop_enumerable(s: *const c_void, key: *const c_void) -> i64 {
     let len = unsafe { s.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
-    unsafe { str_index_enumerable(len, key) }
-}
-
-/// `Object.prototype.propertyIsEnumerable` substrate (chunk D-1,
-/// RFC 20260711): own AND enumerable. Mirrors
-/// [`__torajs_any_prop_has`]'s dispatch with the enumerable-flag
-/// filter applied where flags exist:
-///
-/// - DynObj / expando entries → packed-flags bit 1 (absent key
-///   answers 0 flags — the miss and the non-enumerable case
-///   coincide, matching §20.1.4.5).
-/// - Arr / Str index keys and struct fields → enumerable when
-///   present (tr data slots carry no non-enumerable state).
-/// - `length` / `name` virtual props → 0 (spec non-enumerable).
-/// - primitives → 0; null / undefined → catchable TypeError.
-///
-/// # Safety
-/// Cell receivers are valid heap pointers; `key` is a live Str cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *const c_void) -> i64 {
-    if is_null(recv) || is_undefined(recv) {
-        unsafe {
-            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
-        }
-        return 0;
-    }
-    if is_short_str(recv) {
-        let len = (recv >> 40) & 0xFF;
-        return unsafe { str_index_enumerable(len, key) };
-    }
-    match recv_cell(recv) {
-        Some((ptr, t)) if t == Tag::DynObj as u16 => {
-            ((unsafe { __torajs_dynobj_get_flags(ptr, key) } & 0x2) != 0) as i64
-        }
-        Some((ptr, t)) if t == Tag::Arr as u16 => {
-            let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
-            if let Some(i) = unsafe { canonical_index(key) }
-                && i < len
-            {
-                // RFC 20260712-arr-exotic-define chunk C — a
-                // defineProperty'd index carries shadow flags.
-                return ((unsafe { __torajs_arr_index_flags(ptr, i) } & 0x2) != 0) as i64;
-            }
-            let props = unsafe {
-                ptr.cast::<u8>()
-                    .add(ARR_PROPS_OFF)
-                    .cast::<*const c_void>()
-                    .read()
-            };
-            if props.is_null() {
-                0
-            } else {
-                ((unsafe { __torajs_dynobj_get_flags(props, key) } & 0x2) != 0) as i64
-            }
-        }
-        Some((ptr, t)) if t == Tag::Closure as u16 => {
-            let props = unsafe { closure_props(ptr) };
-            if props.is_null() {
-                0
-            } else {
-                ((unsafe { __torajs_dynobj_get_flags(props, key) } & 0x2) != 0) as i64
-            }
-        }
-        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
-            // §20.5.6.1.1 msgDesc / the `stack` header line are both
-            // `[[Enumerable]]: false`; every other struct field keeps
-            // the ordinary all-true attributes.
-            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR)
-                && (key_is(key, b"message") || key_is(key, b"stack"))
-            {
-                0
-            } else {
-                struct_has_own(ptr, key)
-            }
-        },
-        Some((ptr, t)) if t == Tag::Str as u16 => {
-            let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
-            unsafe { str_index_enumerable(len, key) }
-        }
-        // RFC 20260716 刀 20 — StringWrapper receiver mirror of
-        // the刀 13 `__torajs_any_prop_has` arm above. `length` is
-        // spec non-enumerable per §22.1.5.1; canonical indices
-        // `[0, [[StringData]].length)` are enumerable. View-through
-        // the inner Str cell to read the code-unit count.
-        Some((ptr, t)) if t == Tag::StringWrapper as u16 => {
-            let inner_ptr = unsafe { (ptr.cast::<u8>().add(8) as *const *const c_void).read() };
-            let len = if inner_ptr.is_null() {
-                0
-            } else {
-                unsafe { inner_ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64 }
-            };
-            unsafe { str_index_enumerable(len, key) }
-        }
-        _ => 0,
-    }
-}
-
-/// Str-receiver enumerable arm: index chars are enumerable,
-/// `length` is not (§22.1.5.1).
-unsafe fn str_index_enumerable(len: u64, key: *const c_void) -> i64 {
-    if let Some(i) = unsafe { canonical_index(key) }
-        && i < len
-    {
-        return 1;
-    }
-    0
+    unsafe { crate::prop_enumerable::str_index_enumerable(len, key) }
 }
