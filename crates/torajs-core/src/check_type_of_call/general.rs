@@ -256,7 +256,16 @@ fn arg_admitted(
     // S133 callback Function subtype carve-out extracted
     // to [`crate::check_type_of_call_callback_subtype`]
     // (chunk 307).
-    if crate::check_type_of_call_callback_subtype::matches(param_ty, arg_ty) {
+    // The resolving flavor: this site has the class tables, and a
+    // `ClassRef` inside the callback's parameter list is below the
+    // reach of the top-level resolve above.
+    if crate::check_type_of_call_callback_subtype::matches_resolved(
+        param_ty,
+        arg_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    ) {
         return true;
     }
     // RFC 20260707 chunk 626 — T-11 container widen at the call

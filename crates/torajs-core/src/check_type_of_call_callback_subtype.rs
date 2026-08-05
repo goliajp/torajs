@@ -25,7 +25,66 @@
 //! Pure: no mutation, no side effects. Returns `true` iff
 //! the subtype carve-out applies.
 
-use crate::check::Type;
+use crate::check::{GenericAliasMap, Type};
+
+/// [`matches`], but resolving one level of `ClassRef` inside the two
+/// signatures first.
+///
+/// [`crate::check_type_of_call::general::arg_admitted`] resolves the
+/// argument and parameter types before comparing them — "two
+/// DIFFERENT class names still compare structurally, which is what TS
+/// assignability is". That resolve is **top-level only**, and a
+/// `ClassRef` sitting in a callback's parameter list is not top-level,
+/// so it never reached it:
+///
+/// ```ts
+/// class Box { v: number; constructor(v: number) { this.v = v; } }
+/// const bs = [new Box(1), new Box(2)];
+/// bs.filter(b => b.v > 1);
+/// ```
+///
+/// The array's element type arrives already resolved
+/// (`Struct([("v", Number)])`) while the arrow's inferred parameter
+/// stays `ClassRef("Box")`, so `a == f` compared a name against a
+/// shape and answered false — a compile error on a program every
+/// engine runs. It reached `filter` / `find` / `findLast` /
+/// `findIndex` / `findLastIndex` / `some` / `every` / `forEach`;
+/// `map` escaped only because its result type takes a different
+/// route.
+///
+/// Resolution stays **one level deep**, matching
+/// `resolve_class_ref`'s own contract: it deliberately leaves
+/// `ClassRef` nodes embedded in struct and array fields alone,
+/// because a fully-resolved self-referential class would expand
+/// forever. This walks the two parameter lists and the two return
+/// slots, nothing further down.
+pub(crate) fn matches_resolved(
+    param_ty: &Type,
+    arg_ty: &Type,
+    class_structs: &std::collections::HashMap<String, Type>,
+    aliases: &std::collections::HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> bool {
+    let resolve_sig = |t: &Type| -> Type {
+        let Type::Function(ps, ret) = t else {
+            return t.clone();
+        };
+        let one =
+            |x: &Type| crate::check::resolve_class_ref(x, class_structs, aliases, generic_aliases);
+        Type::Function(
+            ps.iter()
+                .map(|p| match p {
+                    // Keep the Rest sentinel intact — the variadic arm
+                    // pattern-matches on it — and resolve its element.
+                    Type::Rest(elem) => Type::Rest(Box::new(one(elem))),
+                    other => one(other),
+                })
+                .collect(),
+            Box::new(one(ret)),
+        )
+    };
+    matches(&resolve_sig(param_ty), &resolve_sig(arg_ty))
+}
 
 pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
     match (param_ty, arg_ty) {
