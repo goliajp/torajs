@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T01:38:17.771Z",
+  "generatedAt": "2026-08-05T03:15:51.901Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T01:32:30Z",
-    "headSha": "e6e616f5",
-    "elapsedSec": 390.1,
+    "ranAt": "2026-08-05T03:14:36Z",
+    "headSha": "ca15dc13",
+    "elapsedSec": 400.01,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 68.91
   },
   "torajs": {
-    "commit": "9c215754",
-    "commitSubject": "docs: rotation 303 sweep at e6e616f5 — D0 lands, D1 re-measured 20 to 12",
+    "commit": "ca15dc13",
+    "commitSubject": "fix: a generator local holding what Promise.resolve answers",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "ca15dc13",
+      "subject": "fix: a generator local holding what Promise.resolve answers"
+    },
+    {
+      "hash": "981bc448",
+      "subject": "fix: a generator local holding an arrow whose return nothing can read"
+    },
+    {
+      "hash": "3dafa0c0",
+      "subject": "fix: two same-named lets in different scopes of one generator"
+    },
+    {
+      "hash": "2b7bc404",
+      "subject": "fix: a generator local holding a class generator method's iterator"
+    },
+    {
+      "hash": "c9f51bdb",
+      "subject": "chore(hardev): dashboard snapshot at e6e616f5"
+    },
+    {
       "hash": "9c215754",
       "subject": "docs: rotation 303 sweep at e6e616f5 — D0 lands, D1 re-measured 20 to 12"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "5ee3a546",
       "subject": "fix: a lifted nested function's rename reaches the arrows that call it"
-    },
-    {
-      "hash": "c56e4f1a",
-      "subject": "fix: the cycle collector no longer dereferences a nan-box immediate"
-    },
-    {
-      "hash": "58622df1",
-      "subject": "Revert \"feat: an async function suspends at its first await\""
-    },
-    {
-      "hash": "3b68b95c",
-      "subject": "feat: an async function suspends at its first await"
-    },
-    {
-      "hash": "8377b549",
-      "subject": "chore(hardev): rotation 301 sweep at 4b3c3ee5, dashboard snapshot"
-    },
-    {
-      "hash": "4b3c3ee5",
-      "subject": "fix: an owned temp handed to an any-call is released after it"
     }
   ],
-  "headSha": "9c215754",
+  "headSha": "ca15dc13",
   "autorun": {
-    "total": 606,
+    "total": 607,
     "baselineTarget": 10,
-    "bySelf": 601,
+    "bySelf": 602,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785875762-2342",
-      "at": "2026-08-04T20:36:02Z",
-      "ts": 1785875762,
+      "rotationId": "r-1785894015-1018",
+      "at": "2026-08-05T01:40:15Z",
+      "ts": 1785894015,
       "trigger": "self",
-      "prevHead": "8377b549",
-      "handoffSha": "sha256:195ade6c6d6c304c8cb9cbaf04db0f908d3f4846a8904dc7bfcb814e2f632413",
-      "handoffAgeSec": 37,
+      "prevHead": "c9f51bdb",
+      "handoffSha": "sha256:976548e648533ca57651f990586bfb0784c7fdba537425df8383d6ff37c3199c",
+      "handoffAgeSec": 49,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785894015-1018",
+        "at": "2026-08-05T01:40:15Z",
+        "ts": 1785894015,
+        "trigger": "self",
+        "prevHead": "c9f51bdb",
+        "handoffSha": "sha256:976548e648533ca57651f990586bfb0784c7fdba537425df8383d6ff37c3199c",
+        "handoffAgeSec": 49,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785875762-2342",
         "at": "2026-08-04T20:36:02Z",
@@ -876,17 +887,6 @@
         "prevHead": "d7a22046",
         "handoffSha": "sha256:baf0911bd8d2978015821bde69ee8cb8d6ddab63ba77cf30365ebe3c91202c94",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785781482-3a7f",
-        "at": "2026-08-03T18:24:42Z",
-        "ts": 1785781482,
-        "trigger": "self",
-        "prevHead": "98dcbf4f",
-        "handoffSha": "sha256:218cec5fccc01a29f11a6efdf74cdd86dbe48559f237c44c45d9d96285c8d17b",
-        "handoffAgeSec": 30,
         "conformanceBefore": null,
         "commitsInSession": null
       }
