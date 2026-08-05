@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T03:15:51.901Z",
+  "generatedAt": "2026-08-05T05:22:56.022Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T03:14:36Z",
-    "headSha": "ca15dc13",
-    "elapsedSec": 400.01,
+    "ranAt": "2026-08-05T05:21:33Z",
+    "headSha": "9617d757",
+    "elapsedSec": 395.09,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 68.91
   },
   "torajs": {
-    "commit": "ca15dc13",
-    "commitSubject": "fix: a generator local holding what Promise.resolve answers",
+    "commit": "9617d757",
+    "commitSubject": "fix: a generator local holding null, a bigint, or what a global ctor answers",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "9617d757",
+      "subject": "fix: a generator local holding null, a bigint, or what a global ctor answers"
+    },
+    {
+      "hash": "bf076158",
+      "subject": "fix: a generator local holding an object literal or a regex literal"
+    },
+    {
+      "hash": "d3d97779",
+      "subject": "fix: two classes with a same-named defaulted method stop breaking each other"
+    },
+    {
+      "hash": "1618cf49",
+      "subject": "fix: an element of a Promise[] is a promise its .then can chain on"
+    },
+    {
+      "hash": "147f1da1",
+      "subject": "fix: a generator local holding an array of what only the lift can read"
+    },
+    {
+      "hash": "21a38d86",
+      "subject": "docs: rotation 304 sweep at ca15dc13 — D1 12 to 11, one fix reverted on bench"
+    },
+    {
       "hash": "ca15dc13",
       "subject": "fix: a generator local holding what Promise.resolve answers"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "9c215754",
       "subject": "docs: rotation 303 sweep at e6e616f5 — D0 lands, D1 re-measured 20 to 12"
-    },
-    {
-      "hash": "e6e616f5",
-      "subject": "fix: a generator local holding the result of a call that returns nothing"
-    },
-    {
-      "hash": "700401bd",
-      "subject": "fix: a generator local holding a constructed object, an iterator or undefined"
-    },
-    {
-      "hash": "876073d4",
-      "subject": "fix: an arrow held in a generator local is callable, and sees what it captures"
-    },
-    {
-      "hash": "804f1a4a",
-      "subject": "fix: a generator's lifted local keeps the type its initializer says"
-    },
-    {
-      "hash": "8a33dfe7",
-      "subject": "fix: a top-level block's function declaration stays out of nested scopes"
-    },
-    {
-      "hash": "5ee3a546",
-      "subject": "fix: a lifted nested function's rename reaches the arrows that call it"
     }
   ],
-  "headSha": "ca15dc13",
+  "headSha": "9617d757",
   "autorun": {
-    "total": 607,
+    "total": 608,
     "baselineTarget": 10,
-    "bySelf": 602,
+    "bySelf": 603,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785894015-1018",
-      "at": "2026-08-05T01:40:15Z",
-      "ts": 1785894015,
+      "rotationId": "r-1785899786-4e7d",
+      "at": "2026-08-05T03:16:26Z",
+      "ts": 1785899786,
       "trigger": "self",
-      "prevHead": "c9f51bdb",
-      "handoffSha": "sha256:976548e648533ca57651f990586bfb0784c7fdba537425df8383d6ff37c3199c",
-      "handoffAgeSec": 49,
+      "prevHead": "21a38d86",
+      "handoffSha": "sha256:37e3a3c552498291488a7ac632341b5b4bdacbac5c673d6ce4c8251d824ac4e9",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785899786-4e7d",
+        "at": "2026-08-05T03:16:26Z",
+        "ts": 1785899786,
+        "trigger": "self",
+        "prevHead": "21a38d86",
+        "handoffSha": "sha256:37e3a3c552498291488a7ac632341b5b4bdacbac5c673d6ce4c8251d824ac4e9",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785894015-1018",
         "at": "2026-08-05T01:40:15Z",
@@ -876,17 +887,6 @@
         "prevHead": "2e244f90",
         "handoffSha": "sha256:644ec112531c83b0bf93f5d14640119319bd6993f111b7aeeed36daf84dd2e4e",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785794762-779a",
-        "at": "2026-08-03T22:06:02Z",
-        "ts": 1785794762,
-        "trigger": "self",
-        "prevHead": "d7a22046",
-        "handoffSha": "sha256:baf0911bd8d2978015821bde69ee8cb8d6ddab63ba77cf30365ebe3c91202c94",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
