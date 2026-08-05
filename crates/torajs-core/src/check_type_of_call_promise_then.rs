@@ -40,6 +40,7 @@
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
+use crate::check_type_of_call_promise_then_nullable::try_then_nullable;
 
 /// The result type of a `.then` / `.catch` whose handler returns `ret`.
 ///
@@ -69,6 +70,7 @@ pub(crate) fn try_match(
         .or_else(|| try_then_heterogeneous(checker, ast, callee, args))
         .or_else(|| try_then_undefined(checker, ast, callee, args))
         .or_else(|| try_then_array(checker, ast, callee, args))
+        .or_else(|| try_then_nullable(checker, ast, callee, args))
 }
 
 /// T-19.l (v0.5.0) — `Promise<T>.then(onOk, onRejected)`
