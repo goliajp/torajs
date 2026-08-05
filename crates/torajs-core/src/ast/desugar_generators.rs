@@ -141,10 +141,32 @@ fn collect_declared_fn_return_types(ast: &Ast) -> std::collections::HashMap<Stri
                 name,
                 return_type: Some(rt),
                 ..
-            } => Some((name.clone(), rt.clone())),
+            } => Some((name.clone(), normalize_void(rt))),
+            // A function with no value return answers `undefined`
+            // (§14.10) whether or not it wrote `: void` — the same
+            // rule `preinfer_closure_sigs` applies to a lifted
+            // closure. Without it `const a = sideEffectOnly()` took
+            // the `number` fallback and would not compile ("field is
+            // Number, value is Undefined").
+            Stmt::FnDecl { name, body, .. } if !super::body_has_value_return(body) => {
+                Some((name.clone(), "any".to_string()))
+            }
             _ => None,
         })
         .collect()
+}
+
+/// `void` as a FIELD annotation, which is what a lifted local becomes:
+/// `any`. A field has to be able to hold the value, and the value a
+/// void call produces is `undefined` — which is what an `any` slot
+/// holds and a `void` slot cannot. Left as written, `const b =
+/// voidCall()` yielded `null`.
+fn normalize_void(rt: &str) -> String {
+    if rt == "void" {
+        "any".into()
+    } else {
+        rt.into()
+    }
 }
 
 /// Snapshot every top-level `function*` decl's index + signature +

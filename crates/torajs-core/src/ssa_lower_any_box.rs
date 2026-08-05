@@ -374,6 +374,18 @@ impl<'a> LowerCtx<'a> {
                     (4, val)
                 }
             }
+            // A call that produces no value produces `undefined`
+            // (§14.10) — ANY_UNDEF=5, payload 0. `check_stmt_let_decl`
+            // (chunk 618) already states this and normalizes Void to
+            // Undefined, but only for a `let` init; every other store
+            // site reached the panic below instead. A generator's
+            // let-lift is one such site — it rewrites `let a = f()`
+            // into `this.a = f()`, an assignment, so a void call
+            // landing in an any-typed field crashed the lowerer.
+            //
+            // Nothing that works today can regress through this arm:
+            // what it replaces is a panic.
+            Type::Void => (5, Operand::ConstI64(0)),
             other => panic!("ssa-lower: box_to_any element type {other:?} not supported"),
         };
         let v = self.f.append_inst(
