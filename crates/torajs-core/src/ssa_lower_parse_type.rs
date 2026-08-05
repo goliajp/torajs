@@ -62,10 +62,27 @@ pub(crate) fn parse_type(
         Some(s) => s,
         None => return Type::Void,
     };
-    // `__nullable(T)` — at SSA storage / ABI level, identical to T.
-    // The `null` value is just an in-band 0 sentinel for pointer-shaped
-    // T. check.rs is the only layer that distinguishes T from
-    // Nullable(T); by here it's already enforced the rules.
+    // A scalar `T | null` has nowhere to PUT the null: the in-band 0
+    // sentinel below is a legitimate `0` / `false`, so the slot cannot
+    // tell the two apart and every null test on it answers the value's
+    // answer — `a === null` is false, `typeof a` is "number", and an
+    // `if (a !== null)` guard runs its narrowed branch on a null.
+    // RFC 20260710-optional-undefined-repr C4 already settled the
+    // remedy for the struct-FIELD position (materialize Any, pay the
+    // 8B NaN-box tax so undefined = ANY_UNDEF / null = ANY_NULL and
+    // values box); it just never reached the let / param / return
+    // positions, which this shares with it verbatim.
+    if let Some(rest) = s.strip_prefix("__nullable(")
+        && let Some(inner) = rest.strip_suffix(')')
+        && matches!(inner, "number" | "boolean")
+    {
+        return Type::Any;
+    }
+    // `__nullable(T)` for a pointer-shaped T — at SSA storage / ABI
+    // level, identical to T. The `null` value is an in-band 0
+    // sentinel, which a pointer slot genuinely has spare. check.rs is
+    // the only layer that distinguishes T from Nullable(T); by here
+    // it's already enforced the rules.
     if let Some(rest) = s.strip_prefix("__nullable(")
         && let Some(inner) = rest.strip_suffix(')')
     {

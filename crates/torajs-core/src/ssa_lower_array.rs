@@ -50,8 +50,9 @@
 //! `Expr::Array` match arm bottoms out here).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, ARR_PROPS_OFF, LowerCtx, intern_arr_layout};
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
+use crate::ssa_lower_array_alloc::{alloc_heap_arr, alloc_stack_arr};
 use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) -> Operand {
@@ -98,10 +99,28 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     // for ANY x. Route through the FLAG_ARR_ANY literal lane.
     // Undefined-typed elements deliberately stay out (T-10.c infer-
     // widened `["a", undefined]` keeps the typed Str sentinel lane).
+    // A scalar `T | null` element reaches the same shape by a
+    // different road: its checker type stays `Nullable(Number)` /
+    // `Nullable(Boolean)`, but it MATERIALIZES as Any, because a
+    // scalar slot has no spare bit pattern to spell `null` with
+    // (`ssa_lower_parse_type` — the RFC 20260710 C4 box tax). The
+    // gate above only reads the checker type, so these fell into the
+    // typed lane and reproduced chunk 739's failure exactly: box bits
+    // stored into an 8-byte slot, every element reading back
+    // undefined. Pointer-shaped `T | null` keeps the typed lane — its
+    // in-band null sentinel is a real pointer value.
     if !has_spread
-        && element_ids
-            .iter()
-            .any(|id| matches!(ctx.expr_types.get(id), Some(crate::check::Type::Any)))
+        && element_ids.iter().any(|id| {
+            matches!(ctx.expr_types.get(id), Some(crate::check::Type::Any))
+                || matches!(
+                    ctx.expr_types.get(id),
+                    Some(crate::check::Type::Nullable(inner))
+                        if matches!(
+                            **inner,
+                            crate::check::Type::Number | crate::check::Type::Boolean
+                        )
+                )
+        })
     {
         return ctx.lower_array_any_literal(&element_ids);
     }
@@ -410,82 +429,4 @@ fn coerce_elem_vals_substr_to_str(
         *v = Operand::Value(owned);
         elem_inc_after[i] = false;
     }
-}
-
-fn alloc_stack_arr(
-    ctx: &mut LowerCtx<'_>,
-    arr_id: crate::ssa::ArrId,
-    n: i64,
-) -> crate::ssa::ValueId {
-    let total_bytes = crate::ssa_lower::ARR_CELL_SIZE + (n as u64) * 8;
-    let cur_block = ctx.cur_block;
-    let p = ctx.f.append_inst(
-        cur_block,
-        InstKind::AllocaBytes(total_bytes),
-        Type::Arr(arr_id),
-        None,
-    );
-    // Header packed: tag=2 (ARR) bits 32..48, flags bits 48..64 =
-    // STATIC (4) | element-kind field (bits 10-12).
-    //
-    // The kind is baked HERE rather than written by
-    // `__torajs_arr_mark_kind` at the boxing boundary: that helper
-    // refuses every FLAG_STATIC_LITERAL block ("never write
-    // `.rodata`"), so a stack literal would reach the kind-aware
-    // readers as ARR_KIND_UNSET and answer `undefined`. A stack
-    // alloca is writable, but it is also known-typed at emit time —
-    // so it is born self-describing and the runtime gate stays
-    // intact. `on_stack` implies a non-refcounted element, so the
-    // chain is always one scalar level (I64 / F64 / Bool).
-    let elem = ctx.arr_layouts[arr_id.0 as usize];
-    let kind = ctx.arr_kind_chain(&elem, 0);
-    let hdr_packed: i64 = (2i64 << 32) | ((4i64 | ((kind as i64) << 10)) << 48);
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(Operand::ConstI64(hdr_packed), Operand::Value(p), 0),
-    );
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(Operand::ConstI64(n), Operand::Value(p), 16),
-    );
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(Operand::ConstI64(0), Operand::Value(p), ARR_PROPS_OFF),
-    );
-    // B1 — self-referential data pointer into the alloca's own
-    // inline region.
-    let inline0 = ctx.f.append_inst(
-        cur_block,
-        InstKind::BinOp(
-            SsaBinOp::Add,
-            Operand::Value(p),
-            Operand::ConstI64(crate::ssa_lower::ARR_CELL_SIZE as i64),
-        ),
-        Type::I64,
-        None,
-    );
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(
-            Operand::Value(inline0),
-            Operand::Value(p),
-            crate::ssa_lower::ARR_DATA_PTR_OFF,
-        ),
-    );
-    p
-}
-
-fn alloc_heap_arr(
-    ctx: &mut LowerCtx<'_>,
-    arr_id: crate::ssa::ArrId,
-    n: i64,
-) -> crate::ssa::ValueId {
-    let cur_block = ctx.cur_block;
-    ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
-        Type::Arr(arr_id),
-        None,
-    )
 }
