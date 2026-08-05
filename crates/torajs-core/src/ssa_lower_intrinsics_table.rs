@@ -392,6 +392,7 @@ pub(crate) fn build(
         error_message_get: init_c.error_slots.error_message_get,
         error_name_present: init_c.error_slots.error_name_present,
         error_name_get: init_c.error_slots.error_name_get,
+        error_install_cause: init_c.error_slots.error_install_cause,
         ctor_no_super_throw: init_c.any_substrate.ctor_no_super_throw,
         throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
         class_computed_method_define: init_c.class_computed.computed_method_define,

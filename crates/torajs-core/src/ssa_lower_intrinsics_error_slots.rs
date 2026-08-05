@@ -22,6 +22,9 @@ pub(crate) struct ErrorSlotIds {
     pub error_message_get: FuncId,
     pub error_name_present: FuncId,
     pub error_name_get: FuncId,
+    /// §20.5.8.1 InstallErrorCause — the non-enumerable `cause`
+    /// install the injected ctors run (any receiver, any value).
+    pub error_install_cause: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ErrorSlotIds {
@@ -32,5 +35,12 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         error_message_get: decl("__torajs_error_message_get", Type::Str),
         error_name_present: decl("__torajs_error_name_present", Type::Bool),
         error_name_get: decl("__torajs_error_name_get", Type::Str),
+        error_install_cause: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_error_install_cause",
+            &[Type::Any, Type::Any],
+            Type::Void,
+        ),
     }
 }

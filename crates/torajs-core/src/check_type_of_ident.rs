@@ -26,6 +26,26 @@
 
 use crate::check::{Checker, Type};
 
+/// Signatures of the error-family synth intrinsics the class-injection
+/// passes write into the AST — `Error`'s prototype install and its
+/// §20.5.8.1 `cause` install, the `[[ErrorData]]` / IsConstructor
+/// probes, and the own-absence Str sentinel mint. Split out of the
+/// cascade because that match is a registered known-debt function and
+/// the `cause` install would have grown it.
+fn error_synth_ty(name: &str) -> Option<Type> {
+    Some(match name {
+        "__torajs_error_proto_install" => Type::Function(vec![Type::String], Box::new(Type::Void)),
+        "__torajs_error_install_cause" => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Void))
+        }
+        "__torajs_error_is_error" | "__torajs_is_constructor" => {
+            Type::Function(vec![Type::Any], Box::new(Type::Boolean))
+        }
+        "__torajs_undef_str" => Type::Function(Vec::new(), Box::new(Type::String)),
+        _ => return None,
+    })
+}
+
 pub(crate) fn check(
     checker: &mut Checker,
     eid: crate::ast::ExprId,
@@ -127,19 +147,9 @@ pub(crate) fn check(
             ],
             Box::new(Type::Void),
         )),
-        "__torajs_error_proto_install" => {
-            Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
-        }
-        "__torajs_error_is_error" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
-        // S-NEW 刀 3 — §7.2.4 IsConstructor, the question test262's
-        // isConstructor.js asks through `Reflect.construct`.
-        "__torajs_is_constructor" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
-        // RFC 20260718-error-message-own-prop 刀 2 — injected error
-        // ctor internals: the own-absence Str sentinel mint and the
-        // §20.5.3.4 stack-header formatter over `this`.
-        "__torajs_undef_str" => Ok(Type::Function(Vec::new(), Box::new(Type::String))),
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
+        n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),
         "__torajs_ctor_no_super_throw" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
         // RFC 20260730 blade 1 — exotic-subclass factory internals:
         // the zero-arg self-alloc magic (class resolved from the

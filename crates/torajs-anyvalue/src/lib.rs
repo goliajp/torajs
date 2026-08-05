@@ -99,6 +99,7 @@ pub(crate) mod closure_proto;
 mod coerce;
 mod compare;
 mod construct;
+mod error_cause;
 mod function_subclass;
 pub(crate) mod index_any;
 mod index_any_keyed;

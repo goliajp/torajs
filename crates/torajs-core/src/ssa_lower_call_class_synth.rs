@@ -56,6 +56,7 @@ pub(crate) fn try_lower(
         "__torajs_proto_register" => try_lower_proto_register(ctx, args),
         "__torajs_class_register" => try_lower_class_register(ctx, args),
         "__torajs_error_proto_install" => try_lower_error_proto_install(ctx, args),
+        "__torajs_error_install_cause" => try_lower_error_install_cause(ctx, args),
         "__torajs_error_is_error" => try_lower_error_is_error(ctx, args),
         "__torajs_is_constructor" => try_lower_is_constructor(ctx, args),
         "__torajs_static_method_reify" => reify::try_lower_static_method_reify(ctx, args),
@@ -196,6 +197,35 @@ fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         let proto_ty = ctx.operand_ty(&proto_op);
         ctx.emit_drop_value(proto_op, proto_ty);
     }
+    Some(Operand::ConstI64(0))
+}
+
+/// `__torajs_error_install_cause(this, options.cause)` (§20.5.8.1) —
+/// the injected ctors' `cause` install. Spelled as a call rather than
+/// an assignment because CreateNonEnumerableDataPropertyOrThrow wants
+/// `{W:1, E:0, C:1}`, and an assignment can only produce the ordinary
+/// enumerable entry (which is still what a user's own `err.cause = x`
+/// after construction must produce — so only the ctor moves).
+fn try_lower_error_install_cause(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let recv = ctx.lower_expr(args[0]);
+    let recv_any = if matches!(ctx.operand_ty(&recv), Type::Any) {
+        recv
+    } else {
+        ctx.box_to_any(recv)
+    };
+    let val = ctx.lower_expr(args[1]);
+    let val_any = if matches!(ctx.operand_ty(&val), Type::Any) {
+        val
+    } else {
+        ctx.box_to_any(val)
+    };
+    let cur_block = ctx.cur_block;
+    let install = ctx.intrinsics.error_install_cause;
+    ctx.f
+        .append_void(cur_block, InstKind::Call(install, vec![recv_any, val_any]));
     Some(Operand::ConstI64(0))
 }
 

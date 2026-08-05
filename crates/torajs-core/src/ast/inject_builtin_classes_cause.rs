@@ -32,8 +32,7 @@ pub(super) fn build_options_param(ast: &mut Ast) -> Param {
 /// if (options !== null
 ///     && (typeof options === "object" || typeof options === "function")
 ///     && "cause" in options) {
-///   const __cause_recv: any = this;
-///   __cause_recv.cause = options.cause;
+///   __torajs_error_install_cause(this, options.cause);
 /// }
 /// ```
 ///
@@ -53,9 +52,14 @@ pub(super) fn build_options_param(ast: &mut Ast) -> Param {
 /// - The property is installed **conditionally**, so it cannot be a
 ///   declared class field — a field exists on every instance and would
 ///   make `"cause" in new Error("m")` answer true. Class instances are
-///   static-layout structs, so the conditional install goes through an
-///   `any` handle on `this`, the same path a user's
-///   `(e as any).cause = x` already takes.
+///   static-layout structs, so the entry lands in the receiver's
+///   expando dict.
+/// - The attributes are `{W:1, E:0, C:1}`
+///   (CreateNonEnumerableDataPropertyOrThrow), which an assignment
+///   cannot express — that is why this is a call and not
+///   `(this as any).cause = ...`. A user's own `err.cause = x` after
+///   construction IS an ordinary enumerable assignment, and bun
+///   reports exactly that difference.
 ///
 /// `in` has no `Expr` variant of its own: the parser emits a call to
 /// `__torajs_in_op(key, obj)` that check/ssa_lower intercept by name
@@ -100,32 +104,22 @@ pub(super) fn build_install_cause(ast: &mut Ast) -> Stmt {
         right: has_cause,
     });
 
-    // const __cause_recv: any = this;
+    // __torajs_error_install_cause(this, options.cause);
     let this_expr = ast.add_expr(Expr::This);
-    let bind = Stmt::LetDecl {
-        mutable: false,
-        name: "__cause_recv".to_string(),
-        type_ann: Some("any".to_string()),
-        init: this_expr,
-        is_var: false,
-    };
-
-    // __cause_recv.cause = options.cause;
-    let recv = ast.add_expr(Expr::Ident("__cause_recv".to_string()));
-    let target = ast.add_expr(Expr::Member {
-        obj: recv,
-        name: "cause".to_string(),
-    });
     let opts_read = ast.add_expr(Expr::Ident("options".to_string()));
     let value = ast.add_expr(Expr::Member {
         obj: opts_read,
         name: "cause".to_string(),
     });
-    let assign = ast.add_expr(Expr::Assign { target, value });
+    let callee = ast.add_expr(Expr::Ident("__torajs_error_install_cause".to_string()));
+    let install = ast.add_expr(Expr::Call {
+        callee,
+        args: vec![this_expr, value],
+    });
 
     Stmt::If {
         cond,
-        then_branch: Box::new(Stmt::Block(vec![bind, Stmt::Expr(assign)])),
+        then_branch: Box::new(Stmt::Block(vec![Stmt::Expr(install)])),
         else_branch: None,
     }
 }
