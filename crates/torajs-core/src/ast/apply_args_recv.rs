@@ -12,20 +12,56 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// `desugar_classes` has already rewritten `new C(..)` into a call to
 /// the synthesized factory `__new_C`, so a direct `new C().m()` names
 /// its class right there in the receiver, and a receiver bound to one
-/// carries it as far as the binding map below is trusted.
+/// carries it as far as the binding map below is trusted. A call of a
+/// THIN FACTORY (`factories`, below) names its class the same way,
+/// one level of indirection out.
 pub(super) fn receiver_class(
     ast: &Ast,
     obj: ExprId,
     recv_class: &HashMap<String, String>,
+    factories: &HashMap<String, String>,
 ) -> Option<String> {
     match ast.get_expr(obj) {
         Expr::Call { callee, .. } => match ast.get_expr(*callee) {
-            Expr::Ident(f) => f.strip_prefix("__new_").map(str::to_string),
+            Expr::Ident(f) => f
+                .strip_prefix("__new_")
+                .map(str::to_string)
+                .or_else(|| factories.get(f).cloned()),
             _ => None,
         },
         Expr::Ident(n) => recv_class.get(n).cloned(),
         _ => None,
     }
+}
+
+/// Top-level functions whose whole body is `return <new C(..)>`, as
+/// `name → C`. Calling one hands back a `C`, so a receiver bound to
+/// its result is as precisely resolved as one bound to `new C()`
+/// directly — the indirection is the only difference, and it is
+/// visible right here in the body.
+///
+/// `desugar_generators` emits exactly this shape: `function* g()`
+/// becomes a `__Gen_g` class plus the thin factory
+/// `function g(args) { return new __Gen_g(args); }`. Without this,
+/// `const it = g(); it.next()` had an unresolvable receiver and could
+/// only ask the name-keyed table — so a class declaring its own
+/// `next(step = 5)` anywhere in the program evicted the shared `next`
+/// entry and took every generator down with it:
+/// `it.next()` failed to compile ("expected 1 argument(s), got 0") on
+/// a program every engine runs, while the neighbouring `c.next()`
+/// resolved through its own class and worked.
+pub(super) fn collect_factory_classes(ast: &Ast) -> HashMap<String, String> {
+    let empty = HashMap::new();
+    let mut out = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s
+            && let [Stmt::Return(Some(ret))] = body.as_slice()
+            && let Some(class) = receiver_class(ast, *ret, &empty, &empty)
+        {
+            out.insert(name.clone(), class);
+        }
+    }
+    out
 }
 
 /// The default list a Member call site `obj.name(..)` should pad with,
@@ -53,10 +89,11 @@ pub(super) fn member_call_defaults(
     name: &str,
     recv_fields: &HashMap<String, HashMap<String, Option<String>>>,
     recv_class: &HashMap<String, String>,
+    factories: &HashMap<String, String>,
     fn_defaults: &HashMap<String, Vec<Option<ExprId>>>,
     method_defaults: &HashMap<String, Vec<Option<ExprId>>>,
 ) -> Option<Vec<Option<ExprId>>> {
-    if let Some(class) = receiver_class(ast, obj, recv_class)
+    if let Some(class) = receiver_class(ast, obj, recv_class, factories)
         && let Some(d) = fn_defaults.get(&format!("__cm_{class}__{name}"))
     {
         // `__cm_C__M`'s first param is the `__this` receiver, which no
@@ -88,6 +125,7 @@ pub(super) fn collect_objlit_recv_fields(
     ast: &Ast,
     stmts: &[Stmt],
     classify: &impl Fn(&Expr) -> Option<String>,
+    factories: &HashMap<String, String>,
     counts: &mut HashMap<String, usize>,
     objlit: &mut HashMap<String, HashMap<String, Option<String>>>,
     classes: &mut HashMap<String, String>,
@@ -103,7 +141,7 @@ pub(super) fn collect_objlit_recv_fields(
                         .collect();
                     objlit.insert(name.clone(), fm);
                 }
-                if let Some(c) = receiver_class(ast, *init, &HashMap::new()) {
+                if let Some(c) = receiver_class(ast, *init, &HashMap::new(), factories) {
                     classes.insert(name.clone(), c);
                 }
             }
@@ -111,10 +149,12 @@ pub(super) fn collect_objlit_recv_fields(
                 for p in params {
                     *counts.entry(p.name.clone()).or_insert(0) += 1;
                 }
-                collect_objlit_recv_fields(ast, body, classify, counts, objlit, classes);
+                collect_objlit_recv_fields(ast, body, classify, factories, counts, objlit, classes);
             }
             Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_objlit_recv_fields(ast, inner, classify, counts, objlit, classes);
+                collect_objlit_recv_fields(
+                    ast, inner, classify, factories, counts, objlit, classes,
+                );
             }
             Stmt::If {
                 then_branch,
@@ -125,6 +165,7 @@ pub(super) fn collect_objlit_recv_fields(
                     ast,
                     core::slice::from_ref(then_branch),
                     classify,
+                    factories,
                     counts,
                     objlit,
                     classes,
@@ -134,6 +175,7 @@ pub(super) fn collect_objlit_recv_fields(
                         ast,
                         core::slice::from_ref(eb),
                         classify,
+                        factories,
                         counts,
                         objlit,
                         classes,
@@ -145,6 +187,7 @@ pub(super) fn collect_objlit_recv_fields(
                     ast,
                     core::slice::from_ref(body),
                     classify,
+                    factories,
                     counts,
                     objlit,
                     classes,
@@ -156,6 +199,7 @@ pub(super) fn collect_objlit_recv_fields(
                         ast,
                         core::slice::from_ref(i),
                         classify,
+                        factories,
                         counts,
                         objlit,
                         classes,
@@ -165,6 +209,7 @@ pub(super) fn collect_objlit_recv_fields(
                     ast,
                     core::slice::from_ref(body),
                     classify,
+                    factories,
                     counts,
                     objlit,
                     classes,
@@ -182,6 +227,7 @@ pub(super) fn collect_objlit_recv_fields(
                     ast,
                     core::slice::from_ref(body),
                     classify,
+                    factories,
                     counts,
                     objlit,
                     classes,
@@ -193,6 +239,7 @@ pub(super) fn collect_objlit_recv_fields(
                     ast,
                     core::slice::from_ref(body),
                     classify,
+                    factories,
                     counts,
                     objlit,
                     classes,
@@ -208,18 +255,26 @@ pub(super) fn collect_objlit_recv_fields(
                 if let Some(cp) = catch_param {
                     *counts.entry(cp.clone()).or_insert(0) += 1;
                 }
-                collect_objlit_recv_fields(ast, body, classify, counts, objlit, classes);
-                collect_objlit_recv_fields(ast, catch_body, classify, counts, objlit, classes);
+                collect_objlit_recv_fields(ast, body, classify, factories, counts, objlit, classes);
+                collect_objlit_recv_fields(
+                    ast, catch_body, classify, factories, counts, objlit, classes,
+                );
                 if let Some(fb) = finally_body {
-                    collect_objlit_recv_fields(ast, fb, classify, counts, objlit, classes);
+                    collect_objlit_recv_fields(
+                        ast, fb, classify, factories, counts, objlit, classes,
+                    );
                 }
             }
             Stmt::Switch { cases, default, .. } => {
                 for c in cases {
-                    collect_objlit_recv_fields(ast, &c.body, classify, counts, objlit, classes);
+                    collect_objlit_recv_fields(
+                        ast, &c.body, classify, factories, counts, objlit, classes,
+                    );
                 }
                 if let Some(d) = default {
-                    collect_objlit_recv_fields(ast, d, classify, counts, objlit, classes);
+                    collect_objlit_recv_fields(
+                        ast, d, classify, factories, counts, objlit, classes,
+                    );
                 }
             }
             _ => {}

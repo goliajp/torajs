@@ -237,10 +237,15 @@ pub fn apply_default_args(ast: &mut Ast) {
     let mut binding_counts: HashMap<String, usize> = HashMap::new();
     let mut objlit_inits: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
     let mut class_inits: HashMap<String, String> = HashMap::new();
+    // Thin factories first — the walk below asks what a `let`'s
+    // initializer constructs, and `const it = g()` can only be
+    // answered once `g` is known to hand back a `__Gen_g`.
+    let factories = super::apply_args_recv::collect_factory_classes(ast);
     super::apply_args_recv::collect_objlit_recv_fields(
         ast,
         &ast.stmts,
         &synthetic_fn_ident,
+        &factories,
         &mut binding_counts,
         &mut objlit_inits,
         &mut class_inits,
@@ -314,6 +319,7 @@ pub fn apply_default_args(ast: &mut Ast) {
                         &name,
                         &recv_fields,
                         &recv_class,
+                        &factories,
                         &fn_defaults,
                         &method_defaults,
                     ) {
