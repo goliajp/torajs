@@ -210,16 +210,7 @@ pub(crate) fn lift_lets_in_stmt(
                     // stays as what is left when the sniff declines,
                     // so every shape it cannot read keeps today's
                     // behaviour.
-                    super::desugar_generators_field_ann::direct_field_ann(ast, *init, ctx)
-                        .or_else(|| {
-                            super::infer_expr_ann_with(
-                                &ast.exprs,
-                                *init,
-                                ctx.params,
-                                &ctx.binds,
-                                ctx.fn_sigs,
-                            )
-                        })
+                    super::desugar_generators_field_ann::field_ann(ast, *init, ctx)
                         .unwrap_or_else(|| "number".into())
                 }
             });

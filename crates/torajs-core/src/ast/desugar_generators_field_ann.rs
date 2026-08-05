@@ -11,6 +11,28 @@
 use super::desugar_generators_walkers::LiftCtx;
 use super::{Ast, Expr};
 
+/// This file's answer for `eid`, or the shared sniff's.
+///
+/// The lift's caller composes the two exactly this way for the
+/// initializer as a whole, but until now nothing composed them
+/// *inside* an expression — so a shape this file knows stopped being
+/// known the moment it appeared as somebody's sub-expression. A
+/// generator holding `const ps = [Promise.resolve(2.5)]` fell back to
+/// `number` ("field is Number, value is Array(Promise(Number))")
+/// because the shared sniff's array arm recursed into its own arms
+/// only, and `Promise` is a namespace it cannot type. Same for
+/// `[new C()]`, and for `Promise.resolve(new C())`.
+///
+/// Composing this way rather than teaching the shared sniff keeps the
+/// reach unchanged: every arm below declines where it has nothing to
+/// say, so the shared sniff still answers everything it answered
+/// before.
+pub(super) fn field_ann(ast: &Ast, eid: super::ExprId, ctx: &LiftCtx) -> Option<String> {
+    direct_field_ann(ast, eid, ctx).or_else(|| {
+        super::infer_expr_ann_with(&ast.exprs, eid, ctx.params, &ctx.binds, ctx.fn_sigs)
+    })
+}
+
 /// What a call answers, for the three call shapes the shared sniff
 /// declines: a class's generator method, a local holding a closure,
 /// and a `Promise` static. None for every other call, which leaves
@@ -52,8 +74,7 @@ fn call_result_ann(
             {
                 return promise_static_ann(ast, name, args, ctx);
             }
-            let recv =
-                super::infer_expr_ann_with(&ast.exprs, *obj, ctx.params, &ctx.binds, ctx.fn_sigs)?;
+            let recv = field_ann(ast, *obj, ctx)?;
             let hoisted = format!("{}{recv}__{name}", super::GEN_METHOD_PREFIX);
             ctx.fn_sigs.get(&hoisted).cloned()
         }
@@ -96,11 +117,28 @@ fn promise_static_ann(
         // `Promise.resolve()` fulfils with `undefined`.
         return Some("Promise<any>".into());
     };
-    let inner = super::infer_expr_ann_with(&ast.exprs, *arg, ctx.params, &ctx.binds, ctx.fn_sigs)?;
+    let inner = field_ann(ast, *arg, ctx)?;
     if inner.starts_with("Promise<") {
         return Some(inner);
     }
     Some(format!("Promise<{inner}>"))
+}
+
+/// An array literal's element type, read through `field_ann` so the
+/// elements get this file's arms as well as the shared sniff's.
+///
+/// The widening rule is the shared sniff's array arm verbatim: the
+/// first element anchors, and a literal whose remaining elements do
+/// not all agree with it — including any element that cannot be read
+/// at all — widens to `any[]` rather than being stamped with the
+/// anchor's type. An empty literal declines, as it does there.
+fn array_ann(ast: &Ast, elems: &[super::ExprId], ctx: &LiftCtx) -> Option<String> {
+    let first = field_ann(ast, *elems.first()?, ctx)?;
+    let uniform = elems
+        .iter()
+        .skip(1)
+        .all(|e| field_ann(ast, *e, ctx).as_deref() == Some(first.as_str()));
+    Some(format!("{}[]", if uniform { first } else { "any".into() }))
 }
 
 /// The `R` of a `__cls(P|..)->R` / `__fn(P|..)->R` annotation.
@@ -150,6 +188,16 @@ fn fn_ann_return(ann: &str) -> Option<&str> {
 ///   a local holding a closure, or a `Promise` static. The shared
 ///   sniff's method table is keyed on `string` / `T[]` receivers and
 ///   answers None for all three.
+/// * **an array literal** — the shared sniff has this arm already, but
+///   it recurses into its own arms, so an array OF any shape above was
+///   still unreadable: `const ps = [Promise.resolve(2.5)]` and
+///   `const cs = [new C()]` both took the `number` fallback. Repeated
+///   here over `field_ann` so the elements get both halves. The
+///   widening rule is the shared arm's, unchanged — the first element
+///   anchors, anything that disagrees or cannot be read widens the
+///   whole literal to `any[]` (the checker's T-10.c anchor widening;
+///   answering the first element's type for a mixed literal stamps an
+///   annotation its `Arr<Any>` lowering cannot satisfy).
 ///
 /// `infer_expr_ann_with` cannot answer this one: its `Expr::Closure`
 /// arm reads a signature `preinfer_closure_sigs` publishes under the
@@ -170,7 +218,7 @@ fn fn_ann_return(ann: &str) -> Option<&str> {
 /// does not; guessing `any` here would pin the field against whatever
 /// that pass concludes, which is the failure this whole change exists
 /// to stop repeating.
-pub(super) fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
+fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
     let (params, return_type, body) = match ast.get_expr(init) {
         Expr::ArrowFn {
             params,
@@ -180,6 +228,7 @@ pub(super) fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) ->
         Expr::New { class_name, .. } => return Some(class_name.clone()),
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),
         Expr::Call { callee, args } => return call_result_ann(ast, *callee, args, ctx),
+        Expr::Array(elems) => return array_ann(ast, elems, ctx),
         _ => return None,
     };
     let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
