@@ -394,6 +394,7 @@ pub(crate) fn build(
         error_name_get: init_c.error_slots.error_name_get,
         error_install_cause: init_c.error_slots.error_install_cause,
         any_prop_enumerable: init_c.struct_expando.any_prop_enumerable,
+        get_property_descriptors: init_c.struct_expando.get_property_descriptors,
         ctor_no_super_throw: init_c.any_substrate.ctor_no_super_throw,
         throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
         class_computed_method_define: init_c.class_computed.computed_method_define,

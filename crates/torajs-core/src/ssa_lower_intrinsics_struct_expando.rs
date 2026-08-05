@@ -22,6 +22,9 @@ pub(crate) struct StructExpandoIds {
     /// §7.3.x propertyIsEnumerable over an any-boxed receiver — the
     /// enumerable-flag twin of `__torajs_any_prop_has`.
     pub any_prop_enumerable: FuncId,
+    /// §20.1.2.9 getOwnPropertyDescriptors — the plural of the
+    /// descriptor read, which had no lowering at all.
+    pub get_property_descriptors: FuncId,
 }
 
 pub(crate) fn declare(
@@ -35,6 +38,13 @@ pub(crate) fn declare(
             "__torajs_any_prop_enumerable",
             &[Type::Any, Type::Ptr],
             Type::I64,
+        ),
+        get_property_descriptors: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_get_property_descriptors",
+            &[Type::Any],
+            Type::Any,
         ),
     }
 }

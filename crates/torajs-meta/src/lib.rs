@@ -35,6 +35,7 @@ pub mod iterator_proto;
 pub mod map_group_by;
 pub mod obj_assign;
 pub mod obj_forin_keys;
+pub mod obj_own_descriptors;
 pub mod obj_own_keys;
 pub(crate) mod obj_own_keys_key_shape;
 pub(crate) mod obj_own_keys_struct;

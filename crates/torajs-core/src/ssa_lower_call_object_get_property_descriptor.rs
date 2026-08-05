@@ -52,7 +52,7 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    if args.len() < 2 {
+    if args.is_empty() {
         return None;
     }
     let Expr::Member {
@@ -62,7 +62,17 @@ pub(crate) fn try_lower(
     else {
         return None;
     };
+    // §20.1.2.9 — the plural takes one argument and answers a fresh
+    // object of descriptors. It shares this entry because it shares
+    // the namespace resolution and the receiver boxing; the walk
+    // itself is a kernel, since OwnPropertyKeys is a runtime question.
+    if m_name == "getOwnPropertyDescriptors" {
+        return lower_plural(ctx, callee, args);
+    }
     if m_name != "getOwnPropertyDescriptor" {
+        return None;
+    }
+    if args.len() < 2 {
         return None;
     }
     let ns_id = *ns_id;
@@ -155,6 +165,42 @@ pub(crate) fn try_lower(
         None,
     );
     crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
+    ctx.emit_throw_check(None);
+    Some(Operand::Value(v))
+}
+
+/// `Object.getOwnPropertyDescriptors(O)` — one kernel call over the
+/// boxed receiver. Only the `Object` namespace has this spelling;
+/// `Reflect` has no plural, so the caller's namespace check is left
+/// to the singular path above and re-made here.
+fn lower_plural(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Option<Operand> {
+    let Expr::Member { obj: ns_id, .. } = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id) else {
+        return None;
+    };
+    if ns != "Object" {
+        return None;
+    }
+    let obj_raw = ctx.lower_expr(args[0]);
+    let obj_ty = ctx.operand_ty(&obj_raw);
+    // S272 — lower and drop the trailing args (useful arity 1).
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let obj_op = if matches!(obj_ty, Type::Any) {
+        obj_raw
+    } else {
+        ctx.box_to_any_from_expr(args[0], obj_raw)
+    };
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.get_property_descriptors, vec![obj_op]),
+        Type::Any,
+        None,
+    );
     ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }

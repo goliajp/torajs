@@ -450,6 +450,7 @@ pub(crate) struct Intrinsics {
     pub(crate) error_name_get: FuncId,
     pub(crate) error_install_cause: FuncId,
     pub(crate) any_prop_enumerable: FuncId,
+    pub(crate) get_property_descriptors: FuncId,
     pub(crate) ctor_no_super_throw: FuncId,
     pub(crate) throw_reference_error_name: FuncId,
     pub(crate) class_computed_method_define: FuncId,

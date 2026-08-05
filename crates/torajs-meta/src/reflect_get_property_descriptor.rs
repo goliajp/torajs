@@ -30,9 +30,30 @@ use crate::reflect::{
     build_accessor_descriptor, build_data_descriptor, heap_type_tag, is_cell_imm, is_wrapper_tag,
 };
 
+unsafe extern "C" {
+    /// Hands back an OWNED payload — a ShortStr immediate
+    /// materializes as a fresh Str cell at rc=1, which is the only
+    /// way to give the char-index helper a cell to read.
+    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
+}
+
 /// `torajs_dynobj::layout::TAG_SYMBOL_KEY` mirror — a property key
 /// cell is a Str (tag 0) or a Symbol (tag 7) per §6.1.7.
 const TAG_SYMBOL_KEY: u16 = 7;
+
+/// `torajs_rc::Tag::Str` — the bare string cell.
+const TAG_STR_CELL: u16 = 0;
+
+/// The top 16 bits an SSO ShortStr immediate carries, compared
+/// against `v >> 48`. `reflect::SHORT_STR_TOP16` spells the same
+/// thing as a full-width mask, which is a different comparison —
+/// `obj_own_keys` uses this shifted form and so does the arm below.
+const SHORT_STR_TOP: u64 = 0x0001;
+
+/// `torajs-str::layout` mirrors — the u32 length at +8 and the
+/// payload bytes at +16.
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
 
 /// Arr / Closure / struct in-layout expando props-dynobj slot
 /// (`torajs_dynobj::layout::CELL_PROPS_OFF` mirror; a `Tag::Obj`
@@ -84,6 +105,84 @@ unsafe fn symbol_key_descriptor_via_dict(
     unsafe { __torajs_anyv_get_property_descriptor(props as u64, key) }
 }
 
+/// §22.1.4.4 [[GetOwnProperty]] on a String — `length`, and the
+/// canonical indices below it. Every other key is prototype surface,
+/// absent as own.
+///
+/// Shared by the two spellings a string receiver arrives in: a heap
+/// Str cell and a ShortStr immediate. The lowering has compile-time
+/// fast paths for both descriptors, but they need a LITERAL key and a
+/// statically `Type::Str` receiver — an `any`-typed receiver or a
+/// runtime key has always fallen through to this kernel, which had no
+/// arm for a string at all and answered `undefined` for a property
+/// that was right there. `getOwnPropertyDescriptors` reaches it the
+/// same way, one key at a time.
+///
+/// # Safety
+/// `str_ptr` is a live Str cell of `len` code units; `key` is a live
+/// Str cell.
+unsafe fn str_cell_descriptor(str_ptr: *const c_void, len: u64, key: *const c_void) -> u64 {
+    let k = key as *const u8;
+    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() } as usize;
+    let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len) };
+    if bytes == b"length" {
+        return unsafe { build_data_descriptor(2, len, 0, 0, 0) };
+    }
+    if let Some(idx) = crate::arr_reflect::canonical_index(bytes)
+        && idx < len
+    {
+        return unsafe {
+            crate::str_descriptor::__torajs_anyv_str_index_descriptor(str_ptr, idx as i64)
+        };
+    }
+    VALUE_UNDEFINED_IMM
+}
+
+/// [`str_cell_descriptor`] for the immediate spelling. A ShortStr
+/// rides inline in the AnyValue, so it never clears the cell test in
+/// the caller; its chars still have descriptors. The reader wants a
+/// cell, so the immediate materializes into one and is released
+/// straight after.
+///
+/// # Safety
+/// `obj_any` is a ShortStr immediate; `key` is a live Str cell.
+unsafe fn short_str_descriptor(obj_any: u64, key: *const c_void) -> u64 {
+    let len = (obj_any >> 40) & 0xFF;
+    let owned = unsafe { __torajs_anyv_unbox_value_owned(obj_any) } as *mut c_void;
+    if owned.is_null() {
+        return VALUE_UNDEFINED_IMM;
+    }
+    let d = unsafe { str_cell_descriptor(owned, len, key) };
+    unsafe { __torajs_str_drop(owned as *mut u8) };
+    d
+}
+
+/// Spec §20.1.2.8 step 1 — `Let obj be ? ToObject(O)`. ToObject on
+/// `undefined` / `null` throws a TypeError; every other primitive
+/// (number / boolean / string) boxes to a wrapper and falls through
+/// to the arms below.
+///
+/// bun JSC msg shape: `<type> is not an object (evaluating '...')`.
+/// We align the prefix; the `(evaluating ...)` suffix needs
+/// source-text threading through the throw helper (substrate work,
+/// deferred).
+///
+/// # Safety
+/// `obj_any` carries a valid AnyValue bit pattern.
+unsafe fn to_object_rejects(obj_any: u64) -> bool {
+    if obj_any == VALUE_UNDEFINED_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe { __torajs_throw_type_error(c"undefined is not an object".as_ptr()) };
+        return true;
+    }
+    if obj_any == VALUE_NULL_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe { __torajs_throw_type_error(c"null is not an object".as_ptr()) };
+        return true;
+    }
+    false
+}
+
 /// AnyValue-immediate `Object.getOwnPropertyDescriptor(obj, key)`
 /// — builds a fresh dynobj `{ value, writable, enumerable,
 /// configurable }` from the source dynobj's slot, returns it as
@@ -100,24 +199,13 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     obj_any: u64,
     key: *const c_void,
 ) -> u64 {
-    // Spec §20.1.2.8 step 1 — `Let obj be ? ToObject(O)`. ToObject on
-    // `undefined` / `null` throws a TypeError; every other primitive
-    // (number / boolean / string) boxes to a wrapper and falls through
-    // to the no-property `undefined` return below (bun parity).
-    // bun JSC msg shape: `<type> is not an object (evaluating '...')`.
-    // We align the prefix; the `(evaluating ...)` suffix needs source-text
-    // threading through the throw helper (substrate work, deferred).
-    if obj_any == VALUE_UNDEFINED_IMM {
-        // SAFETY: NUL-terminated static C string.
-        unsafe { __torajs_throw_type_error(c"undefined is not an object".as_ptr()) };
+    if unsafe { to_object_rejects(obj_any) } || key.is_null() {
         return VALUE_UNDEFINED_IMM;
     }
-    if obj_any == VALUE_NULL_IMM {
-        // SAFETY: NUL-terminated static C string.
-        unsafe { __torajs_throw_type_error(c"null is not an object".as_ptr()) };
-        return VALUE_UNDEFINED_IMM;
+    if obj_any >> 48 == SHORT_STR_TOP && !unsafe { key_is_symbol_cell(key) } {
+        return unsafe { short_str_descriptor(obj_any, key) };
     }
-    if !is_cell_imm(obj_any) || key.is_null() {
+    if !is_cell_imm(obj_any) {
         return VALUE_UNDEFINED_IMM;
     }
     let dynobj = obj_any as *const c_void;
@@ -234,6 +322,11 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         }
         // Expando entries + proto walk still deferred (L3b).
         return VALUE_UNDEFINED_IMM;
+    }
+    // A bare Str cell — the heap spelling of the arm above.
+    if htag == TAG_STR_CELL {
+        let len = unsafe { dynobj.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
+        return unsafe { str_cell_descriptor(dynobj, len, key) };
     }
     if htag != TAG_DYNOBJ {
         return VALUE_UNDEFINED_IMM;
