@@ -260,7 +260,10 @@ pub(super) fn rewrite_idents_in_expr(
 /// Deliberately shallow: a rebinding nested deeper than the arrow's
 /// own statement list shadows only within that inner block, where a
 /// reference to the outer name cannot appear anyway.
-fn arrow_rebinds(params: &[super::Param], body: &[Stmt], name: &str) -> bool {
+///
+/// Shared with `desugar_generators_rewrite`, which descends into arrow
+/// bodies for the same reason and needs the same exclusion.
+pub(super) fn arrow_rebinds(params: &[super::Param], body: &[Stmt], name: &str) -> bool {
     params.iter().any(|p| p.name == name)
         || body.iter().any(|s| match s {
             Stmt::LetDecl { name: n, .. } | Stmt::FnDecl { name: n, .. } => n == name,

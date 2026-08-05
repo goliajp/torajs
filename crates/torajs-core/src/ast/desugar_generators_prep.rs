@@ -59,7 +59,10 @@ pub(super) fn prep_generator_body(
     let mut lift_ctx = LiftCtx {
         params: gen_params,
         fn_sigs,
-        binds: std::collections::HashMap::new(),
+        binds: gen_params
+            .iter()
+            .filter_map(|p| p.type_ann.clone().map(|a| (p.name.clone(), a)))
+            .collect(),
     };
     for s in &mut gen_body {
         lift_lets_in_stmt(ast, s, &mut lifted_locals, &mut lift_ctx);

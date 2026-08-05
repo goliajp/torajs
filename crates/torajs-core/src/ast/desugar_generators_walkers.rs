@@ -29,6 +29,55 @@ pub(crate) struct LiftCtx<'a> {
     pub(crate) binds: std::collections::HashMap<String, String>,
 }
 
+/// The field annotation for a local initialized by an arrow, or None
+/// for every other initializer.
+///
+/// `infer_expr_ann_with` cannot answer this one: its `Expr::Closure`
+/// arm reads a signature `preinfer_closure_sigs` publishes under the
+/// lifted `__closure_*` name, and this pass runs before
+/// `lift_arrow_fns` — the arrow is still an `Expr::ArrowFn` and no
+/// such name exists yet. The shape is right there in the node, so
+/// read it.
+///
+/// `__cls(`, not `__fn(`: the lifted local becomes a *field* of the
+/// `__Gen_*` class, and a field slot is a mutable position that can
+/// hold a capturing closure — the same retag
+/// `lift_arrow_fns::retag_field_fn_ann` performs for object-literal
+/// fields, for the same reason.
+///
+/// Declines unless every parameter carries a written annotation. An
+/// unannotated one is filled in later by
+/// `infer_anonymous_closure_params`, which knows things this pass
+/// does not; guessing `any` here would pin the field against whatever
+/// that pass concludes, which is the failure this whole change exists
+/// to stop repeating.
+fn arrow_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
+    let Expr::ArrowFn {
+        params,
+        return_type,
+        body,
+    } = ast.get_expr(init)
+    else {
+        return None;
+    };
+    let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
+    for p in params {
+        param_anns.push(p.type_ann.clone()?);
+    }
+    let ret = match return_type {
+        Some(rt) => rt.clone(),
+        None if !super::body_has_value_return(body) => "void".into(),
+        // Seeded, not bare: an arrow in a generator body routinely
+        // reads the generator's params and the locals lifted before
+        // it (`const f = (n: number) => n + base`), and the bare
+        // sniff has no entry for either — it bailed, and the field
+        // fell back to `number` while the closure itself came out
+        // `Function([Number], Number)`.
+        None => super::infer_return_ann_seeded(&ast.exprs, body, params, &ctx.binds, ctx.fn_sigs)?,
+    };
+    Some(format!("__cls({})->{}", param_anns.join("|"), ret))
+}
+
 /// J.4 — recursively expand every `Stmt::YieldInto { var, type_ann,
 /// value }` in `s` into the pair `[Stmt::Yield(value);
 /// Stmt::LetDecl { name: var, type_ann, init: this.__sent }]`. The
@@ -188,14 +237,17 @@ pub(crate) fn lift_lets_in_stmt(
                     // stays as what is left when the sniff declines,
                     // so every shape it cannot read keeps today's
                     // behaviour.
-                    super::infer_expr_ann_with(
-                        &ast.exprs,
-                        *init,
-                        ctx.params,
-                        &ctx.binds,
-                        ctx.fn_sigs,
-                    )
-                    .unwrap_or_else(|| "number".into())
+                    arrow_field_ann(ast, *init, ctx)
+                        .or_else(|| {
+                            super::infer_expr_ann_with(
+                                &ast.exprs,
+                                *init,
+                                ctx.params,
+                                &ctx.binds,
+                                ctx.fn_sigs,
+                            )
+                        })
+                        .unwrap_or_else(|| "number".into())
                 }
             });
             ctx.binds.insert(n.clone(), t.clone());

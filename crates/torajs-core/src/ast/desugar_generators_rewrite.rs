@@ -274,6 +274,32 @@ fn rewrite_params_in_expr(
         Expr::PostIncr { target, .. } => {
             rewrite_params_in_expr(ast, target, pset, visited);
         }
+        // An arrow body is a separate scope, but a nested scope SEES
+        // its enclosing bindings — and moving a generator's params and
+        // locals onto `this` is a rewrite of those. Skipping the
+        // descent left `(n: number) => n + base` reading a `base` that
+        // no longer exists as a binding at all ("unknown identifier
+        // `base`", then a ReferenceError at run time); nothing
+        // downstream could repair it, since `lift_arrow_fns` has
+        // already carried the arrow to top level by the time anything
+        // else looks.
+        //
+        // The same omission `nested_fns_idents` carried until r302 —
+        // hence the shared `arrow_rebinds`, which drops the names the
+        // arrow rebinds itself so a shadowing reference keeps its own
+        // meaning.
+        Expr::ArrowFn { params, body, .. } => {
+            let sub: std::collections::HashMap<String, String> = pset
+                .iter()
+                .filter(|(k, _)| !super::nested_fns_idents::arrow_rebinds(&params, &body, k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            if !sub.is_empty() {
+                for s in &body {
+                    rewrite_params_in_stmt(ast, s, &sub, visited);
+                }
+            }
+        }
         _ => {}
     }
 }
