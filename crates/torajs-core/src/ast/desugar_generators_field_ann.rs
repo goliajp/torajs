@@ -9,7 +9,7 @@
 //! to `number`.
 
 use super::desugar_generators_walkers::LiftCtx;
-use super::{Ast, Expr};
+use super::{Ast, BinOp, Expr};
 
 /// This file's answer for `eid`, or the shared sniff's.
 ///
@@ -97,12 +97,46 @@ fn call_result_ann(
         // `number` — then `add3(4)` said "not callable: type Number".
         // The local's own field annotation is fn-shaped and says what
         // the call answers.
-        Expr::Ident(n) => ctx
-            .binds
-            .get(n)
-            .or_else(|| ctx.params.iter().find(|p| p.name == *n)?.type_ann.as_ref())
-            .and_then(|ann| fn_ann_return(ann))
-            .map(str::to_string),
+        Expr::Ident(n) => {
+            let local = ctx
+                .binds
+                .get(n)
+                .or_else(|| ctx.params.iter().find(|p| p.name == *n)?.type_ann.as_ref());
+            match local {
+                Some(ann) => fn_ann_return(ann).map(str::to_string),
+                // Not a local — one of the global constructors whose
+                // answer the spec fixes. `fn_sigs` is keyed on
+                // top-level USER functions, so these were absent from
+                // it and the call declined: a template literal is the
+                // one that bites, since the parser lowers each
+                // substitution through a synthesized `String(..)`
+                // wrapper, and one unreadable operand takes the whole
+                // concatenation down — `const t = ` + "`a${1}b`" + `
+                // took the `number` fallback.
+                None => global_ctor_ann(n),
+            }
+        }
+        _ => None,
+    }
+}
+
+/// What a call to a global constructor answers, by spec: §22.1.1
+/// `String(x)`, §20.3.1 `Boolean(x)`, §20.4.1 `Symbol(x)`. Only
+/// reached for a name with no local binding, so a user's own `String`
+/// shadows this exactly as it shadows everything else.
+///
+/// `Number(x)` is deliberately absent. Its answer is not in doubt —
+/// but `number` alone does not say i64 or f64, and `Number("7")`
+/// produces an f64 the container width analysis does not see coming:
+/// annotating the field took the shape from one loud failure to
+/// another ("f64 value into i64 struct field — container width
+/// analysis missed this write"). It goes back in when that write is
+/// seen, not before.
+fn global_ctor_ann(name: &str) -> Option<String> {
+    match name {
+        "String" => Some("string".into()),
+        "Boolean" => Some("boolean".into()),
+        "Symbol" => Some("symbol".into()),
         _ => None,
     }
 }
@@ -265,8 +299,38 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         } => (params, return_type, body),
         Expr::New { class_name, .. } => return Some(class_name.clone()),
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),
+        // `null` is the same case as `undefined` one line up: JS's
+        // untyped slot is `any`, and `number` made the difference
+        // observable — a local holding `null` did not compile at all
+        // ("field is Number, value is Null").
+        Expr::Null => return Some("any".into()),
+        // A bigint literal is its own type, like the regex literal
+        // below; nothing else answered for it.
+        Expr::BigInt { .. } => return Some("bigint".into()),
         Expr::Call { callee, args } => return call_result_ann(ast, *callee, args, ctx),
         Expr::Array(elems) => return array_ann(ast, elems, ctx),
+        // `+` is the third place the two halves had to meet. The
+        // shared sniff propagates string-ness through it, but again
+        // over its own arms only — so one operand this file alone can
+        // read took the whole concatenation down. A template literal
+        // is the everyday case: the parser lowers each substitution
+        // through a synthesized `String(..)` wrapper, so
+        // `const t = `a${1}b`` had an unreadable operand and fell to
+        // the `number` fallback. Only the two unambiguous shapes are
+        // answered here; anything else declines and the shared arm
+        // takes it, typevars included.
+        Expr::BinOp {
+            op: BinOp::Add,
+            left,
+            right,
+        } => {
+            let (l, r) = (field_ann(ast, *left, ctx)?, field_ann(ast, *right, ctx)?);
+            return match (l.as_str(), r.as_str()) {
+                ("string", _) | (_, "string") => Some("string".into()),
+                ("number", "number") => Some("number".into()),
+                _ => None,
+            };
+        }
         Expr::ObjectLit { fields } => return objlit_ann(ast, fields, ctx),
         // A regex literal is its own type, and nothing else answers
         // for it: `const r = /a(b)c/` in a generator took the `number`
