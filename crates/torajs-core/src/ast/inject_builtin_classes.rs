@@ -17,7 +17,14 @@
 //!   * `build_error_class` — synth root `class Error`.
 //!   * `build_error_subclass` — synth `class <N> extends Error` for
 //!     each requested NativeError subclass.
+//!
+//! Two siblings carry the pieces that would push this file past the
+//! 500-line limit: `inject_builtin_classes_cause` (§20.5.8.1, the
+//! `options` / `cause` face every ctor accepts) and
+//! `inject_builtin_classes_data` (§20.5.7 / §20.5.8, the subclasses
+//! whose ctors carry own data params ahead of `message`).
 
+use super::inject_builtin_classes_cause::{build_install_cause, build_options_param};
 use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 /// Synthetic root `class Error { message: string; name: string;
@@ -99,17 +106,26 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
     // §20.5.1.1 — `message` is optional (`new Error()` is legal);
     // a missing one stores the own-absence sentinel (刀 2).
     let msg_default = build_msg_default(ast);
+    // §20.5.8.1 runs last: `cause` is installed after `stack`, so a
+    // reader walking own keys sees the declared fields first and the
+    // conditional one behind them.
+    let install_cause = build_install_cause(ast);
+    let options_param = build_options_param(ast);
     let ctor = ClassCtor {
-        params: vec![Param {
-            name: "message".to_string(),
-            type_ann: Some("string".to_string()),
-            default: Some(msg_default),
-            is_rest: false,
-        }],
+        params: vec![
+            Param {
+                name: "message".to_string(),
+                type_ann: Some("string".to_string()),
+                default: Some(msg_default),
+                is_rest: false,
+            },
+            options_param,
+        ],
         body: vec![
             Stmt::Expr(assign1),
             Stmt::Expr(assign2),
             Stmt::Expr(assign3),
+            install_cause,
         ],
     };
 
@@ -168,8 +184,11 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
 /// identical to a user-written subclass.
 fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
     let msg_ident = ast.add_expr(Expr::Ident("message".to_string()));
+    // §20.5.8.1 is installed once, in Error's ctor; every subclass
+    // only has to forward `options` to it rather than repeat the test.
+    let opts_ident = ast.add_expr(Expr::Ident("options".to_string()));
     let super_call = ast.add_expr(Expr::Super {
-        args: vec![msg_ident],
+        args: vec![msg_ident, opts_ident],
     });
     let this0 = ast.add_expr(Expr::This);
     let name_member = ast.add_expr(Expr::Member {
@@ -196,15 +215,20 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
         value: stack_expr,
     });
 
-    // Same §20.5.1.1 optional-message face as the Error root ctor.
+    // Same §20.5.1.1 optional-message face as the Error root ctor,
+    // and the same §20.5.8.1 options tail it forwards to.
     let msg_default = build_msg_default(ast);
+    let options_param = build_options_param(ast);
     let ctor = ClassCtor {
-        params: vec![Param {
-            name: "message".to_string(),
-            type_ann: Some("string".to_string()),
-            default: Some(msg_default),
-            is_rest: false,
-        }],
+        params: vec![
+            Param {
+                name: "message".to_string(),
+                type_ann: Some("string".to_string()),
+                default: Some(msg_default),
+                is_rest: false,
+            },
+            options_param,
+        ],
         body: vec![
             Stmt::Expr(super_call),
             Stmt::Expr(assign_name),

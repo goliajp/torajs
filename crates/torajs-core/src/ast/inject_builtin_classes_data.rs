@@ -26,18 +26,23 @@ use super::{Ast, ClassCtor, Expr, Param, Stmt};
 /// Each data param lands as an own `any` field — the values are
 /// arbitrary (an errors list, a pair of exception values) and the
 /// spec installs them as data properties, not typed slots. MVP
-/// boundaries, loud where visible: AggregateError stores the errors
-/// argument itself rather than an IterableToList snapshot, and the
-/// 3-arg options/cause form keeps the arity reject (the error-cause
-/// surface is its own family, uninstalled on `Error` too).
+/// boundary, loud where visible: AggregateError stores the errors
+/// argument itself rather than an IterableToList snapshot.
+///
+/// The trailing `options` param is the §20.5.8.1 error-cause face.
+/// It is only forwarded from here — `Error`'s ctor holds the single
+/// copy of the InstallErrorCause test.
 pub(super) fn build_error_data_subclass(
     ast: &mut Ast,
     sub_name: &str,
     data_params: &[&str],
 ) -> Stmt {
     let msg_ident = ast.add_expr(Expr::Ident("message".to_string()));
+    // §20.5.8.1 — forward `options` to Error's ctor, which owns the
+    // single copy of the InstallErrorCause test.
+    let opts_ident = ast.add_expr(Expr::Ident("options".to_string()));
     let super_call = ast.add_expr(Expr::Super {
-        args: vec![msg_ident],
+        args: vec![msg_ident, opts_ident],
     });
     let this0 = ast.add_expr(Expr::This);
     let name_member = ast.add_expr(Expr::Member {
@@ -94,6 +99,9 @@ pub(super) fn build_error_data_subclass(
         default: Some(msg_default),
         is_rest: false,
     });
+    params.push(super::inject_builtin_classes_cause::build_options_param(
+        ast,
+    ));
 
     Stmt::ClassDecl {
         name: sub_name.to_string(),

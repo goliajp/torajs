@@ -83,6 +83,7 @@ mod infer_closure_params_promise;
 mod infer_closure_this_scope;
 mod infer_closure_typevars;
 mod inject_builtin_classes;
+mod inject_builtin_classes_cause;
 mod inject_builtin_classes_data;
 mod lift_arrow_fns;
 mod module_passes;
