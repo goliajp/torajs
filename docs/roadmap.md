@@ -1530,7 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `4b3c3ee5`** (2026-08-05, rotation 301 — the promise
+**Latest @ `e6e616f5`** (2026-08-05, rotation 303 — a generator's
+lifted locals keep the types their initializers say they have. The
+let-lift moves every `let` in a generator body to a field of the
+synthesized `__Gen_*` class so the binding survives a yield boundary,
+and an unannotated one was pinned to `number` — right for a loop
+counter, wrong for everything else a body can hold, so `function* g()
+{ const xs = [1, 2]; }` did not compile at all. Four knives: the sniff
+itself (`infer_expr_ann_with`, seeded with the generator's params and
+each local as it lands); an arrow held in a local, which the shared
+sniff cannot answer here because `lift_arrow_fns` has not run — plus
+what that arrow captures, since the param rewrite did not descend into
+arrow bodies, the same omission `nested_fns_idents` carried until r302;
+`new C()`, a call to a `function*` (whose declared type describes what
+it YIELDS, not what calling it answers) and `undefined`; and a call
+that returns nothing, which needed `box_to_any` to grow the `Void` arm
+that `check_stmt_let_decl` chunk 618 had already argued for one layer
+up. This is RFC 20260805 D0, the prerequisite the reverted async
+state-machine commit found): passTotal 26327 → **26340 (+13)**, bug
+11881 flat, trAccepted 38208 → 38221 (+13) / incompatible 14966 →
+**14953 (−13)** — conservation exact (13 = 13 + 0); gate predicate
+**327 clusters / 8174 cases** (−1 / −15), core 9155 (−13);
+regressions **zero** — 13 verdict moves, every one
+`incompatible:type error → pass` and every one a
+`generators/scope-paramsbody-var-*` case, tr-timeout 36 flat. Note the
+span: rotation 302 never reached its sweep (the session was cleared
+mid-rotation), so this delta covers r302's five commits as well —
+which contributed no test262 movement, being a revert plus three
+narrow correctness fixes. Top clusters unchanged: eval 1433 /
+`__this` 253 / globalThis 216.
+
+**Previous @ `4b3c3ee5`** (2026-08-05, rotation 301 — the promise
 combinator family closes out and one leak underneath it: an
 all-rejected `Promise.any` answers a real AggregateError built through
 torajs-throw's factory registry (the call site implies the class the
@@ -1555,7 +1585,7 @@ tr-timeout 36 flat, exit-138/139 crashes 34 flat. Top clusters
 unchanged: eval 1433 / `__this` 253 / globalThis 216;
 harness-includes 5935 (39.7%), type error 4490 (30.0%).
 
-**Previous @ `8e7e683e`** (2026-08-04, rotation 296 — the method-rebind
+**Earlier @ `8e7e683e`** (2026-08-04, rotation 296 — the method-rebind
 RFC lands whole: the receiver-polymorphic cmany twin (a class method
 read off its instance and re-bound to a foreign receiver runs the twin
 body through the any-member lane instead of silent-wrong slot reads —
