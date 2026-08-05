@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T11:35:56.091Z",
+  "generatedAt": "2026-08-05T16:35:50.243Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T11:31:32Z",
-    "headSha": "4b2659f7",
-    "elapsedSec": 396.71,
+    "ranAt": "2026-08-05T16:33:46Z",
+    "headSha": "8d59258a",
+    "elapsedSec": 397.51,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.07
   },
   "torajs": {
-    "commit": "78ba28f2",
-    "commitSubject": "docs: rotation 308 sweep at 4b2659f7 — +82 pass, zero regressions",
+    "commit": "8d59258a",
+    "commitSubject": "fix: a ctor-installed error cause enumerated like an ordinary write",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "8d59258a",
+      "subject": "fix: a ctor-installed error cause enumerated like an ordinary write"
+    },
+    {
+      "hash": "8b5f79ab",
+      "subject": "fix: an error's name shadowed the prototype's with an enumerable copy"
+    },
+    {
+      "hash": "fe01aaff",
+      "subject": "fix: an error's message and stack were ordinary enumerable fields"
+    },
+    {
+      "hash": "391fbd75",
+      "subject": "chore: stow rotation 308 sweep and refresh hardev dashboard"
+    },
+    {
       "hash": "78ba28f2",
       "subject": "docs: rotation 308 sweep at 4b2659f7 — +82 pass, zero regressions"
     },
@@ -743,43 +759,38 @@
     {
       "hash": "3bbed7bf",
       "subject": "docs: rotation 307 sweep at f3af5bb4 — zero test262 movement, one SIGSEGV gone"
-    },
-    {
-      "hash": "f3af5bb4",
-      "subject": "fix: spreading a string split its emoji in half"
-    },
-    {
-      "hash": "b8db4f6c",
-      "subject": "fix: an array of class instances lost its class at the callback"
-    },
-    {
-      "hash": "6c16760c",
-      "subject": "fix: the native-error factory ABI pins the ctor's arity"
-    },
-    {
-      "hash": "1b2a4ec7",
-      "subject": "feat: an error's cause was accepted and then dropped"
     }
   ],
-  "headSha": "78ba28f2",
+  "headSha": "8d59258a",
   "autorun": {
-    "total": 611,
+    "total": 612,
     "baselineTarget": 10,
-    "bySelf": 606,
+    "bySelf": 607,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785923429-5ba3",
-      "at": "2026-08-05T09:50:29Z",
-      "ts": 1785923429,
+      "rotationId": "r-1785929826-0544",
+      "at": "2026-08-05T11:37:06Z",
+      "ts": 1785929826,
       "trigger": "self",
-      "prevHead": "01152c29",
-      "handoffSha": "sha256:fc029e3aa83b7b0e63752dcd43c1762500436f5e83b1f977c6a54f6c4479fee1",
-      "handoffAgeSec": 22,
+      "prevHead": "391fbd75",
+      "handoffSha": "sha256:342bffef928f111603445635044d9cad0bd5a2aadbb6b8f2a3cb0e1cca3dabf7",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785929826-0544",
+        "at": "2026-08-05T11:37:06Z",
+        "ts": 1785929826,
+        "trigger": "self",
+        "prevHead": "391fbd75",
+        "handoffSha": "sha256:342bffef928f111603445635044d9cad0bd5a2aadbb6b8f2a3cb0e1cca3dabf7",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785923429-5ba3",
         "at": "2026-08-05T09:50:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "fd9ab907",
         "handoffSha": "sha256:e7b7a2ef1b9a47ac7e13dd3898534f71b2cad4f1f258a74fc9da39982934bd94",
         "handoffAgeSec": 26,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785844076-420d",
-        "at": "2026-08-04T11:47:56Z",
-        "ts": 1785844076,
-        "trigger": "self",
-        "prevHead": "e1bdc0e9",
-        "handoffSha": "sha256:84d57006f1fb209ead1bcb2f7a83097dd2f71bdd9fcbff93fe71fd6046604b1f",
-        "handoffAgeSec": 36,
         "conformanceBefore": null,
         "commitsInSession": null
       }
