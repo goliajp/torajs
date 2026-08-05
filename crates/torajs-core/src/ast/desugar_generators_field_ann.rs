@@ -68,13 +68,26 @@ fn call_result_ann(
             // Promise(Array(Number))"). Handled here rather than in
             // the sniff for the same reason `New` is.
             if let Expr::Ident(ns) = ast.get_expr(*obj)
-                && ns == "Promise"
                 && !ctx.binds.contains_key(ns)
                 && !ctx.params.iter().any(|p| p.name == *ns)
             {
-                return promise_static_ann(ast, name, args, ctx);
+                if ns == "Promise" {
+                    return promise_static_ann(ast, name, args, ctx);
+                }
             }
             let recv = field_ann(ast, *obj, ctx)?;
+            // A method on a regex receiver. Nothing else answers for
+            // one: the shared sniff's method table is keyed on
+            // `string` / `T[]` receivers, so `const m = r.exec(s)` in
+            // a generator fell back to `number` even once `r` itself
+            // read as a RegExp.
+            if recv == "RegExp" {
+                return match name.as_str() {
+                    "exec" => Some("__nullable(string[])".into()),
+                    "test" => Some("boolean".into()),
+                    _ => None,
+                };
+            }
             let hoisted = format!("{}{recv}__{name}", super::GEN_METHOD_PREFIX);
             ctx.fn_sigs.get(&hoisted).cloned()
         }
@@ -139,6 +152,31 @@ fn array_ann(ast: &Ast, elems: &[super::ExprId], ctx: &LiftCtx) -> Option<String
         .skip(1)
         .all(|e| field_ann(ast, *e, ctx).as_deref() == Some(first.as_str()));
     Some(format!("{}[]", if uniform { first } else { "any".into() }))
+}
+
+/// An object literal's `__inlobj(` annotation, read through
+/// `field_ann` for the same reason `array_ann` is.
+///
+/// The shared sniff has this arm too, and it declines the moment one
+/// field is a shape only this file knows — an arrow being the one that
+/// matters, since `Expr::Closure` is what its own arm reads and this
+/// pass runs before `lift_arrow_fns` mints those. So
+/// `const t = { n: 1, f: (x: number) => x * 2 }` in a generator took
+/// the `number` fallback, and `t.f(t.n)` after it reported "no member
+/// `.f` on type Number".
+///
+/// Fields keep the same field-position retag the shared arm applies: a
+/// fn-valued field slot is a mutable position that can hold a
+/// capturing closure, so `__fn(` becomes `__cls(`.
+fn objlit_ann(ast: &Ast, fields: &[(String, super::ExprId)], ctx: &LiftCtx) -> Option<String> {
+    let parts: Vec<String> = fields
+        .iter()
+        .map(|(n, eid)| {
+            field_ann(ast, *eid, ctx)
+                .map(|t| format!("{n}:{}", super::lift_arrow_fns::retag_field_fn_ann(&t)))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(format!("__inlobj({})", parts.join("|")))
 }
 
 /// The `R` of a `__cls(P|..)->R` / `__fn(P|..)->R` annotation.
@@ -229,6 +267,12 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),
         Expr::Call { callee, args } => return call_result_ann(ast, *callee, args, ctx),
         Expr::Array(elems) => return array_ann(ast, elems, ctx),
+        Expr::ObjectLit { fields } => return objlit_ann(ast, fields, ctx),
+        // A regex literal is its own type, and nothing else answers
+        // for it: `const r = /a(b)c/` in a generator took the `number`
+        // fallback and every use of it after ("no member `.exec` on
+        // type Number") went down with it.
+        Expr::Regex { .. } => return Some("RegExp".into()),
         _ => return None,
     };
     let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
