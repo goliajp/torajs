@@ -453,10 +453,11 @@ pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *cons
             }
         }
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
-            // RFC 20260718-error-message-own-prop — §20.5.6.1.1
-            // msgDesc [[Enumerable]]: false; every other struct
-            // field keeps the ordinary all-true attributes.
-            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR) && key_is(key, b"message")
+            // §20.5.6.1.1 msgDesc / the `stack` header line are both
+            // `[[Enumerable]]: false`; every other struct field keeps
+            // the ordinary all-true attributes.
+            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR)
+                && (key_is(key, b"message") || key_is(key, b"stack"))
             {
                 0
             } else {

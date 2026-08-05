@@ -339,11 +339,13 @@ fn try_str_prop_check(
 /// the struct's field names (zero-alloc — each name interned as
 /// literal Str).
 ///
-/// RFC 20260718-error-message-own-prop — an Error-derived receiver's
-/// `message` attributes are runtime state (§20.5.6.1.1):
-/// propertyIsEnumerable("message") is constantly false
+/// An Error-derived receiver's `message` attributes are runtime state
+/// (§20.5.6.1.1): propertyIsEnumerable("message") is constantly false
 /// ([[Enumerable]]: false), hasOwnProperty("message") reads the
 /// own-absence sentinel through `__torajs_error_message_present`.
+/// `stack` carries the same [[Enumerable]]: false but is written by
+/// every construction, so its own-ness needs no runtime probe — only
+/// the enumerable answer moves.
 fn emit_obj_has_own_property(
     ctx: &mut LowerCtx<'_>,
     recv_id: ExprId,
@@ -390,11 +392,18 @@ fn emit_obj_has_own_property(
         for &a in args.iter().skip(1) {
             let _ = ctx.lower_expr(a);
         }
-        if result && is_err_recv && key == "message" {
-            if is_enumerable_probe {
+        if result && is_err_recv {
+            if key == "message" {
+                if is_enumerable_probe {
+                    return Operand::ConstBool(false);
+                }
+                return emit_message_present(ctx);
+            }
+            // `stack` shares msgDesc's [[Enumerable]]: false but is
+            // unconditionally own, so only the enumerable probe moves.
+            if key == "stack" && is_enumerable_probe {
                 return Operand::ConstBool(false);
             }
-            return emit_message_present(ctx);
         }
         return Operand::ConstBool(result);
     }
@@ -412,7 +421,7 @@ fn emit_obj_has_own_property(
         // Error-derived `message` runtime attributes (see fn doc):
         // the enumerable probe never matches it; the hasOwnProperty
         // chain gates its eq on the own-presence probe.
-        if is_err_recv && public == "message" && is_enumerable_probe {
+        if is_err_recv && is_enumerable_probe && (public == "message" || public == "stack") {
             continue;
         }
         let lit = ctx.intern_string_literal(public);

@@ -111,10 +111,22 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
         let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
         let layout = __torajs_struct_layout_lookup(class_tag);
         let mut emitted = false;
+        // §25.5.2 SerializeJSONObject walks EnumerableOwnProperties,
+        // and an error instance's `message` / `stack` are `E:false`
+        // (§20.5.6.1.1) — a layout field list cannot express that, so
+        // the two names are filtered here. `struct_enum::error_prop_skip`
+        // is the `Object.keys` twin of this test.
+        let is_error = crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR);
         if !layout.is_null() {
             let n = __torajs_struct_field_count(layout);
             for i in 0..n {
                 let name = __torajs_struct_field_name(layout, i);
+                if is_error {
+                    let key = core::slice::from_raw_parts(name.ptr, name.len);
+                    if key == b"message" || key == b"stack" {
+                        continue;
+                    }
+                }
                 let mut value: u64 = 0;
                 if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0
                 {

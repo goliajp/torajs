@@ -343,9 +343,13 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // `{ [[Writable]]: true, [[Enumerable]]: FALSE, [[Configurable]]:
     // true }` — the only struct field whose enumerable is not true.
     let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
-    let is_error_message = hdr_flags & FLAG_ERROR != 0
-        && key_len == 7
-        && unsafe { core::slice::from_raw_parts(key_bytes, 7) } == b"message";
+    let key_slice = unsafe { core::slice::from_raw_parts(key_bytes, key_len as usize) };
+    let is_error = hdr_flags & FLAG_ERROR != 0;
+    let is_error_message = is_error && key_slice == b"message";
+    // The `stack` header line shares msgDesc's `[[Enumerable]]:
+    // false` but is unconditionally own, so it joins the enumerable
+    // verdict below without an absence test of its own.
+    let is_error_nonenum = is_error_message || (is_error && key_slice == b"stack");
     if is_error_message && raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0 {
         return VALUE_UNDEFINED_IMM;
     }
@@ -369,7 +373,7 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     let sealed = frozen || unsafe { __torajs_obj_is_sealed_marked(cell) };
     let writable = if frozen { 0 } else { 1 };
     let configurable = if sealed { 0 } else { 1 };
-    let enumerable = if is_error_message { 0 } else { 1 };
+    let enumerable = if is_error_nonenum { 0 } else { 1 };
     unsafe {
         crate::reflect::build_data_descriptor(v_tag, v_val, writable, enumerable, configurable)
     }

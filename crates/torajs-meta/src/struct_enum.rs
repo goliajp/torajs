@@ -198,7 +198,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
     while i < n {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
-        if unsafe { error_message_skip(cell, layout, i, (kp, klen), include_nonenum) } {
+        if unsafe { error_prop_skip(cell, layout, i, (kp, klen), include_nonenum) } {
             i += 1;
             continue;
         }
@@ -219,14 +219,22 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
     }
 }
 
-/// RFC 20260718-error-message-own-prop — whether the enumeration
-/// walk skips this slot as the error-instance `message` property:
-/// the enumerable-only surfaces (`Object.keys` / for-in / values /
-/// entries, `include_nonenum = 0`) always skip it
-/// (§20.5.6.1.1 msgDesc [[Enumerable]]: false); the gOPN surface
-/// (`include_nonenum = 1`) skips only the own-ABSENT state (the
-/// undefined sentinel in the slot — no ctor message / deleted).
-unsafe fn error_message_skip(
+/// Whether the enumeration walk skips this slot under the ES §20.5
+/// error-instance property attributes. Two slots of the injected
+/// Error layout are NOT ordinary enumerable class fields:
+///
+/// - `message` — §20.5.6.1.1 msgDesc `{W:1, E:0, C:1}`, and own only
+///   when the ctor got one (RFC 20260718-error-message-own-prop).
+/// - `stack` — the same `{W:1, E:0, C:1}` shape, but unconditionally
+///   own: every construction writes a header line, so unlike
+///   `message` there is no absent state to test.
+///
+/// So the enumerable-only surfaces (`Object.keys` / for-in / values /
+/// entries, `include_nonenum = 0`) skip BOTH, while the gOPN surface
+/// (`include_nonenum = 1`) keeps `stack` and skips `message` only in
+/// its own-ABSENT state (the undefined sentinel in the slot — no
+/// ctor message / deleted).
+unsafe fn error_prop_skip(
     cell: *const c_void,
     layout: *const c_void,
     idx: u32,
@@ -234,7 +242,9 @@ unsafe fn error_message_skip(
     include_nonenum: i64,
 ) -> bool {
     let (kp, klen) = key;
-    if klen != 7 || unsafe { core::slice::from_raw_parts(kp, 7) } != b"message" {
+    let bytes = unsafe { core::slice::from_raw_parts(kp, klen) };
+    let is_message = bytes == b"message";
+    if !is_message && bytes != b"stack" {
         return false;
     }
     let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
@@ -243,6 +253,9 @@ unsafe fn error_message_skip(
     }
     if include_nonenum == 0 {
         return true;
+    }
+    if !is_message {
+        return false;
     }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
     let raw = unsafe {
@@ -334,7 +347,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
         // none, so a paired accessor contributed its value twice).
         let key = unsafe { slot_key(name.ptr, name.len) };
         if unsafe { key_already_emitted(layout, i, key) }
-            || unsafe { error_message_skip(cell, layout, i, key, 0) }
+            || unsafe { error_prop_skip(cell, layout, i, key, 0) }
         {
             i += 1;
             continue;
@@ -399,7 +412,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         // A get/set pair is ONE own property (the keys walk dedups the
         // same way).
         if unsafe { key_already_emitted(layout, i, (kp, klen)) }
-            || unsafe { error_message_skip(cell, layout, i, (kp, klen), 0) }
+            || unsafe { error_prop_skip(cell, layout, i, (kp, klen), 0) }
         {
             i += 1;
             continue;

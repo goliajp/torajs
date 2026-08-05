@@ -39,6 +39,7 @@
 
 mod composite;
 mod composite_obj;
+mod composite_obj_jsb;
 mod to_json;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};
@@ -126,7 +127,12 @@ pub(crate) fn lower_keyed(
 /// gap entry, which also receives the nesting level so an any-typed
 /// member of a statically unfolded composite keeps indenting from
 /// its parent's level instead of restarting at zero.
-fn emit_any_walk(ctx: &mut LowerCtx, val_op: Operand, gap: Option<Operand>, depth: u32) -> Operand {
+pub(super) fn emit_any_walk(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    gap: Option<Operand>,
+    depth: u32,
+) -> Operand {
     let v = match gap {
         Some(g) => ctx.f.append_inst(
             ctx.cur_block,
@@ -154,6 +160,19 @@ fn fe_peel(fe: Option<crate::check::Type>) -> Option<crate::check::Type> {
     match fe {
         Some(crate::check::Type::Nullable(inner)) => Some(*inner),
         other => other,
+    }
+}
+
+/// Whether the checker's type names an Error-derived class instance.
+/// Those receivers may not take the compile-time field unfold: two of
+/// the injected layout's slots (`message` / `stack`) are `E:false`
+/// per §20.5.6.1.1 and `message` may not be own at all, none of which
+/// a field-name list can express. The runtime walk reads the live
+/// attributes, so the Obj arm hands them over to it.
+fn fe_is_error_instance(ctx: &LowerCtx, fe: Option<&crate::check::Type>) -> bool {
+    match fe {
+        Some(crate::check::Type::ClassRef(n)) => ctx.class_is_error_derived(n),
+        _ => false,
     }
 }
 
@@ -232,11 +251,13 @@ fn lower_shape(
             composite::lower_arr(ctx, val_op, arr_id, fe_elem, gap, depth)
         }
         Type::Obj(sid) => {
-            let fe_fields = match fe_peel(fe) {
+            let peeled = fe_peel(fe);
+            let is_error = fe_is_error_instance(ctx, peeled.as_ref());
+            let fe_fields = match peeled {
                 Some(crate::check::Type::Struct(fs)) => Some(fs),
                 _ => None,
             };
-            composite_obj::lower_obj(ctx, val_op, sid, fe_fields, gap, depth)
+            composite_obj::lower_obj(ctx, val_op, sid, fe_fields, gap, depth, is_error)
         }
         Type::Ptr => {
             let p = ctx.intern_string_literal("null");
