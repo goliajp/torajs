@@ -169,3 +169,9 @@ pub unsafe extern "C" fn __torajs_syscall_write(_fd: i32, _buf: *const u8, _n: u
 pub unsafe extern "C" fn __torajs_str_print_err(_s: *const u8) {
     panic!("torajs-promise test stub: str_print_err should not be called from cargo test");
 }
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_write_err(_s: *const u8) {
+    panic!("torajs-promise test stub: str_write_err should not be called from cargo test");
+}

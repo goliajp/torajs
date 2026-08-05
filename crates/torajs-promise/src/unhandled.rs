@@ -51,6 +51,12 @@ unsafe extern "C" {
     /// plus a trailing newline to stderr. Defined in torajs-str
     /// (`crates/torajs-str/src/print.rs`).
     fn __torajs_str_print_err(s: *const u8);
+    /// `__torajs_str_write_err(s)` — the newline-free twin of
+    /// `__torajs_str_print_err`, for composing an Error's `name` and
+    /// `message` into a single reported line. NULL → no-op. Same
+    /// UTF-8 transcoding, so a Latin-1 / UTF-16 `message` renders
+    /// correctly rather than as raw payload bytes.
+    fn __torajs_str_write_err(s: *const u8);
     /// torajs-mmalloc libc-compat realloc / sized free — same
     /// externs `torajs_microtask::mt_grow` and `pool.rs` use.
     #[link_name = "__torajs_realloc"]
@@ -73,6 +79,38 @@ type ClosureCb = unsafe extern "C" fn(env: *mut c_void, reason: i64);
 /// this crate free of a torajs-rc dep (same independent-knowledge
 /// pattern `combinator.rs` uses for Array layout).
 const TAG_STR: u16 = 0;
+
+/// Universal heap-header `type_tag` for class instances
+/// (`torajs_rc::Tag::Obj`). Same mirrored-constant convention as
+/// [`TAG_STR`]; the value also appears as
+/// `layout::ALLSETTLED_OBJ_TAG`.
+const TAG_OBJ: u16 = 1;
+
+/// `torajs_rc::FLAG_ERROR` — header bit 7, set on Error-derived
+/// class instances by ssa_lower's `__new_<C>` factory codegen. It
+/// IS tr's [[ErrorData]] internal slot. Mirror of
+/// `torajs_throw::uncaught::FLAG_ERROR` (the uncaught-throw twin of
+/// this reporter) and `torajs_meta::struct_reflect::FLAG_ERROR`.
+const FLAG_ERROR: u16 = 1 << 7;
+
+/// Error instance field offsets. Obj layout is
+/// `[header:32][field0:8][field1:8]…`, and Error declares `message`
+/// first, then `name` — both Str pointers. Lockstep mirror of
+/// `torajs_throw::uncaught::OBJ_{MESSAGE,NAME}_OFF`; the header size
+/// is the same 32 as `layout::ALLSETTLED_OBJ_HEADER_SIZE`.
+const OBJ_MESSAGE_OFF: usize = 32;
+const OBJ_NAME_OFF: usize = 40;
+
+/// Str `length` field offset. The block is
+/// `[header:8][length:4][_pad:4][bytes:N]` — the count is a **u32**,
+/// and the u32 beside it is reserved padding whose value readers
+/// must not assume (`torajs_str::layout::STR_PAD_OFF`), so this is
+/// read at u32 width, never as a u64 spanning both.
+///
+/// Read only to decide whether a `message` is empty; the payload
+/// itself goes through `__torajs_str_write_err`, which does its own
+/// encoding-aware slicing.
+const STR_LEN_OFF: usize = 8;
 
 /// NaN-box "cell-like" gate — mirrors
 /// `torajs_value_drop::nan_box_is_cell_like` /
@@ -287,12 +325,26 @@ unsafe fn sweep_unhandled_list() {
     unsafe { tr_free(buf as *mut c_void, cap * core::mem::size_of::<i64>()) };
 }
 
-/// Default unhandled-rejection reporter. Writes `error: <reason>\n`
-/// to stderr and sets the process-global flag. Reason rendering:
+/// Default unhandled-rejection reporter. Writes one line to stderr
+/// and sets the process-global flag.
+///
+/// The line is `<label>: <detail>`, where the label is the literal
+/// `error` for every reason except an Error instance — there the
+/// Error's own `name` IS the label. That is bun's shape: it reports
+/// `Promise.reject("hi")` as `error: hi` but
+/// `Promise.reject(new TypeError("mine"))` as `TypeError: mine`,
+/// never stacking one label on the other.
+///
+/// Reason rendering:
 ///   - heap Str (real heap pointer, type_tag == 0) → reuse
 ///     `__torajs_str_print_err`, prefixed.
-///   - other real heap (Obj / Closure / RegExp / Date / Symbol /
-///     etc.) → `error: <object>\n` placeholder.
+///   - Error-derived instance (type_tag == Obj + FLAG_ERROR) →
+///     `name: message\n` read from the Error layout prefix, with
+///     `: message` omitted when the message is empty. Verbatim
+///     twin of `torajs_throw::__torajs_uncaught_exit_code`'s
+///     rendering, so tr's two error-report paths agree.
+///   - other real heap (Closure / RegExp / Date / Symbol / plain
+///     object / etc.) → `error: <object>\n` placeholder.
 ///   - NaN-box immediate (a Type::Any reason routed through the
 ///     `_heap` alloc path) → `error: <any>\n` placeholder.
 ///   - primitive (`value_is_heap == 0`) non-zero → `error: <value>\n`
@@ -335,6 +387,10 @@ unsafe fn fire_unhandled_reporter(pp: *mut Promise) {
             unsafe { __torajs_str_print_err(reason as *const u8) };
             return;
         }
+        if type_tag == TAG_OBJ && unsafe { (*header).flags } & FLAG_ERROR != 0 {
+            unsafe { report_error_instance(reason as *const u8) };
+            return;
+        }
         unsafe {
             __torajs_syscall_write(2, OBJ_PLACEHOLDER.as_ptr(), OBJ_PLACEHOLDER.len());
         }
@@ -357,6 +413,40 @@ unsafe fn fire_unhandled_reporter(pp: *mut Promise) {
         write_i64_decimal_stderr(reason);
         __torajs_syscall_write(2, b"\n".as_ptr(), 1);
     }
+}
+
+/// Report an Error-derived instance as `name: message\n`, the
+/// Error's own `name` standing in for the `error: ` label every
+/// other reason shape carries.
+///
+/// `: message` is omitted when the message is empty, matching the
+/// `Error.prototype.stack` first-line shape (`"Error"`, not
+/// `"Error: "`) and the uncaught-throw twin in
+/// `torajs_throw::uncaught`.
+///
+/// # Safety
+///
+/// `p` must point at a live `Tag::Obj` instance carrying
+/// [`FLAG_ERROR`]. A null `name` / `message` slot is tolerated
+/// rather than dereferenced: this reporter runs at process exit on
+/// a value nobody handled, so a partially-constructed Error must
+/// still yield a line rather than a fault.
+unsafe fn report_error_instance(p: *const u8) {
+    let name_ptr = unsafe { (p.add(OBJ_NAME_OFF) as *const usize).read() } as *const u8;
+    let msg_ptr = unsafe { (p.add(OBJ_MESSAGE_OFF) as *const usize).read() } as *const u8;
+
+    unsafe { __torajs_str_write_err(name_ptr) };
+
+    let msg_len = if msg_ptr.is_null() {
+        0
+    } else {
+        unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u32).read() as usize }
+    };
+    if msg_len > 0 {
+        unsafe { __torajs_syscall_write(2, b": ".as_ptr(), 2) };
+        unsafe { __torajs_str_write_err(msg_ptr) };
+    }
+    unsafe { __torajs_syscall_write(2, b"\n".as_ptr(), 1) };
 }
 
 /// Write `n` as a signed decimal to stderr. Stack buffer is sized

@@ -174,7 +174,9 @@ pub use lookup::{
 };
 pub use normalize::__torajs_str_normalize;
 pub use null_guard::__torajs_str_null_check;
-pub use print::{__torajs_str_print, __torajs_str_print_err, __torajs_substr_print};
+pub use print::{
+    __torajs_str_print, __torajs_str_print_err, __torajs_str_write_err, __torajs_substr_print,
+};
 pub use slice::__torajs_str_slice;
 pub use split::iter::{
     __torajs_split_iter_drop, __torajs_split_iter_init, __torajs_split_iter_next, SplitIter,

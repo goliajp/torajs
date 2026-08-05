@@ -157,29 +157,57 @@ pub fn format_print_err(payload: Option<(&[u8], bool)>) -> Vec<u8> {
     match payload {
         None => b"null\n".to_vec(),
         Some((bytes, is_latin1)) => {
-            // Worst-case capacity: every Latin-1 supplement byte
-            // expands to 2 bytes; every UTF-16 code unit expands
-            // up to 3 bytes (4 if it's a surrogate pair, but
-            // those cover 2 code units so the per-unit bound stays
-            // 3). Add 1 for the trailing newline.
-            let cap = if is_latin1 {
-                bytes.len() * 2 + 1
-            } else {
-                (bytes.len() / 2) * 3 + 1
-            };
-            let mut out = Vec::with_capacity(cap);
-            if is_latin1 {
-                for &b in bytes {
-                    write_utf8_for_latin1_byte(b, |u| out.push(u));
-                }
-            } else {
-                iter_utf16_codepoints(bytes, |cp| {
-                    write_utf8_for_codepoint(cp, |u| out.push(u));
-                });
-            }
+            let mut out = encode_payload_utf8(bytes, is_latin1, 1);
             out.push(b'\n');
             out
         }
+    }
+}
+
+/// Transcode a Str payload into UTF-8. Shared by
+/// [`format_print_err`] (which appends a newline) and
+/// [`format_write_err`] (which does not) — the transcoding is
+/// identical, only the line terminator differs.
+///
+/// `extra_cap` pre-pays for bytes the caller appends afterwards so
+/// the push can't reallocate. Worst-case payload capacity: every
+/// Latin-1 supplement byte expands to 2 bytes; every UTF-16 code
+/// unit expands up to 3 bytes (4 if it's a surrogate pair, but
+/// those cover 2 code units so the per-unit bound stays 3).
+#[inline]
+fn encode_payload_utf8(bytes: &[u8], is_latin1: bool, extra_cap: usize) -> Vec<u8> {
+    let cap = if is_latin1 {
+        bytes.len() * 2 + extra_cap
+    } else {
+        (bytes.len() / 2) * 3 + extra_cap
+    };
+    let mut out = Vec::with_capacity(cap);
+    if is_latin1 {
+        for &b in bytes {
+            write_utf8_for_latin1_byte(b, |u| out.push(u));
+        }
+    } else {
+        iter_utf16_codepoints(bytes, |cp| {
+            write_utf8_for_codepoint(cp, |u| out.push(u));
+        });
+    }
+    out
+}
+
+/// Compose the bytes [`__torajs_str_write_err`] writes — the same
+/// UTF-8 transcoding as [`format_print_err`] with **no** trailing
+/// newline, and NULL rendering as nothing rather than `"null"`.
+///
+/// The two differences are what make this the right primitive for
+/// composing a multi-part diagnostic line (an Error's `name`, then
+/// `": "`, then its `message`): the parts must not each terminate
+/// the line, and a NULL part of a partially-constructed value must
+/// contribute nothing rather than the word `null`.
+#[inline]
+pub fn format_write_err(payload: Option<(&[u8], bool)>) -> Vec<u8> {
+    match payload {
+        None => Vec::new(),
+        Some((bytes, is_latin1)) => encode_payload_utf8(bytes, is_latin1, 0),
     }
 }
 
@@ -318,6 +346,35 @@ pub unsafe extern "C" fn __torajs_str_print_err(s: *const u8) {
     crate::write_stderr(&format_print_err(payload));
 }
 
+/// Write `s`'s payload (UTF-8 transcoded from the Str's native
+/// encoding) to stderr with **no** trailing newline. NULL → no-op.
+///
+/// The newline-free twin of [`__torajs_str_print_err`], for
+/// diagnostics that compose several Str parts into one line — the
+/// unhandled-rejection reporter renders an Error as
+/// `name` + `": "` + `message`, which `print_err` could not spell
+/// because each part would terminate the line.
+///
+/// Transcoding matters here rather than a raw payload copy: a
+/// Latin-1 `message` such as `"café"` stores `0xE9`, which is not
+/// valid UTF-8 on its own and reaches the terminal as mojibake if
+/// written verbatim.
+///
+/// # Safety
+///
+/// `s` must be null or point at a live Str block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_write_err(s: *const u8) {
+    if s.is_null() {
+        return;
+    }
+    let length = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    let is_latin1 = unsafe { header_is_latin1(s) };
+    let payload_bytes = if is_latin1 { length } else { length * 2 };
+    let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), payload_bytes) };
+    crate::write_stderr(&format_write_err(Some((bytes, is_latin1))));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +382,30 @@ mod tests {
     #[test]
     fn format_null_yields_literal_string() {
         assert_eq!(format_print_err(None), b"null\n");
+    }
+
+    #[test]
+    fn write_err_null_yields_nothing() {
+        assert!(format_write_err(None).is_empty());
+    }
+
+    #[test]
+    fn write_err_omits_the_trailing_newline() {
+        assert_eq!(format_write_err(Some((b"hello", true))), b"hello");
+        assert!(format_write_err(Some((b"", true))).is_empty());
+    }
+
+    #[test]
+    fn write_err_transcodes_like_print_err() {
+        // 'é' = U+00E9 = Latin-1 byte 0xE9 → UTF-8 0xC3 0xA9. The
+        // whole point of routing the reporter through this instead
+        // of a raw payload copy.
+        assert_eq!(
+            format_write_err(Some((&[b'c', b'a', b'f', 0xE9], true))),
+            b"caf\xC3\xA9"
+        );
+        // UTF-16 'A' (0x0041 LE) decodes to one ASCII byte.
+        assert_eq!(format_write_err(Some((&[0x41, 0x00], false))), b"A");
     }
 
     #[test]
