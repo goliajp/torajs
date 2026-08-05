@@ -6,7 +6,7 @@
 //! prototype methods (`.return`, `.throw`, future iterator-
 //! protocol surface).
 
-use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
+use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, Visibility, default_init_for_type};
 
 const RET_VAL_PARAM: &str = "__ret_val";
 const THROW_ERR_PARAM: &str = "__err";
@@ -29,6 +29,33 @@ fn emit_close_state(ast: &mut Ast) -> Stmt {
         value: neg_one,
     });
     Stmt::Expr(assign_state)
+}
+
+/// `this.next(<the same default `next` itself declares>)` — the
+/// internal re-entry the region-bearing `.return` / `.throw` shapes
+/// use to resume the state machine.
+///
+/// The argument is passed EXPLICITLY rather than left to
+/// `apply_default_args`. That pass keys class-method defaults by bare
+/// name whenever it cannot resolve the receiver, and `this` inside a
+/// synthesized `__cm_*` body is exactly such a receiver — so a
+/// program containing any second owner of the name `next` (a user
+/// `class Cursor { next(step = 5) {} }`, or simply a generator on the
+/// other yield-type lane) evicted the shared entry and left this call
+/// unpadded: "expected 1 argument(s), got 0", reported against a call
+/// the compiler wrote itself. The value handed over is identical
+/// either way; what goes away is the dependency on a global table.
+fn emit_self_next_call(ast: &mut Ast, yield_ty: &str) -> ExprId {
+    let arg = ast.add_expr(default_init_for_type(yield_ty));
+    let this_recv = ast.add_expr(Expr::This);
+    let next_callee = ast.add_expr(Expr::Member {
+        obj: this_recv,
+        name: "next".into(),
+    });
+    ast.add_expr(Expr::Call {
+        callee: next_callee,
+        args: vec![arg],
+    })
 }
 
 /// Build the `Generator.prototype.return(value)` method per ES
@@ -104,17 +131,7 @@ pub(super) fn build_return_method(
             target: pending,
             value: true_lit,
         });
-        // `this.next()` — the arg pads via apply_default_args like
-        // every user `it.next()` call site.
-        let this_recv = ast.add_expr(Expr::This);
-        let next_callee = ast.add_expr(Expr::Member {
-            obj: this_recv,
-            name: "next".into(),
-        });
-        let call = ast.add_expr(Expr::Call {
-            callee: next_callee,
-            args: Vec::new(),
-        });
+        let call = emit_self_next_call(ast, yield_ty);
         vec![Stmt::Expr(stash), Stmt::Expr(arm), Stmt::Return(Some(call))]
     } else {
         let close_stmt = emit_close_state(ast);
@@ -158,6 +175,7 @@ pub(super) fn build_return_method(
 /// free of the `__inject` / `__thrown` fields.
 pub(super) fn build_throw_method(
     ast: &mut Ast,
+    yield_ty: &str,
     step_ann: &str,
     has_try_regions: bool,
 ) -> ClassMethod {
@@ -188,17 +206,7 @@ pub(super) fn build_throw_method(
             target: inj,
             value: true_lit,
         });
-        // `this.next()` — the arg pads via apply_default_args like
-        // every user `it.next()` call site.
-        let this_recv = ast.add_expr(Expr::This);
-        let next_callee = ast.add_expr(Expr::Member {
-            obj: this_recv,
-            name: "next".into(),
-        });
-        let call = ast.add_expr(Expr::Call {
-            callee: next_callee,
-            args: Vec::new(),
-        });
+        let call = emit_self_next_call(ast, yield_ty);
         vec![Stmt::Expr(stash), Stmt::Expr(arm), Stmt::Return(Some(call))]
     } else {
         let close_stmt = emit_close_state(ast);

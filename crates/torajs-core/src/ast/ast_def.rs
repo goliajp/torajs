@@ -517,6 +517,17 @@ pub struct Ast {
     /// `Object.getPrototypeOf(g())` answers) and `x instanceof g`
     /// dispatches on the class's tag set per §27.5.3 [[HasInstance]].
     pub generator_factory_classes: std::collections::HashMap<String, String>,
+    /// Hoisted generator locals whose declared type IS a generator
+    /// class: field name → `__Gen_<name>`. A local living across a
+    /// yield becomes a field of the enclosing `__Gen_*`, so a
+    /// receiver spelled `this.__yieldstar_it_3` is a Member read by
+    /// the time later passes see it, and the binding's annotation —
+    /// the only place its class was written down — is gone with the
+    /// `let`. Recorded here so `apply_default_args` can still resolve
+    /// such a receiver precisely instead of falling back to its
+    /// name-keyed method table. Field names are counter-minted and
+    /// therefore unique program-wide.
+    pub generator_local_classes: std::collections::HashMap<String, String>,
     /// Generator decls whose parameter list contained binding
     /// patterns: fn name → count of parser-synthesized destructuring
     /// `let` stmts prefixed to the body (parse_fn's param_destr_lets).

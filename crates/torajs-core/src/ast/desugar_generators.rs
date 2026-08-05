@@ -391,21 +391,28 @@ fn desugar_one_generator(
 /// carries, built together because they share the step-record
 /// annotation and the yield type.
 ///
-/// J.4 — `next()` takes an optional `__yield_arg: <yield_ty> = 0`
-/// parameter and stashes it in `this.__sent` before re-entering the
-/// state machine. YieldInto-expanded `let v = this.__sent` sites read
-/// that field to receive the value passed to `g.next(arg)`. The first
-/// call's arg is ignored per JS spec; tr's typed default uses
-/// zero/empty depending on the yield type.
+/// J.4 — `next()` takes an optional `__yield_arg: <yield_ty> =
+/// <zero>` parameter and stashes it in `this.__sent` before
+/// re-entering the state machine. YieldInto-expanded
+/// `let v = this.__sent` sites read that field to receive the value
+/// passed to `g.next(arg)`.
 ///
 /// The default is NOT `default_init_for_type(&yield_ty)` for the any
-/// lane: `apply_default_args` groups method defaults by NAME
-/// ("next"), so every `__Gen` class's `__yield_arg` default must stay
-/// shape-uniform — the first-seen class's default ExprId pads every
-/// `it.next()` call site. An any-lane `undefined` default here leaked
-/// into a number-lane `next()` (gate-caught: "argument 0: expected
-/// Number, got Undefined"). Since the first call's arg is ignored per
-/// spec, the numeric zero is only ever a placeholder.
+/// lane, even though §27.5.1.1.1 says a bare `next()` sends
+/// `undefined` and an `any` slot could hold it. `apply_default_args`
+/// groups method defaults by NAME ("next"), so every `__Gen` class's
+/// `__yield_arg` default has to stay shape-uniform — the first-seen
+/// class's default ExprId pads every `it.next()` call site whose
+/// receiver it cannot resolve, and an any-lane `undefined` leaks
+/// into a number-lane `next()` there. The visible cost is that the
+/// two spellings contradict each other: `it.next()` sends `0` where
+/// `it.next(undefined)` sends `undefined`.
+///
+/// Splitting the lanes has been tried twice and does not work
+/// piecemeal — rotations 305 and 306, both reverted, both measured;
+/// see RFC 20260805-generator-value-channels § "Splitting the lanes".
+/// The lanes come together only by making BOTH able to carry
+/// `undefined`, which is that RFC's subject.
 #[allow(clippy::too_many_arguments)]
 fn build_iterator_method_trio(
     ast: &mut Ast,
@@ -436,8 +443,12 @@ fn build_iterator_method_trio(
         has_finally_ret,
         is_async_gen,
     );
-    let throw_method =
-        crate::ast::desugar_generators_methods::build_throw_method(ast, step_ann, has_try_regions);
+    let throw_method = crate::ast::desugar_generators_methods::build_throw_method(
+        ast,
+        yield_ty,
+        step_ann,
+        has_try_regions,
+    );
     (next_method, return_method, throw_method)
 }
 

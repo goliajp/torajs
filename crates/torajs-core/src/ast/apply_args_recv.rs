@@ -30,29 +30,40 @@ pub(super) fn receiver_class(
             _ => None,
         },
         Expr::Ident(n) => recv_class.get(n).cloned(),
+        // A hoisted generator local, read back as a field of the
+        // enclosing `__Gen_*` — the desugar kept its declared class
+        // because the `let` that carried it is gone.
+        Expr::Member { name, .. } => ast.generator_local_classes.get(name).cloned(),
         _ => None,
     }
 }
 
-/// Top-level functions whose whole body is `return <new C(..)>`, as
-/// `name → C`. Calling one hands back a `C`, so a receiver bound to
-/// its result is as precisely resolved as one bound to `new C()`
-/// directly — the indirection is the only difference, and it is
-/// visible right here in the body.
+/// Thin factories, as `name → C`: calling one hands back a `C`, so a
+/// receiver bound to its result is as precisely resolved as one bound
+/// to `new C()` directly — the indirection is the only difference.
 ///
-/// `desugar_generators` emits exactly this shape: `function* g()`
-/// becomes a `__Gen_g` class plus the thin factory
-/// `function g(args) { return new __Gen_g(args); }`. Without this,
-/// `const it = g(); it.next()` had an unresolvable receiver and could
-/// only ask the name-keyed table — so a class declaring its own
-/// `next(step = 5)` anywhere in the program evicted the shared `next`
-/// entry and took every generator down with it:
-/// `it.next()` failed to compile ("expected 1 argument(s), got 0") on
-/// a program every engine runs, while the neighbouring `c.next()`
-/// resolved through its own class and worked.
+/// Two sources, because they cover different authors:
+///
+/// 1. **`ast.generator_factory_classes`.** `desugar_generators` turns
+///    `function* g()` into a `__Gen_g` class plus the thin factory
+///    `function g(args) { return new __Gen_g(args); }`, and records
+///    the pairing as it goes. Reading the record rather than
+///    re-deriving it from the body matters: a generator with a `try`
+///    region no longer has a single-`return` factory body by the time
+///    this pass runs, and shape inference alone therefore answered for
+///    plain generators but not for those (measured: `pk1.ts`, two
+///    generators differing only by an empty `try`/`finally`).
+/// 2. **A body that is exactly `return new C(..)`**, for the same
+///    thing written by hand.
+///
+/// Without either, `const it = g(); it.next()` had an unresolvable
+/// receiver and could only ask the name-keyed table — so one class
+/// declaring its own `next(step = 5)` evicted the shared `next` entry
+/// and took every generator in the program down with it, while the
+/// neighbouring `c.next()` resolved through its own class and worked.
 pub(super) fn collect_factory_classes(ast: &Ast) -> HashMap<String, String> {
     let empty = HashMap::new();
-    let mut out = HashMap::new();
+    let mut out = ast.generator_factory_classes.clone();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, body, .. } = s
             && let [Stmt::Return(Some(ret))] = body.as_slice()

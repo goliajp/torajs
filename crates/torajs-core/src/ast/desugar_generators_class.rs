@@ -54,6 +54,13 @@ pub(super) fn assemble_generator_class_and_factory(
     // next() body.
     for (lname, lty) in lifted_locals {
         class_fields.push((lname.clone(), lty.clone()));
+        // The `let`'s annotation is about to be the only record that
+        // this field holds a generator object — see
+        // `Ast::generator_local_classes`.
+        if lty.starts_with("__Gen_") {
+            ast.generator_local_classes
+                .insert(lname.clone(), lty.clone());
+        }
     }
     let mut ctor_body_with_params = ctor_body_base;
     for p in &gen_params {
