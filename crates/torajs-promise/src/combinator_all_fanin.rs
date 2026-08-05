@@ -40,7 +40,7 @@ use core::ffi::c_void;
 
 use crate::combinator::{absorb_inputs, arr_len, arr_slot_ptr};
 use crate::layout::{
-    Promise, REPR_HEAP, REPR_UNSTAMPED, STATE_FULFILLED, STATE_REJECTED, as_promise,
+    Promise, REPR_ANY, REPR_HEAP, REPR_UNSTAMPED, STATE_FULFILLED, STATE_REJECTED, as_promise,
 };
 use crate::pool::__torajs_promise_drop;
 use crate::state::__torajs_promise_attach_then;
@@ -100,10 +100,21 @@ pub(crate) struct AllBlock {
     /// rather than parked as box bits. `elem_repr` above describes the
     /// RESULT array's slots, which for allSettled are always records.
     pub(crate) record_value_repr: u8,
-    /// The input carried NaN-box slots, so `all`'s result must too: its
-    /// elements have no single static form to share. allSettled's
-    /// result is a record array either way.
+    /// The input carried NaN-box slots, so its elements are reached
+    /// through the any-slot walk rather than as raw promise pointers.
+    /// This is about READING the input; what the result holds is
+    /// `result_any`.
     pub(crate) input_any: u8,
+    /// `all`'s result array holds NaN-box slots, because its elements
+    /// have no single static form to share. Two independent reasons
+    /// reach this, which is why it is not the same bit as `input_any`:
+    /// the input was any-shape (so the elements were never described),
+    /// or the CALL SITE typed the result element `any` — the
+    /// heterogeneous `Promise.all([Promise<number>, Promise<string>])`,
+    /// which the checker types `Promise<Array(Any)>` while every input
+    /// slot is still a plain promise pointer. allSettled's result is a
+    /// record array either way.
+    pub(crate) result_any: u8,
 }
 
 #[repr(C)]
@@ -200,13 +211,15 @@ pub(crate) unsafe fn fan_in(
             (*as_promise(result)).value_is_heap = 1;
         }
 
-        // `any` fills an `errors` list; `all` over an any-shape input
-        // answers an any-shape array (its elements have no single
-        // static form to share); everything else is a raw-slot array
-        // the jobs overwrite by index.
+        // `any` fills an `errors` list; `all` answers an any-shape array
+        // whenever its elements have no single static form to share (see
+        // `AllBlock::result_any` for the two ways that happens);
+        // everything else is a raw-slot array the jobs overwrite by
+        // index.
+        let result_any = mode == MODE_ALL && (input_any || target_repr == REPR_ANY);
         let result_arr = if mode == MODE_ANY {
             crate::combinator_aggregate::alloc_errors(len)
-        } else if input_any && mode == MODE_ALL {
+        } else if result_any {
             crate::combinator_any::alloc_any_result(len)
         } else {
             let mut a = __torajs_arr_alloc(len);
@@ -241,6 +254,7 @@ pub(crate) unsafe fn fan_in(
             REPR_UNSTAMPED
         };
         (*b).input_any = u8::from(input_any);
+        (*b).result_any = u8::from(result_any);
         __torajs_rc_inc(result);
 
         for i in 0..len {

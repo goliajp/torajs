@@ -12,7 +12,7 @@
 use core::ffi::c_void;
 
 use crate::combinator::{repr_arr_kind_chain, unbox_target};
-use crate::combinator_all_fanin::{AllBlock, MODE_ALL, MODE_ALLSETTLED, MODE_ANY};
+use crate::combinator_all_fanin::{AllBlock, MODE_ALLSETTLED, MODE_ANY};
 use crate::layout::{Promise, REPR_ANY, REPR_HEAP, REPR_UNSTAMPED, STATE_FULFILLED, as_promise};
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
 
@@ -67,13 +67,18 @@ pub(crate) unsafe fn store_element(b: *mut AllBlock, index: u64, ep: *mut Promis
             store_slot((*b).result_arr, index, rec as i64);
             return;
         }
-        if (*b).input_any != 0 && (*b).mode == MODE_ALL {
+        if (*b).result_any != 0 {
             // The result is an `Array<Any>`; its slots hold boxes, and
             // the array keeps its own stake on each (`box_settled_owned`
             // incs, NaN-box aware so immediates pass through). An
             // UNSTAMPED element has no form to box from — the sync
             // sibling refuses those up front, and undefined keeps this
             // total without a panic path.
+            //
+            // Note this reads the ELEMENT PROMISE's settled value, not
+            // an input slot: it is indifferent to how the input was
+            // shaped, which is why the heterogeneous-input case can
+            // reach it too (`AllBlock::result_any`).
             let boxed = crate::combinator_any::box_settled_owned((*ep).value_repr, (*ep).value)
                 .unwrap_or_else(|| crate::combinator_any::box_undefined());
             store_slot((*b).result_arr, index, boxed as i64);
@@ -142,12 +147,13 @@ unsafe fn fulfil(b: *mut AllBlock) {
     unsafe {
         let arr = (*b).result_arr;
         let rp = as_promise((*b).result);
-        // Only `all` over an any-shape input answers an any-shape array;
-        // allSettled's result is a raw-slot array of record cells either
-        // way, and it still needs its chain mark — the same condition
-        // the allocation above is chosen by. Getting this wrong left the
-        // records unmarked and the any lane read them as nulls.
-        if (*b).input_any != 0 && (*b).mode == MODE_ALL {
+        // Only `all` answers an any-shape array, and only when its
+        // elements share no static form; allSettled's result is a
+        // raw-slot array of record cells either way, and it still needs
+        // its chain mark — the same condition the allocation above is
+        // chosen by. Getting this wrong left the records unmarked and
+        // the any lane read them as nulls.
+        if (*b).result_any != 0 {
             // An `Array<Any>` describes its own slots; there is no
             // elem-kind chain to mark.
             (*rp).value_is_heap = 1;

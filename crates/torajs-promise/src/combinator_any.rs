@@ -200,6 +200,41 @@ pub(crate) unsafe fn all_sync_any(promises_arr: *mut c_void) -> *mut c_void {
     }
 }
 
+/// `Promise.all` over a RAW-slot input whose result must still be
+/// any-shape — the sibling of `all_sync_any` above, reading the other
+/// kind of input.
+///
+/// Both build the same NaN-box result array; they differ only in where
+/// the element promises come from. `all_sync_any`'s input carries
+/// NaN-box slots, so its elements were never statically described. Here
+/// every input slot is a plain promise pointer — an `Array<Promise<T>>`
+/// the typed tier calls homogeneous, because `Type::Promise` is
+/// inner-erased and hides that the T's differ. What gives it away is
+/// the CALL SITE: the checker types a heterogeneous `Promise.all`
+/// `Promise<Array(Any)>` and hands that down as `target_repr`.
+///
+/// The caller has already pre-scanned for a rejected element, so every
+/// slot here is fulfilled.
+pub(crate) unsafe fn all_sync_boxed_from_typed(promises_arr: *mut c_void, len: u64) -> *mut c_void {
+    unsafe {
+        let out = alloc_any_result(len);
+        for i in 0..len {
+            let pp = crate::combinator::arr_slot_ptr(promises_arr, i);
+            // A NULL slot has no value to contribute, and an UNSTAMPED
+            // one has no form to box from; undefined keeps both total,
+            // the way the fan-in sibling's store does.
+            let bits = if pp.is_null() {
+                box_undefined()
+            } else {
+                box_settled_owned((*pp).value_repr, (*pp).value).unwrap_or_else(|| box_undefined())
+            };
+            crate::combinator_fanin_slot::store_slot(out, i, bits as i64);
+        }
+        // An `Array<Any>` describes its own slots — no chain to mark.
+        crate::combinator::settle_result(len, STATE_FULFILLED, out as i64, 1, REPR_HEAP)
+    }
+}
+
 /// `Promise.allSettled` over an `Array<Any>` (§27.2.4.3). Every
 /// element lands in the result as a settled record — `{status, value}`
 /// when fulfilled, `{status, reason}` when rejected, which is why

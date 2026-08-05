@@ -261,7 +261,16 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
             elem_repr = unbox_target(src, target_repr).unwrap_or(src);
         }
     }
-    // All fulfilled — build the result Array.
+    // All fulfilled. The call site typed the result element `any`, so
+    // the elements share no raw form and the result has to carry
+    // NaN-box slots — the shape an any-shape INPUT already produces,
+    // reached here for the other reason (`AllBlock::result_any` names
+    // both). Without this the loop below picked ONE element's form and
+    // read every slot through it, which is silent for a heterogeneous
+    // input: a Str pointer read as a number, `true` read as 1.
+    if target_repr == REPR_ANY {
+        return unsafe { crate::combinator_any::all_sync_boxed_from_typed(promises_arr, len) };
+    }
     let chain = repr_arr_kind_chain(elem_repr);
     // A heap-chained result array DROPS every non-null slot once its
     // last owner dies (`__torajs_arr_drop_heap` walks them all), while
