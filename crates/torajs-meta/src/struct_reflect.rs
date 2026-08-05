@@ -413,9 +413,21 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // matches spec / bun.
     let frozen = unsafe { __torajs_obj_is_frozen(cell) };
     let sealed = frozen || unsafe { __torajs_obj_is_sealed_marked(cell) };
-    let writable = if frozen { 0 } else { 1 };
-    let configurable = if sealed { 0 } else { 1 };
-    let enumerable = if is_error_nonenum { 0 } else { 1 };
+    let mut writable = u64::from(!frozen);
+    let mut configurable = u64::from(!sealed);
+    let mut enumerable = u64::from(!is_error_nonenum);
+    // RFC 20260806-declared-field-redefine — a field that was
+    // redefined carries its attributes in the sidecar, which then
+    // outranks all three defaults above. The VALUE is unaffected: it
+    // never left the layout slot read at the top of this fn.
+    if let Some(attrs) = unsafe { crate::struct_field_attrs::sidecar_attrs(cell, key) } {
+        use crate::struct_field_attrs::{
+            BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
+        };
+        writable = u64::from(attrs & BUCKET_FLAG_WRITABLE != 0);
+        enumerable = u64::from(attrs & BUCKET_FLAG_ENUMERABLE != 0);
+        configurable = u64::from(attrs & BUCKET_FLAG_CONFIGURABLE != 0);
+    }
     unsafe {
         crate::reflect::build_data_descriptor(v_tag, v_val, writable, enumerable, configurable)
     }

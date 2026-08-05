@@ -135,6 +135,14 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                         continue;
                     }
                 }
+                // RFC 20260806-declared-field-redefine — the same
+                // filter one line up, for an enumerability USER code
+                // moved rather than the spec fixing. Free on any
+                // instance never passed to defineProperty (the kernel
+                // gates on a header bit).
+                if __torajs_obj_field_is_nonenumerable(ptr, name.ptr, name.len as u32) != 0 {
+                    continue;
+                }
                 let mut value: u64 = 0;
                 if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0
                 {

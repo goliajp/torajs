@@ -198,7 +198,9 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
     while i < n {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
-        if unsafe { error_prop_skip(cell, layout, i, (kp, klen), include_nonenum) } {
+        if unsafe { error_prop_skip(cell, layout, i, (kp, klen), include_nonenum) }
+            || (include_nonenum == 0 && unsafe { field_hidden_by_sidecar(cell, kp, klen) })
+        {
             i += 1;
             continue;
         }
@@ -240,6 +242,23 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
 /// the gOPN surface (`include_nonenum = 1`) keeps `stack`, and both
 /// skip a slot sitting in its own-ABSENT state — the undefined
 /// sentinel, which for `name` is the ordinary case.
+/// Does a sidecar hide this declared field from the enumerable-only
+/// surfaces (RFC 20260806-declared-field-redefine)?
+///
+/// The twin of [`error_prop_skip`] for attributes that USER code moved
+/// rather than the spec fixing: `Object.defineProperty(c, "f",
+/// {enumerable: false})`. Same shape, same three call sites, and the
+/// same reason for existing — a layout field list cannot express an
+/// enumerability that is not `true`.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer; `kp`/`klen` name a field.
+unsafe fn field_hidden_by_sidecar(cell: *const c_void, kp: *const u8, klen: usize) -> bool {
+    unsafe {
+        crate::struct_field_attrs::__torajs_obj_field_is_nonenumerable(cell, kp, klen as u32) != 0
+    }
+}
+
 unsafe fn error_prop_skip(
     cell: *const c_void,
     layout: *const c_void,
@@ -361,6 +380,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
         let key = unsafe { slot_key(name.ptr, name.len) };
         if unsafe { key_already_emitted(layout, i, key) }
             || unsafe { error_prop_skip(cell, layout, i, key, 0) }
+            || unsafe { field_hidden_by_sidecar(cell, key.0, key.1) }
         {
             i += 1;
             continue;
@@ -426,6 +446,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         // same way).
         if unsafe { key_already_emitted(layout, i, (kp, klen)) }
             || unsafe { error_prop_skip(cell, layout, i, (kp, klen), 0) }
+            || unsafe { field_hidden_by_sidecar(cell, kp, klen) }
         {
             i += 1;
             continue;

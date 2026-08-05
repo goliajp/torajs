@@ -40,6 +40,7 @@
 mod composite;
 mod composite_obj;
 mod composite_obj_jsb;
+mod exotic_gate;
 mod to_json;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};
@@ -257,7 +258,7 @@ fn lower_shape(
                 Some(crate::check::Type::Struct(fs)) => Some(fs),
                 _ => None,
             };
-            composite_obj::lower_obj(ctx, val_op, sid, fe_fields, gap, depth, is_error)
+            exotic_gate::lower_obj_gated(ctx, val_op, sid, fe_fields, gap, depth, is_error)
         }
         Type::Ptr => {
             let p = ctx.intern_string_literal("null");

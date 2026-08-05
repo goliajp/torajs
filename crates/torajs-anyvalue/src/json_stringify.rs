@@ -85,6 +85,14 @@ unsafe extern "C" {
     // (`torajs-meta::struct_enum`).
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_count(layout: *const c_void) -> u32;
+    /// torajs-meta — the declared-field enumerability filter (RFC
+    /// 20260806-declared-field-redefine); a header-bit no-op unless
+    /// the instance was actually redefined.
+    pub(crate) fn __torajs_obj_field_is_nonenumerable(
+        cell: *const c_void,
+        name: *const u8,
+        name_len: u32,
+    ) -> i64;
     fn __torajs_struct_field_name(layout: *const c_void, idx: u32) -> StructFieldName;
     // Fill `out_anyv` with the field's value as a BORROWED NaN-box;
     // returns 1 on hit, 0 for missing layout / absent field.

@@ -107,10 +107,22 @@ pub(crate) fn lower_struct_field_store(
     // bun's strict-mode throw on `Object.freeze(o); o.field = ...`.
     // ~3-cycle overhead on the unfrozen path (single load + and + cmp
     // + branch-not-taken after LLVM inlines the call body).
+    //
+    // RFC 20260806-declared-field-redefine widened the question the
+    // guard asks: a field demoted to `writable: false` by
+    // defineProperty must refuse the store too, and its record lives
+    // in the instance's sidecar. The field NAME therefore rides along
+    // as a static literal (no rc traffic), and the header test that
+    // was already happening covers both bits at once — an instance
+    // that is neither frozen nor redefined pays exactly what it did.
     let cur_block = ctx.cur_block;
+    let name_str = ctx.intern_string_literal(field);
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(ctx.intrinsics.obj_check_not_frozen, vec![obj_val]),
+        InstKind::Call(
+            ctx.intrinsics.obj_check_field_writable,
+            vec![obj_val, Operand::Value(name_str)],
+        ),
     );
     // P7.4-frozen — obj_check_not_frozen now arms a real TypeError
     // (instead of process abort) when the target is frozen. Force

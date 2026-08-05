@@ -30,6 +30,7 @@ pub mod define;
 pub mod define_all;
 pub mod define_from_desc;
 pub mod define_redefine;
+pub mod define_struct;
 pub mod define_wrapper;
 pub mod delete;
 pub mod drop;

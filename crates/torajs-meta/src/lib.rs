@@ -51,6 +51,7 @@ pub mod reflect_proto_set;
 pub mod str_descriptor;
 pub mod string_raw;
 pub mod struct_enum;
+pub mod struct_field_attrs;
 pub mod struct_print;
 pub mod struct_reflect;
 pub mod subclass_instance;

@@ -71,6 +71,13 @@ pub(crate) unsafe fn for_each_enumerable_expando(
         if key.is_null() || unsafe { key_is_proto_slot(key) } {
             continue;
         }
+        // RFC 20260806-declared-field-redefine — a declared name in
+        // the dict is the field's ATTRIBUTE SIDECAR, not a second own
+        // property, and its `value_anyv` is filler. The field itself
+        // is enumerated from the layout.
+        if unsafe { crate::struct_field_attrs::layout_declares(cell, key) } {
+            continue;
+        }
         let tag = unsafe { __torajs_dynobj_get_tag(props, key.cast::<u8>()) };
         let value = unsafe { __torajs_dynobj_get_value(props, key.cast::<u8>()) };
         f(key, tag, value);
@@ -124,14 +131,18 @@ pub(crate) unsafe fn struct_keys_with_expandos(
         if key.is_null() || unsafe { key_is_proto_slot(key) } {
             continue;
         }
+        // A declared name in the dict is the field's attribute
+        // sidecar (RFC 20260806-declared-field-redefine) — the field
+        // is already in `static_names`, and listing the sidecar
+        // beside it would be the same key twice.
+        if unsafe { crate::struct_field_attrs::layout_declares(cell, key) } {
+            continue;
+        }
         if unsafe { key_is_canonical_index(key) } {
             exp_ints.push((unsafe { index_key_value(key) }, key));
         } else {
             exp_tail.push(key);
         }
-    }
-    if exp_ints.is_empty() && exp_tail.is_empty() {
-        return static_names;
     }
     // Split the static list the same way (BORROWED cells into the
     // owned source array — the rebuilt array takes fresh shares and
@@ -152,9 +163,21 @@ pub(crate) unsafe fn struct_keys_with_expandos(
     };
     let mut int_keys: Vec<(u64, *mut c_void)> = Vec::new();
     let mut static_tail: Vec<*mut c_void> = Vec::new();
+    let mut dropped_static = false;
     for i in 0..s_len {
         let key = unsafe { s_data.add(i as usize).read() } as *mut c_void;
         if key.is_null() {
+            continue;
+        }
+        // A field redefined to `enumerable: false` leaves Object.keys
+        // and for-in, but `getOwnPropertyNames` still wants it — the
+        // sidecar is the only place that distinction is recorded, the
+        // layout row having no room for it.
+        if include_nonenum == 0
+            && unsafe { crate::struct_field_attrs::sidecar_attrs(cell, key) }
+                .is_some_and(|attrs| attrs & FLAG_ENUMERABLE == 0)
+        {
+            dropped_static = true;
             continue;
         }
         if unsafe { key_is_canonical_index(key) } {
@@ -162,6 +185,11 @@ pub(crate) unsafe fn struct_keys_with_expandos(
         } else {
             static_tail.push(key);
         }
+    }
+    // Nothing folded in and nothing filtered out — hand the static
+    // list back untouched rather than rebuild it verbatim.
+    if exp_ints.is_empty() && exp_tail.is_empty() && !dropped_static {
+        return static_names;
     }
     int_keys.extend(exp_ints);
     int_keys.sort_by_key(|(v, _)| *v);

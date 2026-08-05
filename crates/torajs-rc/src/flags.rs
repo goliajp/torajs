@@ -24,7 +24,7 @@
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
-//! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) | disjoint-by-tag |
+//! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) / [`FLAG_OBJ_EXOTIC_FIELD`] (Obj) | disjoint-by-tag |
 //!
 //! Bits 13-14 look free in a flag-constants-only read but are painted
 //! by the cycle collector on EVERY tag: buffering a candidate sets
@@ -142,6 +142,21 @@ pub const FLAG_CLASS_METHOD_THIS_FREE: u16 = 1 << 6;
 /// expando props dynobj; readers (gOPD / element writes / delete)
 /// fast-path on this bit staying clear. Bit 15 is Tag::Arr-private.
 pub const FLAG_ARR_EXOTIC_INDEX: u16 = 1 << 15;
+/// `Tag::Obj` class instance carries at least one DECLARED field with
+/// non-default property attributes (RFC
+/// 20260806-declared-field-redefine) — the exact mirror of
+/// [`FLAG_ARR_EXOTIC_INDEX`] one tag over, down to the mechanism: the
+/// attributes live as a shadow entry (field-name key, value slot
+/// dead) in the instance's `+24` expando dict, and readers fast-path
+/// on this bit staying clear.
+///
+/// It is what lets the typed `o.field = v` store stay one store. That
+/// site already loads the header to check FROZEN, so the writability
+/// question costs it one wider immediate in the same test — and the
+/// dict is consulted only on an instance that was actually
+/// redefined. Bit 15 is Tag::Obj-private (disjoint-by-tag reuse of
+/// Arr's exotic-index bit and Closure's `prototype` bit).
+pub const FLAG_OBJ_EXOTIC_FIELD: u16 = 1 << 15;
 /// `Tag::Arr` `length` property lock (RFC 20260712-arr-exotic-define
 /// chunk D) — `Object.defineProperty(arr, "length", {writable:
 /// false})` sets it; every later length mutation (assign / define /
