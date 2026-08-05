@@ -47,6 +47,9 @@ pub(crate) struct LiftCtx<'a> {
 /// * **`undefined`** — JS's untyped slot is `any`, and `number` made
 ///   the difference observable: a local holding `undefined` printed
 ///   `0`.
+/// * **a call of a class's generator method** — see
+///   `gen_method_call_ann`. The shared sniff's method table is keyed
+///   on `string` / `T[]` receivers and answers None for a user class.
 ///
 /// `infer_expr_ann_with` cannot answer this one: its `Expr::Closure`
 /// arm reads a signature `preinfer_closure_sigs` publishes under the
@@ -67,6 +70,32 @@ pub(crate) struct LiftCtx<'a> {
 /// does not; guessing `any` here would pin the field against whatever
 /// that pass concludes, which is the failure this whole change exists
 /// to stop repeating.
+/// The iterator class `recv.m()` answers when `m` is a generator
+/// method of the class `recv` holds, or None for every other call.
+///
+/// The parser hoists `class C { *m() {} }` into a top-level
+/// `function* __cm_gen_C__m(__genrecv, ..)` plus an ordinary
+/// forwarder method (`parse_class_decl_generator`), so by the time
+/// this pass runs `fn_sigs` already carries that hoisted name and the
+/// `__Gen_*` class this pass is about to mint for it. The receiver's
+/// class was the missing half, and knife 3's `new C()` arm now
+/// supplies it: `const b = new Box(); const it = b.each()` had `it`
+/// take the `number` fallback, and the checker — which types the call
+/// correctly — rejected the store outright ("field is Number, value
+/// is ClassRef(`__Gen___cm_gen_Box__each`)").
+///
+/// Answered here rather than in the shared sniff for the same reason
+/// `New` is: the shared sniff has no notion of the hoisted spelling,
+/// and teaching it one reaches all of its callers.
+fn gen_method_call_ann(ast: &Ast, callee: super::ExprId, ctx: &LiftCtx) -> Option<String> {
+    let Expr::Member { obj, name } = ast.get_expr(callee) else {
+        return None;
+    };
+    let recv = super::infer_expr_ann_with(&ast.exprs, *obj, ctx.params, &ctx.binds, ctx.fn_sigs)?;
+    let hoisted = format!("{}{recv}__{name}", super::GEN_METHOD_PREFIX);
+    ctx.fn_sigs.get(&hoisted).cloned()
+}
+
 fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
     let (params, return_type, body) = match ast.get_expr(init) {
         Expr::ArrowFn {
@@ -76,6 +105,7 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         } => (params, return_type, body),
         Expr::New { class_name, .. } => return Some(class_name.clone()),
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),
+        Expr::Call { callee, .. } => return gen_method_call_ann(ast, *callee, ctx),
         _ => return None,
     };
     let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
