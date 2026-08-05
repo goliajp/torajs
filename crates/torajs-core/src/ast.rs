@@ -3,6 +3,7 @@
 mod apply_args;
 mod apply_args_materialize;
 mod apply_args_recv;
+mod apply_rest_args;
 mod apply_spread;
 mod apply_spread_hoist;
 mod apply_spread_math;
@@ -107,8 +108,9 @@ mod this_param;
 mod toplevel_this;
 mod uninit_let;
 mod var_hoist;
-pub use apply_args::{apply_default_args, apply_rest_args};
+pub use apply_args::apply_default_args;
 pub use apply_args_materialize::materialize_expr_defaults;
+pub use apply_rest_args::apply_rest_args;
 pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
 pub use class_globals::synthesize_class_globals;
