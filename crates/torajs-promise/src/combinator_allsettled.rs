@@ -43,8 +43,37 @@ unsafe extern "C" {
 /// that buries a value where the awaiting site's own repr decode cannot
 /// reach it. It read as box bits (`{"value":-562949953421311}`) and was
 /// invisible until the records became readable at all.
+/// The record's value slot, and whether the CALLER still owes a raw
+/// `rc_inc` for what is in it.
+///
+/// Two ways that slot gets paid for. Normally the record co-owns a
+/// heap-typed field and the caller incs the pointer. But when the
+/// field is typed `any` the slot holds a NaN box, whose share has to
+/// go through the box-aware path instead — a boxed immediate is not an
+/// address, and incrementing it would write through a non-pointer. So
+/// that case settles its own ownership here and answers `false`.
 #[inline]
 pub(crate) unsafe fn record_slot(src_repr: u8, target_repr: u8, v: i64) -> (i64, bool) {
+    // A heterogeneous input types the field `any` — the checker says
+    // `{status, value: Any}` for `allSettled([resolve(2), resolve("s")])`
+    // — so the slot has to carry a box. Without this a number's raw
+    // bits sat where everything downstream decodes a box and read back
+    // as null, while a string happened to survive: exactly the shape
+    // that makes a representation bug look like a per-type one.
+    if target_repr == REPR_ANY {
+        let boxed = if src_repr == REPR_ANY {
+            // Already a box; take one more share, box-aware.
+            unsafe { crate::combinator_any::box_share(v as u64) };
+            v
+        } else {
+            unsafe {
+                crate::combinator_any::box_settled_owned(src_repr, v)
+                    .unwrap_or_else(|| crate::combinator_any::box_undefined())
+                    as i64
+            }
+        };
+        return (boxed, false);
+    }
     (
         unsafe { record_value(src_repr, target_repr, v) },
         value_field_is_owned(target_repr),
@@ -196,11 +225,12 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
             result_arr = unsafe { __torajs_arr_push(result_arr, s as i64) };
             continue;
         }
-        let v = unsafe { record_value((*pp).value_repr, value_repr, (*pp).value) };
+        let (v, owed) = unsafe { record_slot((*pp).value_repr, value_repr, (*pp).value) };
         let s = unsafe { alloc_settled_struct((*pp).state, v, record_tags) };
         // T-17.c-A3 — the record co-owns a heap-typed inner value, so
-        // inc to pair the drop its layout walk will perform.
-        if value_field_is_owned(value_repr) && v != 0 {
+        // inc to pair the drop its layout walk will perform. An `any`
+        // field has already settled its own share inside `record_slot`.
+        if owed && v != 0 {
             unsafe { __torajs_rc_inc(v as *mut c_void) };
         }
         result_arr = unsafe { __torajs_arr_push(result_arr, s as i64) };
