@@ -7,11 +7,6 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
-use crate::ssa_lower::{
-    CLOSURE_CAP_BASE_OFF, CLOSURE_DROP_FN_OFF, CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF,
-    intern_fn_sig,
-};
-use crate::ssa_lower_promise_thunk::PTHUNK_ENV_SIZE;
 
 impl crate::ssa_lower::LowerCtx<'_> {
     /// ②.6b — candidate slot keys for a promise-typed `obj` expr,
@@ -97,137 +92,6 @@ impl crate::ssa_lower::LowerCtx<'_> {
             }
             other => other,
         }
-    }
-
-    /// ②.6b — wrap an f64-faced `.then` / `.catch` handler in its
-    /// synthesized bits-ABI adapter. The promise runtime invokes
-    /// every handler as `(env, i64) -> i64` raw bits; a callback
-    /// whose negotiated signature carries an F64 face would cross
-    /// that boundary in the wrong register bank. The wrap is a
-    /// closure-shaped env (fn slot → thunk, capture 0 → the real
-    /// callback) so the runtime's closure dispatcher works unchanged.
-    /// Integral-faced callbacks pass through untouched.
-    pub(crate) fn maybe_wrap_promise_cb(&mut self, cb_op: Operand) -> Operand {
-        let cb_ty = self.operand_ty(&cb_op);
-        let (sid, is_closure) = match cb_ty {
-            Type::Closure(s) => (s, true),
-            Type::FnSig(s) => (s, false),
-            _ => return cb_op,
-        };
-        let (params, ret) = self.fn_sigs[sid.0 as usize].clone();
-        let p = params.first() == Some(&Type::F64);
-        let r = ret == Type::F64;
-        if !p && !r {
-            return cb_op;
-        }
-        let Some((thunk_fid, thunk_sig)) = self.promise_thunks.get(is_closure, p, r) else {
-            return cb_op;
-        };
-        let drop_pair = if is_closure {
-            self.promise_thunks.drop_closure
-        } else {
-            self.promise_thunks.drop_fnsig
-        };
-        let Some((drop_fid, drop_sig)) = drop_pair else {
-            return cb_op;
-        };
-        let wrap_user_sig = intern_fn_sig(self.fn_sigs, vec![Type::I64], Type::I64);
-        let wrap_ty = Type::Closure(wrap_user_sig);
-        let env_v = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(
-                self.intrinsics.obj_alloc,
-                vec![Operand::ConstI64(PTHUNK_ENV_SIZE)],
-            ),
-            wrap_ty,
-            None,
-        );
-        // Universal heap header: refcount=1, type_tag=CLOSURE=3.
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::ConstI32(1), Operand::Value(env_v), 0),
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::ConstI32(3), Operand::Value(env_v), 4),
-        );
-        let thunk_addr = self.f.append_inst(
-            self.cur_block,
-            InstKind::FnAddr(thunk_fid),
-            Type::FnSig(thunk_sig),
-            None,
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(
-                Operand::Value(thunk_addr),
-                Operand::Value(env_v),
-                CLOSURE_FN_ADDR_OFF,
-            ),
-        );
-        let drop_addr = self.f.append_inst(
-            self.cur_block,
-            InstKind::FnAddr(drop_fid),
-            Type::FnSig(drop_sig),
-            None,
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(
-                Operand::Value(drop_addr),
-                Operand::Value(env_v),
-                CLOSURE_DROP_FN_OFF,
-            ),
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(
-                Operand::ConstI64(0),
-                Operand::Value(env_v),
-                CLOSURE_PROPS_OFF,
-            ),
-        );
-        // boxed_entry — the pthunk wrap is promise-internal, never
-        // reachable as an any-world callee; stays 0.
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(
-                Operand::ConstI64(0),
-                Operand::Value(env_v),
-                crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
-            ),
-        );
-        // trace_fn — closure inners store the shared cap0 trace so
-        // the collector walks the wrapped-callback edge (RFC 20260717
-        // residual ①); fnsig inners hold a raw code address in cap0
-        // (not a cell — a code address could even pass the collector's
-        // cell-like gate) and keep 0. obj_alloc is plain malloc, so
-        // the 0 must be stored explicitly either way.
-        let trace_op = match self.promise_thunks.trace_closure {
-            Some((tfid, tsig)) if is_closure => Operand::Value(self.f.append_inst(
-                self.cur_block,
-                InstKind::FnAddr(tfid),
-                Type::FnSig(tsig),
-                None,
-            )),
-            _ => Operand::ConstI64(0),
-        };
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(
-                trace_op,
-                Operand::Value(env_v),
-                crate::ssa_lower::CLOSURE_TRACE_FN_OFF,
-            ),
-        );
-        // Capture 0: the real callback. Its natural ref moves into
-        // the wrap (the wrap's drop releases it), so the wrap takes
-        // the callback's exact ownership position at the call site.
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(cb_op, Operand::Value(env_v), CLOSURE_CAP_BASE_OFF),
-        );
-        Operand::Value(env_v)
     }
 
     /// Static-type check (no eager lower) — same pattern as the
@@ -357,14 +221,22 @@ impl crate::ssa_lower::LowerCtx<'_> {
                         Some(crate::check::Type::Promise(_))
                     )
             }
-            // A field read. A `Promise`-typed field holds the same
-            // built-in promise a `Promise`-typed binding does, and the
-            // Ident arm above already answers for the binding by asking
-            // its slot — so `const p = f(); p.then(cb)` chained while
-            // `c.p.then(cb)` fell through to the resolve_callee panic
-            // ("unsupported member call shape: then"). `expr_types` is
-            // the same question asked of a field.
-            Expr::Member { .. } | Expr::OptChain { .. } => matches!(
+            // A field or element read. A `Promise`-typed field holds
+            // the same built-in promise a `Promise`-typed binding
+            // does, and the Ident arm above already answers for the
+            // binding by asking its slot — so `const p = f();
+            // p.then(cb)` chained while `c.p.then(cb)` fell through to
+            // the resolve_callee panic ("unsupported member call
+            // shape: then"). `expr_types` is the same question asked
+            // of a field.
+            //
+            // An INDEX read is the same question again, and was the
+            // same casualty: `const ps: Promise<number>[] = [...];
+            // ps[0].then(cb)` reached that panic while the identical
+            // program written `const p = ps[0]; p.then(cb)` lowered —
+            // the element of a `Promise<T>[]` is as much a built-in
+            // promise as a field of that type is.
+            Expr::Member { .. } | Expr::OptChain { .. } | Expr::Index { .. } => matches!(
                 self.expr_types.get(&src_id),
                 Some(crate::check::Type::Promise(_))
             ),
