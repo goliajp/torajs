@@ -48,9 +48,12 @@ use crate::check::{GenericAliasMap, Type};
 /// stays `ClassRef("Box")`, so `a == f` compared a name against a
 /// shape and answered false — a compile error on a program every
 /// engine runs. It reached `filter` / `find` / `findLast` /
-/// `findIndex` / `findLastIndex` / `some` / `every` / `forEach`;
-/// `map` escaped only because its result type takes a different
-/// route.
+/// `findIndex` / `findLastIndex` / `some` / `every` / `forEach`.
+/// `map` escaped for a reason that had nothing to do with being
+/// right: `crate::check_type_of_call_arr_map_hetero` intercepts a
+/// `.map` whose callback returns something other than the element
+/// type, and answers before the general loop ever compares the two
+/// signatures.
 ///
 /// Resolution stays **one level deep**, matching
 /// `resolve_class_ref`'s own contract: it deliberately leaves
