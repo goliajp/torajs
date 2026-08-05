@@ -4,6 +4,9 @@
 //! lands (the REPL and LSP keep their own reduced pipelines).
 //!
 //! Ordering notes live where they bind:
+//! - `lift_arrow_fns` (M2 Phase A) — lifts arrow fns to top-level
+//!   FnDecls so check.rs's global-fn machinery resolves them.
+//!   Non-capturing closures only; captures land in Phase B.
 //! - `desugar_dflt_param_tdz` — after `desugar_classes` (methods are
 //!   flat `__cm_` FnDecls, the `__new_*` error factories exist),
 //!   before `materialize_expr_defaults` (which would otherwise move
@@ -28,6 +31,47 @@
 //!   Ident into `Expr::Closure`, which cluster #1 then skips).
 
 use torajs_core::{ast, ast_closure_param_tag};
+
+/// The passes that run BEFORE the chain below, plus the two raw-AST
+/// early-error gates that bracket them.
+///
+/// These stayed copy-pasted in `tr run` and `tr build` when the
+/// 31-pass chain got a home, for one reason: the gates return
+/// `ExitCode` from one caller and `Err(ExitCode)` from the other. So
+/// this reports the failure as `Err(())` — having already printed the
+/// diagnostics, which the two spelled identically — and each caller
+/// wraps it in its own shape. The pass list itself, the thing a new
+/// pass would have to be added to twice, is now written once.
+///
+/// (The REPL and LSP keep their own reduced pipelines.)
+pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
+    // Block/CaseBlock redeclaration early errors — must see the RAW
+    // AST before the generator / async / var-hoist desugars move one
+    // side of a conflict away.
+    ast::early_redecl_errors(ast);
+    if !ast.redecl_parse_errors.is_empty() {
+        for msg in &ast.redecl_parse_errors {
+            eprintln!("parse error: {msg}");
+        }
+        return Err(());
+    }
+    ast::unwrap_exports(ast);
+    ast::rename_user_main(ast);
+    ast::hoist_gen_fn_exprs(ast);
+    ast::desugar_generators(ast);
+    ast::desugar_async(ast);
+    ast::desugar_builtin_imports(ast);
+    ast::desugar_builtin_new(ast);
+    ast::desugar_regex_syntax_error(ast);
+    ast::desugar_promise_try(ast);
+    if !ast.regex_parse_errors.is_empty() {
+        for msg in ast.regex_parse_errors.values() {
+            eprintln!("parse error: regex literal {msg}");
+        }
+        return Err(());
+    }
+    Ok(())
+}
 
 pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     ast::desugar_prototype_call(ast);

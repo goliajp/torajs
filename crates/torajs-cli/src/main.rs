@@ -17,7 +17,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 
-use torajs_core::{ast, check, lexer, modules, parser, ssa, ssa_lower};
+use torajs_core::{check, lexer, modules, parser, ssa, ssa_lower};
 
 use cmd_cache::run_cache_subcmd;
 use cmd_debug::run_debug;
@@ -204,32 +204,9 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
         eprintln!("import error: {e}");
         return ExitCode::from(1);
     }
-    // Block/CaseBlock redeclaration early errors — must see the RAW
-    // AST before generator / async / var-hoist desugars move one
-    // side of a conflict away.
-    ast::early_redecl_errors(&mut ast);
-    if !ast.redecl_parse_errors.is_empty() {
-        for msg in &ast.redecl_parse_errors {
-            eprintln!("parse error: {msg}");
-        }
-        return ExitCode::from(1);
-    }
-    // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
-    // global-fn machinery resolves them. Non-capturing closures only;
-    // captures land in Phase B.
-    ast::unwrap_exports(&mut ast);
-    ast::rename_user_main(&mut ast);
-    ast::hoist_gen_fn_exprs(&mut ast);
-    ast::desugar_generators(&mut ast);
-    ast::desugar_async(&mut ast);
-    ast::desugar_builtin_imports(&mut ast);
-    ast::desugar_builtin_new(&mut ast);
-    ast::desugar_regex_syntax_error(&mut ast);
-    ast::desugar_promise_try(&mut ast);
-    if !ast.regex_parse_errors.is_empty() {
-        for msg in ast.regex_parse_errors.values() {
-            eprintln!("parse error: regex literal {msg}");
-        }
+    // Raw-AST early-error gates + the pre-chain passes — see
+    // ast_pipeline.rs.
+    if ast_pipeline::run_ast_prelude(&mut ast).is_err() {
         return ExitCode::from(1);
     }
     // Shared 31-pass desugar chain — see ast_pipeline.rs for the

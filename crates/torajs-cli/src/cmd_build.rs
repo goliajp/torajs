@@ -21,7 +21,7 @@ use torajs_codegen::CompiledFunction;
 use torajs_codegen::compile_function_with_sigs;
 use torajs_codegen::frame::FrameLayout;
 use torajs_core::ssa::{FuncId, Module, Type};
-use torajs_core::{TORAJS_STATICLIBS, ast, check, lexer, modules, parser, ssa_lower};
+use torajs_core::{TORAJS_STATICLIBS, check, lexer, modules, parser, ssa_lower};
 use torajs_link::archive_emit::link_to_exec_with_archives;
 use torajs_link::exec::{LinkConfig, UserClassLayoutEntry, UserDataGlobalEntry, UserVtableEntry};
 use torajs_link::resolve::SymTable;
@@ -136,30 +136,9 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
         ExitCode::from(1)
     })?;
 
-    // Block/CaseBlock redeclaration early errors — raw-AST pass,
-    // mirrors main.rs (run before any desugar rewrites decls).
-    ast::early_redecl_errors(&mut ast);
-    if !ast.redecl_parse_errors.is_empty() {
-        for msg in &ast.redecl_parse_errors {
-            eprintln!("parse error: {msg}");
-        }
-        return Err(ExitCode::from(1));
-    }
-    ast::unwrap_exports(&mut ast);
-    ast::rename_user_main(&mut ast);
-    ast::hoist_gen_fn_exprs(&mut ast);
-    ast::desugar_generators(&mut ast);
-    ast::desugar_async(&mut ast);
-    ast::desugar_builtin_imports(&mut ast);
-    ast::desugar_builtin_new(&mut ast);
-    ast::desugar_regex_syntax_error(&mut ast);
-    ast::desugar_promise_try(&mut ast);
-    if !ast.regex_parse_errors.is_empty() {
-        for msg in ast.regex_parse_errors.values() {
-            eprintln!("parse error: regex literal {msg}");
-        }
-        return Err(ExitCode::from(1));
-    }
+    // Raw-AST early-error gates + the pre-chain passes — see
+    // ast_pipeline.rs.
+    ast_pipeline::run_ast_prelude(&mut ast).map_err(|()| ExitCode::from(1))?;
     // Shared 31-pass desugar chain — see ast_pipeline.rs for the
     // per-pass ordering notes.
     ast_pipeline::run_ast_desugar_pipeline(&mut ast);
