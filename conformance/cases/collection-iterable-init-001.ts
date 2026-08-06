@@ -114,3 +114,31 @@ try {
 } catch (e) {
   console.log(e instanceof RangeError, (e as any).message);
 }
+
+// §24.1.1.1 step 5 — the adder is read OFF the target, so a patched
+// one is what runs. This is load-bearing rather than pedantic: an
+// endless iterator paired with a throwing adder terminates only if
+// the patch is honoured.
+let adderCalls = 0;
+let endlessCloses = 0;
+const endless: any = {};
+endless[Symbol.iterator] = function () {
+  return {
+    next: function () {
+      return { value: [], done: false };
+    },
+    return: function () {
+      endlessCloses += 1;
+    },
+  };
+};
+(Map.prototype as any).set = function () {
+  adderCalls += 1;
+  throw new RangeError("from the adder");
+};
+try {
+  new Map(endless);
+  console.log("no throw");
+} catch (e) {
+  console.log(e instanceof RangeError, adderCalls, endlessCloses);
+}

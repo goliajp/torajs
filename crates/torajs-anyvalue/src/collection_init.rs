@@ -88,10 +88,44 @@ unsafe fn release(v: AnyValue) {
     unsafe { __torajs_value_drop_heap(crate::nanbox::as_void_ptr(v)) };
 }
 
-/// Add one walked item to `target` through the receiver's own
-/// `set` / `add` — the same dispatch a hand-written `m.set(k, v)`
-/// takes, so the weak families' CanBeHeldWeakly key rejection and
-/// the collections' value ledger are answered in exactly one place.
+/// Invoke the adder, honouring a monkey-patched one.
+///
+/// §24.1.1.1 step 5 reads the adder OFF the target (`Get(map,
+/// "set")`) rather than reaching for the intrinsic, and test262
+/// leans on that: three of its cases hand the constructor an
+/// endless iterator and rely on a patched `Map.prototype.set`
+/// throwing on the first item to end the loop. Consulting the
+/// prototype's own entry first is what makes those terminate at
+/// all — the native arm alone would walk forever.
+///
+/// Everything unpatched falls through to the same dispatch a
+/// hand-written `m.set(k, v)` takes, so the weak families'
+/// CanBeHeldWeakly key rejection and the collections' value ledger
+/// keep answering in one place.
+unsafe fn invoke_adder(target: AnyValue, mid: i64, argv: &[AnyValue]) -> AnyValue {
+    unsafe {
+        if let Some(out) = crate::method_call_proto_patch::builtin_proto_patch_method(
+            target,
+            mid,
+            core::ptr::null(),
+            argv.as_ptr(),
+            argv.len() as i64,
+        ) {
+            return out;
+        }
+        crate::method_call::__torajs_any_method_call(
+            target,
+            mid,
+            core::ptr::null(),
+            0,
+            core::ptr::null_mut(),
+            argv.as_ptr(),
+            argv.len() as i64,
+        )
+    }
+}
+
+/// Add one walked item to `target`.
 ///
 /// # Safety
 /// `target` is a live collection cell; `item` is an owned walked
@@ -99,18 +133,9 @@ unsafe fn release(v: AnyValue) {
 unsafe fn add_one(target: AnyValue, item: AnyValue, kind: i64) {
     unsafe {
         if !takes_entries(kind) {
-            let argv = [item];
             // `add` answers the receiver (+1 by the boxed-value
             // convention) — this kernel discards it.
-            let out = crate::method_call::__torajs_any_method_call(
-                target,
-                torajs_rc::ANY_METHOD_ADD,
-                core::ptr::null(),
-                0,
-                core::ptr::null_mut(),
-                argv.as_ptr(),
-                1,
-            );
+            let out = invoke_adder(target, torajs_rc::ANY_METHOD_ADD, &[item]);
             release(out);
             return;
         }
@@ -131,16 +156,7 @@ unsafe fn add_one(target: AnyValue, item: AnyValue, kind: i64) {
             release(v);
             return;
         }
-        let argv = [k, v];
-        let out = crate::method_call::__torajs_any_method_call(
-            target,
-            torajs_rc::ANY_METHOD_SET,
-            core::ptr::null(),
-            0,
-            core::ptr::null_mut(),
-            argv.as_ptr(),
-            2,
-        );
+        let out = invoke_adder(target, torajs_rc::ANY_METHOD_SET, &[k, v]);
         // `set` answers the receiver (+1 by the boxed-value
         // convention) — this kernel discards it.
         release(out);
