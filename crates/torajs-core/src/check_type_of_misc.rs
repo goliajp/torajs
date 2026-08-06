@@ -62,10 +62,9 @@ pub(crate) fn check_instanceof(
 /// ES §13.5.1 — `delete <Member|Index>` → Boolean. The parser only
 /// admits property-reference operands; here the receiver must be
 /// `any`-typed (the dynobj / expando world where OrdinaryDelete is
-/// meaningful) and an Index key must be a string (numeric keys are
-/// the array-hole lane — recorded loud boundary). Only the receiver
-/// and key are typechecked, never the property itself: deleting an
-/// absent key is legal and answers true.
+/// meaningful) and an Index key must be one the property-key domain
+/// can name. Only the receiver and key are typechecked, never the
+/// property itself: deleting an absent key is legal and answers true.
 pub(crate) fn check_delete(
     checker: &mut Checker,
     ast: &Ast,
@@ -101,10 +100,27 @@ pub(crate) fn check_delete(
             // decide, and the lowering resolves it there. Rejecting it
             // here refused whole programs for `delete o[sym]` whenever
             // the symbol travelled in an `any`.
-            if !matches!(idx_ty, Type::String | Type::Symbol | Type::Any) {
+            // §7.1.19 step 3 is ToString for everything that is not a
+            // Symbol, so a Number key names the very entry its string
+            // spelling names — `o[1]` and `o["1"]` are two spellings of
+            // one property. The lowering already coerces it: its
+            // non-Symbol arm hands I64/F64 to the same `i64_to_str` /
+            // `f64_to_str` kernels every other stringification asks, so
+            // `-0` reaches "0" and `1e21` reaches "1e+21" as §7.1.17
+            // requires. This gate had no missing implementation behind
+            // it.
+            //
+            // BigInt is deliberately still out: that coercer appends the
+            // `n` suffix (it serves BigInt *printing*), so it would name
+            // an entry no property has and delete would answer true
+            // having removed nothing — silent-wrong, which is worse than
+            // this loud refusal.
+            if !matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Number
+            ) {
                 return Err(format!(
-                    "`delete` key must be a string or symbol (got {idx_ty:?}); \
-                     numeric element deletion is not supported"
+                    "`delete` key must be a string, number or symbol (got {idx_ty:?})"
                 ));
             }
             Ok(Type::Boolean)
