@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T23:47:23.387Z",
+  "generatedAt": "2026-08-06T01:06:08.841Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T23:46:24Z",
-    "headSha": "91fb2020",
-    "elapsedSec": 395.61,
+    "ranAt": "2026-08-06T01:05:26Z",
+    "headSha": "befdc36d",
+    "elapsedSec": 403.08,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21837,
+    "pass": 21844,
     "passNoOracle": 639,
     "passNegative": 3956,
-    "passTotal": 26432,
-    "bug": 11831,
+    "passTotal": 26439,
+    "bug": 11824,
     "incompatible": 14911,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 38263,
-    "passRateInScope": 49.71,
-    "passRateTrAccepted": 69.08
+    "passRateInScope": 49.72,
+    "passRateTrAccepted": 69.1
   },
   "torajs": {
-    "commit": "91fb2020",
-    "commitSubject": "fix: a top-level const could not be initialized with undefined",
+    "commit": "befdc36d",
+    "commitSubject": "fix: a dynamic property was invisible to the surfaces that unfold a layout",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "befdc36d",
+      "subject": "fix: a dynamic property was invisible to the surfaces that unfold a layout"
+    },
+    {
+      "hash": "c5385507",
+      "subject": "fix: Object.assign copied a member the source had hidden"
+    },
+    {
+      "hash": "8c3242c2",
+      "subject": "fix: Object.values returned a value that had been hidden from it"
+    },
+    {
+      "hash": "820ed4b2",
+      "subject": "fix: Object.entries listed a member that had been hidden from it"
+    },
+    {
+      "hash": "420c39d6",
+      "subject": "fix: an accessor member ignored every attribute asked of it"
+    },
+    {
+      "hash": "96e9b20a",
+      "subject": "fix: a class instance kept every expando a delete asked it to drop"
+    },
+    {
+      "hash": "9c44379e",
+      "subject": "style: sort a module declaration rustfmt had left out of order"
+    },
+    {
+      "hash": "9d6c88d7",
+      "subject": "chore: stow rotation 311 sweep and refresh hardev dashboard"
+    },
+    {
       "hash": "91fb2020",
       "subject": "fix: a top-level const could not be initialized with undefined"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "543cd8a2",
       "subject": "fix: `T | undefined` did not parse, and the shorthand that did bound null"
-    },
-    {
-      "hash": "740869c4",
-      "subject": "fix: a declared field could not be redefined, for want of somewhere to put attributes"
-    },
-    {
-      "hash": "b0da8370",
-      "subject": "chore: stow rotation 310 final sweep and refresh hardev dashboard"
-    },
-    {
-      "hash": "b00e9bea",
-      "subject": "feat: Object.getOwnPropertyDescriptors, and the string it revealed"
-    },
-    {
-      "hash": "cc07c232",
-      "subject": "chore: stow rotation 310 sweep and refresh hardev dashboard"
-    },
-    {
-      "hash": "467c1d29",
-      "subject": "fix: defineProperty on a class instance did nothing at all"
-    },
-    {
-      "hash": "75168098",
-      "subject": "fix: a nullable promise had no .then at all"
-    },
-    {
-      "hash": "e0242bf1",
-      "subject": "fix: Promise.all read every null element as something else"
-    },
-    {
-      "hash": "c2c0ce50",
-      "subject": "fix: a scalar T | null had nowhere to put the null"
     }
   ],
-  "headSha": "91fb2020",
+  "headSha": "befdc36d",
   "autorun": {
-    "total": 614,
+    "total": 615,
     "baselineTarget": 10,
-    "bySelf": 609,
+    "bySelf": 610,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785956249-2583",
-      "at": "2026-08-05T18:57:29Z",
-      "ts": 1785956249,
+      "rotationId": "r-1785973785-5a86",
+      "at": "2026-08-05T23:49:45Z",
+      "ts": 1785973785,
       "trigger": "self",
-      "prevHead": "b0da8370",
-      "handoffSha": "sha256:9b8c646e99034777ea94cace30422d3e60d952136086836674b38adfa47a0f99",
-      "handoffAgeSec": 43,
+      "prevHead": "9d6c88d7",
+      "handoffSha": "sha256:6b32e48c260c7fa097c2f933a779f4514259a5e78e84082f51626fb149c314c7",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785973785-5a86",
+        "at": "2026-08-05T23:49:45Z",
+        "ts": 1785973785,
+        "trigger": "self",
+        "prevHead": "9d6c88d7",
+        "handoffSha": "sha256:6b32e48c260c7fa097c2f933a779f4514259a5e78e84082f51626fb149c314c7",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785956249-2583",
         "at": "2026-08-05T18:57:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "8377b549",
         "handoffSha": "sha256:195ade6c6d6c304c8cb9cbaf04db0f908d3f4846a8904dc7bfcb814e2f632413",
         "handoffAgeSec": 37,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785864258-675b",
-        "at": "2026-08-04T17:24:18Z",
-        "ts": 1785864258,
-        "trigger": "self",
-        "prevHead": "5e5d653d",
-        "handoffSha": "sha256:e51c6e35b3e3a9070545e072f83c8afd3d2c6713d4023ce5b58f90feb032e9fe",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
