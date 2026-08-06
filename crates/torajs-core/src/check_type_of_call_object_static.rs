@@ -34,6 +34,23 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+/// A class instance is a struct; these two arms just never said so.
+///
+/// `Object.keys` / `Object.entries` / `JSON.stringify` all read a
+/// `new C()` fine because they resolve the class reference to the shape
+/// behind it. `Object.values` and `Object.assign` matched `Type::Struct`
+/// directly, so the same object was a struct to three surfaces and a
+/// `ClassRef` to two — a loud reject rather than a wrong answer, but the
+/// same disagreement.
+fn unwrap_class(checker: &Checker, ty: Type) -> Type {
+    crate::check::resolve_class_ref(
+        &ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    )
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -64,7 +81,7 @@ pub(crate) fn try_match(
             ));
         }
         let target_ty = match checker.type_of(ast, args[0]) {
-            Ok(t) => t,
+            Ok(t) => unwrap_class(checker, t),
             Err(e) => return Some(Err(e)),
         };
         // An `any` target takes the runtime §20.1.2.1 walk (the
@@ -95,7 +112,7 @@ pub(crate) fn try_match(
         let sinks = own_property_sink_types(t_fields);
         for (i, src_id) in args[1..].iter().enumerate() {
             let source_ty = match checker.type_of(ast, *src_id) {
-                Ok(t) => t,
+                Ok(t) => unwrap_class(checker, t),
                 Err(e) => return Some(Err(e)),
             };
             let Type::Struct(s_fields) = &source_ty else {
@@ -135,7 +152,7 @@ pub(crate) fn try_match(
         && args.len() == 1
     {
         let arg_ty = match checker.type_of(ast, args[0]) {
-            Ok(t) => t,
+            Ok(t) => unwrap_class(checker, t),
             Err(e) => return Some(Err(e)),
         };
         // W-O — Array receiver: bun returns a fresh shallow
