@@ -54,6 +54,10 @@ unsafe extern "C" {
     /// method cell (`which`: 0 next / 1 return / 2 throw), a
     /// reflection-surface function (RFC 20260721 刀 2).
     fn __torajs_gen_step_method_cell(kind: i64, which: i64) -> *mut u8;
+    /// torajs-anyvalue — hand the shared step-method prototype over
+    /// so the async call face can recognise its own instances by
+    /// walking a receiver's chain to this object (§27.6.1.2 step 3).
+    fn __torajs_gen_proto_register(kind: i64, proto: *mut c_void);
 }
 
 const ANY_I64: u64 = 2;
@@ -170,6 +174,10 @@ unsafe fn mint_kind(kind: usize) {
     // §27.6.1.2-4, {W:1, E:0, C:1}) — interned reflection cells
     // (RFC 20260721 刀 2; the call face records a loud reject, live
     // stepping rides the generator instance's class methods).
+    // Register BEFORE minting the cells: the async face reads this
+    // slot on every detached call, and the first such call can only
+    // happen once `gen_proto` is reachable from user code.
+    unsafe { __torajs_gen_proto_register(kind as i64, gen_proto) };
     for (which, name) in [(0i64, b"next" as &[u8]), (1, b"return"), (2, b"throw")] {
         let cell = unsafe { __torajs_gen_step_method_cell(kind as i64, which) };
         unsafe { define_heap(gen_proto, name, cell as *mut c_void, ATTRS_WEC_101) };
