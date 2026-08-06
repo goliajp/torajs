@@ -33,6 +33,10 @@ unsafe extern "C" {
     /// torajs-throw — record a pending TypeError (caller's throw
     /// check unwinds).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-bigint §6.1.6.2.13 `BigInt::toString(x, 10)` — the
+    /// decimal stringify §7.1.17 step 7 names. Owned Str out (rc=1),
+    /// which is exactly this module's ToString return contract.
+    fn __torajs_bigint_to_string(p: *const c_void) -> *mut u8;
 }
 
 /// `FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW` mirror (torajs-str
@@ -175,6 +179,31 @@ unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_voi
                 __torajs_throw_type_error(c"Cannot convert a symbol to a string".as_ptr());
             }
             return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
+        }
+        // §7.1.17 step 7 — ToString(BigInt) converts the value
+        // DIRECTLY (`BigInt::toString(argument, 10)`) and looks
+        // nothing up. Step 8's `Assert: argument is an Object`
+        // guards the OrdinaryToPrimitive tail below, and a bigint
+        // never reaches it: the cell IS the primitive.
+        //
+        // Falling through instead ran the method dispatcher, which
+        // answered correctly only because the BigInt arm of
+        // `cell_method` is a kernel — the lookup itself was
+        // observable. Measured (rotation 320, both directions): with
+        // the pre-gate open, a patched `BigInt.prototype.toString`
+        // leaked into template literals, `String()`, both sides of
+        // `+`, `Array.prototype.join` and the §22.1.3 generic
+        // ToString(this) coerce behind
+        // `String.prototype.isWellFormed.call(1n)` — six routes,
+        // all of which node answers `"1"` for.
+        //
+        // The sibling coercions already stand here: ToNumber's
+        // BigInt arm throws rather than descend (below), ToBigInt
+        // answers the cell itself, and arith's ToPrimitive lists
+        // BigInt beside Str and Symbol. ToString was the one that
+        // still treated a primitive as an object.
+        if matches!(h.tag(), Tag::BigInt) {
+            return unsafe { __torajs_bigint_to_string(child as *const c_void) as *mut c_void };
         }
         // Non-Str heap object — OrdinaryToPrimitive (hint string):
         // run the receiver's toString / valueOf and ToString the

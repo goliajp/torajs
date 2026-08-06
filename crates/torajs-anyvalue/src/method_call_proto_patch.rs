@@ -73,16 +73,19 @@ const OBJECT_PROTO_FAMILY: i64 = 1;
 /// pre-gate consult would start shadowing them — the ordering the
 /// exclusion of Arr and Closure below is protecting.
 ///
-/// BigInt is off the list for a different reason, and it cost a pass
-/// regression to learn: torajs reaches the method dispatcher for the
-/// INTERNAL ToString of a bigint, where §7.1.17 converts the value
-/// directly and looks up nothing. Pre-gating it made a patched
-/// `BigInt.prototype.toString` observable from `String.prototype.
-/// isWellFormed.call(1n)`, which test262 checks explicitly. Boolean
-/// and Number do not route their internal coercion this way, and
-/// Symbol has no ToString conversion to route at all — measured, not
-/// assumed. Until that coercion stops going through here, BigInt's
-/// patch stays on the tail consult.
+/// BigInt was off this list until rotation 320, and the reason is
+/// worth keeping: torajs used to reach the method dispatcher for the
+/// INTERNAL ToString of a bigint, where §7.1.17 step 7 converts the
+/// value directly and looks up nothing. Pre-gating it therefore made
+/// a patched `BigInt.prototype.toString` observable from every
+/// implicit coercion — `String.prototype.isWellFormed.call(1n)` is
+/// the one test262 checks explicitly — and cost a pass regression to
+/// learn. What unblocked it was fixing the coercion rather than the
+/// gate: `coerce.rs`'s ToString now answers a BigInt cell directly,
+/// so nothing internal consults this table and only an explicit
+/// `.toString()` does. Boolean and Number never routed their
+/// internal coercion this way, and Symbol has no ToString conversion
+/// to route at all — measured, not assumed.
 fn proto_is_only_method_source(tag: u16) -> bool {
     matches!(
         tag,
@@ -98,6 +101,7 @@ fn proto_is_only_method_source(tag: u16) -> bool {
             || t == Tag::ArrIter as u16
             || t == Tag::IterHelper as u16
             || t == Tag::Symbol as u16
+            || t == Tag::BigInt as u16
     )
 }
 
