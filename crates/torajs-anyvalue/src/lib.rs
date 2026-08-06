@@ -766,6 +766,16 @@ mod tests {
     ) -> u64 {
         0
     }
+    /// -1 = "the layout declares nothing under this key", the same
+    /// answer the NULL [`__torajs_struct_layout_lookup`] stub below
+    /// forces out of the real implementation.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_declared_field_attrs(
+        _obj: *mut c_void,
+        _key: *mut c_void,
+    ) -> i64 {
+        -1
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_struct_layout_lookup(_class_tag: u32) -> *const c_void {
         core::ptr::null()

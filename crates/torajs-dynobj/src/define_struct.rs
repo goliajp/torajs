@@ -200,6 +200,34 @@ unsafe fn current_field_attrs(obj: *mut c_void, key: *mut c_void) -> u64 {
     flags
 }
 
+/// The live attribute set of the DECLARED member `key` on `obj` — its
+/// sidecar when one exists, else the layout default — as the three
+/// `BUCKET_FLAG_*` bits, or `-1` when the layout declares nothing
+/// under `key`.
+///
+/// The `-1` answer is what a caller that has not yet classified the
+/// key needs: `delete` asks this one question and reads both halves
+/// of it, routing a `-1` to the expando dict instead.
+///
+/// One judgment, one implementation. The default is not a constant —
+/// frozen ⇒ non-writable, sealed ⇒ non-configurable, an Error's
+/// `message` / `stack` ⇒ non-enumerable — and a second site restating
+/// those three inputs is how the read and write sides come to
+/// disagree about an attribute nobody set.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer; `key` is a live key cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_declared_field_attrs(
+    obj: *mut c_void,
+    key: *mut c_void,
+) -> i64 {
+    match unsafe { struct_declares(obj, key) } {
+        Declared::No => -1,
+        Declared::Field | Declared::Accessor => (unsafe { current_field_attrs(obj, key) }) as i64,
+    }
+}
+
 /// §10.1.6.3 ValidateAndApplyPropertyDescriptor, attribute half, over
 /// a (current attributes, descriptor) pair rather than a dict `Entry`
 /// — a declared field has no entry to point at.

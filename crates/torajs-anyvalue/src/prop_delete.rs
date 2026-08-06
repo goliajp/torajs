@@ -13,10 +13,12 @@
 //!   non-configurable properties.
 //! - `Tag::Arr` / `Tag::Closure` → expando delete through the props
 //!   dynobj (NULL props slot = absent = true).
-//! - `Tag::Obj` (struct cell) → 0. A fixed class layout has no
-//!   removable slots; answering false is the honest spelling of
-//!   "not configurable" (recorded divergence: bun deletes and
-//!   answers true — structs-through-any are a reflection boundary).
+//! - `Tag::Obj` (struct cell) → the expando dict deletes like any
+//!   other; a DECLARED layout member answers 0, since a fixed slot
+//!   has nothing to remove (recorded divergence: bun deletes and
+//!   answers true — structs-through-any are a reflection boundary),
+//!   except that a non-configurable one refuses loudly. See
+//!   [`struct_delete`].
 //! - every other receiver (Str / Num / Bool / boxed primitives) →
 //!   1: `delete` on a non-object base answers true (§13.5.1.2 —
 //!   the property reference never materializes an own property).
@@ -48,9 +50,19 @@ unsafe extern "C" {
     /// 20260713 chunk C): 1 = deleted / absent, 0 = refused
     /// (non-configurable).
     fn __torajs_arr_delete_index(arr: *mut c_void, key: *mut c_void, idx: u64) -> i32;
+    /// torajs-dynobj — the live attributes of a DECLARED class member
+    /// (its redefine sidecar when one exists, else the layout default
+    /// the integrity level moves), or -1 when the layout declares
+    /// nothing under the key. See that fn's doc for why the question
+    /// is asked rather than restated here.
+    fn __torajs_obj_declared_field_attrs(obj: *mut c_void, key: *mut c_void) -> i64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
+
+/// `torajs_dynobj::layout::BUCKET_FLAG_CONFIGURABLE` mirror — bit 2 of
+/// a dict entry's packed W/E/C word, the only one a delete reads.
+const BUCKET_FLAG_CONFIGURABLE: u64 = 1 << 2;
 
 /// See module doc. `key` is a live Str cell (the lowering interns
 /// static names and materializes dynamic string keys before the
@@ -192,12 +204,8 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
             }
             1
         }
-        // RFC 20260718-error-message-own-prop — the error-instance
-        // `message` own property is [[Configurable]]: true
-        // (§20.5.6.1.1); its delete detaches by sentinel swap. Every
-        // other struct field keeps the fixed-layout refusal.
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
-            crate::struct_error_msg::error_message_delete(ptr, key)
+            struct_delete(ptr, key, throw_on_refusal)
         },
         // RFC 20260716 刀 5 (rotation 121 chunk 5) — wrapper expando
         // delete (mirror of the closure arm). A NULL props slot
@@ -239,6 +247,49 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
         }
         _ => 1,
     }
+}
+
+/// §10.1.10 over a class-instance cell — the `Tag::Obj` arm.
+///
+/// A struct cell carries own properties in two places, and only one of
+/// them can lose an entry. The `+24` expando dict is an ordinary
+/// dynobj, so a key it owns deletes exactly as it does on every other
+/// receiver — including the step-4 refusal a `defineProperty`'d entry
+/// can arm. A DECLARED member is a fixed layout slot with nowhere to
+/// go, so it keeps the recorded divergence (bun deletes and answers
+/// true; we answer false) — but "not removable" and "not
+/// configurable" are different sentences, and only the second one
+/// throws. Asking for the attributes tells us which we are in:
+/// a frozen or sealed instance, or one whose field was redefined
+/// `{configurable: false}`, refuses with the strict TypeError that
+/// test262's `verifyNotConfigurable` probes for.
+///
+/// The one declared member that CAN detach is the error `message`
+/// line (§20.5.6.1.1): its slot holds an own-absence sentinel, so the
+/// delete swaps rather than removes. It reaches that swap through the
+/// same configurable gate as everything else.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell
+/// (symbol keys are routed by the caller before this arm).
+unsafe fn struct_delete(ptr: *mut c_void, key: *const c_void, throw_on_refusal: bool) -> i64 {
+    let attrs = unsafe { __torajs_obj_declared_field_attrs(ptr, key as *mut c_void) };
+    if attrs >= 0 {
+        if attrs as u64 & BUCKET_FLAG_CONFIGURABLE == 0 {
+            return unsafe { refuse(throw_on_refusal) };
+        }
+        return unsafe { crate::struct_error_msg::error_message_delete(ptr, key) };
+    }
+    let props = unsafe { crate::member_get_layout::struct_props(ptr) };
+    if props.is_null() {
+        // §13.5.1.2 — deleting a property that is not there succeeds.
+        return 1;
+    }
+    if unsafe { refuse_non_configurable(props, key, throw_on_refusal) } {
+        return 0;
+    }
+    unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+    1
 }
 
 /// RFC 20260712 chunk 3 — a builtin `<Ctor>.prototype` singleton
@@ -299,7 +350,7 @@ unsafe fn refuse_non_configurable(
     throw_on_refusal: bool,
 ) -> bool {
     if unsafe { __torajs_dynobj_has(obj, key) } != 0
-        && unsafe { __torajs_dynobj_get_flags(obj, key) } & 0x4 == 0
+        && unsafe { __torajs_dynobj_get_flags(obj, key) } & BUCKET_FLAG_CONFIGURABLE == 0
     {
         let _ = unsafe { refuse(throw_on_refusal) };
         return true;
