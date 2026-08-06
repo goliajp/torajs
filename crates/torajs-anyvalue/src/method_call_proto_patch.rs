@@ -43,6 +43,11 @@ unsafe extern "C" {
 /// mirror of `method_support_proto.rs::ANY_ACCESSOR_TAG`.
 const ANY_ACCESSOR_TAG: i64 = 6;
 
+/// `ANY_HEAP` slot tag (torajs-dynobj `layout.rs` mirror) — the one
+/// tag whose value channel carries a pointer. Every other tag is an
+/// immediate riding in the same 64 bits.
+const ANY_HEAP: i64 = 4;
+
 /// Primitive fast-arm pre-gate (RFC 20260721 刀 11 G13) — the
 /// short-str / bool / num arms and the heap-Str cell arm answer
 /// their mids natively, so a monkey-patch installed on the
@@ -164,6 +169,19 @@ pub(crate) unsafe fn builtin_proto_patch_method(
                 }
                 __torajs_value_drop_heap(fptr);
             }
+            return Some(not_callable());
+        }
+        // §13.3.6.1 step 5 — a patch that resolved to something that
+        // is not an object is simply not callable, and saying so is
+        // the whole of what this branch may do with it. The probe's
+        // value channel only carries a pointer under `ANY_HEAP`;
+        // under every other tag it is an immediate riding in the
+        // same 64 bits, so reading it as a cell (`Map.prototype.set
+        // = null`, `String.prototype.toUpperCase = 42`) walked into
+        // whatever those bits addressed and took the process down
+        // with it. The accessor branch above already guards its own
+        // callee this way; this one did not.
+        if tag != ANY_HEAP {
             return Some(not_callable());
         }
         let cell = value as *mut c_void;
