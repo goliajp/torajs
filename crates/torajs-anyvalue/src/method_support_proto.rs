@@ -84,6 +84,21 @@ pub(crate) unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> 
     (tag as i64, value as i64)
 }
 
+/// Own-key membership against a builtin prototype, whichever cell
+/// shape backs it — the disambiguator [`proto_own_probe`]'s tag
+/// channel needs, because ANY_UNDEF is the answer for BOTH an absent
+/// key and an own entry storing undefined. Those two are not the same
+/// property: `Map.prototype.get = undefined` shadows the builtin
+/// method surface with a real, non-callable entry (§10.1.8.1
+/// OrdinaryGet), while an absent key leaves the surface showing
+/// through.
+pub(crate) unsafe fn proto_own_has(proto: *mut c_void, key: *const c_void) -> bool {
+    if unsafe { proto_is_arr(proto) } {
+        return unsafe { __torajs_arrprops_has(proto, key) } != 0;
+    }
+    unsafe { __torajs_dynobj_has(proto, key) != 0 }
+}
+
 /// 1 = `<proto tag>`'s virtual `constructor` own face has not been
 /// delete-tombstoned (RFC 20260721 刀 11 G11 — the slot bit shades
 /// every consumer: prop_has / gOPD / member read / HasProperty

@@ -193,10 +193,25 @@ pub(crate) unsafe fn proto_patch_slot(
         };
         let (tag, value) =
             crate::method_support_proto::proto_own_probe(proto, key as *const c_void);
+        // ANY_UNDEF is the probe's answer for BOTH an absent key and
+        // an own entry storing undefined, and those are different
+        // properties: `Map.prototype.get = undefined` shadows the
+        // builtin surface with a real entry that happens not to be
+        // callable, where an absent key leaves the surface showing
+        // through. Only the membership probe can tell them apart.
+        let out = if tag == 5 {
+            if crate::method_support_proto::proto_own_has(proto, key as *const c_void) {
+                Some((tag, value))
+            } else {
+                None
+            }
+        } else {
+            Some((tag, value))
+        };
         if !minted.is_null() {
             crate::__torajs_str_drop(minted as *mut c_void);
         }
-        if tag == 5 { None } else { Some((tag, value)) }
+        out
     }
 }
 
