@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T01:24:15.090Z",
+  "generatedAt": "2026-08-06T05:08:26.067Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-06T01:23:51Z",
-    "headSha": "35b67bca",
-    "elapsedSec": 398.32,
+    "ranAt": "2026-08-06T05:05:48Z",
+    "headSha": "a3f0ce09",
+    "elapsedSec": 421.75,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21844,
-    "passNoOracle": 639,
+    "pass": 22088,
+    "passNoOracle": 641,
     "passNegative": 3956,
-    "passTotal": 26439,
-    "bug": 11824,
-    "incompatible": 14911,
+    "passTotal": 26685,
+    "bug": 11807,
+    "incompatible": 14682,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38263,
-    "passRateInScope": 49.72,
-    "passRateTrAccepted": 69.1
+    "trAccepted": 38492,
+    "passRateInScope": 50.18,
+    "passRateTrAccepted": 69.33
   },
   "torajs": {
-    "commit": "35b67bca",
-    "commitSubject": "fix: Object.values and Object.assign refused a class instance",
+    "commit": "a3f0ce09",
+    "commitSubject": "fix: object rest refused an any source, and excluded a key too late",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "a3f0ce09",
+      "subject": "fix: object rest refused an any source, and excluded a key too late"
+    },
+    {
+      "hash": "a0e4a771",
+      "subject": "feat: object rest in a destructuring assignment"
+    },
+    {
+      "hash": "0e698f30",
+      "subject": "fix: an any-element array refused delete though its slots can hold a hole"
+    },
+    {
+      "hash": "8c26d064",
+      "subject": "fix: a built-in namespace answered a different fact to each surface"
+    },
+    {
+      "hash": "4140b151",
+      "subject": "fix: a numeric property key could not be deleted"
+    },
+    {
+      "hash": "6aa1f99a",
+      "subject": "chore: re-stow rotation 312 sweep at the final HEAD"
+    },
+    {
       "hash": "35b67bca",
       "subject": "fix: Object.values and Object.assign refused a class instance"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "820ed4b2",
       "subject": "fix: Object.entries listed a member that had been hidden from it"
-    },
-    {
-      "hash": "420c39d6",
-      "subject": "fix: an accessor member ignored every attribute asked of it"
-    },
-    {
-      "hash": "96e9b20a",
-      "subject": "fix: a class instance kept every expando a delete asked it to drop"
-    },
-    {
-      "hash": "9c44379e",
-      "subject": "style: sort a module declaration rustfmt had left out of order"
-    },
-    {
-      "hash": "9d6c88d7",
-      "subject": "chore: stow rotation 311 sweep and refresh hardev dashboard"
-    },
-    {
-      "hash": "91fb2020",
-      "subject": "fix: a top-level const could not be initialized with undefined"
-    },
-    {
-      "hash": "c5a8f183",
-      "subject": "feat: an optional class member, and the undefined it is supposed to hold"
     }
   ],
-  "headSha": "35b67bca",
+  "headSha": "a3f0ce09",
   "autorun": {
-    "total": 615,
+    "total": 616,
     "baselineTarget": 10,
-    "bySelf": 610,
+    "bySelf": 611,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785973785-5a86",
-      "at": "2026-08-05T23:49:45Z",
-      "ts": 1785973785,
+      "rotationId": "r-1785979501-335d",
+      "at": "2026-08-06T01:25:01Z",
+      "ts": 1785979501,
       "trigger": "self",
-      "prevHead": "9d6c88d7",
-      "handoffSha": "sha256:6b32e48c260c7fa097c2f933a779f4514259a5e78e84082f51626fb149c314c7",
-      "handoffAgeSec": 15,
+      "prevHead": "6aa1f99a",
+      "handoffSha": "sha256:c187edce2ed561642745fdd2104fccd9aeeda21caa16fdf139229d8fe7f59836",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785979501-335d",
+        "at": "2026-08-06T01:25:01Z",
+        "ts": 1785979501,
+        "trigger": "self",
+        "prevHead": "6aa1f99a",
+        "handoffSha": "sha256:c187edce2ed561642745fdd2104fccd9aeeda21caa16fdf139229d8fe7f59836",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785973785-5a86",
         "at": "2026-08-05T23:49:45Z",
@@ -876,17 +887,6 @@
         "prevHead": "c9f51bdb",
         "handoffSha": "sha256:976548e648533ca57651f990586bfb0784c7fdba537425df8383d6ff37c3199c",
         "handoffAgeSec": 49,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785875762-2342",
-        "at": "2026-08-04T20:36:02Z",
-        "ts": 1785875762,
-        "trigger": "self",
-        "prevHead": "8377b549",
-        "handoffSha": "sha256:195ade6c6d6c304c8cb9cbaf04db0f908d3f4846a8904dc7bfcb814e2f632413",
-        "handoffAgeSec": 37,
         "conformanceBefore": null,
         "commitsInSession": null
       }

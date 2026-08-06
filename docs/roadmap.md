@@ -1528,9 +1528,32 @@ case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 176bcffb`, never as a constant.
+snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `b00e9bea`** (2026-08-06, rotation 310 — six knives on one
+**Latest @ `a3f0ce09`** (2026-08-06, rotation 313 — five knives across
+two surfaces, `delete`'s three gates and object rest's two halves.
+Three of the five removed a gate that had no missing implementation
+behind it: the numeric property key was already coerced by the
+lowering, and the object-rest omit walk was already in the dynobj
+lane. A gate's stated reason can go stale after the implementation it
+described arrives, so the test is what the blocked path does today,
+not what the comment says): passTotal 26439 → **26685 (+246)**,
+bug 11824 → **11807 (−17)**, trAccepted 38263 → **38492 (+229)**,
+incompatible 14911 → **14682 (−229)** — conservation exact
+(229 = 246 + −17). Unlike rotation 312, whose gain was entirely
+`bug → pass` and left the clusters untouched, **229 cases left
+`incompatible` here**, so the v1.0 curve moved. Gate predicate
+**317 clusters / 7906 cases** (−3 / −230), core **8891 (−222)** —
+clusters and cases moving DOWN together, as in rotations 227 and 310.
+Regressions **zero**: no `pass` moved to anything else, and timeout
+(98) and crash (33) counts are both flat. Fifty-four cases went
+`incompatible → bug` — newly-running programs whose answers are now
+being judged for the first time, which is what forward motion looks
+like at this boundary, not regression. Top clusters unchanged: eval
+1433 / `__this` 253 / globalThis 216; coverage curve top 25 = 43.1%,
+top 100 = 70.2%.
+
+**Previous @ `b00e9bea`** (2026-08-06, rotation 310 — six knives on one
 question: where does a value live. A class instance's own properties
 live in a dict the compile-time layout cannot see; a scalar
 `T | null` had nowhere at all to put the null; and
