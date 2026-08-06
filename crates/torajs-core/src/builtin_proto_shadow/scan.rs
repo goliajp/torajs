@@ -37,6 +37,14 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
     // being the plain case, `f(Array)` the other one.
     let mut ctor_idents: HashMap<ExprId, Family> = HashMap::new();
     let mut consumed: HashSet<ExprId> = HashSet::new();
+    // `<expr>.constructor` where the receiver's family is not
+    // syntactic. Held rather than escalated on sight — see the
+    // resolution loop below.
+    let mut opaque_ctors: HashSet<ExprId> = HashSet::new();
+    // Operands of a comparison / arithmetic operator. Only consulted
+    // for `opaque_ctors`: an operator consumes the value and answers
+    // a fresh one, so nothing can be written through it.
+    let mut operands: HashSet<ExprId> = HashSet::new();
 
     for (i, e) in ast.exprs.iter().enumerate() {
         let eid = ExprId(i as u32);
@@ -64,7 +72,9 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                         Some(f) => {
                             ctor_idents.insert(eid, f);
                         }
-                        None => set.all = true,
+                        None => {
+                            opaque_ctors.insert(eid);
+                        }
                     }
                 }
                 consumed.insert(*obj);
@@ -85,7 +95,9 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                         Some(f) => {
                             ctor_idents.insert(eid, f);
                         }
-                        None => set.all = true,
+                        None => {
+                            opaque_ctors.insert(eid);
+                        }
                     }
                 }
                 consumed.insert(*obj);
@@ -106,6 +118,10 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
             Expr::TypeOf { expr } | Expr::As { expr, .. } => {
                 consumed.insert(*expr);
             }
+            Expr::BinOp { left, right, .. } => {
+                operands.insert(*left);
+                operands.insert(*right);
+            }
             Expr::Assign { target, .. } => {
                 assign_targets.insert(*target);
             }
@@ -116,17 +132,13 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                 consumed.insert(*callee);
                 if let Some(kind) = reflective_callee(ast, *callee) {
                     match kind {
-                        // Hands out a prototype object with no syntactic
-                        // spelling of which one. `x.constructor` above
-                        // is the same shape one step removed — it hands
-                        // out the CONSTRUCTOR with no spelling of which
-                        // one — and takes the same answer. Both could be
-                        // narrowed by asking whether a write ever flows
-                        // through the result; neither is, because the
-                        // question is about a value this pass has
-                        // already admitted it cannot follow, and a
-                        // half-followed value is how the aliased-ctor
-                        // hole (rotation 319) got in.
+                        // Hands out a prototype object with no
+                        // syntactic spelling of which one.
+                        // `x.constructor` is the same shape one step
+                        // removed and gets the narrower treatment
+                        // below; this one stays blunt because a
+                        // prototype object, unlike a constructor, is
+                        // already the thing a write would land on.
                         Reflective::GetProto => set.all = true,
                         Reflective::Define => {
                             if let Some(&target) = args.first() {
@@ -159,6 +171,40 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
     for (eid, family) in &ctor_idents {
         if !consumed.contains(eid) {
             set.widen(family);
+        }
+    }
+
+    // An opaque `.constructor` read — one whose receiver family is not
+    // syntactic — hands back a constructor this scan cannot name, so
+    // any write reaching a prototype through it is unattributable and
+    // every family has to stand down.
+    //
+    // Which makes it worth being exact about what "reaching a
+    // prototype through it" means, because escalating on sight was
+    // measured and it is far too much: `assert.js` says
+    // `thrown.constructor !== expectedErrorConstructor`, and that one
+    // comparison is included by every test262 case, so a whole suite
+    // stood its typed tier down and 156 cases that used to build
+    // stopped building. A comparison cannot install anything, and
+    // neither can reading some other property off the constructor.
+    //
+    // So the value is harmless when every use of it is one that
+    // cannot lead to a prototype: an operand of an operator, or a
+    // named read of something that is not `prototype`. Anything else
+    // — a `.prototype` read, a computed read, or no use at all (it
+    // went into a binding, an argument, a return) — escalates.
+    for eid in &opaque_ctors {
+        if operands.contains(eid) {
+            continue;
+        }
+        let harmless = bases.get(eid).is_some_and(|accesses| {
+            !accesses.is_empty()
+                && accesses
+                    .iter()
+                    .all(|a| matches!(a, Access::Named(_, n) if n != "prototype"))
+        });
+        if !harmless {
+            set.all = true;
         }
     }
 
