@@ -50,6 +50,20 @@ pub(crate) fn check(
         && let Some(family) = crate::builtin_proto_shadow::family_of(&obj_ty)
         && checker.proto_shadow.shadows(family, name)
     {
+        // Type the arguments before standing down. Returning straight
+        // from here skips the walk every other route performs, and
+        // that walk is not just about the answer — checking an
+        // argument is what records the call sites an implicit generic
+        // is instantiated from. Without it a bare `function
+        // callbackfn(val, idx, obj)` handed to a patched
+        // `Array.prototype.every` is never specialized, and lowering
+        // rejects the whole program with "unknown function". The
+        // result is deliberately discarded: an argument that does not
+        // type is the general path's error to report, not this
+        // gate's.
+        for &a in args {
+            let _ = checker.type_of(ast, a);
+        }
         checker.expr_types.insert(*callee, Type::Any);
         return Ok(Type::Any);
     }
