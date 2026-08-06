@@ -45,8 +45,8 @@ pub(crate) fn try_check(
 ) -> Option<Result<Type, String>> {
     let result = match class_name {
         "WeakRef" => check_weak_ref(checker, ast, args),
-        "WeakMap" => check_weak_map(args),
-        "WeakSet" => check_weak_set(args),
+        "WeakMap" => check_weak_map(checker, ast, args),
+        "WeakSet" => check_weak_set(checker, ast, args),
         "Map" => check_map(checker, ast, args),
         "Set" => check_set(checker, ast, args),
         "Array" => check_array(checker, ast, args),
@@ -173,24 +173,44 @@ fn check_weak_ref(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<T
     Ok(Type::WeakRef)
 }
 
-fn check_weak_map(args: &[ExprId]) -> Result<Type, String> {
-    if !args.is_empty() {
-        return Err(format!(
-            "`new WeakMap(...)` with initializer not yet supported (got {} args)",
-            args.len()
-        ));
+fn check_weak_map(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
+    // §24.3.1.1 — the same iterable initializer Map takes, with the
+    // weak families' CanBeHeldWeakly key rule applied by the adder.
+    for &arg in args {
+        let _ = checker.type_of(ast, arg)?;
     }
     Ok(Type::WeakMap)
 }
 
-fn check_weak_set(args: &[ExprId]) -> Result<Type, String> {
-    if !args.is_empty() {
-        return Err(format!(
-            "`new WeakSet(...)` with initializer not yet supported (got {} args)",
-            args.len()
-        ));
+fn check_weak_set(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
+    // §24.4.1.1 — as WeakMap above, taking values rather than
+    // entries.
+    for &arg in args {
+        let _ = checker.type_of(ast, arg)?;
     }
     Ok(Type::WeakSet)
+}
+
+/// Is this argument an array LITERAL once its casts are peeled?
+///
+/// A cast is erased before lowering, so `new Map([["k", 1]] as any)`
+/// reaches the static-pair lowering lane as a plain array literal
+/// while the checker, reading the cast, types it Any. That lane
+/// tags each pair member against the literal's inferred element
+/// type, and on a heterogeneous pair the tag is wrong (`1` stored
+/// as a null) — a defect that predates the general-iterable path
+/// and is reachable through the un-cast form's sibling shapes.
+///
+/// The general walk below cannot take these over: the lowering lane
+/// claims a literal argument before the walk is ever emitted. So a
+/// literal argument keeps exactly the acceptance it had before the
+/// walk existed — the static branches above, or the loud refusal —
+/// and the defect stays where it is, loud, for its own blade.
+fn is_array_literal_arg(ast: &Ast, mut eid: ExprId) -> bool {
+    while let Expr::As { expr, .. } = ast.get_expr(eid) {
+        eid = *expr;
+    }
+    matches!(ast.get_expr(eid), Expr::Array(_))
 }
 
 fn check_map(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
@@ -233,11 +253,17 @@ fn check_map(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, 
             return Ok(Type::Map);
         }
     }
-    if !args.is_empty() {
+    if args.len() == 1 && is_array_literal_arg(ast, args[0]) {
         return Err(format!(
             "`new Map(...)` with iterable initializer not yet supported (got {} args)",
             args.len()
         ));
+    }
+    // §24.1.1.1 step 7 — anything else is a general iterable (or a
+    // nullish argument, which adds nothing); the runtime walk owns
+    // it. A second argument is ignored per §17.
+    for &arg in args {
+        let _ = checker.type_of(ast, arg)?;
     }
     Ok(Type::Map)
 }
@@ -265,11 +291,15 @@ fn check_set(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, 
             return Ok(Type::Set);
         }
     }
-    if !args.is_empty() {
+    if args.len() == 1 && is_array_literal_arg(ast, args[0]) {
         return Err(format!(
             "`new Set(...)` with iterable initializer not yet supported (got {} args)",
             args.len()
         ));
+    }
+    // §24.2.2.1 step 7 — as Map above.
+    for &arg in args {
+        let _ = checker.type_of(ast, arg)?;
     }
     Ok(Type::Set)
 }

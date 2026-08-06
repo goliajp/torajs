@@ -708,6 +708,7 @@ pub(crate) struct Intrinsics {
     pub(crate) weakref_deref_any: FuncId,
     pub(crate) weakref_drop: FuncId,
     pub(crate) weakref_target_dying: FuncId,
+    pub(crate) collection_init_from_iterable: FuncId,
     pub(crate) weakmap_create: FuncId,
     pub(crate) weakmap_set: FuncId,
     pub(crate) weakmap_get: FuncId,

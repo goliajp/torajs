@@ -588,6 +588,7 @@ pub(crate) fn build(
         weakref_deref_any: init_c.weak.weakref_deref_any,
         weakref_drop: init_c.weak.weakref_drop,
         weakref_target_dying: init_c.weak.weakref_target_dying,
+        collection_init_from_iterable: init_c.weak.collection_init_from_iterable,
         weakmap_create: init_c.weak.weakmap_create,
         weakmap_set: init_c.weak.weakmap_set,
         weakmap_get: init_c.weak.weakmap_get,

@@ -97,6 +97,7 @@ mod arr_member_value;
 mod arr_proto_probe;
 pub(crate) mod closure_proto;
 mod coerce;
+mod collection_init;
 mod compare;
 mod construct;
 mod error_cause;

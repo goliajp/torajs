@@ -63,11 +63,15 @@ pub(crate) fn try_lower(
             ctx,
             ctx.intrinsics.weakmap_create,
             Type::WeakMap,
+            args,
+            torajs_rc::collection_kind::COLLECTION_WEAKMAP,
         )),
         "WeakSet" => Some(lower_simple_create(
             ctx,
             ctx.intrinsics.weakset_create,
             Type::WeakSet,
+            args,
+            torajs_rc::collection_kind::COLLECTION_WEAKSET,
         )),
         "Map" => Some(lower_map(ctx, args)),
         "Set" => Some(lower_set(ctx, args)),
@@ -187,15 +191,53 @@ fn lower_simple_create(
     ctx: &mut LowerCtx<'_>,
     intrinsic: crate::ssa::FuncId,
     result_ty: Type,
+    args: &[ExprId],
+    kind: i64,
 ) -> Operand {
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(intrinsic, vec![]),
-        result_ty,
+        result_ty.clone(),
         None,
     );
-    Operand::Value(v)
+    let target = Operand::Value(v);
+    // The weak pair has no static fast lane: every initializer shape
+    // (including a nullish one) is the general walk.
+    let Some(arg0) = args.first() else {
+        return target;
+    };
+    let arg_op = ctx.lower_expr(*arg0);
+    lower_iterable_init(ctx, target, result_ty, arg_op, kind)
+}
+
+/// §24.1.1.1 step 7 and its three siblings — the general iterable
+/// initializer, reached when the static lanes above could not see the
+/// source's shape. A nullish argument lands here too and adds nothing
+/// (step 6), which is why the refusal it replaced was wrong about
+/// `new Map(null)` as much as about `new Map(someGenerator())`.
+fn lower_iterable_init(
+    ctx: &mut LowerCtx<'_>,
+    target: Operand,
+    target_ty: Type,
+    arg_op: Operand,
+    kind: i64,
+) -> Operand {
+    let arg_ty = ctx.operand_ty(&arg_op);
+    let target_any = ctx.box_to_any(target.clone());
+    let src_any = ctx.box_to_any(arg_op.clone());
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.collection_init_from_iterable,
+            vec![target_any, src_any, Operand::ConstI64(kind)],
+        ),
+    );
+    ctx.emit_throw_check(None);
+    ctx.emit_drop_value(arg_op, arg_ty);
+    let _ = target_ty;
+    target
 }
 
 fn lower_map(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
@@ -226,7 +268,13 @@ fn lower_map(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ctx, map_op, arg_op, arg_ty, inner_id,
         );
     }
-    map_op
+    lower_iterable_init(
+        ctx,
+        map_op,
+        Type::Map,
+        arg_op,
+        torajs_rc::collection_kind::COLLECTION_MAP,
+    )
 }
 
 fn try_map_static_pair_init(ctx: &mut LowerCtx<'_>, map_op: &Operand, args: &[ExprId]) -> bool {
@@ -309,7 +357,13 @@ fn lower_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ctx, set_op, arg_op, arg_ty, arr_id,
         );
     }
-    set_op
+    lower_iterable_init(
+        ctx,
+        set_op,
+        Type::Set,
+        arg_op,
+        torajs_rc::collection_kind::COLLECTION_SET,
+    )
 }
 
 fn try_set_static_init(ctx: &mut LowerCtx<'_>, set_op: &Operand, args: &[ExprId]) -> bool {

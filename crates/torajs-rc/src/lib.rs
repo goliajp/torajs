@@ -157,6 +157,7 @@ pub mod any_method_intern;
 pub mod any_method_iter;
 pub mod any_method_meta;
 pub mod arr_kind;
+pub mod collection_kind;
 pub mod color;
 pub mod flags;
 pub mod ns_static;

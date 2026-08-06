@@ -27,6 +27,12 @@ pub(crate) struct WeakIds {
     pub weakref_deref_any: FuncId,
     pub weakref_drop: FuncId,
     pub weakref_target_dying: FuncId,
+    /// §24.1.1.1 step 7 and its three siblings — one runtime walk
+    /// fills any of the four collections from a general iterable
+    /// (`(target, iterable, kind)`; kind per
+    /// `torajs_rc::collection_kind`). Declared with the weak group
+    /// because that is where the family's other shared kernels live.
+    pub collection_init_from_iterable: FuncId,
     pub weakmap_create: FuncId,
     pub weakmap_set: FuncId,
     pub weakmap_get: FuncId,
@@ -78,6 +84,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_weakref_target_dying",
             &[Type::Ptr],
+            Type::Void,
+        ),
+        collection_init_from_iterable: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_collection_init_from_iterable",
+            &[Type::Any, Type::Any, Type::I64],
             Type::Void,
         ),
         weakmap_create: declare_intrinsic(
