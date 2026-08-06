@@ -2619,7 +2619,25 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 314 closing sweep `0d5be9b6`, core **8706**,
+(refreshed @ rotation 320 closing sweep `f1c685b1`, core **8674**,
+**311** clusters of ≥ 4 holding 7678 cases; 756 clusters of ≤ 3 hold
+996 more (11.5 %). Coverage: top 10 = 31.2 %, top 25 = 43.9 %,
+top 100 = 70.5 %, top 400 = 91.2 %. Rotation 320 worked the
+builtin-prototype patch surface and two substrate bugs it turned up:
+ToString of a bigint now converts directly per §7.1.17 step 7 instead
+of consulting the method dispatcher — which is what let the pre-gate
+whitelist finally reach `family_of`'s full domain — a step method
+taken off `%GeneratorPrototype%` re-dispatches a live instance for
+both kinds instead of refusing, `.constructor` is recognised as a way
+to reach a builtin prototype, and the stack-write trim buffer carries
+the view type it always had, which both restored a bench case that
+had silently stopped compiling and closed the parent-reference leak
+riding on the same missing type. passTotal +1, **zero pass
+regressions**, gate 2530 → **2534**/0/4 across six substrate commits.
+The `.constructor` rule shipped blunt first and cost 156 regressions
+suite-wide via `assert.js`; it was narrowed in the same rotation.)
+
+(previous stamp @ rotation 314 closing sweep `0d5be9b6`, core **8706**,
 **312** clusters of ≥ 4 holding 7711 cases; 754 clusters of ≤ 3 hold
 995 more (11.4 %). Coverage: top 10 = 31.0 %, top 25 = 43.9 %,
 top 100 = 70.5 %, top 400 = 91.2 %. Rotation 314 worked the weak
