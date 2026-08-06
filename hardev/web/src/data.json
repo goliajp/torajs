@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T12:07:33.482Z",
+  "generatedAt": "2026-08-06T13:17:48.119Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-06T12:06:29Z",
-    "headSha": "e4c7b7bb",
-    "elapsedSec": 509.61,
+    "ranAt": "2026-08-06T13:17:24Z",
+    "headSha": "9f4750a9",
+    "elapsedSec": 397.67,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22236,
+    "pass": 22259,
     "passNoOracle": 649,
     "passNegative": 3956,
-    "passTotal": 26841,
+    "passTotal": 26864,
     "bug": 11844,
-    "incompatible": 14489,
+    "incompatible": 14466,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38685,
-    "passRateInScope": 50.48,
-    "passRateTrAccepted": 69.38
+    "trAccepted": 38708,
+    "passRateInScope": 50.52,
+    "passRateTrAccepted": 69.4
   },
   "torajs": {
-    "commit": "e4c7b7bb",
-    "commitSubject": "refactor(lowering): the binop scratch flags share one lifetime, so give them one struct",
+    "commit": "9f4750a9",
+    "commitSubject": "fix(checker): the gaps are wherever we have not looked, so gate on measured evidence",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "9f4750a9",
+      "subject": "fix(checker): the gaps are wherever we have not looked, so gate on measured evidence"
+    },
+    {
+      "hash": "41996236",
+      "subject": "fix(checker): stand down only where the fallback lane can serve the call"
+    },
+    {
+      "hash": "51e828bf",
+      "subject": "fix(lowering): a route that never types its arguments still has to see the patch"
+    },
+    {
+      "hash": "29b803c4",
+      "subject": "fix(checker): the call routes claim a builtin from its syntax, so they need the same gate"
+    },
+    {
+      "hash": "a6dd367f",
+      "subject": "test: a patched builtin prototype is visible to a typed receiver"
+    },
+    {
+      "hash": "78344553",
+      "subject": "fix(checker): a builtin method the program may have patched is not the kernel's to answer"
+    },
+    {
+      "hash": "b64f7dde",
+      "subject": "chore: stow rotation 317 sweep and refresh dashboard"
+    },
+    {
       "hash": "e4c7b7bb",
       "subject": "refactor(lowering): the binop scratch flags share one lifetime, so give them one struct"
     },
@@ -731,37 +759,9 @@
     {
       "hash": "25338d40",
       "subject": "fix(runtime): arrays and functions consult their patched prototype too"
-    },
-    {
-      "hash": "5a766cfd",
-      "subject": "fix(runtime): putting the original method back is a restore, not a patch"
-    },
-    {
-      "hash": "53020f79",
-      "subject": "fix(runtime): only the families that redefine toLocaleString skip the leg"
-    },
-    {
-      "hash": "dc248d64",
-      "subject": "chore: stow rotation 315 sweep and refresh dashboard"
-    },
-    {
-      "hash": "6eb9af09",
-      "subject": "fix(runtime): the pre-gate only answers where a lookup really happens"
-    },
-    {
-      "hash": "c4bc9e45",
-      "subject": "fix(runtime): a deleted prototype method stays deleted for a call too"
-    },
-    {
-      "hash": "d0ea51df",
-      "subject": "fix(runtime): an own undefined is not an absent key"
-    },
-    {
-      "hash": "ef0b19a4",
-      "subject": "fix(runtime): a patched prototype is consulted before the native arm"
     }
   ],
-  "headSha": "e4c7b7bb",
+  "headSha": "9f4750a9",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,
