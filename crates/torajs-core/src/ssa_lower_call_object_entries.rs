@@ -134,12 +134,37 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
 
-    // Compile-time struct unfold.
+    // Compile-time struct unfold — behind the redefined-member gate,
+    // since §20.1.2.5 walks EnumerableOwnProperties and a
+    // `defineProperty` can move that set after the unfold was decided.
+    // Both arms build the same `Arr<Arr<Any>>`, so the join needs no
+    // conversion; the walk is the very helper the `any` arm above
+    // uses.
     let layout: Vec<(String, Type)> = match arg_ty {
         Type::Obj(sid) => ctx.struct_layouts[sid.0 as usize].clone(),
         other => panic!("ssa-lower: Object.entries requires a struct arg, got {other:?}"),
     };
-    Some(emit_struct_entries_unfold(ctx, arg_op, &layout))
+    let inner_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+    let outer_ty = Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_arr_id)));
+    let walk_arg = arg_op.clone();
+    let walk_ty = outer_ty.clone();
+    Some(crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
+        ctx,
+        &arg_op.clone(),
+        outer_ty,
+        move |ctx| {
+            let boxed = ctx.box_to_any(walk_arg);
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_own_entries, vec![boxed]),
+                walk_ty,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            Operand::Value(v)
+        },
+        move |ctx| emit_struct_entries_unfold(ctx, arg_op, &layout),
+    ))
 }
 
 /// Compile-time unfold of `Object.entries(obj)` against a known
