@@ -96,16 +96,25 @@ impl ShadowSet {
         !self.all && self.families.is_empty() && self.methods.is_empty()
     }
 
-    /// Methods the fallback lane cannot serve yet, so standing down for
-    /// them turns a working program into a compile-time refusal.
+    /// Families the fallback lane is known to serve — an allowlist, not
+    /// a denylist, because two sweeps showed the gaps are wherever we
+    /// have not looked rather than in one identifiable place.
     ///
-    /// Measured, not guessed: sweeping with these included moved 40
-    /// test262 cases from `pass` to `incompatible:not yet supported`,
-    /// all of them `Array.prototype` higher-order calls whose `this`
-    /// is an array-like rather than an array. Correctness for a
-    /// patched HOF therefore waits on the any-lane covering those
-    /// shapes — a patch on one of these keeps today's behaviour rather
-    /// than costing the program its build.
+    /// Opening every family moved 40 test262 cases from `pass` to
+    /// `incompatible:not yet supported` (`Array.prototype` HOFs on an
+    /// array-like `this`); excluding just those HOFs moved a different
+    /// 19 (`Promise.allSettled` / `Promise.any` / the async iterator
+    /// prototypes). Chasing that family by family is one ~10-minute
+    /// sweep per round with no reason to expect the next round to be
+    /// the last. So the rule is inverted: stand down only where a probe
+    /// has actually shown the dispatcher answering, which today is the
+    /// three families `bypass_probe.py` covers. A patch on anything
+    /// else keeps today's behaviour — wrong, but no worse than before,
+    /// and never at the cost of a program's build.
+    const MEASURED_FAMILIES: &[Family] = &["Array", "String", "Number"];
+
+    /// Methods the fallback lane cannot serve yet even inside those
+    /// families: the `Array.prototype` higher-order calls above.
     const FALLBACK_UNSUPPORTED: &[&str] = &[
         "map",
         "filter",
@@ -123,7 +132,9 @@ impl ShadowSet {
     /// its own [[Prototype]] chain at `Object.prototype`, so a patch
     /// there is reachable from an array, a string and a number alike.
     pub(crate) fn shadows(&self, family: Family, method: &str) -> bool {
-        if Self::FALLBACK_UNSUPPORTED.contains(&method) {
+        if !Self::MEASURED_FAMILIES.contains(&family)
+            || Self::FALLBACK_UNSUPPORTED.contains(&method)
+        {
             return false;
         }
         self.all
