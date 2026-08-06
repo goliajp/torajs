@@ -79,6 +79,12 @@ pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
     } else if mid == ANY_METHOD_HAS_OWN_PROPERTY
         || mid == ANY_METHOD_IS_PROTOTYPE_OF
         || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE
+        // The Annex B §B.2.2.2-5 accessor four are `Object.prototype`
+        // properties too, so every family reads the one cell
+        // (`Map.prototype.__defineGetter__ ===
+        // Object.prototype.__defineGetter__`).
+        || (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
+            .contains(&mid)
     {
         family == OBJ_PROTO_FAMILY
     } else {

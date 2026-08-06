@@ -1,5 +1,5 @@
 //! Builtin `<Ctor>.prototype` singleton faces — support / own /
-//! alias / accessor probes + the extern method-value & gOPD cells
+//! accessor probes + the extern method-value & gOPD cells
 //! (split from `method_support.rs`, file-size limit; RFC
 //! 20260713-array-proto-residual blade 2 grew the alias face past
 //! 500). The per-receiver-shape `*_supports` id tables stay in the
@@ -8,15 +8,15 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_IS_PROTOTYPE_OF, ANY_METHOD_KEYS,
-    ANY_METHOD_PROPERTY_IS_ENUMERABLE, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING,
-    ANY_METHOD_UNKNOWN, ANY_METHOD_VALUE_OF, ANY_METHOD_VALUES,
+    ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_IS_PROTOTYPE_OF, ANY_METHOD_PROPERTY_IS_ENUMERABLE,
+    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_UNKNOWN, ANY_METHOD_VALUE_OF,
 };
 
 use crate::method_support::{
     arr_supports, closure_supports, date_supports, map_supports, num_supports, regexp_supports,
     set_supports, str_supports, weakmap_supports, weakset_supports,
 };
+use crate::method_support_proto_alias::proto_cell_key;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 
 unsafe extern "C" {
@@ -105,18 +105,26 @@ pub(crate) fn constructor_live(tag: i64) -> bool {
 /// read stays undefined rather than minting a cell that would
 /// TypeError on `f.call(recv, …)`.
 fn proto_tag_supports(tag: i64, mid: i64) -> bool {
-    // Object.prototype's universal own-property probes resolve on
-    // every receiver shape, so every builtin prototype hands them
-    // out (mirrors `builtin_method_supported`'s leading arm); the
-    // per-family surface is shared with the own-property variant.
-    if mid == ANY_METHOD_HAS_OWN_PROPERTY
-        || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE
-        || mid == ANY_METHOD_VALUE_OF
-        || mid == ANY_METHOD_IS_PROTOTYPE_OF
-    {
-        return true;
-    }
+    // A prototype's READABLE surface is its own methods plus
+    // everything it inherits — and every builtin prototype's
+    // [[Prototype]] chain ends at `Object.prototype`, so asking
+    // that row is the whole of the inherited half. Asking it as a
+    // chain link rather than as a hard-coded list of names is what
+    // makes `Map.prototype.toString` resolve at all: the list had
+    // four of Object.prototype's six methods on it and had silently
+    // left `toString` / `toLocaleString` (plus the Annex B
+    // §B.2.2.2-5 accessor four) unreadable on every family that
+    // inherits rather than owns them, while `"toString" in
+    // Map.prototype` — walking the same chain through
+    // `__torajs_proto_chain_key_owned` — answered true all along.
+    //
+    // Routing through `proto_tag_owns` on both sides also keeps the
+    // delete tombstone honest in the inherited direction: after
+    // `delete Object.prototype.toString`, every family's read goes
+    // undefined with it, which the old early-return could not have
+    // expressed.
     proto_tag_owns(tag, mid)
+        || proto_tag_owns(torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64, mid)
 }
 
 /// Own-property variant of [`proto_tag_supports`] (RFC 20260712
@@ -238,42 +246,8 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
         return 0;
     }
     // Immortal interned cell — rc traffic no-ops.
-    crate::method_value::builtin_method_cell(tag, set_keys_alias(tag, mid)) as u64
-}
-
-/// Per-prototype cell aliases — a name-interned mid that a given
-/// `<Ctor>.prototype` hands out as a DIFFERENT function object:
-/// - §24.2.4.8 `Set.prototype.keys` IS the values function (tag 12,
-///   `torajs-rc/builtin_proto.rs` order), so the two compare `===`.
-/// - §20.1.3.6 `Object.prototype.toString` (tag 1) is the
-///   "[object X]" badge classifier, distinct from every
-///   per-receiver `toString` (RFC 20260713-array-proto-residual
-///   blade 2).
-pub(crate) fn set_keys_alias(tag: i64, mid: i64) -> i64 {
-    if tag == 12 && mid == ANY_METHOD_KEYS {
-        return ANY_METHOD_VALUES;
-    }
-    if tag == 1 && mid == ANY_METHOD_TO_STRING {
-        return torajs_rc::ANY_METHOD_OBJECT_TO_STRING;
-    }
-    // §23.1.3.36 — `Array.prototype.toString` (tag 2) is the
-    // join-or-badge function, distinct from the shared per-receiver
-    // TO_STRING the primitive fast arms answer natively (RFC
-    // 20260721 刀 11 G12).
-    if tag == 2 && mid == ANY_METHOD_TO_STRING {
-        return torajs_rc::ANY_METHOD_ARR_TO_STRING;
-    }
-    // §20.4.3.3/.4 — `Symbol.prototype`'s (tag 5) toString / valueOf
-    // run thisSymbolValue: a non-Symbol receiver throws, so the
-    // reified cells carry dedicated ids (the generic ids would
-    // re-dispatch `.call(0)` into the number arm and answer 0).
-    if tag == 5 && mid == ANY_METHOD_TO_STRING {
-        return torajs_rc::ANY_METHOD_SYMBOL_TO_STRING;
-    }
-    if tag == 5 && mid == ANY_METHOD_VALUE_OF {
-        return torajs_rc::ANY_METHOD_SYMBOL_VALUE_OF;
-    }
-    mid
+    let (fam, cell_mid) = proto_cell_key(tag, mid);
+    crate::method_value::builtin_method_cell(fam, cell_mid) as u64
 }
 
 /// The per-family accessor probe: `Map.prototype` (tag 11) and
@@ -393,7 +367,8 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
         return VALUE_UNDEFINED;
     }
     // Immortal interned cell — rc traffic no-ops, hand out as-is.
-    crate::method_value::builtin_method_cell(tag, set_keys_alias(tag, mid)) as AnyValue
+    let (fam, cell_mid) = proto_cell_key(tag, mid);
+    crate::method_value::builtin_method_cell(fam, cell_mid) as AnyValue
 }
 
 /// `in` is HasProperty (§7.3.12): after the receiver's own face
@@ -484,10 +459,14 @@ mod tests {
         // Function proto answers call/apply/bind only.
         assert!(proto_tag_supports(13, ANY_METHOD_CALL));
         assert!(!proto_tag_supports(13, ANY_METHOD_SLICE));
-        // No-arm tags answer false for ordinary methods…
-        assert!(!proto_tag_supports(9, ANY_METHOD_TO_STRING));
-        // …but the universal probes resolve everywhere.
+        // A tag with no dispatch arm of its own answers false for
+        // another family's method…
+        assert!(!proto_tag_supports(9, ANY_METHOD_SLICE));
+        // …but everything `Object.prototype` owns reads through the
+        // chain on every prototype, arm or no arm.
         assert!(proto_tag_supports(9, ANY_METHOD_HAS_OWN_PROPERTY));
+        assert!(proto_tag_supports(9, ANY_METHOD_TO_STRING));
+        assert!(proto_tag_supports(11, ANY_METHOD_TO_LOCALE_STRING));
         assert!(proto_tag_supports(1, ANY_METHOD_PROPERTY_IS_ENUMERABLE));
     }
 

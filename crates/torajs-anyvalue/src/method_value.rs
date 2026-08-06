@@ -223,10 +223,8 @@ pub extern "C" fn __torajs_builtin_method_cell(mid: i64) -> *mut u8 {
 /// apply so the handed-out identity matches the reflection faces.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_builtin_method_cell_tagged(family: i64, mid: i64) -> *mut u8 {
-    builtin_method_cell(
-        family,
-        crate::method_support_proto::set_keys_alias(family, mid),
-    )
+    let (fam, cell_mid) = crate::method_support_proto_alias::proto_cell_key(family, mid);
+    builtin_method_cell(fam, cell_mid)
 }
 
 // Builtin-proto accessor getter cells (Map/Set `get size`, Symbol
