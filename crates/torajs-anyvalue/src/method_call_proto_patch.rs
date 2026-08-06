@@ -163,9 +163,18 @@ pub(crate) unsafe fn primitive_patch_pregate(
             // `delete Map.prototype.get` leaves nothing for `m.get`
             // to find, which is what both bun and V8 answer; the
             // value-read face has consulted this same tombstone since
-            // it was introduced, and a later set / defineProperty
-            // revives without a clear call because the own probe
-            // above runs first.
+            // it was introduced.
+            //
+            // A later set / defineProperty revives without a clear
+            // call, and the probe below is what makes that true. It
+            // used to be left to "the own probe above runs first",
+            // which only holds when the write was a user function —
+            // put the ORIGINAL method back and the consult declines
+            // (that is a restore, handled above), leaving the
+            // tombstone to answer for an entry that is standing right
+            // there. The question the tombstone may speak to is
+            // "deleted AND nothing written since", so it is asked
+            // that way.
             // ...unless the chain still has it. Deleting
             // `Boolean.prototype.toString` does not leave nothing —
             // the walk continues to `Object.prototype`, which owns
@@ -173,6 +182,7 @@ pub(crate) unsafe fn primitive_patch_pregate(
             // rather than throwing. Only a method with nothing above
             // it (`delete Map.prototype.get`) is really gone.
             if torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(fam, mid) != 0
+                && proto_patch_slot(recv, mid, name_str).is_none()
                 && !crate::method_support_proto::proto_tag_owns(OBJECT_PROTO_FAMILY, mid)
             {
                 return Some(not_callable());
@@ -343,6 +353,21 @@ pub(crate) unsafe fn builtin_proto_patch_method(
             return Some(not_callable());
         }
         let cell = value as *mut c_void;
+        // Putting the ORIGINAL back is a restore, not a patch:
+        // `delete Map.prototype.get; Map.prototype.get = orig` names
+        // the native arm, so the answer is "there is no patch here"
+        // and the caller's own arm is what runs. Reading it as a
+        // patch sent it down the borrowed-cell lane below, which only
+        // the String family implements — every other family then
+        // answered "not a function" for a method standing right
+        // there, and the delete tombstone this write was undoing got
+        // the last word. Map / String / Array all did it.
+        if builtin_method_mid(cell) == Some(mid)
+            && builtin_method_family(cell)
+                == crate::method_value::family::intern_family(recv_proto_family(recv), mid)
+        {
+            return None;
+        }
         // A borrowed builtin cell (`Number.prototype.split =
         // String.prototype.split`) — String-family cells run the
         // §22.1.3 generic ToString(this) coerce; any other family
