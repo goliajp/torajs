@@ -104,9 +104,24 @@ pub(crate) fn try_emit(
     if recv_ty != Type::Substr || method != "trim" || args_len != 0 {
         return None;
     }
+    // The buffer IS the trimmed view, so the value carries
+    // `Type::Substr` and not the raw `Type::Ptr` the alloca would
+    // otherwise answer with. Two things ride on that type, and both
+    // were broken while it read `Ptr`:
+    //
+    // - consumers dispatch on it. `.length` has a Str/Substr arm and
+    //   nothing for a bare pointer, so `parts[i].trim().length`
+    //   reached `ssa-lower: member access on non-object Ptr` — a
+    //   compile error on a shape that had built before.
+    // - the drop is emitted from it. `__torajs_substr_trim_into`
+    //   rc_incs the parent and stamps `FLAG_SUBSTR_INLINE` expressly
+    //   so the matching `__torajs_substr_drop` takes the inline
+    //   branch — dec the parent, no pool push, no free, which is what
+    //   makes a stack buffer safe to drop. Typed `Ptr` no drop was
+    //   ever emitted, so that inc leaked.
     let buf = ctx
         .f
-        .append_inst(ctx.cur_block, InstKind::AllocaBytes(32), Type::Ptr, None);
+        .append_inst(ctx.cur_block, InstKind::AllocaBytes(32), Type::Substr, None);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(
