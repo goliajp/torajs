@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T05:08:26.067Z",
+  "generatedAt": "2026-08-06T07:43:41.629Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-06T05:05:48Z",
-    "headSha": "a3f0ce09",
-    "elapsedSec": 421.75,
+    "ranAt": "2026-08-06T07:40:44Z",
+    "headSha": "0d5be9b6",
+    "elapsedSec": 401.05,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22088,
+    "pass": 22236,
     "passNoOracle": 641,
     "passNegative": 3956,
-    "passTotal": 26685,
-    "bug": 11807,
-    "incompatible": 14682,
+    "passTotal": 26833,
+    "bug": 11853,
+    "incompatible": 14488,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38492,
-    "passRateInScope": 50.18,
-    "passRateTrAccepted": 69.33
+    "trAccepted": 38686,
+    "passRateInScope": 50.46,
+    "passRateTrAccepted": 69.36
   },
   "torajs": {
-    "commit": "a3f0ce09",
-    "commitSubject": "fix: object rest refused an any source, and excluded a key too late",
+    "commit": "0d5be9b6",
+    "commitSubject": "fix(runtime): the collection initializer reads the adder off its target",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "0d5be9b6",
+      "subject": "fix(runtime): the collection initializer reads the adder off its target"
+    },
+    {
+      "hash": "77cea4f2",
+      "subject": "feat(core,runtime): the collection constructors' iterable argument"
+    },
+    {
+      "hash": "017c3a42",
+      "subject": "feat(core,runtime): WeakRef joins the weak family on both sides"
+    },
+    {
+      "hash": "999da829",
+      "subject": "fix(runtime): a prototype reads what it inherits, not only what it owns"
+    },
+    {
+      "hash": "46a33153",
+      "subject": "feat(core,runtime): the weak pair's constructors read as values"
+    },
+    {
+      "hash": "332635aa",
+      "subject": "chore: stow rotation 313 sweep and refresh roadmap and dashboard"
+    },
+    {
       "hash": "a3f0ce09",
       "subject": "fix: object rest refused an any source, and excluded a key too late"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "6aa1f99a",
       "subject": "chore: re-stow rotation 312 sweep at the final HEAD"
-    },
-    {
-      "hash": "35b67bca",
-      "subject": "fix: Object.values and Object.assign refused a class instance"
-    },
-    {
-      "hash": "c6abdf04",
-      "subject": "chore: stow rotation 312 sweep and refresh hardev dashboard"
-    },
-    {
-      "hash": "befdc36d",
-      "subject": "fix: a dynamic property was invisible to the surfaces that unfold a layout"
-    },
-    {
-      "hash": "c5385507",
-      "subject": "fix: Object.assign copied a member the source had hidden"
-    },
-    {
-      "hash": "8c3242c2",
-      "subject": "fix: Object.values returned a value that had been hidden from it"
-    },
-    {
-      "hash": "820ed4b2",
-      "subject": "fix: Object.entries listed a member that had been hidden from it"
     }
   ],
-  "headSha": "a3f0ce09",
+  "headSha": "0d5be9b6",
   "autorun": {
-    "total": 616,
+    "total": 617,
     "baselineTarget": 10,
-    "bySelf": 611,
+    "bySelf": 612,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785979501-335d",
-      "at": "2026-08-06T01:25:01Z",
-      "ts": 1785979501,
+      "rotationId": "r-1785992943-0fe5",
+      "at": "2026-08-06T05:09:03Z",
+      "ts": 1785992943,
       "trigger": "self",
-      "prevHead": "6aa1f99a",
-      "handoffSha": "sha256:c187edce2ed561642745fdd2104fccd9aeeda21caa16fdf139229d8fe7f59836",
-      "handoffAgeSec": 1,
+      "prevHead": "332635aa",
+      "handoffSha": "sha256:dd2c2addaf25c76253f4e7ac3000b909730b2c5bba55c475aaad6e30a5bcf36c",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785992943-0fe5",
+        "at": "2026-08-06T05:09:03Z",
+        "ts": 1785992943,
+        "trigger": "self",
+        "prevHead": "332635aa",
+        "handoffSha": "sha256:dd2c2addaf25c76253f4e7ac3000b909730b2c5bba55c475aaad6e30a5bcf36c",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785979501-335d",
         "at": "2026-08-06T01:25:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "21a38d86",
         "handoffSha": "sha256:37e3a3c552498291488a7ac632341b5b4bdacbac5c673d6ce4c8251d824ac4e9",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785894015-1018",
-        "at": "2026-08-05T01:40:15Z",
-        "ts": 1785894015,
-        "trigger": "self",
-        "prevHead": "c9f51bdb",
-        "handoffSha": "sha256:976548e648533ca57651f990586bfb0784c7fdba537425df8383d6ff37c3199c",
-        "handoffAgeSec": 49,
         "conformanceBefore": null,
         "commitsInSession": null
       }

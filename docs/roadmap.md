@@ -2619,7 +2619,19 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 265 closing sweep `38d1b8ca`, core **12371**,
+(refreshed @ rotation 314 closing sweep `0d5be9b6`, core **8706**,
+**312** clusters of ≥ 4 holding 7711 cases; 754 clusters of ≤ 3 hold
+995 more (11.4 %). Coverage: top 10 = 31.0 %, top 25 = 43.9 %,
+top 100 = 70.5 %, top 400 = 91.2 %. Rotation 314 worked the weak
+families and the collection constructors: the WeakMap / WeakSet /
+WeakRef constructors read as values (proto tags 16-18), a builtin
+prototype now reads what it INHERITS from `Object.prototype` and not
+only what it owns, and all four collection constructors take a
+general iterable initializer through one runtime walk. +148 to pass,
+zero pass regressions, gate 2508 → **2512**/0/4 across five substrate
+commits.)
+
+(previous stamp @ rotation 265 closing sweep `38d1b8ca`, core **12371**,
 389 clusters of ≥ 4 holding 11299 cases. Earlier stamp @ rotation
 263 `c52fd6d1`: core 13147, 390 clusters of ≥ 4 holding 12081. Rotation 263 shipped RFC
 20260730-undeclared-ident (policy B, decided under takagi's
