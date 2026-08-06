@@ -1,12 +1,14 @@
-//! The redefined-member gate in front of a static struct unfold — RFC
+//! The gate in front of a static struct unfold — RFC
 //! 20260806-declared-field-redefine.
 //!
 //! Several surfaces read a statically typed class instance by unfolding
 //! its layout's member list at compile time, which is the whole reason
-//! they are fast: `JSON.stringify`, `Object.values`, `Object.entries`.
-//! All of them are defined over EnumerableOwnProperties, and
-//! `Object.defineProperty(c, "f", {enumerable: false})` moves that set
-//! at RUNTIME — a fact no unfold can carry.
+//! they are fast: `JSON.stringify`, `Object.values`, `Object.entries`,
+//! `Object.assign`. All of them are defined over
+//! EnumerableOwnProperties, and the program can move that set at
+//! RUNTIME in two ways a member list cannot carry — hiding a declared
+//! member with `Object.defineProperty(c, "f", {enumerable: false})`,
+//! or adding a key the layout never mentions.
 //!
 //! They are reconciled the way the array tier already reconciles the
 //! same tension (`emit_index_integrity_guard` over
@@ -34,9 +36,12 @@ use crate::ssa_lower::LowerCtx;
 /// so flags bit N sits at bit 48+N of the I64 load.
 const FLAGS_SHIFT: u32 = 48;
 
-/// The test itself: a `Bool` that is true when `cell` carries
-/// `FLAG_OBJ_EXOTIC_FIELD` — i.e. when some member of THIS instance
-/// was redefined and the layout no longer describes it fully.
+/// The test itself: a `Bool` that is true when THIS instance's own
+/// property set is no longer what its layout says — a declared member
+/// was redefined (`FLAG_OBJ_EXOTIC_FIELD`), or a key the layout never
+/// mentions was added (`FLAG_OBJ_EXPANDO`). Two facts, one masked
+/// compare, because an unfold is wrong in exactly the same way under
+/// either.
 ///
 /// Exposed on its own because not every caller is producing a value.
 /// `Object.assign` copies from its source into a target it already
@@ -45,7 +50,8 @@ const FLAGS_SHIFT: u32 = 48;
 /// `cell` must be a live, non-NULL `Tag::Obj` operand — see the module
 /// doc.
 pub(crate) fn emit_exotic_field_test(ctx: &mut LowerCtx<'_>, cell: &Operand) -> Operand {
-    let mask = (torajs_rc::FLAG_OBJ_EXOTIC_FIELD as i64) << FLAGS_SHIFT;
+    let mask =
+        ((torajs_rc::FLAG_OBJ_EXOTIC_FIELD | torajs_rc::FLAG_OBJ_EXPANDO) as i64) << FLAGS_SHIFT;
     let hdr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, cell.clone(), 0),
@@ -71,10 +77,10 @@ pub(crate) fn emit_exotic_field_test(ctx: &mut LowerCtx<'_>, cell: &Operand) -> 
     Operand::Value(exotic)
 }
 
-/// Emit the gate: `walk` when the cell carries
-/// `FLAG_OBJ_EXOTIC_FIELD`, `unfold` otherwise. Both arms produce a
-/// `ty` value; the join goes through an alloca so neither arm needs to
-/// know where the other landed.
+/// Emit the gate: `walk` when [`emit_exotic_field_test`] says so,
+/// `unfold` otherwise. Both arms produce a `ty` value; the join goes
+/// through an alloca so neither arm needs to know where the other
+/// landed.
 ///
 /// `cell` must be a live, non-NULL `Tag::Obj` operand — see the module
 /// doc.

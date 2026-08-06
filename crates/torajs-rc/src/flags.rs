@@ -20,6 +20,7 @@
 //! | 8     | [`FLAG_NON_EXTENSIBLE`] | universal |
 //! | 9     | [`FLAG_SEALED`] | universal |
 //! | 10-12 | element-kind field (`arr_kind.rs`) | Arr |
+//! | 12    | [`FLAG_CLOSURE_RECV_FIRST`] (Closure) / [`FLAG_OBJ_EXPANDO`] (Obj) | disjoint-by-tag with Arr kind |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] | DynObj (disjoint-by-tag with Closure / Arr) |
@@ -150,6 +151,12 @@ pub const FLAG_ARR_EXOTIC_INDEX: u16 = 1 << 15;
 /// dead) in the instance's `+24` expando dict, and readers fast-path
 /// on this bit staying clear.
 ///
+/// Deliberately NOT raised by an expando write — see
+/// [`FLAG_OBJ_EXPANDO`], which is a different question asked by
+/// different readers. Sharing one bit would have made every store to a
+/// declared field of an instance that happens to carry a dynamic
+/// property probe that dict for a sidecar that is not there.
+///
 /// It is what lets the typed `o.field = v` store stay one store. That
 /// site already loads the header to check FROZEN, so the writability
 /// question costs it one wider immediate in the same test — and the
@@ -157,6 +164,21 @@ pub const FLAG_ARR_EXOTIC_INDEX: u16 = 1 << 15;
 /// redefined. Bit 15 is Tag::Obj-private (disjoint-by-tag reuse of
 /// Arr's exotic-index bit and Closure's `prototype` bit).
 pub const FLAG_OBJ_EXOTIC_FIELD: u16 = 1 << 15;
+/// `Tag::Obj` class instance owns at least one key its layout never
+/// mentions — a dynamic property (RFC 20260714-struct-dynamic-props),
+/// whether written as `o.k = v` through the `any` lane or defined
+/// through `Object.defineProperty`.
+///
+/// The readers are the surfaces that unfold a compile-time member
+/// list: they answer only what the layout declares, which stops being
+/// the whole own set the moment this bit goes up. They test it
+/// together with [`FLAG_OBJ_EXOTIC_FIELD`] in one masked compare, so
+/// the second question is free to them — and invisible to the typed
+/// store, which asks only the first.
+///
+/// Bit 12 is Tag::Obj-private (disjoint-by-tag with Arr's element-kind
+/// field at 10-12 and the Closure / DynObj bits at 10-11).
+pub const FLAG_OBJ_EXPANDO: u16 = 1 << 12;
 /// `Tag::Arr` `length` property lock (RFC 20260712-arr-exotic-define
 /// chunk D) — `Object.defineProperty(arr, "length", {writable:
 /// false})` sets it; every later length mutation (assign / define /

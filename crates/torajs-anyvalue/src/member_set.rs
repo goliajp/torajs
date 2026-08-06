@@ -451,6 +451,12 @@ unsafe fn any_member_set_impl(
                     *props_slot = __torajs_dynobj_alloc();
                 }
                 __torajs_dynobj_set(props_slot, key, tag, value);
+                // The instance now owns a key its layout never
+                // mentions, so a compile-time member list is no longer
+                // the whole story — the fact every unfolding reader
+                // gates on.
+                let flags = ptr.cast::<u8>().add(6) as *mut u16;
+                *flags |= torajs_rc::FLAG_OBJ_EXPANDO;
                 return 1;
             }
         }

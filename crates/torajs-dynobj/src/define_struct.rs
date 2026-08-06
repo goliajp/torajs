@@ -50,6 +50,13 @@ const OBJ_HDR_FLAG_ERROR: u16 = 1 << 7;
 /// The typed store's gate reads it; see that constant's doc.
 const OBJ_HDR_FLAG_EXOTIC_FIELD: u16 = 1 << 15;
 
+/// `torajs_rc::FLAG_OBJ_EXPANDO` mirror — bit 12, "this instance owns
+/// at least one key its layout never mentions". A separate bit from
+/// the one above on purpose: the typed store asks only the first
+/// question, and would otherwise probe a dict for a sidecar that a
+/// mere dynamic property never put there.
+const OBJ_HDR_FLAG_EXPANDO: u16 = 1 << 12;
+
 unsafe extern "C" {
     // torajs-structmeta (W-J Phase A4) — the read side over the
     // link-emitted `__torajs_class_layouts` table.
@@ -462,6 +469,25 @@ pub(crate) unsafe fn struct_define(
         if (*props_slot).is_null() {
             *props_slot = crate::alloc::__torajs_dynobj_alloc();
         }
-        define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal)
+        let ok = define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal);
+        // An own key the layout never mentions moves this instance's
+        // property set away from what the layout says — which every
+        // reader that unfolds a compile-time member list needs to know.
+        if ok != 0 {
+            mark_expando(obj);
+        }
+        ok
+    }
+}
+
+/// Raise the header bit that tells a compile-time unfold its member
+/// list is no longer the whole story.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+unsafe fn mark_expando(obj: *mut c_void) {
+    unsafe {
+        let flags = obj.cast::<u8>().add(6) as *mut u16;
+        *flags |= OBJ_HDR_FLAG_EXPANDO;
     }
 }
