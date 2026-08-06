@@ -34,20 +34,17 @@ use crate::ssa_lower::LowerCtx;
 /// so flags bit N sits at bit 48+N of the I64 load.
 const FLAGS_SHIFT: u32 = 48;
 
-/// Emit the gate: `walk` when the cell carries
-/// `FLAG_OBJ_EXOTIC_FIELD`, `unfold` otherwise. Both arms produce a
-/// `ty` value; the join goes through an alloca so neither arm needs to
-/// know where the other landed.
+/// The test itself: a `Bool` that is true when `cell` carries
+/// `FLAG_OBJ_EXOTIC_FIELD` — i.e. when some member of THIS instance
+/// was redefined and the layout no longer describes it fully.
+///
+/// Exposed on its own because not every caller is producing a value.
+/// `Object.assign` copies from its source into a target it already
+/// has, so it wants the branch without the join.
 ///
 /// `cell` must be a live, non-NULL `Tag::Obj` operand — see the module
 /// doc.
-pub(crate) fn with_exotic_field_gate(
-    ctx: &mut LowerCtx<'_>,
-    cell: &Operand,
-    ty: Type,
-    walk: impl FnOnce(&mut LowerCtx<'_>) -> Operand,
-    unfold: impl FnOnce(&mut LowerCtx<'_>) -> Operand,
-) -> Operand {
+pub(crate) fn emit_exotic_field_test(ctx: &mut LowerCtx<'_>, cell: &Operand) -> Operand {
     let mask = (torajs_rc::FLAG_OBJ_EXOTIC_FIELD as i64) << FLAGS_SHIFT;
     let hdr = ctx.f.append_inst(
         ctx.cur_block,
@@ -71,6 +68,24 @@ pub(crate) fn with_exotic_field_gate(
         Type::Bool,
         None,
     );
+    Operand::Value(exotic)
+}
+
+/// Emit the gate: `walk` when the cell carries
+/// `FLAG_OBJ_EXOTIC_FIELD`, `unfold` otherwise. Both arms produce a
+/// `ty` value; the join goes through an alloca so neither arm needs to
+/// know where the other landed.
+///
+/// `cell` must be a live, non-NULL `Tag::Obj` operand — see the module
+/// doc.
+pub(crate) fn with_exotic_field_gate(
+    ctx: &mut LowerCtx<'_>,
+    cell: &Operand,
+    ty: Type,
+    walk: impl FnOnce(&mut LowerCtx<'_>) -> Operand,
+    unfold: impl FnOnce(&mut LowerCtx<'_>) -> Operand,
+) -> Operand {
+    let exotic = emit_exotic_field_test(ctx, cell);
     let out_slot = ctx.alloca(ty.clone(), None);
     let walk_blk = ctx.f.add_block();
     let unfold_blk = ctx.f.add_block();
@@ -78,7 +93,7 @@ pub(crate) fn with_exotic_field_gate(
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {
-            cond: Operand::Value(exotic),
+            cond: exotic,
             then_blk: walk_blk,
             else_blk: unfold_blk,
         },

@@ -35,7 +35,7 @@
 //! `Object.assign` or `args.is_empty()`.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_struct_own_props::{
     emit_prop_store, emit_prop_value, own_prop_sinks, own_props,
@@ -136,6 +136,12 @@ pub(crate) fn try_lower(
             panic!("ssa-lower: Object.assign source must be a struct, got {src_ty:?}");
         };
         let s_layout = ctx.struct_layouts[s_sid.0 as usize].clone();
+        // §20.1.2.1 step 4.c copies the source's ENUMERABLE own keys,
+        // and a `defineProperty` on the source moves that set at run
+        // time — which the compile-time member list cannot carry. The
+        // header test costs one not-taken branch per source; only past
+        // it is each member asked whether it is hidden right now.
+        let exotic = crate::ssa_lower_struct_exotic_gate::emit_exotic_field_test(ctx, &source_op);
         for prop in own_props(&s_layout, ctx.fn_sigs) {
             // The checker matched the two property sets key-for-key, so
             // a missing sink here is a compiler bug, not a user error.
@@ -150,8 +156,49 @@ pub(crate) fn try_lower(
                 })
                 .sink;
             let val_ty = prop.ty();
+            let copy_blk = ctx.f.add_block();
+            let next_blk = ctx.f.add_block();
+            let probe_blk = ctx.f.add_block();
+            ctx.f.set_term(
+                ctx.cur_block,
+                Terminator::CondBr {
+                    cond: exotic.clone(),
+                    then_blk: probe_blk,
+                    else_blk: copy_blk,
+                },
+            );
+            // Redefined somewhere on this source — is it THIS member?
+            ctx.cur_block = probe_blk;
+            let key = ctx.intern_string_literal(&prop.key);
+            let hidden = ctx.f.append_inst(
+                probe_blk,
+                InstKind::Call(
+                    ctx.intrinsics.obj_key_is_nonenumerable,
+                    vec![source_op.clone(), Operand::Value(key)],
+                ),
+                Type::I64,
+                None,
+            );
+            let keep = ctx.f.append_inst(
+                probe_blk,
+                InstKind::ICmp(IPred::Eq, Operand::Value(hidden), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            ctx.f.set_term(
+                probe_blk,
+                Terminator::CondBr {
+                    cond: Operand::Value(keep),
+                    then_blk: copy_blk,
+                    else_blk: next_blk,
+                },
+            );
+            ctx.cur_block = copy_blk;
             let (value, owned) = emit_prop_value(ctx, &source_op, &prop);
             emit_prop_store(ctx, &target_op, &sink, value, owned, val_ty);
+            let end = ctx.cur_block;
+            ctx.f.set_term(end, Terminator::Br(next_blk));
+            ctx.cur_block = next_blk;
         }
     }
     // RFC 20260705 owned-result invariant: ES answers the target;
