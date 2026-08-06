@@ -253,7 +253,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         ),
         reflect_apply: decl!("__torajs_reflect_apply", [Any, Any, Any], Any),
         reflect_construct: decl!("__torajs_reflect_construct", [Any, Any, Any], Any),
-        dynobj_spread_from: decl!("__torajs_dynobj_spread_from", [Ptr, Any], Void),
+        dynobj_spread_from: decl!("__torajs_dynobj_spread_from", [Ptr, Any, Ptr], Void),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),
         anyv_set_prototype_of: decl!("__torajs_anyv_set_prototype_of", [Any, Any], Void),

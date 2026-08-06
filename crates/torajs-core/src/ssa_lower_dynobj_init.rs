@@ -353,7 +353,6 @@ impl<'a> LowerCtx<'a> {
             // destructuring-rest omit form copies then deletes the
             // excluded keys (recorded divergence: their getters run).
             if let Some(omit) = crate::check_type_of_object_lit::spread_omit_set(&fname) {
-                let omit: Vec<String> = omit.iter().map(|s| s.to_string()).collect();
                 let src = self.lower_expr(fval_eid);
                 let src_ty = self.operand_ty(&src);
                 let src_any = if matches!(src_ty, Type::Any) {
@@ -361,28 +360,27 @@ impl<'a> LowerCtx<'a> {
                 } else {
                     self.box_to_any_from_expr(fval_eid, src.clone())
                 };
+                // §7.3.25 excludedItems ride to the kernel as one Str
+                // cell of comma-separated names — the same spelling the
+                // sentinel used to carry them here. The walk skips them
+                // BEFORE [[Get]], which is the whole point: copying and
+                // then deleting answers with the right properties but
+                // runs the excluded getters, and that is a side effect
+                // the program can see.
+                let excluded = if omit.is_empty() {
+                    Operand::ConstPtrNull
+                } else {
+                    Operand::Value(self.intern_string_literal(&omit.join(",")))
+                };
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(
                         self.intrinsics.dynobj_spread_from,
-                        vec![Operand::Value(slot), src_any],
+                        vec![Operand::Value(slot), src_any, excluded],
                     ),
                 );
                 self.release_owned_temp(fval_eid, &src);
                 self.emit_throw_check(None);
-                for k in &omit {
-                    let key = self.intern_string_literal(k);
-                    let d = self.load_dynobj(slot);
-                    let _ = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.dynobj_delete,
-                            vec![Operand::Value(d), Operand::Value(key)],
-                        ),
-                        Type::I32,
-                        None,
-                    );
-                }
                 continue;
             }
             // RFC 20260712-object-create-define-props — a nested

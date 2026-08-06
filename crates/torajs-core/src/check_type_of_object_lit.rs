@@ -65,11 +65,11 @@ pub(crate) fn check(
         if let Some(omit) = spread_omit_set(n) {
             let src_ty = checker.type_of(ast, *eid)?;
             // Any-typed spread source → the whole literal goes to the
-            // dynobj lane (see above). The destructuring-rest omit
-            // form (`__spread_omit__:` with keys) keeps the struct
-            // refuse for now — its runtime shape needs an excluded-key
-            // walk (registered).
-            if matches!(src_ty, Type::Any) && omit.is_empty() {
+            // dynobj lane (see above). That holds for the
+            // destructuring-rest omit form too: the lane's kernel walk
+            // already excludes the named keys, so this gate had no
+            // missing implementation behind it.
+            if matches!(src_ty, Type::Any) {
                 any_spread = true;
                 continue;
             }

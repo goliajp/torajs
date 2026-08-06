@@ -31,6 +31,11 @@ const ACCESSOR_TAG: u64 = 6;
 /// cross-crate sync posture as obj_own_values' walks.
 const ARR_DATA_PTR_OFF: usize = 32;
 
+/// Str cell layout mirrors (same spelling the reflect siblings keep —
+/// this crate holds its dep tree narrow rather than importing them).
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -68,7 +73,7 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
         return;
     }
     let mut t_slot = target;
-    unsafe { copy_own_into(&mut t_slot, source) };
+    unsafe { copy_own_into(&mut t_slot, source, core::ptr::null()) };
 }
 
 /// `{ ...source }` into the dynobj lane's fresh literal — §7.3.25
@@ -82,11 +87,50 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
 /// `obj_slot` points at a live dynobj pointer; `source` is a live
 /// AnyValue bit pattern. Caller must check for a pending throw.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_dynobj_spread_from(obj_slot: *mut *mut c_void, source: u64) {
+pub unsafe extern "C" fn __torajs_dynobj_spread_from(
+    obj_slot: *mut *mut c_void,
+    source: u64,
+    excluded: *const c_void,
+) {
     let mut t_anyv =
         unsafe { __torajs_anyv_box_from_pair(ANY_HEAP_TAG as i64, (*obj_slot) as i64) };
-    unsafe { copy_own_into(&mut t_anyv, source) };
+    unsafe { copy_own_into(&mut t_anyv, source, excluded) };
     unsafe { *obj_slot = __torajs_anyv_unbox_value(t_anyv) as *mut c_void };
+}
+
+/// Key Str payload as a byte slice.
+unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
+    let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
+    unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len as usize) }
+}
+
+/// §7.3.25 step 3.b — is this key in `excludedItems`?
+///
+/// The list rides as one Str cell holding the comma-separated names,
+/// the same spelling the `__spread_omit__:` sentinel already uses to
+/// carry them through the AST. A NULL cell means nothing is excluded,
+/// which is every caller but the destructuring rest.
+///
+/// This is asked BEFORE [[Get]] on purpose: the spec excludes the key
+/// from the copy, so its getter must not run. Copying first and
+/// deleting after would answer with the right properties but call the
+/// excluded getter — a side effect the program can see.
+unsafe fn key_excluded(key: *const c_void, excluded: *const c_void) -> bool {
+    if excluded.is_null() {
+        return false;
+    }
+    let name = unsafe { key_bytes(key) };
+    let list = unsafe { key_bytes(excluded) };
+    let mut start = 0usize;
+    for i in 0..=list.len() {
+        if i == list.len() || list[i] == b',' {
+            if i > start && &list[start..i] == name {
+                return true;
+            }
+            start = i + 1;
+        }
+    }
+    false
 }
 
 /// Shared own-enumerable copy — §20.1.2.1 step 4 / §7.3.25 body. A
@@ -97,15 +141,15 @@ pub unsafe extern "C" fn __torajs_dynobj_spread_from(obj_slot: *mut *mut c_void,
 /// bucket (enumerable-filtered, same as the string buckets) — a
 /// second pass over the same per-key body, because the two buckets
 /// come from separate kernels by construction.
-unsafe fn copy_own_into(target_slot: *mut u64, source: u64) {
+unsafe fn copy_own_into(target_slot: *mut u64, source: u64, excluded: *const c_void) {
     if source == VALUE_NULL_IMM || source == VALUE_UNDEFINED_IMM {
         return;
     }
     let strings = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(source, 0) };
-    let threw = unsafe { copy_keys(target_slot, source, strings) };
+    let threw = unsafe { copy_keys(target_slot, source, strings, excluded) };
     if !threw {
         let symbols = unsafe { crate::own_names::__torajs_anyv_own_enum_symbols(source) };
-        unsafe { copy_keys(target_slot, source, symbols) };
+        unsafe { copy_keys(target_slot, source, symbols, excluded) };
     }
 }
 
@@ -121,13 +165,23 @@ unsafe fn copy_own_into(target_slot: *mut u64, source: u64) {
 /// `keys` is an owned `+1`-rc keys array this call consumes;
 /// `target_slot` points at a live AnyValue; `source` is a live
 /// AnyValue bit pattern.
-unsafe fn copy_keys(target_slot: *mut u64, source: u64, keys: *mut c_void) -> bool {
+unsafe fn copy_keys(
+    target_slot: *mut u64,
+    source: u64,
+    keys: *mut c_void,
+    excluded: *const c_void,
+) -> bool {
     let len = unsafe { (keys.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
     let data = unsafe { (keys.cast::<u8>().add(ARR_DATA_PTR_OFF) as *const *const u64).read() };
     let mut threw = false;
     for i in 0..len as usize {
         let key = unsafe { data.add(i).read() } as *mut c_void;
         if key.is_null() {
+            continue;
+        }
+        // §7.3.25 step 3.b — skipped before [[Get]], so an excluded
+        // key's getter never runs.
+        if unsafe { key_excluded(key, excluded) } {
             continue;
         }
         let tag = unsafe { __torajs_any_member_get_tag(source, key) };
