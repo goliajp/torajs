@@ -17,3 +17,9 @@ pub const ANY_METHOD_TO_ARRAY: i64 = 173;
 /// brackets). Iterator cells (MapIter / ArrIter / IterHelper) reify
 /// their `@@iterator` read to this id (刀 4 长尾).
 pub const ANY_METHOD_ITER_SELF: i64 = 174;
+
+/// `deref` — §26.1.4.2 `WeakRef.prototype.deref`. The one method on
+/// the third weak family, which joined the any lane in rotation 314
+/// (its typed receiver had a lowering all along; a WeakRef reached
+/// through `any` had no arm to land in).
+pub const ANY_METHOD_DEREF: i64 = 175;

@@ -21,7 +21,7 @@
 //! - **Constructor namespace prototype/name/length** — for
 //!   `{Object, Array, String, Boolean, Symbol, BigInt, RegExp,
 //!   Date, Error, Promise, Map, Set, Function, Iterator, WeakMap,
-//!   WeakSet}` (see [`builtin_proto_tag`] for the tag numbers,
+//!   WeakSet, WeakRef}` (see [`builtin_proto_tag`] for the tags,
 //!   order locked to `torajs-rc::builtin_proto::NUM_BUILTIN_PROTOS`
 //!   — never reorder): `.prototype` builtin-proto singleton +
 //!   any_box; `.name` interns the namespace string; `.length`
@@ -235,6 +235,7 @@ fn builtin_proto_tag(ns_name: &str) -> Option<i64> {
         // test needs to even reach its assertion.
         "WeakMap" => Some(16),
         "WeakSet" => Some(17),
+        "WeakRef" => Some(18),
         _ => None,
     }
 }

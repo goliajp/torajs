@@ -1683,6 +1683,7 @@ mod tests {
         __torajs_weakmap_has,
         __torajs_weakmap_set,
         __torajs_weakset_add,
+        __torajs_weakref_deref_any,
         __torajs_weakset_delete,
         __torajs_weakset_has,
     );

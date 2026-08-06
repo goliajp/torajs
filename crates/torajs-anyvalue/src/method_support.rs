@@ -214,6 +214,12 @@ pub(crate) fn weakset_supports(mid: i64) -> bool {
     matches!(mid, ANY_METHOD_ADD | ANY_METHOD_HAS | ANY_METHOD_DELETE)
 }
 
+/// `method_call_weak` WeakRef arm ids — §26.1.4.2 gives the family
+/// exactly one method.
+pub(crate) fn weakref_supports(mid: i64) -> bool {
+    mid == torajs_rc::any_method_iter::ANY_METHOD_DEREF
+}
+
 /// `method_call_closure` arm ids — `Function.prototype`'s surface.
 /// TO_STRING paired with the B4 source-text arm (RFC
 /// 20260719-fn-tostring-source; supported table and dispatcher move

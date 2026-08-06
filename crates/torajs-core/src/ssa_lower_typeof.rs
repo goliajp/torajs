@@ -99,10 +99,10 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
         "undefined" => Some("undefined"),
         "Math" | "JSON" | "Reflect" | "globalThis" | "console" => Some("object"),
         "Number" | "String" | "Boolean" | "Symbol" | "Date" | "Array" | "Object" | "RegExp"
-        | "Error" | "Function" | "Promise" | "Map" | "Set" | "WeakMap" | "WeakSet" | "Proxy"
-        | "Iterator" | "BigInt" | "ArrayBuffer" | "DataView" | "TypeError" | "RangeError"
-        | "SyntaxError" | "ReferenceError" | "EvalError" | "URIError" | "parseInt"
-        | "parseFloat" | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
+        | "Error" | "Function" | "Promise" | "Map" | "Set" | "WeakMap" | "WeakSet" | "WeakRef"
+        | "Proxy" | "Iterator" | "BigInt" | "ArrayBuffer" | "DataView" | "TypeError"
+        | "RangeError" | "SyntaxError" | "ReferenceError" | "EvalError" | "URIError"
+        | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
         | "encodeURIComponent" | "decodeURIComponent" => Some("function"),
         n if n.starts_with("__class_") => Some("function"),
         _ => None,

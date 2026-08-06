@@ -67,12 +67,12 @@ pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
         // Number / Object / String / Boolean / Symbol / BigInt / Date
         matches!(family, 0 | 1 | 3 | 4 | 5 | 6 | 8)
     } else if mid == ANY_METHOD_TO_STRING {
-        // Every family except Promise / Map / Set / WeakMap /
-        // WeakSet has its own — those five brand themselves through
+        // Every family except Promise / Map / Set and the weak
+        // three has its own — those six brand themselves through
         // `Symbol.toStringTag` and inherit the one function object
         // on `Object.prototype` (bun: `WeakMap.prototype.toString
         // === Object.prototype.toString`).
-        !matches!(family, 10 | 11 | 12 | 16 | 17)
+        !matches!(family, 10 | 11 | 12 | 16 | 17 | 18)
     } else if mid == ANY_METHOD_TO_LOCALE_STRING {
         // Number / Object / Array / BigInt / Date
         matches!(family, 0 | 1 | 2 | 6 | 8)
@@ -134,6 +134,7 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::Set as u16 => 12,
         t if t == Tag::WeakMap as u16 => 16,
         t if t == Tag::WeakSet as u16 => 17,
+        t if t == Tag::WeakRef as u16 => 18,
         // Iterator-protocol cells hang off %Iterator.prototype%
         // (builtin-proto tag 15; the per-family intermediate
         // prototypes are a recorded boundary — RFC

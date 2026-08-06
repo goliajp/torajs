@@ -308,6 +308,7 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             19 => 12, // Set
             12 => 16, // WeakMap
             13 => 17, // WeakSet
+            11 => 18, // WeakRef
             // RFC 20260716 刀 15 — primitive-wrapper cells (刀 2 alloc
             // tags 21/22/23) return the corresponding
             // `<Ctor>.prototype` singleton per §10.1.1: the wrapper's

@@ -161,6 +161,8 @@ fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {
         ("WeakMap", _) => Some(false),
         ("WeakSet", Type::WeakSet) => Some(true),
         ("WeakSet", _) => Some(false),
+        ("WeakRef", Type::WeakRef) => Some(true),
+        ("WeakRef", _) => Some(false),
         _ => None,
     }
 }
@@ -207,6 +209,7 @@ fn builtin_type_tag(class_name: &str) -> Option<i64> {
         "Set" => Some(19),
         "WeakMap" => Some(12),
         "WeakSet" => Some(13),
+        "WeakRef" => Some(11),
         // RFC 20260716 刀 2 — Tag::NumberWrapper = 21,
         // Tag::StringWrapper = 22, Tag::BooleanWrapper = 23.
         "Number" => Some(21),

@@ -162,6 +162,7 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         t if t == Tag::Set as u16 => Some(12),
         t if t == Tag::WeakMap as u16 => Some(16),
         t if t == Tag::WeakSet as u16 => Some(17),
+        t if t == Tag::WeakRef as u16 => Some(18),
         t if t == Tag::Promise as u16 => Some(10),
         t if t == Tag::NumberWrapper as u16 => Some(0),
         t if t == Tag::StringWrapper as u16 => Some(3),

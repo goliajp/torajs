@@ -1,4 +1,5 @@
-//! `Tag::WeakMap` / `Tag::WeakSet` arm of `__torajs_any_method_call`
+//! `Tag::WeakMap` / `Tag::WeakSet` / `Tag::WeakRef` arms of
+//! `__torajs_any_method_call`
 //! (RFC 20260706-test262-bug-corpus RC-2b) — split out of
 //! `method_call.rs` by the 500-line file discipline, mirroring the
 //! `method_call_mapset` sibling.
@@ -20,6 +21,7 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::any_method_iter::ANY_METHOD_DEREF;
 use torajs_rc::{
     __torajs_rc_inc, ANY_METHOD_ADD, ANY_METHOD_DELETE, ANY_METHOD_GET, ANY_METHOD_HAS,
     ANY_METHOD_SET,
@@ -45,6 +47,8 @@ unsafe extern "C" {
     /// torajs-weak key classification (ES CanBeHeldWeakly) — NULL
     /// for an illegal key (primitives INCLUDING Str/BigInt cells).
     fn __torajs_weak_key_from_any(av: u64) -> *mut c_void;
+    /// torajs-weak — §26.1.4.2 deref in the AnyValue lane.
+    fn __torajs_weakref_deref_any(p: *mut c_void) -> u64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
@@ -124,5 +128,22 @@ pub(crate) unsafe fn weak_method(
             }
             _ => method_no_such(),
         }
+    }
+}
+
+/// Dispatch a method id on a `Tag::WeakRef` cell — §26.1.4.2 gives
+/// the family exactly one method. The kernel already answers in the
+/// AnyValue lane (an alive target's box IS its pointer, +1 rc the
+/// caller owns; a cleared one is the undefined sentinel), so the arm
+/// is a hand-off.
+///
+/// # Safety
+/// `ptr` is a live WeakRef cell.
+pub(crate) unsafe fn weakref_method(ptr: *mut c_void, mid: i64) -> AnyValue {
+    unsafe {
+        if mid == ANY_METHOD_DEREF {
+            return __torajs_weakref_deref_any(ptr);
+        }
+        method_no_such()
     }
 }

@@ -357,6 +357,11 @@ pub(crate) unsafe fn cell_method(
             crate::method_call_weak::weak_method(ptr, tag == Tag::WeakSet as u16, mid, argv, argc)
         });
     }
+    // The third weak family (rotation 314) — its typed receiver had
+    // a lowering all along, so only the any lane was missing.
+    if tag == Tag::WeakRef as u16 {
+        return Some(unsafe { crate::method_call_weak::weakref_method(ptr, mid) });
+    }
     None
 }
 

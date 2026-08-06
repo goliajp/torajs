@@ -14,7 +14,7 @@ use torajs_rc::{
 
 use crate::method_support::{
     arr_supports, closure_supports, date_supports, map_supports, num_supports, regexp_supports,
-    set_supports, str_supports, weakmap_supports, weakset_supports,
+    set_supports, str_supports, weakmap_supports, weakref_supports, weakset_supports,
 };
 use crate::method_support_proto_alias::proto_cell_key;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
@@ -206,6 +206,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         // says must move together.
         16 => weakmap_supports(mid),
         17 => weakset_supports(mid),
+        18 => weakref_supports(mid),
         _ => false,
     }
 }

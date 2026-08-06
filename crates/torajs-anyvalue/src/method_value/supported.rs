@@ -13,7 +13,7 @@ use torajs_rc::{ANY_METHOD_NEXT, ANY_METHOD_TO_STRING, Tag};
 
 use crate::method_support::{
     arr_supports, closure_supports, date_supports, map_supports, num_supports, regexp_supports,
-    set_supports, str_supports, weakmap_supports, weakset_supports,
+    set_supports, str_supports, weakmap_supports, weakref_supports, weakset_supports,
 };
 use crate::nanbox::{AnyValue, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str};
 
@@ -75,6 +75,7 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::RegExp as u16 => regexp_supports(mid),
         t if t == Tag::WeakMap as u16 => weakmap_supports(mid),
         t if t == Tag::WeakSet as u16 => weakset_supports(mid),
+        t if t == Tag::WeakRef as u16 => weakref_supports(mid),
         t if t == Tag::Closure as u16 => closure_supports(mid),
         // Plain objects (dynobj / static-layout struct) reach the
         // dispatcher's Object.prototype toLocaleString arm plus the

@@ -40,10 +40,11 @@ unsafe extern "C" {
 /// fixed by the tag constants ssa_lower emits — never reorder
 /// (append-only; AsyncFunction joined as 14, RFC 20260721 刀 4;
 /// Iterator joined as 15, RFC 20260730-iterator-global 刀 1;
-/// WeakMap 16 / WeakSet 17 joined together, rotation 314 — their
-/// instances and any-lane method dispatch already worked, only the
-/// constructor's VALUE face was missing).
-pub const NUM_BUILTIN_PROTOS: usize = 18;
+/// WeakMap 16 / WeakSet 17 / WeakRef 18 joined in rotation 314 —
+/// the first two already had instances and any-lane dispatch and
+/// were missing only the constructor's VALUE face; WeakRef needed
+/// its any-lane arm too).
+pub const NUM_BUILTIN_PROTOS: usize = 19;
 
 /// ES `name` / ctor-clause `length` of the builtin constructor
 /// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
@@ -54,7 +55,7 @@ pub const NUM_BUILTIN_PROTOS: usize = 18;
 /// §22.2.4 (RegExp 2) / §21.4.2 (Date 7) / §20.5.1 / §27.2.3 /
 /// §24.1.1 (Map 0) / §24.2.2 (Set 0) / §20.2.1 / §27.7.1
 /// (AsyncFunction 1) / §27.1.3.1 (Iterator 0) / §24.3.1
-/// (WeakMap 0) / §24.4.1 (WeakSet 0).
+/// (WeakMap 0) / §24.4.1 (WeakSet 0) / §26.1.1 (WeakRef 1).
 pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
     Some(match tag {
         0 => ("Number", 1),
@@ -75,6 +76,7 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         15 => ("Iterator", 0),
         16 => ("WeakMap", 0),
         17 => ("WeakSet", 0),
+        18 => ("WeakRef", 1),
         _ => return None,
     })
 }
@@ -129,7 +131,8 @@ static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] = [SLOT_INIT; NUM_BUILTIN_PROTOS
 /// `tag` ∈ \[0, [`NUM_BUILTIN_PROTOS`]): Number=0, Object=1,
 /// Array=2, String=3, Boolean=4, Symbol=5, BigInt=6, RegExp=7,
 /// Date=8, Error=9, Promise=10, Map=11, Set=12, Function=13,
-/// AsyncFunction=14, Iterator=15, WeakMap=16, WeakSet=17.
+/// AsyncFunction=14, Iterator=15, WeakMap=16, WeakSet=17,
+/// WeakRef=18.
 /// ssa_lower must emit one of these via `Operand::ConstI64(<tag>)`.
 /// Out-of-range `tag` returns NULL (defensive — ssa_lower should
 /// never emit it).
