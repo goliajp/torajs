@@ -48,6 +48,12 @@ const ANY_ACCESSOR_TAG: i64 = 6;
 /// immediate riding in the same 64 bits.
 const ANY_HEAP: i64 = 4;
 
+/// `Object.prototype`'s builtin-proto family — the end of every
+/// builtin prototype's [[Prototype]] chain, so asking whether it
+/// still owns a name is the whole of "is this inherited from
+/// anywhere above".
+const OBJECT_PROTO_FAMILY: i64 = 1;
+
 /// Receivers whose ONLY source for a method is their prototype —
 /// they carry no own properties at all, so nothing can sit in front
 /// of the prototype for the pre-gate below to shadow.
@@ -56,10 +62,21 @@ const ANY_HEAP: i64 = 4;
 /// because the spec says these objects are special: an ordinary
 /// property write to a Map / Set / Date / RegExp / Promise / weak
 /// instance is refused (only Arr and Closure carry a side-props
-/// table), and Symbol / BigInt refuse it in every engine. **When a
-/// family grows own properties it must come off this list**, or its
+/// table), and Symbol refuses it in every engine. **When a family
+/// grows own properties it must come off this list**, or its
 /// pre-gate consult would start shadowing them — the ordering the
 /// exclusion of Arr and Closure below is protecting.
+///
+/// BigInt is off the list for a different reason, and it cost a pass
+/// regression to learn: torajs reaches the method dispatcher for the
+/// INTERNAL ToString of a bigint, where §7.1.17 converts the value
+/// directly and looks up nothing. Pre-gating it made a patched
+/// `BigInt.prototype.toString` observable from `String.prototype.
+/// isWellFormed.call(1n)`, which test262 checks explicitly. Boolean
+/// and Number do not route their internal coercion this way, and
+/// Symbol has no ToString conversion to route at all — measured, not
+/// assumed. Until that coercion stops going through here, BigInt's
+/// patch stays on the tail consult.
 fn proto_is_only_method_source(tag: u16) -> bool {
     matches!(
         tag,
@@ -75,7 +92,6 @@ fn proto_is_only_method_source(tag: u16) -> bool {
             || t == Tag::ArrIter as u16
             || t == Tag::IterHelper as u16
             || t == Tag::Symbol as u16
-            || t == Tag::BigInt as u16
     )
 }
 
@@ -143,7 +159,15 @@ pub(crate) unsafe fn primitive_patch_pregate(
             // it was introduced, and a later set / defineProperty
             // revives without a clear call because the own probe
             // above runs first.
-            if torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(fam, mid) != 0 {
+            // ...unless the chain still has it. Deleting
+            // `Boolean.prototype.toString` does not leave nothing —
+            // the walk continues to `Object.prototype`, which owns
+            // its own toString, and both bun and V8 answer the badge
+            // rather than throwing. Only a method with nothing above
+            // it (`delete Map.prototype.get`) is really gone.
+            if torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(fam, mid) != 0
+                && !crate::method_support_proto::proto_tag_owns(OBJECT_PROTO_FAMILY, mid)
+            {
                 return Some(not_callable());
             }
         }
