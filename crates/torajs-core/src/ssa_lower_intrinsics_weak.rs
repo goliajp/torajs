@@ -33,6 +33,14 @@ pub(crate) struct WeakIds {
     /// `torajs_rc::collection_kind`). Declared with the weak group
     /// because that is where the family's other shared kernels live.
     pub collection_init_from_iterable: FuncId,
+    /// §24.1.1.1 step 7.a–c — `Get(target, "set")` once, answering
+    /// the resolved adder (undefined = nothing patched, use the
+    /// native arm) and throwing on a non-callable one.
+    pub collection_adder_resolve: FuncId,
+    /// One entry of a literal initializer, whose key/value the
+    /// lowering already split into slot tags: `(target, adder, kind,
+    /// k_tag, k_val, v_tag, v_val)`.
+    pub collection_add_static: FuncId,
     pub weakmap_create: FuncId,
     pub weakmap_set: FuncId,
     pub weakmap_get: FuncId,
@@ -91,6 +99,28 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_collection_init_from_iterable",
             &[Type::Any, Type::Any, Type::I64],
+            Type::Void,
+        ),
+        collection_adder_resolve: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_collection_adder_resolve",
+            &[Type::Any, Type::I64],
+            Type::Any,
+        ),
+        collection_add_static: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_collection_add_static",
+            &[
+                Type::Any,
+                Type::Any,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+            ],
             Type::Void,
         ),
         weakmap_create: declare_intrinsic(

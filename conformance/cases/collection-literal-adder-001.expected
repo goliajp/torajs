@@ -1,0 +1,7 @@
+empty literal: true
+literal: true
+patched map a=1;b=2; 0
+patched set 1;2;3; 0
+throwing adder stopped at 2
+plain map 2 a b
+plain set 3 true false

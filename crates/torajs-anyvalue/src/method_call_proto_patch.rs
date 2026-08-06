@@ -105,17 +105,18 @@ pub(crate) unsafe fn primitive_patch_pregate(
     None
 }
 
-/// Probe the receiver's builtin prototype singleton for a live own
-/// entry under the method name — `Some(result)` when a patch
-/// resolved (invoked / coerced / not-callable throw), `None` when
-/// there is no patch and the caller keeps its miss exit.
-pub(crate) unsafe fn builtin_proto_patch_method(
+/// The receiver's live builtin-prototype own entry for `mid` as the
+/// probe's raw `(tag, value)` pair — `None` when the family has no
+/// singleton, no entry, or no name to probe under, which is every
+/// caller's "there is no patch here" exit.
+///
+/// The pair is a BORROW into the singleton's slot; a caller keeping
+/// the value past the probe takes its own stake.
+pub(crate) unsafe fn proto_patch_slot(
     recv: AnyValue,
     mid: i64,
     name_str: *const u8,
-    argv: *const u64,
-    argc: i64,
-) -> Option<AnyValue> {
+) -> Option<(i64, i64)> {
     unsafe {
         let fam = recv_proto_family(recv);
         if fam < 0 {
@@ -146,9 +147,60 @@ pub(crate) unsafe fn builtin_proto_patch_method(
         if !minted.is_null() {
             crate::__torajs_str_drop(minted as *mut c_void);
         }
-        if tag == 5 {
-            return None;
+        if tag == 5 { None } else { Some((tag, value)) }
+    }
+}
+
+/// Resolve the receiver's builtin-prototype patch for `mid` to the
+/// callee it names, WITHOUT calling it — the `Get(O, P)` half of a
+/// method call, split off for the callers that must perform it once
+/// and call the answer many times (§24.1.1.1 step 7.a resolves the
+/// collection adder once, step 9.f calls it per item).
+///
+/// `None` is "no patch" — the native arm is the callee. `Some` is an
+/// OWNED value that may or may not be callable; the caller decides,
+/// because what a non-callable one means differs per site. An
+/// accessor-shaped patch runs its getter here, which is exactly the
+/// one `Get` the spec asks for.
+pub(crate) unsafe fn resolve_proto_patch(recv: AnyValue, mid: i64) -> Option<AnyValue> {
+    unsafe {
+        let (tag, value) = proto_patch_slot(recv, mid, core::ptr::null())?;
+        if tag == ANY_ACCESSOR_TAG {
+            // §10.1.9.2 step 3 — the getter runs with the ORIGINAL
+            // receiver as `this`, and its answer is the callee. A
+            // throw inside leaves the pending record for the caller.
+            return Some(__torajs_accessor_invoke_getter(
+                value as *const c_void,
+                recv,
+            ));
         }
+        if tag != ANY_HEAP {
+            // An immediate patch (`Map.prototype.set = null`) — a
+            // real answer, just not a callable one.
+            return Some(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                tag, value,
+            ));
+        }
+        crate::payload_rc_inc(tag, value);
+        Some(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+            tag, value,
+        ))
+    }
+}
+
+/// Probe the receiver's builtin prototype singleton for a live own
+/// entry under the method name — `Some(result)` when a patch
+/// resolved (invoked / coerced / not-callable throw), `None` when
+/// there is no patch and the caller keeps its miss exit.
+pub(crate) unsafe fn builtin_proto_patch_method(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let (tag, value) = proto_patch_slot(recv, mid, name_str)?;
         // Accessor-shaped patch (`defineProperty(proto, m, {get})`) —
         // §10.1.9.2 step 3: the getter runs with the ORIGINAL
         // receiver as `this`, and its answer is the callee.

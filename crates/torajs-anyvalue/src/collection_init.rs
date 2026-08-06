@@ -36,6 +36,15 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-str — flatten a Substr view into a fresh owned Str.
     fn __torajs_substr_to_owned(s: *const u8) -> *mut c_void;
+    /// torajs-collections — the native adder both collection shapes
+    /// share (a Set entry rides with an undefined value slot).
+    fn __torajs_map_set(
+        p: *mut c_void,
+        key_tag: i64,
+        key_payload: i64,
+        value_tag: i64,
+        value_payload: i64,
+    );
 }
 
 /// `FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW` mirror (torajs-str
@@ -88,40 +97,154 @@ unsafe fn release(v: AnyValue) {
     unsafe { __torajs_value_drop_heap(crate::nanbox::as_void_ptr(v)) };
 }
 
-/// Invoke the adder, honouring a monkey-patched one.
+/// The method id whose name the constructor reads the adder under.
+fn adder_mid(kind: i64) -> i64 {
+    if takes_entries(kind) {
+        torajs_rc::ANY_METHOD_SET
+    } else {
+        torajs_rc::ANY_METHOD_ADD
+    }
+}
+
+/// §24.1.1.1 step 7.a–c — `Get(map, "set")` happens ONCE, before the
+/// iterable is asked for anything, and a non-callable answer is a
+/// TypeError right there. That ordering is observable twice over:
+/// `new Map([])` with a patched-to-null `set` throws even though it
+/// would never reach an item, and an accessor-shaped patch has its
+/// getter run once rather than once per entry.
 ///
-/// §24.1.1.1 step 5 reads the adder OFF the target (`Get(map,
-/// "set")`) rather than reaching for the intrinsic, and test262
-/// leans on that: three of its cases hand the constructor an
-/// endless iterator and rely on a patched `Map.prototype.set`
-/// throwing on the first item to end the loop. Consulting the
-/// prototype's own entry first is what makes those terminate at
-/// all — the native arm alone would walk forever.
+/// Answers the resolved adder as an OWNED value, or undefined when
+/// nothing is patched and the native arm is the adder. Undefined is
+/// safe as that sentinel: a patch that really is `undefined` is not
+/// callable, so it throws here instead of being answered.
 ///
-/// Everything unpatched falls through to the same dispatch a
+/// # Safety
+/// `target` is a live collection cell of the shape `kind` names.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_collection_adder_resolve(
+    target: AnyValue,
+    kind: i64,
+) -> AnyValue {
+    unsafe {
+        let Some(adder) =
+            crate::method_call_proto_patch::resolve_proto_patch(target, adder_mid(kind))
+        else {
+            return VALUE_UNDEFINED;
+        };
+        // An accessor-shaped patch resolves by running a getter,
+        // which can throw; that record outranks anything below.
+        if __torajs_throw_check() != 0 {
+            release(adder);
+            return VALUE_UNDEFINED;
+        }
+        if crate::nanbox::is_cell(adder)
+            && crate::method_call_closure::call_target(crate::nanbox::as_void_ptr(adder)).is_some()
+        {
+            return adder;
+        }
+        release(adder);
+        __torajs_throw_type_error(c"collection adder is not callable".as_ptr());
+        VALUE_UNDEFINED
+    }
+}
+
+/// Invoke the adder resolved above.
+///
+/// §24.1.1.1 step 5 reads the adder OFF the target rather than
+/// reaching for the intrinsic, and test262 leans on that: three of
+/// its cases hand the constructor an endless iterator and rely on a
+/// patched `Map.prototype.set` throwing on the first item to end the
+/// loop. Going through the resolved adder is what makes those
+/// terminate at all — the native arm alone would walk forever.
+///
+/// An unpatched constructor falls through to the same dispatch a
 /// hand-written `m.set(k, v)` takes, so the weak families'
 /// CanBeHeldWeakly key rejection and the collections' value ledger
 /// keep answering in one place.
-unsafe fn invoke_adder(target: AnyValue, mid: i64, argv: &[AnyValue]) -> AnyValue {
+unsafe fn invoke_adder(target: AnyValue, adder: AnyValue, mid: i64, argv: &[AnyValue]) -> AnyValue {
     unsafe {
-        if let Some(out) = crate::method_call_proto_patch::builtin_proto_patch_method(
-            target,
-            mid,
-            core::ptr::null(),
-            argv.as_ptr(),
-            argv.len() as i64,
-        ) {
-            return out;
+        if is_undefined(adder) {
+            return crate::method_call::__torajs_any_method_call(
+                target,
+                mid,
+                core::ptr::null(),
+                0,
+                core::ptr::null_mut(),
+                argv.as_ptr(),
+                argv.len() as i64,
+            );
         }
-        crate::method_call::__torajs_any_method_call(
-            target,
-            mid,
-            core::ptr::null(),
-            0,
-            core::ptr::null_mut(),
-            argv.as_ptr(),
-            argv.len() as i64,
-        )
+        // Vetted callable by the resolve above — a shape that got
+        // past it and cannot classify here has nothing to call.
+        match crate::method_call_closure::call_target(crate::nanbox::as_void_ptr(adder)) {
+            Some(t) => {
+                crate::method_call_closure::dispatch(&t, target, argv.as_ptr(), argv.len() as i64)
+            }
+            None => VALUE_UNDEFINED,
+        }
+    }
+}
+
+/// Hand one key/value pair to the adder. Both arguments are
+/// BORROWED (the adder takes its own stakes), and the receiver the
+/// adder answers is discarded by the boxed-value convention.
+unsafe fn add_kv(target: AnyValue, adder: AnyValue, kind: i64, k: AnyValue, v: AnyValue) {
+    unsafe {
+        let out = if takes_entries(kind) {
+            invoke_adder(target, adder, torajs_rc::ANY_METHOD_SET, &[k, v])
+        } else {
+            invoke_adder(target, adder, torajs_rc::ANY_METHOD_ADD, &[k])
+        };
+        release(out);
+    }
+}
+
+/// One entry of a literal `[[k, v], …]` / `[a, b, c]` initializer,
+/// whose shape the lowering could read statically — so the pair
+/// arrives already split into slot tags rather than as an entry
+/// object to be indexed.
+///
+/// Unpatched, this is the direct kernel call the static lane always
+/// emitted. Patched, it is the same adder every other lane goes
+/// through, which is the whole point: a literal source is not a
+/// reason for `Map.prototype.set` to stop being consulted.
+///
+/// # Safety
+/// `target` is a live Map/Set cell; `adder` is what the resolve
+/// above answered; the slot pairs are borrowed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_collection_add_static(
+    target: AnyValue,
+    adder: AnyValue,
+    kind: i64,
+    k_tag: i64,
+    k_val: i64,
+    v_tag: i64,
+    v_val: i64,
+) {
+    unsafe {
+        // §7.4.11 leg — once an earlier entry's adder threw, the
+        // remaining entries of the literal are not visited.
+        if __torajs_throw_check() != 0 {
+            return;
+        }
+        if is_undefined(adder) {
+            __torajs_map_set(
+                crate::nanbox::as_void_ptr(target),
+                k_tag,
+                k_val,
+                v_tag,
+                v_val,
+            );
+            return;
+        }
+        crate::payload_rc_inc(k_tag, k_val);
+        crate::payload_rc_inc(v_tag, v_val);
+        let k = crate::nanbox_encode::__torajs_anyv_box_from_pair(k_tag, k_val);
+        let v = crate::nanbox_encode::__torajs_anyv_box_from_pair(v_tag, v_val);
+        add_kv(target, adder, kind, k, v);
+        release(k);
+        release(v);
     }
 }
 
@@ -130,13 +253,10 @@ unsafe fn invoke_adder(target: AnyValue, mid: i64, argv: &[AnyValue]) -> AnyValu
 /// # Safety
 /// `target` is a live collection cell; `item` is an owned walked
 /// value the caller still owns.
-unsafe fn add_one(target: AnyValue, item: AnyValue, kind: i64) {
+unsafe fn add_one(target: AnyValue, adder: AnyValue, item: AnyValue, kind: i64) {
     unsafe {
         if !takes_entries(kind) {
-            // `add` answers the receiver (+1 by the boxed-value
-            // convention) — this kernel discards it.
-            let out = invoke_adder(target, torajs_rc::ANY_METHOD_ADD, &[item]);
-            release(out);
+            add_kv(target, adder, kind, item, VALUE_UNDEFINED);
             return;
         }
         // §24.1.1.2 step 4.d — a non-Object entry is a TypeError, and
@@ -156,10 +276,7 @@ unsafe fn add_one(target: AnyValue, item: AnyValue, kind: i64) {
             release(v);
             return;
         }
-        let out = invoke_adder(target, torajs_rc::ANY_METHOD_SET, &[k, v]);
-        // `set` answers the receiver (+1 by the boxed-value
-        // convention) — this kernel discards it.
-        release(out);
+        add_kv(target, adder, kind, k, v);
         release(k);
         release(v);
     }
@@ -178,8 +295,15 @@ pub unsafe extern "C" fn __torajs_collection_init_from_iterable(
     kind: i64,
 ) {
     // §24.1.1.1 step 6 — a nullish iterable adds nothing, and is not
-    // asked for its @@iterator at all.
+    // asked for its @@iterator at all. Step 7.a is downstream of
+    // this: `new Map(null)` does not read the adder either.
     if is_null(iterable) || is_undefined(iterable) {
+        return;
+    }
+    // Step 7.a–c, once, before the iterator is requested.
+    let adder = unsafe { __torajs_collection_adder_resolve(target, kind) };
+    if unsafe { __torajs_throw_check() } != 0 {
+        unsafe { release(adder) };
         return;
     }
     let mut idx: i64 = 0;
@@ -203,7 +327,7 @@ pub unsafe extern "C" fn __torajs_collection_init_from_iterable(
             // was handed, so the loop's release must see the value it
             // answered, not the one it retired.
             item = flatten_view(item);
-            add_one(target, item, kind);
+            add_one(target, adder, item, kind);
             release(item);
             item = VALUE_UNDEFINED;
             if __torajs_throw_check() != 0 {
@@ -214,5 +338,6 @@ pub unsafe extern "C" fn __torajs_collection_init_from_iterable(
             }
         }
         release(iter_slot);
+        release(adder);
     }
 }

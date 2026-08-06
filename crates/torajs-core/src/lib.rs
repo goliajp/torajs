@@ -473,6 +473,7 @@ pub(crate) mod ssa_lower_module_metadata;
 pub(crate) mod ssa_lower_module_metadata_methods;
 pub(crate) mod ssa_lower_new;
 pub(crate) mod ssa_lower_new_arr_init;
+mod ssa_lower_new_collection;
 pub(crate) mod ssa_lower_new_dynamic;
 pub(crate) mod ssa_lower_nullable_guard;
 pub(crate) mod ssa_lower_nullish;

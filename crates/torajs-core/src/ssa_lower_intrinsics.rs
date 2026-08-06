@@ -709,6 +709,8 @@ pub(crate) struct Intrinsics {
     pub(crate) weakref_drop: FuncId,
     pub(crate) weakref_target_dying: FuncId,
     pub(crate) collection_init_from_iterable: FuncId,
+    pub(crate) collection_adder_resolve: FuncId,
+    pub(crate) collection_add_static: FuncId,
     pub(crate) weakmap_create: FuncId,
     pub(crate) weakmap_set: FuncId,
     pub(crate) weakmap_get: FuncId,
