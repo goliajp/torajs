@@ -65,14 +65,6 @@ unsafe extern "C" {
     // C2b): a refcounted pointer slot (Obj / Arr / Closure) holding
     // the Tag::Undefined cell means JS `undefined`.
     fn __torajs_is_undef_cell(p: *const u8) -> i64;
-
-    // torajs-rc — read the frozen / sealed header bits so gOPD on a
-    // frozen or sealed struct reports spec-correct writable /
-    // configurable attributes (ES §7.3.14 SetIntegrityLevel: frozen
-    // ⇒ writable=false + configurable=false; sealed (only) ⇒
-    // configurable=false + writable preserved).
-    fn __torajs_obj_is_frozen(p: *const c_void) -> bool;
-    fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool;
 }
 
 /// Field byte-offset + coarse type tag — mirrors
@@ -272,26 +264,40 @@ unsafe fn accessor_half(
 
 /// `Object.getOwnPropertyDescriptor` for a property the layout carries
 /// as an accessor slot (RFC 20260714-objlit-accessor). Answers
-/// `{ get, set, enumerable: true, configurable: true }` — an
-/// object-literal accessor is an ordinary own property (§10.4), so
-/// both flags are set, exactly like the data-field arm. `undefined`
-/// when neither half exists (the key is simply not a member).
+/// `{ get, set, enumerable, configurable }` — an object-literal
+/// accessor is an ordinary own property (§10.4), so both flags start
+/// out set, exactly like the data-field arm, and move for the same two
+/// reasons: `Object.freeze` / `seal`, and a `defineProperty` that left
+/// a sidecar. `undefined` when neither half exists (the key is simply
+/// not a member).
 ///
 /// # Safety
 /// `cell` is a live `Tag::Obj` heap pointer; `layout` is its live
-/// layout entry; `prop` points at `prop_len` readable bytes.
+/// layout entry; `prop` points at `prop_len` readable bytes; `key` is
+/// the live key cell spelling the same name.
 unsafe fn struct_accessor_descriptor(
     cell: *const c_void,
     layout: *const c_void,
     prop: *const u8,
     prop_len: u32,
+    key: *const c_void,
 ) -> u64 {
     let (get_t, get_v) = unsafe { accessor_half(cell, layout, prop, prop_len, ACC_GETTER) };
     let (set_t, set_v) = unsafe { accessor_half(cell, layout, prop, prop_len, ACC_SETTER) };
     if get_t == ANY_UNDEF && set_t == ANY_UNDEF {
         return VALUE_UNDEFINED_IMM;
     }
-    unsafe { crate::reflect::build_accessor_descriptor(get_t, get_v, set_t, set_v, 1, 1) }
+    let attrs = unsafe { crate::struct_field_attrs::declared_member_attrs(cell, key) };
+    unsafe {
+        crate::reflect::build_accessor_descriptor(
+            get_t,
+            get_v,
+            set_t,
+            set_v,
+            u64::from(attrs & crate::struct_field_attrs::BUCKET_FLAG_ENUMERABLE != 0),
+            u64::from(attrs & crate::struct_field_attrs::BUCKET_FLAG_CONFIGURABLE != 0),
+        )
+    }
 }
 
 /// The descriptor for an EXPANDO entry — an own property the layout
@@ -357,7 +363,7 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
         // an accessor, which the layout carries under a synthetic slot
         // (`__getter_v` / `__setter_v`). Answer the accessor
         // descriptor before conceding `undefined`.
-        let acc = unsafe { struct_accessor_descriptor(cell, layout, key_bytes, key_len) };
+        let acc = unsafe { struct_accessor_descriptor(cell, layout, key_bytes, key_len, key) };
         if acc != VALUE_UNDEFINED_IMM {
             return acc;
         }
@@ -375,17 +381,13 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // RFC 20260718-error-message-own-prop — the error-instance
     // `message` own property (§20.5.6.1.1): the own-absence sentinel
     // in the slot means the property does not exist (undefined ctor
-    // message / a delete detach), and a present one is
-    // `{ [[Writable]]: true, [[Enumerable]]: FALSE, [[Configurable]]:
-    // true }` — the only struct field whose enumerable is not true.
+    // message / a delete detach). Its `[[Enumerable]]: false` — which
+    // it shares with the `stack` header line — is the attribute
+    // answer's business, below.
     let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
     let key_slice = unsafe { core::slice::from_raw_parts(key_bytes, key_len as usize) };
     let is_error = hdr_flags & FLAG_ERROR != 0;
     let is_error_message = is_error && key_slice == b"message";
-    // The `stack` header line shares msgDesc's `[[Enumerable]]:
-    // false` but is unconditionally own, so it joins the enumerable
-    // verdict below without an absence test of its own.
-    let is_error_nonenum = is_error_message || (is_error && key_slice == b"stack");
     // `name` is the mirror case: its attributes are ordinary (an own
     // one only exists because user code assigned it, which is a plain
     // CreateDataProperty), but the sentinel state means no own
@@ -401,35 +403,25 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // materialization; no separate inc, see field_slot_to_pair_owned).
     let (v_tag, v_val) = unsafe { field_slot_to_pair_owned(info.type_tag, raw) };
 
-    // ES §7.3.14 SetIntegrityLevel — struct-cell descriptors reflect
-    // the frozen / sealed integrity level:
-    // - frozen  ⇒ writable = false, configurable = false
-    // - sealed  ⇒ writable preserved, configurable = false
-    // - neither ⇒ default (all three true)
-    // Enumerable stays true either way (integrity levels don't touch
-    // it). The write-side already respects FLAG_FROZEN via the SSA
-    // struct-field-set guard; this arm brings the read-side descriptor
-    // in line so `Object.getOwnPropertyDescriptor(frozen, "field")`
-    // matches spec / bun.
-    let frozen = unsafe { __torajs_obj_is_frozen(cell) };
-    let sealed = frozen || unsafe { __torajs_obj_is_sealed_marked(cell) };
-    let mut writable = u64::from(!frozen);
-    let mut configurable = u64::from(!sealed);
-    let mut enumerable = u64::from(!is_error_nonenum);
-    // RFC 20260806-declared-field-redefine — a field that was
-    // redefined carries its attributes in the sidecar, which then
-    // outranks all three defaults above. The VALUE is unaffected: it
-    // never left the layout slot read at the top of this fn.
-    if let Some(attrs) = unsafe { crate::struct_field_attrs::sidecar_attrs(cell, key) } {
-        use crate::struct_field_attrs::{
-            BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
-        };
-        writable = u64::from(attrs & BUCKET_FLAG_WRITABLE != 0);
-        enumerable = u64::from(attrs & BUCKET_FLAG_ENUMERABLE != 0);
-        configurable = u64::from(attrs & BUCKET_FLAG_CONFIGURABLE != 0);
-    }
+    // The three attributes come from the one place that computes them
+    // (`declared_member_attrs`): ES §7.3.14 SetIntegrityLevel moves
+    // two of them (frozen ⇒ non-writable and non-configurable, sealed
+    // ⇒ non-configurable), the Error header lines move the third, and
+    // a sidecar left by `Object.defineProperty` outranks all of it.
+    // The VALUE is unaffected either way — it never left the layout
+    // slot read at the top of this fn.
+    let attrs = unsafe { crate::struct_field_attrs::declared_member_attrs(cell, key) };
+    use crate::struct_field_attrs::{
+        BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
+    };
     unsafe {
-        crate::reflect::build_data_descriptor(v_tag, v_val, writable, enumerable, configurable)
+        crate::reflect::build_data_descriptor(
+            v_tag,
+            v_val,
+            u64::from(attrs & BUCKET_FLAG_WRITABLE != 0),
+            u64::from(attrs & BUCKET_FLAG_ENUMERABLE != 0),
+            u64::from(attrs & BUCKET_FLAG_CONFIGURABLE != 0),
+        )
     }
 }
 

@@ -38,6 +38,27 @@ unsafe extern "C" {
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
+    /// torajs-dynobj — the live attributes of a declared member: its
+    /// sidecar when one exists, else the layout default the integrity
+    /// level moves. -1 when the layout declares nothing under the key.
+    fn __torajs_obj_declared_field_attrs(obj: *mut c_void, key: *mut c_void) -> i64;
+}
+
+/// The attribute set a declared member currently reports, as the three
+/// `BUCKET_FLAG_*` bits.
+///
+/// The default is not a constant — frozen ⇒ non-writable, sealed ⇒
+/// non-configurable, an Error's `message` / `stack` ⇒ non-enumerable —
+/// and the sidecar outranks it. The write side has to compute exactly
+/// this to merge a descriptor over it, so the read side asks rather
+/// than restating: two spellings of one default is how a `defineProperty`
+/// and the `getOwnPropertyDescriptor` after it come to disagree.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer whose layout declares
+/// `key`; `key` is a live key cell.
+pub(crate) unsafe fn declared_member_attrs(cell: *const c_void, key: *const c_void) -> u64 {
+    unsafe { __torajs_obj_declared_field_attrs(cell as *mut c_void, key as *mut c_void) as u64 }
 }
 
 /// Is the DECLARED field named by `name` currently non-enumerable —

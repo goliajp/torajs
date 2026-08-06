@@ -87,8 +87,8 @@ pub(crate) enum Declared {
     /// A DATA field: a layout slot holding the value.
     Field,
     /// An accessor member, carried under synthetic `__getter_v` /
-    /// `__setter_v` slots. Redefining one is a different mechanism and
-    /// keeps the refusal.
+    /// `__setter_v` slots. Its attributes take the same sidecar a data
+    /// field's do; replacing its faces does not.
     Accessor,
 }
 
@@ -127,8 +127,9 @@ pub(crate) unsafe fn struct_declares(obj: *const c_void, key: *const c_void) -> 
 
 /// The whole class-instance receiver arm, as one answer for
 /// [`define_apply`]'s dispatcher: `Some(result)` when this module
-/// handled the define, `None` for a declared ACCESSOR member, which
-/// falls back to the dispatcher's loud no-op.
+/// handled the define, `None` for a request it does not carry (see
+/// the accessor arm), which falls back to the dispatcher's loud
+/// no-op.
 ///
 /// # Safety
 /// `obj` is a live `Tag::Obj` heap pointer; `key` is a live key cell.
@@ -147,6 +148,24 @@ pub(crate) unsafe fn struct_receiver_define(
             Some(unsafe { struct_define(obj, key, tag, value, flags_byte, throw_on_refusal) })
         }
         Declared::Field => Some(unsafe {
+            redefine_declared_field(obj, key, tag, value, flags_byte, throw_on_refusal)
+        }),
+        // An accessor member takes the same sidecar for the same
+        // reason, as long as the descriptor only moves attributes.
+        // `enumerable` and `configurable` are real questions about an
+        // accessor and a layout row can express neither, while the
+        // getter and setter stay exactly where they were — so the
+        // split that makes the data half work ("the layout keeps what
+        // it is good at, the dict keeps the rest") needs no second
+        // spelling here.
+        //
+        // A descriptor carrying a `[[Value]]` is a different request:
+        // a data value, or the AccessorPair the get / set half builds,
+        // asks to change what the property IS. The faces live in
+        // synthetic layout slots that the compiled read dispatches
+        // through, so replacing them is another mechanism; that one
+        // keeps the dispatcher's loud no-op.
+        Declared::Accessor if flags_byte & DEFINE_PRESENT_VALUE == 0 => Some(unsafe {
             redefine_declared_field(obj, key, tag, value, flags_byte, throw_on_refusal)
         }),
         Declared::Accessor => None,
