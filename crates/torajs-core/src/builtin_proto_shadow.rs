@@ -253,16 +253,29 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
     // prototype without naming a member of it, so the base-use rule
     // above would read it as an escape. Attribute it instead.
     let mut define_calls: Vec<(ExprId, Option<String>)> = Vec::new();
+    // Every mention of a builtin constructor BY NAME, and the subset
+    // of expressions consumed in a position that only reads through
+    // the name. A mention outside that subset means the constructor
+    // VALUE went somewhere this scan cannot follow — `const A = Array`
+    // being the plain case, `f(Array)` the other one.
+    let mut ctor_idents: HashMap<ExprId, Family> = HashMap::new();
+    let mut consumed: HashSet<ExprId> = HashSet::new();
 
     for (i, e) in ast.exprs.iter().enumerate() {
         let eid = ExprId(i as u32);
         match e {
+            Expr::Ident(name) => {
+                if let Some(f) = BUILTIN_CTORS.iter().copied().find(|c| *c == name.as_str()) {
+                    ctor_idents.insert(eid, f);
+                }
+            }
             Expr::Member { obj, name } => {
                 if name == "prototype" {
                     if let Some(f) = builtin_named_by(ast, *obj) {
                         proto_exprs.insert(eid, f);
                     }
                 }
+                consumed.insert(*obj);
                 bases
                     .entry(*obj)
                     .or_default()
@@ -275,10 +288,23 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                 {
                     proto_exprs.insert(eid, f);
                 }
+                consumed.insert(*obj);
                 bases.entry(*obj).or_default().push(match key {
                     Some(k) => Access::Named(eid, k),
                     None => Access::Computed(eid),
                 });
+            }
+            // The remaining positions where naming a builtin
+            // constructor does NOT hand its value to anyone: calling
+            // it, reading through it, asking its type, casting it.
+            Expr::OptChain { obj, .. } | Expr::OptIndex { obj, .. } => {
+                consumed.insert(*obj);
+            }
+            Expr::OptCall { callee, .. } | Expr::NewDynamic { callee, .. } => {
+                consumed.insert(*callee);
+            }
+            Expr::TypeOf { expr } | Expr::As { expr, .. } => {
+                consumed.insert(*expr);
             }
             Expr::Assign { target, .. } => {
                 assign_targets.insert(*target);
@@ -287,6 +313,7 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                 delete_targets.insert(*expr);
             }
             Expr::Call { callee, args } => {
+                consumed.insert(*callee);
                 if let Some(kind) = reflective_callee(ast, *callee) {
                     match kind {
                         // Hands out a prototype object with no syntactic
@@ -302,6 +329,27 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                 }
             }
             _ => {}
+        }
+    }
+
+    // A builtin constructor whose name is mentioned anywhere other
+    // than "read something through it" has escaped: `const A = Array`
+    // makes `A.prototype.join = f` a patch this scan never sees,
+    // because `A` is not a name it recognises. Today that lands the
+    // program in L0 and the patch is IGNORED — silently, which is the
+    // one outcome the design does not accept.
+    //
+    // Standing the whole family down is the sound answer and it is
+    // cheap to be right about: the escaped name tells us WHICH family,
+    // so this widens one family rather than reaching for `all`. Being
+    // wrong here (a mention that could not have led to a patch) costs
+    // that family its typed tier in that program — a slower program,
+    // never a wrong one. `new Array(n)` and `x instanceof Array` are
+    // not affected at all: both spell the constructor as a plain
+    // String in the AST, not as an `Ident` expression.
+    for (eid, family) in &ctor_idents {
+        if !consumed.contains(eid) {
+            set.widen(family);
         }
     }
 
