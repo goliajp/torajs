@@ -113,10 +113,17 @@ fn proto_is_only_method_source(tag: u16) -> bool {
 /// stays on the dispatcher's tail until the own-resolution boundary
 /// inside their arms is mapped out (recorded L3b).
 ///
-/// The §20.1.3.5 leg: bool / num have no own `toLocaleString` — the
-/// inherited `Object.prototype.toLocaleString` is `Invoke(this,
-/// "toString")`, so their toLocaleString call also consults a
-/// TO_STRING patch (String has its own §22.1.3.26 and skips the leg).
+/// The §20.1.3.5 leg: a family with no own `toLocaleString` inherits
+/// `Object.prototype`'s, which is `Invoke(this, "toString")` — so its
+/// toLocaleString call must consult a TO_STRING patch too. Only the
+/// families that redefine the property skip the leg, and which ones
+/// those are is a question `proto_tag_owns` answers. Standing in for
+/// it with "everyone except String" had all three interesting
+/// families backwards: `String.prototype` owns no toLocaleString (it
+/// was skipping the leg it needed), while `Number.prototype` and
+/// `Date.prototype` own theirs and were taking a leg that must not
+/// run — a patched `Number.prototype.toString` showed through
+/// `(5).toLocaleString()`, which no engine does.
 pub(crate) unsafe fn primitive_patch_pregate(
     recv: AnyValue,
     mid: i64,
@@ -172,7 +179,7 @@ pub(crate) unsafe fn primitive_patch_pregate(
             }
         }
         if mid == ANY_METHOD_TO_LOCALE_STRING
-            && fam != STR_PROTO_FAMILY
+            && !crate::method_support_proto::proto_tag_owns(fam, ANY_METHOD_TO_LOCALE_STRING)
             && torajs_rc::builtin_proto::__torajs_builtin_proto_has_patch(fam, ANY_METHOD_TO_STRING)
                 != 0
         {

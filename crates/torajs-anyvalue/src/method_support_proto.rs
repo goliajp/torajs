@@ -171,6 +171,19 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
     if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
         return tag == 1;
     }
+    // Same shape of exception, same reason: `toLocaleString` is an
+    // `Object.prototype` property (§20.1.3.5) that only Number /
+    // Array / Date / BigInt redefine (ECMA-402 §18-20). The per-arm
+    // `*_supports` tables answer "this ARM resolves this mid", which
+    // is a different question — `String.prototype` and
+    // `Function.prototype` own no toLocaleString in any engine, yet
+    // their arms answer the inherited call, so reading ownership off
+    // the dispatch table said true for both. The family list here is
+    // the one `intern_family` already carries for this mid; asking
+    // one question in two places had let the two drift.
+    if mid == ANY_METHOD_TO_LOCALE_STRING {
+        return matches!(tag, 0 | 1 | 2 | 6 | 8);
+    }
     match tag {
         0 => num_supports(mid),
         // Object.prototype's own methods beyond the universal
