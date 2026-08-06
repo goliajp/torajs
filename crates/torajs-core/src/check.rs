@@ -198,6 +198,7 @@ impl Checker {
             closure_captures: HashMap::new(),
             closure_fn_names: std::collections::HashSet::new(),
             dynobj_degraded: std::collections::HashSet::new(),
+            proto_shadow: Default::default(),
             cross_type_widened: std::collections::HashSet::new(),
             any_promoted_inits: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),
@@ -223,6 +224,10 @@ impl Checker {
         // `crate::dynobj_degrade`). Collected before the passes so
         // the LetDecl arm sees the set.
         self.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
+        // RFC 20260806 — what this module might patch onto a builtin
+        // prototype, so a member read of such a method answers Any and
+        // the call takes the dispatcher lane instead of a kernel.
+        self.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast);
         // RFC 20260804-mutable-let-widen — cross-family reassigned
         // mutable lets type `any` from declaration (same shared-set
         // architecture; the lowerer recomputes from its own snapshot).
@@ -238,6 +243,13 @@ impl Checker {
 }
 
 pub(crate) struct Checker {
+    /// Builtin-prototype methods this module might shadow — a member
+    /// read naming one answers `Any` so the call reaches the runtime
+    /// dispatcher, which consults the patch bitmap and the delete
+    /// tombstones (RFC 20260806). Empty for any program that never
+    /// names a builtin prototype, which is the common case and costs
+    /// one bool at each member read.
+    pub(crate) proto_shadow: crate::builtin_proto_shadow::ShadowSet,
     pub(crate) globals: HashMap<String, Type>,
     pub(crate) scopes: Vec<HashMap<String, LocalInfo>>,
     /// Closure bindings a peer closure in the same statement list

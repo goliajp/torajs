@@ -33,6 +33,7 @@ pub(crate) mod ast_refs_any_promote;
 pub(crate) mod ast_refs_arrlit;
 pub mod ast_throw_info;
 pub(crate) mod ast_throw_info_call;
+pub(crate) mod builtin_proto_shadow;
 pub mod check;
 pub(crate) mod check_assign_ident;
 pub(crate) mod check_assign_narrow;

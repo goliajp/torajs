@@ -55,6 +55,21 @@ pub(crate) fn check(
         return Ok(narrowed.clone());
     }
     let obj_ty = checker.type_of(ast, *obj)?;
+    // RFC 20260806 — a builtin method this module might have patched or
+    // deleted is not the kernel's to answer. Typing the read as Any
+    // routes the call through `ssa_lower_any_method_call`'s cluster-#4
+    // branch (concrete receiver, Any member read), i.e. the runtime
+    // dispatcher that consults the patch bitmap and the tombstones —
+    // which is the lane an `any`-typed receiver has always taken and the
+    // only reason a typed receiver could never see a patch. The bitmap
+    // is read when the call runs, so a call sequenced before the patch
+    // still answers from the kernel.
+    if !checker.proto_shadow.is_empty()
+        && let Some(family) = crate::builtin_proto_shadow::family_of(&obj_ty)
+        && checker.proto_shadow.shadows(family, name)
+    {
+        return Ok(Type::Any);
+    }
     // RC-4 F1a — Nullable<Array<T>> receiver (un-narrowed
     // exec/match result) decays to the bare array for member
     // lookup; the null case is a runtime TypeError at the
