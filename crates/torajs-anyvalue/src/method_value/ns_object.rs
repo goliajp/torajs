@@ -11,6 +11,16 @@
 //! expando writes, delete, freeze and for-in all take the ordinary
 //! dynobj lanes with zero new dispatch surface.
 //!
+//! Those entries are DEFINED, not written. A built-in's own property
+//! is not an ordinary write: §17 makes every function property
+//! non-enumerable, and §21.3.1 makes the eight constants non-writable,
+//! non-enumerable and non-configurable. Filling with plain writes gave
+//! all 43 entries a write's defaults, and the object then answered a
+//! different fact to each surface that asked — `Object.keys(Math)` said
+//! 43, `getOwnPropertyDescriptor` said `configurable: true`, and
+//! `delete Math.PI` removed the dict entry and answered true while
+//! `Math.PI` kept reading its compile-time constant.
+//!
 //! `Object.prototype.toString.call(Math)` answers "[object Math]"
 //! per §21.3.1.9 through the pointer-identity probe below (the
 //! badge walk in `method_call_object_proto::cell_badge` checks it
@@ -30,8 +40,48 @@ use super::ns_static::ns_static_cell;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    /// torajs-dynobj — define kernel (§10.1.6.3 apply core). The
+    /// namespace fills through this rather than `__torajs_dynobj_set`
+    /// because a built-in's own properties are not ordinary writes:
+    /// see the flag mirrors below.
+    fn __torajs_dynobj_define(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
 }
+
+/// Flag-byte mirror of `torajs_dynobj::layout::DEFINE_*` (same shape
+/// the `object_proto_install` / legacy-accessor mirrors take).
+const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
+const DEFINE_FLAG_CONFIGURABLE: u64 = 1 << 2;
+const DEFINE_PRESENT_WRITABLE: u64 = 1 << 3;
+const DEFINE_PRESENT_ENUMERABLE: u64 = 1 << 4;
+const DEFINE_PRESENT_CONFIGURABLE: u64 = 1 << 5;
+const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
+
+/// §21.3.1 — the eight value properties are
+/// `{ [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
+/// false }`. Every attribute is stated (PRESENT with a 0 value) so the
+/// entry says so rather than inheriting a write's defaults.
+const MATH_CONST_FLAGS: u64 = DEFINE_PRESENT_WRITABLE
+    | DEFINE_PRESENT_ENUMERABLE
+    | DEFINE_PRESENT_CONFIGURABLE
+    | DEFINE_PRESENT_VALUE;
+
+/// §17 — a built-in function property is `{ [[Writable]]: true,
+/// [[Enumerable]]: false, [[Configurable]]: true }`. Only
+/// `enumerable` separates it from an ordinary write, and that one
+/// difference is what keeps `Math` out of `Object.keys` / for-in /
+/// JSON / spread.
+const MATH_METHOD_FLAGS: u64 = DEFINE_FLAG_WRITABLE
+    | DEFINE_FLAG_CONFIGURABLE
+    | DEFINE_PRESENT_WRITABLE
+    | DEFINE_PRESENT_ENUMERABLE
+    | DEFINE_PRESENT_CONFIGURABLE
+    | DEFINE_PRESENT_VALUE;
 
 /// The interned Math singleton — 0 until first minted.
 static MATH_OBJECT: AtomicU64 = AtomicU64::new(0);
@@ -69,20 +119,22 @@ pub(crate) fn math_object_ptr() -> *mut c_void {
             }
             let cell = ns_static_cell(id as i64);
             let key = mint_immortal_str(row.name.as_bytes());
-            __torajs_dynobj_set(
+            __torajs_dynobj_define(
                 &mut obj,
                 key as *mut c_void,
                 AnySlotTag::Heap as u64,
                 cell as u64,
+                MATH_METHOD_FLAGS,
             );
         }
         for (name, v) in MATH_CONSTS {
             let key = mint_immortal_str(name);
-            __torajs_dynobj_set(
+            __torajs_dynobj_define(
                 &mut obj,
                 key as *mut c_void,
                 AnySlotTag::F64 as u64,
                 v.to_bits(),
+                MATH_CONST_FLAGS,
             );
         }
         *(obj.cast::<u8>().add(6) as *mut u16) |= FLAG_STATIC_LITERAL;
