@@ -120,7 +120,16 @@ impl ShadowSet {
     /// argument-typing fix had removed both reasons the lane could not
     /// serve a stood-down call — a sweep then showed its 19 regressions
     /// gone.
-    const MEASURED_FAMILIES: &[Family] = &["Array", "String", "Number", "Promise"];
+    /// Map / Set / Date / RegExp joined once their probes read 46
+    /// BYPASS on the typed receivers and 0 `tr-err` — the second half
+    /// matters as much as the first, because a probe whose own wrapper
+    /// cannot run measures nothing (that is how Promise's first
+    /// reading came back empty). WeakMap, WeakSet, Boolean, BigInt and
+    /// Symbol stay out: no probe covers them yet, and the list grows
+    /// on evidence, not on symmetry.
+    const MEASURED_FAMILIES: &[Family] = &[
+        "Array", "String", "Number", "Promise", "Map", "Set", "Date", "RegExp",
+    ];
 
     /// Should the typed tier stand down for this call?
     ///
