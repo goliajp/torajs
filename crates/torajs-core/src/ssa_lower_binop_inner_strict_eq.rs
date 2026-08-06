@@ -68,16 +68,16 @@ pub(crate) fn try_lower(
                         a,
                         b,
                         b_ty,
-                        ctx.binop_right_undef_id.is_some(),
-                        ctx.binop_right_null_id.is_some(),
+                        ctx.binop.right_undef_id.is_some(),
+                        ctx.binop.right_null_id.is_some(),
                     )
                 } else {
                     (
                         b,
                         a,
                         a_ty,
-                        ctx.binop_left_undef_id.is_some(),
-                        ctx.binop_left_null_id.is_some(),
+                        ctx.binop.left_undef_id.is_some(),
+                        ctx.binop.left_null_id.is_some(),
                     )
                 };
             // P1.8 + 2026-07-16 — `any === undefined` and `any === null`

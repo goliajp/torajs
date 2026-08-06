@@ -7,10 +7,10 @@
 //! `crate::ssa_lower_binop_inner::lower`.
 //!
 //! Responsibilities:
-//! - Save/restore `binop_left_undef_id` / `binop_right_undef_id` /
-//!   `binop_mul_square` context flags around the inner call so nested
+//! - Save/restore `binop.left_undef_id` / `binop.right_undef_id` /
+//!   `binop.mul_square` context flags around the inner call so nested
 //!   binops don't leak state.
-//! - Set `binop_mul_square` when both operand ExprIds resolve to the
+//! - Set `binop.mul_square` when both operand ExprIds resolve to the
 //!   same `Ident` (S9 square carve for `x * x`).
 //! - Filter `left_id` / `right_id` by frontend `Type::Undefined`
 //!   check (P1.5/P1.8 Eq/Neq undef-vs-null distinction).
@@ -49,18 +49,18 @@ impl<'a> LowerCtx<'a> {
         left_id: Option<ExprId>,
         right_id: Option<ExprId>,
     ) -> Operand {
-        let saved_left_f64u = self.binop_left_f64_undefable;
-        let saved_right_f64u = self.binop_right_f64_undefable;
-        self.binop_left_f64_undefable = left_id
+        let saved_left_f64u = self.binop.left_f64_undefable;
+        let saved_right_f64u = self.binop.right_f64_undefable;
+        self.binop.left_f64_undefable = left_id
             .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
-        self.binop_right_f64_undefable = right_id
+        self.binop.right_f64_undefable = right_id
             .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
-        let saved_left = self.binop_left_undef_id.take();
-        let saved_right = self.binop_right_undef_id.take();
-        let saved_left_null = self.binop_left_null_id.take();
-        let saved_right_null = self.binop_right_null_id.take();
-        let saved_square = self.binop_mul_square;
-        self.binop_mul_square = matches!(op, AstBinOp::Mul)
+        let saved_left = self.binop.left_undef_id.take();
+        let saved_right = self.binop.right_undef_id.take();
+        let saved_left_null = self.binop.left_null_id.take();
+        let saved_right_null = self.binop.right_null_id.take();
+        let saved_square = self.binop.mul_square;
+        self.binop.mul_square = matches!(op, AstBinOp::Mul)
             && matches!(
                 (
                     left_id.map(|e| self.ast.get_expr(e)),
@@ -68,30 +68,30 @@ impl<'a> LowerCtx<'a> {
                 ),
                 (Some(Expr::Ident(l)), Some(Expr::Ident(r))) if l == r
             );
-        self.binop_left_undef_id = left_id.filter(|eid| {
+        self.binop.left_undef_id = left_id.filter(|eid| {
             matches!(
                 self.expr_types.get(eid),
                 Some(crate::check::Type::Undefined)
             )
         });
-        self.binop_right_undef_id = right_id.filter(|eid| {
+        self.binop.right_undef_id = right_id.filter(|eid| {
             matches!(
                 self.expr_types.get(eid),
                 Some(crate::check::Type::Undefined)
             )
         });
-        self.binop_left_null_id = left_id
+        self.binop.left_null_id = left_id
             .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
-        self.binop_right_null_id = right_id
+        self.binop.right_null_id = right_id
             .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
         let r = crate::ssa_lower_binop_inner::lower(self, op, a, b);
-        self.binop_left_f64_undefable = saved_left_f64u;
-        self.binop_right_f64_undefable = saved_right_f64u;
-        self.binop_left_undef_id = saved_left;
-        self.binop_right_undef_id = saved_right;
-        self.binop_left_null_id = saved_left_null;
-        self.binop_right_null_id = saved_right_null;
-        self.binop_mul_square = saved_square;
+        self.binop.left_f64_undefable = saved_left_f64u;
+        self.binop.right_f64_undefable = saved_right_f64u;
+        self.binop.left_undef_id = saved_left;
+        self.binop.right_undef_id = saved_right;
+        self.binop.left_null_id = saved_left_null;
+        self.binop.right_null_id = saved_right_null;
+        self.binop.mul_square = saved_square;
         r
     }
 }

@@ -158,7 +158,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
                 (*x == 0 && *y < 0) || (*x < 0 && *y == 0)
             }
             (Operand::ConstI64(c), _) | (_, Operand::ConstI64(c)) => *c <= 0,
-            _ => !ctx.binop_mul_square,
+            _ => !ctx.binop.mul_square,
         };
     let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow)
         || (matches!(op, AstBinOp::Mod) && !mod_int_safe)

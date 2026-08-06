@@ -42,9 +42,9 @@ pub(crate) fn try_lower(
     let a_is_null = matches!(a, Operand::ConstPtrNull);
     let b_is_null = matches!(b, Operand::ConstPtrNull);
     let a_nullish =
-        a_is_null || ctx.binop_left_undef_id.is_some() || ctx.binop_left_null_id.is_some();
+        a_is_null || ctx.binop.left_undef_id.is_some() || ctx.binop.left_null_id.is_some();
     let b_nullish =
-        b_is_null || ctx.binop_right_undef_id.is_some() || ctx.binop_right_null_id.is_some();
+        b_is_null || ctx.binop.right_undef_id.is_some() || ctx.binop.right_null_id.is_some();
     if a_nullish ^ b_nullish
         && let Some(v) = try_lower_any_loose_eq_null(ctx, op, a.clone(), b.clone(), a_nullish)
     {
@@ -66,9 +66,9 @@ pub(crate) fn try_lower(
         // static cross-type-false fold below.
         if ptr_ty == Type::F64 {
             let undefable = if a_nullish {
-                ctx.binop_right_f64_undefable
+                ctx.binop.right_f64_undefable
             } else {
-                ctx.binop_left_f64_undefable
+                ctx.binop.left_f64_undefable
             };
             if undefable {
                 let bits = ctx.f.append_inst(

@@ -320,36 +320,17 @@ pub(crate) struct LowerCtx<'a> {
     /// unobservable on the common surface. test262 regressions
     /// are caught by the conformance gate.
     pub(crate) regex_lit_cache: std::collections::HashMap<(String, String), ssa::ValueId>,
-    /// P1.5/P1.8 — per-binop scratch flags carrying which side (if any)
-    /// is a frontend Type::Undefined source. Set by lower_binop_with_ids
-    /// before dispatching to the inner impl, restored after. The Eq/Neq
-    /// Any-side packing reads these to pick ANY_UNDEF=5 vs ANY_NULL=0.
-    pub(crate) binop_left_undef_id: Option<ExprId>,
-    /// RFC 20260708-typed-arr-oob-read chunk 2 — the left/right
-    /// binop operand is an F64 that may hold the undefined-NaN
-    /// sentinel (number[] index read / alias); `=== undefined`
-    /// compares the bits instead of the cross-type false fold.
-    pub(crate) binop_left_f64_undefable: bool,
-    pub(crate) binop_right_f64_undefable: bool,
+    /// Scratch for the binop currently being lowered — set by
+    /// `lower_binop_with_ids` on the way in, restored on the way out.
+    /// Nothing in it survives a single binop, which is why it lives in
+    /// its own struct rather than as seven sibling fields here (RFC
+    /// 20260806 blade 0).
+    pub(crate) binop: crate::ssa_lower_binop_scratch::BinopScratch,
     /// Guard-dominated bounds-check elision — `(i, xs)` pairs
     /// proven in-bounds by an enclosing `i < xs.length` loop guard
     /// (see [`crate::ssa_lower_bounds_proven`]). Loop lowerers push
     /// / pop; the Block arm evicts tainted pairs per statement.
     pub(crate) bounds_proven: Vec<(String, String)>,
-    pub(crate) binop_right_undef_id: Option<ExprId>,
-    /// Chunk 612 companion — which side (if any) is a frontend
-    /// Type::Null source (the `null` literal or a Null-typed
-    /// binding). The Eq/Neq nullish folds combine these with the
-    /// undef flags to answer undefined-vs-null statically for
-    /// bindings, not just literals (a Null/Undefined-typed Load is
-    /// not ConstPtrNull, so operand-shape checks alone miss it).
-    pub(crate) binop_left_null_id: Option<ExprId>,
-    pub(crate) binop_right_null_id: Option<ExprId>,
-    /// S9 square carve — set by lower_binop_with_ids when both Mul
-    /// operands are the same identifier (`x * x`): a value times
-    /// itself can never be negative×zero, so -0 is unmintable and
-    /// the int path keeps (mirrors the width_of square carve).
-    pub(crate) binop_mul_square: bool,
     /// P7.4-a-b — set by `lower_binop_inner` when a bigint
     /// Div/Mod/Pow/Shl/Shr is dispatched (those runtime helpers can
     /// call `__torajs_throw_range_error`). The enclosing `Expr::BinOp`

@@ -78,10 +78,10 @@ pub(crate) fn try_lower(
     if !matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
         return None;
     }
-    let a_undef = ctx.binop_left_undef_id.is_some();
-    let b_undef = ctx.binop_right_undef_id.is_some();
-    let a_null = ctx.binop_left_null_id.is_some();
-    let b_null = ctx.binop_right_null_id.is_some();
+    let a_undef = ctx.binop.left_undef_id.is_some();
+    let b_undef = ctx.binop.right_undef_id.is_some();
+    let a_null = ctx.binop.left_null_id.is_some();
+    let b_null = ctx.binop.right_null_id.is_some();
     let a_nullish = a_undef || a_null;
     let b_nullish = b_undef || b_null;
     if a_nullish && b_nullish {
@@ -112,9 +112,9 @@ pub(crate) fn try_lower(
         // cross-type false fold downstream.
         if val_ty == Type::F64 {
             let undefable = if a_nullish {
-                ctx.binop_right_f64_undefable
+                ctx.binop.right_f64_undefable
             } else {
-                ctx.binop_left_f64_undefable
+                ctx.binop.left_f64_undefable
             };
             if !undefable || !nullish_is_undef {
                 return None;

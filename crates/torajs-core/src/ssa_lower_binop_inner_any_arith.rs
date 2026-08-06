@@ -124,10 +124,10 @@ pub(crate) fn try_lower(
     // concats "null"; ToNumber(undef) = NaN vs ToNumber(null) = 0.
     // Mirrors the P1.5 `Number(undefined) === NaN` shortcut inside
     // ssa_lower_call_coercion for the wrapper-fringe `+`/`</>` sites.
-    if ctx.binop_left_undef_id.is_some() && matches!(lt, Operand::ConstI64(0)) {
+    if ctx.binop.left_undef_id.is_some() && matches!(lt, Operand::ConstI64(0)) {
         lt = Operand::ConstI64(5);
     }
-    if ctx.binop_right_undef_id.is_some() && matches!(rt, Operand::ConstI64(0)) {
+    if ctx.binop.right_undef_id.is_some() && matches!(rt, Operand::ConstI64(0)) {
         rt = Operand::ConstI64(5);
     }
     let settles = [(l_src, lv.clone()), (r_src, rv.clone())];

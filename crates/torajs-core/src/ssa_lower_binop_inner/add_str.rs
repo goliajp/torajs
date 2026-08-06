@@ -40,7 +40,7 @@ pub(crate) fn try_lower(
     let mut a_temp = false;
     let mut b_temp = false;
     let str_shaped = |t: Type| matches!(t, Type::Str | Type::Substr);
-    if ctx.binop_left_undef_id.is_some() && str_shaped(ctx.operand_ty(&b)) {
+    if ctx.binop.left_undef_id.is_some() && str_shaped(ctx.operand_ty(&b)) {
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.undefined_to_str, vec![]),
@@ -50,7 +50,7 @@ pub(crate) fn try_lower(
         a = Operand::Value(v);
         a_temp = true;
     }
-    if ctx.binop_right_undef_id.is_some() && str_shaped(ctx.operand_ty(&a)) {
+    if ctx.binop.right_undef_id.is_some() && str_shaped(ctx.operand_ty(&a)) {
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.undefined_to_str, vec![]),
@@ -134,8 +134,8 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     if mixed_string {
-        let a_undefable = ctx.binop_left_f64_undefable;
-        let b_undefable = ctx.binop_right_f64_undefable;
+        let a_undefable = ctx.binop.left_f64_undefable;
+        let b_undefable = ctx.binop.right_f64_undefable;
         let (a_str, a_fresh) = coerce_to_str(ctx, a, a_undefable);
         let (b_str, b_fresh) = coerce_to_str(ctx, b, b_undefable);
         let concat = ctx.intrinsics.str_concat;
