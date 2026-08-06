@@ -131,10 +131,21 @@ pub(crate) unsafe fn primitive_patch_pregate(
         return None;
     };
     unsafe {
-        if torajs_rc::builtin_proto::__torajs_builtin_proto_has_patch(fam, mid) != 0
-            && let Some(out) = builtin_proto_patch_method(recv, mid, name_str, argv, argc)
-        {
-            return Some(out);
+        if torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(fam, mid) != 0 {
+            if let Some(out) = builtin_proto_patch_method(recv, mid, name_str, argv, argc) {
+                return Some(out);
+            }
+            // No own entry resolved, and the method was deleted — the
+            // builtin surface is gone rather than showing through.
+            // `delete Map.prototype.get` leaves nothing for `m.get`
+            // to find, which is what both bun and V8 answer; the
+            // value-read face has consulted this same tombstone since
+            // it was introduced, and a later set / defineProperty
+            // revives without a clear call because the own probe
+            // above runs first.
+            if torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(fam, mid) != 0 {
+                return Some(not_callable());
+            }
         }
         if mid == ANY_METHOD_TO_LOCALE_STRING
             && fam != STR_PROTO_FAMILY

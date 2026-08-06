@@ -342,6 +342,27 @@ pub unsafe extern "C" fn __torajs_builtin_proto_has_patch(tag: i64, mid: i64) ->
     ((PATCHED_MIDS[t][m / 64].load(Ordering::Acquire) >> (m % 64)) & 1) as i64
 }
 
+/// 1 = SOMETHING happened to `<proto tag>`'s method `mid` that the
+/// native arms must not answer over — a user own entry was written
+/// (`has_patch`) or the method was deleted (`is_deleted`).
+///
+/// The two are one question for a dispatcher: either way the builtin
+/// surface is no longer what a call resolves to, and the caller has
+/// to take the slow path to find out which. Keeping them as one
+/// front gate is what lets the unpatched, undeleted program pay two
+/// relaxed loads and nothing else per method call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_is_shadowed(tag: i64, mid: i64) -> i64 {
+    let (t, m) = (tag as usize, mid as usize);
+    if t >= NUM_BUILTIN_PROTOS || m >= DELETED_MASK_WORDS * 64 {
+        return 0;
+    }
+    let bit = 1u64 << (m % 64);
+    let patched = PATCHED_MIDS[t][m / 64].load(Ordering::Acquire) & bit;
+    let deleted = DELETED_MIDS[t][m / 64].load(Ordering::Acquire) & bit;
+    ((patched | deleted) != 0) as i64
+}
+
 // Cargo-test stub for the dynobj_alloc extern. The real symbol lives
 // in the runtime substrate (linked into `tr`); unit tests in this
 // crate only verify the singleton-CAS logic, so we hand out unique
