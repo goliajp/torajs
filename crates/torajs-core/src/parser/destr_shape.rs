@@ -450,11 +450,7 @@ impl<'a> Parser<'a> {
         rest_name: &str,
         mutable: bool,
     ) -> Stmt {
-        let sentinel = format!("__spread_omit__:{}", omit.join(","));
-        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
-        let obj = self.ast.add_expr(Expr::ObjectLit {
-            fields: vec![(sentinel, src_ref)],
-        });
+        let obj = self.emit_obj_rest_expr(src_name, omit);
         Stmt::LetDecl {
             mutable,
             name: rest_name.to_string(),

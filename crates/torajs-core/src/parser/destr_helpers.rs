@@ -48,6 +48,22 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// §13.15.5.4 CopyDataProperties — the rest object itself: every
+    /// own enumerable key of `src` the sibling fields did not name.
+    ///
+    /// It rides as an object literal carrying a `__spread_omit__:`
+    /// sentinel field, a shape the object-literal lanes downstream
+    /// already expand. Both destructuring forms mint it here so the
+    /// declaration and the assignment answer with one construction
+    /// rather than two that have to be kept agreeing.
+    pub(super) fn emit_obj_rest_expr(&mut self, src_name: &str, omit: &[&str]) -> ExprId {
+        let sentinel = format!("__spread_omit__:{}", omit.join(","));
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        self.ast.add_expr(Expr::ObjectLit {
+            fields: vec![(sentinel, src_ref)],
+        })
+    }
+
     /// RFC 20260714-dstr-residual blade 2 — ES §8.4.5 NamedEvaluation
     /// for destructuring defaults: when a binding's default is an
     /// anonymous function definition, record (ArrowFn ExprId →

@@ -255,12 +255,24 @@ impl<'a> Parser<'a> {
         out: &mut Vec<Stmt>,
     ) -> Result<(), String> {
         out.push(self.emit_object_coercible_guard(src_name));
-        for (fname, val) in fields {
+        for (i, (fname, val)) in fields.iter().enumerate() {
+            // §13.15.5.4 — AssignmentRestProperty takes every own
+            // enumerable key the earlier fields did not name. Same
+            // construction the declaration form uses; the only thing
+            // that differs is where it lands, so it goes through the
+            // ordinary target slot (an Ident, a member, an index)
+            // rather than binding a fresh name.
             if fname == "__spread__" {
-                return Err(format!(
-                    "object rest is not supported in destructuring assignment yet at {}",
-                    self.at()
-                ));
+                if i + 1 != fields.len() {
+                    return Err(format!(
+                        "rest property must be last in a destructuring pattern at {}",
+                        self.at()
+                    ));
+                }
+                let omit: Vec<&str> = fields[..i].iter().map(|(n, _)| n.as_str()).collect();
+                let rest_obj = self.emit_obj_rest_expr(src_name, &omit);
+                self.emit_dstr_assign_slot(*val, rest_obj, out)?;
+                continue;
             }
             let (target, default) = match self.ast.get_expr(*val) {
                 // `{ f: y = D }` — the field value parsed as an
