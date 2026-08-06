@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T07:43:41.629Z",
+  "generatedAt": "2026-08-06T09:14:04.784Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-06T07:40:44Z",
-    "headSha": "0d5be9b6",
-    "elapsedSec": 401.05,
+    "ranAt": "2026-08-06T09:13:35Z",
+    "headSha": "6eb9af09",
+    "elapsedSec": 400.57,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22236,
-    "passNoOracle": 641,
+    "pass": 22237,
+    "passNoOracle": 649,
     "passNegative": 3956,
-    "passTotal": 26833,
-    "bug": 11853,
+    "passTotal": 26842,
+    "bug": 11844,
     "incompatible": 14488,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 38686,
-    "passRateInScope": 50.46,
-    "passRateTrAccepted": 69.36
+    "passRateInScope": 50.48,
+    "passRateTrAccepted": 69.38
   },
   "torajs": {
-    "commit": "0d5be9b6",
-    "commitSubject": "fix(runtime): the collection initializer reads the adder off its target",
+    "commit": "6eb9af09",
+    "commitSubject": "fix(runtime): the pre-gate only answers where a lookup really happens",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "6eb9af09",
+      "subject": "fix(runtime): the pre-gate only answers where a lookup really happens"
+    },
+    {
+      "hash": "c4bc9e45",
+      "subject": "fix(runtime): a deleted prototype method stays deleted for a call too"
+    },
+    {
+      "hash": "d0ea51df",
+      "subject": "fix(runtime): an own undefined is not an absent key"
+    },
+    {
+      "hash": "ef0b19a4",
+      "subject": "fix(runtime): a patched prototype is consulted before the native arm"
+    },
+    {
+      "hash": "bb8e5cb2",
+      "subject": "feat(core,runtime): a literal source does not excuse the collection ctor"
+    },
+    {
+      "hash": "3976f0e6",
+      "subject": "fix(runtime): a prototype patch that is not an object is not callable"
+    },
+    {
+      "hash": "2288a8e0",
+      "subject": "chore: stow rotation 314 sweep and refresh roadmap and dashboard"
+    },
+    {
       "hash": "0d5be9b6",
       "subject": "fix(runtime): the collection initializer reads the adder off its target"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "46a33153",
       "subject": "feat(core,runtime): the weak pair's constructors read as values"
-    },
-    {
-      "hash": "332635aa",
-      "subject": "chore: stow rotation 313 sweep and refresh roadmap and dashboard"
-    },
-    {
-      "hash": "a3f0ce09",
-      "subject": "fix: object rest refused an any source, and excluded a key too late"
-    },
-    {
-      "hash": "a0e4a771",
-      "subject": "feat: object rest in a destructuring assignment"
-    },
-    {
-      "hash": "0e698f30",
-      "subject": "fix: an any-element array refused delete though its slots can hold a hole"
-    },
-    {
-      "hash": "8c26d064",
-      "subject": "fix: a built-in namespace answered a different fact to each surface"
-    },
-    {
-      "hash": "4140b151",
-      "subject": "fix: a numeric property key could not be deleted"
-    },
-    {
-      "hash": "6aa1f99a",
-      "subject": "chore: re-stow rotation 312 sweep at the final HEAD"
     }
   ],
-  "headSha": "0d5be9b6",
+  "headSha": "6eb9af09",
   "autorun": {
-    "total": 617,
+    "total": 618,
     "baselineTarget": 10,
-    "bySelf": 612,
+    "bySelf": 613,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785992943-0fe5",
-      "at": "2026-08-06T05:09:03Z",
-      "ts": 1785992943,
+      "rotationId": "r-1786002240-7c88",
+      "at": "2026-08-06T07:44:00Z",
+      "ts": 1786002240,
       "trigger": "self",
-      "prevHead": "332635aa",
-      "handoffSha": "sha256:dd2c2addaf25c76253f4e7ac3000b909730b2c5bba55c475aaad6e30a5bcf36c",
-      "handoffAgeSec": 17,
+      "prevHead": "2288a8e0",
+      "handoffSha": "sha256:2bf2e5c041dc89b3a6d6c6509b29abccd9e4ea794ca13c7ec1dcee57688ef4aa",
+      "handoffAgeSec": 23,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786002240-7c88",
+        "at": "2026-08-06T07:44:00Z",
+        "ts": 1786002240,
+        "trigger": "self",
+        "prevHead": "2288a8e0",
+        "handoffSha": "sha256:2bf2e5c041dc89b3a6d6c6509b29abccd9e4ea794ca13c7ec1dcee57688ef4aa",
+        "handoffAgeSec": 23,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785992943-0fe5",
         "at": "2026-08-06T05:09:03Z",
@@ -876,17 +887,6 @@
         "prevHead": "17acf7aa",
         "handoffSha": "sha256:9ed57244a000128a47f261d8302c9d4b889e55610753f5f3920fa53106200860",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785899786-4e7d",
-        "at": "2026-08-05T03:16:26Z",
-        "ts": 1785899786,
-        "trigger": "self",
-        "prevHead": "21a38d86",
-        "handoffSha": "sha256:37e3a3c552498291488a7ac632341b5b4bdacbac5c673d6ce4c8251d824ac4e9",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
