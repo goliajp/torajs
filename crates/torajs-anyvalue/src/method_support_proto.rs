@@ -15,7 +15,7 @@ use torajs_rc::{
 
 use crate::method_support::{
     arr_supports, closure_supports, date_supports, map_supports, num_supports, regexp_supports,
-    set_supports, str_supports,
+    set_supports, str_supports, weakmap_supports, weakset_supports,
 };
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 
@@ -192,6 +192,12 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         11 => map_supports(mid),
         12 => set_supports(mid),
         13 => closure_supports(mid),
+        // %WeakMap.prototype% / %WeakSet.prototype% (§24.3.3 /
+        // §24.4.3) read off the SAME per-arm tables the instance
+        // dispatch uses — the pair the rotation-148 drift lesson
+        // says must move together.
+        16 => weakmap_supports(mid),
+        17 => weakset_supports(mid),
         _ => false,
     }
 }

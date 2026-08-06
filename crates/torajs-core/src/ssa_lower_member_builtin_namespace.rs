@@ -20,11 +20,13 @@
 //!   `1`).
 //! - **Constructor namespace prototype/name/length** — for
 //!   `{Object, Array, String, Boolean, Symbol, BigInt, RegExp,
-//!   Date, Error, Promise, Map, Set, Function}` (tags 1..14,
+//!   Date, Error, Promise, Map, Set, Function, Iterator, WeakMap,
+//!   WeakSet}` (see [`builtin_proto_tag`] for the tag numbers,
 //!   order locked to `torajs-rc::builtin_proto::NUM_BUILTIN_PROTOS`
 //!   — never reorder): `.prototype` builtin-proto singleton +
 //!   any_box; `.name` interns the namespace string; `.length`
-//!   ConstI64(1). Other Member names fall through.
+//!   reads the ctor clause's arity off the same table. Other
+//!   Member names fall through.
 //! - **`<Ctor>.prototype.<m>` method value** (RFC
 //!   20260711-closure-reflection chunk A) — the THREE-level static
 //!   form (`String.prototype.anchor`) routes to
@@ -153,7 +155,7 @@ pub(crate) fn check_ty_to_ssa(t: &crate::check::Type) -> Type {
 }
 
 /// Builtin-proto tag for the proto-method form — `Number` (tag 0)
-/// plus the [`builtin_proto_tag`] ctor set (tags 1..14).
+/// plus the [`builtin_proto_tag`] ctor set.
 pub(crate) fn proto_method_tag(ns: &str) -> Option<i64> {
     if ns == "Number" {
         return Some(0);
@@ -226,6 +228,13 @@ fn builtin_proto_tag(ns_name: &str) -> Option<i64> {
         "Set" => Some(12),
         "Function" => Some(13),
         "Iterator" => Some(15),
+        // The weak pair joined last (rotation 314). Their instances
+        // and any-lane method dispatch predate this by a long way —
+        // what was missing is the constructor read as a VALUE, which
+        // is what every `WeakMap.prototype.<m>.call(…)` brand-check
+        // test needs to even reach its assertion.
+        "WeakMap" => Some(16),
+        "WeakSet" => Some(17),
         _ => None,
     }
 }
