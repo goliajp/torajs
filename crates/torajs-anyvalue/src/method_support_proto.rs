@@ -359,6 +359,16 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
             crate::payload_rc_inc(dtag, dval);
             return unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag, dval) };
         }
+        // ANY_UNDEF is the probe's answer for BOTH an absent key and
+        // an own entry holding undefined, and only the membership
+        // probe tells them apart. `Array.prototype.join = undefined`
+        // is a real entry that shadows the builtin surface, where an
+        // absent key leaves the surface showing through — reading the
+        // tag alone handed back the interned `join` cell for a
+        // property whose value is undefined.
+        if dtag == 5 && unsafe { proto_own_has(proto, key) } {
+            return VALUE_UNDEFINED;
+        }
         // Accessor own entry (RFC 20260718-accessor-reify 刀 1 —
         // e.g. `Object.prototype.__proto__`): §10.1.8.1 [[Get]]
         // invokes the getter with the singleton itself as receiver.

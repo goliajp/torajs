@@ -53,6 +53,11 @@ t("non-callable join", () => {
   const a: any = [1, 2];
   try { return a.toString(); } finally { (Array.prototype as any).join = origJoin; }
 });
+t("undefined join", () => {
+  (Array.prototype as any).join = undefined;
+  const a: any = [1, 2];
+  try { return a.toString(); } finally { (Array.prototype as any).join = origJoin; }
+});
 t("deleted join", () => {
   delete (Array.prototype as any).join;
   const a: any = [1, 2];
