@@ -141,6 +141,7 @@ mod method_bind;
 mod method_call;
 mod method_call_arr;
 mod method_call_arr_copy;
+mod method_call_arr_to_string;
 mod method_call_arraylike;
 mod method_call_arraylike_concat;
 mod method_call_arraylike_copy;

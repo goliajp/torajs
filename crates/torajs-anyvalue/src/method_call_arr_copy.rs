@@ -142,9 +142,19 @@ pub(crate) unsafe fn arr_method_ext(
                 av
             }
             m if m == ANY_METHOD_TO_STRING => {
-                // §23.1.3.36 — delegates to join with the default
-                // "," separator (mirror of the dispatcher's
-                // toLocaleString Arr routing).
+                // §23.1.3.36 step 2 is `Get(array, "join")` — a
+                // lookup, so a patched / own / subclass /
+                // non-callable join is what the call resolves to.
+                // `None` = nothing shadows the kernel, which is the
+                // unpatched program and the fast path below.
+                if let Some(out) = crate::method_call_arr_to_string::spec_to_string(
+                    arr,
+                    __torajs_anyv_box_pointer(arr),
+                ) {
+                    return out;
+                }
+                // Step 4 with the kernel as `func`: join under the
+                // default "," separator.
                 let sep = __torajs_str_alloc(c",".as_ptr() as *const u8, 1);
                 let out = __torajs_arr_any_join(arr as *const u8, sep as *const u8);
                 __torajs_str_drop(sep as *mut c_void);
