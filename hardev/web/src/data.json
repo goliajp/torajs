@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T01:06:08.841Z",
+  "generatedAt": "2026-08-06T01:24:15.090Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-06T01:05:26Z",
-    "headSha": "befdc36d",
-    "elapsedSec": 403.08,
+    "ranAt": "2026-08-06T01:23:51Z",
+    "headSha": "35b67bca",
+    "elapsedSec": 398.32,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.1
   },
   "torajs": {
-    "commit": "befdc36d",
-    "commitSubject": "fix: a dynamic property was invisible to the surfaces that unfold a layout",
+    "commit": "35b67bca",
+    "commitSubject": "fix: Object.values and Object.assign refused a class instance",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "35b67bca",
+      "subject": "fix: Object.values and Object.assign refused a class instance"
+    },
+    {
+      "hash": "c6abdf04",
+      "subject": "chore: stow rotation 312 sweep and refresh hardev dashboard"
+    },
+    {
       "hash": "befdc36d",
       "subject": "fix: a dynamic property was invisible to the surfaces that unfold a layout"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "c5a8f183",
       "subject": "feat: an optional class member, and the undefined it is supposed to hold"
-    },
-    {
-      "hash": "6c56c5bc",
-      "subject": "fix: a promise's own stamp went unread when both sides were typed and disagreed"
-    },
-    {
-      "hash": "543cd8a2",
-      "subject": "fix: `T | undefined` did not parse, and the shorthand that did bound null"
     }
   ],
-  "headSha": "befdc36d",
+  "headSha": "35b67bca",
   "autorun": {
     "total": 615,
     "baselineTarget": 10,
