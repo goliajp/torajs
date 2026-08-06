@@ -27,27 +27,129 @@ use crate::method_value::mint_immortal_str;
 /// (typeof / name / length / gOPD): interned per (kind, which),
 /// `name` / `length` carried as own W0/E0/C1 props entries so the
 /// existing closure member/gOPD chains answer them with zero new
-/// plumbing. A detached CALL raises the recorded loud TypeError —
-/// live stepping rides the generator instance's class methods, and
-/// a receiver-generic re-dispatch is the recorded face.
+/// plumbing. A detached CALL re-dispatches a live instance onto its
+/// own class methods and otherwise takes the kind's spec failure —
+/// see [`gen_step_call`].
 static GEN_STEP_CELLS: [[AtomicU64; 3]; 2] = [
     [const { AtomicU64::new(0) }; 3],
     [const { AtomicU64::new(0) }; 3],
 ];
 static GEN_STEP_NAMES: [&[u8]; 3] = [b"next", b"return", b"throw"];
 
-unsafe extern "C" fn gen_step_reject_entry(
-    _env: *mut c_void,
-    _argv: *const u64,
-    _argc: i64,
-) -> u64 {
+/// Interned name cells for the re-dispatch below — the dispatcher
+/// resolves a class method by NAME, and `throw` has no builtin mid
+/// at all, so the name is the part that always carries.
+static GEN_STEP_NAME_CELLS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+
+fn gen_step_name_cell(which: usize) -> *mut u8 {
+    let slot = &GEN_STEP_NAME_CELLS[which];
+    let p = slot.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    let cell = mint_immortal_str(GEN_STEP_NAMES[which]);
+    slot.store(cell as u64, Ordering::Relaxed);
+    cell
+}
+
+/// The builtin mid each step interns to. `throw` is absent from the
+/// intern table, so it takes `ANY_METHOD_UNKNOWN` and resolves the
+/// way any user method does — by name.
+fn gen_step_mid(which: usize) -> i64 {
+    match which {
+        0 => torajs_rc::ANY_METHOD_NEXT,
+        1 => torajs_rc::any_method::ANY_METHOD_ITER_RETURN,
+        _ => torajs_rc::ANY_METHOD_UNKNOWN,
+    }
+}
+
+/// The call face shared by both kinds (§27.5.1.2-4 sync /
+/// §27.6.1.2-4 async).
+///
+/// `FLAG_CLOSURE_RECV_FIRST` puts the call-site `this` in slot 0 and
+/// the real arguments after it, so a bare `GP.next()` lands
+/// `undefined` there — exactly the non-object receiver step 3
+/// rejects.
+///
+/// A genuine generator instance RE-DISPATCHES onto its own step
+/// method. That is the whole of the detached face: `GP.next.call(g)`
+/// and `g.next()` are required to be the same call, and the instance
+/// already answers the latter through its `__Gen_<name>` class
+/// methods. Resolution finds those first because the class proto
+/// sits BELOW the shared prototype these cells live on — which is
+/// also why re-dispatch cannot reach back into this entry and spin.
+///
+/// Everything else keeps the kind's spec-mandated failure, and the
+/// two kinds differ: sync THROWS, async REJECTS (its trio routes
+/// through AsyncGeneratorEnqueue). That split is why the receiver
+/// test has to happen here rather than at the call site.
+unsafe fn gen_step_call(kind: usize, which: usize, argv: *const u64, argc: i64) -> u64 {
+    let recv = if argc > 0 && !argv.is_null() {
+        unsafe { *argv }
+    } else {
+        crate::nanbox::VALUE_UNDEFINED
+    };
+    if unsafe { receiver_is_gen_instance(recv, kind) } {
+        let (rest, rest_argc) = if argc > 1 {
+            (unsafe { argv.add(1) }, argc - 1)
+        } else {
+            (core::ptr::null(), 0)
+        };
+        return unsafe {
+            crate::method_call::any_method_call_inner(
+                recv,
+                gen_step_mid(which),
+                gen_step_name_cell(which),
+                core::ptr::null_mut(),
+                rest,
+                rest_argc,
+            )
+        };
+    }
+    if kind == 1 {
+        return unsafe { rejected_type_error_promise() };
+    }
     unsafe {
         __torajs_throw_type_error(
-            c"generator prototype step method called through a detached value is not supported"
+            c"Generator.prototype step method called on a receiver that is not a generator"
                 .as_ptr(),
         );
     }
     crate::nanbox::VALUE_UNDEFINED
+}
+
+/// One boxed entry per (kind, which). The body needs to know which
+/// step it is in order to re-dispatch, and a `mint_reject_closure_cell`
+/// cell carries no capture channel to read it from — the cap slot
+/// already encodes the builtin-method family.
+macro_rules! step_entry {
+    ($name:ident, $kind:expr, $which:expr) => {
+        unsafe extern "C" fn $name(_env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
+            unsafe { gen_step_call($kind, $which, argv, argc) }
+        }
+    };
+}
+
+step_entry!(sync_step_next, 0, 0);
+step_entry!(sync_step_return, 0, 1);
+step_entry!(sync_step_throw, 0, 2);
+step_entry!(async_step_next, 1, 0);
+step_entry!(async_step_return, 1, 1);
+step_entry!(async_step_throw, 1, 2);
+
+/// The (kind, which) call face a freshly minted cell installs.
+fn step_entry_for(
+    kind: usize,
+    which: usize,
+) -> unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 {
+    match (kind, which) {
+        (0, 0) => sync_step_next,
+        (0, 1) => sync_step_return,
+        (0, _) => sync_step_throw,
+        (_, 0) => async_step_next,
+        (_, 1) => async_step_return,
+        (_, _) => async_step_throw,
+    }
 }
 
 /// The shared `%GeneratorPrototype%` (kind 0) /
@@ -84,10 +186,14 @@ const GEN_CHAIN_MAX_HOPS: usize = 32;
 /// (a different kind's root) and every non-generator value.
 ///
 /// Boundary: a hand-built `Object.create(g.prototype)` has no state
-/// slot yet answers `true`. That direction is deliberate — it keeps
-/// the loud TypeError of the not-yet-implemented detached-step face
-/// instead of quietly handing back a rejected promise that reads as
-/// "this was never a generator".
+/// slot yet answers `true`, so it re-dispatches onto the class
+/// method and gets whatever that does with a stateless receiver.
+/// That is the SAME answer `Object.create(g.prototype).next()` gives
+/// directly, which is the point — the detached form is required to
+/// be the direct form. The divergence from node (which reads the
+/// missing slot and throws) lives in the class method, one level
+/// down, and is a recorded boundary there rather than something for
+/// this gate to paper over.
 unsafe fn receiver_is_gen_instance(recv: u64, kind: usize) -> bool {
     let target = GEN_PROTO_CELLS[kind].load(Ordering::Relaxed);
     if target == 0 || !crate::nanbox::is_cell(recv) {
@@ -153,36 +259,6 @@ unsafe fn rejected_type_error_promise() -> u64 {
 /// The async trio's call face (§27.6.1.2-4). Unlike the sync kind,
 /// a bad receiver REJECTS rather than throws, so this entry has to
 /// tell a genuine async generator from everything else.
-unsafe extern "C" fn async_gen_step_reject_entry(
-    _env: *mut c_void,
-    argv: *const u64,
-    argc: i64,
-) -> u64 {
-    // FLAG_CLOSURE_RECV_FIRST puts the call-site `this` in slot 0; a
-    // bare `AGP.next()` lands `undefined` there, which is exactly the
-    // non-object receiver step 3 rejects.
-    let recv = if argc > 0 && !argv.is_null() {
-        unsafe { *argv }
-    } else {
-        crate::nanbox::VALUE_UNDEFINED
-    };
-    if unsafe { receiver_is_gen_instance(recv, 1) } {
-        // A real async generator: stepping it through the detached
-        // face needs the receiver-generic re-dispatch tr does not
-        // have yet. Keep the loud TypeError — answering a rejected
-        // promise here would misreport a live generator as an
-        // incompatible receiver.
-        unsafe {
-            __torajs_throw_type_error(
-                c"generator prototype step method called through a detached value is not supported"
-                    .as_ptr(),
-            );
-        }
-        return crate::nanbox::VALUE_UNDEFINED;
-    }
-    unsafe { rejected_type_error_promise() }
-}
-
 /// The interned `%GeneratorPrototype%.next/return/throw` cell —
 /// torajs-meta's genfn trio mint defines these into the shared
 /// gen_proto. `kind` 0 = generator / 1 = async generator; `which`
@@ -200,20 +276,16 @@ pub unsafe extern "C" fn __torajs_gen_step_method_cell(kind: i64, which: i64) ->
         return p as *mut u8;
     }
     // §27.5.1.2-4 THROW on a bad receiver; §27.6.1.2-4 REJECT (the
-    // async trio routes through AsyncGeneratorEnqueue), so the two
-    // kinds carry different call faces.
-    let cell = if k == 1 {
-        crate::method_value::mint_reject_closure_cell(async_gen_step_reject_entry)
-    } else {
-        crate::method_value::mint_reject_closure_cell(gen_step_reject_entry)
-    };
+    // async trio routes through AsyncGeneratorEnqueue), and either
+    // kind re-dispatches a live instance onto its own step method —
+    // so the face is per (kind, which).
+    let cell = crate::method_value::mint_reject_closure_cell(step_entry_for(k, w));
     unsafe {
-        if k == 1 {
-            // The async face must SEE the receiver to separate a live
-            // generator from the values step 3 rejects; bit 12 makes
-            // the dispatcher pass the call-site `this` in argv[0].
-            *(cell.add(6) as *mut u16) |= torajs_rc::FLAG_CLOSURE_RECV_FIRST;
-        }
+        // Every face must SEE the receiver: to separate a live
+        // generator from the values step 3 refuses, and to forward it
+        // when re-dispatching. Bit 12 makes the dispatcher pass the
+        // call-site `this` in argv[0] and the real arguments after.
+        *(cell.add(6) as *mut u16) |= torajs_rc::FLAG_CLOSURE_RECV_FIRST;
         // name / length as own props entries ({W:0, E:0, C:1},
         // §27.5.1.2-4: every step method's length is 1).
         let props_slot = cell.add(24) as *mut *mut c_void;
