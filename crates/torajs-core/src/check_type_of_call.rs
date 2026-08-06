@@ -27,7 +27,7 @@ mod route_globals;
 mod route_namespace_trailing;
 mod route_str_arr_trailing;
 
-use crate::ast::{Ast, ExprId};
+use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
 pub(crate) fn check(
@@ -37,6 +37,22 @@ pub(crate) fn check(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Result<Type, String> {
+    // RFC 20260806 blade 2 — the member-read gate in
+    // `check_type_of_member` only sees calls whose callee gets typed on
+    // the way past; the routes below claim many builtin calls straight
+    // from the callee's syntax, so a patched method reached that way
+    // never met the gate. Answering here covers them, and recording the
+    // callee as Any is what makes the lowering side notice: its
+    // cluster-#4 branch keys on exactly that record.
+    if !checker.proto_shadow.is_empty()
+        && let Expr::Member { obj, name } = ast.get_expr(*callee)
+        && let Ok(obj_ty) = checker.type_of(ast, *obj)
+        && let Some(family) = crate::builtin_proto_shadow::family_of(&obj_ty)
+        && checker.proto_shadow.shadows(family, name)
+    {
+        checker.expr_types.insert(*callee, Type::Any);
+        return Ok(Type::Any);
+    }
     if let Some(r) = route_early::try_route(checker, ast, eid, callee, args) {
         return r;
     }
