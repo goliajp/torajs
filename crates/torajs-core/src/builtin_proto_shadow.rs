@@ -120,15 +120,22 @@ impl ShadowSet {
     /// argument-typing fix had removed both reasons the lane could not
     /// serve a stood-down call — a sweep then showed its 19 regressions
     /// gone.
-    /// Map / Set / Date / RegExp joined once their probes read 46
-    /// BYPASS on the typed receivers and 0 `tr-err` — the second half
-    /// matters as much as the first, because a probe whose own wrapper
-    /// cannot run measures nothing (that is how Promise's first
-    /// reading came back empty). WeakMap, WeakSet, Boolean, BigInt and
-    /// Symbol stay out: no probe covers them yet, and the list grows
-    /// on evidence, not on symmetry.
+    /// Each family joined only once its probe read BYPASS on the typed
+    /// receiver *and* `ok` on the `<any>` control — the control is what
+    /// pins the miss on the typed tier rather than on the dispatcher,
+    /// and `tr-err` of 0 is what says the probe ran at all (a wrapper
+    /// that cannot execute measures nothing, which is how Promise's
+    /// first reading came back empty).
+    ///
+    /// **BigInt is deliberately absent.** Its typed rows bypass, but so
+    /// do its `<any>` rows: the dispatcher does not consult the bitmap
+    /// for a bigint receiver either, so standing the typed tier down
+    /// would hand those calls to a lane that answers no better. The
+    /// gap is real and still open — it is just not this gate's to fix,
+    /// and opening here would claim a fix the probe does not show.
     const MEASURED_FAMILIES: &[Family] = &[
-        "Array", "String", "Number", "Promise", "Map", "Set", "Date", "RegExp",
+        "Array", "String", "Number", "Promise", "Map", "Set", "Date", "RegExp", "Boolean",
+        "Symbol", "WeakMap", "WeakSet",
     ];
 
     /// Should the typed tier stand down for this call?
