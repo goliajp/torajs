@@ -96,12 +96,36 @@ impl ShadowSet {
         !self.all && self.families.is_empty() && self.methods.is_empty()
     }
 
+    /// Methods the fallback lane cannot serve yet, so standing down for
+    /// them turns a working program into a compile-time refusal.
+    ///
+    /// Measured, not guessed: sweeping with these included moved 40
+    /// test262 cases from `pass` to `incompatible:not yet supported`,
+    /// all of them `Array.prototype` higher-order calls whose `this`
+    /// is an array-like rather than an array. Correctness for a
+    /// patched HOF therefore waits on the any-lane covering those
+    /// shapes — a patch on one of these keeps today's behaviour rather
+    /// than costing the program its build.
+    const FALLBACK_UNSUPPORTED: &[&str] = &[
+        "map",
+        "filter",
+        "reduce",
+        "reduceRight",
+        "forEach",
+        "some",
+        "every",
+        "flatMap",
+    ];
+
     /// Should the typed tier stand down for this call?
     ///
     /// `Object` counts for every receiver: every builtin prototype ends
     /// its own [[Prototype]] chain at `Object.prototype`, so a patch
     /// there is reachable from an array, a string and a number alike.
     pub(crate) fn shadows(&self, family: Family, method: &str) -> bool {
+        if Self::FALLBACK_UNSUPPORTED.contains(&method) {
+            return false;
+        }
         self.all
             || self.families.contains(family)
             || self.families.contains("Object")
