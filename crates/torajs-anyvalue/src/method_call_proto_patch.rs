@@ -48,12 +48,54 @@ const ANY_ACCESSOR_TAG: i64 = 6;
 /// immediate riding in the same 64 bits.
 const ANY_HEAP: i64 = 4;
 
-/// Primitive fast-arm pre-gate (RFC 20260721 刀 11 G13) — the
-/// short-str / bool / num arms and the heap-Str cell arm answer
-/// their mids natively, so a monkey-patch installed on the
-/// receiver's builtin prototype (data or accessor shape) must
-/// consult BEFORE they run. The (tag, mid) patch bitmap keeps the
-/// no-patch program at one relaxed load per primitive method call.
+/// Receivers whose ONLY source for a method is their prototype —
+/// they carry no own properties at all, so nothing can sit in front
+/// of the prototype for the pre-gate below to shadow.
+///
+/// The list is what it is because of where torajs stands today, not
+/// because the spec says these objects are special: an ordinary
+/// property write to a Map / Set / Date / RegExp / Promise / weak
+/// instance is refused (only Arr and Closure carry a side-props
+/// table), and Symbol / BigInt refuse it in every engine. **When a
+/// family grows own properties it must come off this list**, or its
+/// pre-gate consult would start shadowing them — the ordering the
+/// exclusion of Arr and Closure below is protecting.
+fn proto_is_only_method_source(tag: u16) -> bool {
+    matches!(
+        tag,
+        t if t == Tag::Map as u16
+            || t == Tag::Set as u16
+            || t == Tag::WeakMap as u16
+            || t == Tag::WeakSet as u16
+            || t == Tag::WeakRef as u16
+            || t == Tag::Date as u16
+            || t == Tag::RegExp as u16
+            || t == Tag::Promise as u16
+            || t == Tag::MapIter as u16
+            || t == Tag::ArrIter as u16
+            || t == Tag::IterHelper as u16
+            || t == Tag::Symbol as u16
+            || t == Tag::BigInt as u16
+    )
+}
+
+/// Fast-arm pre-gate (RFC 20260721 刀 11 G13) — the short-str / bool
+/// / num arms, the heap-Str cell arm and the per-tag collection arms
+/// answer their mids natively, so a monkey-patch installed on the
+/// receiver's builtin prototype (data or accessor shape) must consult
+/// BEFORE they run. The (tag, mid) patch bitmap keeps the no-patch
+/// program at one relaxed load per method call.
+///
+/// Which receivers may be pre-gated is an ORDERING question, not a
+/// performance one: §10.1.8.1 resolves a receiver's own properties
+/// before its prototype's, so consulting a patch early is only sound
+/// where the receiver has no own face to be resolved first. That is
+/// true of the primitives, and of the cell shapes
+/// `proto_is_only_method_source` names. Arr and Closure are excluded
+/// for exactly that reason — they carry expandos, `a.push = f` must
+/// keep beating `Array.prototype.push = g`, and their patch consult
+/// stays on the dispatcher's tail until the own-resolution boundary
+/// inside their arms is mapped out (recorded L3b).
 ///
 /// The §20.1.3.5 leg: bool / num have no own `toLocaleString` — the
 /// inherited `Object.prototype.toLocaleString` is `Invoke(this,
@@ -72,12 +114,19 @@ pub(crate) unsafe fn primitive_patch_pregate(
         4
     } else if is_int32(recv) || is_double(recv) {
         0
-    } else if is_cell(recv)
-        && unsafe {
-            (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read() == Tag::Str as u16
+    } else if is_cell(recv) {
+        // SAFETY: is_cell guarantees a live header.
+        let tag = unsafe { (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read() };
+        if tag == Tag::Str as u16 {
+            STR_PROTO_FAMILY
+        } else if proto_is_only_method_source(tag) {
+            match recv_proto_family(recv) {
+                f if f >= 0 => f,
+                _ => return None,
+            }
+        } else {
+            return None;
         }
-    {
-        STR_PROTO_FAMILY
     } else {
         return None;
     };
