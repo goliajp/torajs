@@ -60,6 +60,34 @@ impl<'a> FnToClosureCollector<'a> {
         }
     }
 
+    /// RFC 20260806 rotation 318 — a builtin method this module might
+    /// have patched is not lowered to its kernel; the call stands
+    /// down to the any-lane, whose argv packs any-boxed slots. A raw
+    /// FnSig cannot ride there, and both ways it fails are
+    /// whole-program rejects rather than wrong answers: an annotated
+    /// callback dies at the boxing site ("box_to_any element type
+    /// FnSig"), and an un-annotated one is an implicit generic that
+    /// no call-site record ever instantiates ("unknown function").
+    /// Both are how `[12, 11].every(callbackfn1)` broke when the gate
+    /// first opened for the higher-order methods — a shape no probe
+    /// wrote, because probes pass arrow literals.
+    ///
+    /// The receiver has no type yet at this point in the pipeline, so
+    /// the question is asked by method name alone; wrapping a call
+    /// that would not have stood down costs one closure and nothing
+    /// else. An empty shadow set answers no to everything, which is
+    /// every program that leaves builtin prototypes alone — so
+    /// `xs.map(top_fn)` keeps its raw-FnSig direct dispatch.
+    fn mark_shadowed_builtin_args(&mut self, callee: &ExprId, args: &[ExprId]) {
+        if let Expr::Member { name, .. } = self.ast.get_expr(*callee)
+            && self.proto_shadow.may_stand_down(name)
+        {
+            for &arg in args {
+                self.try_mark(arg);
+            }
+        }
+    }
+
     /// Walk an Expr looking for nested store-sites (Call args,
     /// assigns into `any` bindings, nested ObjectLits, etc.).
     /// `Expr::Call` arm — the callee/arg boxing decisions plus the
@@ -95,6 +123,7 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(args[1]);
         }
+        self.mark_shadowed_builtin_args(callee, args);
         self.mark_namespace_static_args(callee, args);
         // S2.37 followup — a REWRITE-MINTED method-body ident
         // (`__sm_<C>__<m>` / `__cm_<C>__<m>`, the static-member /

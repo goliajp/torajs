@@ -161,6 +161,13 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         }
     }
 
+    // RFC 20260806 — which builtin methods this module might patch.
+    // A patched one stands down to the any-lane, so a fn-name
+    // argument at such a call site has to arrive as a closure cell.
+    // Scanning here rather than reusing the checker's copy keeps this
+    // pass pre-typecheck: the scan is pure syntax and wants no types.
+    let proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast);
+
     // Binding names declared `any` anywhere — the assign-into-any
     // axis matches `f = top_fn` against these (scope-approximate).
     let mut any_bindings: HashSet<String> = HashSet::new();
@@ -264,6 +271,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         fn_arr_bindings: &fn_arr_bindings,
         struct_bindings: &struct_bindings,
         struct_arr_bindings: &struct_arr_bindings,
+        proto_shadow: &proto_shadow,
         targets: HashSet::new(),
         rewrites: Vec::new(),
         shadowed: Vec::new(),

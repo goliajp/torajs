@@ -137,11 +137,68 @@ impl ShadowSet {
         {
             return false;
         }
+        self.reaches(family, method)
+    }
+
+    /// Does a write this module performs reach `family`'s `method`,
+    /// ignoring whether the fallback lane can serve the call?
+    fn reaches(&self, family: Family, method: &str) -> bool {
         self.all
             || self.families.contains(family)
             || self.families.contains("Object")
             || self.methods.contains(&(family, method.to_string()))
             || self.methods.contains(&("Object", method.to_string()))
+    }
+
+    /// The builtin methods that take a function argument. Only these
+    /// can push a fn-name argument into an any-boxed argv slot when
+    /// the call stands down, so only these earn the wrap.
+    ///
+    /// The restriction is not tidiness — it is correctness. Wrapping
+    /// rewrites a function name into a `__forward_*` cell, which
+    /// changes the value's *identity*, and `Object.getPrototypeOf`
+    /// sets [`Self::all`], so an unrestricted question answers yes at
+    /// every member call in any program that calls it. That wrapped
+    /// `Object.getPrototypeOf(asyncGenFn)` and made
+    /// %AsyncGeneratorFunction% answer as %GeneratorFunction% — two
+    /// gate fixtures, caught the first time this axis ran.
+    const CALLBACK_TAKING: &[&str] = &[
+        "map",
+        "filter",
+        "reduce",
+        "reduceRight",
+        "forEach",
+        "some",
+        "every",
+        "flatMap",
+        "find",
+        "findIndex",
+        "findLast",
+        "findLastIndex",
+        "sort",
+    ];
+
+    /// Might a call to `method` stand down *and* carry a callback?
+    ///
+    /// The pre-typecheck fn-to-closure wrap
+    /// ([`crate::ast_collect_fn_closure`]) needs this before any
+    /// receiver has a type, so it asks the question unquantified by
+    /// family. Two consequences are deliberate:
+    ///
+    /// - `FALLBACK_UNSUPPORTED` is *not* consulted. The wrap is what
+    ///   makes those methods servable, so it has to be in place
+    ///   before the gate is allowed to open for them; asking through
+    ///   [`Self::shadows`] would make the two conditions circular and
+    ///   neither would ever come true.
+    /// - A yes on any measured family is a yes for every receiver at
+    ///   that method name. Over-answering costs one closure wrap in a
+    ///   program that already patches a builtin prototype;
+    ///   under-answering costs that program its build.
+    pub(crate) fn may_stand_down(&self, method: &str) -> bool {
+        Self::CALLBACK_TAKING.contains(&method)
+            && Self::MEASURED_FAMILIES
+                .iter()
+                .any(|&f| self.reaches(f, method))
     }
 
     fn widen(&mut self, family: Family) {

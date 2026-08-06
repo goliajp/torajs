@@ -106,6 +106,13 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// element receivers (`arr[0].cb = top_fn`). Scope-approximate
     /// like the sets.
     pub(crate) struct_arr_bindings: &'a HashMap<String, String>,
+    /// What this module might monkey-patch onto a builtin prototype
+    /// (RFC 20260806) — the member-call axis reads it: a patched
+    /// builtin stands down to the any-lane, whose argv packs
+    /// any-boxed slots that a raw FnSig cannot ride. Empty for every
+    /// program that never names a builtin prototype, which is what
+    /// keeps `xs.map(top_fn)` on its raw-FnSig direct dispatch.
+    pub(crate) proto_shadow: &'a crate::builtin_proto_shadow::ShadowSet,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
     /// Per-fn shadow stack (rotation 128) — names bound as a param or
