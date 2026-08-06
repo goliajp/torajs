@@ -104,11 +104,48 @@ pub unsafe extern "C" fn __torajs_arrprops_set(
     value: i64,
 ) {
     unsafe {
+        note_builtin_proto_write(arr_ptr, key);
         let slot = props_slot_ptr(arr_ptr);
         if (*slot).is_null() {
             *slot = __torajs_dynobj_alloc();
         }
         __torajs_dynobj_set(slot, key, tag as u64, value as u64);
+    }
+}
+
+/// Str heap-block layout mirror (`torajs-str`): `len: u64` at +8,
+/// inline UTF-8 payload at +16, universal `type_tag: u16` at +4.
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+
+/// A named write landing on a builtin `<Ctor>.prototype` singleton is
+/// a monkey-patch, and the dispatcher's fast-arm pre-gate only looks
+/// at families it has been told about. `torajs-dynobj` reports its
+/// writes; `Array.prototype` is the one builtin prototype backed by
+/// an ARR cell (§23.1.3), so its named properties land here instead
+/// and were going unreported — the read side has carried that
+/// asymmetry since it was written (`proto_own_probe` picks the probe
+/// by cell shape), the notify side had not.
+///
+/// The gate keys off the method NAME, so a symbol key has nothing to
+/// report; the tag check is what keeps a Symbol cell's 16 bytes from
+/// being read as a Str's `len` + payload.
+///
+/// # Safety
+/// `arr_ptr` is compared, never dereferenced; `key` is a live Str or
+/// Symbol heap block.
+#[inline]
+unsafe fn note_builtin_proto_write(arr_ptr: *mut c_void, key: *const c_void) {
+    unsafe {
+        if *((key as *const u8).add(4) as *const u16) != torajs_rc::Tag::Str as u16 {
+            return;
+        }
+        let len = *((key as *const u8).add(STR_LEN_OFF) as *const u64);
+        torajs_rc::builtin_proto::__torajs_builtin_proto_note_own_write(
+            arr_ptr,
+            (key as *const u8).add(STR_DATA_OFF),
+            len as i64,
+        );
     }
 }
 

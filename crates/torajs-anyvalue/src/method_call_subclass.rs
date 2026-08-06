@@ -34,20 +34,19 @@ unsafe extern "C" {
 const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
 
-/// Resolve + invoke a subclass method on an exotic receiver; `None`
-/// falls through to the builtin surface (the name is not one of the
-/// class's methods).
+/// The class-method adapter the receiver's own class defines under
+/// `name_str`, or `None` when the name is not one of them — the
+/// RESOLUTION half of [`subclass_method`], split off because the
+/// builtin-prototype pre-gate has to ask whether the subclass would
+/// answer without calling it.
 ///
 /// # Safety
 /// `ptr` is a live exotic cell with `FLAG_SUBCLASSED` set; `name_str`
-/// is a live Str cell (callers pass NULL-name mids straight to the
-/// builtin arm); `argv`/`argc` follow the boxed-adapter convention.
-pub(crate) unsafe fn subclass_method(
-    ptr: *mut c_void,
+/// is a live Str cell.
+pub(crate) unsafe fn subclass_adapter(
+    ptr: *const c_void,
     name_str: *const u8,
-    argv: *const u64,
-    argc: i64,
-) -> Option<AnyValue> {
+) -> Option<*const c_void> {
     unsafe {
         let class_tag = __torajs_subclass_class_tag(ptr);
         if class_tag < 0 {
@@ -63,6 +62,38 @@ pub(crate) unsafe fn subclass_method(
         if adapter.is_null() {
             return None;
         }
+        Some(adapter)
+    }
+}
+
+/// Does the receiver's class define a method under `name_str`? The
+/// pre-gate's question — `C.prototype` sits between the receiver's
+/// own properties and the builtin prototype, so a patch on the
+/// builtin prototype must not be consulted early where the subclass
+/// is what a call would have resolved to.
+///
+/// # Safety
+/// Same contract as [`subclass_adapter`].
+pub(crate) unsafe fn subclass_owns(ptr: *const c_void, name_str: *const u8) -> bool {
+    unsafe { subclass_adapter(ptr, name_str).is_some() }
+}
+
+/// Resolve + invoke a subclass method on an exotic receiver; `None`
+/// falls through to the builtin surface (the name is not one of the
+/// class's methods).
+///
+/// # Safety
+/// `ptr` is a live exotic cell with `FLAG_SUBCLASSED` set; `name_str`
+/// is a live Str cell (callers pass NULL-name mids straight to the
+/// builtin arm); `argv`/`argc` follow the boxed-adapter convention.
+pub(crate) unsafe fn subclass_method(
+    ptr: *mut c_void,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let adapter = subclass_adapter(ptr, name_str)?;
         Some(crate::method_call::invoke_boxed(
             ptr,
             adapter as u64,

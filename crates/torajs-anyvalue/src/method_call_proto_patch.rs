@@ -37,6 +37,12 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     /// Universal NaN-box-safe heap dropper (getter answer release).
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-arr / torajs-dynobj — own-key membership on a
+    /// RECEIVER's own expando storage: the side-props table for an
+    /// Arr, the props dynobj for a Closure. The pre-gate's
+    /// stand-down probe.
+    fn __torajs_arrprops_has(arr: *mut c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
 }
 
 /// Accessor-entry sentinel in the dynobj probe's tag channel —
@@ -95,6 +101,20 @@ fn proto_is_only_method_source(tag: u16) -> bool {
     )
 }
 
+/// The receivers that DO carry own properties and are pre-gated
+/// anyway, by answering the ordering question instead of dodging it
+/// (see [`own_face_shadows`]). Arr keeps a side-props table, Closure
+/// a props dynobj; both also route a `FLAG_SUBCLASSED` class-method
+/// probe below the builtin prototype.
+///
+/// A family joins this list rather than
+/// [`proto_is_only_method_source`] the moment it grows a place to
+/// put an own property — the two lists are the same question asked
+/// of receivers that can and cannot.
+fn tag_carries_own_face(tag: u16) -> bool {
+    tag == Tag::Arr as u16 || tag == Tag::Closure as u16
+}
+
 /// Fast-arm pre-gate (RFC 20260721 刀 11 G13) — the short-str / bool
 /// / num arms, the heap-Str cell arm and the per-tag collection arms
 /// answer their mids natively, so a monkey-patch installed on the
@@ -107,11 +127,17 @@ fn proto_is_only_method_source(tag: u16) -> bool {
 /// before its prototype's, so consulting a patch early is only sound
 /// where the receiver has no own face to be resolved first. That is
 /// true of the primitives, and of the cell shapes
-/// `proto_is_only_method_source` names. Arr and Closure are excluded
-/// for exactly that reason — they carry expandos, `a.push = f` must
-/// keep beating `Array.prototype.push = g`, and their patch consult
-/// stays on the dispatcher's tail until the own-resolution boundary
-/// inside their arms is mapped out (recorded L3b).
+/// `proto_is_only_method_source` names, for free — none of them can
+/// hold an own property at all.
+///
+/// Arr and Closure can, so they answer the ordering question rather
+/// than being excused from it: [`own_face_shadows`] asks whether the
+/// receiver's own face — its expando entry, or a subclass method,
+/// which is the other link the spec chain puts below the builtin
+/// prototype — would resolve this name, and the pre-gate stands down
+/// where it would. `a.push = f` keeps beating `Array.prototype.push
+/// = g` because the receiver is asked first, not because the patch
+/// is never consulted.
 ///
 /// The §20.1.3.5 leg: a family with no own `toLocaleString` inherits
 /// `Object.prototype`'s, which is `Invoke(this, "toString")` — so its
@@ -131,6 +157,10 @@ pub(crate) unsafe fn primitive_patch_pregate(
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
+    // Set for the receivers that carry an own property face, so the
+    // consults below can ask it before answering (None for everyone
+    // whose prototype is their only source).
+    let mut recv_face: Option<(*mut c_void, u16)> = None;
     let fam = if is_short_str(recv) {
         STR_PROTO_FAMILY
     } else if is_bool(recv) {
@@ -138,11 +168,15 @@ pub(crate) unsafe fn primitive_patch_pregate(
     } else if is_int32(recv) || is_double(recv) {
         0
     } else if is_cell(recv) {
+        let ptr = as_void_ptr(recv);
         // SAFETY: is_cell guarantees a live header.
-        let tag = unsafe { (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read() };
+        let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
         if tag == Tag::Str as u16 {
             STR_PROTO_FAMILY
-        } else if proto_is_only_method_source(tag) {
+        } else if proto_is_only_method_source(tag) || tag_carries_own_face(tag) {
+            if tag_carries_own_face(tag) {
+                recv_face = Some((ptr, tag));
+            }
             match recv_proto_family(recv) {
                 f if f >= 0 => f,
                 _ => return None,
@@ -154,7 +188,9 @@ pub(crate) unsafe fn primitive_patch_pregate(
         return None;
     };
     unsafe {
-        if torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(fam, mid) != 0 {
+        if torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(fam, mid) != 0
+            && !own_face_shadows(recv_face, mid, name_str)
+        {
             if let Some(out) = builtin_proto_patch_method(recv, mid, name_str, argv, argc) {
                 return Some(out);
             }
@@ -192,6 +228,11 @@ pub(crate) unsafe fn primitive_patch_pregate(
             && !crate::method_support_proto::proto_tag_owns(fam, ANY_METHOD_TO_LOCALE_STRING)
             && torajs_rc::builtin_proto::__torajs_builtin_proto_has_patch(fam, ANY_METHOD_TO_STRING)
                 != 0
+            // The leg's Invoke is an ordinary lookup of `toString` on
+            // the receiver, so it stands down on an own one for the
+            // same reason the consult above does — just under the
+            // name it is about to resolve, not the one called.
+            && !own_face_shadows(recv_face, ANY_METHOD_TO_STRING, core::ptr::null())
         {
             // §20.1.3.5 step 2 Invoke takes no arguments.
             return builtin_proto_patch_method(
@@ -204,6 +245,71 @@ pub(crate) unsafe fn primitive_patch_pregate(
         }
     }
     None
+}
+
+/// The Str cell to probe a property under for `mid`: the call site's
+/// own name bytes when it carries them, otherwise the canonical name
+/// minted from the meta row (a known-mid site carries none). `None`
+/// when the mid has no name to probe under.
+///
+/// Answers `(key, minted)` — `minted` is NULL when the key is the
+/// caller's borrow, and otherwise the caller's to drop. Cold path by
+/// construction: every caller is behind the patch bitmap.
+unsafe fn method_name_key(mid: i64, name_str: *const u8) -> Option<(*const u8, *mut u8)> {
+    if !name_str.is_null() {
+        return Some((name_str, core::ptr::null_mut()));
+    }
+    let (nm, _) = torajs_rc::any_method_meta(mid)?;
+    unsafe {
+        let s = crate::__torajs_str_alloc_pooled(nm.len() as u64);
+        core::ptr::copy_nonoverlapping(nm.as_ptr(), s.add(16), nm.len());
+        Some((s as *const u8, s))
+    }
+}
+
+/// Would the receiver's OWN resolution answer a call under `mid`
+/// before the builtin prototype is ever reached?
+///
+/// Only the two cell shapes that carry own properties pass a
+/// `recv_face` here (`None` answers false for everyone else). Their
+/// arms resolve an expando entry first, and then — behind
+/// `FLAG_SUBCLASSED` — a class method, because on the spec chain
+/// `C.prototype` sits between own properties and the builtin
+/// prototype. A `true` is the pre-gate standing down: §10.1.8.1
+/// resolves the receiver's own face first, so consulting a prototype
+/// patch early would shadow it.
+///
+/// Membership, not the probe's tag channel, is the question — an own
+/// `undefined` is still an own property, on the receiver side as much
+/// as on the prototype's.
+unsafe fn own_face_shadows(
+    recv_face: Option<(*mut c_void, u16)>,
+    mid: i64,
+    name_str: *const u8,
+) -> bool {
+    let Some((ptr, tag)) = recv_face else {
+        return false;
+    };
+    unsafe {
+        let Some((key, minted)) = method_name_key(mid, name_str) else {
+            return false;
+        };
+        let expando = if tag == Tag::Arr as u16 {
+            __torajs_arrprops_has(ptr, key as *const c_void) != 0
+        } else {
+            let props = crate::member_get::closure_props(ptr);
+            !props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0
+        };
+        let owns = expando || {
+            let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+            flags & torajs_rc::FLAG_SUBCLASSED != 0
+                && crate::method_call_subclass::subclass_owns(ptr, key)
+        };
+        if !minted.is_null() {
+            crate::__torajs_str_drop(minted as *mut c_void);
+        }
+        owns
+    }
 }
 
 /// The receiver's live builtin-prototype own entry for `mid` as the
@@ -229,20 +335,7 @@ pub(crate) unsafe fn proto_patch_slot(
         if proto.is_null() {
             return None;
         }
-        // A known-mid call site carries no name bytes — mint the
-        // canonical name from the meta row for the own probe (cold
-        // path; the patch table is a monkey-patch surface).
-        let mut minted: *mut u8 = core::ptr::null_mut();
-        let key: *const u8 = if !name_str.is_null() {
-            name_str
-        } else if let Some((nm, _)) = torajs_rc::any_method_meta(mid) {
-            let s = crate::__torajs_str_alloc_pooled(nm.len() as u64);
-            core::ptr::copy_nonoverlapping(nm.as_ptr(), s.add(16), nm.len());
-            minted = s;
-            s
-        } else {
-            return None;
-        };
+        let (key, minted) = method_name_key(mid, name_str)?;
         let (tag, value) =
             crate::method_support_proto::proto_own_probe(proto, key as *const c_void);
         // ANY_UNDEF is the probe's answer for BOTH an absent key and
