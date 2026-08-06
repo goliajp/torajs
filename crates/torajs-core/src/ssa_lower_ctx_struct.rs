@@ -320,6 +320,12 @@ pub(crate) struct LowerCtx<'a> {
     /// unobservable on the common surface. test262 regressions
     /// are caught by the conformance gate.
     pub(crate) regex_lit_cache: std::collections::HashMap<(String, String), ssa::ValueId>,
+    /// What this module might monkey-patch onto a builtin prototype
+    /// (RFC 20260806). The checker's gate covers every call site it
+    /// types; the routes that never type their arguments — `console.log`
+    /// is the one that found this — leave the callee unrecorded, so the
+    /// any-method-call arm consults this directly instead.
+    pub(crate) proto_shadow: crate::builtin_proto_shadow::ShadowSet,
     /// Scratch for the binop currently being lowered — set by
     /// `lower_binop_with_ids` on the way in, restored on the way out.
     /// Nothing in it survives a single binop, which is why it lives in

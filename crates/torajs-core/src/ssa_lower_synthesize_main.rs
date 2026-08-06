@@ -118,6 +118,7 @@ pub(crate) fn synthesize_main(
             push_unchecked_for: std::collections::HashMap::new(),
             regex_lit_cache: std::collections::HashMap::new(),
             binop: Default::default(),
+            proto_shadow: crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast),
             bigint_op_may_throw: false,
             globals,
             is_main_fn: true,

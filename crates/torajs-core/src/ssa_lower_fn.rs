@@ -163,6 +163,7 @@ pub(crate) fn lower_fn(
         push_unchecked_for: std::collections::HashMap::new(),
         regex_lit_cache: std::collections::HashMap::new(),
         binop: Default::default(),
+        proto_shadow: Default::default(),
         bigint_op_may_throw: false,
         globals,
         is_main_fn: false,
@@ -191,6 +192,7 @@ pub(crate) fn lower_fn(
     ctx.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ctx.ast);
     // RFC 20260804-mutable-let-widen — same shared-set contract.
     ctx.cross_type_widened = crate::let_widen::collect_cross_type_widen_inits(ctx.ast);
+    ctx.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ctx.ast);
 
     ctx.materialize_fn_params(name, param_setup, &assigned_in_body);
     ctx.emit_closure_env_preamble(name, params);

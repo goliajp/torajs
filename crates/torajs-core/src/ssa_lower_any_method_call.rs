@@ -79,7 +79,18 @@ pub(crate) fn try_lower(
         // any-lane boundary below; the runtime dispatcher answers
         // by tag.
         let any_member_read = matches!(ctx.expr_types.get(&callee), Some(crate::check::Type::Any));
-        if !sugar_fn_on_any && !builtin_mv && !any_member_read {
+        // RFC 20260806 blade 3 — the checker's gate can only mark call
+        // sites it types, and some routes never type their arguments
+        // (`console.log(xs.slice(0))` is how this surfaced). Ask the
+        // module fact directly so a patched builtin reaches the
+        // dispatcher no matter which route claimed the enclosing call.
+        let shadowed_builtin = !ctx.proto_shadow.is_empty()
+            && ctx
+                .expr_types
+                .get(obj)
+                .and_then(crate::builtin_proto_shadow::family_of)
+                .is_some_and(|f| ctx.proto_shadow.shadows(f, name));
+        if !sugar_fn_on_any && !builtin_mv && !any_member_read && !shadowed_builtin {
             return None;
         }
     }
