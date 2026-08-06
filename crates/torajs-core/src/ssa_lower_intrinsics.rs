@@ -398,6 +398,7 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_struct_keys: FuncId,
     pub(crate) anyv_own_values: FuncId,
     pub(crate) anyv_own_entries: FuncId,
+    pub(crate) obj_key_is_nonenumerable: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,

@@ -108,6 +108,27 @@ pub unsafe extern "C" fn __torajs_obj_field_is_nonenumerable(
     0
 }
 
+/// The `Str`-cell spelling of [`__torajs_obj_field_is_nonenumerable`].
+///
+/// The enumeration walks in this crate hold a layout name — a slice
+/// into the emitted metadata — and ask by bytes. A compiled call site
+/// holds the opposite thing: an interned literal cell, minted once at
+/// link time. Both are asking the same question, so only the spelling
+/// differs.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer; `key` is a live `Str`
+/// cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_key_is_nonenumerable(
+    cell: *const c_void,
+    key: *const c_void,
+) -> i64 {
+    let k = key.cast::<u8>();
+    let len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
+    unsafe { __torajs_obj_field_is_nonenumerable(cell, k.add(STR_DATA_OFF), len) }
+}
+
 /// `torajs_rc::FLAG_FROZEN` / `FLAG_OBJ_EXOTIC_FIELD` mirrors — the
 /// two header bits that make a typed field store anything other than
 /// one store.

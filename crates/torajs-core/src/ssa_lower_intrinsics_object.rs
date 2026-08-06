@@ -96,6 +96,10 @@ pub(crate) struct ObjectIds {
     /// walk (getter-invoking, ES order) or the struct arm.
     pub anyv_own_values: FuncId,
     pub anyv_own_entries: FuncId,
+    /// RFC 20260806-declared-field-redefine — "is this member hidden
+    /// from the enumerable-only surfaces right now?", asked per member
+    /// by a static unfold that has already failed the header-bit gate.
+    pub obj_key_is_nonenumerable: FuncId,
     pub anyv_from_entries: FuncId,
     /// `Object.groupBy(items, cb)` per ES §20.1.2.10 — Array items
     /// lane walker + kb dispatch through the uniform any-call ABI.
@@ -222,6 +226,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         anyv_struct_keys: decl!("__torajs_anyv_struct_keys", [Any, I64], Ptr),
         anyv_own_values: decl!("__torajs_anyv_own_values", [Any], Ptr),
         anyv_own_entries: decl!("__torajs_anyv_own_entries", [Any], Ptr),
+        obj_key_is_nonenumerable: decl!("__torajs_obj_key_is_nonenumerable", [Ptr, Ptr], I64),
         anyv_from_entries: decl!("__torajs_anyv_from_entries", [Any], Any),
         object_group_by: decl!("__torajs_object_group_by", [Any, Any], Any),
         map_group_by: decl!("__torajs_map_group_by", [Any, Any], Any),

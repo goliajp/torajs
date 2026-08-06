@@ -349,6 +349,7 @@ pub(crate) fn build(
         anyv_struct_keys: init_b.object.anyv_struct_keys,
         anyv_own_values: init_b.object.anyv_own_values,
         anyv_own_entries: init_b.object.anyv_own_entries,
+        obj_key_is_nonenumerable: init_b.object.obj_key_is_nonenumerable,
         anyv_assign: init_b.object.anyv_assign,
         str_index_descriptor: init_b.object.str_index_descriptor,
         anyv_prevent_extensions: init_b.object.anyv_prevent_extensions,

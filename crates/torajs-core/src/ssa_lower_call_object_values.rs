@@ -39,7 +39,7 @@
 //! the caller fall through to the next arm.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{ArrId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
 pub(crate) fn try_lower(
@@ -162,7 +162,6 @@ pub(crate) fn try_lower(
     // layout slots: an accessor is one property whose value comes from
     // its getter ([[Get]]), and a get/set pair is not two of them.
     let props = crate::ssa_lower_struct_own_props::own_props(&layout, ctx.fn_sigs);
-    let n = props.len() as i64;
     let elem_ty = props[0].ty();
     // S132 — heterogeneous-via-`as any` guard. check.rs enforces
     // homogeneous fields when arg type is Struct (5172 reject-loud),
@@ -190,25 +189,115 @@ pub(crate) fn try_lower(
     }
 
     let arr_id = intern_arr_layout(ctx.arr_layouts, elem_ty);
+    // §20.1.2.22 walks EnumerableOwnProperties, and a `defineProperty`
+    // moves that set at run time — so the unfold stands behind the
+    // redefined-member gate. Unlike `Object.entries`, the general arm
+    // cannot be the any-lane walk: that answers an `Arr<Any>` while
+    // this call site's type is `Arr<elem_ty>`, and boxing every typed
+    // `Object.values` to make the two agree would tax the path that is
+    // fast precisely because it is not boxed. It emits the same unfold
+    // instead, asking per member whether it is hidden right now.
+    let layout_hidden = layout.clone();
+    let arg_hidden = arg_op.clone();
+    Some(crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
+        ctx,
+        &arg_op.clone(),
+        Type::Arr(arr_id),
+        move |ctx| {
+            let props = crate::ssa_lower_struct_own_props::own_props(&layout_hidden, ctx.fn_sigs);
+            emit_values_unfold(ctx, &arg_hidden, &props, arr_id, true)
+        },
+        move |ctx| {
+            let props = crate::ssa_lower_struct_own_props::own_props(&layout, ctx.fn_sigs);
+            emit_values_unfold(ctx, &arg_op, &props, arr_id, false)
+        },
+    ))
+}
+
+/// The static unfold: one array slot per own property, in declaration
+/// order.
+///
+/// `filtered` swaps fixed slots for pushes and asks the runtime, per
+/// member, whether a sidecar has hidden it since. The array is still
+/// allocated at the full member count — that is a capacity, and the
+/// filtered form simply leaves some of it unused.
+fn emit_values_unfold(
+    ctx: &mut LowerCtx<'_>,
+    arg_op: &Operand,
+    props: &[crate::ssa_lower_struct_own_props::OwnProp],
+    arr_id: ArrId,
+    filtered: bool,
+) -> Operand {
+    let n = props.len() as i64;
     let arr_ptr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
         Type::Arr(arr_id),
         None,
     );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
-    );
+    if !filtered {
+        // Pre-set len so the direct stores below land in the slot
+        // region.
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
+        );
+    }
     for (i, prop) in props.iter().enumerate() {
+        let skip_blk = if filtered {
+            let key = ctx.intern_string_literal(&prop.key);
+            let hidden = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.obj_key_is_nonenumerable,
+                    vec![arg_op.clone(), Operand::Value(key)],
+                ),
+                Type::I64,
+                None,
+            );
+            let keep = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Eq, Operand::Value(hidden), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            let keep_blk = ctx.f.add_block();
+            let next_blk = ctx.f.add_block();
+            ctx.f.set_term(
+                ctx.cur_block,
+                Terminator::CondBr {
+                    cond: Operand::Value(keep),
+                    then_blk: keep_blk,
+                    else_blk: next_blk,
+                },
+            );
+            ctx.cur_block = keep_blk;
+            Some(next_blk)
+        } else {
+            None
+        };
         // A getter's result is already owned; the array takes that ref
         // straight over. A borrowed field slot keeps the pre-blade-6
-        // shape (the array views the struct's stake).
-        let (v, _owned) = crate::ssa_lower_struct_own_props::emit_prop_value(ctx, &arg_op, prop);
-        let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
-        let arr_off = (i as u64) * 8;
-        ctx.f
-            .append_void(ctx.cur_block, InstKind::Store(v, data, arr_off));
+        // shape (the array views the struct's stake). The push and the
+        // store take it the same way — neither adds a reference.
+        let (v, _owned) = crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, prop);
+        if let Some(next_blk) = skip_blk {
+            let raw = ctx.raw_slot_arg(v);
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.arr_push_unchecked,
+                    vec![Operand::Value(arr_ptr), raw],
+                ),
+            );
+            let end = ctx.cur_block;
+            ctx.f.set_term(end, Terminator::Br(next_blk));
+            ctx.cur_block = next_blk;
+        } else {
+            let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
+            ctx.f
+                .append_void(ctx.cur_block, InstKind::Store(v, data, (i as u64) * 8));
+        }
     }
-    Some(Operand::Value(arr_ptr))
+    Operand::Value(arr_ptr)
 }
