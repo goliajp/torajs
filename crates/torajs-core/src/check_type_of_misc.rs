@@ -65,6 +65,57 @@ pub(crate) fn check_instanceof(
 /// meaningful) and an Index key must be one the property-key domain
 /// can name. Only the receiver and key are typechecked, never the
 /// property itself: deleting an absent key is legal and answers true.
+/// Which receivers reach the OrdinaryDelete kernel.
+///
+/// Everything here turns on one question: can the storage say "no
+/// longer here"? Deleting is not writing a blank — it has to remove an
+/// own property, and a slot that can only hold a value of its element
+/// type has no value that means absent.
+///
+/// - `any` — the dynobj / expando world the kernel was written for.
+/// - An `any`-ELEMENT array — its slots already hold boxed values, so a
+///   hole is something a slot can express. The delete leaves a real one
+///   (length untouched, the index no longer own, the read answering
+///   undefined, JSON and Object.keys agreeing with bun), and refcounted
+///   elements release correctly.
+///
+/// Out, and not for want of a lowering:
+///
+/// - An array of UNBOXED elements (`number[]`, `string[]`). The kernel
+///   is reached but the hole write is refused at run time as an
+///   element-kind change, which is exactly right: those slots have no
+///   spare value. Admitting it would trade a compile-time refusal for a
+///   run-time throw.
+/// - A Struct. Its declared members are fixed layout slots with nowhere
+///   to go, so the kernel answers false and removes nothing (bun
+///   deletes and answers true — the divergence recorded in r312).
+///   Admitting it would turn a whole-program refusal into a program
+///   that runs and answers wrongly, which the design principles rank
+///   strictly worse.
+///
+/// Both gates lift together when a slot can express absence, not before.
+fn receiver_admits_delete(obj_ty: &Type) -> bool {
+    match obj_ty {
+        Type::Any => true,
+        Type::Array(elem) => **elem == Type::Any,
+        _ => false,
+    }
+}
+
+fn delete_receiver_error(obj_ty: &Type) -> String {
+    if let Type::Array(elem) = obj_ty {
+        return format!(
+            "`delete` on an array of {elem:?} is not supported: an unboxed \
+             element slot has no value that means absent, so it cannot hold \
+             a hole. Only an `any`-element array can"
+        );
+    }
+    format!(
+        "`delete` receiver must be an `any`-typed object or an `any`-element \
+         array (got {obj_ty:?}); typed layouts have no removable properties"
+    )
+}
+
 pub(crate) fn check_delete(
     checker: &mut Checker,
     ast: &Ast,
@@ -73,23 +124,17 @@ pub(crate) fn check_delete(
     match ast.get_expr(operand) {
         crate::ast::Expr::Member { obj, .. } => {
             let obj_ty = checker.type_of(ast, *obj)?;
-            if obj_ty == Type::Any {
+            if receiver_admits_delete(&obj_ty) {
                 Ok(Type::Boolean)
             } else {
-                Err(format!(
-                    "`delete` receiver must be an `any`-typed object (got {obj_ty:?}); \
-                     typed layouts have no removable properties"
-                ))
+                Err(delete_receiver_error(&obj_ty))
             }
         }
         crate::ast::Expr::Index { obj, index } => {
             let obj_ty = checker.type_of(ast, *obj)?;
             let idx_ty = checker.type_of(ast, *index)?;
-            if obj_ty != Type::Any {
-                return Err(format!(
-                    "`delete` receiver must be an `any`-typed object (got {obj_ty:?}); \
-                     typed layouts have no removable properties"
-                ));
+            if !receiver_admits_delete(&obj_ty) {
+                return Err(delete_receiver_error(&obj_ty));
             }
             // §6.1.7 — a Symbol is the other half of the property-key
             // domain, so `delete o[sym]` is as ordinary as the string

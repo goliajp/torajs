@@ -22,19 +22,32 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// The kernel takes an AnyValue receiver. The checker admits `any` and
+/// Array, and an Array-typed binding names the same heap cell — it only
+/// needs its tag put back on. `box_to_any_from_expr` is rc-neutral and
+/// the kernel borrows the receiver, so no stake changes hands and there
+/// is nothing to release afterwards.
+fn lower_receiver(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
+    let recv = ctx.lower_expr(obj);
+    if ctx.operand_ty(&recv) == Type::Any {
+        return recv;
+    }
+    ctx.box_to_any_from_expr(obj, recv)
+}
+
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
     let (recv, key_v, owned_temp) = match ctx.ast.get_expr(operand) {
         Expr::Member { obj, name } => {
             let name = name.clone();
             let obj = *obj;
-            let recv = ctx.lower_expr(obj);
+            let recv = lower_receiver(ctx, obj);
             let key = ctx.intern_string_literal(&name);
             (recv, key, None)
         }
         Expr::Index { obj, index } => {
             let obj = *obj;
             let index = *index;
-            let recv = ctx.lower_expr(obj);
+            let recv = lower_receiver(ctx, obj);
             if let Expr::String(lit) = ctx.ast.get_expr(index) {
                 let lit = lit.clone();
                 let key = ctx.intern_string_literal(&lit);
