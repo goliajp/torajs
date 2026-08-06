@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T09:14:04.784Z",
+  "generatedAt": "2026-08-06T11:16:10.612Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-06T09:13:35Z",
-    "headSha": "6eb9af09",
-    "elapsedSec": 400.57,
+    "ranAt": "2026-08-06T11:14:16Z",
+    "headSha": "72a1559c",
+    "elapsedSec": 397.64,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.38
   },
   "torajs": {
-    "commit": "6eb9af09",
-    "commitSubject": "fix(runtime): the pre-gate only answers where a lookup really happens",
+    "commit": "72a1559c",
+    "commitSubject": "fix(runtime): an own undefined on a prototype is not an absent key",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "72a1559c",
+      "subject": "fix(runtime): an own undefined on a prototype is not an absent key"
+    },
+    {
+      "hash": "078cebdb",
+      "subject": "fix(runtime): Array.prototype.toString looks the join up, it does not assume it"
+    },
+    {
+      "hash": "25338d40",
+      "subject": "fix(runtime): arrays and functions consult their patched prototype too"
+    },
+    {
+      "hash": "5a766cfd",
+      "subject": "fix(runtime): putting the original method back is a restore, not a patch"
+    },
+    {
+      "hash": "53020f79",
+      "subject": "fix(runtime): only the families that redefine toLocaleString skip the leg"
+    },
+    {
+      "hash": "dc248d64",
+      "subject": "chore: stow rotation 315 sweep and refresh dashboard"
+    },
+    {
       "hash": "6eb9af09",
       "subject": "fix(runtime): the pre-gate only answers where a lookup really happens"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "3976f0e6",
       "subject": "fix(runtime): a prototype patch that is not an object is not callable"
-    },
-    {
-      "hash": "2288a8e0",
-      "subject": "chore: stow rotation 314 sweep and refresh roadmap and dashboard"
-    },
-    {
-      "hash": "0d5be9b6",
-      "subject": "fix(runtime): the collection initializer reads the adder off its target"
-    },
-    {
-      "hash": "77cea4f2",
-      "subject": "feat(core,runtime): the collection constructors' iterable argument"
-    },
-    {
-      "hash": "017c3a42",
-      "subject": "feat(core,runtime): WeakRef joins the weak family on both sides"
-    },
-    {
-      "hash": "999da829",
-      "subject": "fix(runtime): a prototype reads what it inherits, not only what it owns"
-    },
-    {
-      "hash": "46a33153",
-      "subject": "feat(core,runtime): the weak pair's constructors read as values"
     }
   ],
-  "headSha": "6eb9af09",
+  "headSha": "72a1559c",
   "autorun": {
-    "total": 618,
+    "total": 619,
     "baselineTarget": 10,
-    "bySelf": 613,
+    "bySelf": 614,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786002240-7c88",
-      "at": "2026-08-06T07:44:00Z",
-      "ts": 1786002240,
+      "rotationId": "r-1786007757-225b",
+      "at": "2026-08-06T09:15:57Z",
+      "ts": 1786007757,
       "trigger": "self",
-      "prevHead": "2288a8e0",
-      "handoffSha": "sha256:2bf2e5c041dc89b3a6d6c6509b29abccd9e4ea794ca13c7ec1dcee57688ef4aa",
-      "handoffAgeSec": 23,
+      "prevHead": "dc248d64",
+      "handoffSha": "sha256:8d6ae14eae978e7cb12ae0320ad261065557760b19fdcb3dd11089f72c05a522",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786007757-225b",
+        "at": "2026-08-06T09:15:57Z",
+        "ts": 1786007757,
+        "trigger": "self",
+        "prevHead": "dc248d64",
+        "handoffSha": "sha256:8d6ae14eae978e7cb12ae0320ad261065557760b19fdcb3dd11089f72c05a522",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786002240-7c88",
         "at": "2026-08-06T07:44:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "f741fc94",
         "handoffSha": "sha256:6660baf9a6a7eba92838cb24603bd7b2013a2b769e6bd6b3ff273abe3b6b32e6",
         "handoffAgeSec": 16,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785907434-53cc",
-        "at": "2026-08-05T05:23:54Z",
-        "ts": 1785907434,
-        "trigger": "self",
-        "prevHead": "17acf7aa",
-        "handoffSha": "sha256:9ed57244a000128a47f261d8302c9d4b889e55610753f5f3920fa53106200860",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
