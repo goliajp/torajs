@@ -100,24 +100,27 @@ impl ShadowSet {
     /// a denylist, because two sweeps showed the gaps are wherever we
     /// have not looked rather than in one identifiable place.
     ///
-    /// Opening every family moved 40 test262 cases from `pass` to
-    /// `incompatible:not yet supported`; excluding the
+    /// Opening every family at once moved 40 test262 cases from `pass`
+    /// to `incompatible:not yet supported`; excluding the
     /// `Array.prototype` higher-order methods moved a different 19
     /// (`Promise.allSettled` / `Promise.any` / the async iterator
     /// prototypes). Chasing that family by family is one ~10-minute
     /// sweep per round with no reason to expect the next round to be
     /// the last. So the rule is inverted: stand down only where a probe
-    /// has actually shown the dispatcher answering, which today is the
-    /// three families `bypass_probe.py` covers. A patch on anything
-    /// else keeps today's behaviour — wrong, but no worse than before,
-    /// and never at the cost of a program's build.
+    /// has actually shown the dispatcher answering, which is exactly
+    /// the families `bypass_probe.py` covers. A patch on anything else
+    /// keeps today's behaviour — wrong, but no worse than before, and
+    /// never at the cost of a program's build.
     ///
     /// Widening this list is not a one-line change. The order is fixed
     /// and was learned the expensive way: teach the fallback lane to
     /// serve the family, prove it with a probe, and only then let the
     /// gate open. Opening first is what produced both regressions
-    /// above.
-    const MEASURED_FAMILIES: &[Family] = &["Array", "String", "Number"];
+    /// above. Promise was added once the closure-cell wrap and the
+    /// argument-typing fix had removed both reasons the lane could not
+    /// serve a stood-down call — a sweep then showed its 19 regressions
+    /// gone.
+    const MEASURED_FAMILIES: &[Family] = &["Array", "String", "Number", "Promise"];
 
     /// Should the typed tier stand down for this call?
     ///
