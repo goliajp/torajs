@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T19:50:18.010Z",
+  "generatedAt": "2026-08-06T20:17:47.004Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-06T19:47:55Z",
-    "headSha": "387d0bf3",
-    "elapsedSec": 397.15,
+    "ranAt": "2026-08-06T20:17:06Z",
+    "headSha": "a59f2a00",
+    "elapsedSec": 397.53,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 649,
     "passNegative": 3956,
     "passTotal": 26883,
-    "bug": 11826,
-    "incompatible": 14465,
+    "bug": 11832,
+    "incompatible": 14459,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38709,
+    "trAccepted": 38715,
     "passRateInScope": 50.56,
-    "passRateTrAccepted": 69.45
+    "passRateTrAccepted": 69.44
   },
   "torajs": {
-    "commit": "387d0bf3",
-    "commitSubject": "fix(checker): the higher-order methods can stand down now that the lane serves them",
+    "commit": "a59f2a00",
+    "commitSubject": "fix(checker): Promise stands down now that its 19 regressions are gone",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "a59f2a00",
+      "subject": "fix(checker): Promise stands down now that its 19 regressions are gone"
+    },
+    {
+      "hash": "f43c2a0f",
+      "subject": "chore: stow rotation 318 sweep and refresh dashboard"
+    },
+    {
       "hash": "387d0bf3",
       "subject": "fix(checker): the higher-order methods can stand down now that the lane serves them"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "78344553",
       "subject": "fix(checker): a builtin method the program may have patched is not the kernel's to answer"
-    },
-    {
-      "hash": "b64f7dde",
-      "subject": "chore: stow rotation 317 sweep and refresh dashboard"
-    },
-    {
-      "hash": "e4c7b7bb",
-      "subject": "refactor(lowering): the binop scratch flags share one lifetime, so give them one struct"
     }
   ],
-  "headSha": "387d0bf3",
+  "headSha": "a59f2a00",
   "autorun": {
     "total": 621,
     "baselineTarget": 10,
