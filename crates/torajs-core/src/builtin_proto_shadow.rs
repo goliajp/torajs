@@ -101,9 +101,9 @@ impl ShadowSet {
     /// have not looked rather than in one identifiable place.
     ///
     /// Opening every family moved 40 test262 cases from `pass` to
-    /// `incompatible:not yet supported` (`Array.prototype` HOFs on an
-    /// array-like `this`); excluding just those HOFs moved a different
-    /// 19 (`Promise.allSettled` / `Promise.any` / the async iterator
+    /// `incompatible:not yet supported`; excluding the
+    /// `Array.prototype` higher-order methods moved a different 19
+    /// (`Promise.allSettled` / `Promise.any` / the async iterator
     /// prototypes). Chasing that family by family is one ~10-minute
     /// sweep per round with no reason to expect the next round to be
     /// the last. So the rule is inverted: stand down only where a probe
@@ -111,20 +111,13 @@ impl ShadowSet {
     /// three families `bypass_probe.py` covers. A patch on anything
     /// else keeps today's behaviour — wrong, but no worse than before,
     /// and never at the cost of a program's build.
+    ///
+    /// Widening this list is not a one-line change. The order is fixed
+    /// and was learned the expensive way: teach the fallback lane to
+    /// serve the family, prove it with a probe, and only then let the
+    /// gate open. Opening first is what produced both regressions
+    /// above.
     const MEASURED_FAMILIES: &[Family] = &["Array", "String", "Number"];
-
-    /// Methods the fallback lane cannot serve yet even inside those
-    /// families: the `Array.prototype` higher-order calls above.
-    const FALLBACK_UNSUPPORTED: &[&str] = &[
-        "map",
-        "filter",
-        "reduce",
-        "reduceRight",
-        "forEach",
-        "some",
-        "every",
-        "flatMap",
-    ];
 
     /// Should the typed tier stand down for this call?
     ///
@@ -132,16 +125,10 @@ impl ShadowSet {
     /// its own [[Prototype]] chain at `Object.prototype`, so a patch
     /// there is reachable from an array, a string and a number alike.
     pub(crate) fn shadows(&self, family: Family, method: &str) -> bool {
-        if !Self::MEASURED_FAMILIES.contains(&family)
-            || Self::FALLBACK_UNSUPPORTED.contains(&method)
-        {
-            return false;
-        }
-        self.reaches(family, method)
+        Self::MEASURED_FAMILIES.contains(&family) && self.reaches(family, method)
     }
 
-    /// Does a write this module performs reach `family`'s `method`,
-    /// ignoring whether the fallback lane can serve the call?
+    /// Does a write this module performs reach `family`'s `method`?
     fn reaches(&self, family: Family, method: &str) -> bool {
         self.all
             || self.families.contains(family)
@@ -183,17 +170,10 @@ impl ShadowSet {
     /// The pre-typecheck fn-to-closure wrap
     /// ([`crate::ast_collect_fn_closure`]) needs this before any
     /// receiver has a type, so it asks the question unquantified by
-    /// family. Two consequences are deliberate:
-    ///
-    /// - `FALLBACK_UNSUPPORTED` is *not* consulted. The wrap is what
-    ///   makes those methods servable, so it has to be in place
-    ///   before the gate is allowed to open for them; asking through
-    ///   [`Self::shadows`] would make the two conditions circular and
-    ///   neither would ever come true.
-    /// - A yes on any measured family is a yes for every receiver at
-    ///   that method name. Over-answering costs one closure wrap in a
-    ///   program that already patches a builtin prototype;
-    ///   under-answering costs that program its build.
+    /// family: a yes on any measured family is a yes for every
+    /// receiver at that method name. Over-answering costs one closure
+    /// wrap in a program that already patches a builtin prototype;
+    /// under-answering costs that program its build.
     pub(crate) fn may_stand_down(&self, method: &str) -> bool {
         Self::CALLBACK_TAKING.contains(&method)
             && Self::MEASURED_FAMILIES
