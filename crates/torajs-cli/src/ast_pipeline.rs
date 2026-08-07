@@ -81,6 +81,10 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
 }
 
 pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
+    // RFC 20260807-global-object G1 — `globalThis.<builtin>` member
+    // reads rewrite to the bare name before anything consumes member
+    // shapes; eval-inlined stmts (prelude) are already in place.
+    ast::desugar_globalthis_members(ast);
     ast::desugar_prototype_call(ast);
     ast::inject_builtin_classes(ast);
     ast::desugar_classes(ast);

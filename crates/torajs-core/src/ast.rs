@@ -72,6 +72,7 @@ mod forwarders;
 mod forwarders_object;
 mod free_vars;
 mod gen_fn_expr;
+mod globalthis_member;
 mod hoist_gen_fn_exprs;
 mod hoist_nested_classes;
 mod hoist_nested_classes_rename;
@@ -136,6 +137,7 @@ pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
 pub(crate) use free_vars::is_global_name as free_vars_is_global_name;
 pub use gen_fn_expr::{GenFnExprInfo, GenFnExprKind};
+pub use globalthis_member::desugar_globalthis_members;
 pub use hoist_gen_fn_exprs::hoist_gen_fn_exprs;
 pub(crate) use implicit_generics_infer::{
     AstExprsView, binds_to_params, body_has_value_return, infer_expr_ann_with, infer_return_ann,
