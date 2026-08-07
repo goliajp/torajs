@@ -64,8 +64,20 @@ cd "$(dirname "$0")/../.." || exit 2
 # if owned and the scope-end drop stole the source binding's stake.
 # The destructuring desugar mints exactly this let for non-Ident
 # sources.
+# 10 → 6: the first COLLECTOR-side defect the census caught —
+# collect_white's second sweep dropped every surviving child with
+# rc > 0, but a walkable child that survived as BLACK had this dying
+# WHITE parent's edge trial-decremented in mark, and scan_black only
+# restores edges out of BLACK parents: the drop charged the same
+# edge twice. Three sibling subclasses of one base was the smallest
+# trigger (two WHITE class-proto parents dec'd %Object.prototype%
+# from its BLACK-restored rc of 2 straight through zero); with two
+# subclasses the same double-charge stayed one dec short of the
+# cliff — silently corrupting rc all the same. Closure form fixed in
+# defer.rs pass A (pre-clear walkable capture slots so drop_fn can't
+# re-charge them).
 # See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=10
+RC_UNDERFLOW_BASELINE=6
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in

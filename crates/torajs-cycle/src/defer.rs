@@ -95,14 +95,24 @@ pub(crate) unsafe fn finalize_all() {
         let p = unsafe { *buf.add(i) };
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
         if tag == TAG_CLOSURE {
-            // Zero every slot holding a fellow corpse (rc == 0) —
-            // drop_fn has no rc gate and would re-drop a block this
-            // drain is about to free. Truthful only in pass A: a
-            // freed sibling's header word gets overwritten by the
-            // allocator (the exact bug this module exists for).
+            // Zero every slot the cycle machinery already accounted:
+            // fellow corpses (rc == 0 — drop_fn has no rc gate and
+            // would re-drop a block this drain is about to free) and
+            // walkable survivors (mark trial-decremented this dying
+            // parent's edge and scan_black never restores a WHITE
+            // parent's edges, so that unrestored trial-dec IS the
+            // release — drop_fn releasing the slot too would charge
+            // the edge twice; collect_white's second-sweep rule in
+            // closure form). Non-walkable captures (Str / boxed
+            // scalars …) were never trial-decremented and stay for
+            // drop_fn. Truthful only in pass A: a freed sibling's
+            // header word gets overwritten by the allocator (the
+            // exact bug this module exists for).
             unsafe {
                 for_each_child(p, |i2, child| {
-                    if (*(child as *const HeapHeader)).refcount == 0 {
+                    if (*(child as *const HeapHeader)).refcount == 0
+                        || crate::layout::has_walkable_children(child)
+                    {
                         clear_child_slot(p, i2);
                     }
                 });

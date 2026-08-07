@@ -331,22 +331,30 @@ unsafe fn collect_white(p: *mut c_void) {
             }
         });
     }
-    // Second sweep (non-closure shapes): drop surviving (non-cycle)
-    // children via the universal drop dispatch. rc == 0 marks a
-    // fellow cycle member (its slot stayed set because it recolored
-    // BLACK on entry, so the first sweep didn't clear it) —
+    // Second sweep (non-closure shapes): drop surviving NON-WALKABLE
+    // children via the universal drop dispatch — shapes mark_gray
+    // never trial-decremented (Str / BigInt / Promise / Symbol …), so
+    // this corpse's +1 on them is still outstanding. Walkable
+    // children are skipped wholesale: mark trial-decremented every
+    // walkable edge out of this (then-GRAY) parent, and scan_black
+    // only restores edges out of BLACK parents — for a child that
+    // survived as BLACK, the unrestored trial-dec IS this dying
+    // parent's release, and dropping it here charged the same edge
+    // twice (two WHITE class-proto parents dec'd %Object.prototype%
+    // from its BLACK-restored rc straight through zero — the class
+    // census family). A fellow cycle member is equally out of bounds:
     // re-dropping it underflows the rc and re-buffers a corpse
-    // (chunk 614: the l8 obj↔arr probe crashed here). Surviving
-    // children always carry rc ≥ 1: non-walkable types are never
-    // trial-decremented and externally-reachable walkables had
-    // their rc restored by scan_black. Closures skip this — their
-    // synthesized drop_fn owns the per-slot release semantics
-    // (capture-box rc vs owned cell vs Any NaN-box vs Substr view)
-    // and runs in the deferred Free step.
+    // (chunk 614: the l8 obj↔arr probe crashed here). The rc > 0
+    // gate stays because a corpse's cleared slots can flip
+    // `has_walkable_children` (closure props / arr expando) to false
+    // after the fact. Closures skip this — their synthesized drop_fn
+    // owns the per-slot release semantics (capture-box rc vs owned
+    // cell vs Any NaN-box vs Substr view) and runs in the deferred
+    // Free step, with the walkable slots pre-cleared by pass A.
     if unsafe { (*(p as *const HeapHeader)).type_tag } != TAG_CLOSURE {
         unsafe {
             for_each_child(p, |_, child| {
-                if (*(child as *const HeapHeader)).refcount > 0 {
+                if (*(child as *const HeapHeader)).refcount > 0 && !has_walkable_children(child) {
                     __torajs_value_drop_heap(child);
                 }
             });
