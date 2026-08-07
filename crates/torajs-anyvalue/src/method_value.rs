@@ -71,9 +71,6 @@ pub(crate) use ns_static_ctor::{ctor_own_read_cell, ctor_static_cell, ctor_stati
 // Namespace-static value family (RFC 20260719-ns-static-value-reify)
 // — `Math.max` as a VALUE: interned dispatcher cells keyed by the
 // shared torajs-rc ns-static table.
-// globalThis singleton (RFC 20260807-global-object G2) — the same
-// immortal pre-filled dynobj lane.
-pub(crate) mod globalthis_object;
 pub(crate) mod ns_object;
 mod ns_static;
 // Ctor-static arms (RFC 20260720-ctor-static-reflection 刀 1).

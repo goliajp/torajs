@@ -146,18 +146,6 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if let Some(parent) = user_proto_cell(ptr) {
                 return __torajs_any_member_get_tag(parent, key);
             }
-            // RFC 20260807-global-object G2 — a KNOWN builtin the
-            // globalThis singleton's fill list is missing must stay
-            // LOUD (bun answers a function; a silent undefined here
-            // would mask it). Unknown names keep the ordinary miss.
-            // None of the missing names collides with the builtin
-            // tails below, so probing first loses nothing.
-            if crate::method_value::globalthis_object::globalthis_missing_known(ptr, key) {
-                __torajs_throw_type_error(
-                    c"not yet supported: this builtin is not reachable through globalThis".as_ptr(),
-                );
-                return 5;
-            }
             dynobj_builtin_tail_tag(ptr, recv, key)
         },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { arr_arm_tag(ptr, recv, key) },

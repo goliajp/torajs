@@ -74,12 +74,6 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 if let Some(parent) = user_proto_cell(ptr) {
                     return __torajs_any_member_get_value(parent, key);
                 }
-                // G2 globalThis missing-known probe — tag twin
-                // above (the tag channel already threw; answering 0
-                // here keeps the pair protocol coherent).
-                if crate::method_value::globalthis_object::globalthis_missing_known(ptr, key) {
-                    return 0;
-                }
                 let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
                 if cell != 0 {
                     return cell;

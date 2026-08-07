@@ -123,10 +123,6 @@ pub(crate) fn check_delete(
 ) -> Result<Type, String> {
     match ast.get_expr(operand) {
         crate::ast::Expr::Member { obj, .. } => {
-            // G2 — `delete globalThis.x` mutates the singleton while
-            // bare-name reads keep static resolution; loud like the
-            // member-store gate (check_type_of_assign).
-            crate::check_type_of_assign::reject_globalthis_mutation(checker, ast, *obj)?;
             let obj_ty = checker.type_of(ast, *obj)?;
             if receiver_admits_delete(&obj_ty) {
                 Ok(Type::Boolean)
@@ -135,8 +131,6 @@ pub(crate) fn check_delete(
             }
         }
         crate::ast::Expr::Index { obj, index } => {
-            // G2 — the Index spelling of the globalThis delete gate.
-            crate::check_type_of_assign::reject_globalthis_mutation(checker, ast, *obj)?;
             let obj_ty = checker.type_of(ast, *obj)?;
             let idx_ty = checker.type_of(ast, *index)?;
             if !receiver_admits_delete(&obj_ty) {
@@ -299,13 +293,6 @@ pub(crate) fn check_post_incr(
     ast: &Ast,
     target: ExprId,
 ) -> Result<Type, String> {
-    // G2 — `globalThis.x++` is a member store in update-expression
-    // clothing; loud like the assign / delete gates.
-    if let crate::ast::Expr::Member { obj, .. } | crate::ast::Expr::Index { obj, .. } =
-        ast.get_expr(target)
-    {
-        crate::check_type_of_assign::reject_globalthis_mutation(checker, ast, *obj)?;
-    }
     let ty = checker.type_of(ast, target)?;
     // RFC 20260730-undeclared-ident, write position — §13.4.4.1 step 1
     // is GetValue on the target, so an update expression over an

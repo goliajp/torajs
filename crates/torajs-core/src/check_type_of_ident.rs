@@ -66,14 +66,6 @@ pub(crate) fn check(
     match name {
         "console" => Ok(Type::Object("console")),
         "Math" => Ok(Type::Object("Math")),
-        // RFC 20260807-global-object G2 — `globalThis` as a VALUE is
-        // the runtime singleton (an Any-boxed immortal dynobj), so
-        // member reads ride the any lanes: unknown names answer
-        // undefined (bun parity), known-but-unfilled builtins throw
-        // through the member-get miss probe. Static builtin member
-        // reads never get here — the G1 desugar rewrote them to bare
-        // names. `typeof globalThis` keeps its static "object" lane.
-        "globalThis" => Ok(Type::Any),
         "Object" => Ok(Type::Object("Object")),
         "Number" => Ok(Type::Object("Number")),
         "String" => Ok(Type::Object("String")),
