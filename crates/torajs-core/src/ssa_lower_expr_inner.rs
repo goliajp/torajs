@@ -223,7 +223,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // fresh-owned refcount drop dance + P7.4-a-b bigint
             // throw-check. See
             // [`crate::ssa_lower_binop::lower`].
-            return crate::ssa_lower_binop::lower(ctx, *op, *left, *right);
+            return crate::ssa_lower_binop::lower(ctx, eid, *op, *left, *right);
         }
         Expr::Unary { op, expr } => ctx.lower_unary(*op, *expr),
         Expr::Call { callee, args } => {

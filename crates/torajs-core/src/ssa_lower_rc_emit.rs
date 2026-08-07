@@ -138,7 +138,15 @@ impl<'a> LowerCtx<'a> {
             Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } | Expr::OptCall { .. } => {
                 true
             }
-            Expr::BinOp { op, .. } => !matches!(op, AstBinOp::LAnd | AstBinOp::LOr),
+            // Rotation 325 — a short-circuit `&&` / `||` join is a
+            // borrow UNLESS its lowering unified the arms to owned
+            // (an owned any-member read rode into the slot — see
+            // lower_logical_and); those joins record their eid on
+            // the same track the Ternary / Nullish joins use.
+            Expr::BinOp { op, .. } if matches!(op, AstBinOp::LAnd | AstBinOp::LOr) => {
+                self.owned_member_reads.contains(&eid)
+            }
+            Expr::BinOp { .. } => true,
             Expr::As { expr, .. } => self.expr_owned_shape(*expr),
             // Chunk 640 — array / object literals mint a fresh heap
             // block (every lower_array / ObjectLit lane answers

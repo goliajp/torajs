@@ -34,15 +34,21 @@ use crate::ast::{BinOp as AstBinOp, Expr, ExprId};
 use crate::ssa::Operand;
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, op: AstBinOp, left: ExprId, right: ExprId) -> Operand {
+pub(crate) fn lower(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    op: AstBinOp,
+    left: ExprId,
+    right: ExprId,
+) -> Operand {
     // M1.5 — short-circuit `&&` / `||` need control flow, not eager
     // evaluation. Route through their own lowering before calling
     // lower_binop (which assumes both operands are already lowered).
     if matches!(op, AstBinOp::LAnd) {
-        return ctx.lower_logical_and(left, right);
+        return ctx.lower_logical_and(eid, left, right);
     }
     if matches!(op, AstBinOp::LOr) {
-        return ctx.lower_logical_or(left, right);
+        return ctx.lower_logical_or(eid, left, right);
     }
     if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
         if let Some(r) = try_fold_undef_null_eq(ctx, op, left, right) {

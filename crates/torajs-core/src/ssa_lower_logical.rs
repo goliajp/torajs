@@ -27,7 +27,12 @@ impl LowerCtx<'_> {
     /// falsy, otherwise `b`. Result type is the common type of
     /// both operands (typed tora gates on l == r at typecheck;
     /// implicit-any (m1.h) widens to mixed types later).
-    pub(crate) fn lower_logical_and(&mut self, left: ExprId, right: ExprId) -> Operand {
+    pub(crate) fn lower_logical_and(
+        &mut self,
+        eid: ExprId,
+        left: ExprId,
+        right: ExprId,
+    ) -> Operand {
         // S138 — statically-falsy lhs short-circuit. If lhs is typed
         // Type::Null / Type::Undefined (e.g. literal `null`, `undefined`,
         // or a call returning Null), `lhs && rhs` returns lhs without
@@ -72,6 +77,14 @@ impl LowerCtx<'_> {
             },
         );
         self.cur_block = eval_b;
+        let a_owned = slot_ty.is_refcounted() && self.expr_owned_shape(left);
+        // On the eval-b arm the lhs value is dead (the result is b) —
+        // an owned lhs temp releases here, mirroring the ternary
+        // condition release (chunk 636). The false arm keeps a's
+        // stake riding into the slot.
+        if a_owned {
+            self.emit_drop_value(a_for_slot.clone(), slot_ty.clone());
+        }
         let b = self.lower_expr(right);
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
             self.box_to_any(b)
@@ -80,18 +93,39 @@ impl LowerCtx<'_> {
         };
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(b_for_slot, Operand::Value(slot), 0),
+            InstKind::Store(b_for_slot.clone(), Operand::Value(slot), 0),
         );
+        // Rotation 325 — owned unification, the chunk-722 ternary
+        // contract applied to `&&`: when either arm's value is owned
+        // (an any-member read like `e && e.constructor`, a call), the
+        // join must be owned on BOTH paths so the consumer's single
+        // release balances. Off this track a DISCARDED `e && e.ctor`
+        // had no release site at all — expr_owned_shape answered
+        // borrow for the whole join while the rhs arm's +1 rode into
+        // the slot, and the strand cut the error-prototype cycle at
+        // the at-exit drain (proto-own-undefined-read-001's census
+        // underflow). A join over two borrows stays a borrow.
+        let b_owned = slot_ty.is_refcounted() && self.expr_owned_shape(right);
+        let join_owned = slot_ty.is_refcounted() && (a_owned || b_owned);
+        if join_owned && !b_owned {
+            self.emit_owned_result_inc_in(self.cur_block, b_for_slot, slot_ty.clone());
+        }
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = false_blk;
         // a is the falsy value — return it directly (matches JS:
         // `0 && expr` returns 0, not false; `"" && expr` returns "").
+        if join_owned && !a_owned {
+            self.emit_owned_result_inc_in(self.cur_block, a_for_slot.clone(), slot_ty.clone());
+        }
         self.f.append_void(
             self.cur_block,
             InstKind::Store(a_for_slot, Operand::Value(slot), 0),
         );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = merge;
+        if join_owned {
+            self.owned_member_reads.insert(eid);
+        }
         let v = self.f.append_inst(
             self.cur_block,
             InstKind::Load(slot_ty, Operand::Value(slot), 0),
@@ -113,7 +147,7 @@ impl LowerCtx<'_> {
 
     /// V3-18 m1.g — JS spec §13.13: `a || b` returns `a` if truthy,
     /// otherwise `b`. Mirror of `&&`.
-    pub(crate) fn lower_logical_or(&mut self, left: ExprId, right: ExprId) -> Operand {
+    pub(crate) fn lower_logical_or(&mut self, eid: ExprId, left: ExprId, right: ExprId) -> Operand {
         // S138 — statically-falsy lhs short-circuit. If lhs is typed
         // Type::Null / Type::Undefined, `lhs || rhs` is equivalent to
         // `rhs` per §13.13 (ToBoolean(null/undef) = false → eval rhs).
@@ -151,15 +185,22 @@ impl LowerCtx<'_> {
                 else_blk: eval_b,
             },
         );
+        let a_owned = slot_ty.is_refcounted() && self.expr_owned_shape(left);
         self.cur_block = true_blk;
         // a is truthy — return it directly (matches JS: `5 || 0`
         // returns 5; `"x" || ""` returns "x").
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(a_for_slot, Operand::Value(slot), 0),
+            InstKind::Store(a_for_slot.clone(), Operand::Value(slot), 0),
         );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = eval_b;
+        // On the eval-b arm the (falsy) lhs value is dead — an owned
+        // lhs temp releases here; the truthy arm keeps a's stake
+        // riding into the slot. Mirror of the `&&` arm above.
+        if a_owned {
+            self.emit_drop_value(a_for_slot.clone(), slot_ty.clone());
+        }
         let b = self.lower_expr(right);
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
             self.box_to_any(b)
@@ -168,10 +209,23 @@ impl LowerCtx<'_> {
         };
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(b_for_slot, Operand::Value(slot), 0),
+            InstKind::Store(b_for_slot.clone(), Operand::Value(slot), 0),
         );
+        // Rotation 325 — owned unification (chunk-722 ternary
+        // contract): see the `&&` arm above for the rationale.
+        let b_owned = slot_ty.is_refcounted() && self.expr_owned_shape(right);
+        let join_owned = slot_ty.is_refcounted() && (a_owned || b_owned);
+        if join_owned && !b_owned {
+            self.emit_owned_result_inc_in(self.cur_block, b_for_slot, slot_ty.clone());
+        }
         self.f.set_term(self.cur_block, Terminator::Br(merge));
+        if join_owned && !a_owned {
+            self.emit_owned_result_inc_in(true_blk, a_for_slot, slot_ty.clone());
+        }
         self.cur_block = merge;
+        if join_owned {
+            self.owned_member_reads.insert(eid);
+        }
         let v = self.f.append_inst(
             self.cur_block,
             InstKind::Load(slot_ty, Operand::Value(slot), 0),

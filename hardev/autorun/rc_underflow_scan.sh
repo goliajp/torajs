@@ -43,8 +43,13 @@ cd "$(dirname "$0")/../.." || exit 2
 # The keys leak had been INVISIBLE: in class-first-class-value-001 it
 # cancelled against the gOPD leak, and fixing gOPD alone made that
 # case underflow — two defects hiding each other, not a regression.
+# 27 → 24: a discarded `e && e.constructor` join leaked its rhs arm's
+# owned +1 (expr_owned_shape called the whole join a borrow while the
+# rhs value rode into the slot). All three proto-* census cases spell
+# exactly that in their catch arms; the fix is the chunk-722 ternary
+# owned-unification applied to `&&` / `||`.
 # See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=27
+RC_UNDERFLOW_BASELINE=24
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in
