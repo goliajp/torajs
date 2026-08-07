@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `a3f0ce09`** (2026-08-06, rotation 313 — five knives across
+**Latest @ `150eda5f`** (2026-08-07, rotation 322 — eval, measured
+before it was designed. The reflex says an AOT compiler cannot have
+eval; the decomposition (`.claude/rfcs/20260807-eval/`) says 79.5% of
+the eval-blocked cases pass a compile-time-known literal, so four
+knives parse the literal at the call site and lower it through the same
+pipeline as every other statement: statement-position inlining as a
+sealed Block (§19.2.1.1 strict branch — `var` does not escape),
+expression-position function bodies (`Expr::ArrowFn` lives in the expr
+arena no statement walk visits), single-expression sources collapsed in
+place (exact per §14.5.1, reaches value position), and SyntaxError at
+evaluation time for a literal that does not parse. Plus the build
+determinism gate `hardev/autorun/build_determinism.sh` as close-step
+0c): passTotal 26891 → **27088 (+197)**, bug 11827 → **12126 (+299)**,
+trAccepted 38718 → **39214 (+496)**, incompatible 14456 → **13960
+(−496)** — conservation exact (496 = 197 + 299). Regressions **zero**
+(53174-line verdict diff: no `pass` moved to anything else; timeout 36
+/ exit-139 30 / exit-138 3 all flat). Gate predicate **312 clusters /
+7167 cases** (+1 / −511), core **8178 (−496)** — the predicted
+count-up-cases-down shape: the eval cluster fell 1433 → **874** and
+newly-running cases surfaced their next signatures. **Water ledger
+(no-metric-inflation)**: 26 of the +32 in `passNoOracle` are
+`annexB/language/eval-code` cases asking for sloppy Annex B function
+hoisting and passing because tr's block-level function declarations
+leak (`{ function f(){} }` leaves `f` visible; bun does not) — an
+inherited defect of `nested_fns.rs` (deliberately implements B.3.3),
+not of the eval pass. Registered, documented in the pass, and expected
+to fall back out if/when the language-mode question is settled — that
+question (strict vs sloppy surface) is takagi's per CLAUDE.md. Top
+clusters: eval 874 (19 dirs) / `__this` 256 (21) / globalThis ~216;
+coverage top 25 = 39.9%, top 100 = 68.3%.**
+
+**Previous @ `a3f0ce09`** (2026-08-06, rotation 313 — five knives across
 two surfaces, `delete`'s three gates and object rest's two halves.
 Three of the five removed a gate that had no missing implementation
 behind it: the numeric property key was already coerced by the
