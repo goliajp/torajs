@@ -232,6 +232,33 @@ pub(crate) fn lower(
                     false
                 }
             }
+            // Rotation 326 — a Ternary / Nullish / `&&` / `||` join
+            // over pure borrows answers a borrow (chunk 722 keeps
+            // those joins at zero rc traffic); an owned-unified join
+            // recorded itself in owned_member_reads and transfers
+            // its fresh stake instead. The binding is a consumer
+            // like any other: it takes +1 and the arm sources keep
+            // theirs. Off this arm the store took the borrow as if
+            // it owned it and the scope-end drop stole an arm
+            // source's stake — the destructuring-default desugar
+            // mints exactly this shape (`let cls = <in-range> ?
+            // src[0] : __ClassExpr_N`), and the class registry's
+            // stake went through zero at the exit drain (census:
+            // dstr-classname-001).
+            Expr::Ternary { .. } | Expr::Nullish { .. } => {
+                !converted
+                    && !ctx.owned_member_reads.contains(&init)
+                    && pre_ty.is_refcounted()
+                    && !(ty == Type::Any && pre_ty != Type::Any)
+            }
+            Expr::BinOp { op, .. }
+                if matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr) =>
+            {
+                !converted
+                    && !ctx.owned_member_reads.contains(&init)
+                    && pre_ty.is_refcounted()
+                    && !(ty == Type::Any && pre_ty != Type::Any)
+            }
             _ => false,
         };
         // No consume on the non-share side: every shape reaching it is
