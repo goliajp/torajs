@@ -134,6 +134,7 @@
 
 mod scope;
 mod source;
+mod walk;
 
 use super::{Ast, Expr, Stmt, free_vars};
 use scope::{binds_eval, seal_var_scope};
@@ -168,12 +169,16 @@ pub fn desugar_eval(ast: &mut Ast) {
 /// `undefined` — in a STRICT direct eval the bindings die with the
 /// eval's own environment, so nothing can observe them.
 ///
-/// For an INDIRECT call the source belongs to the global scope, and
-/// this walk cannot know what scope surrounds a given expression slot —
-/// so it only collapses what scope cannot touch: a single expression
-/// with **no free variables**, or a source that completes empty without
-/// effects. Indirect declaration sources do NOT collapse: a sloppy
-/// eval's `var` lands on the global and is observable afterwards.
+/// For an INDIRECT call the source belongs to the global scope. A
+/// single expression with **no free variables** collapses anywhere —
+/// scope cannot touch it. One that DOES read identifiers collapses
+/// only when its slot is outside every function body (`walk::
+/// fn_owned_exprs`): there the surrounding scope IS the global scope
+/// under script framing, so the source resolves its names exactly as
+/// spec'd. A source that completes empty without effects collapses to
+/// `undefined` anywhere. Indirect declaration sources do NOT collapse:
+/// a sloppy eval's `var` lands on the global and is observable
+/// afterwards.
 ///
 /// Both forms collapse a non-string literal argument to itself
 /// (§19.2.1.1 step 2: eval returns a non-String argument unchanged).
@@ -184,6 +189,12 @@ pub fn desugar_eval(ast: &mut Ast) {
 /// own node stays in the arena unreferenced, which costs a slot and
 /// nothing else.
 fn rewrite_value_position_evals(ast: &mut Ast) {
+    // Snapshot which slots sit under a function body BEFORE any parse
+    // appends to the arena. Appended slots (eval sources) read `false`
+    // through the bounds check, which is right — they take the
+    // position of the call they replace.
+    let fn_owned = walk::fn_owned_exprs(ast);
+    let nested_lexical = walk::nested_lexical_names(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
         let eid = super::ExprId(i as u32);
@@ -198,8 +209,11 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
         };
         if let Some(parsed) = parse_eval_source(&src, ast) {
             if let [Stmt::Expr(inner)] = parsed[..] {
-                let closed = form == CallForm::Direct
-                    || free_vars::free_vars_of_body(ast, &[], &parsed).is_empty();
+                let at_toplevel = !fn_owned.get(i).copied().unwrap_or(false);
+                let closed = form == CallForm::Direct || {
+                    let fv = free_vars::free_vars_of_body(ast, &[], &parsed);
+                    fv.is_empty() || (at_toplevel && fv.iter().all(|n| !nested_lexical.contains(n)))
+                };
                 if closed {
                     if let Some(e) = ast.exprs.get(inner.0 as usize).cloned() {
                         ast.exprs[i] = e;
