@@ -42,6 +42,7 @@ impl<'a> LowerCtx<'a> {
     /// The `Expr::Index` arm of Assign lowering. `obj[index] = value`.
     pub(crate) fn lower_index_assign(
         &mut self,
+        eid: ExprId,
         obj: ExprId,
         index: ExprId,
         value: ExprId,
@@ -56,7 +57,7 @@ impl<'a> LowerCtx<'a> {
             Some(crate::check::Type::Struct(_))
         ) && let Some(name) = crate::ast::literal_prop_key(self.ast, index)
         {
-            return crate::ssa_lower_assign_member::lower(self, obj, name, value);
+            return crate::ssa_lower_assign_member::lower(self, eid, obj, name, value);
         }
         // M1.4 — `arr[i] = value`. 11-A1: peek receiver before
         // consuming `obj` for the head-elision flag.

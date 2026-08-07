@@ -409,14 +409,14 @@ fn lower_assign(ctx: &mut LowerCtx, eid: ExprId, target: ExprId, value: ExprId) 
             // RegExp lastIndex / struct field store with
             // setter accessor + frozen guard). See
             // [`crate::ssa_lower_assign_member::lower`].
-            crate::ssa_lower_assign_member::lower(ctx, obj, field, value)
+            crate::ssa_lower_assign_member::lower(ctx, eid, obj, field, value)
         }
         Expr::Index { obj, index } => {
             // bug-327 C3 — moved to ssa_lower_index_assign.rs
             // (bounds-honoring write: Array<Any> grows via
             // __torajs_arr_set_any_grow + write-back, typed
             // tier guards the inline store).
-            ctx.lower_index_assign(obj, index, value)
+            ctx.lower_index_assign(eid, obj, index, value)
         }
         other => panic!("ssa-lower: unsupported assign target: {other:?}"),
     }

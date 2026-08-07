@@ -12,6 +12,7 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower_dynobj_assign(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj_val: Operand,
     field: &str,
     value: ExprId,
@@ -27,6 +28,12 @@ pub(crate) fn lower_dynobj_assign(
     let transfers = ctx.expr_transfers_ownership(value);
     let v_ty = ctx.operand_ty(&v_raw);
     let v_keep = v_raw.clone();
+    // `o.u = undefined` — the rhs reaches here as ConstPtrNull, which
+    // is also what null lowers to; only the checker's type separates
+    // them. The stored tag already does (5 vs 0); the expression's
+    // VALUE needs the same split, or `b = (o.u = undefined)` answers
+    // null.
+    let mut undef_rhs = false;
     let (tag_op, val_op): (Operand, Operand) = match v_ty {
         Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw),
         Type::F64 => {
@@ -89,12 +96,16 @@ pub(crate) fn lower_dynobj_assign(
         Type::Any => {
             let r =
                 lower_dynobj_assign_any_payload(ctx, obj_val, field, v_raw, obj_ident, recv_owned);
-            if transfers {
-                // Owned Any temp: dropping the box releases its
-                // payload stake and frees the shell; the bucket
-                // keeps the payload +1 minted inside.
-                ctx.emit_drop_value(v_keep, Type::Any);
+            // §13.15.2 — the expression's value is the rhs. An owned
+            // temp's stake TRANSFERS to the consumer (the release
+            // this arm used to do here is now the consumer's); a
+            // borrow takes a fresh box-aware share. See
+            // `finish_assign_value` for why mint-then-release is not
+            // an equivalent spelling.
+            if !transfers {
+                ctx.emit_owned_result_inc(r.clone(), Type::Any);
             }
+            ctx.owned_member_reads.insert(eid);
             return r;
         }
         _ if v_ty.is_refcounted() => {
@@ -113,6 +124,7 @@ pub(crate) fn lower_dynobj_assign(
                 ctx.expr_types.get(&value),
                 Some(crate::check::Type::Undefined)
             ) {
+                undef_rhs = true;
                 (Operand::ConstI64(5), Operand::ConstI64(0))
             } else {
                 (Operand::ConstI64(0), Operand::ConstI64(0))
@@ -121,10 +133,32 @@ pub(crate) fn lower_dynobj_assign(
         _ => panic!("ssa-lower: dynobj assign unsupported value type {v_ty:?}"),
     };
     emit_any_member_set(ctx, obj_val, field, tag_op, val_op, obj_ident, recv_owned);
-    if transfers && v_ty.is_refcounted() {
-        ctx.emit_drop_value(v_keep, v_ty);
+    // §13.15.2 — the expression's value is the rhs: transfer an owned
+    // temp's stake, share a borrow (see `finish_assign_value`). A
+    // ConstPtrNull rhs (null / undefined) is not refcounted and
+    // passes through untouched — except that undefined's identity
+    // lives in the TAG, so its value is re-boxed rather than handed
+    // back as the null-looking pointer.
+    if undef_rhs {
+        let cur_block = ctx.cur_block;
+        let u = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        return Operand::Value(u);
     }
-    Operand::ConstI64(0)
+    if v_ty.is_refcounted() {
+        if !transfers {
+            ctx.emit_owned_result_inc(v_keep.clone(), v_ty);
+        }
+        ctx.owned_member_reads.insert(eid);
+    }
+    v_keep
 }
 
 /// Shared tail of both `any`-receiver member-write paths — the

@@ -39,7 +39,13 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, value: ExprId) -> Operand {
+pub(crate) fn lower(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    field: String,
+    value: ExprId,
+) -> Operand {
     // Step 7d-A — capture the LHS variable name (if `obj` is a plain
     // Ident) so the Type::Any dynobj-set / dynobj_define paths below
     // can write the post-resize ptr back to the variable's storage
@@ -58,20 +64,20 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, value: E
         // its binding's stake (and rides the write-back instead).
         let recv_owned = ctx.expr_transfers_ownership(obj);
         return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
-            ctx, obj_val, &field, value, &obj_ident, recv_owned,
+            ctx, eid, obj_val, &field, value, &obj_ident, recv_owned,
         );
     }
     if matches!(obj_ty, Type::Closure(_)) {
-        return lower_closure_props_assign(ctx, obj_val, &field, value);
+        return lower_closure_props_assign(ctx, eid, obj_val, &field, value);
     }
     if matches!(obj_ty, Type::FnSig(_)) {
-        return lower_fnsig_props_assign(ctx, obj_val, &field, value);
+        return lower_fnsig_props_assign(ctx, eid, obj_val, &field, value);
     }
     if matches!(obj_ty, Type::Arr(_)) && field == "length" {
-        return lower_arr_length_assign(ctx, obj_val, obj_ty, value);
+        return lower_arr_length_assign(ctx, eid, obj_val, obj_ty, value);
     }
     if matches!(obj_ty, Type::Arr(_)) {
-        return lower_arr_props_assign(ctx, obj_val, &field, value);
+        return lower_arr_props_assign(ctx, eid, obj_val, &field, value);
     }
     if obj_ty == Type::RegExp && field == "lastIndex" {
         return lower_regex_last_index_assign(ctx, obj_val, value);
@@ -83,8 +89,45 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, value: E
     lower_obj_assign(ctx, obj, obj_val, sid, &field, value)
 }
 
+/// The assignment expression's value is its rhs (§13.15.2 step 8 —
+/// the rvalue, after GetValue). Five of this ladder's lanes answered
+/// `0` instead: `b = (o.k = [1,2,3])` left `b` holding the integer
+/// zero, silently. The struct-field lane and the regex-lastIndex lane
+/// already answered their value; these join them on the Ident lane's
+/// contract (`mint_consumer_stake`): the consumer receives an OWNED
+/// reference, so keepers transfer without inc'ing and discard sites
+/// release — not a borrow whitelist. The mint runs before the owned
+/// temp's own release so the value never passes through zero.
+fn finish_assign_value(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    v: Operand,
+    v_ty: Type,
+    transfers: bool,
+) -> Operand {
+    if v_ty.is_refcounted() {
+        if !transfers {
+            // A borrow-shape rhs: the consumer's reference is a fresh
+            // stake, type-aware (an Any operand is NaN-box bits — a
+            // raw header inc would treat them as an address).
+            ctx.emit_owned_result_inc(v.clone(), v_ty);
+        }
+        // An owned temp TRANSFERS: the stake the lanes used to
+        // release after the store is the very reference the consumer
+        // now owns, so there is neither an inc nor a release here.
+        // Minting a fresh +1 and keeping the release looks equivalent
+        // on paper and is not: the eid below also routes discard
+        // sites' cleanup to this value, and the pair double-released
+        // it (a statement-position `o.k = [7,8]` freed the bucket's
+        // array out from under it).
+        ctx.owned_member_reads.insert(eid);
+    }
+    v
+}
+
 fn lower_closure_props_assign(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj_val: Operand,
     field: &str,
     value: ExprId,
@@ -98,14 +141,12 @@ fn lower_closure_props_assign(
     let v_ty = ctx.operand_ty(&v_raw);
     let (tag, val_op) = ctx.box_to_tag_value(v_raw.clone());
     ctx.fn_props_set(obj_val, field, tag, val_op);
-    if transfers && v_ty.is_refcounted() {
-        ctx.emit_drop_value(v_raw, v_ty);
-    }
-    Operand::ConstI64(0)
+    finish_assign_value(ctx, eid, v_raw, v_ty, transfers)
 }
 
 fn lower_fnsig_props_assign(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj_val: Operand,
     field: &str,
     value: ExprId,
@@ -124,14 +165,12 @@ fn lower_fnsig_props_assign(
             vec![obj_val, Operand::Value(key_str), tag, val_op],
         ),
     );
-    if transfers && v_ty.is_refcounted() {
-        ctx.emit_drop_value(v_raw, v_ty);
-    }
-    Operand::ConstI64(0)
+    finish_assign_value(ctx, eid, v_raw, v_ty, transfers)
 }
 
 fn lower_arr_length_assign(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj_val: Operand,
     obj_ty: Type,
     value: ExprId,
@@ -139,7 +178,8 @@ fn lower_arr_length_assign(
     // Chunk 566 — no consume: the rhs is a number (checker-gated),
     // so the historical consume was a Copy no-op; an Any-typed Ident
     // rhs must keep its stake (the validate helper only reads).
-    let (tag, val_op) = ctx.lower_to_tag_value(value);
+    let (tag, val_op, v_raw, v_ty) = ctx.lower_to_tag_value_raw(value);
+    let _ = &tag;
     // ES §10.4.2.5 — scalar element types keep the truncate helper;
     // every other element type (Any / Str / Arr / ...) routes to the
     // full resize helper (per-slot release on truncate, undefined
@@ -162,11 +202,12 @@ fn lower_arr_length_assign(
     let cur_block = ctx.cur_block;
     ctx.f.append_void(cur_block, InstKind::Call(helper, argv));
     ctx.emit_throw_check(None);
-    Operand::ConstI64(0)
+    finish_assign_value(ctx, eid, v_raw, v_ty, false)
 }
 
 fn lower_arr_props_assign(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj_val: Operand,
     field: &str,
     value: ExprId,
@@ -186,10 +227,7 @@ fn lower_arr_props_assign(
             vec![obj_val, Operand::Value(key_str), tag, val_op],
         ),
     );
-    if transfers && v_ty.is_refcounted() {
-        ctx.emit_drop_value(v_raw, v_ty);
-    }
-    Operand::ConstI64(0)
+    finish_assign_value(ctx, eid, v_raw, v_ty, transfers)
 }
 
 fn lower_regex_last_index_assign(
