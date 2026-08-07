@@ -131,7 +131,28 @@ fn gated_pass<S: std::fmt::Debug>(
         let label = key.to_lowercase().replace('_', "-");
         eprintln!("torajs-{label}-stats: {stats:?}");
     }
+    dump_after(key, module);
     Some(stats)
+}
+
+/// `TORAJS_SSA_DUMP_AFTER=<KEY>` — pretty-print the whole module to
+/// stdout right after the named pass, `KEY` being the same screaming-
+/// snake name its `_OFF` / `_STATS` gates use (plus `EGRAPH` for the
+/// per-function egraph loop, which is not a `gated_pass`).
+///
+/// The end-of-pipeline `TORAJS_SSA_DUMP` answers "what shape did the
+/// pipeline produce"; this answers "which pass produced it". Diffing
+/// the dump across two runs is how a nondeterministic pass gets named:
+/// walk the keys in pipeline order and the first one whose dump varies
+/// owns the divergence. Toggling `_OFF` gates cannot do that job —
+/// passes feed each other, so several will each "fix" one source.
+///
+/// A pass gated off never reaches here, so asking to dump after a
+/// disabled pass prints nothing.
+fn dump_after(key: &str, module: &Module) {
+    if std::env::var("TORAJS_SSA_DUMP_AFTER").as_deref() == Ok(key) {
+        module.print();
+    }
 }
 
 pub fn transform_module(mut module: Module) -> Module {
@@ -173,6 +194,7 @@ pub fn transform_module(mut module: Module) -> Module {
         let new_func = EgraphPass::new(func).run();
         *func = new_func;
     }
+    dump_after("EGRAPH", &module);
     // Full mem2reg φ promotion — loop-carried / join-slot cells the
     // earlier passes left behind. AFTER the egraph pass (GVN /
     // elaborate never see the multi-def Copy it emits), before
