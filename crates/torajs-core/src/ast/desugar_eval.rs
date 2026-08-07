@@ -118,12 +118,24 @@ pub fn desugar_eval(ast: &mut Ast) {
 /// 1"), 2)` is this shape, and so is most of what test262 writes when
 /// it wants eval's result rather than its effects.
 ///
+/// A second exact shape rides along: a source that is nothing but
+/// declarations with effect-free initializers — `eval("var x")`,
+/// `eval("var x, y")`, a function declaration. Declarations complete
+/// with *empty*, so the eval answers `undefined` (§14.5.1), and in a
+/// STRICT eval the bindings die with the eval's own environment, so
+/// with no other statement in the source there is nothing left that
+/// could observe them. The whole call collapses to `undefined`.
+/// test262 leans on this for its type-conversion suites —
+/// `Boolean(eval("var x"))` is how S9.2 spells "undefined". The
+/// effect-free bound matters: `eval("var x = f()")` must run `f`, so
+/// an initializer that could do anything keeps the call out of this
+/// shape.
+///
 /// The general completion value — `eval("if (true) { }")` is
 /// `undefined`, `eval("1; ;")` is `1` — stays out of reach and out of
 /// scope here; those need a notion tr has no counterpart for. Sources
-/// that are not exactly one expression statement fall through
-/// untouched and are picked up by the block inlining if they are in
-/// statement position.
+/// that fit neither shape fall through untouched and are picked up by
+/// the block inlining if they are in statement position.
 ///
 /// The replacement writes over the Call node in place rather than
 /// re-pointing the parent at a new id, so every existing reference to
@@ -147,8 +159,31 @@ fn rewrite_single_expr_evals(ast: &mut Ast) {
                     continue;
                 }
             }
+            if !parsed.is_empty() && parsed.iter().all(|s| is_effect_free_decl(s, ast)) {
+                ast.exprs[i] = Expr::Ident("undefined".to_string());
+            }
         }
         i += 1;
+    }
+}
+
+/// A declaration whose evaluation nothing can observe: a `let` / `var`
+/// whose initializer is an identifier read or a literal, or a function
+/// declaration. `Stmt::Multi` of such declarations counts too — the
+/// parser expands `var x, y` into one. The initializer bound is what
+/// keeps the collapse exact; a call, a member access, anything that
+/// could run code disqualifies the whole source.
+fn is_effect_free_decl(s: &Stmt, ast: &Ast) -> bool {
+    match s {
+        // `Uninit` is the parser's sentinel for `var x;` with no
+        // initializer at all — the most effect-free init there is.
+        Stmt::LetDecl { init, .. } => matches!(
+            ast.exprs.get(init.0 as usize),
+            Some(Expr::Uninit | Expr::Ident(_) | Expr::String(_) | Expr::Number(_))
+        ),
+        Stmt::FnDecl { .. } => true,
+        Stmt::Multi(list) => list.iter().all(|s| is_effect_free_decl(s, ast)),
+        _ => false,
     }
 }
 
@@ -410,11 +445,29 @@ fn literal_eval_source(eid: super::ExprId, ast: &Ast) -> Option<String> {
 /// merge an imported file. `None` on a lex or parse failure, which
 /// leaves the call site untouched.
 fn parse_eval_source(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
-    // `parse_into` assigns `*target = p.ast` BEFORE propagating the
-    // error, so a failed parse leaves whatever it managed to build
-    // appended to `ast.stmts`. Those statements belong to nobody —
-    // without this truncate they would be spliced into the program as
-    // if the user had written them.
+    if let Some(stmts) = parse_once(src, ast) {
+        return Some(stmts);
+    }
+    // §12.9.1 rule 2 — automatic semicolon insertion at end of input:
+    // when the token stream ends where the grammar still wants a
+    // terminator, a semicolon is inserted. `eval("var x")` is valid
+    // JavaScript by exactly this rule, and it is how test262 writes it
+    // (a file always ends in a newline, so tr's parser never meets the
+    // no-terminator end anywhere else). Retrying with the semicolon
+    // appended IS that rule — it cannot make an invalid source valid,
+    // because a semicolon only ever terminates a final statement.
+    let with_semi = format!("{src};");
+    parse_once(&with_semi, ast)
+}
+
+/// One tokenize + parse attempt into the shared arena.
+///
+/// The truncate on the error path is load-bearing: `parse_into`
+/// assigns `*target = p.ast` BEFORE propagating its error, so a failed
+/// parse leaves whatever it managed to build appended to `ast.stmts` —
+/// statements belonging to nobody, which would otherwise be spliced
+/// into the program as if the user had written them.
+fn parse_once(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
     let before = ast.stmts.len();
     let tokens = lexer::tokenize(src).ok()?;
     match parser::parse_into(src, &tokens, ast) {
