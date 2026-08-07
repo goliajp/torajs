@@ -146,6 +146,7 @@ fn clone_leaf(e: &Expr) -> Expr {
         Expr::Bool(b) => Expr::Bool(*b),
         Expr::Null => Expr::Null,
         Expr::Uninit => Expr::Uninit,
+        Expr::Elision => Expr::Elision,
         Expr::Regex { pattern, flags } => Expr::Regex {
             pattern: pattern.clone(),
             flags: flags.clone(),
@@ -270,6 +271,23 @@ pub(crate) fn deep_clone_expr(
             let e = *expr;
             Expr::TypeOf {
                 expr: deep_clone_expr(ast, map, e),
+            }
+        }
+        Expr::Delete { expr } => {
+            let e = *expr;
+            Expr::Delete {
+                expr: deep_clone_expr(ast, map, e),
+            }
+        }
+        Expr::NewDynamic { callee, args } => {
+            let c = *callee;
+            let a = args.clone();
+            Expr::NewDynamic {
+                callee: deep_clone_expr(ast, map, c),
+                args: a
+                    .into_iter()
+                    .map(|arg| deep_clone_expr(ast, map, arg))
+                    .collect(),
             }
         }
         Expr::InstanceOf { expr, class_name } => {
