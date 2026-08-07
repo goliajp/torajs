@@ -519,6 +519,7 @@ pub(crate) mod ssa_lower_stmt_for_of_split_iter;
 pub(crate) mod ssa_lower_stmt_if;
 pub(crate) mod ssa_lower_stmt_let_decl;
 pub(crate) mod ssa_lower_stmt_let_decl_bun_json;
+pub(crate) mod ssa_lower_stmt_let_decl_convert;
 pub(crate) mod ssa_lower_stmt_let_decl_dispatch;
 pub(crate) mod ssa_lower_stmt_let_decl_fromentries;
 pub(crate) mod ssa_lower_stmt_let_decl_general;

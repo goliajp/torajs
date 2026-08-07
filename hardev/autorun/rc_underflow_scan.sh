@@ -59,8 +59,13 @@ cd "$(dirname "$0")/../.." || exit 2
 # their source argument unconditionally — an ident-bound borrow lost
 # its binding's stake. Every drop is now gated on
 # expr_transfers_ownership.
+# 14 → 10: `const s = arr as any` (unannotated) — the let lane's
+# share table had no As arm, so the pass-through borrow was bound as
+# if owned and the scope-end drop stole the source binding's stake.
+# The destructuring desugar mints exactly this let for non-Ident
+# sources.
 # See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=14
+RC_UNDERFLOW_BASELINE=10
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in
