@@ -1530,7 +1530,44 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `38cfbc76`** (2026-08-07, rotation 322 — eval, measured
+**Latest @ `b6e7420b`** (2026-08-07, rotation 324 — five knives on the
+reflection / assignment-value / refcount seam, four of them silent.
+`Object.entries(new Error("m"))` answered 3 where `Object.keys`
+answered 0 (the compile-time struct unfold cannot express
+non-enumerable own slots; Error-family receivers now ride the runtime
+own-walk the `any` lane always used, family test walking `extends` to
+the injected classes). `(TypeError.prototype as any).x = 1` — one
+line — underflowed %Error.prototype%'s refcount: an owned any-receiver
+box had no release site anywhere on the member-write path, and the
+stranded +1 cut the error-prototype cycle in half at the at-exit
+drain, the two halves tearing each other down (rc_underflow census
+32 → 29; the guess "that would be a leak, not an underflow" is exactly
+what had hidden it). `b = (o.k = [1,2,3])` left `b` holding integer 0
+on five member-assign lanes (§13.15.2: the value is the rhs;
+transfer-or-share ownership contract, settled by SSA A/B diff after
+two paper ledgers both collapsed). `o.x = [7,8]` read back EMPTY — the
+dynobj lane never stamped the elem-kind chain a typed array's NaN-box
+needs (chunk 621's struct-field lesson, one lane over). And
+`c = (t[0] = [4,5])` answered right but underflowed at teardown — the
+index half of the assignment-value contract rotation 323 explicitly
+left as a borrow. Conformance gate 2542 → **2546/0/4** (+5 fixtures,
+zero red across five gates); build determinism 44/44 (N=12)):
+passTotal 27102 → **27107 (+5)**, bug 12169 → **12164 (−5)**,
+trAccepted 39271 flat / incompatible 13903 flat — conservation exact
+(0 = +5 + −5); `passNoOracle` flat at 683, no dilution. Gate predicate
+**316 clusters / 7115 cases**, core **8121 — all four numbers flat**,
+as expected for memory/value-contract work that opens no language
+surface. Regressions **zero** (5 verdict moves, all forward:
+`dstr/array-rest-put-prop-ref` twice — the member-assign value knife
+verbatim — `fields-asi-1` twice, and `includes/tolength-length` off
+the array-length lane now answering its value). Crash/timeout flat
+(exit-139 31 / tr-timeout 36 / exit-138 3). Session note: this
+rotation began on a stale context (rotations 309-323 summarized away)
+and was saved by reproduce-first discipline; the working tree carries
+four uncommitted DIAG files (the rc-underflow census instrumentation)
+that the underflow knives depend on — left in place deliberately.
+
+**Previous @ `38cfbc76`** (2026-08-07, rotation 322 — eval, measured
 before it was designed. The reflex says an AOT compiler cannot have
 eval; the decomposition (`.claude/rfcs/20260807-eval/`) says 79.5% of
 the eval-blocked cases pass a compile-time-known literal, so five
