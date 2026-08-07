@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T09:47:33.376Z",
+  "generatedAt": "2026-08-07T12:32:29.290Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T09:43:52Z",
-    "headSha": "8f552008",
-    "elapsedSec": 400.45,
+    "ranAt": "2026-08-07T12:30:26Z",
+    "headSha": "713d83c8",
+    "elapsedSec": 402.17,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22468,
+    "pass": 22469,
     "passNoOracle": 683,
     "passNegative": 3956,
-    "passTotal": 27107,
-    "bug": 12164,
+    "passTotal": 27108,
+    "bug": 12163,
     "incompatible": 13903,
     "bunSkip": 7155,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.03
   },
   "torajs": {
-    "commit": "8f552008",
-    "commitSubject": "fix: a let binding took an as-cast borrow as if it owned it",
+    "commit": "713d83c8",
+    "commitSubject": "chore: lower rc underflow baseline to zero with the six-knife ledger",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "713d83c8",
+      "subject": "chore: lower rc underflow baseline to zero with the six-knife ledger"
+    },
+    {
+      "hash": "f7759e63",
+      "subject": "fix: awaiting a rejected promise lent the throw slot a borrowed reason"
+    },
+    {
+      "hash": "011d284a",
+      "subject": "fix: an ident assignment took a borrow-shaped join as if it owned it"
+    },
+    {
+      "hash": "dba1994f",
+      "subject": "fix: returning an escape-boxed binding lent out the box's only stake"
+    },
+    {
+      "hash": "c6494d75",
+      "subject": "fix: bigint lanes read the undefined cell's limbs and lent out a slot's stake"
+    },
+    {
+      "hash": "3cb776d8",
+      "subject": "fix: a let binding took a borrow-shaped join as if it owned it"
+    },
+    {
+      "hash": "f7571b04",
+      "subject": "fix: the comma operator dropped a discarded borrow as if it owned it"
+    },
+    {
+      "hash": "660baa60",
+      "subject": "fix: the cycle sweep charged a dying parent's edge to a black child twice"
+    },
+    {
+      "hash": "99ffacbc",
+      "subject": "chore: refresh hardev dashboard snapshot at rotation 325"
+    },
+    {
       "hash": "8f552008",
       "subject": "fix: a let binding took an as-cast borrow as if it owned it"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "a364e6c1",
       "subject": "fix: an any-member read of an any-typed field never took its stake"
-    },
-    {
-      "hash": "c13aebfc",
-      "subject": "fix: a discarded short-circuit join leaked its owned arm"
-    },
-    {
-      "hash": "a3a6adf9",
-      "subject": "fix: two read lanes leaked their owned receiver and cut prototype cycles"
-    },
-    {
-      "hash": "1ba7dc0a",
-      "subject": "chore: refresh hardev dashboard snapshot at rotation 324"
-    },
-    {
-      "hash": "63f31f7e",
-      "subject": "docs: rotation 324 sweep at b6e7420b — +5 pass, zero regressions, rc census 29"
-    },
-    {
-      "hash": "b6e7420b",
-      "subject": "fix: a kept index-assignment value released a stake nobody owned"
-    },
-    {
-      "hash": "e458f622",
-      "subject": "fix: a typed array stored on an any receiver read back as nothing"
-    },
-    {
-      "hash": "57dfdba7",
-      "subject": "fix: a member assignment's value was the integer zero"
-    },
-    {
-      "hash": "74cda5ea",
-      "subject": "fix: an unreleased receiver box cut the prototype cycle in two"
-    },
-    {
-      "hash": "e32321c7",
-      "subject": "fix: Object.entries saw three properties where Object.keys saw none"
     }
   ],
-  "headSha": "8f552008",
+  "headSha": "713d83c8",
   "autorun": {
-    "total": 628,
+    "total": 629,
     "baselineTarget": 10,
-    "bySelf": 623,
+    "bySelf": 624,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786088046-637e",
-      "at": "2026-08-07T07:34:06Z",
-      "ts": 1786088046,
+      "rotationId": "r-1786096141-19d5",
+      "at": "2026-08-07T09:49:01Z",
+      "ts": 1786096141,
       "trigger": "self",
-      "prevHead": "1ba7dc0a",
-      "handoffSha": "sha256:171fa488d24d5206cacbdc72f7fb7e04308d6b158539ae1593fc57e6eb3b68a4",
-      "handoffAgeSec": 18,
+      "prevHead": "99ffacbc",
+      "handoffSha": "sha256:0088177171a7df0893fb0f446aa454d3eb97a1e0aa66e95d537b17c6a1e917ed",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786096141-19d5",
+        "at": "2026-08-07T09:49:01Z",
+        "ts": 1786096141,
+        "trigger": "self",
+        "prevHead": "99ffacbc",
+        "handoffSha": "sha256:0088177171a7df0893fb0f446aa454d3eb97a1e0aa66e95d537b17c6a1e917ed",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786088046-637e",
         "at": "2026-08-07T07:34:06Z",
@@ -876,17 +887,6 @@
         "prevHead": "4a018d13",
         "handoffSha": "sha256:ec2b9e2b05ad97450c967e35b9158e0358278da0bb7fcc1ad7a75c50d032370d",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786007757-225b",
-        "at": "2026-08-06T09:15:57Z",
-        "ts": 1786007757,
-        "trigger": "self",
-        "prevHead": "dc248d64",
-        "handoffSha": "sha256:8d6ae14eae978e7cb12ae0320ad261065557760b19fdcb3dd11089f72c05a522",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
