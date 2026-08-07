@@ -428,10 +428,13 @@ fn lower_assign(ctx: &mut LowerCtx, eid: ExprId, target: ExprId, value: ExprId) 
 /// left expressions.
 fn lower_sequence(ctx: &mut LowerCtx, left: ExprId, right: ExprId) -> Operand {
     let l = ctx.lower_expr(left);
-    let l_ty = ctx.operand_ty(&l);
-    if !l_ty.is_copy() {
-        ctx.emit_drop_value(l, l_ty);
-    }
+    // Rotation 326 — the discarded left is only released when its
+    // value is an owned temp. The unconditional type-shaped drop
+    // stole an ident-bound borrow's stake: `void D` (Sequence via
+    // the §13.5.2 desugar) dec'd the class-object cell the tag
+    // registry still points at — one line was enough to underflow
+    // every class object it named.
+    ctx.release_owned_temp(left, &l);
     ctx.lower_expr(right)
 }
 
