@@ -86,7 +86,46 @@ impl<'a> LowerCtx<'a> {
                  * match node/bun's console.log formatting. The
                  * caller will drop the resulting Str. The BigInt
                  * input itself is dropped by the caller's binding-
-                 * lifetime walk; nothing to do here. */
+                 * lifetime walk; nothing to do here.
+                 *
+                 * Rotation 326 — an OOB / miss read of a BigInt slot
+                 * answers the immortal generic undefined cell
+                 * (§10.4.2.1 family), and this was the one print
+                 * lane that read the cell's CONTENT: bigint_to_string
+                 * walked limbs that aren't there (`console.log(bs[5])`
+                 * was a two-line SIGBUS). Branch on the ADDRESS like
+                 * every other consumer of the family; the sentinel arm
+                 * answers the static "undefined" literal (rc no-op
+                 * under the caller's drop). */
+                let sentinel = self
+                    .str_undef_sentinel_for(Type::BigInt)
+                    .expect("BigInt spells undefined with the generic cell");
+                let is_undef = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(crate::ssa::IPred::Eq, val.clone(), sentinel),
+                    Type::Bool,
+                    None,
+                );
+                let undef_blk = self.f.add_block();
+                let big_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                let slot = self.alloca_in_entry(Type::Str, Some("__c_bigint"));
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(is_undef),
+                        then_blk: undef_blk,
+                        else_blk: big_blk,
+                    },
+                );
+                self.cur_block = undef_blk;
+                let undef_lit = self.intern_string_literal("undefined");
+                self.f.append_void(
+                    undef_blk,
+                    InstKind::Store(Operand::Value(undef_lit), Operand::Value(slot), 0),
+                );
+                self.f.set_term(undef_blk, Terminator::Br(after_blk));
+                self.cur_block = big_blk;
                 let body = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.bigint_to_string, vec![val]),
@@ -104,7 +143,19 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 self.emit_drop_value(Operand::Value(body), Type::Str);
-                Operand::Value(formatted)
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(formatted), Operand::Value(slot), 0),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                self.cur_block = after_blk;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Str, Operand::Value(slot), 0),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
             }
             Type::Any => {
                 /* Any-boxed value (catch param default / dynobj

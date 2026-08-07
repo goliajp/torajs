@@ -129,6 +129,30 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
             ctx.consume_all_idents_in_return(*index);
             return Operand::Value(retained);
         }
+        // Rotation 326 — the typed sibling of the retain above:
+        // `return xs[i]` on a typed Arr<T> with refcounted T answers
+        // the slot's value as a BORROW (load_dyn reads the element
+        // in place; the slot keeps its stake), while the fn-return
+        // contract hands the caller an owned value. Without the +1
+        // the synthesized boxed entry boxed the borrow into `any`
+        // (owned by NaN-box contract) and the caller's drop stole
+        // the slot's stake (census: `() => bs[0]` on a `bigint[]`
+        // global underflowed the live element). Local and global
+        // receivers alike; Str/Substr receivers never reach here
+        // (s[i] answers a fresh owned Substr), and the Any-elem
+        // shape took the anyv_retain arm above.
+        if let Expr::Index { obj, index } = ctx.ast.get_expr(eid) {
+            let v_ty = ctx.operand_ty(&v);
+            let elem_matches =
+                matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_)))
+                    && v_ty.is_refcounted()
+                    && !matches!(v_ty, Type::Any | Type::Substr);
+            if elem_matches {
+                ctx.emit_rc_inc(v.clone());
+                ctx.consume_all_idents_in_return(*index);
+                return v;
+            }
+        }
         // Chunk 752 — a Copy-typed result (scalar) cannot alias any
         // local's heap, so no binding needs the moved mark; the
         // blanket walk stranded every non-Copy local the expression

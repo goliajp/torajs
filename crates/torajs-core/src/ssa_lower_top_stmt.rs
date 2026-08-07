@@ -94,33 +94,20 @@ impl<'a> LowerCtx<'a> {
             /* T-25 — BigInt prints via bigint_to_string + str_concat
              * with `"n"` (matches node/bun console.log formatting,
              * which appends the `n` suffix even though `toString()`
-             * itself doesn't). The two intermediate Strs are
-             * fresh-owned: drop both after print. The BigInt input
-             * drops if the source binding wasn't a borrow target. */
+             * itself doesn't). Rotation 326 — routed through
+             * `coerce_to_str`, which owns the sentinel gate: an OOB /
+             * miss read answers the immortal generic undefined cell,
+             * and this inlined copy read its limbs (SIGBUS on
+             * `console.log(bs[5])`) while the coercer's copy got the
+             * guard — the two lanes were the same logic drifted
+             * apart. The coercer answers a fresh-owned Str (static
+             * "undefined" on the sentinel arm; drop no-ops). */
             if arg_ty == Type::BigInt {
-                let body = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.bigint_to_string, vec![arg]),
-                    Type::Str,
-                    None,
-                );
-                let n_lit = self.intern_string_literal("n");
-                let formatted = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.str_concat,
-                        vec![Operand::Value(body), Operand::Value(n_lit)],
-                    ),
-                    Type::Str,
-                    None,
-                );
+                let owned = self.coerce_to_str(arg.clone(), Type::BigInt);
                 let target = self.console_print_target(method, Type::Str);
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(target, vec![Operand::Value(formatted)]),
-                );
-                self.emit_drop_value(Operand::Value(formatted), Type::Str);
-                self.emit_drop_value(Operand::Value(body), Type::Str);
+                self.f
+                    .append_void(self.cur_block, InstKind::Call(target, vec![owned.clone()]));
+                self.emit_drop_value(owned, Type::Str);
                 if !is_borrow {
                     self.emit_drop_value(arg, Type::BigInt);
                 }
