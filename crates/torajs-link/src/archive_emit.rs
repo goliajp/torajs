@@ -199,6 +199,22 @@ fn emit_binary(
     let mut buf: Vec<u8> = Vec::with_capacity(layout.total_size as usize);
     write_header_and_load_commands(&mut buf, layout);
 
+    // The load-command region must END at or before where the layout
+    // said `__text` begins. `pad_to` cannot repair an overrun — it
+    // no-ops when the buffer is already past the target — so an
+    // oversized header would silently shift every `__text` byte while
+    // every recorded address stayed put, and the entrypoint would
+    // execute someone else's epilogue (the PC=1 latent bug). The
+    // sizing now counts every section header, and this gate turns any
+    // future drift between the two into a link-time panic instead of
+    // a corrupt artifact.
+    assert!(
+        buf.len() <= layout.text_file_offset as usize,
+        "load-command region (0x{:X} bytes) overruns text_file_offset (0x{:X}) —          header sizing and emit have drifted apart",
+        buf.len(),
+        layout.text_file_offset,
+    );
+
     pad_to(&mut buf, layout.text_file_offset as usize);
 
     // __text payload: user funcs (resolved) followed by each

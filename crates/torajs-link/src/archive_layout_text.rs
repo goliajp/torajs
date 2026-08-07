@@ -90,7 +90,41 @@ pub(crate) fn compute_text_region_plan(
     // __LINKEDIT. section_count = __text + (__stubs? when has_dyld);
     // __DATA_CONST = segment-only rodata blob (no section_64 entry).
     let segment_count = 3 + u32::from(has_dyld) + u32::from(has_data_const_seg);
-    let section_count = 1 + if has_dyld { 2 } else { 0 };
+    // Every section_64 header the emit will write must be counted
+    // here: `text_file_offset` is this sum rounded up to a page, and
+    // an undercount only survives while the real load-command region
+    // happens to fit in the same page. It did not stay fitting — new
+    // `__DATA,*` content pushed the emit past the boundary, the whole
+    // `__text` payload shifted 16 bytes while every recorded address
+    // stayed put, and the entrypoint executed the tail of the
+    // preceding function's epilogue: popped argc off the start-up
+    // stack into (fp, lr) and ret'd to PC=1. The member data-section
+    // count REUSES the data phase's own walk (`count_data_section_64s`)
+    // and the user-globals presence test reuses its layout fn, so the
+    // sizing here and the emit cannot drift apart again; the emit-side
+    // hard gate in `emit_binary` backstops both.
+    let data_section_count = if has_dyld {
+        crate::data_section_layout::count_data_section_64s(merged, member_keys).map_err(
+            |crate::non_text_layout::NonTextLayoutError {
+                 archive_idx,
+                 member_idx,
+                 err,
+             }| {
+                ArchiveLayoutError::MemberSections {
+                    archive_idx,
+                    member_idx,
+                    err,
+                }
+            },
+        )? + u32::from(
+            crate::user_data_globals_layout::compute_user_data_globals_layout(&cfg.data_globals, 0)
+                .total_vmsize
+                > 0,
+        )
+    } else {
+        0
+    };
+    let section_count = 1 + if has_dyld { 2 } else { 0 } + data_section_count;
     let chained_fixups_lc_size = if has_chained_fixups {
         LINKEDIT_DATA_CMDSIZE
     } else {

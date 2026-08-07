@@ -155,6 +155,27 @@ fn is_data_segment(s: &MemberSectionInfo) -> bool {
 /// after `__la_symbol_ptr`, which SD-2 reserves at the `__DATA`
 /// segment's vmaddr start). `file_region_start_offset` mirrors that
 /// in file-offset space.
+/// Count of `section_64` headers the `__DATA,*` walk will emit —
+/// `compute_data_section_layouts` run for its section list alone (the
+/// cursor arguments only shape offsets, never membership, so zeros are
+/// fine). The header/LC sizing in `compute_text_region_plan` needs
+/// this BEFORE the data phase runs: `sizeofcmds` used to omit these
+/// section headers entirely and lean on the page round-up's slack to
+/// absorb them. When new data content pushed the real load-command
+/// region past the page boundary, every byte of `__text` shifted while
+/// every address stayed put — the entrypoint landed on the tail of the
+/// preceding function's epilogue, popped argc off the start-up stack
+/// into (fp, lr), and ret'd to PC=1. Reusing the layout walk (rather
+/// than duplicating its membership predicate) keeps the count and the
+/// emit permanently in lockstep.
+pub fn count_data_section_64s(
+    merged: &MergedArchives,
+    member_keys: &[(usize, usize)],
+) -> Result<u32, NonTextLayoutError> {
+    let res = compute_data_section_layouts(merged, member_keys, 0, 0)?;
+    Ok(res.per_member.iter().map(|v| v.len() as u32).sum())
+}
+
 pub fn compute_data_section_layouts(
     merged: &MergedArchives,
     member_keys: &[(usize, usize)],
