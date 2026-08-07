@@ -98,6 +98,15 @@ pub enum MemberRelocApplyError {
     /// Reloc type isn't one of the four ARM64 kinds the patcher
     /// understands.
     UnknownRelocType { r_type: u8, r_address: u32 },
+    /// A `GOT_LOAD_PAGEOFF12` reloc landed on something other than
+    /// the 64-bit LDR (imm12) the LDR→ADD relaxation rewrites. The
+    /// blind bit-mask would fabricate a garbage instruction and ship
+    /// it silently — this was a `debug_assert` (invisible in
+    /// release/iter) until rotation 329 hardened it while chasing the
+    /// PC=1 latent bug (which turned out to live elsewhere; every
+    /// observed site is the standard 0xF940 LDR, so this arm firing
+    /// means a codegen pattern this relaxation has never seen).
+    GotLoadRelaxNotLdr { insn: u32, r_address: u32 },
     /// Patch site or 8-byte data slot would extend past the
     /// member's __text payload.
     PatchSiteOutOfRange {
@@ -362,11 +371,15 @@ fn patch_reloc_site(
         // bit-for-bit against ARMv8-A C6.2.184 + C6.2.4.
         ARM64_RELOC_GOT_LOAD_PAGEOFF12 => {
             let insn_ldr = read_u32_le(bytes, off);
-            debug_assert_eq!(
-                insn_ldr & 0xFFC0_0000,
-                0xF940_0000,
-                "GOT_LOAD_PAGEOFF12 expects an LDR (imm12) at the patch site, got 0x{insn_ldr:08x}",
-            );
+            // Hard error, not debug_assert: on a non-LDR encoding the
+            // mask below fabricates a garbage instruction and ships it
+            // with every gate green (see GotLoadRelaxNotLdr).
+            if insn_ldr & 0xFFC0_0000 != 0xF940_0000 {
+                return Err(MemberRelocApplyError::GotLoadRelaxNotLdr {
+                    insn: insn_ldr,
+                    r_address: r.r_address,
+                });
+            }
             let insn_add = insn_ldr & !0x6840_0000;
             let offset12 = (target_vaddr & 0xFFF) as u32;
             let patched = patch_pageoff12(insn_add, offset12);
