@@ -6,7 +6,9 @@
 //! static. Knife 3a: a top-level named fn whose every reference is a
 //! direct call with one uniform argc joins the same face.
 
-use super::arguments_object_walkers::body_has_non_length_arguments_touch;
+use super::arguments_object_walkers::{
+    body_has_arguments_length, body_has_non_length_arguments_touch,
+};
 use super::{Ast, Expr, Param, Stmt};
 
 /// RFC 20260801-arguments-escape-face knife 1 — collect IIFEs whose
@@ -55,21 +57,39 @@ pub(super) fn collect_iife_static_argv(
 /// extras), and all sites pass the SAME arg count. Sites with
 /// differing counts need the runtime-truncate tier (knife 3b,
 /// recorded in the RFC) and stay loud for now.
+///
+/// A `__this`-first fn (RFC 20260726 blade 1 gave constructible
+/// plain functions the receiver param; bind_this_param prepends the
+/// receiver at EVERY direct call site, so the slot is uniformly
+/// occupied) joins with the receiver excluded from the argc count —
+/// the `__cm_` method precedent. Length-only bodies qualify on this
+/// shape too: the T-31 real-argc tier only takes user_start == 0
+/// fns, so without the face a constructed fn's `arguments.length`
+/// FoldArity-folds to the declared arity — 0 for the classic
+/// `function H() { this.n = arguments.length }` — while the factory
+/// (fn_constructor_argc) now forwards the construct site's full
+/// argument list.
 pub(super) fn collect_named_static_argv(
     ast: &Ast,
     env_fns: &std::collections::HashSet<String>,
 ) -> std::collections::HashMap<String, usize> {
     use std::collections::{HashMap, HashSet};
-    let mut cand: HashSet<String> = HashSet::new();
+    let mut cand: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl {
+        let Stmt::FnDecl {
             name, params, body, ..
         } = s
-            && !env_fns.contains(name)
-            && params.first().is_none_or(|p| p.name != "__this")
-            && body_has_non_length_arguments_touch(ast, body)
-        {
-            cand.insert(name.clone());
+        else {
+            continue;
+        };
+        if env_fns.contains(name) {
+            continue;
+        }
+        let this_slots = usize::from(params.first().is_some_and(|p| p.name == "__this"));
+        let touches = body_has_non_length_arguments_touch(ast, body)
+            || (this_slots == 1 && body_has_arguments_length(ast, body));
+        if touches {
+            cand.insert(name.clone(), this_slots);
         }
     }
     if cand.is_empty() {
@@ -86,11 +106,11 @@ pub(super) fn collect_named_static_argv(
     }
     let fwd_sites = forwarder_call_callee_eids(ast);
     let mut out: HashMap<String, usize> = HashMap::new();
-    for name in cand {
+    for (name, this_slots) in cand {
         if fn_local_names.contains(&name) {
             continue;
         }
-        if let Some(n) = uniform_direct_call_argc(ast, &name, 0, &fwd_sites) {
+        if let Some(n) = uniform_direct_call_argc(ast, &name, this_slots, &fwd_sites) {
             out.insert(name, n);
         }
     }

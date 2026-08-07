@@ -102,6 +102,9 @@ pub(super) struct Constructible {
     pub(super) takes_this: bool,
     /// Body can produce a value, so §10.2.2 step 8 is live for it.
     pub(super) returns_value: bool,
+    /// Body reads `arguments` — the factory grows variadic forwarding
+    /// when the construct sites agree on an argc (fn_constructor_argc).
+    pub(super) body_touches_arguments: bool,
 }
 
 fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
@@ -134,6 +137,7 @@ fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
             },
             takes_this,
             returns_value: returns_a_value(body),
+            body_touches_arguments: super::fn_constructor_argc::body_touches_arguments(ast, body),
         });
     }
     collect_fn_expr_bindings(ast, &mut candidates);
@@ -200,6 +204,7 @@ fn collect_fn_expr_bindings(ast: &Ast, candidates: &mut Vec<Constructible>) {
                 .collect(),
             takes_this,
             returns_value: returns_a_value(body),
+            body_touches_arguments: super::fn_constructor_argc::body_touches_arguments(ast, body),
         });
     }
 }
@@ -338,6 +343,7 @@ pub fn synthesize_fn_constructors(ast: &mut Ast) {
     if wanted.is_empty() {
         return;
     }
+    let ctor_argc = super::fn_constructor_argc::uniform_construct_argc(ast);
 
     // Repoint first, and only for names that turn out to be functions:
     // `new NotAThing()` keeps its `__new_NotAThing` callee so the
@@ -386,12 +392,13 @@ pub fn synthesize_fn_constructors(ast: &mut Ast) {
             is_var: false,
         };
 
+        let fparams = super::fn_constructor_argc::factory_params(c, ctor_argc.get(&bare));
         let callee = ast.add_expr(Expr::Ident(c.name.clone()));
-        let mut args: Vec<ExprId> = Vec::with_capacity(c.params.len() + 1);
+        let mut args: Vec<ExprId> = Vec::with_capacity(fparams.len() + 1);
         if c.takes_this {
             args.push(ast.add_expr(Expr::Ident("__this".into())));
         }
-        for p in &c.params {
+        for p in &fparams {
             args.push(ast.add_expr(Expr::Ident(p.name.clone())));
         }
         let call = ast.add_expr(Expr::Call { callee, args });
@@ -462,7 +469,7 @@ pub fn synthesize_fn_constructors(ast: &mut Ast) {
         ast.stmts.push(Stmt::FnDecl {
             name: format!("__fnctor_{bare}"),
             type_params: Vec::new(),
-            params: c.params.clone(),
+            params: fparams,
             return_type: Some("any".into()),
             body: factory_body,
             is_generator: false,

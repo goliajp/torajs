@@ -64,6 +64,7 @@ mod escape_analyze;
 mod expr;
 mod fill_optional_fields;
 mod fn_constructor;
+mod fn_constructor_argc;
 mod fn_constructor_assign;
 mod fnexpr_bind_this;
 pub(crate) mod fnexpr_this;
