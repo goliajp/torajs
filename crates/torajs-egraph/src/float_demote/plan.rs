@@ -254,7 +254,18 @@ fn plan_one(
     // block): request a tail split so the unrelated defs leave the
     // region, and re-plan.
     let cells = multi_def_values(func);
-    for (v, (defs, uses)) in value_blocks {
+    // Scan in value order. This loop returns on its first violation, so
+    // `value_blocks`' hash order picked which one was reported — and
+    // with it whether a split happened at all, since a candidate whose
+    // `tail_split_point` answers None falls through to Fail while a
+    // later one might have answered Some. The split is the only thing
+    // this pass leaves behind when planning then fails, so the same
+    // input produced two different modules with identical (all-zero)
+    // demotion stats.
+    let mut scan: Vec<ValueId> = value_blocks.keys().copied().collect();
+    scan.sort_by_key(|v| v.0);
+    for v in &scan {
+        let (defs, uses) = &value_blocks[v];
         if !defs.iter().any(|b| region.contains(b)) {
             continue;
         }
