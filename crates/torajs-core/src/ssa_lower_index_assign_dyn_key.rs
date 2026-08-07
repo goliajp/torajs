@@ -48,6 +48,7 @@ impl<'a> LowerCtx<'a> {
     /// released after the call).
     pub(crate) fn lower_any_index_assign_str_key(
         &mut self,
+        eid: ExprId,
         obj: ExprId,
         obj_val: Operand,
         index: ExprId,
@@ -88,6 +89,7 @@ impl<'a> LowerCtx<'a> {
             // its own reference too — substr_to_owned only reads.
             self.emit_drop_value(key_raw_keep, k_ty);
         }
+        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         v_raw
     }
 
@@ -100,6 +102,7 @@ impl<'a> LowerCtx<'a> {
     /// write-back, mirroring the numeric lane.
     pub(crate) fn lower_any_index_assign_any_key(
         &mut self,
+        eid: ExprId,
         obj: ExprId,
         obj_val: Operand,
         index: ExprId,
@@ -123,6 +126,7 @@ impl<'a> LowerCtx<'a> {
         if key_transfers {
             self.emit_drop_value(k_raw, Type::Any);
         }
+        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         v_raw
     }
 
@@ -133,6 +137,7 @@ impl<'a> LowerCtx<'a> {
     /// there is no view / wrapper form of a Symbol to materialize.
     pub(crate) fn lower_any_index_assign_symbol_key(
         &mut self,
+        eid: ExprId,
         obj: ExprId,
         obj_val: Operand,
         index: ExprId,
@@ -163,6 +168,7 @@ impl<'a> LowerCtx<'a> {
         if key_transfers {
             self.emit_drop_value(key_raw_keep, k_ty);
         }
+        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         v_raw
     }
 }

@@ -38,6 +38,26 @@ enum WriteBack {
     Global,
 }
 
+/// The index-assignment expression's value is its rhs (§13.15.2) —
+/// same contract knife the member lanes took: the consumer receives
+/// an OWNED reference. The slot's own stake is settled by
+/// `pack_any_slot_value_shared` (transfer-or-inc into the bucket), so
+/// the consumer's share is always a fresh type-aware inc; without it
+/// a kept value (`c = (t[0] = [4,5])`) stole the slot's only stake
+/// and the refcount underflowed at teardown — the face rotation 323
+/// explicitly left as a borrow.
+pub(crate) fn mint_index_assign_value(
+    ctx: &mut crate::ssa_lower::LowerCtx<'_>,
+    eid: ExprId,
+    v: &Operand,
+) {
+    let ty = ctx.operand_ty(v);
+    if ty.is_refcounted() {
+        ctx.emit_owned_result_inc(v.clone(), ty);
+        ctx.owned_member_reads.insert(eid);
+    }
+}
+
 impl<'a> LowerCtx<'a> {
     /// The `Expr::Index` arm of Assign lowering. `obj[index] = value`.
     pub(crate) fn lower_index_assign(
@@ -103,13 +123,14 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_assign_member_any::emit_any_member_set(
                     self, arr_val, &lit, tag_op, value_op, &obj_ident, recv_owned,
                 );
+                mint_index_assign_value(self, eid, &v_raw);
                 return v_raw;
             }
             if matches!(
                 self.expr_types.get(&index),
                 Some(crate::check::Type::String)
             ) {
-                return self.lower_any_index_assign_str_key(obj, arr_val, index, value);
+                return self.lower_any_index_assign_str_key(eid, obj, arr_val, index, value);
             }
             // §6.1.7 / §7.1.19 step 2 — a symbol key reaches the set
             // core as its own cell, uncoerced.
@@ -117,12 +138,12 @@ impl<'a> LowerCtx<'a> {
                 self.expr_types.get(&index),
                 Some(crate::check::Type::Symbol)
             ) {
-                return self.lower_any_index_assign_symbol_key(obj, arr_val, index, value);
+                return self.lower_any_index_assign_symbol_key(eid, obj, arr_val, index, value);
             }
             // Cluster #1 blade 4 — an `any`-typed key rides the keyed
             // set kernel's runtime ToPropertyKey dispatch.
             if matches!(self.expr_types.get(&index), Some(crate::check::Type::Any)) {
-                return self.lower_any_index_assign_any_key(obj, arr_val, index, value);
+                return self.lower_any_index_assign_any_key(eid, obj, arr_val, index, value);
             }
             let idx_val = self.lower_index_operand(index);
             let v_raw = self.lower_expr(value);
@@ -139,6 +160,7 @@ impl<'a> LowerCtx<'a> {
                 ),
             );
             self.emit_throw_check(None);
+            mint_index_assign_value(self, eid, &v_raw);
             return v_raw;
         }
         let elem_ty = match arr_ty {
@@ -177,6 +199,7 @@ impl<'a> LowerCtx<'a> {
             // Both entries can raise (dense-limit / temporary-receiver
             // RangeError) — propagate.
             self.emit_throw_check(None);
+            mint_index_assign_value(self, eid, &v_raw);
             return v_raw;
         }
         // Typed tier. The value lowers BEFORE the bounds guard — both
