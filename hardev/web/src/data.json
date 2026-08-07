@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T14:00:14.980Z",
+  "generatedAt": "2026-08-07T15:22:46.898Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T13:55:15Z",
-    "headSha": "34d22b5c",
-    "elapsedSec": 658.34,
+    "ranAt": "2026-08-07T15:21:08Z",
+    "headSha": "4963c363",
+    "elapsedSec": 404.86,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22517,
+    "pass": 22567,
     "passNoOracle": 692,
     "passNegative": 3957,
-    "passTotal": 27166,
-    "bug": 12262,
-    "incompatible": 13746,
+    "passTotal": 27216,
+    "bug": 12294,
+    "incompatible": 13664,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 39428,
-    "passRateInScope": 51.09,
-    "passRateTrAccepted": 68.9
+    "trAccepted": 39510,
+    "passRateInScope": 51.18,
+    "passRateTrAccepted": 68.88
   },
   "torajs": {
-    "commit": "34d22b5c",
-    "commitSubject": "feat: orphan continue/break/return in eval source throw SyntaxError",
+    "commit": "4963c363",
+    "commitSubject": "Revert \"feat: bare globalThis value is an immortal pre-filled singleton object\"",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "4963c363",
+      "subject": "Revert \"feat: bare globalThis value is an immortal pre-filled singleton object\""
+    },
+    {
+      "hash": "72908741",
+      "subject": "feat: bare globalThis value is an immortal pre-filled singleton object"
+    },
+    {
+      "hash": "c01e439a",
+      "subject": "feat: globalThis member reads of known builtins rewrite to the bare name"
+    },
+    {
+      "hash": "60947d50",
+      "subject": "feat: this-bearing fn-expr IIFE promotes, call seeds undefined this"
+    },
+    {
+      "hash": "8bce5209",
+      "subject": "feat: fn-expr this promotes for the zero-face all-direct-call binding profile"
+    },
+    {
+      "hash": "d078df19",
+      "subject": "chore: rotation 327 close — sweep archive, roadmap snapshot, dashboard refresh"
+    },
+    {
       "hash": "34d22b5c",
       "subject": "feat: orphan continue/break/return in eval source throw SyntaxError"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c03edbc4",
       "subject": "feat: top-level indirect eval collapses identifier-bearing expressions"
-    },
-    {
-      "hash": "28ec0237",
-      "subject": "feat: indirect eval of literal source resolves at compile time"
-    },
-    {
-      "hash": "75aaa30b",
-      "subject": "chore: refresh hardev dashboard snapshot at rotation 326"
-    },
-    {
-      "hash": "713d83c8",
-      "subject": "chore: lower rc underflow baseline to zero with the six-knife ledger"
-    },
-    {
-      "hash": "f7759e63",
-      "subject": "fix: awaiting a rejected promise lent the throw slot a borrowed reason"
-    },
-    {
-      "hash": "011d284a",
-      "subject": "fix: an ident assignment took a borrow-shaped join as if it owned it"
-    },
-    {
-      "hash": "dba1994f",
-      "subject": "fix: returning an escape-boxed binding lent out the box's only stake"
     }
   ],
-  "headSha": "34d22b5c",
+  "headSha": "4963c363",
   "autorun": {
-    "total": 630,
+    "total": 631,
     "baselineTarget": 10,
-    "bySelf": 625,
+    "bySelf": 626,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786106011-1a98",
-      "at": "2026-08-07T12:33:31Z",
-      "ts": 1786106011,
+      "rotationId": "r-1786111440-0576",
+      "at": "2026-08-07T14:04:00Z",
+      "ts": 1786111440,
       "trigger": "self",
-      "prevHead": "75aaa30b",
-      "handoffSha": "sha256:d1011f56961323e6dc7e31687b0bb065471f942432b18e6c42f018e0d03c9c60",
-      "handoffAgeSec": 20,
+      "prevHead": "d078df19",
+      "handoffSha": "sha256:04cf79ff42397e797636f66262bc7cee41305b89e7d528a84a89aac0caf28484",
+      "handoffAgeSec": 106,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786111440-0576",
+        "at": "2026-08-07T14:04:00Z",
+        "ts": 1786111440,
+        "trigger": "self",
+        "prevHead": "d078df19",
+        "handoffSha": "sha256:04cf79ff42397e797636f66262bc7cee41305b89e7d528a84a89aac0caf28484",
+        "handoffAgeSec": 106,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786106011-1a98",
         "at": "2026-08-07T12:33:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "2e571110",
         "handoffSha": "sha256:314ff3183a590433b5ef289d71cbd2398121ae570a383b72032efbf62d1f54a5",
         "handoffAgeSec": 29,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786022400-22ac",
-        "at": "2026-08-06T13:20:00Z",
-        "ts": 1786022400,
-        "trigger": "self",
-        "prevHead": "6caad6f6",
-        "handoffSha": "sha256:91faef059f6ca0e3908ff0a91ba5501d636d4104dac74fca714502ad085363e0",
-        "handoffAgeSec": 19,
         "conformanceBefore": null,
         "commitsInSession": null
       }
