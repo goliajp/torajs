@@ -249,10 +249,24 @@ pub unsafe extern "C" fn __torajs_map_iter_step(
             let kt = __torajs_anyv_unbox_tag(k_anyv) as u8;
             let kp = __torajs_anyv_unbox_value(k_anyv) as u64;
             match (*it).kind {
-                k if k == MAP_ITER_KEYS => (kt as i64, kp as i64),
+                // The `.value` box adopts whatever payload it is
+                // handed, so a heap one leaves here already +1'd —
+                // the entry keeps its own stake. Without this the box
+                // and the map both believed they owned the single
+                // reference and the element died under the map
+                // (rotation 323).
+                k if k == MAP_ITER_KEYS => {
+                    if kt == ANY_HEAP && kp != 0 {
+                        __torajs_rc_inc(kp as *mut c_void);
+                    }
+                    (kt as i64, kp as i64)
+                }
                 k if k == MAP_ITER_VALUES => {
                     let vt = __torajs_anyv_unbox_tag(v_anyv);
                     let vp = __torajs_anyv_unbox_value(v_anyv);
+                    if vt == ANY_HEAP as i64 && vp != 0 {
+                        __torajs_rc_inc(vp as *mut c_void);
+                    }
                     (vt, vp)
                 }
                 k if k == MAP_ITER_ENTRIES => {

@@ -131,12 +131,9 @@ pub unsafe extern "C" fn __torajs_arr_iter_create_entries(arr_p: *mut c_void) ->
 /// what that box may own: ENTRIES mints a fresh `[index, value]`
 /// Array<Any> at refcount 1, KEYS yields a primitive.
 ///
-/// VALUES is the exception and is still wrong: it forwards the slot's
-/// borrowed payload (`__torajs_arr_get_any_boxed` explicitly does not
-/// `+1`), so the box adopts a reference the array still counts as its
-/// own. It does not underflow — the element sits at refcount >= 1, so
-/// the theft is masked — but it is the same defect as the ENTRIES one
-/// that did (rotation 323 L3b).
+/// VALUES `+1`s the slot payload it forwards, because the slot read
+/// above is an explicit borrow and the box would otherwise adopt the
+/// array's own reference.
 ///
 /// # Safety
 /// `iter_p` is null or a live ArrIter. `out_*` are valid writable
@@ -188,7 +185,19 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
 
     let (tag, payload) = match unsafe { (*it).kind } {
         k if k == ARR_ITER_KEYS => (ANY_I64 as i64, i as i64),
-        k if k == ARR_ITER_VALUES => (slot_tag as i64, slot_val as i64),
+        k if k == ARR_ITER_VALUES => {
+            // The `.value` box adopts what it is handed, and
+            // `__torajs_arr_get_any_boxed` above is an explicit borrow
+            // (the slot keeps its reference), so the +1 has to happen
+            // here. Without it `arr.values().next().value` handed out
+            // the element's only stake and the element died under the
+            // array — `arr[0][0]` answered undefined after five steps
+            // (rotation 323).
+            if (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
+                unsafe { __torajs_rc_inc(slot_val as *mut c_void) };
+            }
+            (slot_tag as i64, slot_val as i64)
+        }
         k if k == ARR_ITER_ENTRIES => {
             // Yield `[index, value]` Array<Any> at refcount 1 — that
             // one reference is what the caller transfers into the
