@@ -143,6 +143,9 @@
 mod scope;
 mod source;
 mod walk;
+// The fnexpr-bind promotion shares the fn-ownership walk (its use
+// profile must not count a harness param's shadow uses).
+pub(super) use walk::fn_owned_exprs;
 
 use super::{Ast, Expr, Stmt, free_vars};
 use scope::{binds_eval, seal_var_scope};

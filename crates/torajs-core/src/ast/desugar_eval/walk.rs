@@ -124,7 +124,7 @@ fn collect_stmt(s: &Stmt, nested: bool, out: &mut HashSet<String>) {
 /// Slots appended after this ran (parsed eval sources) answer `false`
 /// via the bounds-checked read in the caller, which is right — a
 /// source's own expressions take the position of the call they replace.
-pub(super) fn fn_owned_exprs(ast: &Ast) -> Vec<bool> {
+pub(crate) fn fn_owned_exprs(ast: &Ast) -> Vec<bool> {
     let mut owned = vec![false; ast.exprs.len()];
     mark_stmts(ast, &ast.stmts, false, &mut owned);
     owned

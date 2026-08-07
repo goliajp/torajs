@@ -92,6 +92,16 @@ pub fn normalize_function_bind_call(ast: &mut Ast) {
 /// Step 2 — give a bind-only this-mentioning fn-expr binding its
 /// `__this: any` leading param.
 pub fn promote_bind_receiver_this(ast: &mut Ast) {
+    // The use profile must not count a SHADOW's uses: the test262
+    // harness declares a param named `func` (`__t262_throwsAsync`),
+    // and a by-name arena walk saw its body uses and refused every
+    // binding the bind family actually names `func`. A use inside a
+    // fn body is exempt only when the shadow-aware reference walks
+    // prove no fn sees the top-level binding at all — a real capture
+    // or named-fn read still refuses (the promoted arity would be
+    // wrong there).
+    let owned = super::desugar_eval::fn_owned_exprs(ast);
+    let refs = crate::ast_refs::toplevel_binding_refs(ast);
     let mut wanted: Vec<super::ExprId> = Vec::new();
     for st in crate::ast::toplevel_stmts_flat(ast) {
         let Stmt::LetDecl { name, init, .. } = st else {
@@ -123,22 +133,25 @@ pub fn promote_bind_receiver_this(ast: &mut Ast) {
         {
             continue;
         }
-        let ident_eids: Vec<u32> = ast
+        let visible_eids: Vec<u32> = ast
             .exprs
             .iter()
             .enumerate()
-            .filter(|(_, e)| matches!(e, Expr::Ident(n) if n == name))
+            .filter(|(i, e)| matches!(e, Expr::Ident(n) if n == name) && !owned[*i])
             .map(|(i, _)| i as u32)
             .collect();
-        if ident_eids.is_empty() {
+        if visible_eids.is_empty() {
             continue;
         }
-        let all_bind_receivers = ident_eids.iter().all(|eid| {
+        let all_bind_receivers = visible_eids.iter().all(|eid| {
             ast.exprs
                 .iter()
                 .any(|e| matches!(e, Expr::Member { obj, name: m } if obj.0 == *eid && m == "bind"))
         });
-        if all_bind_receivers {
+        if all_bind_receivers
+            && !refs.named_fn_refs.contains(name)
+            && !refs.closure_captured.contains(name)
+        {
             wanted.push(*init);
         }
     }
