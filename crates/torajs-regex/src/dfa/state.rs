@@ -88,6 +88,17 @@ pub struct DfaState {
     /// haystacks. The exit boundary (transition out of monotone
     /// region, dead, or haystack end) writes `last_accept` once.
     pub monotone_accept: bool,
+    /// Explicit 1-byte padding so `accept_before_byte` lands
+    /// deterministically at offset 1028, mirroring
+    /// [`PendingClass::_pad`]. The AOT bake path serialises a
+    /// `DfaState` by reading its bytes through `*const u8`
+    /// (`ssa_lower_regex_bake::try_bake_regex_dfa`), and a compiler-
+    /// inserted padding hole would be read there as uninitialised
+    /// memory — whatever the allocator last left in that byte lands
+    /// verbatim in `__DATA_CONST`, so the same source built twice
+    /// produced two different binaries. Declaring the byte gives it a
+    /// defined value and keeps the serialised image total.
+    pub _pad: u8,
     /// chunk 8.6b — 256-bit packed mask. Bit `b` is set iff re-closing
     /// the PC set at this state with `right_byte = Some(b)` reaches
     /// `Op::Match`. Lets the executor record a zero-width accept at
@@ -117,6 +128,7 @@ impl Default for DfaState {
             is_accept: false,
             is_accept_at_end: false,
             monotone_accept: false,
+            _pad: 0,
             accept_before_byte: [0u32; 8],
             pending_class: PendingClass::INERT,
         }

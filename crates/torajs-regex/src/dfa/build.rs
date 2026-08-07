@@ -155,6 +155,7 @@ fn intern_state(
         // `transitions[b]` slots are populated. `false` here keeps
         // the executor's monotone-accept fast path off until then.
         monotone_accept: false,
+        _pad: 0,
         // Mask filled in by BFS when the state is dequeued (skipped
         // for pending K-PROPERTY states whose `pending_class.active`
         // short-circuits the per-byte transitions path entirely).

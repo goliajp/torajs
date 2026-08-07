@@ -510,10 +510,15 @@ mod tests {
         assert_eq!(offset_of!(DfaState, is_accept), 1024);
         assert_eq!(offset_of!(DfaState, is_accept_at_end), 1025);
         // Round 3 Phase B sub-batch 6 attack #R-G — monotone_accept
-        // fills offset 1026 (1 of the 2 padding bytes between
-        // `is_accept_at_end` and `accept_before_byte`). Layout stays
+        // fills offset 1026, the first of the two bytes between
+        // `is_accept_at_end` and `accept_before_byte`. Layout stays
         // 1072 bytes / align 4.
         assert_eq!(offset_of!(DfaState, monotone_accept), 1026);
+        // The second one is `_pad`: declared rather than left to the
+        // compiler because the AOT bake path reads this struct as raw
+        // bytes, where an undeclared hole is uninitialised memory (it
+        // made `tr build` emit two different binaries for one input).
+        assert_eq!(offset_of!(DfaState, _pad), 1027);
         assert_eq!(offset_of!(DfaState, accept_before_byte), 1028);
         // Round 3 Phase B sub-batch 4 attack #R-J v2 — pending_class
         // triple appended at offset 1060, growing the struct to 1072
@@ -564,6 +569,7 @@ mod tests {
                 is_accept: false,
                 is_accept_at_end: false,
                 monotone_accept: false,
+                _pad: 0,
                 accept_before_byte: [0; 8],
                 // Round 3 Phase B sub-batch 4 attack #R-J v2 — hand-
                 // built `DfaState` literals must initialise the new
@@ -585,6 +591,7 @@ mod tests {
                 is_accept: false,
                 is_accept_at_end: false,
                 monotone_accept: false,
+                _pad: 0,
                 accept_before_byte: [0; 8],
                 pending_class: PendingClass::INERT,
             },
@@ -594,6 +601,7 @@ mod tests {
                 is_accept: true,
                 is_accept_at_end: false,
                 monotone_accept: false,
+                _pad: 0,
                 accept_before_byte: [0; 8],
                 pending_class: PendingClass::INERT,
             },

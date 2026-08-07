@@ -128,12 +128,19 @@ pub(crate) fn try_bake_regex_dfa(
     let mut payload: Vec<u8> = Vec::with_capacity(states_slice.len() * state_size);
     for state in states_slice {
         // SAFETY: `DfaState` is `#[repr(C)]` POD (no pointers, no
-        // drop). Reading its byte representation through `*const u8`
-        // honours the same memory layout the link emitter writes into
-        // __DATA_CONST and the runtime reader walks. The 2-byte
-        // padding the compiler inserts between the two bools and the
-        // `[u32; 8]` array is well-defined to read as zero (POD field
-        // init via `Default` / `DfaState::default`).
+        // drop) and has no implicit padding — every byte between
+        // `transitions` and `pending_class` belongs to a declared
+        // field, `_pad` included. That is what makes reading the
+        // struct's byte representation through `*const u8` sound:
+        // every byte read is initialised, and the sequence matches
+        // the layout the link emitter writes into __DATA_CONST and
+        // the runtime reader walks.
+        //
+        // The padding must stay declared. `Default` initialises
+        // fields, not holes, so an implicit padding byte read here is
+        // uninitialised memory — it took whatever the allocator last
+        // left there and carried it into the binary, which is how the
+        // same source built twice produced two different artifacts.
         let bytes = unsafe {
             core::slice::from_raw_parts(state as *const DfaState as *const u8, state_size)
         };
