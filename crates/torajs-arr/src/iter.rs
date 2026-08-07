@@ -125,11 +125,18 @@ pub unsafe extern "C" fn __torajs_arr_iter_create_entries(arr_p: *mut c_void) ->
 /// the cursor + fill out-params per kind. Returns 1 on hit, 0 when
 /// cursor has run past `arr.length`.
 ///
-/// Heap payloads in VALUES / ENTRIES come WITHOUT rc_inc — caller's
-/// `__torajs_any_box` wrap rc_incs (same contract as map_iter_step).
-/// ENTRIES kind builds a fresh `[index, value]` Array<Any> per step
-/// and pre-decrements its refcount to 0 so the any_box wrap lands
-/// at exactly 1 owner (the IteratorResult.value box).
+/// The `.value` box the caller builds (`__torajs_anyv_box_from_pair`)
+/// TRANSFERS the reference it is handed — its heap arm is a bare
+/// `box_void_ptr` with no rc traffic. So each kind hands out exactly
+/// what that box may own: ENTRIES mints a fresh `[index, value]`
+/// Array<Any> at refcount 1, KEYS yields a primitive.
+///
+/// VALUES is the exception and is still wrong: it forwards the slot's
+/// borrowed payload (`__torajs_arr_get_any_boxed` explicitly does not
+/// `+1`), so the box adopts a reference the array still counts as its
+/// own. It does not underflow — the element sits at refcount >= 1, so
+/// the theft is masked — but it is the same defect as the ENTRIES one
+/// that did (rotation 323 L3b).
 ///
 /// # Safety
 /// `iter_p` is null or a live ArrIter. `out_*` are valid writable
@@ -183,8 +190,10 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
         k if k == ARR_ITER_KEYS => (ANY_I64 as i64, i as i64),
         k if k == ARR_ITER_VALUES => (slot_tag as i64, slot_val as i64),
         k if k == ARR_ITER_ENTRIES => {
-            // Yield `[index, value]` Array<Any>; same pre-dec idiom
-            // as MapIter's make_pair_arr.
+            // Yield `[index, value]` Array<Any> at refcount 1 — that
+            // one reference is what the caller transfers into the
+            // `.value` box. Mirrors MapIter's `make_pair_arr`, which
+            // carried (and has lost) the same pre-dec-to-0 idiom.
             unsafe {
                 let mut out_arr = __torajs_arr_alloc_any(2);
                 // Index — primitive i64, no rc_inc.
@@ -194,9 +203,6 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
                     __torajs_rc_inc(slot_val as *mut c_void);
                 }
                 out_arr = __torajs_arr_push_any(out_arr, slot_tag, slot_val);
-                // Pre-decrement so any_box's inc lands at 1.
-                let hdr = out_arr as *mut HeapHeader;
-                (*hdr).refcount -= 1;
                 (ANY_HEAP as i64, out_arr as i64)
             }
         }

@@ -178,11 +178,18 @@ pub unsafe extern "C" fn __torajs_map_iter_create_set_entries(map_p: *mut c_void
     unsafe { create_with_kind(map_p, MAP_ITER_SET_ENTRIES) }
 }
 
-/// Internal: alloc a fresh `[a, b]` Array<Any>(2). Pre-decrements the
-/// array refcount to 0 so the upcoming `__torajs_any_box` wrap
-/// rc_inc's it back to exactly 1 (single-owner = the IteratorResult
-/// .value box). Without this idiom the array would leak through
-/// double-ownership (caller's local + any_box's inc).
+/// Internal: alloc a fresh `[a, b]` Array<Any>(2) at refcount 1 and
+/// hand that one reference to the caller, who transfers it into the
+/// `.value` box.
+///
+/// This used to pre-decrement the refcount to 0 "so the upcoming
+/// `__torajs_any_box` wrap rc_inc's it back to exactly 1". That wrap
+/// is `__torajs_anyv_box_from_pair`, whose heap arm is a bare
+/// `box_void_ptr` — it does not inc, it takes ownership of the
+/// reference it is given (its own safety contract says so). So the
+/// pre-dec left a LIVE array at refcount 0: the first release ran
+/// `0 - 1`, wrapped to u32::MAX, and the block was never freed nor
+/// scrubbed from the cycle-root buffer (rotation 323).
 unsafe fn make_pair_arr(t1: u8, p1: u64, t2: u8, p2: u64) -> *mut c_void {
     unsafe {
         let mut arr = __torajs_arr_alloc_any(2);
@@ -194,9 +201,6 @@ unsafe fn make_pair_arr(t1: u8, p1: u64, t2: u8, p2: u64) -> *mut c_void {
             __torajs_rc_inc(p2 as *mut c_void);
         }
         arr = __torajs_arr_push_any(arr, t2 as u64, p2);
-        // Pre-decrement to 0 — see fn doc.
-        let hdr = arr as *mut HeapHeader;
-        (*hdr).refcount -= 1;
         arr
     }
 }

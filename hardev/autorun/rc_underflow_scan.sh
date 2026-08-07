@@ -26,10 +26,12 @@
 set -u
 cd "$(dirname "$0")/../.." || exit 2
 
-# The number of cases known to underflow at the time of writing
-# (rotation 323, HEAD 81337f33). Every one of them predates the
-# detector — see `.claude/plan-state.md` for the list and its clusters.
-RC_UNDERFLOW_BASELINE=41
+# Cases known to underflow. Started at 41 when the detector landed
+# (rotation 323, HEAD 82e30c55); every one of those predated it.
+# 41 → 32: the iterator `entries()` pre-dec-to-0 idiom, one defect
+# across torajs-arr and torajs-collections.
+# See `.claude/plan-state.md` for the remaining clusters.
+RC_UNDERFLOW_BASELINE=32
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in
