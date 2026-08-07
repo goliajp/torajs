@@ -62,14 +62,15 @@
 //!
 //! ## What this pass deliberately does NOT do
 //!
-//! - **Only statement position.** `eval(…)` whose result is consumed
-//!   needs the *completion value* — "the value of the last statement
-//!   that produced one" — which tr has no counterpart for. 85% of the
-//!   core eval-code cases discard the result, so the scoping semantics
-//!   can land first and completion value follows as its own piece of
-//!   work. An `eval` in value position is left untouched and keeps
-//!   reporting the honest `unknown identifier` rather than silently
-//!   evaluating to something wrong.
+//! - **Only the single-expression completion value.** A source that is
+//!   exactly one ExpressionStatement collapses to that expression, which
+//!   is exact and works in value position. The *general* completion
+//!   value — `eval("if (true) { }")` is `undefined`, `eval("1; ;")` is
+//!   `1` — has no counterpart in tr, so a multi-statement source in
+//!   value position is left alone and keeps reporting the honest
+//!   `unknown identifier` rather than silently evaluating to something
+//!   wrong. 85% of the core eval-code cases discard the result
+//!   entirely, so this boundary costs little.
 //! - **Only literal source.** A runtime string needs the compiler in
 //!   the artifact; that is a separate layer with its own cost to
 //!   measure (artifact size is a headline property of tr).
@@ -77,9 +78,12 @@
 //!   named `eval` exists anywhere, the pass declines wholesale — a
 //!   local `eval` is not this `eval`, and proving which one a given
 //!   call site sees needs scope resolution this pass runs before.
-//! - **Parse failure leaves the call alone.** §19.2.1.1 step 12 wants a
-//!   SyntaxError thrown at runtime; until that exists, the call keeps
-//!   its current diagnostic instead of being quietly dropped.
+//! - **A parse failure in statement position becomes a throw**, per
+//!   §19.2.1.1 step 12 — raised when the eval is reached, so
+//!   `if (false) { eval("((("); }` still runs to completion. In value
+//!   position it is still left alone: JavaScript has no throw
+//!   expression, so that shape needs a statement-level rewrite this
+//!   pass does not do yet.
 
 use super::{Ast, Expr, Stmt};
 use crate::{lexer, parser};
@@ -248,14 +252,24 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast) {
     // parses to.
     if let Stmt::Expr(eid) = s {
         if let Some(src) = literal_eval_source(*eid, ast) {
-            if let Some(mut inlined) = parse_eval_source(&src, ast) {
-                // An eval inside the inlined text is an eval like any
-                // other; the nesting is finite because each level is a
-                // literal written in the level above.
-                rewrite_list(&mut inlined, ast);
-                seal_var_scope(&mut inlined);
-                *s = Stmt::Block(inlined);
-                return;
+            match parse_eval_source(&src, ast) {
+                Some(mut inlined) => {
+                    // An eval inside the inlined text is an eval like
+                    // any other; the nesting is finite because each
+                    // level is a literal written in the level above.
+                    rewrite_list(&mut inlined, ast);
+                    seal_var_scope(&mut inlined);
+                    *s = Stmt::Block(inlined);
+                    return;
+                }
+                None => {
+                    // The text does not parse. §19.2.1.1 step 12 wants
+                    // a SyntaxError at evaluation time — see
+                    // `syntax_error_throw` on why this is a throw and
+                    // not a compile error.
+                    *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
+                    return;
+                }
             }
         }
     }
@@ -396,7 +410,47 @@ fn literal_eval_source(eid: super::ExprId, ast: &Ast) -> Option<String> {
 /// merge an imported file. `None` on a lex or parse failure, which
 /// leaves the call site untouched.
 fn parse_eval_source(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
+    // `parse_into` assigns `*target = p.ast` BEFORE propagating the
+    // error, so a failed parse leaves whatever it managed to build
+    // appended to `ast.stmts`. Those statements belong to nobody —
+    // without this truncate they would be spliced into the program as
+    // if the user had written them.
+    let before = ast.stmts.len();
     let tokens = lexer::tokenize(src).ok()?;
-    let offset = parser::parse_into(src, &tokens, ast).ok()?;
-    Some(ast.stmts.drain(offset..).collect())
+    match parser::parse_into(src, &tokens, ast) {
+        Ok(offset) => Some(ast.stmts.drain(offset..).collect()),
+        Err(_) => {
+            ast.stmts.truncate(before);
+            None
+        }
+    }
+}
+
+/// The first line of the offending source, capped, for the error
+/// message. A whole eval'd program in a diagnostic is noise.
+fn first_line(src: &str) -> String {
+    let line = src.lines().next().unwrap_or("").trim();
+    if line.chars().count() > 60 {
+        let cut: String = line.chars().take(60).collect();
+        format!("{cut}…")
+    } else {
+        line.to_string()
+    }
+}
+
+/// A `throw new SyntaxError(<message>)` statement.
+///
+/// §19.2.1.1 step 12 wants the SyntaxError raised **when the eval is
+/// evaluated**, not when the program is compiled — `if (false) {
+/// eval("((("); }` runs to completion under bun. Replacing the call
+/// with a throw keeps that: unreachable code raises nothing, and a
+/// reached one raises at the right moment with the right error type.
+fn syntax_error_throw(msg: String, ast: &mut Ast) -> Stmt {
+    let msg_id = ast.add_expr(Expr::String(msg));
+    let exc = ast.add_expr(Expr::New {
+        class_name: "SyntaxError".to_string(),
+        args: vec![msg_id],
+        type_args: Vec::new(),
+    });
+    Stmt::Throw(exc)
 }
