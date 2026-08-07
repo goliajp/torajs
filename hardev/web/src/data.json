@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T00:59:39.552Z",
+  "generatedAt": "2026-08-07T01:20:50.903Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T00:38:21Z",
-    "headSha": "a4fd872e",
-    "elapsedSec": 403.01,
+    "ranAt": "2026-08-07T01:18:57Z",
+    "headSha": "a73fd098",
+    "elapsedSec": 399.06,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.45
   },
   "torajs": {
-    "commit": "47d14fc0",
-    "commitSubject": "feat(egraph): dump the module after a named pass, not just at the end",
+    "commit": "a73fd098",
+    "commitSubject": "fix(egraph): scan for the pre-chain split point in value order, not hash order",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "a73fd098",
+      "subject": "fix(egraph): scan for the pre-chain split point in value order, not hash order"
+    },
+    {
+      "hash": "9d2831e9",
+      "subject": "chore: stow rotation 321 sweep and refresh dashboard"
+    },
+    {
       "hash": "47d14fc0",
       "subject": "feat(egraph): dump the module after a named pass, not just at the end"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "bb903f36",
       "subject": "refactor(runtime): the generator step trio moves out of the fn-prototype file"
-    },
-    {
-      "hash": "6c37b7be",
-      "subject": "fix(runtime): a bigint stringifies itself, it does not ask its prototype"
-    },
-    {
-      "hash": "4669a91b",
-      "subject": "chore: stow rotation 319 sweep and refresh dashboard"
     }
   ],
-  "headSha": "47d14fc0",
+  "headSha": "a73fd098",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,
