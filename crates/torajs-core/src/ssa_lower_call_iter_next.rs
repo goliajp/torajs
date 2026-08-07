@@ -74,7 +74,11 @@ pub(crate) fn try_lower(
         cur_block,
         InstKind::Call(
             step_fid,
-            vec![recv_op, Operand::Value(tag_slot), Operand::Value(val_slot)],
+            vec![
+                recv_op.clone(),
+                Operand::Value(tag_slot),
+                Operand::Value(val_slot),
+            ],
         ),
         Type::I64,
         None,
@@ -100,6 +104,20 @@ pub(crate) fn try_lower(
         Type::Any,
         None,
     );
+    // The receiver is only borrowed for the step, so an owned-temp
+    // receiver has to be released here — a chained `xs.entries()
+    // .next()` mints a fresh iterator per evaluation and nothing else
+    // ever drops it (300k chained steps held 24MB against a 6MB flat
+    // baseline; the same loop over a hoisted `it` was already flat,
+    // which is what pinned it to the receiver rather than to the
+    // IteratorResult). An Ident receiver is a slot borrow and
+    // `release_owned_temp` no-ops on it.
+    //
+    // After the value box, not before: for VALUES the out-payload is a
+    // borrowed element of the iterator's source array, so the release
+    // must not be the thing that frees the source out from under a
+    // payload nobody has adopted yet.
+    ctx.release_owned_temp(recv_id, &recv_op);
     let done_bool = ctx.f.append_inst(
         cur_block,
         InstKind::ICmp(IPred::Eq, Operand::Value(live), Operand::ConstI64(0)),
