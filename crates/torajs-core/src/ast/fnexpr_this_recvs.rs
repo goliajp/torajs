@@ -167,6 +167,43 @@ fn collect_mapset_names_inner(
 /// (`...args`)? Rest-tail closures dispatch through the boxed
 /// variadic entry, which materializes params off argv — cut 2's
 /// mixed promotion excludes them.
+/// Rotation 328 — every binding whose init is a marked fn-expr
+/// Closure still carrying `__this` in its capture list. These are the
+/// zero-face candidates for the all-direct-call profile: a name never
+/// standing in any face position can still promote when its every use
+/// is a direct-call callee (the `closure_local` lane seeds a boxed
+/// `undefined` into the promoted `__this` slot — §10.2.1.2 strict-mode
+/// call-site `this`, the same framing as `this_param.rs` blade 1).
+/// Recursion set mirrors [`collect_decls_by_name`]: a decl this walk
+/// finds in a position that walk cannot re-find fails its
+/// `decls.len() == 1` guard and stays loud — never mis-paired.
+pub(super) fn collect_this_fnexpr_decl_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<super::ExprId>,
+    out: &mut Vec<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl { name, init, .. } => {
+                if fn_expr_exprs.contains(init)
+                    && matches!(&exprs[init.0 as usize], Expr::Closure { captures, .. }
+                        if captures.iter().any(|c| c == "__this"))
+                {
+                    out.push(name.clone());
+                }
+            }
+            Stmt::FnDecl { body, .. } => {
+                collect_this_fnexpr_decl_names(body, exprs, fn_expr_exprs, out)
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_this_fnexpr_decl_names(inner, exprs, fn_expr_exprs, out)
+            }
+            _ => {}
+        }
+    }
+}
+
 pub(super) fn fn_has_rest_param(stmts: &[Stmt], fn_name: &str) -> bool {
     stmts.iter().any(|s| {
         matches!(s, Stmt::FnDecl { name, params, .. }

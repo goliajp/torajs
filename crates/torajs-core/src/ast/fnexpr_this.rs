@@ -52,7 +52,8 @@ pub(crate) use super::fnexpr_this_faces::promote_recv_any;
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
     collect_any_binding_names, collect_arraylit_binding_names, collect_decls_by_name,
-    collect_mapset_binding_names, fn_has_rest_param, name_shadowed_elsewhere,
+    collect_mapset_binding_names, collect_this_fnexpr_decl_names, fn_has_rest_param,
+    name_shadowed_elsewhere,
 };
 use super::{Expr, ExprId, Stmt};
 
@@ -337,6 +338,21 @@ fn promote_variable_routed(
         if !v.contains(&face_eid) {
             v.push(face_eid);
         }
+    }
+    // Rotation 328 — the ZERO-FACE all-direct-call profile:
+    // `var f = function () { …this… }; f();` never stands in a face
+    // position, but every guard below already covers it — the
+    // use-vs-face parity degenerates to "every use is a direct-call
+    // callee", and knife-2W cut 2's `closure_local` lane seeds a boxed
+    // `undefined` into the promoted `__this` slot at each such call
+    // (§10.2.1.2 strict call-site `this`, the `this_param.rs` blade-1
+    // framing — matching bun's module-goal answer). Injecting the
+    // binding with an empty face list is the whole knife; any use
+    // shape besides a direct call still rejects in the parity check.
+    let mut call_only: Vec<String> = Vec::new();
+    collect_this_fnexpr_decl_names(stmts, exprs, fn_expr_exprs, &mut call_only);
+    for name in call_only {
+        faces_by_name.entry(name).or_default();
     }
     // Knife 2W cut 2 — every Ident node standing in direct-call
     // callee position (`h(args)`). A mixed binding's non-face uses
