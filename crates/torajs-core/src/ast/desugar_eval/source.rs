@@ -103,7 +103,7 @@ pub(super) fn has_use_strict_prologue(parsed: &[Stmt], ast: &Ast) -> bool {
 /// leaves the call site untouched.
 pub(super) fn parse_eval_source(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
     if let Some(stmts) = parse_once(src, ast) {
-        return Some(stmts);
+        return reject_module_decls(stmts);
     }
     // §12.9.1 rule 2 — automatic semicolon insertion at end of input:
     // when the token stream ends where the grammar still wants a
@@ -114,7 +114,27 @@ pub(super) fn parse_eval_source(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
     // appended IS that rule — it cannot make an invalid source valid,
     // because a semicolon only ever terminates a final statement.
     let with_semi = format!("{src};");
-    parse_once(&with_semi, ast)
+    parse_once(&with_semi, ast).and_then(reject_module_decls)
+}
+
+/// §19.2.1.1 step 2 parses eval code with the **Script** goal symbol,
+/// and `import` / `export` declarations exist only in the Module
+/// grammar — `eval("export default null")` is a SyntaxError, raised at
+/// evaluation time like any other parse failure. tr's parser accepts
+/// them (it parses whole programs, which may be modules), so the
+/// Script-goal restriction is applied here: a source containing one is
+/// reported as failed, which routes the statement-position call into
+/// the `throw new SyntaxError` rewrite. The drained statements are
+/// dropped; their expressions stay in the arena unreferenced, costing
+/// slots and nothing else.
+fn reject_module_decls(stmts: Vec<Stmt>) -> Option<Vec<Stmt>> {
+    if stmts
+        .iter()
+        .any(|s| matches!(s, Stmt::ImportDecl { .. } | Stmt::ExportDecl { .. }))
+    {
+        return None;
+    }
+    Some(stmts)
 }
 
 /// One tokenize + parse attempt into the shared arena.
