@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T15:22:46.898Z",
+  "generatedAt": "2026-08-07T17:08:01.516Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T15:21:08Z",
-    "headSha": "4963c363",
-    "elapsedSec": 404.86,
+    "ranAt": "2026-08-07T17:05:05Z",
+    "headSha": "abb45913",
+    "elapsedSec": 403.85,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22567,
-    "passNoOracle": 692,
+    "pass": 22584,
+    "passNoOracle": 735,
     "passNegative": 3957,
-    "passTotal": 27216,
-    "bug": 12294,
-    "incompatible": 13664,
+    "passTotal": 27276,
+    "bug": 12309,
+    "incompatible": 13589,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 39510,
-    "passRateInScope": 51.18,
-    "passRateTrAccepted": 68.88
+    "trAccepted": 39585,
+    "passRateInScope": 51.3,
+    "passRateTrAccepted": 68.9
   },
   "torajs": {
-    "commit": "4963c363",
-    "commitSubject": "Revert \"feat: bare globalThis value is an immortal pre-filled singleton object\"",
+    "commit": "af35d5e3",
+    "commitSubject": "docs: rotation 329 sweep at abb45913 — +60 passTotal, zero regressions, linker case closed",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "af35d5e3",
+      "subject": "docs: rotation 329 sweep at abb45913 — +60 passTotal, zero regressions, linker case closed"
+    },
+    {
+      "hash": "abb45913",
+      "subject": "feat: the iterator-helper self-transform widens its binding"
+    },
+    {
+      "hash": "d60bb89f",
+      "subject": "feat: a this-reading fn-expr works as an iterator-helper callback"
+    },
+    {
+      "hash": "980e0f09",
+      "subject": "fix(link): GOT_LOAD relaxation refuses a non-LDR site loudly"
+    },
+    {
+      "hash": "503a8d1e",
+      "subject": "Reapply \"feat: bare globalThis value is an immortal pre-filled singleton object\""
+    },
+    {
+      "hash": "f6de0dc2",
+      "subject": "fix(link): header sizing missed every __DATA section_64 — PC=1 latent bug"
+    },
+    {
+      "hash": "ab908de4",
+      "subject": "chore: rotation 328 close — sweep archive, dashboard refresh"
+    },
+    {
       "hash": "4963c363",
       "subject": "Revert \"feat: bare globalThis value is an immortal pre-filled singleton object\""
     },
@@ -731,55 +759,38 @@
     {
       "hash": "8bce5209",
       "subject": "feat: fn-expr this promotes for the zero-face all-direct-call binding profile"
-    },
-    {
-      "hash": "d078df19",
-      "subject": "chore: rotation 327 close — sweep archive, roadmap snapshot, dashboard refresh"
-    },
-    {
-      "hash": "34d22b5c",
-      "subject": "feat: orphan continue/break/return in eval source throw SyntaxError"
-    },
-    {
-      "hash": "2ec35ddc",
-      "subject": "feat: sloppy indirect eval of an unmentioned declaration source collapses"
-    },
-    {
-      "hash": "11af16eb",
-      "subject": "feat: eval source parses with the Script goal — import/export throw SyntaxError"
-    },
-    {
-      "hash": "14c74fcf",
-      "subject": "feat: use-strict prologue makes eval code strict; completion predicate tightened"
-    },
-    {
-      "hash": "1be4682b",
-      "subject": "docs: module doc catches up with the top-level indirect collapse"
-    },
-    {
-      "hash": "c03edbc4",
-      "subject": "feat: top-level indirect eval collapses identifier-bearing expressions"
     }
   ],
-  "headSha": "4963c363",
+  "headSha": "af35d5e3",
   "autorun": {
-    "total": 631,
+    "total": 632,
     "baselineTarget": 10,
-    "bySelf": 626,
+    "bySelf": 627,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786111440-0576",
-      "at": "2026-08-07T14:04:00Z",
-      "ts": 1786111440,
+      "rotationId": "r-1786116874-49a1",
+      "at": "2026-08-07T15:34:34Z",
+      "ts": 1786116874,
       "trigger": "self",
-      "prevHead": "d078df19",
-      "handoffSha": "sha256:04cf79ff42397e797636f66262bc7cee41305b89e7d528a84a89aac0caf28484",
-      "handoffAgeSec": 106,
+      "prevHead": "ab908de4",
+      "handoffSha": "sha256:a18d0044c531a68b3ba57713665228a064b31f1574edaf757fce7f90dcf148b0",
+      "handoffAgeSec": 186,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786116874-49a1",
+        "at": "2026-08-07T15:34:34Z",
+        "ts": 1786116874,
+        "trigger": "self",
+        "prevHead": "ab908de4",
+        "handoffSha": "sha256:a18d0044c531a68b3ba57713665228a064b31f1574edaf757fce7f90dcf148b0",
+        "handoffAgeSec": 186,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786111440-0576",
         "at": "2026-08-07T14:04:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "4669a91b",
         "handoffSha": "sha256:16e00aa5284db2563f6bf41c27e0d70a816aff2990423a237260d7ac6198b007",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786047595-573b",
-        "at": "2026-08-06T20:19:55Z",
-        "ts": 1786047595,
-        "trigger": "self",
-        "prevHead": "2e571110",
-        "handoffSha": "sha256:314ff3183a590433b5ef289d71cbd2398121ae570a383b72032efbf62d1f54a5",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
