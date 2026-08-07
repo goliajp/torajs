@@ -1,4 +1,6 @@
-//! Direct `eval` of a string literal, inlined at the call site.
+//! `eval` of a string literal, resolved at compile time — direct calls
+//! inlined at the call site, indirect calls attached to the global
+//! scope.
 //!
 //! ## Why this is a desugar and not a runtime
 //!
@@ -31,24 +33,65 @@
 //! `desugar_var_hoist` and printed `1` — correct for sloppy mode,
 //! wrong for the mode tr is in.
 //!
-//! So the inlined statements are *sealed*: every `var` in eval's own
-//! variable scope is re-tagged block-scoped, which makes the enclosing
-//! `Stmt::Block` the whole environment for `var`. Sealing stops at a
-//! nested `FnDecl` body: that body is its own VariableEnvironment and
-//! its `var`s belong to it, not to the eval.
+//! So a DIRECT eval's inlined statements are *sealed*: every `var` in
+//! eval's own variable scope is re-tagged block-scoped, which makes the
+//! enclosing `Stmt::Block` the whole environment for `var`. Sealing
+//! stops at a nested `FnDecl` body: that body is its own
+//! VariableEnvironment and its `var`s belong to it, not to the eval.
 //!
-//! **A function declaration still escapes, and that is a defect this
-//! pass inherits rather than introduces.** `eval("{ function f() {} }")`
-//! leaves `f` visible afterwards under tr and does not under bun — but
-//! so does a plain `{ function f() {} }` with no eval anywhere, which
-//! is where the difference actually lives (§14.2 says a block-level
-//! function declaration is block-scoped; Annex B B.3.3 hoists it only
-//! in sloppy mode, and tr is not in sloppy mode). Until that is fixed,
-//! `var` here follows the strict rule and `function` follows the
-//! sloppy one, which is not a coherent mode. Twenty-six
-//! `annexB/language/eval-code` cases currently report `pass` off the
-//! back of it — they are asking for the sloppy behaviour and getting
-//! it by accident, so they are counted as water under the
+//! ## Indirect eval — `(0, eval)("…")` — and the script framing
+//!
+//! An INDIRECT call evaluates its source as *global* code
+//! (§19.2.1.1: no calling-context environment is passed), and the
+//! source's strictness is its own — it does not inherit the caller's,
+//! so without a `"use strict"` prologue the eval code is sloppy and its
+//! `var`s land on the global. Measured against bun: `(0,
+//! eval)("var q = 7")` makes `typeof q` answer `"number"` afterwards,
+//! `let` stays contained, and the completion value comes back exactly
+//! as for direct.
+//!
+//! tr has no separate global object; its top level IS its global. This
+//! pass therefore treats the program under **script framing** — the
+//! framing test262 itself is written in, where top-level `var`s are
+//! global and indirect eval shares one scope with the top level. The
+//! one direction where bun-as-module diverges (a module's top-level
+//! binding is NOT visible to indirect eval, so `(0, eval)("x + 1")`
+//! throws under bun where a script sees `x`) is exactly the direction
+//! the toplevel gate below does not yet inline, so nothing currently
+//! rides on the divergence.
+//!
+//! Concretely, an indirect literal eval is resolved when one of these
+//! holds, and left alone (honest reject) otherwise:
+//!
+//! - **the source is closed** — a single expression with no free
+//!   variables. Scope cannot matter, so it collapses to the expression
+//!   in ANY position, including inside functions (`assert.throws(…,
+//!   function () { (0, eval)("…") })` is how test262 wraps most sites);
+//! - **the source completes empty without effects** — `";"`, `"{}"`,
+//!   control flow over literals — and collapses to `undefined`;
+//! - **the call is a top-level statement** — inlined as a `Stmt::Block`
+//!   WITHOUT sealing: `var` hoists out (sloppy global semantics),
+//!   `let` / `const` / `class` stay in the block (their environment is
+//!   the eval's own lexical env, distinct per §19.2.1.2);
+//! - **the source does not parse** — replaced by a `throw new
+//!   SyntaxError` in statement position, at any depth.
+//!
+//! A statement-position indirect eval INSIDE a function is not inlined:
+//! its source belongs to the global scope, and inlining it locally
+//! would let the source see the function's bindings.
+//!
+//! **A function declaration still escapes a direct eval, and that is a
+//! defect this pass inherits rather than introduces.** `eval("{
+//! function f() {} }")` leaves `f` visible afterwards under tr and does
+//! not under bun — but so does a plain `{ function f() {} }` with no
+//! eval anywhere, which is where the difference actually lives (§14.2
+//! says a block-level function declaration is block-scoped; Annex B
+//! B.3.3 hoists it only in sloppy mode, and tr is not in sloppy mode).
+//! Until that is fixed, `var` here follows the strict rule and
+//! `function` follows the sloppy one, which is not a coherent mode.
+//! Twenty-six `annexB/language/eval-code` cases currently report `pass`
+//! off the back of it — they are asking for the sloppy behaviour and
+//! getting it by accident, so they are counted as water under the
 //! no-metric-inflation rule and will fall back out when the block
 //! scoping is corrected.
 //!
@@ -74,6 +117,10 @@
 //! - **Only literal source.** A runtime string needs the compiler in
 //!   the artifact; that is a separate layer with its own cost to
 //!   measure (artifact size is a headline property of tr).
+//! - **Only the comma spelling of indirect.** Alias forms (`var e =
+//!   eval; e("…")`) need value tracking, and `eval` as a first-class
+//!   value (`arr.every(cb, eval)`) needs a runtime eval object — both
+//!   are the runtime layer's problem, not this pass's.
 //! - **Only when the program has not rebound `eval`.** If any binding
 //!   named `eval` exists anywhere, the pass declines wholesale — a
 //!   local `eval` is not this `eval`, and proving which one a given
@@ -85,81 +132,91 @@
 //!   expression, so that shape needs a statement-level rewrite this
 //!   pass does not do yet.
 
-use super::{Ast, Expr, Stmt};
-use crate::{lexer, parser};
+mod scope;
+mod source;
 
-/// Inline every statement-position `eval("…")` whose source text is a
-/// literal. See the module doc for the boundaries.
+use super::{Ast, Expr, Stmt, free_vars};
+use scope::{binds_eval, seal_var_scope};
+use source::{
+    CallForm, first_line, literal_eval_call, nonstring_literal_eval_arg, parse_eval_source,
+    syntax_error_throw,
+};
+
+/// Resolve every literal `eval` call this pass can resolve exactly.
+/// See the module doc for the boundaries.
 pub fn desugar_eval(ast: &mut Ast) {
     if binds_eval(ast) {
         return;
     }
-    // Take the statement list so the recursive rewrite can hand `ast`
-    // to `parse_into`, which appends to `ast.stmts` and needs it to
-    // itself. Every parse drains what it appended, so the arena is back
-    // to empty before the next one.
-    // Single-expression sources first: those collapse to the
-    // expression itself and are then no longer eval calls, so the
-    // block-inlining walks below see only the multi-statement ones.
-    rewrite_single_expr_evals(ast);
+    // Value-position collapses first: a collapsed call is no longer an
+    // eval call, so the statement walks below see only the sources that
+    // need inlining.
+    rewrite_value_position_evals(ast);
     let mut stmts = std::mem::take(&mut ast.stmts);
-    rewrite_list(&mut stmts, ast);
+    rewrite_list(&mut stmts, ast, false);
     ast.stmts = stmts;
     rewrite_arrow_bodies(ast);
 }
 
-/// `eval("<one expression>")` becomes that expression, wherever it sits.
+/// Collapse the eval calls whose value is exact without any scope
+/// machinery, wherever they sit in the expression arena.
 ///
-/// This is the one shape whose completion value needs no machinery: a
-/// source consisting of a single ExpressionStatement completes with
-/// that expression's value (§14.5.1), so replacing the call node with
-/// the parsed expression is exact — and it works in value position,
-/// which the block inlining cannot reach. `assert.sameValue(eval("1 +
-/// 1"), 2)` is this shape, and so is most of what test262 writes when
-/// it wants eval's result rather than its effects.
+/// For a DIRECT call the caller's scope IS the eval's scope, so a
+/// single-expression source collapses unconditionally (§14.5.1: the
+/// completion of an ExpressionStatement is its value), and a source
+/// that is nothing but effect-free declarations collapses to
+/// `undefined` — in a STRICT direct eval the bindings die with the
+/// eval's own environment, so nothing can observe them.
 ///
-/// A second exact shape rides along: a source that is nothing but
-/// declarations with effect-free initializers — `eval("var x")`,
-/// `eval("var x, y")`, a function declaration. Declarations complete
-/// with *empty*, so the eval answers `undefined` (§14.5.1), and in a
-/// STRICT eval the bindings die with the eval's own environment, so
-/// with no other statement in the source there is nothing left that
-/// could observe them. The whole call collapses to `undefined`.
-/// test262 leans on this for its type-conversion suites —
-/// `Boolean(eval("var x"))` is how S9.2 spells "undefined". The
-/// effect-free bound matters: `eval("var x = f()")` must run `f`, so
-/// an initializer that could do anything keeps the call out of this
-/// shape.
+/// For an INDIRECT call the source belongs to the global scope, and
+/// this walk cannot know what scope surrounds a given expression slot —
+/// so it only collapses what scope cannot touch: a single expression
+/// with **no free variables**, or a source that completes empty without
+/// effects. Indirect declaration sources do NOT collapse: a sloppy
+/// eval's `var` lands on the global and is observable afterwards.
 ///
-/// The general completion value — `eval("if (true) { }")` is
-/// `undefined`, `eval("1; ;")` is `1` — stays out of reach and out of
-/// scope here; those need a notion tr has no counterpart for. Sources
-/// that fit neither shape fall through untouched and are picked up by
-/// the block inlining if they are in statement position.
+/// Both forms collapse a non-string literal argument to itself
+/// (§19.2.1.1 step 2: eval returns a non-String argument unchanged).
 ///
 /// The replacement writes over the Call node in place rather than
 /// re-pointing the parent at a new id, so every existing reference to
 /// this ExprId keeps working without a remap. The parsed expression's
 /// own node stays in the arena unreferenced, which costs a slot and
 /// nothing else.
-fn rewrite_single_expr_evals(ast: &mut Ast) {
+fn rewrite_value_position_evals(ast: &mut Ast) {
     let mut i = 0;
     while i < ast.exprs.len() {
-        let Some(src) = literal_eval_source(super::ExprId(i as u32), ast) else {
+        let eid = super::ExprId(i as u32);
+        if let Some(lit) = nonstring_literal_eval_arg(eid, ast) {
+            ast.exprs[i] = lit;
+            i += 1;
+            continue;
+        }
+        let Some((src, form)) = literal_eval_call(eid, ast) else {
             i += 1;
             continue;
         };
         if let Some(parsed) = parse_eval_source(&src, ast) {
             if let [Stmt::Expr(inner)] = parsed[..] {
-                if let Some(e) = ast.exprs.get(inner.0 as usize).cloned() {
-                    ast.exprs[i] = e;
-                    // Do not advance: the expression just written in
-                    // may itself be an `eval("…")` that came out of a
-                    // nested literal, and it now occupies this slot.
-                    continue;
+                let closed = form == CallForm::Direct
+                    || free_vars::free_vars_of_body(ast, &[], &parsed).is_empty();
+                if closed {
+                    if let Some(e) = ast.exprs.get(inner.0 as usize).cloned() {
+                        ast.exprs[i] = e;
+                        // Do not advance: the expression just written
+                        // in may itself be an `eval("…")` that came out
+                        // of a nested literal, and it now occupies this
+                        // slot.
+                        continue;
+                    }
                 }
             }
-            if !parsed.is_empty() && parsed.iter().all(|s| is_effect_free_decl(s, ast)) {
+            let empty_completion =
+                parsed.is_empty() || parsed.iter().all(|s| completes_empty_effect_free(s, ast));
+            let strict_dead_decls = form == CallForm::Direct
+                && !parsed.is_empty()
+                && parsed.iter().all(|s| is_effect_free_decl(s, ast));
+            if empty_completion || strict_dead_decls {
                 ast.exprs[i] = Expr::Ident("undefined".to_string());
             }
         }
@@ -167,12 +224,13 @@ fn rewrite_single_expr_evals(ast: &mut Ast) {
     }
 }
 
-/// A declaration whose evaluation nothing can observe: a `let` / `var`
-/// whose initializer is an identifier read or a literal, or a function
-/// declaration. `Stmt::Multi` of such declarations counts too — the
-/// parser expands `var x, y` into one. The initializer bound is what
-/// keeps the collapse exact; a call, a member access, anything that
-/// could run code disqualifies the whole source.
+/// A declaration whose evaluation nothing can observe **in a strict
+/// direct eval**: a `let` / `var` whose initializer is an identifier
+/// read or a literal, or a function declaration. `Stmt::Multi` of such
+/// declarations counts too — the parser expands `var x, y` into one.
+/// The initializer bound is what keeps the collapse exact; a call, a
+/// member access, anything that could run code disqualifies the whole
+/// source.
 fn is_effect_free_decl(s: &Stmt, ast: &Ast) -> bool {
     match s {
         // `Uninit` is the parser's sentinel for `var x;` with no
@@ -183,6 +241,65 @@ fn is_effect_free_decl(s: &Stmt, ast: &Ast) -> bool {
         ),
         Stmt::FnDecl { .. } => true,
         Stmt::Multi(list) => list.iter().all(|s| is_effect_free_decl(s, ast)),
+        _ => false,
+    }
+}
+
+/// A statement whose completion is *empty* and whose evaluation has no
+/// observable effect in ANY scope: empty blocks, control flow whose
+/// tested expressions are literals and whose bodies are themselves
+/// empty-and-effect-free. `(0, eval)("{}")` and `(0,
+/// eval)("for(false;false;false);")` are `undefined` by §14.5.1, and
+/// test262's cptn-nrml-empty family spells exactly these.
+fn completes_empty_effect_free(s: &Stmt, ast: &Ast) -> bool {
+    let lit = |e: &super::ExprId| {
+        matches!(
+            ast.exprs.get(e.0 as usize),
+            Some(Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null)
+        )
+    };
+    match s {
+        Stmt::Block(b) | Stmt::Multi(b) => b.iter().all(|s| completes_empty_effect_free(s, ast)),
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            lit(cond)
+                && completes_empty_effect_free(then_branch, ast)
+                && else_branch
+                    .as_deref()
+                    .is_none_or(|e| completes_empty_effect_free(e, ast))
+        }
+        Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
+            lit(cond) && completes_empty_effect_free(body, ast)
+        }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_deref()
+                .is_none_or(|i| completes_empty_effect_free(i, ast))
+                && cond.as_ref().is_none_or(&lit)
+                && step.as_ref().is_none_or(&lit)
+                && completes_empty_effect_free(body, ast)
+        }
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
+            lit(scrutinee)
+                && cases.iter().all(|c| {
+                    lit(&c.value) && c.body.iter().all(|s| completes_empty_effect_free(s, ast))
+                })
+                && default
+                    .as_deref()
+                    .is_none_or(|d| d.iter().all(|s| completes_empty_effect_free(s, ast)))
+        }
+        Stmt::Expr(e) => lit(e),
         _ => false,
     }
 }
@@ -201,7 +318,8 @@ fn is_effect_free_decl(s: &Stmt, ast: &Ast) -> bool {
 /// because inlining appends to the arena — an arrow written inside an
 /// eval'd literal lands past the original end and still has to be
 /// visited. Each body is taken out before the rewrite so `ast` can be
-/// handed to `parse_into`, then put back.
+/// handed to `parse_into`, then put back. An arrow body is a function
+/// scope, so the walk enters it with `in_fn` set.
 fn rewrite_arrow_bodies(ast: &mut Ast) {
     let mut i = 0;
     while i < ast.exprs.len() {
@@ -210,7 +328,7 @@ fn rewrite_arrow_bodies(ast: &mut Ast) {
             continue;
         };
         let mut taken = std::mem::take(body);
-        rewrite_list(&mut taken, ast);
+        rewrite_list(&mut taken, ast, true);
         if let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) {
             *body = taken;
         }
@@ -218,90 +336,43 @@ fn rewrite_arrow_bodies(ast: &mut Ast) {
     }
 }
 
-/// Does any binding in the program shadow the global `eval`? A `var` /
-/// `let` / parameter / function named `eval` means a call site may be
-/// reaching something else entirely, and this pass runs before the
-/// scope resolution that could tell which. Declining wholesale is the
-/// answer that cannot be wrong.
-fn binds_eval(ast: &Ast) -> bool {
-    fn in_list(stmts: &[Stmt]) -> bool {
-        stmts.iter().any(in_stmt)
-    }
-    fn in_stmt(s: &Stmt) -> bool {
-        match s {
-            Stmt::LetDecl { name, .. } => name == "eval",
-            Stmt::FnDecl {
-                name, params, body, ..
-            } => name == "eval" || params.iter().any(|p| p.name == "eval") || in_list(body),
-            Stmt::ClassDecl { name, .. } => name == "eval",
-            Stmt::Try {
-                catch_param,
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                catch_param.as_deref() == Some("eval")
-                    || in_list(body)
-                    || in_list(catch_body)
-                    || finally_body.as_deref().is_some_and(in_list)
-            }
-            Stmt::Block(b) | Stmt::Multi(b) => in_list(b),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => in_stmt(then_branch) || else_branch.as_deref().is_some_and(in_stmt),
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => in_stmt(body),
-            Stmt::Labeled { body, .. } => in_stmt(body),
-            Stmt::For { init, body, .. } => init.as_deref().is_some_and(in_stmt) || in_stmt(body),
-            Stmt::ForOf { var_name, body, .. } => var_name == "eval" || in_stmt(body),
-            Stmt::Switch { cases, default, .. } => {
-                cases.iter().any(|c| in_list(&c.body)) || default.as_deref().is_some_and(in_list)
-            }
-            _ => false,
-        }
-    }
-    if in_list(&ast.stmts) {
-        return true;
-    }
-    // Arrows live in the expression arena, so a parameter or body
-    // binding named `eval` there is invisible to the statement walk.
-    ast.exprs.iter().any(|e| match e {
-        Expr::ArrowFn { params, body, .. } => {
-            params.iter().any(|p| p.name == "eval") || in_list(body)
-        }
-        _ => false,
-    })
-}
-
-fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast) {
+fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, in_fn: bool) {
     for s in stmts.iter_mut() {
-        rewrite_stmt(s, ast);
+        rewrite_stmt(s, ast, in_fn);
     }
 }
 
-fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast) {
+fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
     // The rewrite itself: a statement that is nothing but a call to
     // `eval` with one literal argument becomes the block that literal
-    // parses to.
+    // parses to. A direct eval's block is sealed (strict — nothing
+    // escapes); an indirect eval's block is not (sloppy global code —
+    // `var` hoists out, `let` stays), and is only built at the top
+    // level, where the surrounding scope IS the global scope. An
+    // indirect statement inside a function is left alone rather than
+    // wrongly attached to the function's scope.
     if let Stmt::Expr(eid) = s {
-        if let Some(src) = literal_eval_source(*eid, ast) {
+        if let Some((src, form)) = literal_eval_call(*eid, ast) {
+            let inline_here = form == CallForm::Direct || !in_fn;
             match parse_eval_source(&src, ast) {
-                Some(mut inlined) => {
+                Some(mut inlined) if inline_here => {
                     // An eval inside the inlined text is an eval like
                     // any other; the nesting is finite because each
                     // level is a literal written in the level above.
-                    rewrite_list(&mut inlined, ast);
-                    seal_var_scope(&mut inlined);
+                    rewrite_list(&mut inlined, ast, in_fn);
+                    if form == CallForm::Direct {
+                        seal_var_scope(&mut inlined);
+                    }
                     *s = Stmt::Block(inlined);
                     return;
                 }
+                Some(_) => {}
                 None => {
                     // The text does not parse. §19.2.1.1 step 12 wants
                     // a SyntaxError at evaluation time — see
                     // `syntax_error_throw` on why this is a throw and
-                    // not a compile error.
+                    // not a compile error. Scope-independent, so it
+                    // applies at any depth for both call forms.
                     *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
                     return;
                 }
@@ -309,201 +380,47 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast) {
         }
     }
     match s {
-        Stmt::Block(b) | Stmt::Multi(b) => rewrite_list(b, ast),
-        Stmt::FnDecl { body, .. } => rewrite_list(body, ast),
+        Stmt::Block(b) | Stmt::Multi(b) => rewrite_list(b, ast, in_fn),
+        Stmt::FnDecl { body, .. } => rewrite_list(body, ast, true),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            rewrite_stmt(then_branch, ast);
+            rewrite_stmt(then_branch, ast, in_fn);
             if let Some(e) = else_branch.as_deref_mut() {
-                rewrite_stmt(e, ast);
+                rewrite_stmt(e, ast, in_fn);
             }
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => rewrite_stmt(body, ast),
-        Stmt::Labeled { body, .. } => rewrite_stmt(body, ast),
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => rewrite_stmt(body, ast, in_fn),
+        Stmt::Labeled { body, .. } => rewrite_stmt(body, ast, in_fn),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init.as_deref_mut() {
-                rewrite_stmt(i, ast);
+                rewrite_stmt(i, ast, in_fn);
             }
-            rewrite_stmt(body, ast);
+            rewrite_stmt(body, ast, in_fn);
         }
-        Stmt::ForOf { body, .. } => rewrite_stmt(body, ast),
+        Stmt::ForOf { body, .. } => rewrite_stmt(body, ast, in_fn),
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            rewrite_list(body, ast);
-            rewrite_list(catch_body, ast);
+            rewrite_list(body, ast, in_fn);
+            rewrite_list(catch_body, ast, in_fn);
             if let Some(f) = finally_body.as_mut() {
-                rewrite_list(f, ast);
+                rewrite_list(f, ast, in_fn);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases.iter_mut() {
-                rewrite_list(&mut c.body, ast);
+                rewrite_list(&mut c.body, ast, in_fn);
             }
             if let Some(d) = default.as_mut() {
-                rewrite_list(d, ast);
+                rewrite_list(d, ast, in_fn);
             }
         }
         _ => {}
     }
-}
-
-/// Re-tag every `var` belonging to eval's own variable scope as
-/// block-scoped, so the `Stmt::Block` the statements land in becomes
-/// their whole environment (§19.2.1.1 strict branch — see module doc).
-///
-/// The walk descends through blocks and control flow, which share the
-/// eval's VariableEnvironment, and stops at a nested `FnDecl` body,
-/// which has its own.
-///
-/// It does NOT seal the function declaration itself: nothing here can,
-/// because a block-level `function` escapes its block throughout tr,
-/// with or without an eval. See the module doc — that is a separate
-/// defect, and sealing it from this side would paper over the general
-/// case while leaving it wrong everywhere else.
-fn seal_var_scope(stmts: &mut [Stmt]) {
-    for s in stmts.iter_mut() {
-        match s {
-            Stmt::LetDecl { is_var, .. } => *is_var = false,
-            // A nested function's `var`s are its own — do not descend.
-            Stmt::FnDecl { .. } => {}
-            Stmt::Block(b) | Stmt::Multi(b) => seal_var_scope(b),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                seal_var_scope(std::slice::from_mut(then_branch));
-                if let Some(e) = else_branch.as_deref_mut() {
-                    seal_var_scope(std::slice::from_mut(e));
-                }
-            }
-            Stmt::While { body, .. }
-            | Stmt::DoWhile { body, .. }
-            | Stmt::Labeled { body, .. }
-            | Stmt::ForOf { body, .. } => seal_var_scope(std::slice::from_mut(body)),
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init.as_deref_mut() {
-                    seal_var_scope(std::slice::from_mut(i));
-                }
-                seal_var_scope(std::slice::from_mut(body));
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                seal_var_scope(body);
-                seal_var_scope(catch_body);
-                if let Some(f) = finally_body.as_mut() {
-                    seal_var_scope(f);
-                }
-            }
-            Stmt::Switch { cases, default, .. } => {
-                for c in cases.iter_mut() {
-                    seal_var_scope(&mut c.body);
-                }
-                if let Some(d) = default.as_mut() {
-                    seal_var_scope(d);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// `eval("…")` — a call whose callee is the bare identifier `eval` and
-/// whose single argument is a string literal. Answers the source text.
-fn literal_eval_source(eid: super::ExprId, ast: &Ast) -> Option<String> {
-    let Expr::Call { callee, args } = ast.exprs.get(eid.0 as usize)? else {
-        return None;
-    };
-    if args.len() != 1 {
-        return None;
-    }
-    match ast.exprs.get(callee.0 as usize)? {
-        Expr::Ident(n) if n == "eval" => {}
-        _ => return None,
-    }
-    match ast.exprs.get(args[0].0 as usize)? {
-        Expr::String(s) => Some(s.clone()),
-        _ => None,
-    }
-}
-
-/// Parse eval's source text into the caller's arena. `parse_into`
-/// appends to `ast.stmts` and shares the expression arena, so the
-/// statements come back already numbered for the program they are being
-/// spliced into — the same mechanism `modules::resolve_imports` uses to
-/// merge an imported file. `None` on a lex or parse failure, which
-/// leaves the call site untouched.
-fn parse_eval_source(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
-    if let Some(stmts) = parse_once(src, ast) {
-        return Some(stmts);
-    }
-    // §12.9.1 rule 2 — automatic semicolon insertion at end of input:
-    // when the token stream ends where the grammar still wants a
-    // terminator, a semicolon is inserted. `eval("var x")` is valid
-    // JavaScript by exactly this rule, and it is how test262 writes it
-    // (a file always ends in a newline, so tr's parser never meets the
-    // no-terminator end anywhere else). Retrying with the semicolon
-    // appended IS that rule — it cannot make an invalid source valid,
-    // because a semicolon only ever terminates a final statement.
-    let with_semi = format!("{src};");
-    parse_once(&with_semi, ast)
-}
-
-/// One tokenize + parse attempt into the shared arena.
-///
-/// The truncate on the error path is load-bearing: `parse_into`
-/// assigns `*target = p.ast` BEFORE propagating its error, so a failed
-/// parse leaves whatever it managed to build appended to `ast.stmts` —
-/// statements belonging to nobody, which would otherwise be spliced
-/// into the program as if the user had written them.
-fn parse_once(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
-    let before = ast.stmts.len();
-    let tokens = lexer::tokenize(src).ok()?;
-    match parser::parse_into(src, &tokens, ast) {
-        Ok(offset) => Some(ast.stmts.drain(offset..).collect()),
-        Err(_) => {
-            ast.stmts.truncate(before);
-            None
-        }
-    }
-}
-
-/// The first line of the offending source, capped, for the error
-/// message. A whole eval'd program in a diagnostic is noise.
-fn first_line(src: &str) -> String {
-    let line = src.lines().next().unwrap_or("").trim();
-    if line.chars().count() > 60 {
-        let cut: String = line.chars().take(60).collect();
-        format!("{cut}…")
-    } else {
-        line.to_string()
-    }
-}
-
-/// A `throw new SyntaxError(<message>)` statement.
-///
-/// §19.2.1.1 step 12 wants the SyntaxError raised **when the eval is
-/// evaluated**, not when the program is compiled — `if (false) {
-/// eval("((("); }` runs to completion under bun. Replacing the call
-/// with a throw keeps that: unreachable code raises nothing, and a
-/// reached one raises at the right moment with the right error type.
-fn syntax_error_throw(msg: String, ast: &mut Ast) -> Stmt {
-    let msg_id = ast.add_expr(Expr::String(msg));
-    let exc = ast.add_expr(Expr::New {
-        class_name: "SyntaxError".to_string(),
-        args: vec![msg_id],
-        type_args: Vec::new(),
-    });
-    Stmt::Throw(exc)
 }
