@@ -33,10 +33,24 @@
 //!
 //! So the inlined statements are *sealed*: every `var` in eval's own
 //! variable scope is re-tagged block-scoped, which makes the enclosing
-//! `Stmt::Block` the whole environment — both halves of the split at
-//! once, which is what strict eval asks for. Sealing stops at a nested
-//! `FnDecl` body: that body is its own VariableEnvironment and its
-//! `var`s belong to it, not to the eval.
+//! `Stmt::Block` the whole environment for `var`. Sealing stops at a
+//! nested `FnDecl` body: that body is its own VariableEnvironment and
+//! its `var`s belong to it, not to the eval.
+//!
+//! **A function declaration still escapes, and that is a defect this
+//! pass inherits rather than introduces.** `eval("{ function f() {} }")`
+//! leaves `f` visible afterwards under tr and does not under bun — but
+//! so does a plain `{ function f() {} }` with no eval anywhere, which
+//! is where the difference actually lives (§14.2 says a block-level
+//! function declaration is block-scoped; Annex B B.3.3 hoists it only
+//! in sloppy mode, and tr is not in sloppy mode). Until that is fixed,
+//! `var` here follows the strict rule and `function` follows the
+//! sloppy one, which is not a coherent mode. Twenty-six
+//! `annexB/language/eval-code` cases currently report `pass` off the
+//! back of it — they are asking for the sloppy behaviour and getting
+//! it by accident, so they are counted as water under the
+//! no-metric-inflation rule and will fall back out when the block
+//! scoping is corrected.
 //!
 //! This is why the sloppy-only corpus is out of reach here rather than
 //! merely unimplemented: 697 of the 1473 eval-blocked cases (47.3%)
@@ -80,10 +94,58 @@ pub fn desugar_eval(ast: &mut Ast) {
     // to `parse_into`, which appends to `ast.stmts` and needs it to
     // itself. Every parse drains what it appended, so the arena is back
     // to empty before the next one.
+    // Single-expression sources first: those collapse to the
+    // expression itself and are then no longer eval calls, so the
+    // block-inlining walks below see only the multi-statement ones.
+    rewrite_single_expr_evals(ast);
     let mut stmts = std::mem::take(&mut ast.stmts);
     rewrite_list(&mut stmts, ast);
     ast.stmts = stmts;
     rewrite_arrow_bodies(ast);
+}
+
+/// `eval("<one expression>")` becomes that expression, wherever it sits.
+///
+/// This is the one shape whose completion value needs no machinery: a
+/// source consisting of a single ExpressionStatement completes with
+/// that expression's value (§14.5.1), so replacing the call node with
+/// the parsed expression is exact — and it works in value position,
+/// which the block inlining cannot reach. `assert.sameValue(eval("1 +
+/// 1"), 2)` is this shape, and so is most of what test262 writes when
+/// it wants eval's result rather than its effects.
+///
+/// The general completion value — `eval("if (true) { }")` is
+/// `undefined`, `eval("1; ;")` is `1` — stays out of reach and out of
+/// scope here; those need a notion tr has no counterpart for. Sources
+/// that are not exactly one expression statement fall through
+/// untouched and are picked up by the block inlining if they are in
+/// statement position.
+///
+/// The replacement writes over the Call node in place rather than
+/// re-pointing the parent at a new id, so every existing reference to
+/// this ExprId keeps working without a remap. The parsed expression's
+/// own node stays in the arena unreferenced, which costs a slot and
+/// nothing else.
+fn rewrite_single_expr_evals(ast: &mut Ast) {
+    let mut i = 0;
+    while i < ast.exprs.len() {
+        let Some(src) = literal_eval_source(super::ExprId(i as u32), ast) else {
+            i += 1;
+            continue;
+        };
+        if let Some(parsed) = parse_eval_source(&src, ast) {
+            if let [Stmt::Expr(inner)] = parsed[..] {
+                if let Some(e) = ast.exprs.get(inner.0 as usize).cloned() {
+                    ast.exprs[i] = e;
+                    // Do not advance: the expression just written in
+                    // may itself be an `eval("…")` that came out of a
+                    // nested literal, and it now occupies this slot.
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
 }
 
 /// The statement walk above reaches a `FnDecl` body because that body
@@ -250,6 +312,12 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast) {
 /// The walk descends through blocks and control flow, which share the
 /// eval's VariableEnvironment, and stops at a nested `FnDecl` body,
 /// which has its own.
+///
+/// It does NOT seal the function declaration itself: nothing here can,
+/// because a block-level `function` escapes its block throughout tr,
+/// with or without an eval. See the module doc — that is a separate
+/// defect, and sealing it from this side would paper over the general
+/// case while leaving it wrong everywhere else.
 fn seal_var_scope(stmts: &mut [Stmt]) {
     for s in stmts.iter_mut() {
         match s {
