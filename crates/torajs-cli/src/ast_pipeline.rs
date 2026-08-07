@@ -55,6 +55,13 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         }
         return Err(());
     }
+    // After the redeclaration early errors, which want the raw AST —
+    // and a declaration inlined out of an eval is not an early error
+    // anyway (§19.2.1.1 makes an eval-introduced conflict a runtime
+    // SyntaxError). Before everything else, so the inlined statements
+    // reach every desugar below exactly as if they had been written at
+    // the call site, which is what direct eval means.
+    ast::desugar_eval(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
     ast::hoist_gen_fn_exprs(ast);
