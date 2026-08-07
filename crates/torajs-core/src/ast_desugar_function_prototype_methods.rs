@@ -108,7 +108,18 @@ pub(crate) fn run(ast: &mut Ast) {
     // fn-expr keeps its loud reject.
     let mut closure_aliases: HashMap<String, String> = HashMap::new();
     for s in crate::ast::toplevel_stmts_flat(ast) {
-        let Stmt::LetDecl { name, init, .. } = s else {
+        let Stmt::LetDecl {
+            name,
+            init,
+            // An ANNOTATED binding types as its annotation, not as the
+            // closure signature — `const h: any = (x, y) => …` reaches
+            // the factory call as Any and the checker rejects the
+            // precise `__cls` param. Those stay on the any-method bind
+            // kernel they already ride.
+            type_ann: None,
+            ..
+        } = s
+        else {
             continue;
         };
         // Post-lift a capture-less fn-expr init is a
