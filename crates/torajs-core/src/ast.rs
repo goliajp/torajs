@@ -10,6 +10,7 @@ mod apply_spread_math;
 mod apply_spread_push;
 mod arguments_object;
 mod arguments_object_collect;
+mod arguments_object_ctor_argv;
 mod arguments_object_devirt;
 mod arguments_object_inject;
 mod arguments_object_method_argv;

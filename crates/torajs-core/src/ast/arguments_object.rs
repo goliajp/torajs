@@ -120,6 +120,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // the body, and extends the rewrite param table to match.
     let mut static_argv = collect_iife_static_argv(ast, &iife_real_argc);
     static_argv.extend(collect_named_static_argv(ast, &env_fns));
+    // Constructed fn-expr bindings — the factory's direct call is the
+    // only real site, so the whole argv is static (see the module doc
+    // in arguments_object_ctor_argv).
+    static_argv.extend(super::arguments_object_ctor_argv::collect_ctor_bound_static_argv(ast));
     // RFC 20260801-arguments-method-face knife 1 — single-owner
     // class methods ride the same face (receiver slot excluded from
     // the argc count).
@@ -418,14 +422,16 @@ fn snapshot_fn_params(
         } = s
         {
             // Skip the synthetic `__env` (closure capture vector) and
-            // `__this` (class instance) prefix params — they're not
-            // user-visible "arguments". Everything after is the
-            // user's declared param list.
-            let user_start = params
-                .first()
-                .filter(|p| p.name == "__env" || p.name == "__this")
-                .map(|_| 1)
-                .unwrap_or(0);
+            // `__this` (receiver) prefix params — they're not
+            // user-visible "arguments". A lifted ctor fn-expr carries
+            // BOTH (`__closure_N(__env, __this, …user)` — the ctor-this
+            // promotion runs before the lift), so the skip is a chain,
+            // not an either/or. Everything after is the user's
+            // declared param list.
+            let mut user_start = usize::from(params.first().is_some_and(|p| p.name == "__env"));
+            if params.get(user_start).is_some_and(|p| p.name == "__this") {
+                user_start += 1;
+            }
             let names: Vec<String> = params[user_start..]
                 .iter()
                 .map(|p| p.name.clone())
