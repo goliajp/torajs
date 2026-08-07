@@ -80,6 +80,20 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
             ctx.locals
                 .get(name)
                 .is_some_and(|info| info.borrowed && info.ty.is_refcounted())
+                // Rotation 326 — an escape-boxed binding in its
+                // OWNING frame (`info.borrowed == false`; the box
+                // holds the payload's stake). Reading the ident
+                // answers the box's payload as a borrow, and the
+                // frame's exit still drops the whole box — so a
+                // `return fib` handed the caller the payload while
+                // the box release charged its only stake (a
+                // self-referential escaping closure was the census
+                // shape: zero incs, two decs on the env cell).
+                || (ctx.boxed_noncopy_lets.contains(name)
+                    && ctx
+                        .locals
+                        .get(name)
+                        .is_some_and(|info| info.ty.is_refcounted()))
                 // Cluster #4 follow-up (rotation 235) — a K.3 global
                 // slot read is ALWAYS a borrow (pure GlobalRef+Load,
                 // the slot keeps its stake), so returning it takes
