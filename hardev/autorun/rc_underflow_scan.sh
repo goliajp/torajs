@@ -76,8 +76,21 @@ cd "$(dirname "$0")/../.." || exit 2
 # cliff — silently corrupting rc all the same. Closure form fixed in
 # defer.rs pass A (pre-clear walkable capture slots so drop_fn can't
 # re-charge them).
-# See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=6
+# 6 → 0 (rotation 326): six defects, six knives. The comma
+# operator dropped a discarded borrow as if it owned it (`void D`
+# dec'd the class registry's cell). The let-decl shares table and
+# the assign lane's borrow whitelist both lacked a Ternary /
+# Nullish / logical-join arm, so a join over pure borrows was
+# stored as if owned (destructuring defaults and `y = c ? ys : xs`
+# stole an arm source's stake). Printing a missed BigInt read
+# walked the undefined cell's limbs (SIGBUS, not just an
+# underflow), and the console lane carried its own drifted copy of
+# the coercer's formatting. `return xs[i]` on a typed array and
+# `return fib` on an escape-boxed binding both handed the caller a
+# borrow where the return contract says owned. And awaiting a
+# rejected promise lent the throw slot a reason the promise cell
+# still releases at its own drop.
+RC_UNDERFLOW_BASELINE=0
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in
