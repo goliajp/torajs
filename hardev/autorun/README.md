@@ -94,6 +94,16 @@ P0 ship 的：
 - `hardev/autorun/trigger.sh [self|manual]` — 触发一次 rotation 并记录
 - `hardev/autorun/log.sh [--tail N]` — 渲染 rotations.jsonl 为可读表格
 
+rotation 收尾 gate（`torajs-autorun-pipeline.md` 收尾 sequence 引用）：
+- `hardev/autorun/wait_mini_gate.sh <log>` — 阻塞到 mini conformance gate 出摘要行
+- `hardev/autorun/build_determinism.sh [N]` — **步骤 0c 的 gate**。全部 bench case
+  各建 1+N 次，答两个问题：还编译得过吗、重复构建是不是只出一个 artifact。
+  CSV 到 stdout + 带 N 的摘要行；任一 build 失败或任一 case 多于一个 sha → exit 1。
+  默认 N=12（判据 N≥10，低于此的"确定"是假阳性，脚本会 warn）；44 case 全量 ~47s。
+  测的是 `target/<profile>/tr`，profile 由 `HARDEV_TR_PROFILE` 定，默认 `iter`
+  —— 即 conformance gate 自己跑的那个 binary。
+- `hardev/autorun/kill_stray_shells.sh` — 收尾时清本 rotation 泄漏的子进程
+
 P1 扩展（不阻塞本次 ship）：
 - `hardev/autorun/check.sh` — INV-1..5 机器校验
 - `hardev/autorun/status.sh` — daemon 状态 + 最近 rotation + inbox 字数
