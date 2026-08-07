@@ -487,6 +487,25 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
                 }
             }
         }
+        // `v = eval("(((")` — an assignment statement whose rhs is an
+        // eval of a non-parsing source. §13.15.2 evaluates the target
+        // reference first and the rhs second, so with a bare-identifier
+        // target (no effects) the statement's entire behaviour is the
+        // rhs's SyntaxError; the assignment never completes and the
+        // statement becomes the throw. A member target could run a
+        // getter on its object expression first, so only the identifier
+        // shape rewrites.
+        if let Some(Expr::Assign { target, value }) = ast.exprs.get(eid.0 as usize) {
+            let (target, value) = (*target, *value);
+            if matches!(ast.exprs.get(target.0 as usize), Some(Expr::Ident(_))) {
+                if let Some((src, _)) = literal_eval_call(value, ast) {
+                    if parse_eval_source(&src, ast).is_none() {
+                        *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
+                        return;
+                    }
+                }
+            }
+        }
     }
     match s {
         Stmt::Block(b) | Stmt::Multi(b) => rewrite_list(b, ast, in_fn),

@@ -134,7 +134,72 @@ fn reject_module_decls(stmts: Vec<Stmt>) -> Option<Vec<Stmt>> {
     {
         return None;
     }
+    if has_orphan_jump(&stmts, false, false) {
+        return None;
+    }
     Some(stmts)
+}
+
+/// §16.1's early errors for a Script, applied to the shapes tr's
+/// parser happily accepts in isolation: a `continue` / `break` with no
+/// enclosing iteration (or switch, for `break`) and a `return`
+/// outside any function body are SyntaxErrors — `eval("return;")` and
+/// `eval("continue;")` must throw, not run. The walk enters blocks and
+/// control flow, flips the flags at the constructs that legalize the
+/// jump, and stops at a `FnDecl` body (a `return` is legal there, and
+/// the parser already vets the body's own jumps as part of the
+/// function). Labeled jumps are left alone — validating a label
+/// target needs the label environment, and test262 spells these cases
+/// with the bare forms.
+fn has_orphan_jump(stmts: &[Stmt], in_loop: bool, in_switch: bool) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Continue(None) => !in_loop,
+        Stmt::Break(None) => !in_loop && !in_switch,
+        Stmt::Return(_) => true,
+        Stmt::Block(b) | Stmt::Multi(b) => has_orphan_jump(b, in_loop, in_switch),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            has_orphan_jump(std::slice::from_ref(then_branch), in_loop, in_switch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(|e| has_orphan_jump(std::slice::from_ref(e), in_loop, in_switch))
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::ForOf { body, .. } => {
+            has_orphan_jump(std::slice::from_ref(body), true, in_switch)
+        }
+        Stmt::For { init, body, .. } => {
+            init.as_deref()
+                .is_some_and(|i| has_orphan_jump(std::slice::from_ref(i), in_loop, in_switch))
+                || has_orphan_jump(std::slice::from_ref(body), true, in_switch)
+        }
+        Stmt::Labeled { body, .. } => {
+            has_orphan_jump(std::slice::from_ref(body), in_loop, in_switch)
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            has_orphan_jump(body, in_loop, in_switch)
+                || has_orphan_jump(catch_body, in_loop, in_switch)
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|f| has_orphan_jump(f, in_loop, in_switch))
+        }
+        Stmt::Switch { cases, default, .. } => {
+            cases
+                .iter()
+                .any(|c| has_orphan_jump(&c.body, in_loop, true))
+                || default
+                    .as_deref()
+                    .is_some_and(|d| has_orphan_jump(d, in_loop, true))
+        }
+        _ => false,
+    })
 }
 
 /// One tokenize + parse attempt into the shared arena.
