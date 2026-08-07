@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T17:08:01.516Z",
+  "generatedAt": "2026-08-07T22:13:40.813Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T17:05:05Z",
-    "headSha": "abb45913",
-    "elapsedSec": 403.85,
+    "ranAt": "2026-08-07T22:11:17Z",
+    "headSha": "db28985d",
+    "elapsedSec": 499.51,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22584,
+    "pass": 22591,
     "passNoOracle": 735,
     "passNegative": 3957,
-    "passTotal": 27276,
-    "bug": 12309,
-    "incompatible": 13589,
+    "passTotal": 27283,
+    "bug": 12326,
+    "incompatible": 13565,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 39585,
-    "passRateInScope": 51.3,
-    "passRateTrAccepted": 68.9
+    "trAccepted": 39609,
+    "passRateInScope": 51.31,
+    "passRateTrAccepted": 68.88
   },
   "torajs": {
-    "commit": "af35d5e3",
-    "commitSubject": "docs: rotation 329 sweep at abb45913 — +60 passTotal, zero regressions, linker case closed",
+    "commit": "db28985d",
+    "commitSubject": "fix: a labeled multi-name var line keeps every declarator",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "db28985d",
+      "subject": "fix: a labeled multi-name var line keeps every declarator"
+    },
+    {
+      "hash": "b4e66e40",
+      "subject": "fix: the bind promotion ignores a shadow param's uses"
+    },
+    {
+      "hash": "5bded97b",
+      "subject": "fix: an annotated closure binding stays off the bind alias lane"
+    },
+    {
+      "hash": "84aef3bf",
+      "subject": "feat: a this-reading fn-expr works as a bind receiver"
+    },
+    {
+      "hash": "0d80d528",
+      "subject": "style: fmt-drift fix — the multi-splice let-else line"
+    },
+    {
+      "hash": "fa20a2b6",
+      "subject": "feat: an assign-bound fn-expr constructs"
+    },
+    {
+      "hash": "691d94c8",
+      "subject": "chore: rotation 329 close — dashboard refresh"
+    },
+    {
       "hash": "af35d5e3",
       "subject": "docs: rotation 329 sweep at abb45913 — +60 passTotal, zero regressions, linker case closed"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "503a8d1e",
       "subject": "Reapply \"feat: bare globalThis value is an immortal pre-filled singleton object\""
-    },
-    {
-      "hash": "f6de0dc2",
-      "subject": "fix(link): header sizing missed every __DATA section_64 — PC=1 latent bug"
-    },
-    {
-      "hash": "ab908de4",
-      "subject": "chore: rotation 328 close — sweep archive, dashboard refresh"
-    },
-    {
-      "hash": "4963c363",
-      "subject": "Revert \"feat: bare globalThis value is an immortal pre-filled singleton object\""
-    },
-    {
-      "hash": "72908741",
-      "subject": "feat: bare globalThis value is an immortal pre-filled singleton object"
-    },
-    {
-      "hash": "c01e439a",
-      "subject": "feat: globalThis member reads of known builtins rewrite to the bare name"
-    },
-    {
-      "hash": "60947d50",
-      "subject": "feat: this-bearing fn-expr IIFE promotes, call seeds undefined this"
-    },
-    {
-      "hash": "8bce5209",
-      "subject": "feat: fn-expr this promotes for the zero-face all-direct-call binding profile"
     }
   ],
-  "headSha": "af35d5e3",
+  "headSha": "db28985d",
   "autorun": {
-    "total": 632,
+    "total": 633,
     "baselineTarget": 10,
-    "bySelf": 627,
+    "bySelf": 628,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786116874-49a1",
-      "at": "2026-08-07T15:34:34Z",
-      "ts": 1786116874,
+      "rotationId": "r-1786122524-259b",
+      "at": "2026-08-07T17:08:44Z",
+      "ts": 1786122524,
       "trigger": "self",
-      "prevHead": "ab908de4",
-      "handoffSha": "sha256:a18d0044c531a68b3ba57713665228a064b31f1574edaf757fce7f90dcf148b0",
-      "handoffAgeSec": 186,
+      "prevHead": "691d94c8",
+      "handoffSha": "sha256:00e54b2787406fb56118ea29c94a89a728c535f230b5ccbebe8f9254e4a97cbb",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786122524-259b",
+        "at": "2026-08-07T17:08:44Z",
+        "ts": 1786122524,
+        "trigger": "self",
+        "prevHead": "691d94c8",
+        "handoffSha": "sha256:00e54b2787406fb56118ea29c94a89a728c535f230b5ccbebe8f9254e4a97cbb",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786116874-49a1",
         "at": "2026-08-07T15:34:34Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "34b046f8",
         "handoffSha": "sha256:025e740d75cc702e86a7dde4e2eddf41a4916d43f366b7aacf6d3aa5f6259ef3",
-        "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786053770-0365",
-        "at": "2026-08-06T22:02:50Z",
-        "ts": 1786053770,
-        "trigger": "self",
-        "prevHead": "4669a91b",
-        "handoffSha": "sha256:16e00aa5284db2563f6bf41c27e0d70a816aff2990423a237260d7ac6198b007",
         "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
