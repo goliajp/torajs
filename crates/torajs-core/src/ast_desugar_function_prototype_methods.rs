@@ -99,42 +99,7 @@ pub(crate) fn run(ast: &mut Ast) {
     if fn_sigs.is_empty() {
         return;
     }
-    // fnexpr-bind knife — `var f = function () {…}` arrives here
-    // (post-lift) as a LetDecl whose init is `Ident("__closure_N")`
-    // pointing at the lifted FnDecl. Resolve the binding name to that
-    // signature for the BIND arm only (narrow surface: `.call` /
-    // `.apply` on a closure binding keep their current lanes). The
-    // `__env` first-param gate below still applies — a capturing
-    // fn-expr keeps its loud reject.
-    let mut closure_aliases: HashMap<String, String> = HashMap::new();
-    for s in crate::ast::toplevel_stmts_flat(ast) {
-        let Stmt::LetDecl {
-            name,
-            init,
-            // An ANNOTATED binding types as its annotation, not as the
-            // closure signature — `const h: any = (x, y) => …` reaches
-            // the factory call as Any and the checker rejects the
-            // precise `__cls` param. Those stay on the any-method bind
-            // kernel they already ride.
-            type_ann: None,
-            ..
-        } = s
-        else {
-            continue;
-        };
-        // Post-lift a capture-less fn-expr init is a
-        // `Closure { fn_name, captures: [] }` node (the bare-Ident
-        // specialization happens later); a capturing one keeps its
-        // env and stays on the loud reject via the `__env` gate.
-        let cn = match ast.get_expr(*init) {
-            Expr::Ident(cn) => cn,
-            Expr::Closure { fn_name, captures } if captures.is_empty() => fn_name,
-            _ => continue,
-        };
-        if cn.starts_with("__closure_") && fn_sigs.contains_key(cn) {
-            closure_aliases.insert(name.clone(), cn.clone());
-        }
-    }
+    let closure_aliases = collect_closure_aliases(ast, &fn_sigs);
 
     let mut new_decls: Vec<Stmt> = Vec::new();
     let mut id_counter: u32 = 0;
@@ -156,29 +121,11 @@ pub(crate) fn run(ast: &mut Ast) {
             Some(Expr::Ident(n)) => n.clone(),
             _ => continue,
         };
-        // The bind arm resolves a closure-binding receiver through its
-        // lifted FnDecl's signature MINUS the `__env` slot: the synth
-        // wrapper forwards through the BINDING NAME (a bare-name
-        // closure call, which carries the env itself), so the wrapper
-        // never spells `__env` and the lifted arity gate below must
-        // not see it either.
         let mut sig = fn_sigs.get(&fn_name).cloned();
         let mut bind_target_is_binding = false;
-        if sig.is_none()
-            && m_name == "bind"
-            && let Some(cn) = closure_aliases.get(&fn_name)
-            && let Some((cp, cr)) = fn_sigs.get(cn)
-        {
-            bind_target_is_binding = true;
-            let stripped: Vec<Param> = cp
-                .iter()
-                .filter(|p| p.name != "__env")
-                .map(|p| Param {
-                    type_ann: p.type_ann.clone().or_else(|| Some("any".into())),
-                    ..p.clone()
-                })
-                .collect();
-            sig = Some((stripped, cr.clone()));
+        if sig.is_none() && m_name == "bind" {
+            sig = closure_binding_sig(&fn_name, &closure_aliases, &fn_sigs);
+            bind_target_is_binding = sig.is_some();
         }
         let Some((fn_params, fn_ret)) = sig else {
             continue;
@@ -311,6 +258,71 @@ pub(crate) fn run(ast: &mut Ast) {
     }
 
     ast.stmts.extend(new_decls);
+}
+
+/// fnexpr-bind knife — `var f = function () {…}` arrives here
+/// (post-lift) as a LetDecl whose init is the lifted closure node.
+/// Resolve the binding name to that FnDecl for the BIND arm only
+/// (narrow surface: `.call` / `.apply` on a closure binding keep
+/// their current lanes).
+fn collect_closure_aliases(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>)>,
+) -> HashMap<String, String> {
+    let mut closure_aliases: HashMap<String, String> = HashMap::new();
+    for s in crate::ast::toplevel_stmts_flat(ast) {
+        let Stmt::LetDecl {
+            name,
+            init,
+            // An ANNOTATED binding types as its annotation, not as the
+            // closure signature — `const h: any = (x, y) => …` reaches
+            // the factory call as Any and the checker rejects the
+            // precise `__cls` param. Those stay on the any-method bind
+            // kernel they already ride.
+            type_ann: None,
+            ..
+        } = s
+        else {
+            continue;
+        };
+        // Post-lift a capture-less fn-expr init is a
+        // `Closure { fn_name, captures: [] }` node (the bare-Ident
+        // specialization happens later); a capturing one keeps its
+        // env and stays on the loud reject via the `__env` gate.
+        let cn = match ast.get_expr(*init) {
+            Expr::Ident(cn) => cn,
+            Expr::Closure { fn_name, captures } if captures.is_empty() => fn_name,
+            _ => continue,
+        };
+        if cn.starts_with("__closure_") && fn_sigs.contains_key(cn) {
+            closure_aliases.insert(name.clone(), cn.clone());
+        }
+    }
+    closure_aliases
+}
+
+/// The bind arm's receiver signature for a closure BINDING: the
+/// lifted FnDecl's params MINUS the `__env` slot (the synth wrapper
+/// forwards through the binding name — a bare-name closure call,
+/// which carries the env itself — so the wrapper never spells
+/// `__env` and the lifted arity gate must not see it either).
+/// Untyped params forward as `any`, same as the fn-ctor factory.
+fn closure_binding_sig(
+    fn_name: &str,
+    closure_aliases: &HashMap<String, String>,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>)>,
+) -> Option<(Vec<Param>, Option<String>)> {
+    let cn = closure_aliases.get(fn_name)?;
+    let (cp, cr) = fn_sigs.get(cn)?;
+    let stripped: Vec<Param> = cp
+        .iter()
+        .filter(|p| p.name != "__env")
+        .map(|p| Param {
+            type_ann: p.type_ann.clone().or_else(|| Some("any".into())),
+            ..p.clone()
+        })
+        .collect();
+    Some((stripped, cr.clone()))
 }
 
 /// The `.bind` rewrite's synthesis half: mint the `__bound_<f>_<id>`

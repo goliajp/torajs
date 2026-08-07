@@ -106,7 +106,16 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: Expr
                 // like any other (the wrapped stmt re-enters this walker).
                 let mut tmp = vec![std::mem::replace(body.as_mut(), Stmt::Break(None))];
                 rewrite_uninit_in_stmts(&mut tmp, ast, undef_eid);
-                *body = Box::new(tmp.pop().unwrap());
+                // The Multi flatten above can split a labeled multi-name
+                // line (`L: var x=0, y=0;`) into several statements — a
+                // bare pop would DROP all but the last declarator.
+                // Rewrap; a Multi carries the same flat-sequence
+                // semantics the label's body had.
+                *body = Box::new(if tmp.len() == 1 {
+                    tmp.pop().unwrap()
+                } else {
+                    Stmt::Multi(tmp)
+                });
             }
             Stmt::Try {
                 body,
