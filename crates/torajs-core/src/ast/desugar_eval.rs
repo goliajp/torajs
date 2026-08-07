@@ -53,12 +53,15 @@
 //! tr has no separate global object; its top level IS its global. This
 //! pass therefore treats the program under **script framing** — the
 //! framing test262 itself is written in, where top-level `var`s are
-//! global and indirect eval shares one scope with the top level. The
-//! one direction where bun-as-module diverges (a module's top-level
-//! binding is NOT visible to indirect eval, so `(0, eval)("x + 1")`
-//! throws under bun where a script sees `x`) is exactly the direction
-//! the toplevel gate below does not yet inline, so nothing currently
-//! rides on the divergence.
+//! global and indirect eval shares one scope with the top level. One
+//! direction deliberately rides on this framing and diverges from
+//! bun-as-module: a top-level-position source that reads the caller's
+//! top-level bindings collapses (script semantics — the global env
+//! holds them), while bun's module bindings are invisible to indirect
+//! eval and it would throw. That is the spec's answer for the code
+//! test262 actually writes; conformance fixtures stay on convergent
+//! shapes (names touched only through eval reach the same binding
+//! both ways).
 //!
 //! Concretely, an indirect literal eval is resolved when one of these
 //! holds, and left alone (honest reject) otherwise:
@@ -67,6 +70,11 @@
 //!   variables. Scope cannot matter, so it collapses to the expression
 //!   in ANY position, including inside functions (`assert.throws(…,
 //!   function () { (0, eval)("…") })` is how test262 wraps most sites);
+//! - **the source is a single expression at a top-level position** —
+//!   free variables allowed, provided none collides with a lexical
+//!   name declared below the top level (`walk::nested_lexical_names` —
+//!   such a name would shadow the collapse site while real global code
+//!   cannot see it);
 //! - **the source completes empty without effects** — `";"`, `"{}"`,
 //!   control flow over literals — and collapses to `undefined`;
 //! - **the call is a top-level statement** — inlined as a `Stmt::Block`
