@@ -176,8 +176,16 @@ pub(crate) fn lower_any_member_read(
         // is stale — rotation 185 stake audit); the err_msg helper
         // answers a BORROWED Str, so it incs the same way. The inc
         // no-ops on NULL / the sentinels through the kernel gates.
-        // Any slots keep their existing story.
-        if field_ty.is_refcounted() && !matches!(field_ty, Type::Any) {
+        // An Any slot incs too — its NaN-box rides through untouched
+        // and the release steals the slot's stake exactly like the
+        // typed cases; the old "Any slots keep their existing story"
+        // line was covering a hole (rotation 325 census: a discarded
+        // `e.arr` on an inferred-any class field freed the array out
+        // from under the instance — zero incs, two decs). The
+        // box-gated helper no-ops on immediates.
+        if matches!(field_ty, Type::Any) {
+            ctx.emit_owned_result_inc(Operand::Value(field_v), Type::Any);
+        } else if field_ty.is_refcounted() {
             ctx.emit_rc_inc(Operand::Value(field_v));
         }
         // RFC 20260710 C2b readback — a pointer-family slot may hold

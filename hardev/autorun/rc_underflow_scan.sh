@@ -48,8 +48,14 @@ cd "$(dirname "$0")/../.." || exit 2
 # rhs value rode into the slot). All three proto-* census cases spell
 # exactly that in their catch arms; the fix is the chunk-722 ternary
 # owned-unification applied to `&&` / `||`.
+# 24 → 19: the any-member candidate arm's inc gate skipped Type::Any
+# fields — the read's owned contract then stole the field slot's only
+# stake (`e.arr` on an inferred-any class field: zero incs, two decs).
+# One gate fix cleared the whole family: error-data-subclass,
+# class-field-infer-any, cycle-any-field-churn, and both
+# promise-aggregate cases.
 # See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=24
+RC_UNDERFLOW_BASELINE=19
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in
