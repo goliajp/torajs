@@ -1,0 +1,10 @@
+console.log(eval("'use strict'"));
+console.log((0, eval)("'use strict'; var sv = 1;"));
+console.log((0, eval)("'use strict'; var a, b;"));
+var st;
+(0, eval)("'use strict'; var st = 99;");
+console.log(typeof st);
+(0, eval)("var leak = 3;");
+console.log(typeof leak);
+console.log((0, eval)("if (true) {} else {}"));
+console.log((0, eval)("if (false) {} else { ; }"));

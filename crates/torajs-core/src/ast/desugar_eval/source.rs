@@ -82,6 +82,19 @@ fn callee_eval_form(callee: ExprId, ast: &Ast) -> Option<CallForm> {
     }
 }
 
+/// Does the parsed source open with a `"use strict"` directive? Per
+/// §19.2.1.1 steps 3-5 the eval code's strictness is its OWN — an
+/// indirect eval is sloppy unless its source says otherwise, and this
+/// prologue is how it says otherwise: with it, the eval gets its own
+/// VariableEnvironment and nothing it declares escapes, exactly the
+/// direct-strict treatment. The directive parses as an ordinary
+/// expression statement holding the string, which is also why it is
+/// the source's completion value when nothing after it produces one.
+pub(super) fn has_use_strict_prologue(parsed: &[Stmt], ast: &Ast) -> bool {
+    matches!(parsed.first(), Some(Stmt::Expr(e))
+        if matches!(ast.exprs.get(e.0 as usize), Some(Expr::String(s)) if s == "use strict"))
+}
+
 /// Parse eval's source text into the caller's arena. `parse_into`
 /// appends to `ast.stmts` and shares the expression arena, so the
 /// statements come back already numbered for the program they are being

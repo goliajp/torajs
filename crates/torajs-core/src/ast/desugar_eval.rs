@@ -147,8 +147,8 @@ mod walk;
 use super::{Ast, Expr, Stmt, free_vars};
 use scope::{binds_eval, seal_var_scope};
 use source::{
-    CallForm, first_line, literal_eval_call, nonstring_literal_eval_arg, parse_eval_source,
-    syntax_error_throw,
+    CallForm, first_line, has_use_strict_prologue, literal_eval_call, nonstring_literal_eval_arg,
+    parse_eval_source, syntax_error_throw,
 };
 
 /// Resolve every literal `eval` call this pass can resolve exactly.
@@ -233,13 +233,30 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
                     }
                 }
             }
-            let empty_completion =
-                parsed.is_empty() || parsed.iter().all(|s| completes_empty_effect_free(s, ast));
-            let strict_dead_decls = form == CallForm::Direct
-                && !parsed.is_empty()
-                && parsed.iter().all(|s| is_effect_free_decl(s, ast));
-            if empty_completion || strict_dead_decls {
-                ast.exprs[i] = Expr::Ident("undefined".to_string());
+            // A "use strict" prologue makes the eval code strict
+            // regardless of call form (§19.2.1.1 steps 3-5): its
+            // declarations die with the eval's own environment, and
+            // the directive — an ordinary expression statement — is
+            // the completion value when nothing after it produces one.
+            let prologue = has_use_strict_prologue(&parsed, ast);
+            let tail = if prologue { &parsed[1..] } else { &parsed[..] };
+            let strict_ctx = form == CallForm::Direct || prologue;
+            // Declarations complete with *empty* and, in a strict
+            // eval, bind nothing anyone can see — so a tail of
+            // effect-free declarations and empty statements leaves
+            // only the prologue's value (or undefined without one).
+            let tail_dead = strict_ctx
+                && !tail.is_empty()
+                && tail
+                    .iter()
+                    .all(|s| is_effect_free_decl(s, ast) || completes_empty_effect_free(s, ast));
+            let tail_empty = tail.iter().all(|s| completes_empty_effect_free(s, ast));
+            if tail_dead || tail_empty {
+                ast.exprs[i] = if prologue {
+                    Expr::String("use strict".to_string())
+                } else {
+                    Expr::Ident("undefined".to_string())
+                };
             }
         }
         i += 1;
@@ -267,45 +284,52 @@ fn is_effect_free_decl(s: &Stmt, ast: &Ast) -> bool {
     }
 }
 
-/// A statement whose completion is *empty* and whose evaluation has no
-/// observable effect in ANY scope: empty blocks, control flow whose
-/// tested expressions are literals and whose bodies are themselves
-/// empty-and-effect-free. `(0, eval)("{}")` and `(0,
-/// eval)("for(false;false;false);")` are `undefined` by §14.5.1, and
-/// test262's cptn-nrml-empty family spells exactly these.
+/// A statement whose completion is *empty*, whose evaluation has no
+/// observable effect in ANY scope, and which provably terminates:
+/// empty blocks, control flow whose paths are decided by literal
+/// conditions and reach only empty-and-effect-free statements. `(0,
+/// eval)("{}")` and `(0, eval)("for(false;false;false);")` are
+/// `undefined` by §14.5.1, and test262's cptn-nrml-empty family spells
+/// exactly these.
+///
+/// Three boundaries are load-bearing:
+/// - a literal EXPRESSION statement is value-producing (`eval("1;
+///   2;")` is `2`, not undefined), so `Stmt::Expr` never qualifies;
+/// - a loop qualifies only when its literal condition is FALSY — a
+///   truthy `while (true);` never terminates, and collapsing it to
+///   `undefined` would change that;
+/// - an `if` over a truthy literal completes with its taken branch's
+///   completion, so the branch actually reached must itself qualify.
 fn completes_empty_effect_free(s: &Stmt, ast: &Ast) -> bool {
-    let lit = |e: &super::ExprId| {
-        matches!(
-            ast.exprs.get(e.0 as usize),
-            Some(Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null)
-        )
-    };
     match s {
         Stmt::Block(b) | Stmt::Multi(b) => b.iter().all(|s| completes_empty_effect_free(s, ast)),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
-        } => {
-            lit(cond)
-                && completes_empty_effect_free(then_branch, ast)
-                && else_branch
-                    .as_deref()
-                    .is_none_or(|e| completes_empty_effect_free(e, ast))
-        }
-        Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            lit(cond) && completes_empty_effect_free(body, ast)
+        } => match lit_truth(*cond, ast) {
+            Some(true) => completes_empty_effect_free(then_branch, ast),
+            Some(false) => else_branch
+                .as_deref()
+                .is_none_or(|e| completes_empty_effect_free(e, ast)),
+            None => false,
+        },
+        Stmt::While { cond, .. } => lit_truth(*cond, ast) == Some(false),
+        Stmt::DoWhile { body, cond } => {
+            lit_truth(*cond, ast) == Some(false) && completes_empty_effect_free(body, ast)
         }
         Stmt::For {
-            init,
-            cond,
-            step,
-            body,
+            init, cond, body, ..
         } => {
-            init.as_deref()
-                .is_none_or(|i| completes_empty_effect_free(i, ast))
-                && cond.as_ref().is_none_or(&lit)
-                && step.as_ref().is_none_or(&lit)
+            // The step never runs under a falsy condition; a missing
+            // condition is an infinite loop and disqualifies. The
+            // init is NOT a completion position, so a literal
+            // expression statement there is fine — its value is
+            // discarded, only its effects (none) matter.
+            init.as_deref().is_none_or(|i| match i {
+                Stmt::Expr(e) => lit_truth(*e, ast).is_some(),
+                other => completes_empty_effect_free(other, ast),
+            }) && cond.is_some_and(|c| lit_truth(c, ast) == Some(false))
                 && completes_empty_effect_free(body, ast)
         }
         Stmt::Switch {
@@ -313,16 +337,25 @@ fn completes_empty_effect_free(s: &Stmt, ast: &Ast) -> bool {
             cases,
             default,
         } => {
-            lit(scrutinee)
-                && cases.iter().all(|c| {
-                    lit(&c.value) && c.body.iter().all(|s| completes_empty_effect_free(s, ast))
-                })
-                && default
-                    .as_deref()
-                    .is_none_or(|d| d.iter().all(|s| completes_empty_effect_free(s, ast)))
+            // Only the trivially-empty switch: any case body might be
+            // the one dispatched to, and a value-producing body would
+            // become the completion.
+            lit_truth(*scrutinee, ast).is_some() && cases.is_empty() && default.is_none()
         }
-        Stmt::Expr(e) => lit(e),
         _ => false,
+    }
+}
+
+/// The boolean a literal coerces to, or `None` for anything that is
+/// not a literal. Mirrors §7.1.2 ToBoolean over the literal shapes the
+/// parser can produce directly.
+fn lit_truth(e: super::ExprId, ast: &Ast) -> Option<bool> {
+    match ast.exprs.get(e.0 as usize)? {
+        Expr::Bool(b) => Some(*b),
+        Expr::Number(n) => Some(*n != 0.0 && !n.is_nan()),
+        Expr::String(s) => Some(!s.is_empty()),
+        Expr::Null => Some(false),
+        _ => None,
     }
 }
 
@@ -382,7 +415,11 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
                     // any other; the nesting is finite because each
                     // level is a literal written in the level above.
                     rewrite_list(&mut inlined, ast, in_fn);
-                    if form == CallForm::Direct {
+                    // A "use strict" prologue makes even an indirect
+                    // eval's code strict — its `var`s die with the
+                    // eval (§19.2.1.1 steps 3-5), so it seals exactly
+                    // like a direct one.
+                    if form == CallForm::Direct || has_use_strict_prologue(&inlined, ast) {
                         seal_var_scope(&mut inlined);
                     }
                     *s = Stmt::Block(inlined);
