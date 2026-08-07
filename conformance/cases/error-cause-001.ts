@@ -8,12 +8,11 @@
 // cannot tell those two apart, which is why the check is spelled with
 // `in`.
 //
-// Enumerability is deliberately not asserted here: tr's Error own
-// properties (`message` / `name` / `stack`) are all enumerable where
-// the spec makes them non-enumerable, and `cause` joins that same
-// pre-existing gap rather than forming a new one — `Object.keys(new
-// Error("m"))` already disagrees with bun before this fixture's
-// subject exists.
+// Enumerability was deliberately not asserted when this was written
+// (every Error own property was enumerable then); that gap has since
+// closed, so the assertions live at the bottom now — the ctor-installed
+// `cause` is own but non-enumerable (§20.5.8.1's
+// CreateNonEnumerableDataPropertyOrThrow), like `message`.
 
 const strCause = new Error("m", { cause: "c" });
 console.log(String(strCause.cause));
@@ -66,3 +65,9 @@ try {
 } catch (e: any) {
   console.log(e.name, e.message, String(e.cause));
 }
+
+// enumerability (see header note): ctor-installed slots are own but
+// non-enumerable, so none of them appear in keys / JSON
+console.log(Object.keys(new Error("m", { cause: "c" })).length);
+console.log(JSON.stringify(new Error("m", { cause: "c" })));
+console.log(new Error("m", { cause: "c" }).hasOwnProperty("cause"));

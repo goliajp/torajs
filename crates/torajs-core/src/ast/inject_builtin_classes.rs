@@ -427,3 +427,25 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     }
     ast.stmts.splice(0..0, injected);
 }
+
+/// The named class is `Error`, a NativeError, or reaches one through
+/// its `extends` chain — the compile-time face of the runtime's
+/// inherited FLAG_ERROR. Instances of these own `message` / `stack`
+/// with [[Enumerable]]: false (§20.5.6.1.1), which the static layout
+/// cannot express, so checker and lowering both use this to route
+/// their enumerable-only surfaces through the runtime own-walk.
+pub(crate) fn class_reaches_error(ast: &Ast, name: &str) -> bool {
+    let mut name = name;
+    // The bound guards against a cycle in a malformed parents map; any
+    // real chain is a handful deep.
+    for _ in 0..64 {
+        if ast.injected_error_classes.contains(name) {
+            return true;
+        }
+        match ast.class_parents.get(name) {
+            Some(Some(parent)) => name = parent,
+            _ => return false,
+        }
+    }
+    false
+}

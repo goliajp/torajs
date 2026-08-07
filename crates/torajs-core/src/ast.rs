@@ -142,6 +142,7 @@ pub(crate) use implicit_generics_infer::{
     infer_return_ann_seeded,
 };
 pub use infer_closure_params::infer_anonymous_closure_params;
+pub(crate) use inject_builtin_classes::class_reaches_error;
 pub use inject_builtin_classes::inject_builtin_classes;
 pub use lift_arrow_fns::lift_arrow_fns;
 pub(crate) use lift_arrow_fns::{

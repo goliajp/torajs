@@ -77,8 +77,12 @@ pub(crate) fn try_lower(
     // `anyv_own_values` TAG_CLOSURE_CELL arm answers the expando
     // props; the §20.2.4 virtual face is non-enumerable so a plain
     // fn answers []). Borrow-shaped box, RC-NEUTRAL — mirror of the
-    // keys lane's arm.
-    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_)) {
+    // keys lane's arm. An Error-family receiver boxes for the same
+    // reason with different non-enumerables (§20.5.6.1.1 `message` /
+    // `stack` — see `error_family_receiver`).
+    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_))
+        || crate::ssa_lower_call_object_entries::error_family_receiver(ctx, args[0])
+    {
         ctx.box_to_any(arg_op)
     } else {
         arg_op

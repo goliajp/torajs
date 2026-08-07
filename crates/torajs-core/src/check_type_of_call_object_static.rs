@@ -151,10 +151,24 @@ pub(crate) fn try_match(
         && ns == "Object"
         && args.len() == 1
     {
-        let arg_ty = match checker.type_of(ast, args[0]) {
-            Ok(t) => unwrap_class(checker, t),
+        let raw_ty = match checker.type_of(ast, args[0]) {
+            Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        // An Error-family instance owns non-enumerable slots the
+        // layout cannot express, so lowering routes it through the
+        // runtime own-walk (`error_family_receiver`) — the same lane
+        // an `any` receiver rides, typed the same way. This must run
+        // before `unwrap_class`: the homogeneity test below would
+        // otherwise reject `class V extends Error { code = 7 }`
+        // (its layout mixes the inherited String slots with Number)
+        // for a walk that never reads the layout at all.
+        if let Type::ClassRef(n) = &raw_ty
+            && crate::ast::class_reaches_error(ast, n)
+        {
+            return Some(Ok(Type::Array(Box::new(Type::Any))));
+        }
+        let arg_ty = unwrap_class(checker, raw_ty);
         // W-O — Array receiver: bun returns a fresh shallow
         // array of slot values (spec §20.1.2.20); SSA-lower
         // reuses the typed-struct Arr-field deep-clone arm.

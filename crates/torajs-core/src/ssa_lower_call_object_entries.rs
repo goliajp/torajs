@@ -38,6 +38,26 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{ArrId, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
+/// The receiver is an instance of the Error family — `Error`, a
+/// NativeError, or a user class whose `extends` chain reaches one.
+///
+/// Those instances own `message` / `stack` with [[Enumerable]]: false
+/// (§20.5.6.1.1), which the compile-time struct unfold cannot express:
+/// it emits every layout field. The runtime own-walk already gets this
+/// right for `any` receivers (its FLAG_ERROR filtering is what makes
+/// `Object.keys(new Error("m"))` answer 0), so a statically-typed Error
+/// receiver boxes and rides it — the Closure-receiver arm's shape.
+///
+/// The chain walk matters: FLAG_ERROR is inherited at runtime, so a
+/// user `class W extends Error` instance filters exactly like `Error`'s
+/// own.
+pub(crate) fn error_family_receiver(ctx: &LowerCtx<'_>, recv: ExprId) -> bool {
+    let Some(crate::check::Type::ClassRef(name)) = ctx.expr_types.get(&recv) else {
+        return false;
+    };
+    crate::ast::class_reaches_error(ctx.ast, name)
+}
+
 /// Try to lower an `Object.entries(obj, ...)` call. Returns `Some` when
 /// dispatched.
 pub(crate) fn try_lower(
@@ -72,7 +92,9 @@ pub(crate) fn try_lower(
     // boxes to any and rides the runtime own-entries walk (mirror of
     // the keys / values arms; a plain fn answers []). Borrow-shaped
     // box, RC-NEUTRAL.
-    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_)) {
+    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_))
+        || error_family_receiver(ctx, args[0])
+    {
         ctx.box_to_any(arg_op)
     } else {
         arg_op
