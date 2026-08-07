@@ -129,10 +129,22 @@ pub(crate) fn install_guards(
         }
     }
 
-    // slow-side splits: one continuation block per site
-    let mut by_block: HashMap<BlockId, Vec<&GuardSite>> = HashMap::new();
+    // slow-side splits: one continuation block per site. Grouped into
+    // a Vec in `plan.growth` order — deliberately not a HashMap. Both
+    // this loop and the fast-side one below mint blocks and values, so
+    // the grouping's iteration order picks their ids; hash order made
+    // `tr build` emit two byte-different binaries for the same input
+    // (the same reason `build_side_exit` sorts its live set). The
+    // ordering is free semantically — the second loop reaches every
+    // site through `slow_target` — so first-appearance keeps the ids
+    // reading in source order. `plan.growth` is itself deterministic:
+    // `collect_guard_sites` walks `func.blocks` in position order.
+    let mut by_block: Vec<(BlockId, Vec<&GuardSite>)> = Vec::new();
     for s in &plan.growth {
-        by_block.entry(s.block).or_default().push(s);
+        match by_block.iter_mut().find(|(b, _)| *b == s.block) {
+            Some((_, sites)) => sites.push(s),
+            None => by_block.push((s.block, vec![s])),
+        }
     }
     let mut slow_target: HashMap<(BlockId, usize), BlockId> = HashMap::new();
     for (b, sites) in &mut by_block {
