@@ -99,6 +99,7 @@ enum Binding {
 pub(crate) fn collect_cross_type_widen_inits(ast: &Ast) -> HashSet<ExprId> {
     let mut w = Walker {
         ast,
+        gen_factories: collect_gen_factories(ast),
         scopes: vec![HashMap::new()],
         out: HashSet::new(),
     };
@@ -110,16 +111,67 @@ pub(crate) fn collect_cross_type_widen_inits(ast: &Ast) -> HashSet<ExprId> {
 
 struct Walker<'a> {
     ast: &'a Ast,
+    /// FnDecl names whose declared return type is a synthesized
+    /// `__Gen_*` class — the post-desugar spelling of `function*`.
+    /// `let it = g()` initializes a generator OBJECT, and the
+    /// iterator-helper self-transform (`it = it.filter(cb)`) then
+    /// assigns a helper cell into the same slot; without the widen
+    /// the checker rejects the reassign (Obj slot, Any value).
+    gen_factories: HashSet<String>,
     scopes: Vec<HashMap<String, Binding>>,
     out: HashSet<ExprId>,
+}
+
+/// `filter` / `map` / `flatMap` / `take` / `drop` — the §27.1.4
+/// transforms that answer a NEW iterator-helper cell (the eager
+/// consumers answer scalars, which classify on their own).
+fn is_iter_transform(name: &str) -> bool {
+    matches!(name, "filter" | "map" | "flatMap" | "take" | "drop")
+}
+
+fn collect_gen_factories(ast: &Ast) -> HashSet<String> {
+    fn walk(stmts: &[crate::ast::Stmt], out: &mut HashSet<String>) {
+        for s in stmts {
+            match s {
+                crate::ast::Stmt::FnDecl {
+                    name,
+                    return_type: Some(rt),
+                    body,
+                    ..
+                } => {
+                    if rt.starts_with("__Gen_") {
+                        out.insert(name.clone());
+                    }
+                    walk(body, out);
+                }
+                crate::ast::Stmt::FnDecl { body, .. } => walk(body, out),
+                crate::ast::Stmt::Block(inner) | crate::ast::Stmt::Multi(inner) => walk(inner, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    walk(&ast.stmts, &mut out);
+    out
 }
 
 impl Walker<'_> {
     fn register_let(&mut self, name: &str, mutable: bool, unannotated: bool, init: ExprId) {
         let binding = if mutable
             && unannotated
-            && let Some(family) = classify(self.ast, init)
-        {
+            && let Some(family) = classify(self.ast, init).or_else(|| {
+                // A generator-factory call initializes a `__Gen_*`
+                // object — classifiable through the factory table.
+                match self.ast.get_expr(strip_as(self.ast, init)) {
+                    Expr::Call { callee, .. } => match self.ast.get_expr(*callee) {
+                        Expr::Ident(n) if self.gen_factories.contains(n) => {
+                            Some(Family::New(format!("__Gen_{n}")))
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }) {
             Binding::Tracked { init, family }
         } else {
             Binding::Opaque
@@ -143,7 +195,25 @@ impl Walker<'_> {
         let Expr::Ident(name) = self.ast.get_expr(target) else {
             return;
         };
-        let Some(rhs) = classify(self.ast, value) else {
+        let Some(rhs) = classify(self.ast, value).or_else(|| {
+            // The iterator-helper self-transform: `it = it.filter(cb)`
+            // (receiver IS the assigned binding) answers a helper
+            // cell, never the receiver's own class — classifiable by
+            // shape alone, and kept narrow to the self-receiver so a
+            // plain method call on some other object stays out.
+            match self.ast.get_expr(strip_as(self.ast, value)) {
+                Expr::Call { callee, .. } => match self.ast.get_expr(*callee) {
+                    Expr::Member { obj, name: m }
+                        if is_iter_transform(m)
+                            && matches!(self.ast.get_expr(*obj), Expr::Ident(r) if r == name) =>
+                    {
+                        Some(Family::NsCall("__iter_helper".into(), m.clone()))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
+        }) else {
             return;
         };
         for scope in self.scopes.iter().rev() {
