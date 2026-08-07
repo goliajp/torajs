@@ -41,6 +41,10 @@ unsafe extern "C" {
     /// throw slot so the next emit_throw_check after `get_value`'s
     /// rejected path propagates the throw to the active try/catch.
     fn __torajs_throw_set(tag: i64, value: i64);
+
+    /// Refcount kernel (libtorajs_rc.a) — the rejected path funds
+    /// the throw slot's owned copy of a heap reason.
+    fn __torajs_rc_inc(p: *mut c_void);
 }
 
 /// Walk + free a Promise's cb chain, enqueuing each into the
@@ -123,7 +127,21 @@ pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
         } else {
             THROW_TAG_I64
         };
-        unsafe { __torajs_throw_set(tag, (*pp).value) };
+        // Rotation 326 — the throw slot's contract is OWNED (a
+        // thrown `new Error` transfers its mint; the catch binding
+        // releases it), but this cell keeps holding the reason and
+        // releases it again at its own drop: handing the slot a
+        // borrow charged one reference twice (`await p` on a
+        // rejected promise underflowed the Error instance — the
+        // string-reason shape only survived because static cells
+        // no-op rc). Take the +1 here so both releases are funded;
+        // re-awaiting the same rejected promise re-pays per throw.
+        unsafe {
+            if (*pp).value_is_heap != 0 && (*pp).value != 0 {
+                __torajs_rc_inc((*pp).value as *mut c_void);
+            }
+            __torajs_throw_set(tag, (*pp).value);
+        }
         return 0;
     }
     if state != STATE_FULFILLED {
