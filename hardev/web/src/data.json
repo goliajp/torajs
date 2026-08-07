@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T12:32:29.290Z",
+  "generatedAt": "2026-08-07T14:00:14.980Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T12:30:26Z",
-    "headSha": "713d83c8",
-    "elapsedSec": 402.17,
+    "ranAt": "2026-08-07T13:55:15Z",
+    "headSha": "34d22b5c",
+    "elapsedSec": 658.34,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22469,
-    "passNoOracle": 683,
-    "passNegative": 3956,
-    "passTotal": 27108,
-    "bug": 12163,
-    "incompatible": 13903,
+    "pass": 22517,
+    "passNoOracle": 692,
+    "passNegative": 3957,
+    "passTotal": 27166,
+    "bug": 12262,
+    "incompatible": 13746,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 39271,
-    "passRateInScope": 50.98,
-    "passRateTrAccepted": 69.03
+    "trAccepted": 39428,
+    "passRateInScope": 51.09,
+    "passRateTrAccepted": 68.9
   },
   "torajs": {
-    "commit": "713d83c8",
-    "commitSubject": "chore: lower rc underflow baseline to zero with the six-knife ledger",
+    "commit": "34d22b5c",
+    "commitSubject": "feat: orphan continue/break/return in eval source throw SyntaxError",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "34d22b5c",
+      "subject": "feat: orphan continue/break/return in eval source throw SyntaxError"
+    },
+    {
+      "hash": "2ec35ddc",
+      "subject": "feat: sloppy indirect eval of an unmentioned declaration source collapses"
+    },
+    {
+      "hash": "11af16eb",
+      "subject": "feat: eval source parses with the Script goal — import/export throw SyntaxError"
+    },
+    {
+      "hash": "14c74fcf",
+      "subject": "feat: use-strict prologue makes eval code strict; completion predicate tightened"
+    },
+    {
+      "hash": "1be4682b",
+      "subject": "docs: module doc catches up with the top-level indirect collapse"
+    },
+    {
+      "hash": "c03edbc4",
+      "subject": "feat: top-level indirect eval collapses identifier-bearing expressions"
+    },
+    {
+      "hash": "28ec0237",
+      "subject": "feat: indirect eval of literal source resolves at compile time"
+    },
+    {
+      "hash": "75aaa30b",
+      "subject": "chore: refresh hardev dashboard snapshot at rotation 326"
+    },
+    {
       "hash": "713d83c8",
       "subject": "chore: lower rc underflow baseline to zero with the six-knife ledger"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "dba1994f",
       "subject": "fix: returning an escape-boxed binding lent out the box's only stake"
-    },
-    {
-      "hash": "c6494d75",
-      "subject": "fix: bigint lanes read the undefined cell's limbs and lent out a slot's stake"
-    },
-    {
-      "hash": "3cb776d8",
-      "subject": "fix: a let binding took a borrow-shaped join as if it owned it"
-    },
-    {
-      "hash": "f7571b04",
-      "subject": "fix: the comma operator dropped a discarded borrow as if it owned it"
-    },
-    {
-      "hash": "660baa60",
-      "subject": "fix: the cycle sweep charged a dying parent's edge to a black child twice"
-    },
-    {
-      "hash": "99ffacbc",
-      "subject": "chore: refresh hardev dashboard snapshot at rotation 325"
-    },
-    {
-      "hash": "8f552008",
-      "subject": "fix: a let binding took an as-cast borrow as if it owned it"
-    },
-    {
-      "hash": "2b0373cc",
-      "subject": "fix: collection initializers consumed a borrowed source argument"
-    },
-    {
-      "hash": "a364e6c1",
-      "subject": "fix: an any-member read of an any-typed field never took its stake"
     }
   ],
-  "headSha": "713d83c8",
+  "headSha": "34d22b5c",
   "autorun": {
-    "total": 629,
+    "total": 630,
     "baselineTarget": 10,
-    "bySelf": 624,
+    "bySelf": 625,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786096141-19d5",
-      "at": "2026-08-07T09:49:01Z",
-      "ts": 1786096141,
+      "rotationId": "r-1786106011-1a98",
+      "at": "2026-08-07T12:33:31Z",
+      "ts": 1786106011,
       "trigger": "self",
-      "prevHead": "99ffacbc",
-      "handoffSha": "sha256:0088177171a7df0893fb0f446aa454d3eb97a1e0aa66e95d537b17c6a1e917ed",
-      "handoffAgeSec": 10,
+      "prevHead": "75aaa30b",
+      "handoffSha": "sha256:d1011f56961323e6dc7e31687b0bb065471f942432b18e6c42f018e0d03c9c60",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786106011-1a98",
+        "at": "2026-08-07T12:33:31Z",
+        "ts": 1786106011,
+        "trigger": "self",
+        "prevHead": "75aaa30b",
+        "handoffSha": "sha256:d1011f56961323e6dc7e31687b0bb065471f942432b18e6c42f018e0d03c9c60",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786096141-19d5",
         "at": "2026-08-07T09:49:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "6caad6f6",
         "handoffSha": "sha256:91faef059f6ca0e3908ff0a91ba5501d636d4104dac74fca714502ad085363e0",
         "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786015063-6744",
-        "at": "2026-08-06T11:17:43Z",
-        "ts": 1786015063,
-        "trigger": "self",
-        "prevHead": "4a018d13",
-        "handoffSha": "sha256:ec2b9e2b05ad97450c967e35b9158e0358278da0bb7fcc1ad7a75c50d032370d",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }

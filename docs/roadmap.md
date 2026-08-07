@@ -1530,7 +1530,43 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `b6e7420b`** (2026-08-07, rotation 324 — five knives on the
+**Latest @ `34d22b5c`** (2026-08-07, rotation 327 — six knives on
+indirect eval, the strict-face entry point r322's decomposition
+named. `(0, eval)("…")` — the comma spelling, 263 of 311
+indirect-shaped blocked cases — now resolves wherever the answer is
+exact: closed single-expression sources collapse anywhere (free-vars
+empty), identifier-bearing ones collapse at top-level positions under
+script framing (two soundness gates: per-slot function-body positions
+reconstructed by `walk::fn_owned_exprs`, and a nested-lexical-name
+veto for the one shadowing direction that would be silent-wrong),
+empty-completion sources collapse to `undefined`, top-level statements
+inline as UNSEALED blocks (`var` hoists out per sloppy global
+semantics, `let` stays contained), a `"use strict"` prologue flips the
+source strict (seals, and its dead declarations collapse to the
+directive string — the completion value, bun-confirmed), the Script
+goal rejects `import`/`export` and orphan `continue`/`break`/`return`
+as evaluation-time SyntaxErrors, and non-string literal arguments
+return themselves per §19.2.1.1 step 2. The first knife's
+empty-completion predicate had three holes, closed in knife 3: a
+literal expression statement is value-producing (`eval("1; 2;")` is 2,
+not undefined — now honestly rejected in value position), a truthy
+literal loop condition never terminates, and a truthy `if` completes
+with its taken branch. Against the r326 sweep (`713d83c8`): passTotal
+27108 → **27166 (+58)**, bug 12163 → **12262 (+99)**, trAccepted
+39271 → **39428 (+157)**, incompatible 13903 → **13746 (−157)** —
+conservation exact (157 = 58 + 99). Regressions **zero** (one
+`pass → tr-timeout` on a heavy unicode property-escapes case refuted
+by standalone rerun 4/4 pass — an external `cargo test` was saturating
+the machine during the sweep). Gate predicate **316 clusters / 6959
+cases** (clusters flat, cases −156), core **7964 (−157)**. The eval
+cluster fell 763 → **597** and stays #1; `__this` 257 / globalThis 216
+next. Water ledger: `var-env-var-strict`'s pass was two defects
+cancelling (prologue ignored × `in this` blind to top-level bindings)
+— the prologue knife turned it real; the annexB indirect passes (3 +
+2 no-oracle) ride the registered block-fn-leak family and stay on the
+ledger. Core `language/eval-code/indirect`: 59 blocked → 20 pass.)
+
+**Previous @ `b6e7420b`** (2026-08-07, rotation 324 — five knives on the
 reflection / assignment-value / refcount seam, four of them silent.
 `Object.entries(new Error("m"))` answered 3 where `Object.keys`
 answered 0 (the compile-time struct unfold cannot express
@@ -1603,7 +1639,7 @@ not) — an inherited behaviour of `nested_fns.rs` (deliberately
 implements B.3.3), not of the eval pass. Registered, documented in the
 pass, and expected to fall back out if/when the language-mode question
 is settled — that question (strict vs sloppy surface) is takagi's per
-CLAUDE.md. Top clusters: eval 763 (17 dirs) / `__this` 256 (21) /
+CLAUDE.md. Top clusters at that point: eval 763 (17 dirs) / `__this` 256 (21) /
 globalThis ~216; top 400 = 90.4%.**
 
 **Previous @ `a3f0ce09`** (2026-08-06, rotation 313 — five knives across
