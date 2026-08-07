@@ -215,6 +215,7 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
             i += 1;
             continue;
         };
+        let arena_before = ast.exprs.len();
         if let Some(parsed) = parse_eval_source(&src, ast) {
             if let [Stmt::Expr(inner)] = parsed[..] {
                 let at_toplevel = !fn_owned.get(i).copied().unwrap_or(false);
@@ -251,7 +252,24 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
                     .iter()
                     .all(|s| is_effect_free_decl(s, ast) || completes_empty_effect_free(s, ast));
             let tail_empty = tail.iter().all(|s| completes_empty_effect_free(s, ast));
-            if tail_dead || tail_empty {
+            // A SLOPPY indirect declaration source does put its names
+            // on the global — but a binding the rest of the program
+            // never so much as names (no identifier, no member/string
+            // spelling that could reach it through `this`) is
+            // unobservable, and the call collapses to the empty
+            // completion. `mentions` scans only the arena as it was
+            // before this parse appended the source's own expressions.
+            let tail_dead_sloppy = !strict_ctx
+                && !tail.is_empty()
+                && tail
+                    .iter()
+                    .all(|s| is_effect_free_decl(s, ast) || completes_empty_effect_free(s, ast))
+                && {
+                    let mut names = Vec::new();
+                    decl_names(tail, &mut names);
+                    !names.is_empty() && names.iter().all(|n| !name_mentioned(ast, n, arena_before))
+                };
+            if tail_dead || tail_empty || tail_dead_sloppy {
                 ast.exprs[i] = if prologue {
                     Expr::String("use strict".to_string())
                 } else {
@@ -357,6 +375,38 @@ fn lit_truth(e: super::ExprId, ast: &Ast) -> Option<bool> {
         Expr::Null => Some(false),
         _ => None,
     }
+}
+
+/// The names a declaration source binds — what a sloppy indirect eval
+/// would put on the global.
+fn decl_names(stmts: &[Stmt], out: &mut Vec<String>) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl { name, .. } => out.push(name.clone()),
+            Stmt::FnDecl { name, .. } => out.push(name.clone()),
+            Stmt::Multi(list) => decl_names(list, out),
+            _ => {}
+        }
+    }
+}
+
+/// Could the program reach a global binding of this name? Any
+/// identifier spelling it, any member access naming it (`this.x`), or
+/// any string literal equal to it (`'x' in this`,
+/// `getOwnPropertyDescriptor(this, "x")`) counts. The scan stops at
+/// `limit` — the arena length before the current eval source was
+/// parsed in — so the source's own uses of its own names do not veto
+/// the collapse. Garbage expressions left by earlier collapses are
+/// scanned too, which can only over-decline: the safe direction.
+fn name_mentioned(ast: &Ast, name: &str, limit: usize) -> bool {
+    ast.exprs[..limit.min(ast.exprs.len())]
+        .iter()
+        .any(|e| match e {
+            Expr::Ident(n) => n == name,
+            Expr::Member { name: n, .. } | Expr::OptChain { name: n, .. } => n == name,
+            Expr::String(s) => s == name,
+            _ => false,
+        })
 }
 
 /// The statement walk above reaches a `FnDecl` body because that body
