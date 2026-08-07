@@ -83,6 +83,38 @@ pub fn desugar_eval(ast: &mut Ast) {
     let mut stmts = std::mem::take(&mut ast.stmts);
     rewrite_list(&mut stmts, ast);
     ast.stmts = stmts;
+    rewrite_arrow_bodies(ast);
+}
+
+/// The statement walk above reaches a `FnDecl` body because that body
+/// hangs off the statement tree. A function written in *expression*
+/// position does not: `() => { … }`, `function () { … }` and a method
+/// shorthand all park their statements inside an `Expr::ArrowFn` in the
+/// expression arena, which no statement walk visits. Missing them is
+/// not a corner: `closure __closure_N references unknown identifier
+/// eval` accounts for ~390 of the eval-blocked cases on its own, and
+/// `assert.throws(…, function () { eval("…") })` is how test262 spells
+/// most of its eval assertions.
+///
+/// The loop re-reads `len()` each turn rather than snapshotting it,
+/// because inlining appends to the arena — an arrow written inside an
+/// eval'd literal lands past the original end and still has to be
+/// visited. Each body is taken out before the rewrite so `ast` can be
+/// handed to `parse_into`, then put back.
+fn rewrite_arrow_bodies(ast: &mut Ast) {
+    let mut i = 0;
+    while i < ast.exprs.len() {
+        let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) else {
+            i += 1;
+            continue;
+        };
+        let mut taken = std::mem::take(body);
+        rewrite_list(&mut taken, ast);
+        if let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) {
+            *body = taken;
+        }
+        i += 1;
+    }
 }
 
 /// Does any binding in the program shadow the global `eval`? A `var` /
@@ -129,7 +161,17 @@ fn binds_eval(ast: &Ast) -> bool {
             _ => false,
         }
     }
-    in_list(&ast.stmts)
+    if in_list(&ast.stmts) {
+        return true;
+    }
+    // Arrows live in the expression arena, so a parameter or body
+    // binding named `eval` there is invisible to the statement walk.
+    ast.exprs.iter().any(|e| match e {
+        Expr::ArrowFn { params, body, .. } => {
+            params.iter().any(|p| p.name == "eval") || in_list(body)
+        }
+        _ => false,
+    })
 }
 
 fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast) {
