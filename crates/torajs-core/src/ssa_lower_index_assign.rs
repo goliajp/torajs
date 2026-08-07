@@ -91,11 +91,18 @@ impl<'a> LowerCtx<'a> {
         // The computed-field ctor prefix (`(this as any)[key] = v`)
         // lands here too — the As is a bare pass-through for a heap
         // source, so the operand still reads Type::Obj.
-        let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_)) {
-            (self.box_to_any(arr_val), Type::Any)
-        } else {
-            (arr_val, arr_ty)
-        };
+        // An ARRAY receiver under an `any` key boxes too and rides
+        // the keyed set kernel below — §7.1.19 decides element vs
+        // property from the key's runtime value (the read-side
+        // lower_typed_arr_any_key's write mirror; checker admit in
+        // check_assign_target::check_index).
+        let key_is_any = matches!(self.expr_types.get(&index), Some(crate::check::Type::Any));
+        let (arr_val, arr_ty) =
+            if matches!(arr_ty, Type::Obj(_)) || (matches!(arr_ty, Type::Arr(_)) && key_is_any) {
+                (self.box_to_any(arr_val), Type::Any)
+            } else {
+                (arr_val, arr_ty)
+            };
         // Any-dynamic-access RFC (20260704) S3-set — `recv[i] = v`
         // where recv is an `any` value: runtime kind-aware dispatch;
         // OOB → catchable RangeError, elem-kind mismatch → catchable

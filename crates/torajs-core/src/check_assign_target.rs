@@ -283,8 +283,22 @@ pub(crate) fn check_index(
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any)
             && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+        // An ARRAY receiver admits an `any` key: §7.1.19 decides
+        // element-vs-property from the runtime value, so the write
+        // rides the keyed set kernel with the receiver boxed (the
+        // read-side Array arm's write mirror — S12.6.3_A5's
+        // `var x = 0; a[x] = v`, where a `var` binding reads as
+        // Any). A STATIC String/Symbol key stays the loud reject
+        // for now: the literal lane stores by property, and an
+        // element-spelled literal ("0") landing in the expando
+        // dict would shadow-split the element — recorded boundary.
+        && !(matches!(obj_ty, Type::Array(_)) && matches!(idx_ty, Type::Any))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
+    }
+    if matches!(obj_ty, Type::Array(_)) && matches!(idx_ty, Type::Any) {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
     }
     // Any-dynamic-access RFC (20260704) S3-set — TS `any` admits
     // every index write; runtime dispatch (kind-aware Arr / silent
