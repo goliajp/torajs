@@ -50,7 +50,7 @@ use super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 /// construction — so it is emitted only when the body can actually
 /// produce a value. A bare `return;` does not count: it yields
 /// undefined, which is never an Object.
-fn returns_a_value(body: &[Stmt]) -> bool {
+pub(super) fn returns_a_value(body: &[Stmt]) -> bool {
     body.iter().any(stmt_returns_a_value)
 }
 
@@ -96,12 +96,12 @@ fn stmt_returns_a_value(s: &Stmt) -> bool {
 
 /// A function this pass can construct: its name, and the parameters the
 /// factory has to forward (blade 1's hidden receiver excluded).
-struct Constructible {
-    name: String,
-    params: Vec<Param>,
-    takes_this: bool,
+pub(super) struct Constructible {
+    pub(super) name: String,
+    pub(super) params: Vec<Param>,
+    pub(super) takes_this: bool,
     /// Body can produce a value, so §10.2.2 step 8 is live for it.
-    returns_value: bool,
+    pub(super) returns_value: bool,
 }
 
 fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
@@ -331,7 +331,9 @@ fn missing_factories(ast: &Ast, declared: &[String]) -> (Vec<String>, Vec<ExprId
 
 pub fn synthesize_fn_constructors(ast: &mut Ast) {
     promote_fn_expr_ctor_this(ast);
-    let (declared, candidates) = collect_declared(ast);
+    super::fn_constructor_assign::promote_assign_bound_ctor_this(ast);
+    let (declared, mut candidates) = collect_declared(ast);
+    super::fn_constructor_assign::collect_assign_bound(ast, &mut candidates);
     let (wanted, callees) = missing_factories(ast, &declared);
     if wanted.is_empty() {
         return;

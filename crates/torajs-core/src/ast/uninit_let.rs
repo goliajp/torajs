@@ -56,8 +56,26 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: Expr
             Stmt::FnDecl { body, .. } => {
                 rewrite_uninit_in_stmts(body, ast, undef_eid);
             }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
+            Stmt::Block(inner) => {
                 rewrite_uninit_in_stmts(inner, ast, undef_eid);
+            }
+            Stmt::Multi(_) => {
+                // A Multi is a FLAT statement sequence (the parser's
+                // multi-name `var a, b;` line), not a scope — recursing
+                // treated it as one, so a declarator inside could never
+                // see its follow-up assignment in the surrounding list
+                // (`var F, o; F = function () {…};` kept the Uninit
+                // sentinel while the single-name spelling spliced — the
+                // S13.2.2 constructed-fn-expr family writes exactly the
+                // multi-name form). Splice the members into this list
+                // and re-examine from the same index (a nested Multi
+                // re-enters this arm).
+                let Stmt::Multi(inner) = std::mem::replace(&mut stmts[i], Stmt::Break(None))
+                else {
+                    unreachable!()
+                };
+                stmts.splice(i..=i, inner);
+                continue;
             }
             Stmt::If {
                 then_branch,
