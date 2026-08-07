@@ -69,6 +69,14 @@ authors = ["GOLIA K.K."]
 # warnings-clean.
 [workspace.lints.rust]
 warnings = "deny"
+# Opt-in `--cfg` flags the production scripts set (they are not
+# features, so rustc's cfg check needs them declared). Mirrors the
+# `cargo::rustc-check-cfg` line torajs-panic-runtime's build.rs emits
+# for its own flag; torajs-rc has no build.rs (0-dep metal crate), so
+# its detector flag is declared here instead.
+unexpected_cfgs = { level = "deny", check-cfg = [
+  'cfg(torajs_rc_underflow_detect)',
+] }
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

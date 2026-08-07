@@ -299,6 +299,40 @@ unsafe extern "C" {
 }
 
 // ============================================================
+// Refcount-underflow detector (opt-in, off by default)
+// ============================================================
+
+/// No-op unless `--cfg torajs_rc_underflow_detect` is set. See
+/// [`HeapHeader::dec_ref`]'s "Underflow" section for what an underflow
+/// means and why it has to be detected here rather than where it
+/// crashes.
+#[cfg(not(torajs_rc_underflow_detect))]
+#[inline(always)]
+fn report_underflow(_count_before_dec: u32) {}
+
+/// Detector build — writes one line per underflow to stderr and lets
+/// the program continue, so a single run reports EVERY underflow it
+/// hits instead of stopping at the first. Aborting would be the
+/// fail-fast choice, but the flag exists to take a census of a defect
+/// class that is currently invisible to the gate, and a census needs
+/// the whole run.
+///
+/// `write(2)` directly: an AOT artifact reaches this before Rust's std
+/// io is initialized, where `eprintln!` takes SIGBUS.
+#[cfg(torajs_rc_underflow_detect)]
+#[inline]
+fn report_underflow(count_before_dec: u32) {
+    if count_before_dec != 0 {
+        return;
+    }
+    unsafe extern "C" {
+        fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
+    }
+    let msg = b"__TORAJS_RC_UNDERFLOW__\n";
+    unsafe { write(2, msg.as_ptr() as *const c_void, msg.len()) };
+}
+
+// ============================================================
 // HeapHeader methods (the idiomatic core)
 // ============================================================
 
@@ -418,11 +452,29 @@ impl HeapHeader {
     /// On the hit-zero path, fires the runtime_weakref.c hook so
     /// any live `WeakRef` to this object can NULL its target ptr
     /// before the caller's free.
+    ///
+    /// ## Underflow
+    ///
+    /// A dec against a count already at zero means the block was
+    /// freed and something released it again — the codegen handed two
+    /// owners one reference. `0 - 1` wraps to `u32::MAX`, which reads
+    /// as "many owners", so the corpse is never freed again and never
+    /// scrubbed from the cycle-root buffer; the crash lands later and
+    /// elsewhere (rotation 323 found one via a segfault inside
+    /// `__torajs_cycle_at_exit_drain`, three lowering layers away from
+    /// the actual defect).
+    ///
+    /// `--cfg torajs_rc_underflow_detect` reports each one to stderr
+    /// so `hardev/autorun/rc_underflow_scan.sh` can attribute it to a
+    /// case. Without the flag [`report_underflow`] is an empty body
+    /// taking no arguments it reads — the branch lives inside it, not
+    /// here, so the hot path has nothing to optimize away.
     #[inline]
     pub fn dec_ref(&mut self) -> DropPolicy {
         if self.is_static_literal() {
             return DropPolicy::Keep;
         }
+        report_underflow(self.refcount);
         self.refcount -= 1;
         if self.refcount == 0 {
             // SAFETY: hook is gated internally on a global counter;
