@@ -109,6 +109,15 @@ pub(crate) fn lower_dynobj_assign(
             return r;
         }
         _ if v_ty.is_refcounted() => {
+            // A typed array's NaN-box is only readable through its
+            // elem-kind chain, and this lane never stamped one:
+            // `o.x = [7, 8]` stored a block every any-side reader
+            // answered empty for (`String(o.x)` printed nothing,
+            // `o.x[0]` undefined) while an `any`-typed rhs — boxed
+            // upstream, stamped upstream — read back fine. The same
+            // omission the struct-field lane fixed in chunk 621;
+            // no-op for non-Arr values.
+            ctx.emit_arr_mark_kind(&v_raw);
             ctx.emit_rc_inc(v_raw);
             (Operand::ConstI64(4), v_raw)
         }
