@@ -92,6 +92,8 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     ast::materialize_expr_defaults(ast);
     ast::bind_this_param(ast);
     ast::rewrite_toplevel_this(ast);
+    ast::normalize_function_bind_call(ast);
+    ast::promote_bind_receiver_this(ast);
     ast::synthesize_fn_constructors(ast);
     ast::route_non_class_new(ast);
     ast::fill_optional_fields(ast);

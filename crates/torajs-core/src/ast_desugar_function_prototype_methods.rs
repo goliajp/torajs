@@ -99,6 +99,31 @@ pub(crate) fn run(ast: &mut Ast) {
     if fn_sigs.is_empty() {
         return;
     }
+    // fnexpr-bind knife — `var f = function () {…}` arrives here
+    // (post-lift) as a LetDecl whose init is `Ident("__closure_N")`
+    // pointing at the lifted FnDecl. Resolve the binding name to that
+    // signature for the BIND arm only (narrow surface: `.call` /
+    // `.apply` on a closure binding keep their current lanes). The
+    // `__env` first-param gate below still applies — a capturing
+    // fn-expr keeps its loud reject.
+    let mut closure_aliases: HashMap<String, String> = HashMap::new();
+    for s in crate::ast::toplevel_stmts_flat(ast) {
+        let Stmt::LetDecl { name, init, .. } = s else {
+            continue;
+        };
+        // Post-lift a capture-less fn-expr init is a
+        // `Closure { fn_name, captures: [] }` node (the bare-Ident
+        // specialization happens later); a capturing one keeps its
+        // env and stays on the loud reject via the `__env` gate.
+        let cn = match ast.get_expr(*init) {
+            Expr::Ident(cn) => cn,
+            Expr::Closure { fn_name, captures } if captures.is_empty() => fn_name,
+            _ => continue,
+        };
+        if cn.starts_with("__closure_") && fn_sigs.contains_key(cn) {
+            closure_aliases.insert(name.clone(), cn.clone());
+        }
+    }
 
     let mut new_decls: Vec<Stmt> = Vec::new();
     let mut id_counter: u32 = 0;
@@ -120,7 +145,31 @@ pub(crate) fn run(ast: &mut Ast) {
             Some(Expr::Ident(n)) => n.clone(),
             _ => continue,
         };
-        let Some((fn_params, fn_ret)) = fn_sigs.get(&fn_name).cloned() else {
+        // The bind arm resolves a closure-binding receiver through its
+        // lifted FnDecl's signature MINUS the `__env` slot: the synth
+        // wrapper forwards through the BINDING NAME (a bare-name
+        // closure call, which carries the env itself), so the wrapper
+        // never spells `__env` and the lifted arity gate below must
+        // not see it either.
+        let mut sig = fn_sigs.get(&fn_name).cloned();
+        let mut bind_target_is_binding = false;
+        if sig.is_none()
+            && m_name == "bind"
+            && let Some(cn) = closure_aliases.get(&fn_name)
+            && let Some((cp, cr)) = fn_sigs.get(cn)
+        {
+            bind_target_is_binding = true;
+            let stripped: Vec<Param> = cp
+                .iter()
+                .filter(|p| p.name != "__env")
+                .map(|p| Param {
+                    type_ann: p.type_ann.clone().or_else(|| Some("any".into())),
+                    ..p.clone()
+                })
+                .collect();
+            sig = Some((stripped, cr.clone()));
+        }
+        let Some((fn_params, fn_ret)) = sig else {
             continue;
         };
         if fn_params.first().is_some_and(|p| p.name == "__env") {
@@ -243,6 +292,7 @@ pub(crate) fn run(ast: &mut Ast) {
                     &fn_ret,
                     partial_args,
                     &mut new_decls,
+                    bind_target_is_binding.then_some(fn_name.as_str()),
                 );
             }
             _ => unreachable!(),
@@ -257,6 +307,7 @@ pub(crate) fn run(ast: &mut Ast) {
 /// call at arena slot `i` with the factory invocation over the
 /// partial args (see module doc).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn synth_bind(
     ast: &mut Ast,
     i: usize,
@@ -266,6 +317,13 @@ fn synth_bind(
     fn_ret: &Option<String>,
     partial_args: Vec<ExprId>,
     new_decls: &mut Vec<Stmt>,
+    // fnexpr-bind knife — Some(binding) when the receiver is a
+    // closure BINDING rather than a named FnDecl: the wrapper cannot
+    // spell the lifted `__closure_N` (its call would need the hidden
+    // `__env`), so the target closure VALUE itself rides the bound
+    // env — §10.4.1's [[BoundTargetFunction]], one to one — and the
+    // wrapper calls through that capture.
+    target_binding: Option<&str>,
 ) {
     let partial_count = partial_args.len();
     let bound_name = format!("__bound_{}_{}", fn_name, id);
@@ -279,7 +337,13 @@ fn synth_bind(
         .map(|k| format!("__br_{}_{}", id, k))
         .collect();
 
-    let env_ann = format!("__env({})", cap_names.join("|"));
+    let target_cap = target_binding.map(|_| format!("__bt_{id}"));
+    let env_names: Vec<String> = target_cap
+        .iter()
+        .cloned()
+        .chain(cap_names.iter().cloned())
+        .collect();
+    let env_ann = format!("__env({})", env_names.join("|"));
     let mut bound_params: Vec<Param> = Vec::with_capacity(remaining_count + 1);
     bound_params.push(Param {
         name: "__env".into(),
@@ -296,7 +360,9 @@ fn synth_bind(
             is_rest: false,
         });
     }
-    let callee_ident_id = ast.add_expr(Expr::Ident(fn_name.to_string()));
+    let callee_ident_id = ast.add_expr(Expr::Ident(
+        target_cap.clone().unwrap_or_else(|| fn_name.to_string()),
+    ));
     let mut call_args: Vec<ExprId> = Vec::with_capacity(fn_params.len());
     for cn in &cap_names {
         call_args.push(ast.add_expr(Expr::Ident(cn.clone())));
@@ -329,7 +395,19 @@ fn synth_bind(
         span: crate::lexer::Span { start: 0, end: 0 },
     };
 
-    let mut factory_params: Vec<Param> = Vec::with_capacity(partial_count);
+    let mut factory_params: Vec<Param> = Vec::with_capacity(partial_count + 1);
+    if let Some(tc) = &target_cap {
+        let all_tys: Vec<String> = fn_params
+            .iter()
+            .map(|p| p.type_ann.clone().unwrap_or_else(|| "any".to_string()))
+            .collect();
+        factory_params.push(Param {
+            name: tc.clone(),
+            type_ann: Some(format!("__cls({})->{}", all_tys.join("|"), ret_type_str)),
+            default: None,
+            is_rest: false,
+        });
+    }
     for k in 0..partial_count {
         let src_param = &fn_params[k];
         factory_params.push(Param {
@@ -350,7 +428,7 @@ fn synth_bind(
     let factory_ret = format!("__cls({})->{}", rem_tys.join("|"), ret_type_str);
     let closure_expr_id = ast.add_expr(Expr::Closure {
         fn_name: bound_name,
-        captures: cap_names.clone(),
+        captures: env_names.clone(),
     });
     let factory_body = vec![Stmt::Return(Some(closure_expr_id))];
     new_decls.push(Stmt::FnDecl {
@@ -365,8 +443,13 @@ fn synth_bind(
     new_decls.push(bound_decl);
 
     let new_callee = ast.add_expr(Expr::Ident(factory_name));
+    let mut factory_args = partial_args;
+    if let Some(binding) = target_binding {
+        let t = ast.add_expr(Expr::Ident(binding.to_string()));
+        factory_args.insert(0, t);
+    }
     ast.exprs[i] = Expr::Call {
         callee: new_callee,
-        args: partial_args,
+        args: factory_args,
     };
 }
