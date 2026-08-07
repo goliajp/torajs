@@ -52,12 +52,26 @@ pub(crate) fn try_lower(
     // kernels' full own + prototype-chain face. The fn-as-value
     // collector already wrapped a bare top-FnDecl Ident rhs into its
     // forwarder closure, so a Closure operand is what reaches here.
-    let (mut obj_op, mut obj_ty) = if matches!(obj_ty, Type::Closure(_)) {
+    let (obj_op, obj_ty) = if matches!(obj_ty, Type::Closure(_)) {
         (ctx.box_to_any(obj_op), Type::Any)
     } else {
         (obj_op, obj_ty)
     };
     let cur_block = ctx.cur_block;
+    // A typed-array rhs only keeps its fast lane under a NUMERIC key.
+    // Any other static key kind — Any (only names its kind at run
+    // time), Str ("1" is an index key, "q" walks the prototype
+    // chain), Bool/Symbol (§7.1.19 gives "true", not 1) — takes the
+    // boxed Any face below, which resolves §7.1.19 on the value; a
+    // blind coerce_to_i64 here rejected the Any and mis-keyed the
+    // rest (S12.6.3_A5's eval-inlined `i in arr`).
+    let (mut obj_op, mut obj_ty) = if matches!(obj_ty, Type::Arr(_))
+        && !matches!(ctx.operand_ty(&key_op), Type::I64 | Type::F64)
+    {
+        (ctx.box_to_any(obj_op), Type::Any)
+    } else {
+        (obj_op, obj_ty)
+    };
     if matches!(obj_ty, Type::Arr(_)) {
         // 刀 13d (RFC 20260721-array-proto-cluster) — was a raw
         // `0 <= key < len` bounds check, blind to hole shadows
