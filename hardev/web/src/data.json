@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T02:50:08.692Z",
+  "generatedAt": "2026-08-07T03:13:46.022Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T02:46:56Z",
-    "headSha": "150eda5f",
-    "elapsedSec": 401.42,
+    "ranAt": "2026-08-07T03:10:25Z",
+    "headSha": "38cfbc76",
+    "elapsedSec": 402.56,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22447,
-    "passNoOracle": 685,
+    "pass": 22462,
+    "passNoOracle": 683,
     "passNegative": 3956,
-    "passTotal": 27088,
-    "bug": 12126,
-    "incompatible": 13960,
+    "passTotal": 27101,
+    "bug": 12170,
+    "incompatible": 13903,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 39214,
-    "passRateInScope": 50.94,
-    "passRateTrAccepted": 69.08
+    "trAccepted": 39271,
+    "passRateInScope": 50.97,
+    "passRateTrAccepted": 69.01
   },
   "torajs": {
-    "commit": "150eda5f",
-    "commitSubject": "feat(ast): raise SyntaxError when an eval'd literal does not parse",
+    "commit": "38cfbc76",
+    "commitSubject": "feat(ast): eval of a declaration-only source collapses to undefined",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "38cfbc76",
+      "subject": "feat(ast): eval of a declaration-only source collapses to undefined"
+    },
+    {
+      "hash": "3a8b63a5",
+      "subject": "chore: stow rotation 322 final sweep and refresh dashboard"
+    },
+    {
       "hash": "150eda5f",
       "subject": "feat(ast): raise SyntaxError when an eval'd literal does not parse"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "a4fd872e",
       "subject": "fix(egraph): number promoted phis in block order, not hash order"
-    },
-    {
-      "hash": "212b508c",
-      "subject": "fix(regex): declare DfaState's padding byte so the AOT bake stops reading uninit memory"
-    },
-    {
-      "hash": "25902b38",
-      "subject": "fix(egraph): float demotion guards split blocks in plan order, not hash order"
     }
   ],
-  "headSha": "150eda5f",
+  "headSha": "38cfbc76",
   "autorun": {
     "total": 625,
     "baselineTarget": 10,
