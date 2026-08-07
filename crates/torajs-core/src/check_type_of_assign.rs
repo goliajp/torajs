@@ -38,6 +38,15 @@ pub(crate) fn check(
             crate::check_assign_ident::check(checker, ast, target, name, value)
         }
         Expr::Member { obj, name: field } => {
+            // RFC 20260807-global-object G2 — a member STORE through
+            // bare `globalThis` stays loud: the write would land on
+            // the runtime singleton while every bare-name read keeps
+            // its static resolution (`globalThis.Array = x` then
+            // `Array` reading the original ctor is the exact silent
+            // wrong G2 refuses; expando globals `globalThis.g = 1`
+            // then bare `g` diverge the same way). A user binding
+            // named globalThis shadows through the lookup gate.
+            reject_globalthis_mutation(checker, ast, obj)?;
             // RFC 20260710 C5 — writing the member invalidates its
             // own narrow entry and every narrow rooted deeper in it
             // (chunk 789: `h.o = ...` kills ("h.o", cb) AND
@@ -52,6 +61,10 @@ pub(crate) fn check(
             crate::check_assign_target::check_member(checker, ast, obj, field, value)
         }
         Expr::Index { obj, index } => {
+            // G2 — the Index spelling of the globalThis member store
+            // (`globalThis["x"] = v` / computed key) rejects for the
+            // same reason as the Member arm above.
+            reject_globalthis_mutation(checker, ast, obj)?;
             // Chunk 790 — an element write invalidates narrows rooted
             // at that element path; a computed index (`arr[i] = ...`)
             // conservatively kills every index-rooted narrow under
@@ -70,4 +83,23 @@ pub(crate) fn check(
         }
         _ => Err("invalid assignment target".into()),
     }
+}
+
+/// RFC 20260807-global-object G2 — property mutation through bare
+/// `globalThis` (no user binding shadowing it) is a typecheck error:
+/// the singleton is read-only surface until global-binding reflection
+/// lands (G4). Alias writes (`var g = globalThis; g.x = 1`) are out
+/// of this gate's reach and land on the singleton's dynobj lanes —
+/// the same exposure the `Math` ns-object accepted (RFC 20260801).
+pub(crate) fn reject_globalthis_mutation(
+    checker: &Checker,
+    ast: &Ast,
+    obj: ExprId,
+) -> Result<(), String> {
+    if matches!(ast.get_expr(obj), Expr::Ident(n) if n == "globalThis")
+        && checker.lookup("globalThis").is_none()
+    {
+        return Err("not yet supported: assigning to / deleting a property of `globalThis`".into());
+    }
+    Ok(())
 }
