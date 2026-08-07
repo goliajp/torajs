@@ -857,6 +857,8 @@ pub(crate) struct Intrinsics {
     pub(crate) math_random: FuncId,
     /// RFC 20260801-ns-object-value — Math namespace object value.
     pub(crate) ns_object_math: FuncId,
+    /// RFC 20260807-global-object G2 — globalThis singleton value.
+    pub(crate) globalthis_object: FuncId,
     pub(crate) json_quote_str: FuncId,
     pub(crate) json_quote_str_top: FuncId,
     /// V0.2 P14-S5 — JSON builder fast path intrinsics for

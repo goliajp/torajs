@@ -93,14 +93,23 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
 /// Static member reads and `Math.xxx(...)` calls never reach here —
 /// they resolve in the member / call lanes first — and a local
 /// binding named Math shadows through the outer `locals` gate.
+/// `globalThis` rides the same lane (RFC 20260807-global-object G2 —
+/// its singleton pre-fills the ctor cells and value props; static
+/// member reads were already rewritten to bare names by the G1
+/// desugar, so only the bare value read reaches here).
 fn try_ns_object_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
-    if name != "Math" || ctx.ast.class_parents.contains_key(name) {
+    let intrinsic = match name {
+        "Math" => ctx.intrinsics.ns_object_math,
+        "globalThis" => ctx.intrinsics.globalthis_object,
+        _ => return None,
+    };
+    if ctx.ast.class_parents.contains_key(name) {
         return None;
     }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.ns_object_math, vec![]),
+        InstKind::Call(intrinsic, vec![]),
         Type::Any,
         None,
     );

@@ -66,6 +66,9 @@ pub(crate) struct MathIds {
     /// RFC 20260801-ns-object-value — the Math namespace object as a
     /// first-class value (interned immortal singleton, Any).
     pub ns_object_math: FuncId,
+    /// RFC 20260807-global-object G2 — the globalThis singleton as a
+    /// first-class value (same immortal pre-filled dynobj lane).
+    pub globalthis_object: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> MathIds {
@@ -142,6 +145,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_ns_object_math",
+            &[],
+            Type::Any,
+        ),
+        globalthis_object: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_globalthis_object",
             &[],
             Type::Any,
         ),
