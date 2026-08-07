@@ -41,6 +41,34 @@
 //!
 //! Returns `Operand` directly (TS assignment-as-expression yields
 //! the assigned value).
+//!
+//! ## The returned value is OWNED, not a slot borrow
+//!
+//! Both lanes answer the very operand they stored — a borrow of the
+//! slot that now owns it. A consumer that keeps the value (`b = (a =
+//! [1,2,3])`, `var b = (a = ...)`, `{ k: (a = ...) }`, `return (a =
+//! ...)`) stores it into a second place, and at scope end BOTH places
+//! release: one `rc_inc`, two `rc_dec` → refcount underflow (`0 - 1`
+//! wraps to `0xffffffff` in release) on already-freed memory, and the
+//! corpse stays in the cycle-root buffer until `__torajs_cycle_at_exit
+//! _drain` walks it and segfaults (rotation 323).
+//!
+//! Fixing it consumer-side would mean adding `Expr::Assign` to every
+//! borrow-needs-inc whitelist (`apply_borrow_rc_inc` here, the
+//! let-decl alias gate, `ssa_lower_array`'s element loop,
+//! `ssa_lower_object_lit`'s …) — whack-a-mole, and the ones that
+//! transfer instead of inc'ing (array elements) would still steal the
+//! slot's only stake. So [`mint_consumer_stake`] takes the `+1` HERE,
+//! once, and records the eid so [`crate::ssa_lower::LowerCtx::
+//! expr_owned_shape`] answers owned. That puts assignment-as-value on
+//! the same contract as `Expr::Call` / `Expr::Array`: consumers that
+//! keep it transfer without inc'ing, and discard sites
+//! (`release_owned_temp`, `Stmt::Expr`) release it.
+//!
+//! Only the Ident-target lane mints. The Member / Index target lanes
+//! do NOT answer a uniform slot borrow (the setter-call arm and the
+//! `Str ← Any` index arm already mint fresh owned values), so they
+//! stay off `owned_member_reads` and keep their current contract.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -48,19 +76,42 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     target: ExprId,
     name: String,
     value: ExprId,
 ) -> Operand {
     if ctx.ast.undeclared_reads.contains_key(&target) {
+        // The throw makes the value unobservable and the lane past
+        // the check is unreachable — nothing to hand a consumer.
         return lower_undeclared_write_throw(ctx, &name, value);
     }
-    if ctx.locals.get(&name).is_none()
+    let v = if ctx.locals.get(&name).is_none()
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {
-        return lower_global_assign(ctx, name, slot_ty, value);
+        lower_global_assign(ctx, name, slot_ty, value)
+    } else {
+        lower_local_assign(ctx, name, value)
+    };
+    mint_consumer_stake(ctx, eid, &v);
+    v
+}
+
+/// Take the `+1` that turns the stored-slot borrow into a value the
+/// consumer owns, and record `eid` so `expr_owned_shape` answers
+/// owned. See the module doc for why this belongs here rather than in
+/// each consumer's borrow whitelist.
+///
+/// Copy-typed slots (`i64`, `bool`, …) mint nothing: `emit_rc_inc`
+/// has no work to do and `release_owned_temp` drops out on
+/// `ty.is_copy()` before reaching a release site, so recording the
+/// eid stays inert for them.
+fn mint_consumer_stake(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Operand) {
+    if !ctx.operand_ty(v).is_refcounted() {
+        return;
     }
-    lower_local_assign(ctx, name, value)
+    ctx.emit_rc_inc(*v);
+    ctx.owned_member_reads.insert(eid);
 }
 
 /// RFC 20260730-undeclared-ident, write position — §6.2.5.6 PutValue

@@ -175,6 +175,16 @@ impl<'a> LowerCtx<'a> {
             // rc traffic (probe p722a ternary-discard 15.3MB /
             // p722d-e nullish 15.3MB vs 6.2MB flat).
             Expr::Ternary { .. } | Expr::Nullish { .. } => self.owned_member_reads.contains(&eid),
+            // Rotation 323 — an Ident-target assignment answers the
+            // stored value with a consumer stake minted at the store
+            // (`ssa_lower_assign_ident::mint_consumer_stake`) and
+            // records its eid; without that stake a kept result
+            // (`b = (a = [1,2,3])`) had two releases against one
+            // reference — underflow on freed memory, surfacing as a
+            // segfault in the exit-drain cycle walk. Member / Index
+            // targets don't mint (their lanes aren't a uniform slot
+            // borrow) and stay borrows.
+            Expr::Assign { .. } => self.owned_member_reads.contains(&eid),
             _ => false,
         }
     }

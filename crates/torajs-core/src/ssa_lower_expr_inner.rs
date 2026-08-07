@@ -214,7 +214,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         Expr::Assign { target, value } => {
             // Ident / Member / Index target dispatch — see
             // [`lower_assign`] below.
-            return lower_assign(ctx, *target, *value);
+            return lower_assign(ctx, eid, *target, *value);
         }
         Expr::BinOp { op, left, right } => {
             // M1.5 — `&&` / `||` short-circuit + AST-level fold
@@ -391,7 +391,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
 
 /// `Expr::Assign` target dispatch — Ident / Member / Index shapes
 /// route to their per-shape sibling lowerers.
-fn lower_assign(ctx: &mut LowerCtx, target: ExprId, value: ExprId) -> Operand {
+fn lower_assign(ctx: &mut LowerCtx, eid: ExprId, target: ExprId, value: ExprId) -> Operand {
     match ctx.ast.get_expr(target).clone() {
         Expr::Ident(name) => {
             // K.3 module-level data global + local-binding
@@ -400,7 +400,7 @@ fn lower_assign(ctx: &mut LowerCtx, target: ExprId, value: ExprId) -> Operand {
             // coerce_to_str), plus the RFC 20260730 undeclared-
             // write ReferenceError lane keyed by target eid. See
             // [`crate::ssa_lower_assign_ident::lower`].
-            crate::ssa_lower_assign_ident::lower(ctx, target, name, value)
+            crate::ssa_lower_assign_ident::lower(ctx, eid, target, name, value)
         }
         Expr::Member { obj, name: field } => {
             // M1.4 — `obj.field = value`. 7-way dispatch
