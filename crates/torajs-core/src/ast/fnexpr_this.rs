@@ -52,8 +52,8 @@ pub(crate) use super::fnexpr_this_faces::promote_recv_any;
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
     collect_any_binding_names, collect_arraylit_binding_names, collect_decls_by_name,
-    collect_mapset_binding_names, collect_this_fnexpr_decl_names, fn_has_rest_param,
-    name_shadowed_elsewhere,
+    collect_gen_iter_binding_names, collect_mapset_binding_names, collect_this_fnexpr_decl_names,
+    fn_has_rest_param, name_shadowed_elsewhere,
 };
 use super::{Expr, ExprId, Stmt};
 
@@ -124,6 +124,7 @@ fn collect_position_faces(
     call_faces: &mut std::collections::HashSet<ExprId>,
 ) {
     let any_recvs = collect_any_binding_names(stmts, exprs);
+    let gen_recvs = collect_gen_iter_binding_names(stmts, exprs);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     for i in 0..exprs.len() {
@@ -264,6 +265,20 @@ fn collect_position_faces(
             // and `flatMap` (rotation 286 — its inlined loop now
             // mirrors the same knife-4 protocol); other receivers
             // keep today's loud reject.
+            // Iterator-helper cb over a syntactically-certain
+            // generator-object receiver (`let it = g(); it.every(fn)`)
+            // — the eager and lazy kernels both read the closure flag
+            // and seed the receiver slot undefined (§27.1.4's
+            // Call(cb, undefined)). `reduce` has a cb here (unlike
+            // the array family, whose reduce keeps its loud reject).
+            Expr::Member { obj, name }
+                if (is_hof_method(name) || name == "reduce")
+                    && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if gen_recvs.contains(n)) =>
+            {
+                if let Some(cb) = args.first() {
+                    collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+                }
+            }
             Expr::Member { obj, name } if is_hof_method(name) => {
                 let typed_ok = true;
                 // Typed Map / Set receivers ride the same channel for

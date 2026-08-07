@@ -7,7 +7,9 @@
 
 use core::ffi::c_void;
 
-use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_boxed};
+use crate::method_call_closure_dispatch::{
+    closure_cell_entry, invoke_boxed, invoke_boxed_recv_first, recv_first_shift,
+};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 use crate::{as_void_ptr, is_cell};
@@ -156,7 +158,14 @@ pub(crate) unsafe fn iter_eager(
             } else {
                 2
             };
-            let r = invoke_boxed(env, entry, argv2.as_ptr(), n_args);
+            // §27.1.4.x 4.d — Call(callback, undefined, …): a
+            // promoted this-reading fn-expr (FLAG_CLOSURE_RECV_FIRST)
+            // takes its receiver slot explicitly, seeded undefined.
+            let r = if recv_first_shift(env) != 0 {
+                invoke_boxed_recv_first(env, entry, VALUE_UNDEFINED, argv2.as_ptr(), n_args)
+            } else {
+                invoke_boxed(env, entry, argv2.as_ptr(), n_args)
+            };
             if __torajs_throw_check() != 0 {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(r);

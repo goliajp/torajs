@@ -26,7 +26,9 @@ use core::ffi::c_void;
 // re-exported so the method faces keep their import face.
 pub(crate) use crate::iter_any_result::iter_result_obj;
 use crate::iter_helper_eager::{iter_eager, iter_to_array};
-use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_boxed};
+use crate::method_call_closure_dispatch::{
+    closure_cell_entry, invoke_boxed, invoke_boxed_recv_first, recv_first_shift,
+};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 use crate::{as_void_ptr, is_cell};
@@ -300,7 +302,13 @@ unsafe fn iter_helper_step_inner(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
             // 𝔽(counter) rides the i64 lane (numerically identical).
             let counter_av = crate::__torajs_anyv_box_from_pair(2, counter as i64) as u64;
             let argv = [item, counter_av];
-            let result = invoke_boxed(env, entry, argv.as_ptr(), 2);
+            // §27.1.4.x 5.b — Call(mapper/predicate, undefined, …):
+            // same receiver-first seeding as the eager consumers.
+            let result = if recv_first_shift(env) != 0 {
+                invoke_boxed_recv_first(env, entry, VALUE_UNDEFINED, argv.as_ptr(), 2)
+            } else {
+                invoke_boxed(env, entry, argv.as_ptr(), 2)
+            };
             if __torajs_throw_check() != 0 {
                 // §27.1.4.6 step 5.b.v — callback threw: close the
                 // underlying (under the stashed throw, so its

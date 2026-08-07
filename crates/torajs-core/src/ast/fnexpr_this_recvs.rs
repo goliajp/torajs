@@ -302,3 +302,80 @@ pub(super) fn name_shadowed_elsewhere(stmts: &[Stmt], name: &str) -> bool {
     }
     false
 }
+
+/// Bindings that are syntactically-certain generator-object
+/// receivers: the init is a direct call of a `function*` declared in
+/// the same program (`let iter = g()`). Same over-removal posture as
+/// the collectors above — a same-name re-declaration anywhere keeps
+/// the face loud. The iterator-helper kernels (eager and lazy alike)
+/// read `FLAG_CLOSURE_RECV_FIRST` off the callback and seed its
+/// receiver slot `undefined`, which is §27.1.4's Call(cb, undefined)
+/// exactly.
+pub(super) fn collect_gen_iter_binding_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<String> {
+    let mut gen_fns = std::collections::HashSet::new();
+    collect_gen_fn_names(stmts, &mut gen_fns);
+    let mut names = std::collections::HashSet::new();
+    let mut other = std::collections::HashSet::new();
+    collect_gen_iter_names_inner(stmts, exprs, &gen_fns, &mut names, &mut other);
+    names.retain(|n| !other.contains(n));
+    names
+}
+
+fn collect_gen_fn_names(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
+    for s in stmts {
+        match s {
+            // `desugar_generators` has already run: a `function* g`
+            // is now a factory FnDecl still named `g` whose declared
+            // return type is the synthesized `__Gen_<name>` class.
+            // (`is_generator` is false again by this point, so the
+            // return-type spelling is the surviving marker.)
+            Stmt::FnDecl {
+                name,
+                return_type: Some(rt),
+                body,
+                ..
+            } => {
+                if rt.starts_with("__Gen_") {
+                    out.insert(name.clone());
+                }
+                collect_gen_fn_names(body, out);
+            }
+            Stmt::FnDecl { body, .. } => collect_gen_fn_names(body, out),
+            Stmt::Block(inner) | Stmt::Multi(inner) => collect_gen_fn_names(inner, out),
+            _ => {}
+        }
+    }
+}
+
+fn collect_gen_iter_names_inner(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    gen_fns: &std::collections::HashSet<String>,
+    names: &mut std::collections::HashSet<String>,
+    other: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl { name, init, .. }
+                if matches!(&exprs[init.0 as usize], Expr::Call { callee, args }
+                    if args.is_empty()
+                        && matches!(&exprs[callee.0 as usize], Expr::Ident(f) if gen_fns.contains(f))) =>
+            {
+                names.insert(name.clone());
+            }
+            Stmt::LetDecl { name, .. } => {
+                other.insert(name.clone());
+            }
+            Stmt::FnDecl { body, .. } => {
+                collect_gen_iter_names_inner(body, exprs, gen_fns, names, other);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_gen_iter_names_inner(inner, exprs, gen_fns, names, other);
+            }
+            _ => {}
+        }
+    }
+}
