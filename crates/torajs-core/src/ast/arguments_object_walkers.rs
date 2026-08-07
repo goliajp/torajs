@@ -72,6 +72,27 @@ pub(super) fn body_has_bare_arguments_assign(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::BareAssign))
 }
 
+/// The face-admission exclusion set: the shadowed fns plus every
+/// bare-assign body (see [`body_has_bare_arguments_assign`] — those
+/// still take the default FoldArity rewrite; only the face
+/// admissions are gated, so this set feeds the collectors while
+/// `shadowed` alone skips the rewrite loop).
+pub(super) fn collect_face_excluded_fns(
+    ast: &Ast,
+    shadowed: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let mut excluded = shadowed.clone();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s
+            && !excluded.contains(name)
+            && body_has_bare_arguments_assign(ast, body)
+        {
+            excluded.insert(name.clone());
+        }
+    }
+    excluded
+}
+
 /// True if the body touches `arguments` in any form other than
 /// `arguments.length`.
 pub(super) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {

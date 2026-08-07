@@ -23,7 +23,7 @@ use super::arguments_object_synth::{
     synth_arguments_local, synth_arguments_local_argv, synth_arguments_local_rest,
 };
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_arguments_length_write, body_has_bare_arguments_assign,
+    body_has_arguments_length, body_has_arguments_length_write,
     body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
 };
 use super::{Ast, Expr, Stmt};
@@ -90,23 +90,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // Stage helpers extracted chunk 767 (the pass had drifted past
     // the 200-line fn limit as argc/argv tiers stacked up).
     let shadowed = collect_arguments_shadowed_fns(ast);
-    // Bare-assign bodies (`arguments = v`, for-await dstr defaults)
-    // also leave every swapping face — the materialized local is
-    // const, and the pre-face undeclared-ident lane (sloppy
-    // auto-global) is the behavior those tests observe. They still
-    // take the default FoldArity rewrite (literal-index param
-    // substitution, pre-face parity) — only the face admissions are
-    // gated, so `excluded` feeds the collectors while `shadowed`
-    // alone skips the rewrite loop.
-    let mut excluded = shadowed.clone();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl { name, body, .. } = s
-            && !excluded.contains(name)
-            && body_has_bare_arguments_assign(ast, body)
-        {
-            excluded.insert(name.clone());
-        }
-    }
+    let excluded = super::arguments_object_walkers::collect_face_excluded_fns(ast, &shadowed);
     let (mut fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
     let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast, &shadowed);
 
