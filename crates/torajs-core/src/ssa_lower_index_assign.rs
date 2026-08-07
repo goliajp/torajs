@@ -98,8 +98,9 @@ impl<'a> LowerCtx<'a> {
                 // pack_any_slot_value_shared).
                 let v_ty = self.operand_ty(&v_raw);
                 let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
+                let recv_owned = self.expr_transfers_ownership(obj);
                 crate::ssa_lower_assign_member_any::emit_any_member_set(
-                    self, arr_val, &lit, tag_op, value_op, &obj_ident,
+                    self, arr_val, &lit, tag_op, value_op, &obj_ident, recv_owned,
                 );
                 return v_raw;
             }

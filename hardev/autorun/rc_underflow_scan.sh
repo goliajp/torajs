@@ -30,8 +30,14 @@ cd "$(dirname "$0")/../.." || exit 2
 # (rotation 323, HEAD 82e30c55); every one of those predated it.
 # 41 → 32: the iterator `entries()` pre-dec-to-0 idiom, one defect
 # across torajs-arr and torajs-collections.
+# 32 → 29: an owned any-receiver box on a member write had no release
+# site — a leak whose stranded +1 cut the error-prototype cycle in two
+# at the at-exit drain (`(TypeError.prototype as any).x = 1` was a
+# one-line repro). The remaining error/proto cases have a different
+# cause: this fix cleared error-proto-tostring-override-001 but not
+# builtin-error-ctor-firstclass-*.
 # See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=32
+RC_UNDERFLOW_BASELINE=29
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in

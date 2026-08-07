@@ -275,6 +275,7 @@ fn lower_member_any(
         Expr::Ident(n) => Some(n.clone()),
         _ => None,
     };
+    let recv_owned = ctx.expr_transfers_ownership(obj);
     crate::ssa_lower_assign_member_any::emit_any_member_set(
         ctx,
         obj_val,
@@ -282,6 +283,7 @@ fn lower_member_any(
         Operand::Value(tag_v),
         Operand::Value(val_v),
         &obj_ident,
+        recv_owned,
     );
     ctx.emit_drop_value(Operand::Value(new_v), Type::Any);
     ctx.owned_member_reads.insert(eid);

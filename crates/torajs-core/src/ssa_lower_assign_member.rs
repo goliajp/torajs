@@ -53,8 +53,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, value: E
     let obj_ty = ctx.operand_ty(&obj_val);
 
     if matches!(obj_ty, Type::Any) {
+        // A fresh owned receiver box (inline as-cast, member-read
+        // chain) releases inside the set tail; an Ident borrow keeps
+        // its binding's stake (and rides the write-back instead).
+        let recv_owned = ctx.expr_transfers_ownership(obj);
         return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
-            ctx, obj_val, &field, value, &obj_ident,
+            ctx, obj_val, &field, value, &obj_ident, recv_owned,
         );
     }
     if matches!(obj_ty, Type::Closure(_)) {

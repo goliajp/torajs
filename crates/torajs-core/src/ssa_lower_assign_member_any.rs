@@ -16,6 +16,7 @@ pub(crate) fn lower_dynobj_assign(
     field: &str,
     value: ExprId,
     obj_ident: &Option<String>,
+    recv_owned: bool,
 ) -> Operand {
     let v_raw = ctx.lower_expr(value);
     // Chunk 566 — SHARE: the dynobj bucket takes its own +1 (the
@@ -86,7 +87,8 @@ pub(crate) fn lower_dynobj_assign(
         // lower_dynobj_init). Step 7c: shim Call instead of inline
         // +8/+16 direct-offset Load (layout-decoupling).
         Type::Any => {
-            let r = lower_dynobj_assign_any_payload(ctx, obj_val, field, v_raw, obj_ident);
+            let r =
+                lower_dynobj_assign_any_payload(ctx, obj_val, field, v_raw, obj_ident, recv_owned);
             if transfers {
                 // Owned Any temp: dropping the box releases its
                 // payload stake and frees the shell; the bucket
@@ -118,7 +120,7 @@ pub(crate) fn lower_dynobj_assign(
         }
         _ => panic!("ssa-lower: dynobj assign unsupported value type {v_ty:?}"),
     };
-    emit_any_member_set(ctx, obj_val, field, tag_op, val_op, obj_ident);
+    emit_any_member_set(ctx, obj_val, field, tag_op, val_op, obj_ident, recv_owned);
     if transfers && v_ty.is_refcounted() {
         ctx.emit_drop_value(v_keep, v_ty);
     }
@@ -140,6 +142,7 @@ pub(crate) fn emit_any_member_set(
     tag_op: Operand,
     val_op: Operand,
     obj_ident: &Option<String>,
+    recv_owned: bool,
 ) {
     let key_str = ctx.intern_string_literal(field);
     let hint = if field == "length" {
@@ -147,7 +150,9 @@ pub(crate) fn emit_any_member_set(
     } else {
         torajs_rc::any_regexp_prop_id(field).unwrap_or(-1)
     };
-    emit_any_member_set_dyn(ctx, obj_val, key_str, hint, tag_op, val_op, obj_ident);
+    emit_any_member_set_dyn(
+        ctx, obj_val, key_str, hint, tag_op, val_op, obj_ident, recv_owned,
+    );
 }
 
 /// Key-parameterized core of [`emit_any_member_set`] — the L3b #13
@@ -155,6 +160,20 @@ pub(crate) fn emit_any_member_set(
 /// key and no compile-time hint (a dynamic key that names
 /// `lastIndex` / `length` misses their hint arms — recorded
 /// boundary, loud not silent).
+///
+/// `recv_owned` — the receiver operand is a fresh owned box (an
+/// inline `(expr as any)` cast, a member-read chain) rather than a
+/// borrow of a binding's stake. The kernel reads the receiver
+/// through the slot without consuming it, and an owned box used to
+/// have NO release site here at all. That is a leak, and worse than
+/// one: the stranded +1 sits on the receiver during the at-exit
+/// cycle drain, so a prototype cycle that a clean run collects as
+/// ONE white group gets cut in two — the first half's teardown drops
+/// the second half's targets to zero early, and the second half then
+/// decs through freed memory. `(TypeError.prototype as any).x = 1`
+/// was a one-line reproduction: rc underflow on %Error.prototype%.
+/// The drop reads the slot (not the pre-call operand) because the
+/// dynobj-resize arm writes the relocated cell back into it.
 pub(crate) fn emit_any_member_set_dyn(
     ctx: &mut LowerCtx<'_>,
     obj_val: Operand,
@@ -163,6 +182,7 @@ pub(crate) fn emit_any_member_set_dyn(
     tag_op: Operand,
     val_op: Operand,
     obj_ident: &Option<String>,
+    recv_owned: bool,
 ) {
     let slot = ctx.alloca(Type::Any, Some("__any_recv_slot"));
     let cur_block = ctx.cur_block;
@@ -184,6 +204,21 @@ pub(crate) fn emit_any_member_set_dyn(
     );
     // P3.attribute-flag-tracking + the tag-gate boundary TypeErrors.
     ctx.emit_throw_check(None);
+    if recv_owned {
+        // An owned receiver has no binding to write back to; its box
+        // stake releases here instead (see the fn doc). Sits after the
+        // throw check exactly as the write-back does — the throw path
+        // skips both, which is the pre-existing posture of this slot.
+        let cur_block = ctx.cur_block;
+        let fresh = ctx.f.append_inst(
+            cur_block,
+            InstKind::Load(Type::Any, Operand::Value(slot), 0),
+            Type::Any,
+            None,
+        );
+        ctx.emit_drop_value(Operand::Value(fresh), Type::Any);
+        return;
+    }
     let Some(name) = obj_ident else { return };
     let Some(info) = ctx.locals.get(name).copied() else {
         return;
@@ -211,6 +246,7 @@ fn lower_dynobj_assign_any_payload(
     field: &str,
     v_raw: Operand,
     obj_ident: &Option<String>,
+    recv_owned: bool,
 ) -> Operand {
     let cur_block = ctx.cur_block;
     let tag_v = ctx.f.append_inst(
@@ -236,6 +272,7 @@ fn lower_dynobj_assign_any_payload(
         Operand::Value(tag_v),
         Operand::Value(val_v),
         obj_ident,
+        recv_owned,
     );
     v_raw
 }
