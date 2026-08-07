@@ -76,9 +76,18 @@ pub(super) fn plan_cell(
         }
     }
     // allocate φ vids up front (rename needs them as reaching defs).
+    // In block order, not `phi_blocks` order: this loop mints a
+    // ValueId per φ, so iterating the HashSet directly would hand the
+    // same φs different ids from run to run, and the register
+    // allocator breaks ties on ValueId — that reached the artifact as
+    // two byte-different binaries for one input. The set itself is a
+    // fixpoint (iterated dominance frontier), so its contents do not
+    // depend on the walk order above; only this numbering did.
+    let mut phi_order: Vec<BlockId> = phi_blocks.iter().copied().collect();
+    phi_order.sort_by_key(|b| b.0);
     let mut phis: Vec<PhiNode> = Vec::new();
     let mut phi_at: HashMap<BlockId, usize> = HashMap::new();
-    for &b in &phi_blocks {
+    for &b in &phi_order {
         let vid = ValueId(func.values.len() as u32);
         func.values.push(ValueInfo { ty, name: None });
         phi_at.insert(b, phis.len());
