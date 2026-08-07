@@ -86,7 +86,7 @@ pub(crate) fn try_lower(
             callee_op,
             sig,
             &rest,
-            Some(args[0]),
+            crate::ssa_lower_call_fn_indirect::ClosureThis::Expr(args[0]),
         );
         ctx.release_owned_temp(obj, &callee_op);
         return Some(out);

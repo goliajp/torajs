@@ -161,6 +161,16 @@ fn collect_position_faces(
             continue;
         };
         match &exprs[callee.0 as usize] {
+            // Rotation 328 — the IIFE arm: the callee IS the marked
+            // fn-expr (`(function () { …this… })()` / `}())`). Zero
+            // aliases by construction — the closure value exists only
+            // as this call's callee — and the receiverless call site
+            // seeds a boxed `undefined` into the promoted `__this`
+            // slot (fn_indirect's promoted-callee lane, §10.2.1.2
+            // strict call-site `this`, the blade-1 framing).
+            Expr::Closure { .. } => {
+                collect_face(stmts, exprs, *callee, fn_expr_exprs, patches);
+            }
             // `recv.__defineGetter__(k, face)` / `__defineSetter__`.
             Expr::Member { name, .. }
                 if name == "__defineGetter__" || name == "__defineSetter__" =>

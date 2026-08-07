@@ -171,7 +171,28 @@ fn try_lower_call_or_closure_callee(
     let callee_ty = ctx.operand_ty(&callee_op);
     match callee_ty {
         Type::Closure(user_sig_id) => {
-            Some(emit_closure_callee(ctx, eid, callee_op, user_sig_id, args))
+            // Rotation 328 — an inline PROMOTED fn-expr callee (the
+            // IIFE arm): its native ABI carries the `__this: any`
+            // param the Closure sig sheds, so the receiverless call
+            // must re-insert the slot with a boxed `undefined` — the
+            // plain env-first shape would shift every user arg by
+            // one. A runtime closure value arriving through a Call /
+            // Index callee cannot be promoted (the AST bar admits
+            // zero-alias faces only) and keeps the plain shape.
+            let this = match ctx.ast.get_expr(callee) {
+                Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name) => {
+                    ClosureThis::Undef
+                }
+                _ => ClosureThis::None,
+            };
+            Some(emit_closure_callee_with_this(
+                ctx,
+                eid,
+                callee_op,
+                user_sig_id,
+                args,
+                this,
+            ))
         }
         Type::FnSig(sig_id) => Some(emit_fnsig_callee(ctx, eid, callee_op, sig_id, args)),
         _ => {
@@ -180,6 +201,19 @@ fn try_lower_call_or_closure_callee(
             None
         }
     }
+}
+
+/// Call-site `this` for a closure callee's leading `__this` slot.
+pub(crate) enum ClosureThis {
+    /// Plain env-first ABI — the callee has no `__this` slot.
+    None,
+    /// Explicit thisArg expression (`.call`/`.apply` face, rotation
+    /// 261) — evaluated ahead of the user args, spec order.
+    Expr(ExprId),
+    /// Boxed `undefined` — a promoted callee at a receiverless direct
+    /// call (the rotation-328 IIFE arm; §10.2.1.2 strict-mode
+    /// call-site `this`).
+    Undef,
 }
 
 /// Emit env-first ABI CallIndirect for a `Type::Closure` callee:
@@ -192,21 +226,21 @@ pub(crate) fn emit_closure_callee(
     user_sig_id: crate::ssa::SigId,
     args: &[ExprId],
 ) -> Operand {
-    emit_closure_callee_with_this(ctx, eid, callee_op, user_sig_id, args, None)
+    emit_closure_callee_with_this(ctx, eid, callee_op, user_sig_id, args, ClosureThis::None)
 }
 
 /// Rotation 261 — the inline fn-expr `.call`/`.apply` face entry:
-/// `this_arg` is the EXPLICIT thisArg expression (§20.2.3.3/.1),
-/// boxed into the promoted callee's leading `__this` argv slot
-/// (evaluated ahead of the user args, spec order). The plain entry
-/// above passes `None` and keeps the env-first shape byte-for-byte.
+/// [`ClosureThis::Expr`] boxes the EXPLICIT thisArg (§20.2.3.3/.1)
+/// into the promoted callee's leading `__this` argv slot; the plain
+/// entry above passes [`ClosureThis::None`] and keeps the env-first
+/// shape byte-for-byte.
 pub(crate) fn emit_closure_callee_with_this(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     callee_op: Operand,
     user_sig_id: crate::ssa::SigId,
     args: &[ExprId],
-    this_arg: Option<ExprId>,
+    this_arg: ClosureThis,
 ) -> Operand {
     let env_ptr = match callee_op {
         Operand::Value(v) => v,
@@ -221,7 +255,7 @@ pub(crate) fn emit_closure_callee_with_this(
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
     let mut env_first = Vec::with_capacity(user_params.len() + 2);
     env_first.push(Type::Ptr);
-    if this_arg.is_some() {
+    if !matches!(this_arg, ClosureThis::None) {
         env_first.push(Type::Any);
     }
     env_first.extend(user_params);
@@ -231,17 +265,34 @@ pub(crate) fn emit_closure_callee_with_this(
     argv.push(Operand::Value(env_ptr));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
-    if let Some(t) = this_arg {
-        let raw = ctx.lower_expr(t);
-        owned_temps.push((t, raw));
-        let boxed = crate::ssa_lower_call_arg_conv::emit_arg_conv(
-            ctx,
-            Type::Any,
-            t,
-            raw,
-            &mut coerce_owned,
-        );
-        argv.push(boxed);
+    match this_arg {
+        ClosureThis::Expr(t) => {
+            let raw = ctx.lower_expr(t);
+            owned_temps.push((t, raw));
+            let boxed = crate::ssa_lower_call_arg_conv::emit_arg_conv(
+                ctx,
+                Type::Any,
+                t,
+                raw,
+                &mut coerce_owned,
+            );
+            argv.push(boxed);
+        }
+        // `undefined` NaN-box into the `__this` slot (the
+        // closure_local receiverless-call mirror).
+        ClosureThis::Undef => {
+            let undef_box = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            argv.push(Operand::Value(undef_box));
+        }
+        ClosureThis::None => {}
     }
     for (i, a) in args.iter().enumerate() {
         // Chunk 641 — empty `[]` arg allocs with the param's layout.
