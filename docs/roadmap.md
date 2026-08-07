@@ -1530,7 +1530,58 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `abb45913`** (2026-08-08, rotation 329 — the PC=1 latent
+**Latest @ `80753982`** (2026-08-08, rotation 331 — `new` +
+`arguments`: the construct site's full argument list finally reaches
+the body. `new H(1,2,3)` on an arguments-reading function answered
+`arguments.length` 0 — the `__fnctor_` factory forwarded by naming
+each declared param (surplus checker-admitted then dropped), and the
+static-argv face only ever saw the factory's own 0-arg direct call.
+Knife 1 reshapes the factory's params to EXACTLY the uniform
+construct-site argc (trailing `__ctor_extra_*` for surplus,
+truncation for under-filled — forwarding the declared tail let the
+T-28 pad count undefined into the length) and opens knife 3a's
+`__this` door (receiver excluded via this_slots; length-only bodies
+qualify there since the T-31 tier never takes them). Knife 2 admits
+constructed fn-expr BINDINGS: the lifted `__closure_N` carries
+`__env` (env_fns → KeepLoud) and its sites hide behind the binding
+name, so a new collector maps binding-name uses (direct calls ∪
+`.prototype` reads) onto the lifted fn, and snapshot_fn_params
+learns the `__env`-then-`__this` double prefix — unlocking the
+S13.2.2_A5_T2 shape. Knives 3-5 clear three of rotation 330's four
+logged typed-lane defects: `in` on a typed array boxes every
+non-numeric key to the Any face (a blind coerce_to_i64 rejected Any
+and would have mis-keyed Str/Bool), the mono deep-clone gains its
+three missing variant arms (Delete / NewDynamic / Elision — a
+variants-vs-arms comm found exactly these), and index-assign under
+an Any key on an Array receiver rides the keyed set kernel (write
+mirror of the read-side arm; the using-syntax family's
+`var using = [], x = 0; using[x] = null`, where a `var` binding
+reads as Any). Knife 6 is the closing debt-clean (the face-exclusion
+scan moves to the walkers sibling). Conformance gate 2573 →
+**2578/0/4** (+5 fixtures, six green gates); build determinism 44/44
+(N=12). Against the r330 sweep (`db28985d`, whose numbers lived only
+in plan-state — this entry closes that gap): passTotal 27283 →
+**27326 (+43)**, bug 12326 → **12382 (+56)**, trAccepted 39609 →
+**39708 (+99)** / incompatible 13565 → **13466 (−99)** —
+conservation exact (99 = 43 + 56). The +43 is all `pass`
+(passNoOracle 735 / passNegative 3957 both flat — zero dilution):
+~26 on the arguments/mono face (the Array-HOF `-c-ii-5`
+callback-deletes family, class/function `params-dflt-*-ref-arguments`,
+S13.2.2_A5_T2/A6_T2, arguments-object mapped-delete), ~9 on the
+in-op face (S12.6.3_A5, Math atan2/max/min, S15.4_A1.1 T6-8,
+sm regress-634210), ~8 on the index-assign face (using-syntax,
+for-of arguments-mutation, Object/keys). Regressions **zero**;
+crash/timeout flat (exit-139 31 / tr-timeout 36 / exit-138 3).
+Gate predicate **311 clusters (−4) / 6674 cases (−93)**, residue 774
+clusters 1021 cases, core **7695 (−89)** — both headline numbers
+down. eval stays #1 at 597; the bind-family residue (11 cases) has a
+scouted unified path (the runtime bound cell is already §20.2.3.2
+one-to-one with a boxed-ABI entry; what's missing is the value-argv
+face's `.bind`-receiver exemption, synth_bind yielding to the kernel
+lane for arguments-touching targets, and the RECV_FIRST marking —
+logged as its own RFC-sized unit).
+
+**Previous @ `abb45913`** (2026-08-08, rotation 329 — the PC=1 latent
 linker bug is closed, and its "1" was argc all along. The layout
 phase's `sizeofcmds` counted no `__DATA,*` section_64 headers while
 the emit wrote them all; `text_file_offset` is that undersized sum

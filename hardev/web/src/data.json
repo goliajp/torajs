@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T22:13:40.813Z",
+  "generatedAt": "2026-08-07T23:56:50.142Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T22:11:17Z",
-    "headSha": "db28985d",
-    "elapsedSec": 499.51,
+    "ranAt": "2026-08-07T23:54:00Z",
+    "headSha": "80753982",
+    "elapsedSec": 404.52,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22591,
+    "pass": 22634,
     "passNoOracle": 735,
     "passNegative": 3957,
-    "passTotal": 27283,
-    "bug": 12326,
-    "incompatible": 13565,
+    "passTotal": 27326,
+    "bug": 12382,
+    "incompatible": 13466,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 39609,
-    "passRateInScope": 51.31,
-    "passRateTrAccepted": 68.88
+    "trAccepted": 39708,
+    "passRateInScope": 51.39,
+    "passRateTrAccepted": 68.82
   },
   "torajs": {
-    "commit": "db28985d",
-    "commitSubject": "fix: a labeled multi-name var line keeps every declarator",
+    "commit": "80753982",
+    "commitSubject": "refactor: the face-exclusion scan moves to the walkers sibling",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "80753982",
+      "subject": "refactor: the face-exclusion scan moves to the walkers sibling"
+    },
+    {
+      "hash": "325e3824",
+      "subject": "fix: an any key admits an index write on a typed-array receiver"
+    },
+    {
+      "hash": "a7256d89",
+      "subject": "fix: three composite variants survive the mono deep-clone"
+    },
+    {
+      "hash": "d02b7d84",
+      "subject": "fix: a non-numeric key on a typed-array in takes the boxed face"
+    },
+    {
+      "hash": "132019f9",
+      "subject": "feat: a constructed fn-expr's arguments joins the static-argv face"
+    },
+    {
+      "hash": "37adebfc",
+      "subject": "feat: a construct site's full argument list reaches arguments"
+    },
+    {
+      "hash": "d284d879",
+      "subject": "docs: rotation 330 sweep at db28985d — +7 passTotal, 4 typed-lane regressions logged, dashboard refresh"
+    },
+    {
       "hash": "db28985d",
       "subject": "fix: a labeled multi-name var line keeps every declarator"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "0d80d528",
       "subject": "style: fmt-drift fix — the multi-splice let-else line"
-    },
-    {
-      "hash": "fa20a2b6",
-      "subject": "feat: an assign-bound fn-expr constructs"
-    },
-    {
-      "hash": "691d94c8",
-      "subject": "chore: rotation 329 close — dashboard refresh"
-    },
-    {
-      "hash": "af35d5e3",
-      "subject": "docs: rotation 329 sweep at abb45913 — +60 passTotal, zero regressions, linker case closed"
-    },
-    {
-      "hash": "abb45913",
-      "subject": "feat: the iterator-helper self-transform widens its binding"
-    },
-    {
-      "hash": "d60bb89f",
-      "subject": "feat: a this-reading fn-expr works as an iterator-helper callback"
-    },
-    {
-      "hash": "980e0f09",
-      "subject": "fix(link): GOT_LOAD relaxation refuses a non-LDR site loudly"
-    },
-    {
-      "hash": "503a8d1e",
-      "subject": "Reapply \"feat: bare globalThis value is an immortal pre-filled singleton object\""
     }
   ],
-  "headSha": "db28985d",
+  "headSha": "80753982",
   "autorun": {
-    "total": 633,
+    "total": 634,
     "baselineTarget": 10,
-    "bySelf": 628,
+    "bySelf": 629,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786122524-259b",
-      "at": "2026-08-07T17:08:44Z",
-      "ts": 1786122524,
+      "rotationId": "r-1786140858-4184",
+      "at": "2026-08-07T22:14:18Z",
+      "ts": 1786140858,
       "trigger": "self",
-      "prevHead": "691d94c8",
-      "handoffSha": "sha256:00e54b2787406fb56118ea29c94a89a728c535f230b5ccbebe8f9254e4a97cbb",
-      "handoffAgeSec": 14,
+      "prevHead": "d284d879",
+      "handoffSha": "sha256:9105736ac8fcd2d6b24c6b083256480434837b7d525a14a22df4a01d5097d36b",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786140858-4184",
+        "at": "2026-08-07T22:14:18Z",
+        "ts": 1786140858,
+        "trigger": "self",
+        "prevHead": "d284d879",
+        "handoffSha": "sha256:9105736ac8fcd2d6b24c6b083256480434837b7d525a14a22df4a01d5097d36b",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786122524-259b",
         "at": "2026-08-07T17:08:44Z",
@@ -876,17 +887,6 @@
         "prevHead": "638cd96b",
         "handoffSha": "sha256:f54b0690da96f00bb4083545b95cc9cac23a7b5882efab84ee3ac143eb05c599",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786059182-3995",
-        "at": "2026-08-06T23:33:02Z",
-        "ts": 1786059182,
-        "trigger": "self",
-        "prevHead": "34b046f8",
-        "handoffSha": "sha256:025e740d75cc702e86a7dde4e2eddf41a4916d43f366b7aacf6d3aa5f6259ef3",
-        "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
       }
