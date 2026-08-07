@@ -190,7 +190,8 @@ fn lower_simple_create(
         return target;
     };
     let arg_op = ctx.lower_expr(*arg0);
-    lower_iterable_init(ctx, target, result_ty, arg_op, kind)
+    let arg_owned = ctx.expr_transfers_ownership(*arg0);
+    lower_iterable_init(ctx, target, result_ty, arg_op, arg_owned, kind)
 }
 
 fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {

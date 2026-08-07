@@ -45,9 +45,11 @@ pub(crate) fn try_lower(
         };
     let entries_op = ctx.lower_expr(entries_eid);
     for tid in &trailing {
+        // Rotation 325 — owned temps only; an ident-bound borrow
+        // keeps its binding's stake (the unconditional drop stole it
+        // and the scope-end release dec'd through the freed cell).
         let top = ctx.lower_expr(*tid);
-        let tty = ctx.operand_ty(&top);
-        ctx.emit_drop_value(top, tty);
+        ctx.release_owned_temp(*tid, &top);
     }
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     let obj_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
@@ -144,7 +146,9 @@ pub(crate) fn try_lower(
             .append_void(ctx.cur_block, InstKind::Store(stored, obj_op.clone(), off));
         let _ = val_tag;
     }
-    ctx.emit_drop_value(entries_op.clone(), ctx.operand_ty(&entries_op));
+    // Rotation 325 — same ownership settlement as the trailing args:
+    // the per-field walk above only borrows the entries array.
+    ctx.release_owned_temp(entries_eid, &entries_op);
     let slot = ctx.binding_slot_alloca(slot_ty, name);
     ctx.f.append_void(
         ctx.cur_block,

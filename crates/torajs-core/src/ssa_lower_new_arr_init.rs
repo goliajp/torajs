@@ -25,6 +25,7 @@ pub(crate) fn lower_map_from_arr(
     map_op: Operand,
     arg_op: Operand,
     arg_ty: Type,
+    arg_owned: bool,
     inner_id: crate::ssa::ArrId,
 ) -> Operand {
     let outer_arr = match arg_op {
@@ -130,7 +131,13 @@ pub(crate) fn lower_map_from_arr(
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Br(header_blk));
     ctx.cur_block = after_blk;
-    ctx.emit_drop_value(Operand::Value(outer_arr), arg_ty);
+    // Rotation 325 — an owned source temp only; an ident-bound borrow
+    // keeps its binding's stake (the unconditional drop double-freed
+    // the pair arrays out from under the binding — census underflow
+    // on check-map-init-arr-001).
+    if arg_owned {
+        ctx.emit_drop_value(Operand::Value(outer_arr), arg_ty);
+    }
     map_op
 }
 
@@ -139,6 +146,7 @@ pub(crate) fn lower_set_from_arr(
     set_op: Operand,
     arg_op: Operand,
     arg_ty: Type,
+    arg_owned: bool,
     arr_id: crate::ssa::ArrId,
 ) -> Operand {
     let arr_val = match arg_op {
@@ -223,7 +231,10 @@ pub(crate) fn lower_set_from_arr(
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Br(header_blk));
     ctx.cur_block = after_blk;
-    ctx.emit_drop_value(Operand::Value(arr_val), arg_ty);
+    // Rotation 325 — owned source temp only; see lower_map_from_arr.
+    if arg_owned {
+        ctx.emit_drop_value(Operand::Value(arr_val), arg_ty);
+    }
     set_op
 }
 

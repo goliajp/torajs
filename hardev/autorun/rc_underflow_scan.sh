@@ -54,8 +54,13 @@ cd "$(dirname "$0")/../.." || exit 2
 # One gate fix cleared the whole family: error-data-subclass,
 # class-field-infer-any, cycle-any-field-churn, and both
 # promise-aggregate cases.
+# 19 → 14: the collection-initializer lanes (Map/Set from-arr, clone,
+# iterable walk, fromEntries let fast-path + trailing args) consumed
+# their source argument unconditionally — an ident-bound borrow lost
+# its binding's stake. Every drop is now gated on
+# expr_transfers_ownership.
 # See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=19
+RC_UNDERFLOW_BASELINE=14
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in

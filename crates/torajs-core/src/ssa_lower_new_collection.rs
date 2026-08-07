@@ -25,6 +25,7 @@ pub(crate) fn lower_iterable_init(
     target: Operand,
     target_ty: Type,
     arg_op: Operand,
+    arg_owned: bool,
     kind: i64,
 ) -> Operand {
     let arg_ty = ctx.operand_ty(&arg_op);
@@ -39,7 +40,14 @@ pub(crate) fn lower_iterable_init(
         ),
     );
     ctx.emit_throw_check(None);
-    ctx.emit_drop_value(arg_op, arg_ty);
+    // Rotation 325 — the init consumes an OWNED source temp; an
+    // ident-bound borrow keeps its binding's stake (dropping it here
+    // stole that stake, and the binding's scope-end release then dec'd
+    // through freed entries — the census underflow on the
+    // collection-init family).
+    if arg_owned {
+        ctx.emit_drop_value(arg_op, arg_ty);
+    }
     let _ = target_ty;
     target
 }
@@ -60,16 +68,17 @@ pub(crate) fn lower_map(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         return map_op;
     };
     let arg_op = ctx.lower_expr(*arg0);
+    let arg_owned = ctx.expr_transfers_ownership(*arg0);
     let arg_ty = ctx.operand_ty(&arg_op);
     if arg_ty == Type::Map {
-        return lower_map_clone(ctx, map_op, arg_op);
+        return lower_map_clone(ctx, map_op, arg_op, arg_owned);
     }
     if let Type::Arr(outer_id) = arg_ty
         && let Type::Arr(inner_id) = ctx.arr_layouts[outer_id.0 as usize]
     {
         let _ = outer_id;
         return crate::ssa_lower_new_arr_init::lower_map_from_arr(
-            ctx, map_op, arg_op, arg_ty, inner_id,
+            ctx, map_op, arg_op, arg_ty, arg_owned, inner_id,
         );
     }
     lower_iterable_init(
@@ -77,6 +86,7 @@ pub(crate) fn lower_map(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         map_op,
         Type::Map,
         arg_op,
+        arg_owned,
         torajs_rc::collection_kind::COLLECTION_MAP,
     )
 }
@@ -124,7 +134,12 @@ fn try_map_static_pair_init(ctx: &mut LowerCtx<'_>, map_op: &Operand, args: &[Ex
     true
 }
 
-fn lower_map_clone(ctx: &mut LowerCtx<'_>, map_op: Operand, arg_op: Operand) -> Operand {
+fn lower_map_clone(
+    ctx: &mut LowerCtx<'_>,
+    map_op: Operand,
+    arg_op: Operand,
+    arg_owned: bool,
+) -> Operand {
     ctx.emit_drop_value(map_op, Type::Map);
     let cur_block = ctx.cur_block;
     let cloned = ctx.f.append_inst(
@@ -133,7 +148,10 @@ fn lower_map_clone(ctx: &mut LowerCtx<'_>, map_op: Operand, arg_op: Operand) -> 
         Type::Map,
         None,
     );
-    ctx.emit_drop_value(arg_op, Type::Map);
+    // Owned source temp only — see lower_iterable_init.
+    if arg_owned {
+        ctx.emit_drop_value(arg_op, Type::Map);
+    }
     Operand::Value(cloned)
 }
 
@@ -153,13 +171,14 @@ pub(crate) fn lower_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         return set_op;
     };
     let arg_op = ctx.lower_expr(*arg0);
+    let arg_owned = ctx.expr_transfers_ownership(*arg0);
     let arg_ty = ctx.operand_ty(&arg_op);
     if arg_ty == Type::Set {
-        return lower_set_clone(ctx, set_op, arg_op);
+        return lower_set_clone(ctx, set_op, arg_op, arg_owned);
     }
     if let Type::Arr(arr_id) = arg_ty {
         return crate::ssa_lower_new_arr_init::lower_set_from_arr(
-            ctx, set_op, arg_op, arg_ty, arr_id,
+            ctx, set_op, arg_op, arg_ty, arg_owned, arr_id,
         );
     }
     lower_iterable_init(
@@ -167,6 +186,7 @@ pub(crate) fn lower_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         set_op,
         Type::Set,
         arg_op,
+        arg_owned,
         torajs_rc::collection_kind::COLLECTION_SET,
     )
 }
@@ -264,7 +284,12 @@ fn finish_static_adder(ctx: &mut LowerCtx<'_>, adder: Operand) {
     ctx.emit_drop_value(adder, Type::Any);
 }
 
-fn lower_set_clone(ctx: &mut LowerCtx<'_>, set_op: Operand, arg_op: Operand) -> Operand {
+fn lower_set_clone(
+    ctx: &mut LowerCtx<'_>,
+    set_op: Operand,
+    arg_op: Operand,
+    arg_owned: bool,
+) -> Operand {
     ctx.emit_drop_value(set_op, Type::Set);
     let cur_block = ctx.cur_block;
     let cloned = ctx.f.append_inst(
@@ -276,6 +301,9 @@ fn lower_set_clone(ctx: &mut LowerCtx<'_>, set_op: Operand, arg_op: Operand) -> 
         Type::Set,
         None,
     );
-    ctx.emit_drop_value(arg_op, Type::Set);
+    // Owned source temp only — see lower_iterable_init.
+    if arg_owned {
+        ctx.emit_drop_value(arg_op, Type::Set);
+    }
     Operand::Value(cloned)
 }
