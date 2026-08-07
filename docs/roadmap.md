@@ -1530,7 +1530,43 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `34d22b5c`** (2026-08-07, rotation 327 — six knives on
+**Latest @ `abb45913`** (2026-08-08, rotation 329 — the PC=1 latent
+linker bug is closed, and its "1" was argc all along. The layout
+phase's `sizeofcmds` counted no `__DATA,*` section_64 headers while
+the emit wrote them all; `text_file_offset` is that undersized sum
+rounded to a page, so the undercount lived on page-round-up slack
+until rotation 328's cross-CGU static pulled two more data sections
+past the boundary. `pad_to` no-ops on an overrun, every `__text` byte
+shifted 16 while every recorded address stayed put, and LC_MAIN's
+entry executed the PREVIOUS function's epilogue — popping argc off
+the start-up stack into (fp, lr) and ret'ing to PC=1. Fixed by
+single-sourcing the count (`count_data_section_64s` reuses the data
+phase's own walk) plus an emit-side hard gate (LC end ≤
+text_file_offset, or a loud link-time panic). Rotation 328's reverted
+globalThis-singleton knife relanded on top of the fix and its
+formerly-red gate ran green; the GOT_LOAD relaxation's debug-only
+encoding assert got hardened to a real error the same session. Then
+two S5.6 knives: a this-reading fn-expr as an iterator-helper
+callback (both halves existed — the RECV_FIRST channel and §27.1.4's
+Call(cb, undefined) — neither wired here; the receiver test is the
+desugared factory's `__Gen_*` return type), and the self-transform
+reassign `iter = iter.filter(cb)` joining the mutable-let widen with
+factory-table and self-receiver classifiers. Conformance gate 2568 →
+**2571/0/4** (+3 fixtures, five green gates); build determinism 44/44
+N=12): passTotal 27216 → **27276 (+60)**, bug 12294 → **12309 (+15)**,
+trAccepted 39510 → **39585 (+75)** / incompatible 13664 → **13589
+(−75)** — conservation exact (75 = 60 + 15). The +60 splits 17 pass
+(15 of them `Iterator/prototype` — the cb-this and widen knives) +
+43 passNoOracle (+1 passNegative), and the 43 were audited per the
+no-dilution rule: all `eval-code/direct` arguments-family cases whose
+sole blocker was reading `globalThis.arguments` — the relanded
+singleton — with assertions spot-verified live (fn-decl typeof and an
+undefined-vs-undefined global read, both genuine); bun fails these
+itself, hence the bucket. Regressions **zero**; crash/timeout flat
+(exit-139 31 / tr-timeout 36 / exit-138 3). Gate predicate 317
+clusters / **6798 cases (−78)**, core **7807 (−75)**.
+
+**Previous @ `34d22b5c`** (2026-08-07, rotation 327 — six knives on
 indirect eval, the strict-face entry point r322's decomposition
 named. `(0, eval)("…")` — the comma spelling, 263 of 311
 indirect-shaped blocked cases — now resolves wherever the answer is
