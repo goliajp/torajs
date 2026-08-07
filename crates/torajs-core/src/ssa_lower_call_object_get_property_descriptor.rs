@@ -111,10 +111,11 @@ pub(crate) fn try_lower(
     {
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.str_length_descriptor, vec![obj_raw]),
+            InstKind::Call(ctx.intrinsics.str_length_descriptor, vec![obj_raw.clone()]),
             Type::Any,
             None,
         );
+        ctx.release_owned_temp(args[0], &obj_raw);
         return Some(Operand::Value(v));
     }
     if !is_reflect
@@ -127,11 +128,12 @@ pub(crate) fn try_lower(
             cur_block,
             InstKind::Call(
                 ctx.intrinsics.str_index_descriptor,
-                vec![obj_raw, Operand::ConstI64(idx)],
+                vec![obj_raw.clone(), Operand::ConstI64(idx)],
             ),
             Type::Any,
             None,
         );
+        ctx.release_owned_temp(args[0], &obj_raw);
         return Some(Operand::Value(v));
     }
     // RFC C5a's typed-Arr "length" fast path retired (RFC
@@ -140,9 +142,9 @@ pub(crate) fn try_lower(
     // FLAG_ARR_LENGTH_RO writable bit, which the len-only helper
     // cannot see.
     let obj_op = if matches!(obj_ty, Type::Any) {
-        obj_raw
+        obj_raw.clone()
     } else {
-        ctx.box_to_any_from_expr(args[0], obj_raw)
+        ctx.box_to_any_from_expr(args[0], obj_raw.clone())
     };
     // RFC 20260716 刀 17 — ToPropertyKey coerce the key arg (checker
     // 刀 17 relaxed the sig from Type::String to Type::Any). This used
@@ -166,6 +168,14 @@ pub(crate) fn try_lower(
     );
     crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
     ctx.emit_throw_check(None);
+    // An owned receiver temp (member-read chain like `Error.prototype`,
+    // inline as-cast, call result) has no other release site: the
+    // kernel reads the box without consuming it, and the Any box emit
+    // is rc-neutral. Without this drop the stranded +1 sat on
+    // %Error.prototype% through the at-exit cycle drain and cut its
+    // reference cycle in two (rotation 325 census; same shape as the
+    // member-write receiver leak fixed in rotation 324).
+    ctx.release_owned_temp(args[0], &obj_raw);
     Some(Operand::Value(v))
 }
 
@@ -190,9 +200,9 @@ fn lower_plural(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Opti
         let _ = ctx.lower_expr(a);
     }
     let obj_op = if matches!(obj_ty, Type::Any) {
-        obj_raw
+        obj_raw.clone()
     } else {
-        ctx.box_to_any_from_expr(args[0], obj_raw)
+        ctx.box_to_any_from_expr(args[0], obj_raw.clone())
     };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -202,6 +212,8 @@ fn lower_plural(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Opti
         None,
     );
     ctx.emit_throw_check(None);
+    // Same receiver-ownership settlement as the singular path above.
+    ctx.release_owned_temp(args[0], &obj_raw);
     Some(Operand::Value(v))
 }
 

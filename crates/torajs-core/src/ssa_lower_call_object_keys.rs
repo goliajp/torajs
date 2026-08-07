@@ -90,6 +90,16 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
+    // An owned receiver temp (member-read chain like `D.prototype`,
+    // call result, as-cast) has no other release site — every kernel
+    // below reads the receiver without consuming it. Rotation 325
+    // census: the stranded +1 sat on the class prototype through the
+    // at-exit cycle drain and either leaked its group or cut it in
+    // two (same defect family as the gOPD receiver / rotation 324
+    // member-write receiver). Snapshot the pre-box operand: the
+    // Closure box below is rc-neutral, and the release wants the
+    // receiver's own type.
+    let arg_raw = arg_op.clone();
     // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
     // boxes to any at this boundary and rides the runtime own-keys
     // walk: `anyv_own_keys`' TAG_CLOSURE_CELL arm answers the
@@ -101,33 +111,8 @@ pub(crate) fn try_lower(
         arg_op
     };
     let arg_ty = ctx.operand_ty(&arg_op);
-    // W-N-c — `Object.getOwnPropertySymbols`: an Any receiver routes
-    // through the runtime, which reads §10.1.11.1's symbol bucket off
-    // the receiver's live property dict (and throws ToObject on
-    // undefined / null per §20.1.2.10 step 1). A statically typed
-    // receiver takes the compile-time empty array: a symbol key can
-    // only arrive through `Object.defineProperty` / a computed key,
-    // both of which degrade the binding to the Any dynobj lane first,
-    // so a still-typed cell provably holds none.
     if m_name == "getOwnPropertySymbols" {
-        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Symbol);
-        if matches!(arg_ty, Type::Any) {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.anyv_own_symbols, vec![arg_op]),
-                Type::Arr(arr_id),
-                None,
-            );
-            ctx.emit_throw_check(None);
-            return Some(Operand::Value(v));
-        }
-        let empty = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
-            Type::Arr(arr_id),
-            None,
-        );
-        return Some(Operand::Value(empty));
+        return Some(lower_symbols_arm(ctx, args[0], arg_op, &arg_raw, &arg_ty));
     }
     // `Object.keys` filters to enumerable-own per spec §22.1.3.16;
     // Array/String `length` is non-enumerable (§10.4.2.4 step 4 /
@@ -142,26 +127,18 @@ pub(crate) fn try_lower(
     // route through the per-surface helper instead of building a
     // compile-time literal name list.
     if matches!(arg_ty, Type::Arr(_)) {
-        return Some(lower_arr_receiver_keys(ctx, arg_op, is_keys_only));
+        let v = lower_arr_receiver_keys(ctx, arg_op, is_keys_only);
+        ctx.release_owned_temp(args[0], &arg_raw);
+        return Some(v);
     }
-    // W-N-d — Str receiver: keys → `["0", ..., "<len-1>"]`,
-    // getOwnPropertyNames → `[..., "length"]` (§22.1.5.2.4). The
-    // helper reads the u32 length at `STR_LEN_OFF=8` internally and
-    // delegates to its Arr counterpart, so the SSA arm just passes
-    // the Str ptr through.
     if matches!(arg_ty, Type::Str) {
-        let helper = if is_keys_only {
-            ctx.intrinsics.str_keys_only
-        } else {
-            ctx.intrinsics.str_index_strs
-        };
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(helper, vec![arg_op]),
-            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
-            None,
-        );
-        return Some(Operand::Value(v));
+        return Some(lower_str_receiver_keys(
+            ctx,
+            args[0],
+            arg_op,
+            &arg_raw,
+            is_keys_only,
+        ));
     }
     // W-J Phase C1 — Any receiver: struct identity is only known at
     // runtime. `__torajs_anyv_struct_keys` reads `class_tag@+8`,
@@ -192,6 +169,7 @@ pub(crate) fn try_lower(
             None,
         );
         ctx.emit_throw_check(None);
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
     let field_names: Vec<String> = match arg_ty {
@@ -257,7 +235,72 @@ pub(crate) fn try_lower(
         Type::Arr(arr_id),
         None,
     );
+    ctx.release_owned_temp(args[0], &arg_raw);
     Some(Operand::Value(chosen))
+}
+
+/// W-N-c — `Object.getOwnPropertySymbols`: an Any receiver routes
+/// through the runtime, which reads §10.1.11.1's symbol bucket off
+/// the receiver's live property dict (and throws ToObject on
+/// undefined / null per §20.1.2.10 step 1). A statically typed
+/// receiver takes the compile-time empty array: a symbol key can
+/// only arrive through `Object.defineProperty` / a computed key,
+/// both of which degrade the binding to the Any dynobj lane first,
+/// so a still-typed cell provably holds none.
+fn lower_symbols_arm(
+    ctx: &mut LowerCtx<'_>,
+    recv_eid: ExprId,
+    arg_op: Operand,
+    arg_raw: &Operand,
+    arg_ty: &Type,
+) -> Operand {
+    let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Symbol);
+    if matches!(arg_ty, Type::Any) {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_own_symbols, vec![arg_op]),
+            Type::Arr(arr_id),
+            None,
+        );
+        ctx.emit_throw_check(None);
+        ctx.release_owned_temp(recv_eid, arg_raw);
+        return Operand::Value(v);
+    }
+    let empty = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+        Type::Arr(arr_id),
+        None,
+    );
+    ctx.release_owned_temp(recv_eid, arg_raw);
+    Operand::Value(empty)
+}
+
+/// W-N-d — Str receiver: keys → `["0", ..., "<len-1>"]`,
+/// getOwnPropertyNames → `[..., "length"]` (§22.1.5.2.4). The
+/// helper reads the u32 length at `STR_LEN_OFF=8` internally and
+/// delegates to its Arr counterpart, so the SSA arm just passes
+/// the Str ptr through.
+fn lower_str_receiver_keys(
+    ctx: &mut LowerCtx<'_>,
+    recv_eid: ExprId,
+    arg_op: Operand,
+    arg_raw: &Operand,
+    is_keys_only: bool,
+) -> Operand {
+    let helper = if is_keys_only {
+        ctx.intrinsics.str_keys_only
+    } else {
+        ctx.intrinsics.str_index_strs
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(helper, vec![arg_op]),
+        Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+        None,
+    );
+    ctx.release_owned_temp(recv_eid, arg_raw);
+    Operand::Value(v)
 }
 
 /// Typed-Arr receiver keys emit — keys / for-in ride the

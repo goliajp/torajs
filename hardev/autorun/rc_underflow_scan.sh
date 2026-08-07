@@ -36,8 +36,15 @@ cd "$(dirname "$0")/../.." || exit 2
 # one-line repro). The remaining error/proto cases have a different
 # cause: this fix cleared error-proto-tostring-override-001 but not
 # builtin-error-ctor-firstclass-*.
+# 29 → 27: the same receiver leak in two more read lanes —
+# Object.getOwnPropertyDescriptor(Error.prototype, "name") stranded
+# a +1 on %Error.prototype% (cleared builtin-error-ctor-firstclass-*),
+# and Object.keys(D.prototype) stranded one on the class prototype.
+# The keys leak had been INVISIBLE: in class-first-class-value-001 it
+# cancelled against the gOPD leak, and fixing gOPD alone made that
+# case underflow — two defects hiding each other, not a regression.
 # See `.claude/plan-state.md` for the remaining clusters.
-RC_UNDERFLOW_BASELINE=29
+RC_UNDERFLOW_BASELINE=27
 baseline=${1:-$RC_UNDERFLOW_BASELINE}
 
 # NEVER build into ./target: a detector-instrumented `tr` left in
