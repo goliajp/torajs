@@ -70,8 +70,7 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: Expr
                 // multi-name form). Splice the members into this list
                 // and re-examine from the same index (a nested Multi
                 // re-enters this arm).
-                let Stmt::Multi(inner) = std::mem::replace(&mut stmts[i], Stmt::Break(None))
-                else {
+                let Stmt::Multi(inner) = std::mem::replace(&mut stmts[i], Stmt::Break(None)) else {
                     unreachable!()
                 };
                 stmts.splice(i..=i, inner);
