@@ -113,15 +113,12 @@
 //!
 //! ## What this pass deliberately does NOT do
 //!
-//! - **Only the single-expression completion value.** A source that is
-//!   exactly one ExpressionStatement collapses to that expression, which
-//!   is exact and works in value position. The *general* completion
-//!   value — `eval("if (true) { }")` is `undefined`, `eval("1; ;")` is
-//!   `1` — has no counterpart in tr, so a multi-statement source in
-//!   value position is left alone and keeps reporting the honest
-//!   `unknown identifier` rather than silently evaluating to something
-//!   wrong. 85% of the core eval-code cases discard the result
-//!   entirely, so this boundary costs little.
+//! - **Only statically-placeable completion values.** A single
+//!   ExpressionStatement collapses to its expression; a multi-statement
+//!   source whose FINAL statement is one becomes an IIFE
+//!   (`completion.rs`). Shapes whose completion needs the runtime
+//!   completion machinery — `eval("if (true) { }")`, `eval("1; ;")` —
+//!   keep the honest reject rather than evaluating to something wrong.
 //! - **Only literal source.** A runtime string needs the compiler in
 //!   the artifact; that is a separate layer with its own cost to
 //!   measure (artifact size is a headline property of tr).
@@ -140,6 +137,7 @@
 //!   expression, so that shape needs a statement-level rewrite this
 //!   pass does not do yet.
 
+mod completion;
 mod scope;
 mod source;
 mod walk;
@@ -168,6 +166,7 @@ pub fn desugar_eval(ast: &mut Ast) {
     rewrite_list(&mut stmts, ast, false);
     ast.stmts = stmts;
     rewrite_arrow_bodies(ast);
+    completion::rewrite_completion_value_evals(ast);
 }
 
 /// Collapse the eval calls whose value is exact without any scope
