@@ -51,6 +51,14 @@ impl<'a> Parser<'a> {
                     Some(if *mutable { "let" } else { "const" })
                 }
             }
+            // RFC 20260809 knife 3 residue — §14.7/§14.13 take a
+            // Statement; a UsingDeclaration (single or the Multi a
+            // multi-binding head parses to) is not one
+            // (with-initializer-for/do/while-statement family).
+            Stmt::UsingDecl { .. } => Some("using"),
+            Stmt::Multi(inner) if inner.iter().any(|s| matches!(s, Stmt::UsingDecl { .. })) => {
+                Some("using")
+            }
             Stmt::ClassDecl { .. } => Some("class"),
             Stmt::FnDecl {
                 name, is_generator, ..

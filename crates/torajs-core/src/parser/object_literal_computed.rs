@@ -35,6 +35,7 @@ impl<'a> Parser<'a> {
     /// error.
     pub(super) fn try_parse_computed_property(
         &mut self,
+        is_async: bool,
     ) -> Result<Option<(String, ExprId)>, String> {
         if !matches!(self.peek(), Token::LBracket) {
             return Ok(None);
@@ -52,7 +53,7 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 return self
-                    .parse_runtime_computed_property(member_start_pos)
+                    .parse_runtime_computed_property(member_start_pos, is_async)
                     .map(Some);
             }
         };
@@ -149,6 +150,7 @@ impl<'a> Parser<'a> {
     fn parse_runtime_computed_property(
         &mut self,
         member_start_pos: usize,
+        is_async: bool,
     ) -> Result<(String, ExprId), String> {
         let key_expr = self.parse_assign()?;
         match self.peek() {
@@ -162,7 +164,16 @@ impl<'a> Parser<'a> {
         }
         let name = format!("__computed_{}__", self.ast.objlit_computed_keys.len());
         let value = if matches!(self.peek(), Token::LParen) {
-            self.parse_method_like_value(member_start_pos, false, "computed-key method shorthand")?
+            let v = self.parse_method_like_value_async(
+                member_start_pos,
+                false,
+                "computed-key method shorthand",
+                is_async,
+            )?;
+            if is_async {
+                self.ast.async_fn_value_exprs.insert(v);
+            }
+            v
         } else {
             match self.peek() {
                 Token::Colon => self.pos += 1,

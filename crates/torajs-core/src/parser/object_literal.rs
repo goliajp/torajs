@@ -68,8 +68,26 @@ impl<'a> Parser<'a> {
         if let Some(pair) = self.try_parse_async_object_method_shorthand()? {
             return Ok(pair);
         }
-        if let Some(pair) = self.try_parse_async_computed_stub()? {
-            return Ok(pair);
+        // RFC 20260809 knife 3 residue — `{ async [key]() {} }` parses
+        // for REAL through the computed-property arm (the old
+        // stub-drop emitted `__async_<sym>: null` and threw the body
+        // away — an `async [Symbol.asyncDispose]()` resource answered
+        // undefined). Consume the `async`, hand the arm an async
+        // body context.
+        if matches!(self.peek(), Token::Async)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::LBracket)
+            )
+        {
+            self.pos += 1; // consume `async`
+            if let Some(pair) = self.try_parse_computed_property(true)? {
+                return Ok(pair);
+            }
+            return Err(format!(
+                "expected `[` after `async` in object literal at {}",
+                self.at()
+            ));
         }
         // P-SURF S2.1 — `{ *g() { yield 1 } }`. See
         // `parser/object_member_generator.rs`; returns None unless the
@@ -78,7 +96,7 @@ impl<'a> Parser<'a> {
         if let Some(pair) = self.try_parse_generator_object_method()? {
             return Ok(pair);
         }
-        if let Some(pair) = self.try_parse_computed_property()? {
+        if let Some(pair) = self.try_parse_computed_property(false)? {
             return Ok(pair);
         }
         let name = match self.peek() {
@@ -217,96 +235,6 @@ impl<'a> Parser<'a> {
         Ok((name, value))
     }
 
-    /// `async [computedKey]() {}` — computed-key form stays on the
-    /// pre-existing stub-drop path (real substrate gated on Symbol.X
-    /// dispatch, P3/P7 follow-up). Body brace-balanced + emit
-    /// `__async_<sym>: null`. Returns `None` when the lookahead isn't
-    /// `async` `[`.
-    fn try_parse_async_computed_stub(&mut self) -> Result<Option<(String, ExprId)>, String> {
-        if !matches!(self.peek(), Token::Async) {
-            return Ok(None);
-        }
-        let Some(t1) = self.tokens.get(self.pos + 1) else {
-            return Ok(None);
-        };
-        if !matches!(t1.token, Token::LBracket) {
-            return Ok(None);
-        }
-        self.pos += 2; // consume `async` + `[`
-        let key = match self.peek() {
-            Token::String(s) => {
-                let k = s.clone();
-                self.pos += 1;
-                k
-            }
-            Token::Ident(_) => {
-                let mut parts: Vec<String> = Vec::new();
-                while let Token::Ident(n) = self.peek() {
-                    parts.push(n.clone());
-                    self.pos += 1;
-                    if matches!(self.peek(), Token::Dot) {
-                        self.pos += 1;
-                    } else {
-                        break;
-                    }
-                }
-                format!("__sym_{}__", parts.join("_"))
-            }
-            t => {
-                return Err(format!(
-                    "async [<key>]: expected key, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        };
-        if matches!(self.peek(), Token::RBracket) {
-            self.pos += 1;
-        }
-        let synth_name = format!("__async_{key}");
-        if matches!(self.peek(), Token::LParen) {
-            self.pos += 1;
-            let mut depth = 1i32;
-            while depth > 0 {
-                match self.peek() {
-                    Token::LParen => depth += 1,
-                    Token::RParen => depth -= 1,
-                    Token::Eof => {
-                        return Err(format!(
-                            "unexpected eof in async method params at {}",
-                            self.at()
-                        ));
-                    }
-                    _ => {}
-                }
-                self.pos += 1;
-            }
-        }
-        if matches!(self.peek(), Token::Colon) {
-            self.pos += 1;
-            let _ = self.parse_type_ann()?;
-        }
-        if matches!(self.peek(), Token::LBrace) {
-            self.pos += 1;
-            let mut depth = 1i32;
-            while depth > 0 {
-                match self.peek() {
-                    Token::LBrace => depth += 1,
-                    Token::RBrace => depth -= 1,
-                    Token::Eof => {
-                        return Err(format!(
-                            "unexpected eof in async method body at {}",
-                            self.at()
-                        ));
-                    }
-                    _ => {}
-                }
-                self.pos += 1;
-            }
-        }
-        let value = self.ast.add_expr(Expr::Null);
-        Ok(Some((synth_name, value)))
-    }
-
     /// P-PARSE.4 — getter / setter shorthand `{ get NAME() {...} }` /
     /// `{ set NAME(v) {...} }` per ES spec §12.7.6.
     ///
@@ -401,6 +329,20 @@ impl<'a> Parser<'a> {
         infer_defaults: bool,
         err_ctx: &str,
     ) -> Result<ExprId, String> {
+        self.parse_method_like_value_async(member_start_pos, infer_defaults, err_ctx, false)
+    }
+
+    /// [`Self::parse_method_like_value`] with an async-body context:
+    /// `await` is legal inside (§15.8.1) — the `{ async [key]() {} }`
+    /// computed form (knife 3 residue; the caller registers the value
+    /// in `async_fn_value_exprs`).
+    pub(super) fn parse_method_like_value_async(
+        &mut self,
+        member_start_pos: usize,
+        infer_defaults: bool,
+        err_ctx: &str,
+        is_async: bool,
+    ) -> Result<ExprId, String> {
         let (mut params, destr_lets) = self.parse_param_list()?;
         // Method shorthand and accessors are method definitions.
         self.reject_duplicate_params(&params, true)?;
@@ -432,8 +374,9 @@ impl<'a> Parser<'a> {
         // — L3b home-object channel), so the marker survives to the
         // checker and fails loud rather than being refused at parse.
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
-        // §15.8.1 — a non-async method/accessor body may not await.
-        let saved_await = std::mem::replace(&mut self.await_allowed, false);
+        // §15.8.1 — a non-async method/accessor body may not await;
+        // an async one may.
+        let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {

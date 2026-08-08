@@ -46,6 +46,8 @@ mod expr_entry;
 mod expr_prec;
 mod fn_expr;
 mod forof_binding;
+mod forof_forin_src;
+mod forof_using;
 mod import_export;
 mod keyword_property;
 mod loops;
