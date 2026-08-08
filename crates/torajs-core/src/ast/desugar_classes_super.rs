@@ -117,6 +117,13 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
     // as a Call to ident `__supercall__<m>`) inside each subclass's
     // method bodies into `__cm_<Parent>__<m>(__this, args)`. Walks
     // every method body of every class with an `extends` clause.
+    //
+    // Static-method bodies rewrite separately: their super base is the
+    // parent CLASS OBJECT, so the target is `__sm_<owner>__<m>(args)`
+    // — no receiver param (statics don't bind one), and the owner walk
+    // reads the static-method lists. Before the split every static
+    // site was named `__cm_...` with a minted `this` and died loud on
+    // an unknown identifier.
     for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in class_index {
         let Some(parent_name) = parent.as_ref() else {
             continue;
@@ -127,7 +134,7 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
                 collect_supercall_in_stmt(ast, s, &mut sites);
             }
         }
-        for m in methods.iter().chain(static_methods.iter()) {
+        for m in methods {
             for s in &m.body {
                 collect_supercall_in_stmt(ast, s, &mut sites);
             }
@@ -141,8 +148,8 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             // `__cm_B__m` and the program died on an unknown identifier.
             // Falling back to the direct parent when nothing declares it
             // keeps the pre-existing diagnostic for a genuine typo.
-            let owner =
-                nearest_declaring(class_index, parent_name, &m_name).unwrap_or(parent_name.clone());
+            let owner = nearest_declaring(class_index, parent_name, &m_name, false)
+                .unwrap_or(parent_name.clone());
             let callee = ast.add_expr(Expr::Ident(format!("__cm_{owner}__{m_name}")));
             let this_id = ast.add_expr(Expr::This);
             let mut new_args = Vec::with_capacity(args.len() + 1);
@@ -153,27 +160,42 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
                 args: new_args,
             };
         }
+        let mut static_sites: Vec<(ExprId, String, Vec<ExprId>)> = Vec::new();
+        for m in static_methods {
+            for s in &m.body {
+                collect_supercall_in_stmt(ast, s, &mut static_sites);
+            }
+        }
+        for (eid, m_name, args) in static_sites {
+            let owner = nearest_declaring(class_index, parent_name, &m_name, true)
+                .unwrap_or(parent_name.clone());
+            let callee = ast.add_expr(Expr::Ident(format!("__sm_{owner}__{m_name}")));
+            ast.exprs[eid.0 as usize] = Expr::Call { callee, args };
+        }
     }
 }
 
 /// Walk `start` and its ancestors for the first class declaring a
-/// method named `m`, answering that class's name. `None` when nothing
-/// in the chain declares it — the caller then keeps naming the direct
-/// parent so the existing "unknown identifier" diagnostic still fires
-/// for a genuine typo rather than being replaced by silence.
+/// method named `m` in the relevant list (instance methods, or the
+/// statics when `statics` is set), answering that class's name.
+/// `None` when nothing in the chain declares it — the caller then
+/// keeps naming the direct parent so the existing "unknown
+/// identifier" diagnostic still fires for a genuine typo rather than
+/// being replaced by silence.
 ///
 /// The hop bound guards a malformed `extends` cycle; a well-formed
 /// hierarchy is a tree and terminates on its own.
-fn nearest_declaring(class_index: &[ClassIndexEntry], start: &str, m: &str) -> Option<String> {
+fn nearest_declaring(
+    class_index: &[ClassIndexEntry],
+    start: &str,
+    m: &str,
+    statics: bool,
+) -> Option<String> {
     let mut cur = start.to_string();
     for _ in 0..64 {
         let entry = class_index.iter().find(|e| e.1 == cur)?;
-        if entry
-            .7
-            .iter()
-            .chain(entry.8.iter())
-            .any(|method| method.name == m)
-        {
+        let list = if statics { &entry.8 } else { &entry.7 };
+        if list.iter().any(|method| method.name == m) {
             return Some(cur);
         }
         cur = entry.3.clone()?;
