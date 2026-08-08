@@ -386,14 +386,21 @@ fn safe_binding_chain(
 ///   kernel's bound cell dispatches through the boxed dual entry. A
 ///   `.bind` member read outside a call (a stored `b.bind` value)
 ///   still kills;
-/// * species key 2 — `b.prototype` as a member-read receiver: the
-///   read touches the closure cell's fnprops canonical pair (RFC
-///   20260804), never the body, so no call path with the pre-reshape
-///   ABI exists through it; a prototype-object round trip back to
-///   the fn value (`b.prototype.constructor`) dispatches any-lane
-///   through the boxed dual entry — real argc/argv again.
+/// * species key 2 — `b.prototype` as a member-read receiver, ONLY
+///   for a binding that also has an escape-store use: the read
+///   touches the closure cell's fnprops canonical pair (RFC
+///   20260804), never the body, and a prototype-object round trip
+///   back to the fn value (`b.prototype.constructor`) dispatches
+///   any-lane through the boxed dual entry — real argc/argv again.
 ///   (create-species.js asserts `Object.getPrototypeOf(thisValue)
 ///   === Ctor.prototype` — the read was killing the whole chain.)
+///   The store gate is load-bearing: a store-free fn-expr ctor
+///   (`var F = function () {…arguments…}; new F(…)`) rides the
+///   ctor-argv STATIC channel, which the kill of its desugar-
+///   synthesized `F.prototype` read is what selects — exempting it
+///   unconditionally floated those bindings into the boxed argv
+///   face against static call sites (the fnexpr-ctor-args-001
+///   TypeError/SIGSEGV pair, gate 8692ca1a').
 ///
 /// Any other use shape kills.
 fn collect_legal_uses(
@@ -422,18 +429,20 @@ fn collect_legal_uses(
     for &t in assign_legal.intersection(b_eids) {
         legal.insert(t);
     }
+    let mut escape_stored = false;
     for e in &ast.exprs {
         if let Expr::Assign { target, value } = e
             && b_eids.contains(&value.0)
             && boxed_face_store(*target)
         {
             legal.insert(value.0);
+            escape_stored = true;
         }
     }
     for (mi, e) in ast.exprs.iter().enumerate() {
         if let Expr::Member { obj, name } = e
             && b_eids.contains(&obj.0)
-            && (name == "prototype"
+            && ((name == "prototype" && escape_stored)
                 || (name == "bind"
                     && ast
                         .exprs
