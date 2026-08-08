@@ -206,6 +206,9 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §27.1.2.1 — %Iterator.prototype%[Symbol.iterator]
         // return-this (own id, never interns back).
         m if m == crate::any_method_iter::ANY_METHOD_ITER_SELF => ("[Symbol.iterator]", 0),
+        // §27.1.4.1 — %Iterator.prototype%[Symbol.dispose] (own id,
+        // never interns back; RFC 20260809 B6).
+        m if m == crate::any_method_iter::ANY_METHOD_ITER_DISPOSE => ("[Symbol.dispose]", 0),
         _ => return None,
     })
 }

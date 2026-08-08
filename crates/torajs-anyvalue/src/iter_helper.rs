@@ -447,6 +447,28 @@ pub(crate) unsafe fn try_helper_chain(
             unsafe { torajs_rc::__torajs_rc_inc(ptr) };
             return Some(unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(ptr) });
         }
+        // §27.1.4.1 %Iterator.prototype%[@@dispose] (RFC 20260809
+        // B6) — GetMethod(this, "return"): the Map/Set/Array
+        // iterator prototypes define no return (no-op); an Iterator
+        // Helper's own return() closes the underlying, behind the
+        // same executing gate its named spelling holds. The
+        // return()'s iter-result is dropped — the spec ignores it
+        // and answers undefined (a thrown close still propagates
+        // through the pending-throw channel).
+        torajs_rc::any_method_iter::ANY_METHOD_ITER_DISPOSE => {
+            let tag = unsafe { (*(ptr as *const torajs_rc::HeapHeader)).type_tag };
+            if tag == torajs_rc::Tag::IterHelper as u16 {
+                if unsafe { (ptr.cast::<u8>().add(RUNNING_OFF)).read() } != 0 {
+                    unsafe {
+                        __torajs_throw_type_error(c"Iterator Helper is already running".as_ptr())
+                    };
+                    return Some(VALUE_UNDEFINED);
+                }
+                let res = unsafe { iter_helper_do_return(ptr) };
+                unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(res) };
+            }
+            return Some(VALUE_UNDEFINED);
+        }
         // 刀 3 — eager consumers (§27.1.4.5/.7/.8/.2/.12): drive to
         // exhaustion / short-circuit, closing the underlying on an
         // early exit.

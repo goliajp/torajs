@@ -50,6 +50,20 @@ pub(crate) unsafe fn builtin_symbol_method_lookup(
         }
         return None;
     }
+    // Index 2 = "dispose" — §27.1.4.1 %Iterator.prototype%
+    // [@@dispose], inherited by every iterator-protocol cell (RFC
+    // 20260809 B6). The Iterator family row (proto tag 15), like the
+    // return-this reify below.
+    if key == symbol_static::well_known_singleton(2)
+        && (recv_tag == Tag::MapIter as u16
+            || recv_tag == Tag::ArrIter as u16
+            || recv_tag == Tag::IterHelper as u16)
+    {
+        return Some(builtin_method_cell(
+            15,
+            torajs_rc::any_method_iter::ANY_METHOD_ITER_DISPOSE,
+        ));
+    }
     // Index 5 = "iterator".
     let iter_sym = symbol_static::well_known_singleton(5);
     if key != iter_sym {

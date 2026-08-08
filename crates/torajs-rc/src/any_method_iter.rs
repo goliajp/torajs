@@ -23,3 +23,11 @@ pub const ANY_METHOD_ITER_SELF: i64 = 174;
 /// (its typed receiver had a lowering all along; a WeakRef reached
 /// through `any` had no arm to land in).
 pub const ANY_METHOD_DEREF: i64 = 175;
+
+/// `%Iterator.prototype%[Symbol.dispose]` — §27.1.4.1 (Explicit
+/// Resource Management): GetMethod(this, "return"), call it when
+/// present, answer undefined. Own id like [`ANY_METHOD_ITER_SELF`]
+/// (the spec function name has brackets, never interns back);
+/// iterator cells reify their `@@dispose` read to this id (RFC
+/// 20260809 B6).
+pub const ANY_METHOD_ITER_DISPOSE: i64 = 176;
