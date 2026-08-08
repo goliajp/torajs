@@ -138,6 +138,10 @@ pub fn desugar_classes(ast: &mut Ast) {
     // `desugar_classes_super.rs` sub-sibling (chunk 176, 2026-06-28).
     super::desugar_classes_super::rewrite_super_ctor_calls(ast, &class_index);
     super::desugar_classes_super::rewrite_super_method_calls(ast, &class_index);
+    // Pass 1.7 — SuperProperty reads/writes (`super.x` / `super[k]`,
+    // parser-encoded off the `__superbase__` marker). Must also run
+    // before Pass 2: the rewrite mints `Expr::This` nodes.
+    super::desugar_classes_super_prop::rewrite_super_prop_sites(ast, &class_index);
 
     // Pass 2 — rewrite the expression arena (This → __this, New →
     // __new_<C> Call, Member-call → __cm_/__dispatch_ Call).

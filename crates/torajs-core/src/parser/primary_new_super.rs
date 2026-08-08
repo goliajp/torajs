@@ -35,25 +35,44 @@ impl<'a> Parser<'a> {
         // rewrites it to `__cm_<Parent>__<m>(__this, args)`
         // using the surrounding class's parent.
         self.pos += 1;
-        if matches!(self.peek(), Token::Dot) {
+        // SuperProperty element form `super[expr]` (§13.3.5): encoded
+        // as an Index off the `__superbase__` marker ident; the class
+        // desugar rewrites the marker to the super base (the parent's
+        // prototype object for instance members, the parent class
+        // object for statics). A marker that survives to the checker
+        // (super outside a class member) fails loud as an unknown
+        // identifier.
+        if matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
-            let m_name = match self.peek() {
-                Token::Ident(n) => n.clone(),
+            let index = self.parse_expr()?;
+            match self.peek() {
+                Token::RBracket => self.pos += 1,
                 t => {
                     return Err(format!(
-                        "expected method name after `super.`, got {t:?} at {}",
+                        "expected `]` after `super[`, got {t:?} at {}",
                         self.at()
                     ));
                 }
-            };
+            }
+            let marker = self.ast.add_expr(Expr::Ident("__superbase__".to_string()));
+            return Ok(self.ast.add_expr(Expr::Index { obj: marker, index }));
+        }
+        if matches!(self.peek(), Token::Dot) {
             self.pos += 1;
+            let m_name = self.expect_member_name("super.")?;
             match self.peek() {
                 Token::LParen => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `(` after `super.{m_name}`, got {t:?} at {}",
-                        self.at()
-                    ));
+                // SuperProperty read `super.x` (no call): encoded as a
+                // Member off the `__superbase__` marker, same contract
+                // as the element form above. Assignment targets keep
+                // the same spelling — the desugar decides read vs
+                // write semantics from the surrounding node.
+                _ => {
+                    let marker = self.ast.add_expr(Expr::Ident("__superbase__".to_string()));
+                    return Ok(self.ast.add_expr(Expr::Member {
+                        obj: marker,
+                        name: m_name,
+                    }));
                 }
             }
             let mut args: Vec<ExprId> = Vec::new();
