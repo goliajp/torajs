@@ -12,6 +12,11 @@
 use super::*;
 
 impl Checker {
+    // CARVE-OUT: dispatch table — match-arm-per-Stmt-variant thin
+    // delegation to per-shape sibling modules (1-8 lines each,
+    // `ssa_lower_expr_inner::lower` posture); length comes from
+    // variant count × per-arm doc + narrow-flush bracketing, not
+    // logic. Splitting the match would destroy dispatch locality.
     pub(crate) fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(eid) => self.check_stmt_expr(ast, *eid),

@@ -151,28 +151,14 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             parent,
             sep,
             body,
-        } => {
-            println!("{pad}ForOfSplitIter {var_name}");
-            println!("{pad}  parent:");
-            print_expr(ast, *parent, indent + 2);
-            println!("{pad}  sep:");
-            print_expr(ast, *sep, indent + 2);
-            println!("{pad}  body:");
-            print_stmt(ast, body, indent + 2);
-        }
+        } => print_for_of_split(ast, &pad, var_name, *parent, *sep, body, indent),
         Stmt::ForOf {
             var_name,
             src_ident,
             elem_expr,
             body,
             ..
-        } => {
-            println!("{pad}ForOf {var_name} of {src_ident}[i]");
-            println!("{pad}  elem:");
-            print_expr(ast, *elem_expr, indent + 2);
-            println!("{pad}  body:");
-            print_stmt(ast, body, indent + 2);
-        }
+        } => print_for_of(ast, &pad, var_name, src_ident, *elem_expr, body, indent),
         Stmt::Throw(eid) => {
             println!("{pad}Throw");
             print_expr(ast, *eid, indent + 1);
@@ -272,6 +258,43 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             }
         }
     }
+}
+
+/// `Stmt::ForOfSplitIter` arm — parent / sep / body, each one indent
+/// deeper.
+fn print_for_of_split(
+    ast: &Ast,
+    pad: &str,
+    var_name: &str,
+    parent: ExprId,
+    sep: ExprId,
+    body: &Stmt,
+    indent: usize,
+) {
+    println!("{pad}ForOfSplitIter {var_name}");
+    println!("{pad}  parent:");
+    print_expr(ast, parent, indent + 2);
+    println!("{pad}  sep:");
+    print_expr(ast, sep, indent + 2);
+    println!("{pad}  body:");
+    print_stmt(ast, body, indent + 2);
+}
+
+/// `Stmt::ForOf` arm — elem expr + body.
+fn print_for_of(
+    ast: &Ast,
+    pad: &str,
+    var_name: &str,
+    src_ident: &str,
+    elem_expr: ExprId,
+    body: &Stmt,
+    indent: usize,
+) {
+    println!("{pad}ForOf {var_name} of {src_ident}[i]");
+    println!("{pad}  elem:");
+    print_expr(ast, elem_expr, indent + 2);
+    println!("{pad}  body:");
+    print_stmt(ast, body, indent + 2);
 }
 
 /// `Stmt::If` arm — cond / then / optional else, each one indent
