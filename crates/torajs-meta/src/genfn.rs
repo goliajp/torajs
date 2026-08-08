@@ -58,6 +58,13 @@ unsafe extern "C" {
     /// so the async call face can recognise its own instances by
     /// walking a receiver's chain to this object (§27.6.1.2 step 3).
     fn __torajs_gen_proto_register(kind: i64, proto: *mut c_void);
+    /// torajs-anyvalue — the interned `[Symbol.asyncDispose]` cell
+    /// the kind-1 prototype carries (§27.1.6.1 semantics; RFC
+    /// 20260809 B6 async leg).
+    fn __torajs_gen_asyncdispose_cell() -> *mut u8;
+    /// torajs-str — the idx-th well-known symbol singleton (owned
+    /// +1; immortal, ledger-free). 0 = asyncDispose (alphabetical).
+    fn __torajs_symbol_well_known(idx: i64) -> *mut c_void;
 }
 
 const ANY_I64: u64 = 2;
@@ -168,6 +175,30 @@ unsafe fn mint_kind(kind: usize) {
         let iter_proto = unsafe { __torajs_get_builtin_prototype(ITERATOR_PROTO_TAG) };
         if !iter_proto.is_null() {
             unsafe { define_heap(gen_proto, PROTO_SLOT_KEY, iter_proto, PROTO_SLOT_ATTRS) };
+        }
+    }
+    // §27.1.6.1 — the async family's [@@asyncDispose]. Spec hangs it
+    // on %AsyncIteratorPrototype%, which tr does not have (recorded
+    // boundary above); the kind-1 shared prototype is the chain root
+    // every async-generator instance walks, so the face lives here.
+    // Symbol-keyed define: the singleton key is immortal, the extra
+    // value inc keeps the immortal cell's circular graph alive
+    // (define_heap posture).
+    if kind == 1 {
+        let cell = unsafe { __torajs_gen_asyncdispose_cell() } as *mut c_void;
+        let sym = unsafe { __torajs_symbol_well_known(0) };
+        if !sym.is_null() && !cell.is_null() {
+            unsafe { __torajs_rc_inc(cell) };
+            let mut slot = gen_proto;
+            unsafe {
+                __torajs_dynobj_define(
+                    &mut slot,
+                    sym as *const u8,
+                    ANY_HEAP,
+                    heap_anyv(cell),
+                    ATTRS_WEC_101,
+                )
+            };
         }
     }
     // gen_proto: next / return / throw step methods (§27.5.1.2-4 /

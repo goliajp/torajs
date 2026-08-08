@@ -184,3 +184,109 @@ const REFLECT_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 
 
 static NAME_KEY_CELL: AtomicU64 = AtomicU64::new(0);
 static LENGTH_KEY_CELL: AtomicU64 = AtomicU64::new(0);
+
+unsafe extern "C" {
+    /// torajs-promise — a settled-fulfilled cell (immediate payload).
+    fn __torajs_promise_alloc_fulfilled(value: i64) -> *mut c_void;
+    /// torajs-promise — derived `.then(cb)` with an i64→i64 native
+    /// callback; low 8 bits of `ret_repr` = the callback's return
+    /// form. Internally takes its own stakes on source and result;
+    /// the returned derived cell is caller-owned (+1).
+    fn __torajs_promise_then_simple(
+        source: *mut c_void,
+        cb: Option<unsafe extern "C" fn(i64) -> i64>,
+        ret_repr: i64,
+    ) -> *mut c_void;
+}
+
+/// A fresh resolved-undefined promise, boxed owned — the
+/// §27.1.6.1 no-`return` answer (and the non-promise-result
+/// fallback below).
+unsafe fn resolved_undef_promise() -> u64 {
+    unsafe {
+        let p = __torajs_promise_alloc_fulfilled(VALUE_UNDEFINED as i64);
+        super::__torajs_promise_stamp_repr(p, crate::promise_with_resolvers::REPR_ANY as i64);
+        crate::nanbox::box_void_ptr(p)
+    }
+}
+
+/// `.then` leg that discards the close's iter-result — the derived
+/// promise settles undefined AFTER the return() completes, which is
+/// the §27.1.6.1 await-then-resolve ordering.
+unsafe extern "C" fn asyncdispose_discard_cb(_v: i64) -> i64 {
+    VALUE_UNDEFINED as i64
+}
+
+/// `%AsyncGeneratorPrototype%[Symbol.asyncDispose]` — §27.1.6.1
+/// semantics on the async-generator family's shared prototype (tr has no
+/// %AsyncIteratorPrototype% to hang it on — recorded boundary):
+/// GetMethod(this, "return"); absent answers an already-resolved
+/// undefined promise; present runs it and chains a discard `.then`
+/// so the answer settles undefined only after the close completes
+/// (finally blocks with awaits included). A sync throw from the
+/// call stays in the pending-throw channel and propagates.
+unsafe extern "C" fn gen_asyncdispose_entry(_env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
+    let recv = if argc > 0 && !argv.is_null() {
+        unsafe { *argv }
+    } else {
+        VALUE_UNDEFINED
+    };
+    let tag =
+        unsafe { crate::member_get::__torajs_any_member_get_tag(recv, return_name_cell().cast()) };
+    if tag == 5 {
+        return unsafe { resolved_undef_promise() };
+    }
+    let r = unsafe {
+        crate::method_call::any_method_call_inner(
+            recv,
+            torajs_rc::any_method::ANY_METHOD_ITER_RETURN,
+            return_name_cell(),
+            core::ptr::null_mut(),
+            core::ptr::null(),
+            0,
+        )
+    };
+    if r == crate::method_call::ANY_METHOD_NO_SUCH {
+        return unsafe { resolved_undef_promise() };
+    }
+    if crate::nanbox::is_cell(r) {
+        let ptr = crate::nanbox::as_void_ptr(r);
+        // SAFETY: is_cell guarantees a live header.
+        let t = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+        if t == torajs_rc::Tag::Promise as u16 {
+            let derived = unsafe {
+                __torajs_promise_then_simple(
+                    ptr,
+                    Some(asyncdispose_discard_cb),
+                    crate::promise_with_resolvers::REPR_ANY as i64,
+                )
+            };
+            unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(r) };
+            if !derived.is_null() {
+                return crate::nanbox::box_void_ptr(derived);
+            }
+            return unsafe { resolved_undef_promise() };
+        }
+    }
+    unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(r) };
+    unsafe { resolved_undef_promise() }
+}
+
+/// The interned `[Symbol.asyncDispose]` cell torajs-meta's genfn
+/// mint defines into the kind-1 shared prototype (RFC 20260809 B6,
+/// async leg). Answers an immortal cell (borrow).
+///
+/// # Safety
+/// FFI face; no inputs.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_gen_asyncdispose_cell() -> *mut u8 {
+    let p = ASYNCDISPOSE_CELL.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    let cell = unsafe { mint_symbol_method_cell(gen_asyncdispose_entry, b"[Symbol.asyncDispose]") };
+    ASYNCDISPOSE_CELL.store(cell as u64, Ordering::Relaxed);
+    cell
+}
+
+static ASYNCDISPOSE_CELL: AtomicU64 = AtomicU64::new(0);
