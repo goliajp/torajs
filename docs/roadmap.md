@@ -1530,7 +1530,61 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `3a88f594`** (2026-08-08, rotation 335 — five knives across
+**Latest @ `685ff385`** (2026-08-08, rotation 336 — the eval cluster
+re-attribution plus five knives. The B-layer artifact-size hard
+prerequisite got measured first (embed upper bound ≈ 4.4 MB of
+compiler machine code — torajs_core 2.73 + egraph 0.26 + codegen 0.07
++ std support — against a 2.27 MB hello baseline, pay-for-use so an
+eval-free program pays nothing; method: per-crate `nm` adjacent-symbol
+delta over a release-vanilla build, written down in RFC
+20260807-eval/cluster-reshape-20260808.md). The 278-case `unknown
+identifier eval` cluster then re-attributed AGAINST the r335 framing:
+its main component was never the variable-argument B layer but 138
+strict-reachable STRING-LITERAL calls the A layer missed — sources
+whose final statement is a control-flow statement, wanting the §8.4
+UpdateEmpty completion machinery. Knife 1 desugars exactly that (per
+breakable/labeled statement V domains seeded undefined, if/try reset,
+cross-domain jumps carry the innermost V; a label glued to its loop
+stays one domain so ssa_lower's `continue l` contract holds). Knives
+2+3 propagate named compile-time string sources into eval argument
+position under fully static proof (const_string-foldable init, single
+declaration program-wide, never assigned, no binding form reuses the
+name, inert statement-list prefix — where "inert" means no call-like
+node, so the test262 harness prelude of call-free assignments and
+`class Test262Error extends Error {}` survives). Knives 4+5 land RFC
+20260808-construct-channel B1: IsConstructor now answers true for a
+closure cell with FLAG_FN_PROTO (§10.2.4: owning `.prototype` and
+owning [[Construct]] are the same forms), and
+`__torajs_anyv_construct` grows the §10.2.2 base-kind arm — fresh
+dynobj `this` linked to the callee's `.prototype`, dispatch through
+invoke_with_this, object completion overrides. The gate caught knife
+4 stamping too wide (`new (Error.isError)()` constructed — the
+`__forward_` arm marked hoisted `__sm_`/`__cm_` methods as
+constructible; §10.2.5 says methods never run MakeConstructor) and
+knife 5 narrowed it. Conformance gate 2601 → **2604/0/4** (+2
+fixtures, five green gates after one caught-and-fixed red); build
+determinism 44/44 (N=12). Against r335: passTotal 27637 → **27725
+(+88)**, bug 12530 → 12553 (+23), trAccepted 40167 → **40278 (+111)**
+/ incompatible 13007 → **12896 (−111)** — conservation exact (111 =
+88 + 23). GAINED 89 by dir: the cptn family ~68 (switch 16, try 11,
+if 7, for-in 6, for 6, while 4, do-while 4, labeled 2, for-of 2,
+statementList 6, eval-code/direct 2, comma 1), S10.2.3 7, sm singles
+2. LOST 1 — and it is an honest de-dilution: 15.3.5.4_2-19gs passed
+because tr's "cannot construct a closure" TypeError happened to
+satisfy an assert.throws(TypeError) whose REAL subject is strict
+`caller` poisoning; B1 removed the accidental source and the true gap
+(Function.prototype.caller strict poison, L3b) now reads as the bug
+it is. Crash flat (exit-139 list comm-identical 32=32 — r335's "30"
+was a counting-lens difference, not a delta; tr-timeout 36 / exit-138
+3). Gate predicate **309 clusters (flat) / 6107 cases (−115) / residue
+780 clusters 1034 cases / core 7141 (−111)**, register still empty.
+The eval cluster drops 278 → **154 (−124)** and is no longer a
+dominant #1 (154 vs `using` declarations 138): its residue is
+staging/sm 47 (mostly sloppy-only), class multiple-evaluations
+(noStrict-heavy B layer), and the ~41 bare-value uses that belong to
+the builtin-singleton value-position reify axis, not to eval.)
+
+**Previous @ `3a88f594`** (2026-08-08, rotation 335 — five knives across
 three fronts: the r334-logged silent-wrong (a `throw` inside an
 object-literal method body was swallowed — the struct-method-dispatch
 lane's two CallIndirect emitters carried no throw_check; fn-valued

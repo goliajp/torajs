@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T09:14:26.531Z",
+  "generatedAt": "2026-08-08T10:45:02.330Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T09:11:44Z",
-    "headSha": "3a88f594",
-    "elapsedSec": 448.03,
+    "ranAt": "2026-08-08T10:41:26Z",
+    "headSha": "685ff385",
+    "elapsedSec": 413.19,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22924,
+    "pass": 23012,
     "passNoOracle": 756,
     "passNegative": 3957,
-    "passTotal": 27637,
-    "bug": 12530,
-    "incompatible": 13007,
+    "passTotal": 27725,
+    "bug": 12553,
+    "incompatible": 12896,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40167,
-    "passRateInScope": 51.97,
-    "passRateTrAccepted": 68.81
+    "trAccepted": 40278,
+    "passRateInScope": 52.14,
+    "passRateTrAccepted": 68.83
   },
   "torajs": {
-    "commit": "3a88f594",
-    "commitSubject": "fix: bare return in a value-returning fn answers undefined",
+    "commit": "685ff385",
+    "commitSubject": "fix: hoisted class methods carry no FLAG_FN_PROTO",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "685ff385",
+      "subject": "fix: hoisted class methods carry no FLAG_FN_PROTO"
+    },
+    {
+      "hash": "eab78d31",
+      "subject": "feat: plain functions construct through the runtime value channel"
+    },
+    {
+      "hash": "29fb591c",
+      "subject": "fix: eval const-prop inert prefix survives the test262 harness prelude"
+    },
+    {
+      "hash": "c1e018d7",
+      "subject": "feat: propagate named compile-time string sources into eval calls"
+    },
+    {
+      "hash": "31825dd3",
+      "subject": "feat: eval statement completion value via UpdateEmpty desugar"
+    },
+    {
+      "hash": "b0798efd",
+      "subject": "docs: rotation 335 close — sweep at 3a88f594, +74 passTotal zero regressions, P-SURF stamp, dashboard refresh"
+    },
+    {
       "hash": "3a88f594",
       "subject": "fix: bare return in a value-returning fn answers undefined"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "f53e169f",
       "subject": "docs: rotation 334 close — sweep at eec696c9, +23 passTotal zero regressions, P-SURF stamp for r332-334, dashboard refresh"
-    },
-    {
-      "hash": "eec696c9",
-      "subject": "fix: super property parses only in home-object contexts; eval super gate"
-    },
-    {
-      "hash": "8918bc95",
-      "subject": "feat: superproperty reads in base classes resolve to Object.prototype"
-    },
-    {
-      "hash": "d3c9a3f1",
-      "subject": "feat: dynamic-function strict early errors throw at creation time"
-    },
-    {
-      "hash": "b97d3028",
-      "subject": "feat: spread arguments in super() and super.m() calls"
-    },
-    {
-      "hash": "5d639b6d",
-      "subject": "fix: static-method super.m() dispatches to __sm_<owner> without receiver"
-    },
-    {
-      "hash": "c30cac08",
-      "subject": "feat: superproperty reads and writes via __superbase__ marker desugar"
     }
   ],
-  "headSha": "3a88f594",
+  "headSha": "685ff385",
   "autorun": {
-    "total": 638,
+    "total": 639,
     "baselineTarget": 10,
-    "bySelf": 633,
+    "bySelf": 634,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786173802-104e",
-      "at": "2026-08-08T07:23:22Z",
-      "ts": 1786173802,
+      "rotationId": "r-1786180505-714a",
+      "at": "2026-08-08T09:15:05Z",
+      "ts": 1786180505,
       "trigger": "self",
-      "prevHead": "f53e169f",
-      "handoffSha": "sha256:127536db98c107248196f4719fc25b404255acaff3ef6de1381dad3636b98a30",
-      "handoffAgeSec": 32,
+      "prevHead": "b0798efd",
+      "handoffSha": "sha256:be533403dc9579b5049a0c6907eaef4c4e326e1b78c43eed5caa34beda115b86",
+      "handoffAgeSec": 57,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786180505-714a",
+        "at": "2026-08-08T09:15:05Z",
+        "ts": 1786180505,
+        "trigger": "self",
+        "prevHead": "b0798efd",
+        "handoffSha": "sha256:be533403dc9579b5049a0c6907eaef4c4e326e1b78c43eed5caa34beda115b86",
+        "handoffAgeSec": 57,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786173802-104e",
         "at": "2026-08-08T07:23:22Z",
@@ -876,17 +887,6 @@
         "prevHead": "75aaa30b",
         "handoffSha": "sha256:d1011f56961323e6dc7e31687b0bb065471f942432b18e6c42f018e0d03c9c60",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786096141-19d5",
-        "at": "2026-08-07T09:49:01Z",
-        "ts": 1786096141,
-        "trigger": "self",
-        "prevHead": "99ffacbc",
-        "handoffSha": "sha256:0088177171a7df0893fb0f446aa454d3eb97a1e0aa66e95d537b17c6a1e917ed",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
