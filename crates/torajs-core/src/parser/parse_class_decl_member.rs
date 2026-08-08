@@ -82,28 +82,35 @@ impl<'a> Parser<'a> {
         let member_name = if matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
             let key = match self.peek() {
+                // RFC 20260809 knife 4 — ONLY `Symbol.iterator` keeps
+                // the legacy `__sym_<chain>__` name fold: that
+                // encoding is what the iterator-protocol dispatch
+                // (`__cm_<C>____sym_Symbol_iterator__`, four lowering
+                // sites + the generator-class synth) resolves by
+                // NAME. Every other `Symbol.<x>` member key
+                // (dispose / asyncDispose / toPrimitive / …) falls
+                // through to the `_ =>` runtime-computed arm below,
+                // whose class-decl-position reify defines the member
+                // under the real Symbol cell — the fold gave those a
+                // fake string name no reader could ever reach
+                // (`c[Symbol.dispose]` answered undefined).
                 Token::Ident(head)
                     if head == "Symbol"
                         && matches!(
                             self.tokens.get(self.pos + 1).map(|t| &t.token),
                             Some(Token::Dot)
+                        )
+                        && matches!(
+                            self.tokens.get(self.pos + 2).map(|t| &t.token),
+                            Some(Token::Ident(n)) if n == "iterator"
+                        )
+                        && matches!(
+                            self.tokens.get(self.pos + 3).map(|t| &t.token),
+                            Some(Token::RBracket)
                         ) =>
                 {
-                    let mut parts: Vec<String> = Vec::new();
-                    loop {
-                        if let Token::Ident(n) = self.peek() {
-                            parts.push(n.clone());
-                            self.pos += 1;
-                        } else {
-                            break;
-                        }
-                        if matches!(self.peek(), Token::Dot) {
-                            self.pos += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    format!("__sym_{}__", parts.join("_"))
+                    self.pos += 3; // `Symbol` `.` `iterator`
+                    "__sym_Symbol_iterator__".to_string()
                 }
                 Token::String(s)
                     if matches!(
