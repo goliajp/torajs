@@ -34,6 +34,7 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_object_proto_install(proto: *mut c_void);
     fn __torajs_function_proto_install(proto: *mut c_void);
+    fn __torajs_iterator_proto_install(proto: *mut c_void);
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
@@ -113,6 +114,11 @@ pub const OBJECT_PROTO_TAG: usize = 1;
 /// `Function.prototype`'s slot — its mint installs the §10.2.4
 /// restricted-property accessors (see the mint site).
 pub const FUNCTION_PROTO_TAG: usize = 13;
+
+/// `%Iterator.prototype%`'s slot — its mint installs the §27.1.2.1
+/// `[Symbol.iterator]` / §27.1.4.1 `[Symbol.dispose]` own entries
+/// (see the mint site; RFC 20260809 B6).
+pub const ITERATOR_PROTO_TAG: usize = 15;
 
 // One AtomicUsize slot per builtin tag. Initialized to 0 (= "not yet
 // allocated"); `__torajs_get_builtin_prototype` CAS-installs the
@@ -198,6 +204,13 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     // %ThrowTypeError% cell) — same posture as the tag-1 install.
     if idx == FUNCTION_PROTO_TAG {
         unsafe { __torajs_function_proto_install(fresh) };
+    }
+    // %Iterator.prototype% carries the §27.1.2.1 [@@iterator]
+    // return-this and §27.1.4.1 [@@dispose] own entries — the faces
+    // a generator instance inherits through its real prototype chain
+    // (RFC 20260809 B6). Same pre-CAS posture as the installs above.
+    if idx == ITERATOR_PROTO_TAG {
+        unsafe { __torajs_iterator_proto_install(fresh) };
     }
     let fresh_addr = fresh as usize;
     // Cheap front gate for the own-write note below — a program that
@@ -392,6 +405,11 @@ unsafe fn __torajs_object_proto_install(_proto: *mut c_void) {}
 
 #[cfg(test)]
 unsafe fn __torajs_function_proto_install(_proto: *mut c_void) {}
+
+// The @@iterator / @@dispose install lives in torajs-anyvalue
+// (linked into `tr`); same posture as the two stubs above.
+#[cfg(test)]
+unsafe fn __torajs_iterator_proto_install(_proto: *mut c_void) {}
 
 #[cfg(test)]
 mod tests {
