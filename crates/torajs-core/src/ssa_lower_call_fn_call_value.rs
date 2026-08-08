@@ -37,6 +37,21 @@ pub(crate) fn try_lower(
     ) {
         return None;
     }
+    // RFC 20260808-construct-channel B6 刀 2 — a reified
+    // namespace-static read (`Array.from.call(C, …)` / `Math.max
+    // .call(…)`) keeps the RUNTIME cell dispatch: the this-drop
+    // replay below would eat the thisArg that recv-first statics
+    // (Array.from / fromAsync) read as the constructor C. The
+    // checker's ns-static `.call/.apply/.bind` arm types these Any,
+    // so the any-method fallback lowers them; receiver-less statics
+    // ignore the thisArg there per their spec, same answer as the
+    // replay.
+    if let Expr::Member { obj: ns, name: m } = ctx.ast.get_expr(obj)
+        && let Expr::Ident(n) = ctx.ast.get_expr(*ns)
+        && torajs_rc::ns_static::ns_static_id(n, m) >= 0
+    {
+        return None;
+    }
     let rest: Vec<ExprId> = if is_call {
         args[1..].to_vec()
     } else {

@@ -38,6 +38,25 @@ use super::{Expr, ExprId, Stmt};
 /// compares against the arena's UNIQUE Ident nodes, so the face
 /// list must be unique too (the pre-2W per-entry `uses == 1` check
 /// tolerated duplicates implicitly).
+/// The construct-channel callee whitelist backing the fourth
+/// receiver-safe use shape: `Reflect.construct` and the
+/// `Array.from` / `Array.fromAsync` statics re-dispatched through
+/// `.call` / `.apply` (their ns-static cells are recv-first, so the
+/// thisArg rides argv[0] into the kernel's Construct split).
+fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
+    match &exprs[callee.0 as usize] {
+        Expr::Member { obj, name } if name == "construct" => {
+            matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Reflect")
+        }
+        Expr::Member { obj, name } if name == "call" || name == "apply" => {
+            matches!(&exprs[obj.0 as usize], Expr::Member { obj: ns, name: m }
+                if (m == "from" || m == "fromAsync")
+                    && matches!(&exprs[ns.0 as usize], Expr::Ident(n) if n == "Array"))
+        }
+        _ => false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn promote_variable_routed(
     stmts: &[Stmt],
@@ -112,6 +131,50 @@ pub(super) fn promote_variable_routed(
             _ => None,
         })
         .collect();
+    // RFC 20260808-construct-channel B6 刀 2 — an argument handed to
+    // a CONSTRUCT-CHANNEL builtin (`Reflect.construct(C, …)`,
+    // `Array.from.call(C, …)` / `.apply`, fromAsync same) is the
+    // fourth receiver-safe use shape: those builtins reach the
+    // closure only through receiver-honoring channels (construct →
+    // `invoke_with_this`; the recv-first ns-static cell prepends the
+    // `.call` thisArg), so no receiver-unaware call path exists.
+    // Callee whitelist, not "any builtin argument" — B-4
+    // narrow-surface: each admitted callee's runtime path is audited.
+    let construct_arg_idents: std::collections::HashSet<ExprId> = exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Call { callee, args } if construct_channel_callee(exprs, *callee) => Some(
+                args.iter()
+                    .copied()
+                    .filter(|a| matches!(&exprs[a.0 as usize], Expr::Ident(_))),
+            ),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    // B6 刀 2 — an EQUALITY operand (`result.constructor === C`, the
+    // t262 identity-assert spelling) is the fifth receiver-safe use
+    // shape: like a `.prototype` read it enters no call lane at all
+    // — the comparison consumes the cell pointer as a value.
+    // Ordering / arithmetic operands stay loud (they coerce, which
+    // is observable and untested here).
+    let eq_operand_idents: std::collections::HashSet<ExprId> = exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::BinOp {
+                op:
+                    super::BinOp::Eq
+                    | super::BinOp::Neq
+                    | super::BinOp::LooseEq
+                    | super::BinOp::LooseNeq,
+                left,
+                right,
+            } => Some([*left, *right]),
+            _ => None,
+        })
+        .flatten()
+        .filter(|a| matches!(&exprs[a.0 as usize], Expr::Ident(_)))
+        .collect();
     for (name, face_eids) in &faces_by_name {
         let use_eids: Vec<ExprId> = exprs
             .iter()
@@ -124,10 +187,12 @@ pub(super) fn promote_variable_routed(
             .filter(|e| !face_eids.contains(e))
             .copied()
             .collect();
-        if !mixed_calls
-            .iter()
-            .all(|e| callee_idents.contains(e) || proto_read_idents.contains(e))
-        {
+        if !mixed_calls.iter().all(|e| {
+            callee_idents.contains(e)
+                || proto_read_idents.contains(e)
+                || construct_arg_idents.contains(e)
+                || eq_operand_idents.contains(e)
+        }) {
             continue;
         }
         let mut decls: Vec<(bool, ExprId)> = Vec::new();

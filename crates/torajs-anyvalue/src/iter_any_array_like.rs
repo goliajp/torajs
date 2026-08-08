@@ -66,7 +66,7 @@ unsafe fn length_key() -> *mut u8 {
 ///
 /// # Safety
 /// `recv` is a live AnyValue.
-unsafe fn array_like_length(recv: AnyValue) -> i32 {
+pub(crate) unsafe fn array_like_length(recv: AnyValue) -> i32 {
     unsafe {
         let key = length_key() as *const core::ffi::c_void;
         let tag = __torajs_any_member_get_tag(recv, key);

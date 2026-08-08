@@ -421,7 +421,7 @@ const DEFINE_ALL_TRUE: u64 = 0x7F;
 /// have no attributes to collide with; that kernel also threads the
 /// product slot so a resize relocation writes the fresh cell back).
 /// `false` when the store recorded a pending throw.
-unsafe fn store_elem(product: &mut AnyValue, idx: i64, owned_elem: AnyValue) -> bool {
+pub(crate) unsafe fn store_elem(product: &mut AnyValue, idx: i64, owned_elem: AnyValue) -> bool {
     unsafe {
         if is_cell(*product) {
             let p = as_void_ptr(*product);
@@ -459,7 +459,7 @@ unsafe fn store_elem(product: &mut AnyValue, idx: i64, owned_elem: AnyValue) -> 
 /// no-op there); a DynObj product takes a real `length` data entry
 /// through the keyed member store (soft flavor, hint -1 = no
 /// interned fast path — a fresh species product never refuses).
-unsafe fn write_product_length(product: &mut AnyValue, n: i64) {
+pub(crate) unsafe fn write_product_length(product: &mut AnyValue, n: i64) {
     unsafe {
         if is_cell(*product) {
             let p = as_void_ptr(*product);

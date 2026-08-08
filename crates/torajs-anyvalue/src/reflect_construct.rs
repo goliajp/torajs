@@ -151,22 +151,31 @@ pub unsafe extern "C" fn __torajs_reflect_construct(
         let Some(boxed) = collect_list(list) else {
             return VALUE_UNDEFINED;
         };
-        let entry = ctor_entry(as_void_ptr(target) as u64);
-        if entry == 0 {
-            for b in &boxed {
-                __torajs_anyv_rc_dec(*b);
+        // A plain-fn closure constructs per §10.2.2 through the same
+        // channel `new <value>` takes (B1 construct_plain_fn — fresh
+        // `this` off the callee's `.prototype`); this path predates
+        // B1 and only knew the class-factory registry.
+        let target_tag = (as_void_ptr(target).cast::<u8>().add(4) as *const u16).read();
+        let obj = if target_tag == Tag::Closure as u16 {
+            crate::construct::__torajs_anyv_construct(target, boxed.as_ptr(), boxed.len() as i64)
+        } else {
+            let entry = ctor_entry(as_void_ptr(target) as u64);
+            if entry == 0 {
+                for b in &boxed {
+                    __torajs_anyv_rc_dec(*b);
+                }
+                __torajs_throw_type_error(
+                    c"this constructor cannot be reached through a runtime value yet".as_ptr(),
+                );
+                return VALUE_UNDEFINED;
             }
-            __torajs_throw_type_error(
-                c"this constructor cannot be reached through a runtime value yet".as_ptr(),
-            );
-            return VALUE_UNDEFINED;
-        }
-        let obj = invoke_boxed(
-            core::ptr::null_mut(),
-            entry,
-            boxed.as_ptr(),
-            boxed.len() as i64,
-        );
+            invoke_boxed(
+                core::ptr::null_mut(),
+                entry,
+                boxed.as_ptr(),
+                boxed.len() as i64,
+            )
+        };
         for b in boxed {
             __torajs_anyv_rc_dec(b);
         }

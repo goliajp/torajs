@@ -267,7 +267,7 @@ fn try_builtin_mv_fn_surface(
     };
     if !matches!(name.as_str(), "call" | "apply" | "bind")
         || !matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
-        || !is_builtin_mv_read(checker, ast, *obj)
+        || !(is_builtin_mv_read(checker, ast, *obj) || is_ns_static_read(ast, *obj))
     {
         return None;
     }
@@ -299,6 +299,19 @@ fn is_builtin_mv_read(checker: &mut Checker, ast: &Ast, obj: ExprId) -> bool {
         }
         _ => false,
     }
+}
+
+/// A reified namespace-static read (`Array.from` / `Math.max` — the
+/// intern-table truth the lowering bakes a cell for). Its
+/// `.call/.apply/.bind` surface is any-dispatched (RFC
+/// 20260808-construct-channel B6 刀 2): the cell's runtime dispatch
+/// is spec-exact — recv-first ids read the thisArg, receiver-less
+/// ids ignore it per their spec — while the legacy static sig this
+/// arm preempts would reject the polymorphic forms.
+fn is_ns_static_read(ast: &Ast, obj: ExprId) -> bool {
+    matches!(ast.get_expr(obj), Expr::Member { obj: ns, name: m }
+        if matches!(ast.get_expr(*ns), Expr::Ident(n)
+            if torajs_rc::ns_static::ns_static_id(n, m) >= 0))
 }
 
 fn try_fn_value_call(

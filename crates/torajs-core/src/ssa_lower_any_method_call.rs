@@ -70,6 +70,16 @@ pub(crate) fn try_lower(
                 Expr::Ident(n) if ctx.builtin_mv_locals.contains_key(n)
             ) || crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, *obj)
                 .is_some());
+        // RFC 20260808-construct-channel B6 刀 2 — the same surfaces
+        // on a reified NAMESPACE-STATIC read (`Array.from.call(C,…)`)
+        // ride the any lane: the baked cell's runtime dispatch honors
+        // the receiver channel (recv-first statics read the thisArg
+        // as the constructor C; receiver-less ones ignore it per
+        // their spec). Checker mirror: route_early's ns-static arm.
+        let ns_static_fn = is_fn_surface
+            && matches!(ctx.ast.get_expr(*obj), Expr::Member { obj: ns, name: m }
+                if matches!(ctx.ast.get_expr(*ns), Expr::Ident(n)
+                    if torajs_rc::ns_static::ns_static_id(n, m) >= 0));
         // Cluster #4 (test262) — a CONCRETE receiver whose member
         // read types Any: the per-family member tables' catch-all
         // answered the read (`arr.hasOwnProperty` / `fn.caller` /
@@ -90,7 +100,8 @@ pub(crate) fn try_lower(
                 .get(obj)
                 .and_then(crate::builtin_proto_shadow::family_of)
                 .is_some_and(|f| ctx.proto_shadow.shadows(f, name));
-        if !sugar_fn_on_any && !builtin_mv && !any_member_read && !shadowed_builtin {
+        if !sugar_fn_on_any && !builtin_mv && !ns_static_fn && !any_member_read && !shadowed_builtin
+        {
             return None;
         }
     }

@@ -204,6 +204,8 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::Gopd => super::ns_static_ctor::gopd_static(argv, argc),
             Disp::DefineFace => super::ns_static_ctor::define_face_reject(),
             Disp::OwnSymbols => super::ns_static_obj::own_symbols_value(arg_at(argv, argc, 0)),
+            // recv-first cells (this_aware_id): argv[0] is the
+            // thisArg every honoring caller prepended.
             Disp::ArrayFromFace => super::ns_static_ctor::array_from_value(argv, argc),
             // Iterator statics delegate to the SAME kernels the
             // statics-wedge lowering bakes — a pending throw from a
@@ -367,6 +369,21 @@ unsafe fn iterator_concat_pack(argv: *const u64, argc: i64) -> u64 {
 /// the count first (the typed tier does the same at
 /// `ssa_lower_call_object_get_prototype_of.rs:112`). Immediates carry
 /// no refcount, so only cells inc.
+/// The statics whose spec reads `this` (Array.from / fromAsync take
+/// it as the constructor C, §23.1.2.1 step 1) — their cells carry
+/// `FLAG_CLOSURE_RECV_FIRST`, so EVERY caller that honors the
+/// receiver channel (`.call`/`.apply`, the variadic alias lane, HOF
+/// loops, bind) prepends the thisArg in argv[0] (undefined on a bare
+/// call), and the dispatch arm reads it there. Keyed off the
+/// dispatch table itself — one source, no name comparison.
+fn this_aware_id(id: i64) -> bool {
+    id >= 0
+        && matches!(
+            DISPATCH.get(id as usize),
+            Some(Disp::ArrayFromFace | Disp::FromAsyncDyn)
+        )
+}
+
 /// The interned cell for an ns-static id — lazily allocated,
 /// immortal, same closure layout as `builtin_method_cell`.
 pub(crate) fn ns_static_cell(id: i64) -> *mut u8 {
@@ -381,7 +398,11 @@ pub(crate) fn ns_static_cell(id: i64) -> *mut u8 {
         let cell = std::alloc::alloc_zeroed(layout);
         *(cell as *mut u32) = 1;
         *(cell.add(4) as *mut u16) = Tag::Closure as u16;
-        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL;
+        *(cell.add(6) as *mut u16) = if this_aware_id(id) {
+            FLAG_STATIC_LITERAL | torajs_rc::FLAG_CLOSURE_RECV_FIRST
+        } else {
+            FLAG_STATIC_LITERAL
+        };
         *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = ns_native_entry as *const () as u64;
         *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;

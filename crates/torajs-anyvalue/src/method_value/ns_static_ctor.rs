@@ -399,19 +399,19 @@ pub(super) unsafe fn define_face_reject() -> u64 {
     VALUE_UNDEFINED
 }
 
-/// §23.1.2.1 Array.from as a detached call (RFC
-/// 20260808-construct-channel B6 刀 1) — a bare cell call binds
-/// `this = undefined`, so IsConstructor(C) is false and both
-/// branches take ArrayCreate; the any-tier kernel walks the unified
-/// iterable/array-like cascade with the spec's exact «kValue, k»
-/// mapfn shape and thisArg binding. The `this = C` construct face is
-/// the receiver-channel knife (B6 刀 2).
+/// §23.1.2.1 Array.from through the value cell (RFC
+/// 20260808-construct-channel B6 刀 1+2) — the cell is recv-first
+/// (`this_aware_id`), so argv[0] is the call-site thisArg (undefined
+/// on a bare detached call). A constructor `this` takes the step-4
+/// Construct split inside the kernel; anything else takes
+/// ArrayCreate. items / mapfn / thisArg follow in argv[1..].
 pub(super) unsafe fn array_from_value(argv: *const u64, argc: i64) -> u64 {
     unsafe {
-        crate::array_from::array_from_plain(
+        crate::array_from::array_from_this(
             arg_at(argv, argc, 0),
             arg_at(argv, argc, 1),
             arg_at(argv, argc, 2),
+            arg_at(argv, argc, 3),
         )
     }
 }
@@ -424,17 +424,16 @@ unsafe extern "C" {
     fn __torajs_array_from_async_map_dyn(v: u64, cb: u64) -> *mut core::ffi::c_void;
 }
 
-/// proposal-array-from-async §2.1.1 Array.fromAsync as a detached
-/// call — the undefined |this| is not a constructor, so §3.k.iv
-/// falls to ArrayCreate and the plain kernels answer. An undefined
-/// mapfn argument selects the unmapped form (spec step 3.a); a
-/// present one routes the mapped kernel, whose own IsCallable gate
-/// raises the step-2 TypeError. The kernel's fresh promise cell is
-/// the owned answer.
+/// proposal-array-from-async §2.1.1 Array.fromAsync through the
+/// value cell — the cell is recv-first (`this_aware_id`, B6 刀 2),
+/// so argv[0] is the thisArg and items / mapfn follow. The
+/// constructor-`this` Construct face (§3.k.iv) is the recorded B6
+/// 刀 4; until it lands the thisArg is read past (today's ArrayCreate
+/// behavior, unchanged).
 pub(super) unsafe fn from_async_dyn(argv: *const u64, argc: i64) -> u64 {
     unsafe {
-        let items = arg_at(argv, argc, 0);
-        let mapfn = arg_at(argv, argc, 1);
+        let items = arg_at(argv, argc, 1);
+        let mapfn = arg_at(argv, argc, 2);
         let p = if is_undefined(mapfn) {
             __torajs_array_from_async_dyn(items)
         } else {

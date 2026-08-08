@@ -511,6 +511,27 @@ mod tests {
     pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
         core::ptr::null_mut()
     }
+    // B6 刀 2 — `array_from`'s construct walk makes the species
+    // `store_elem` / construct `link_proto` chain test-reachable
+    // (shipped binary resolves libtorajs_arr.a / libtorajs_dynobj.a
+    // / libtorajs_meta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_index_set(
+        _arr: *mut c_void,
+        _idx: i64,
+        _tag: u64,
+        _value: u64,
+    ) {
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_index_refuses_store(
+        _arr: *const c_void,
+        _idx: u64,
+    ) -> i32 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_object_create_link_proto(_obj: *mut c_void, _proto: u64) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_arr_alloc_any(_cap: u64) -> *mut u8 {
         core::ptr::null_mut()
