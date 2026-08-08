@@ -3,12 +3,13 @@
 //! surrounding `Formatter`'s write / write_indent / fmt_expr /
 //! fmt_stmt (recursive) primitives; the larger arms (If / For /
 //! ForOfSplitIter / Try / Switch / LetDecl) delegate to per-arm
-//! sibling fns below, and the shared `{ ... }` brace-block shape
-//! lives in [`Formatter::fmt_block_braces`].
+//! sibling fns below, the shared `{ ... }` brace-block shape lives
+//! in [`Formatter::fmt_block_braces`], and the signature trio
+//! (class-method head / type-params / params) in `fmt_stmt_sigs`.
 //!
 //! Extracted from `formatter.rs` (2026-05-25, god-file decomp batch 18).
 
-use crate::ast::{ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
+use crate::ast::{Expr, ExprId, Stmt};
 
 use super::Formatter;
 
@@ -435,68 +436,5 @@ impl<'a> Formatter<'a> {
         self.indent = 0;
         self.fmt_stmt(s);
         self.indent = saved;
-    }
-
-    pub(super) fn fmt_class_method(&mut self, m: &ClassMethod, is_static: bool) {
-        self.write_indent();
-        match m.visibility {
-            Visibility::Private => self.write("private "),
-            Visibility::Protected => self.write("protected "),
-            Visibility::Public => {}
-        }
-        if is_static {
-            self.write("static ");
-        }
-        if m.is_abstract {
-            self.write("abstract ");
-        }
-        self.write(&m.name);
-        self.fmt_params(&m.params);
-        if let Some(ret) = &m.return_type {
-            self.write(": ");
-            self.write(ret);
-        }
-        if m.is_abstract {
-            // No body for abstract methods — written as `abstract m(): T`
-            return;
-        }
-        self.write(" ");
-        self.fmt_block_braces(&m.body);
-    }
-
-    pub(super) fn fmt_type_params(&mut self, tp: &[String]) {
-        if tp.is_empty() {
-            return;
-        }
-        self.write("<");
-        for (i, t) in tp.iter().enumerate() {
-            if i > 0 {
-                self.write(", ");
-            }
-            self.write(t);
-        }
-        self.write(">");
-    }
-
-    pub(super) fn fmt_params(&mut self, params: &[Param]) {
-        self.write("(");
-        for (i, p) in params.iter().enumerate() {
-            if i > 0 {
-                self.write(", ");
-            }
-            if p.is_rest {
-                self.write("...");
-            }
-            self.write(&p.name);
-            if let Some(ann) = &p.type_ann {
-                self.write(": ");
-                self.write(ann);
-            }
-            if let Some(deid) = p.default {
-                self.write(" = ");
-                self.fmt_expr(deid);
-            }
-        }
-        self.write(")");
     }
 }
