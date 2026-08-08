@@ -142,6 +142,7 @@ mod method_call;
 mod method_call_arr;
 mod method_call_arr_copy;
 mod method_call_arr_species;
+mod method_call_arr_species_len;
 mod method_call_arr_to_string;
 mod method_call_arraylike;
 mod method_call_arraylike_concat;

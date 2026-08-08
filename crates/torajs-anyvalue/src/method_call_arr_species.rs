@@ -37,6 +37,7 @@ use crate::construct::is_constructor;
 use crate::index_any::MIRROR_ARR_LEN_OFF;
 use crate::member_get_symbol::symbol_key_pair;
 use crate::method_call::{closure_boxed_entry, invoke_with_this};
+use crate::method_call_arr_species_len::species_ctor_len;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_encode::{__torajs_anyv_box_i64, __torajs_anyv_box_pointer};
 
@@ -117,7 +118,8 @@ pub(crate) unsafe fn species_family_pregate(
         if __torajs_arr_species_guard(arr as *const u8) != 0 {
             return SpeciesGate::Early(VALUE_UNDEFINED);
         }
-        match arr_species_object_face(arr) {
+        let ctor_len = species_ctor_len(arr, mid, argv, argc);
+        match arr_species_object_face(arr, ctor_len) {
             SpeciesOutcome::Threw => SpeciesGate::Early(VALUE_UNDEFINED),
             SpeciesOutcome::Product(product) => {
                 if mid == torajs_rc::ANY_METHOD_CONCAT {
@@ -207,11 +209,12 @@ pub(crate) enum SpeciesOutcome {
 }
 
 /// The species-family gate's object half — call AFTER
-/// `__torajs_arr_species_guard` answered 0.
+/// `__torajs_arr_species_guard` answered 0. `ctor_len` is the
+/// method's ArraySpeciesCreate length ([`species_ctor_len`]).
 ///
 /// # Safety
 /// `arr` is a live array heap block pointer.
-pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void) -> SpeciesOutcome {
+pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) -> SpeciesOutcome {
     unsafe {
         let props = *((arr as *const u8).add(MIRROR_ARR_PROPS_OFF) as *const *const c_void);
         if props.is_null() {
@@ -251,14 +254,14 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void) -> SpeciesOutcome
         // per spec but constructs here (the override spelling is
         // absent from the surveyed corpus).
         if stag == 5 && crate::construct::ctor_arr_species_self(cptr as u64) {
-            return run_species_ctor(arr, ctor_av);
+            return run_species_ctor(ctor_len, ctor_av);
         }
         // steps 7.b-8 — undefined / null species defaults.
         if stag == 5 || stag == 0 {
             return SpeciesOutcome::Default;
         }
         let species = crate::nanbox_encode::__torajs_anyv_box_from_pair(stag as i64, sval as i64);
-        run_species_ctor(arr, species)
+        run_species_ctor(ctor_len, species)
     }
 }
 
@@ -266,10 +269,9 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void) -> SpeciesOutcome
 /// class object takes the real [[Construct]] kernel, a closure cell
 /// with `FLAG_FN_PROTO` the plain-fn construct kernel (B1), a bare
 /// boxed dual entry the call-semantics fallback (this = undefined).
-unsafe fn run_species_ctor(arr: *mut c_void, species: AnyValue) -> SpeciesOutcome {
+unsafe fn run_species_ctor(ctor_len: i64, species: AnyValue) -> SpeciesOutcome {
     unsafe {
-        let len = *((arr as *const u8).add(MIRROR_ARR_LEN_OFF) as *const u64) as i64;
-        let len_boxed = __torajs_anyv_box_i64(len);
+        let len_boxed = __torajs_anyv_box_i64(ctor_len);
         let argv = [len_boxed];
         let product = if is_constructor(species) {
             crate::construct::__torajs_anyv_construct(species, argv.as_ptr(), 1)
