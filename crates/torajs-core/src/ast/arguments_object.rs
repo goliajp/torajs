@@ -138,6 +138,19 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             static_argv.remove(f);
         }
     }
+    // RFC 20260808 escape-store profile — a fn whose binding is
+    // stored into a boxed-face position leaves the static face too:
+    // the store implies a runtime call the AST cannot see (species
+    // construct, builtin callback), and the static fold would
+    // materialize the direct sites' argc — usually zero — where the
+    // boxed dual entry delivers the true one.
+    for f in super::arguments_object_escape_store::collect_escape_stored(
+        ast,
+        &value_argv_pre,
+        &argv_locals,
+    ) {
+        static_argv.remove(&f);
+    }
     let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
     // A named fn admitted to the static face must leave the T-31

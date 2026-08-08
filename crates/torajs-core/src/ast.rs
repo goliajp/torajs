@@ -23,6 +23,7 @@ mod arguments_object_walkers;
 pub(crate) use arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
+pub(crate) mod arguments_object_escape_store;
 mod class_globals;
 mod class_globals_register;
 mod clone_body;

@@ -13,7 +13,7 @@ use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
     body_has_unsafe_return_arguments,
 };
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 
 /// RFC 20260708-closure-argc-abi chunk 1 — collect the closure
 /// VALUE form seed: length-only lifted closures whose value is
@@ -322,6 +322,25 @@ fn safe_binding_chain(
             (b.clone(), owned)
         })
         .collect();
+    // RFC 20260808 escape-store profile — the face-position roots
+    // the fnexpr-this store arm admits (B2, rotation 337): a store
+    // into `<any>.k` / `<any>[k]` / `X.prototype.k` /
+    // `<any|array>.constructor[k]` is boxed-only consumption — a
+    // builtin reaches the stored value through the factory adapter
+    // or the any-lane call path, both of which enter the boxed dual
+    // entry with REAL argc/argv. Computed once for the kill walk's
+    // escape-store exemption below.
+    let any_recvs = super::fnexpr_this_recvs::collect_any_binding_names(&ast.stmts, &ast.exprs);
+    let array_lenient_recvs =
+        super::fnexpr_this_recvs::collect_array_binding_names_lenient(&ast.stmts, &ast.exprs);
+    let boxed_face_store = |target: ExprId| -> bool {
+        super::arguments_object_escape_store::boxed_face_store_target(
+            ast,
+            target,
+            &any_recvs,
+            &array_lenient_recvs,
+        )
+    };
     loop {
         let mut killed: HashSet<String> = HashSet::new();
         for b in candidates.keys() {
@@ -359,6 +378,21 @@ fn safe_binding_chain(
             // target Ident is the binding's definition, not a use.
             for &t in assign_legal.intersection(&b_eids) {
                 legal.insert(t);
+            }
+            // RFC 20260808 escape-store — the binding stored into a
+            // boxed-face position (see `boxed_face_store` above) is
+            // not a kill: every path from that slot back to the body
+            // (species construct, builtin callback, any-lane member
+            // call) enters the boxed dual entry, which feeds the
+            // reshaped signature its REAL argc/argv. Any OTHER use
+            // shape still kills.
+            for e in &ast.exprs {
+                if let Expr::Assign { target, value } = e
+                    && b_eids.contains(&value.0)
+                    && boxed_face_store(*target)
+                {
+                    legal.insert(value.0);
+                }
             }
             // RFC 20260808 knife 2 — `b.bind(…)` as a Call callee:
             // the bind desugar routes an arguments-touching target to

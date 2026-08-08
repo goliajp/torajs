@@ -134,7 +134,21 @@ pub(crate) fn promote_recv_any(
                 // re-anns to `any` (typeof / member reads go dynamic).
                 t.type_ann = Some("any".to_string());
             } else {
-                let at = usize::from(params.first().is_some_and(|q| q.name == "__env"));
+                // The boxed-entry adapter reads the head as
+                // `[__env?, __torajs_real_argc?, __torajs_argv?,
+                // __this?]` (RFC 20260808 knife 2's recv-slot shape)
+                // — an argv-face body promoted here AFTER the
+                // arguments pass must keep its argc/argv slots ahead
+                // of the receiver, or the adapter reads them as user
+                // params and the body derefs a boxed value as the
+                // argv pointer (probe: SIGSEGV).
+                let mut at = usize::from(params.first().is_some_and(|q| q.name == "__env"));
+                while params
+                    .get(at)
+                    .is_some_and(|q| q.name == "__torajs_real_argc" || q.name == "__torajs_argv")
+                {
+                    at += 1;
+                }
                 params.insert(
                     at,
                     Param {
