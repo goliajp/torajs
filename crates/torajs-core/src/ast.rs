@@ -75,6 +75,7 @@ mod fnexpr_bind_this;
 pub(crate) mod fnexpr_this;
 pub(crate) mod fnexpr_this_faces;
 pub(crate) mod fnexpr_this_recvs;
+pub(crate) mod fnexpr_this_routed;
 mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;
