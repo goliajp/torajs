@@ -127,8 +127,18 @@ pub(super) fn has_use_strict_prologue(parsed: &[Stmt], ast: &Ast) -> bool {
 /// spliced into — the same mechanism `modules::resolve_imports` uses to
 /// merge an imported file. `None` on a lex or parse failure, which
 /// leaves the call site untouched.
-pub(super) fn parse_eval_source(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
-    if let Some(stmts) = parse_once(src, ast) {
+///
+/// `super_ok` is the §19.2.1.1 steps 4-6 verdict: a DIRECT eval whose
+/// call site sits in a class member body (through arrows) may contain
+/// SuperProperty; everywhere else — indirect always, direct in global
+/// or ordinary-function code — `super` in the text is an early error,
+/// surfaced as this parse failing, which the callers turn into the
+/// runtime SyntaxError step 12 wants. The parser's own position gate
+/// (`super_prop_allowed`) does the refusing, so the whole source is
+/// rejected before any of it could run (`(0, eval)('executed = true;
+/// super.x;')` must leave `executed` untouched).
+pub(super) fn parse_eval_source(src: &str, ast: &mut Ast, super_ok: bool) -> Option<Vec<Stmt>> {
+    if let Some(stmts) = parse_once(src, ast, super_ok) {
         return reject_module_decls(stmts);
     }
     // §12.9.1 rule 2 — automatic semicolon insertion at end of input:
@@ -140,7 +150,7 @@ pub(super) fn parse_eval_source(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
     // appended IS that rule — it cannot make an invalid source valid,
     // because a semicolon only ever terminates a final statement.
     let with_semi = format!("{src};");
-    parse_once(&with_semi, ast).and_then(reject_module_decls)
+    parse_once(&with_semi, ast, super_ok).and_then(reject_module_decls)
 }
 
 /// §19.2.1.1 step 2 parses eval code with the **Script** goal symbol,
@@ -235,10 +245,10 @@ fn has_orphan_jump(stmts: &[Stmt], in_loop: bool, in_switch: bool) -> bool {
 /// parse leaves whatever it managed to build appended to `ast.stmts` —
 /// statements belonging to nobody, which would otherwise be spliced
 /// into the program as if the user had written them.
-fn parse_once(src: &str, ast: &mut Ast) -> Option<Vec<Stmt>> {
+fn parse_once(src: &str, ast: &mut Ast, super_ok: bool) -> Option<Vec<Stmt>> {
     let before = ast.stmts.len();
     let tokens = lexer::tokenize(src).ok()?;
-    match parser::parse_into(src, &tokens, ast) {
+    match parser::parse_into_super_prop(src, &tokens, ast, super_ok) {
         Ok(offset) => Some(ast.stmts.drain(offset..).collect()),
         Err(_) => {
             ast.stmts.truncate(before);

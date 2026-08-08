@@ -100,6 +100,9 @@ impl<'a> Parser<'a> {
                         // template, so the sub-parse inherits the
                         // position rather than resetting it.
                         super_call_allowed: self.super_call_allowed,
+                        // `${super.x}` is as legal as the same read
+                        // outside the template — position inherits.
+                        super_prop_allowed: self.super_prop_allowed,
                         // A template interpolation cannot contain a
                         // statement-level `yield*`, but the flag rides
                         // along like the other position markers.

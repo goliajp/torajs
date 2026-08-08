@@ -40,6 +40,13 @@ impl<'a> Parser<'a> {
         // overwrites; we restore the outer name on its successful exit.
         let saved_class = self.current_class.take();
         self.current_class = Some(name.clone());
+        // r334 blade 6 — SuperProperty (`super.x` et al) is legal
+        // throughout a class body: method/accessor/ctor bodies, field
+        // initializers, static blocks (each has a [[HomeObject]], ES
+        // §15.7.14). Ordinary function bodies nested inside re-clear
+        // it at their own parse sites; arrows inherit. Restored with
+        // `current_class` below (error paths skip, same rationale).
+        let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
         // Private-name lexical scope for this body (ES §15.7 — nested
         // classes see outer `#x` names, an inner redeclaration
         // shadows). Declarations fill the set as members parse;
@@ -276,6 +283,7 @@ impl<'a> Parser<'a> {
         // is moot).
         self.current_class = saved_class;
         self.current_class_has_parent = saved_has_parent;
+        self.super_prop_allowed = saved_super_prop;
         self.class_stack.pop();
         Ok(Stmt::ClassDecl {
             name,

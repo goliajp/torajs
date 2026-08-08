@@ -146,6 +146,10 @@ impl<'a> Parser<'a> {
         // S2.9 — same as the ordinary object-literal method: `super()`
         // is an early SyntaxError here (ES §15.7.1).
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
+        // r334 blade 6 — generator object-method: [[HomeObject]] exists,
+        // SuperProperty parses (same rationale as the ordinary
+        // object-literal method site).
+        let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
         let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
@@ -162,6 +166,7 @@ impl<'a> Parser<'a> {
                     self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
                     self.super_call_allowed = saved_super;
+                    self.super_prop_allowed = saved_super_prop;
                     return Err(e);
                 }
             }
@@ -170,6 +175,7 @@ impl<'a> Parser<'a> {
         self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
+        self.super_prop_allowed = saved_super_prop;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

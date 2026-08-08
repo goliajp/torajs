@@ -426,6 +426,12 @@ impl<'a> Parser<'a> {
         // constructor role, so `super()` in it is an early SyntaxError
         // (ES §15.7.1) even when the literal sits in a derived ctor.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
+        // r334 blade 6 — an object-literal method DOES have a
+        // [[HomeObject]], so SuperProperty parses here (§15.4.1). tr
+        // cannot lower it yet (the home's prototype is a runtime value
+        // — L3b home-object channel), so the marker survives to the
+        // checker and fails loud rather than being refused at parse.
+        let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
         // §15.8.1 — a non-async method/accessor body may not await.
         let saved_await = std::mem::replace(&mut self.await_allowed, false);
         let mut body = Vec::new();
@@ -435,12 +441,14 @@ impl<'a> Parser<'a> {
                 Err(e) => {
                     self.await_allowed = saved_await;
                     self.super_call_allowed = saved_super;
+                    self.super_prop_allowed = saved_super_prop;
                     return Err(e);
                 }
             }
         }
         self.await_allowed = saved_await;
         self.super_call_allowed = saved_super;
+        self.super_prop_allowed = saved_super_prop;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

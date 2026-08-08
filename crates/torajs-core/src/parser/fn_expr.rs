@@ -246,6 +246,11 @@ impl<'a> Parser<'a> {
         // non-arrow fn expression nested in the body inherits the mint.
         let saved_igcm = std::mem::replace(&mut self.in_gen_class_method, is_generator);
         let saved_minted = std::mem::replace(&mut self.gen_recv_minted, false);
+        // r334 blade 6 — a function EXPRESSION body is an ordinary
+        // function body: own `this`, no [[HomeObject]], SuperProperty
+        // inside is an early SyntaxError (§15.4.1) even when the
+        // expression sits in a method.
+        let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, false);
         let mut stmts = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             let s = match self.parse_stmt() {
@@ -256,6 +261,7 @@ impl<'a> Parser<'a> {
                     self.in_async_gen = saved_async_gen;
                     self.in_gen_class_method = saved_igcm;
                     self.gen_recv_minted = saved_minted;
+                    self.super_prop_allowed = saved_super_prop;
                     return Err(e);
                 }
             };
@@ -267,6 +273,7 @@ impl<'a> Parser<'a> {
         self.in_async_gen = saved_async_gen;
         self.in_gen_class_method = saved_igcm;
         self.gen_recv_minted = saved_minted;
+        self.super_prop_allowed = saved_super_prop;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

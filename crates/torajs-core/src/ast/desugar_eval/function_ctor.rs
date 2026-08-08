@@ -67,7 +67,11 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
         }
         let full = format!("function {name}({params}\n) {{\n{body}\n}}");
         let arena_before = ast.exprs.len();
-        match parse_eval_source(&full, ast) {
+        // super_ok = false — §20.2.1.1 parses the body as an ordinary
+        // FunctionBody, where `super` is an early SyntaxError in every
+        // call context; the parse failure lands in the throw arm below,
+        // which is exactly the creation-time SyntaxError the spec wants.
+        match parse_eval_source(&full, ast, false) {
             Some(mut parsed) => {
                 let is_the_decl = matches!(
                     parsed.as_slice(),

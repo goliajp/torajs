@@ -106,6 +106,21 @@ pub fn parse(source: &str, tokens: &[Spanned]) -> Result<Ast, String> {
 /// names already minted while parsing the main file (or any earlier
 /// imported file).
 pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<usize, String> {
+    parse_into_super_prop(source, tokens, target, false)
+}
+
+/// Eval-source variant of [`parse_into`]. §19.2.1.1 PerformEval decides
+/// SuperProperty legality from the CALL SITE's environment (steps 4-6:
+/// direct eval within a method context may contain `super.x`), which a
+/// fresh parse of the eval text cannot see — the eval desugar passes
+/// the verdict in as `super_prop_ok`. Everything else parses with the
+/// same default position flags as a whole program.
+pub fn parse_into_super_prop(
+    source: &str,
+    tokens: &[Spanned],
+    target: &mut Ast,
+    super_prop_ok: bool,
+) -> Result<usize, String> {
     let stmt_offset = target.stmts.len();
     let id_offset = target.exprs.len() as u32;
     let taken = std::mem::take(target);
@@ -128,6 +143,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         pending_async_fn_expr: false,
         static_this_class: None,
         super_call_allowed: false,
+        super_prop_allowed: super_prop_ok,
         current_class_has_parent: false,
         synth_classes: Vec::new(),
         class_value_aliases: std::collections::HashMap::new(),
@@ -309,6 +325,21 @@ struct Parser<'a> {
     /// to refuse) on a missed clear, and confines the dangerous one to
     /// the single site that sets it.
     super_call_allowed: bool,
+    /// r334 blade 6 — whether a SuperProperty (`super.x` / `super[k]` /
+    /// `super.m(...)`) is legal at the cursor. ES §15.7.1 / §15.4.1 make
+    /// `super` an early SyntaxError anywhere outside a MethodDefinition
+    /// body, a class field initializer, or a class static block — so it
+    /// is set for the span of a class body (`parse_class_decl_with_
+    /// abstract`) and for object-literal method bodies (which have a
+    /// [[HomeObject]]), and cleared on entry to every ordinary function
+    /// body (declaration and expression — their own `this` binding cuts
+    /// the home chain). Arrows inherit, same as `super_call_allowed`.
+    /// Eval text parses with the flag supplied by the eval desugar
+    /// (`parse_into_super_prop`): PerformEval judges super from the
+    /// call site's environment, and an illegal one must surface as a
+    /// RUNTIME SyntaxError at the eval — which the desugar builds out
+    /// of exactly this parse failure.
+    super_prop_allowed: bool,
     /// Whether the class being parsed has an `extends` clause. Tracked
     /// alongside [`Parser::current_class`] and read only to decide
     /// `super_call_allowed` — `super()` in a base class's constructor

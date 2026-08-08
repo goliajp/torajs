@@ -127,6 +127,7 @@
 //!   completes normally): a statement rewrite in statement position,
 //!   a throw-IIFE in value position (`completion.rs`).
 
+mod collapse;
 mod completion;
 mod function_ctor;
 mod scope;
@@ -136,6 +137,7 @@ mod walk;
 pub(super) use walk::{body_owned_exprs, fn_owned_exprs};
 
 use super::{Ast, Expr, Stmt, free_vars};
+use collapse::{completes_empty_effect_free, decl_names, is_effect_free_decl, name_mentioned};
 use scope::{binds_eval, seal_var_scope};
 use source::{
     CallForm, first_line, has_use_strict_prologue, literal_eval_call, nonstring_literal_eval_arg,
@@ -153,7 +155,7 @@ pub fn desugar_eval(ast: &mut Ast) {
         // the sources that need inlining.
         rewrite_value_position_evals(ast);
         let mut stmts = std::mem::take(&mut ast.stmts);
-        rewrite_list(&mut stmts, ast, false);
+        rewrite_list(&mut stmts, ast, false, false);
         ast.stmts = stmts;
         rewrite_arrow_bodies(ast);
         completion::rewrite_completion_value_evals(ast);
@@ -196,6 +198,7 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
     // through the bounds check, which is right — they take the
     // position of the call they replace.
     let fn_owned = walk::fn_owned_exprs(ast);
+    let class_owned = walk::class_owned_exprs(ast);
     let nested_lexical = walk::nested_lexical_names(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
@@ -209,8 +212,14 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
             i += 1;
             continue;
         };
+        // §19.2.1.1 steps 4-6 — SuperProperty in the text is legal only
+        // for a DIRECT eval whose call site has a [[HomeObject]] on its
+        // this-environment. Anywhere else the parse fails (the parser's
+        // own position gate), the collapse is skipped, and the throw
+        // carriers downstream raise the step-12 SyntaxError.
+        let super_ok = form == CallForm::Direct && class_owned.get(i).copied().unwrap_or(false);
         let arena_before = ast.exprs.len();
-        if let Some(parsed) = parse_eval_source(&src, ast) {
+        if let Some(parsed) = parse_eval_source(&src, ast, super_ok) {
             if let [Stmt::Expr(inner)] = parsed[..] {
                 let at_toplevel = !fn_owned.get(i).copied().unwrap_or(false);
                 let closed = form == CallForm::Direct || {
@@ -275,134 +284,6 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
     }
 }
 
-/// A declaration whose evaluation nothing can observe **in a strict
-/// direct eval**: a `let` / `var` whose initializer is an identifier
-/// read or a literal, or a function declaration. `Stmt::Multi` of such
-/// declarations counts too — the parser expands `var x, y` into one.
-/// The initializer bound is what keeps the collapse exact; a call, a
-/// member access, anything that could run code disqualifies the whole
-/// source.
-fn is_effect_free_decl(s: &Stmt, ast: &Ast) -> bool {
-    match s {
-        // `Uninit` is the parser's sentinel for `var x;` with no
-        // initializer at all — the most effect-free init there is.
-        Stmt::LetDecl { init, .. } => matches!(
-            ast.exprs.get(init.0 as usize),
-            Some(Expr::Uninit | Expr::Ident(_) | Expr::String(_) | Expr::Number(_))
-        ),
-        Stmt::FnDecl { .. } => true,
-        Stmt::Multi(list) => list.iter().all(|s| is_effect_free_decl(s, ast)),
-        _ => false,
-    }
-}
-
-/// A statement whose completion is *empty*, whose evaluation has no
-/// observable effect in ANY scope, and which provably terminates:
-/// empty blocks, control flow whose paths are decided by literal
-/// conditions and reach only empty-and-effect-free statements. `(0,
-/// eval)("{}")` and `(0, eval)("for(false;false;false);")` are
-/// `undefined` by §14.5.1, and test262's cptn-nrml-empty family spells
-/// exactly these.
-///
-/// Three boundaries are load-bearing:
-/// - a literal EXPRESSION statement is value-producing (`eval("1;
-///   2;")` is `2`, not undefined), so `Stmt::Expr` never qualifies;
-/// - a loop qualifies only when its literal condition is FALSY — a
-///   truthy `while (true);` never terminates, and collapsing it to
-///   `undefined` would change that;
-/// - an `if` over a truthy literal completes with its taken branch's
-///   completion, so the branch actually reached must itself qualify.
-fn completes_empty_effect_free(s: &Stmt, ast: &Ast) -> bool {
-    match s {
-        Stmt::Block(b) | Stmt::Multi(b) => b.iter().all(|s| completes_empty_effect_free(s, ast)),
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => match lit_truth(*cond, ast) {
-            Some(true) => completes_empty_effect_free(then_branch, ast),
-            Some(false) => else_branch
-                .as_deref()
-                .is_none_or(|e| completes_empty_effect_free(e, ast)),
-            None => false,
-        },
-        Stmt::While { cond, .. } => lit_truth(*cond, ast) == Some(false),
-        Stmt::DoWhile { body, cond } => {
-            lit_truth(*cond, ast) == Some(false) && completes_empty_effect_free(body, ast)
-        }
-        Stmt::For {
-            init, cond, body, ..
-        } => {
-            // The step never runs under a falsy condition; a missing
-            // condition is an infinite loop and disqualifies. The
-            // init is NOT a completion position, so a literal
-            // expression statement there is fine — its value is
-            // discarded, only its effects (none) matter.
-            init.as_deref().is_none_or(|i| match i {
-                Stmt::Expr(e) => lit_truth(*e, ast).is_some(),
-                other => completes_empty_effect_free(other, ast),
-            }) && cond.is_some_and(|c| lit_truth(c, ast) == Some(false))
-                && completes_empty_effect_free(body, ast)
-        }
-        Stmt::Switch {
-            scrutinee,
-            cases,
-            default,
-        } => {
-            // Only the trivially-empty switch: any case body might be
-            // the one dispatched to, and a value-producing body would
-            // become the completion.
-            lit_truth(*scrutinee, ast).is_some() && cases.is_empty() && default.is_none()
-        }
-        _ => false,
-    }
-}
-
-/// The boolean a literal coerces to, or `None` for anything that is
-/// not a literal. Mirrors §7.1.2 ToBoolean over the literal shapes the
-/// parser can produce directly.
-fn lit_truth(e: super::ExprId, ast: &Ast) -> Option<bool> {
-    match ast.exprs.get(e.0 as usize)? {
-        Expr::Bool(b) => Some(*b),
-        Expr::Number(n) => Some(*n != 0.0 && !n.is_nan()),
-        Expr::String(s) => Some(!s.is_empty()),
-        Expr::Null => Some(false),
-        _ => None,
-    }
-}
-
-/// The names a declaration source binds — what a sloppy indirect eval
-/// would put on the global.
-fn decl_names(stmts: &[Stmt], out: &mut Vec<String>) {
-    for s in stmts {
-        match s {
-            Stmt::LetDecl { name, .. } => out.push(name.clone()),
-            Stmt::FnDecl { name, .. } => out.push(name.clone()),
-            Stmt::Multi(list) => decl_names(list, out),
-            _ => {}
-        }
-    }
-}
-
-/// Could the program reach a global binding of this name? Any
-/// identifier spelling it, any member access naming it (`this.x`), or
-/// any string literal equal to it (`'x' in this`,
-/// `getOwnPropertyDescriptor(this, "x")`) counts. The scan stops at
-/// `limit` — the arena length before the current eval source was
-/// parsed in — so the source's own uses of its own names do not veto
-/// the collapse. Garbage expressions left by earlier collapses are
-/// scanned too, which can only over-decline: the safe direction.
-fn name_mentioned(ast: &Ast, name: &str, limit: usize) -> bool {
-    ast.exprs[..limit.min(ast.exprs.len())]
-        .iter()
-        .any(|e| match e {
-            Expr::Ident(n) => n == name,
-            Expr::Member { name: n, .. } | Expr::OptChain { name: n, .. } => n == name,
-            Expr::String(s) => s == name,
-            _ => false,
-        })
-}
-
 /// The statement walk above reaches a `FnDecl` body because that body
 /// hangs off the statement tree. A function written in *expression*
 /// position does not: `() => { … }`, `function () { … }` and a method
@@ -420,6 +301,13 @@ fn name_mentioned(ast: &Ast, name: &str, limit: usize) -> bool {
 /// handed to `parse_into`, then put back. An arrow body is a function
 /// scope, so the walk enters it with `in_fn` set.
 fn rewrite_arrow_bodies(ast: &mut Ast) {
+    // Home verdict per arrow (r334 blade 6): an arrow inherits its
+    // enclosure's this-environment, so a direct eval inside one may
+    // contain `super` exactly when the arrow itself sits in a class
+    // member body. Arrows appended by inlining read `false` through
+    // the bounds check — conservative (their eval supers decline to a
+    // runtime SyntaxError rather than resolving).
+    let class_owned = walk::class_owned_exprs(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
         let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) else {
@@ -427,7 +315,8 @@ fn rewrite_arrow_bodies(ast: &mut Ast) {
             continue;
         };
         let mut taken = std::mem::take(body);
-        rewrite_list(&mut taken, ast, true);
+        let home = class_owned.get(i).copied().unwrap_or(false);
+        rewrite_list(&mut taken, ast, true, home);
         if let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) {
             *body = taken;
         }
@@ -435,13 +324,13 @@ fn rewrite_arrow_bodies(ast: &mut Ast) {
     }
 }
 
-fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, in_fn: bool) {
+fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, in_fn: bool, home: bool) {
     for s in stmts.iter_mut() {
-        rewrite_stmt(s, ast, in_fn);
+        rewrite_stmt(s, ast, in_fn, home);
     }
 }
 
-fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
+fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
     // The rewrite itself: a statement that is nothing but a call to
     // `eval` with one literal argument becomes the block that literal
     // parses to. A direct eval's block is sealed (strict — nothing
@@ -453,12 +342,12 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
     if let Stmt::Expr(eid) = s {
         if let Some((src, form)) = literal_eval_call(*eid, ast) {
             let inline_here = form == CallForm::Direct || !in_fn;
-            match parse_eval_source(&src, ast) {
+            match parse_eval_source(&src, ast, form == CallForm::Direct && home) {
                 Some(mut inlined) if inline_here => {
                     // An eval inside the inlined text is an eval like
                     // any other; the nesting is finite because each
                     // level is a literal written in the level above.
-                    rewrite_list(&mut inlined, ast, in_fn);
+                    rewrite_list(&mut inlined, ast, in_fn, home);
                     // A "use strict" prologue makes even an indirect
                     // eval's code strict — its `var`s die with the
                     // eval (§19.2.1.1 steps 3-5), so it seals exactly
@@ -498,8 +387,8 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
         if let Some(Expr::Assign { target, value }) = ast.exprs.get(eid.0 as usize) {
             let (target, value) = (*target, *value);
             if matches!(ast.exprs.get(target.0 as usize), Some(Expr::Ident(_))) {
-                if let Some((src, _)) = literal_eval_call(value, ast) {
-                    if parse_eval_source(&src, ast).is_none() {
+                if let Some((src, form)) = literal_eval_call(value, ast) {
+                    if parse_eval_source(&src, ast, form == CallForm::Direct && home).is_none() {
                         // Same orphan story as the inline above.
                         ast.exprs[value.0 as usize] = Expr::Ident("undefined".to_string());
                         *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
@@ -510,45 +399,49 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
         }
     }
     match s {
-        Stmt::Block(b) | Stmt::Multi(b) => rewrite_list(b, ast, in_fn),
-        Stmt::FnDecl { body, .. } => rewrite_list(body, ast, true),
+        Stmt::Block(b) | Stmt::Multi(b) => rewrite_list(b, ast, in_fn, home),
+        // An ordinary function body cuts the home chain (§19.2.1.1
+        // step 6 — its this-environment has no [[HomeObject]]).
+        Stmt::FnDecl { body, .. } => rewrite_list(body, ast, true, false),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            rewrite_stmt(then_branch, ast, in_fn);
+            rewrite_stmt(then_branch, ast, in_fn, home);
             if let Some(e) = else_branch.as_deref_mut() {
-                rewrite_stmt(e, ast, in_fn);
+                rewrite_stmt(e, ast, in_fn, home);
             }
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => rewrite_stmt(body, ast, in_fn),
-        Stmt::Labeled { body, .. } => rewrite_stmt(body, ast, in_fn),
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            rewrite_stmt(body, ast, in_fn, home)
+        }
+        Stmt::Labeled { body, .. } => rewrite_stmt(body, ast, in_fn, home),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init.as_deref_mut() {
-                rewrite_stmt(i, ast, in_fn);
+                rewrite_stmt(i, ast, in_fn, home);
             }
-            rewrite_stmt(body, ast, in_fn);
+            rewrite_stmt(body, ast, in_fn, home);
         }
-        Stmt::ForOf { body, .. } => rewrite_stmt(body, ast, in_fn),
+        Stmt::ForOf { body, .. } => rewrite_stmt(body, ast, in_fn, home),
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            rewrite_list(body, ast, in_fn);
-            rewrite_list(catch_body, ast, in_fn);
+            rewrite_list(body, ast, in_fn, home);
+            rewrite_list(catch_body, ast, in_fn, home);
             if let Some(f) = finally_body.as_mut() {
-                rewrite_list(f, ast, in_fn);
+                rewrite_list(f, ast, in_fn, home);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases.iter_mut() {
-                rewrite_list(&mut c.body, ast, in_fn);
+                rewrite_list(&mut c.body, ast, in_fn, home);
             }
             if let Some(d) = default.as_mut() {
-                rewrite_list(d, ast, in_fn);
+                rewrite_list(d, ast, in_fn, home);
             }
         }
         _ => {}

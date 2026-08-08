@@ -118,6 +118,10 @@ impl<'a> Parser<'a> {
         // that has failed leaves the parser in an error state where the
         // value is moot.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
+        // r334 blade 6 — an ordinary function body has its own `this`
+        // and no [[HomeObject]], so SuperProperty inside it is the same
+        // early SyntaxError (§15.4.1), even nested in a method.
+        let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async && is_generator);
         let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
@@ -129,6 +133,7 @@ impl<'a> Parser<'a> {
         self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
+        self.super_prop_allowed = saved_super_prop;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => return Err(format!("expected `}}`, got {t:?} at {}", self.at())),

@@ -120,13 +120,40 @@ fn collect_stmt(s: &Stmt, nested: bool, out: &mut HashSet<String>) {
     }
 }
 
+/// What the flag being marked MEANS, which decides where it flips.
+#[derive(Clone, Copy)]
+enum Mode {
+    /// "Inside a function body" — flips true at every callee scope:
+    /// function bodies, arrow bodies, class member bodies, parameter
+    /// defaults. The original semantics of [`fn_owned_exprs`].
+    FnOwned,
+    /// "Inside a class member body, through arrows only" — the
+    /// §19.2.1.1 home-object question for the eval super gate (r334
+    /// blade 6). Flips true at class member bodies, flips back FALSE
+    /// at an ordinary `FnDecl` body (its own `this` cuts the home
+    /// chain), and rides through arrows unchanged (they pierce).
+    ClassOwned,
+}
+
 /// One flag per arena slot: is this expression inside a function body?
 /// Slots appended after this ran (parsed eval sources) answer `false`
 /// via the bounds-checked read in the caller, which is right — a
 /// source's own expressions take the position of the call they replace.
 pub(crate) fn fn_owned_exprs(ast: &Ast) -> Vec<bool> {
     let mut owned = vec![false; ast.exprs.len()];
-    mark_stmts(ast, &ast.stmts, false, &mut owned);
+    mark_stmts(ast, &ast.stmts, false, Mode::FnOwned, &mut owned);
+    owned
+}
+
+/// One flag per arena slot: does this expression sit in a class member
+/// body (ctor / method / accessor / folded field init / static member
+/// or block), reached without crossing an ordinary function boundary?
+/// This is exactly "does a direct eval AT THIS SLOT have a
+/// [[HomeObject]] on its this-environment" — the §19.2.1.1 steps 4-6
+/// verdict the super gate feeds to `parse_eval_source`.
+pub(super) fn class_owned_exprs(ast: &Ast) -> Vec<bool> {
+    let mut owned = vec![false; ast.exprs.len()];
+    mark_stmts(ast, &ast.stmts, false, Mode::ClassOwned, &mut owned);
     owned
 }
 
@@ -136,60 +163,65 @@ pub(crate) fn fn_owned_exprs(ast: &Ast) -> Vec<bool> {
 /// name (its body's uses belong to the local, not the top-level
 /// binding), which needs ownership per fn rather than one global bit.
 pub(crate) fn body_owned_exprs(ast: &Ast, body: &[Stmt], owned: &mut [bool]) {
-    mark_stmts(ast, body, true, owned);
+    mark_stmts(ast, body, true, Mode::FnOwned, owned);
 }
 
-fn mark_stmts(ast: &Ast, stmts: &[Stmt], in_fn: bool, owned: &mut [bool]) {
+fn mark_stmts(ast: &Ast, stmts: &[Stmt], in_fn: bool, mode: Mode, owned: &mut [bool]) {
     for s in stmts {
-        mark_stmt(ast, s, in_fn, owned);
+        mark_stmt(ast, s, in_fn, mode, owned);
     }
 }
 
-fn mark_params(ast: &Ast, params: &[Param], owned: &mut [bool]) {
+fn mark_params(ast: &Ast, params: &[Param], flag: bool, mode: Mode, owned: &mut [bool]) {
     for p in params {
         if let Some(d) = p.default {
-            mark_expr(ast, d, true, owned);
+            mark_expr(ast, d, flag, mode, owned);
         }
     }
 }
 
-fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, owned: &mut [bool]) {
+fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, mode: Mode, owned: &mut [bool]) {
+    // The flag a callee-scope body is marked with: FnOwned flips true
+    // at any function boundary; ClassOwned flips FALSE at an ordinary
+    // function body (own `this`, no home) — class members below flip
+    // true in both modes.
+    let fn_body_flag = matches!(mode, Mode::FnOwned);
     match s {
-        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => mark_expr(ast, *e, in_fn, owned),
+        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => mark_expr(ast, *e, in_fn, mode, owned),
         Stmt::Return(e) => {
             if let Some(e) = e {
-                mark_expr(ast, *e, in_fn, owned);
+                mark_expr(ast, *e, in_fn, mode, owned);
             }
         }
-        Stmt::YieldInto { value, .. } => mark_expr(ast, *value, in_fn, owned),
-        Stmt::LetDecl { init, .. } => mark_expr(ast, *init, in_fn, owned),
+        Stmt::YieldInto { value, .. } => mark_expr(ast, *value, in_fn, mode, owned),
+        Stmt::LetDecl { init, .. } => mark_expr(ast, *init, in_fn, mode, owned),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            mark_expr(ast, *cond, in_fn, owned);
-            mark_stmt(ast, then_branch, in_fn, owned);
+            mark_expr(ast, *cond, in_fn, mode, owned);
+            mark_stmt(ast, then_branch, in_fn, mode, owned);
             if let Some(e) = else_branch.as_deref() {
-                mark_stmt(ast, e, in_fn, owned);
+                mark_stmt(ast, e, in_fn, mode, owned);
             }
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            mark_expr(ast, *cond, in_fn, owned);
-            mark_stmt(ast, body, in_fn, owned);
+            mark_expr(ast, *cond, in_fn, mode, owned);
+            mark_stmt(ast, body, in_fn, mode, owned);
         }
         Stmt::Switch {
             scrutinee,
             cases,
             default,
         } => {
-            mark_expr(ast, *scrutinee, in_fn, owned);
+            mark_expr(ast, *scrutinee, in_fn, mode, owned);
             for c in cases {
-                mark_expr(ast, c.value, in_fn, owned);
-                mark_stmts(ast, &c.body, in_fn, owned);
+                mark_expr(ast, c.value, in_fn, mode, owned);
+                mark_stmts(ast, &c.body, in_fn, mode, owned);
             }
             if let Some(d) = default {
-                mark_stmts(ast, d, in_fn, owned);
+                mark_stmts(ast, d, in_fn, mode, owned);
             }
         }
         Stmt::For {
@@ -199,19 +231,19 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, owned: &mut [bool]) {
             body,
         } => {
             if let Some(i) = init.as_deref() {
-                mark_stmt(ast, i, in_fn, owned);
+                mark_stmt(ast, i, in_fn, mode, owned);
             }
             for e in [cond, step].into_iter().flatten() {
-                mark_expr(ast, *e, in_fn, owned);
+                mark_expr(ast, *e, in_fn, mode, owned);
             }
-            mark_stmt(ast, body, in_fn, owned);
+            mark_stmt(ast, body, in_fn, mode, owned);
         }
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
-            mark_expr(ast, *parent, in_fn, owned);
-            mark_expr(ast, *sep, in_fn, owned);
-            mark_stmt(ast, body, in_fn, owned);
+            mark_expr(ast, *parent, in_fn, mode, owned);
+            mark_expr(ast, *sep, in_fn, mode, owned);
+            mark_stmt(ast, body, in_fn, mode, owned);
         }
         Stmt::ForOf {
             elem_expr,
@@ -219,29 +251,29 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, owned: &mut [bool]) {
             body,
             ..
         } => {
-            mark_expr(ast, *elem_expr, in_fn, owned);
+            mark_expr(ast, *elem_expr, in_fn, mode, owned);
             if let Some(o) = forin_obj {
-                mark_expr(ast, *o, in_fn, owned);
+                mark_expr(ast, *o, in_fn, mode, owned);
             }
-            mark_stmt(ast, body, in_fn, owned);
+            mark_stmt(ast, body, in_fn, mode, owned);
         }
-        Stmt::Labeled { body, .. } => mark_stmt(ast, body, in_fn, owned),
+        Stmt::Labeled { body, .. } => mark_stmt(ast, body, in_fn, mode, owned),
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            mark_stmts(ast, body, in_fn, owned);
-            mark_stmts(ast, catch_body, in_fn, owned);
+            mark_stmts(ast, body, in_fn, mode, owned);
+            mark_stmts(ast, catch_body, in_fn, mode, owned);
             if let Some(f) = finally_body {
-                mark_stmts(ast, f, in_fn, owned);
+                mark_stmts(ast, f, in_fn, mode, owned);
             }
         }
-        Stmt::Block(b) | Stmt::Multi(b) => mark_stmts(ast, b, in_fn, owned),
+        Stmt::Block(b) | Stmt::Multi(b) => mark_stmts(ast, b, in_fn, mode, owned),
         Stmt::FnDecl { params, body, .. } => {
-            mark_params(ast, params, owned);
-            mark_stmts(ast, body, true, owned);
+            mark_params(ast, params, fn_body_flag, mode, owned);
+            mark_stmts(ast, body, fn_body_flag, mode, owned);
         }
         Stmt::ClassDecl {
             static_init,
@@ -256,17 +288,17 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, owned: &mut [bool]) {
             // top level — conservative direction, mark them.
             for si in static_init {
                 match si {
-                    super::super::StaticInit::Field(f) => mark_expr(ast, f.init, true, owned),
-                    super::super::StaticInit::Block(b) => mark_stmts(ast, b, true, owned),
+                    super::super::StaticInit::Field(f) => mark_expr(ast, f.init, true, mode, owned),
+                    super::super::StaticInit::Block(b) => mark_stmts(ast, b, true, mode, owned),
                 }
             }
             if let Some(c) = ctor {
-                mark_params(ast, &c.params, owned);
-                mark_stmts(ast, &c.body, true, owned);
+                mark_params(ast, &c.params, true, mode, owned);
+                mark_stmts(ast, &c.body, true, mode, owned);
             }
             for m in methods.iter().chain(static_methods) {
-                mark_params(ast, &m.params, owned);
-                mark_stmts(ast, &m.body, true, owned);
+                mark_params(ast, &m.params, true, mode, owned);
+                mark_stmts(ast, &m.body, true, mode, owned);
             }
         }
         Stmt::ExportDecl {
@@ -275,17 +307,17 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, owned: &mut [bool]) {
             ..
         } => {
             if let Some(i) = inner.as_deref() {
-                mark_stmt(ast, i, in_fn, owned);
+                mark_stmt(ast, i, in_fn, mode, owned);
             }
             if let Some(e) = default_expr {
-                mark_expr(ast, *e, in_fn, owned);
+                mark_expr(ast, *e, in_fn, mode, owned);
             }
         }
         _ => {}
     }
 }
 
-fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, owned: &mut [bool]) {
+fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, mode: Mode, owned: &mut [bool]) {
     let Some(slot) = owned.get_mut(eid.0 as usize) else {
         return;
     };
@@ -302,53 +334,62 @@ fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, owned: &mut [bool]) {
             lhs: left,
             rhs: right,
         } => {
-            mark_expr(ast, *left, in_fn, owned);
-            mark_expr(ast, *right, in_fn, owned);
+            mark_expr(ast, *left, in_fn, mode, owned);
+            mark_expr(ast, *right, in_fn, mode, owned);
         }
         Expr::Unary { expr, .. }
         | Expr::As { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::InstanceOf { expr, .. }
-        | Expr::Spread { expr } => mark_expr(ast, *expr, in_fn, owned),
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => mark_expr(ast, *obj, in_fn, owned),
+        | Expr::Spread { expr } => mark_expr(ast, *expr, in_fn, mode, owned),
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+            mark_expr(ast, *obj, in_fn, mode, owned)
+        }
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            mark_expr(ast, *callee, in_fn, owned);
+            mark_expr(ast, *callee, in_fn, mode, owned);
             for a in args {
-                mark_expr(ast, *a, in_fn, owned);
+                mark_expr(ast, *a, in_fn, mode, owned);
             }
         }
         Expr::Assign { target, value } => {
-            mark_expr(ast, *target, in_fn, owned);
-            mark_expr(ast, *value, in_fn, owned);
+            mark_expr(ast, *target, in_fn, mode, owned);
+            mark_expr(ast, *value, in_fn, mode, owned);
         }
         Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
-            mark_expr(ast, *obj, in_fn, owned);
-            mark_expr(ast, *index, in_fn, owned);
+            mark_expr(ast, *obj, in_fn, mode, owned);
+            mark_expr(ast, *index, in_fn, mode, owned);
         }
         Expr::Array(elems) => {
             for e in elems {
-                mark_expr(ast, *e, in_fn, owned);
+                mark_expr(ast, *e, in_fn, mode, owned);
             }
         }
         Expr::ObjectLit { fields } => {
             for (_, v) in fields {
-                mark_expr(ast, *v, in_fn, owned);
+                mark_expr(ast, *v, in_fn, mode, owned);
             }
         }
+        // An arrow is a callee scope for FnOwned, but transparent for
+        // ClassOwned — it pierces `this`/`super` to its enclosure, so
+        // its body keeps the enclosure's home verdict.
         Expr::ArrowFn { params, body, .. } => {
-            mark_params(ast, params, owned);
-            mark_stmts(ast, body, true, owned);
+            let body_flag = match mode {
+                Mode::FnOwned => true,
+                Mode::ClassOwned => in_fn,
+            };
+            mark_params(ast, params, body_flag, mode, owned);
+            mark_stmts(ast, body, body_flag, mode, owned);
         }
         Expr::New { args, .. } | Expr::Super { args } => {
             for a in args {
-                mark_expr(ast, *a, in_fn, owned);
+                mark_expr(ast, *a, in_fn, mode, owned);
             }
         }
         Expr::NewDynamic { callee, args } => {
-            mark_expr(ast, *callee, in_fn, owned);
+            mark_expr(ast, *callee, in_fn, mode, owned);
             for a in args {
-                mark_expr(ast, *a, in_fn, owned);
+                mark_expr(ast, *a, in_fn, mode, owned);
             }
         }
         Expr::Ternary {
@@ -356,11 +397,11 @@ fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, owned: &mut [bool]) {
             then_branch,
             else_branch,
         } => {
-            mark_expr(ast, *cond, in_fn, owned);
-            mark_expr(ast, *then_branch, in_fn, owned);
-            mark_expr(ast, *else_branch, in_fn, owned);
+            mark_expr(ast, *cond, in_fn, mode, owned);
+            mark_expr(ast, *then_branch, in_fn, mode, owned);
+            mark_expr(ast, *else_branch, in_fn, mode, owned);
         }
-        Expr::PostIncr { target, .. } => mark_expr(ast, *target, in_fn, owned),
+        Expr::PostIncr { target, .. } => mark_expr(ast, *target, in_fn, mode, owned),
         _ => {}
     }
 }

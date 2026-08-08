@@ -35,6 +35,23 @@ impl<'a> Parser<'a> {
         // rewrites it to `__cm_<Parent>__<m>(__this, args)`
         // using the surrounding class's parent.
         self.pos += 1;
+        // r334 blade 6 — SuperProperty position gate (§15.4.1 /
+        // §15.7.1: `super` is an early SyntaxError outside a method /
+        // field-init / static-block body). The gate covers all three
+        // member spellings — `super.x`, `super[k]`, `super.m(...)` —
+        // and matters twice over: bare illegal `super` fails at parse
+        // phase (what the early-error negatives assert), and eval text
+        // parsed WITHOUT the call site's home context fails the same
+        // way, which the eval desugar converts into the runtime
+        // SyntaxError §19.2.1.1 step 12 wants (`eval('super.x')` in
+        // global code throws; nothing in the source runs).
+        if matches!(self.peek(), Token::LBracket | Token::Dot) && !self.super_prop_allowed {
+            return Err(format!(
+                "`super` property access is only valid in a method, \
+                 field initializer, or static block body, at {}",
+                self.at()
+            ));
+        }
         // SuperProperty element form `super[expr]` (§13.3.5): encoded
         // as an Index off the `__superbase__` marker ident; the class
         // desugar rewrites the marker to the super base (the parent's
@@ -59,6 +76,19 @@ impl<'a> Parser<'a> {
         }
         if matches!(self.peek(), Token::Dot) {
             self.pos += 1;
+            // §15.4.1 grammar — `super.#x` is never valid, in any
+            // context: SuperProperty has no PrivateIdentifier
+            // production (a parent's private names are lexically
+            // invisible to the subclass anyway). Checked before
+            // `expect_member_name`, which would otherwise mangle the
+            // private name inside a class body and lose the reject.
+            if let Token::PrivateIdent(n) = self.peek() {
+                return Err(format!(
+                    "`super.#{n}` — private names cannot be accessed \
+                     through `super`, at {}",
+                    self.at()
+                ));
+            }
             let m_name = self.expect_member_name("super.")?;
             match self.peek() {
                 Token::LParen => self.pos += 1,
