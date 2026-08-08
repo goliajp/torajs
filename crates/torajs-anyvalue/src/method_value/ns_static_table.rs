@@ -336,6 +336,20 @@ pub(super) enum Disp {
     /// kernel; `replacer` rides the same recorded ignore as the
     /// typed lowering (S311).
     JsonStringify,
+    /// §28.1.6 Reflect.get — strict gate + the [[Get]] member-get
+    /// kernel (2-arg form; a differing receiver argument is the
+    /// recorded getter-this boundary).
+    ReflectGet,
+    /// §28.1.9 Reflect.has — strict gate + the `in`-operator kernel.
+    ReflectHas,
+    /// §28.1.11 Reflect.ownKeys — strict gate + the include-nonenum
+    /// own-keys walk (`OwnKind::Names`'s path; tr has no
+    /// symbol-keyed props, so the symbol tail is empty).
+    ReflectOwnKeys,
+    /// §28.1.2 Reflect.construct — the same-crate reflective
+    /// construct kernel (`crate::reflect_construct`), newTarget
+    /// defaulting to target on the 2-arg form.
+    ReflectConstructDyn,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -460,4 +474,8 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::JsonIsRawJson,
     Disp::JsonParse,
     Disp::JsonStringify,
+    Disp::ReflectGet,
+    Disp::ReflectHas,
+    Disp::ReflectOwnKeys,
+    Disp::ReflectConstructDyn,
 ];

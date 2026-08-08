@@ -80,12 +80,27 @@ fn boxable(ty: &Type) -> bool {
 fn program_constructs_from_value(ast: &Ast) -> bool {
     ast.exprs.iter().any(|e| match e {
         crate::ast::Expr::NewDynamic { .. } => true,
+        // A `.construct(...)` call arms regardless of the receiver
+        // shape: the direct `Reflect.construct` form is provable,
+        // but an alias (`const R: any = Reflect; R.construct(C,
+        // ...)`) reaches the same kernel through the ns-object
+        // singleton's cell, and the AST cannot see through the
+        // binding. The method NAME is the signal; a user object's
+        // own `construct` method false-positives into one adapter
+        // per class — the pay-for-use trade the species
+        // `constructor`-write arm below already makes.
         crate::ast::Expr::Call { callee, .. } => matches!(
             ast.get_expr(*callee),
-            crate::ast::Expr::Member { obj, name }
-                if name == "construct"
-                    && matches!(ast.get_expr(*obj), crate::ast::Expr::Ident(ns) if ns == "Reflect")
+            crate::ast::Expr::Member { name, .. } if name == "construct"
         ),
+        // A bare `Reflect.construct` member READ detaches the cell
+        // (`const c = Reflect.construct; c(C, ...)`) — the call
+        // through the detached value is invisible, so the read
+        // itself arms.
+        crate::ast::Expr::Member { obj, name } => {
+            name == "construct"
+                && matches!(ast.get_expr(*obj), crate::ast::Expr::Ident(ns) if ns == "Reflect")
+        }
         // RFC 20260808-construct-channel B5 — a `constructor`
         // property write is the ArraySpeciesCreate consumption
         // signal (§9.4.2.3 step 5 reads it back and step 10

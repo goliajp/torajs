@@ -101,6 +101,7 @@ fn try_ns_object_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
     let intrinsic = match name {
         "Math" => ctx.intrinsics.ns_object_math,
         "JSON" => ctx.intrinsics.ns_object_json,
+        "Reflect" => ctx.intrinsics.ns_object_reflect,
         "globalThis" => ctx.intrinsics.globalthis_object,
         _ => return None,
     };

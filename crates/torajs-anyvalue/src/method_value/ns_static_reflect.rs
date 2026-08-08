@@ -206,3 +206,90 @@ pub(super) unsafe fn reflect_set(argv: *const u64, argc: i64) -> u64 {
         if wrote != 0 { VALUE_TRUE } else { VALUE_FALSE }
     }
 }
+
+/// §28.1.6 Reflect.get as a detached call — strict gate, ToString(P),
+/// then the real [[Get]] pair probe: an accessor answer invokes its
+/// getter (this = target — a differing `receiver` argument is the
+/// recorded getter-this boundary), a data answer converts the borrow
+/// to owned before boxing (the `iter_result_get` posture).
+pub(super) unsafe fn reflect_get(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let target = arg_at(argv, argc, 0);
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 1));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let kp = key as *const core::ffi::c_void;
+        let tag = crate::member_get::__torajs_any_member_get_tag(target, kp);
+        let out = if tag == crate::struct_probe::ANY_ACCESSOR_TAG {
+            let pair_bits = crate::member_get_value::__torajs_any_member_get_value(target, kp);
+            crate::struct_probe::__torajs_any_accessor_get(target, kp, pair_bits)
+        } else {
+            let payload = crate::member_get_value::__torajs_any_member_get_value(target, kp);
+            crate::payload_rc_inc(tag as i64, payload as i64);
+            crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, payload as i64)
+        };
+        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        out
+    }
+}
+
+/// §28.1.9 Reflect.has as a detached call — strict gate, then the
+/// `in`-operator kernel (own + inherited walk, Bool answer).
+pub(super) unsafe fn reflect_has(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 1));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let hit = crate::prop_has::__torajs_any_prop_has(
+            arg_at(argv, argc, 0),
+            key as *const core::ffi::c_void,
+        );
+        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        if hit != 0 { VALUE_TRUE } else { VALUE_FALSE }
+    }
+}
+
+/// §28.1.11 Reflect.ownKeys as a detached call — strict gate, then
+/// the include-nonenum own-keys walk (`OwnKind::Names`'s kernel; tr
+/// has no symbol-keyed props, so the symbol tail is empty).
+pub(super) unsafe fn reflect_own_keys(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        super::ns_static_obj::own_enum(
+            &super::ns_static_table::OwnKind::Names,
+            arg_at(argv, argc, 0),
+        )
+    }
+}
+
+/// §28.1.2 Reflect.construct as a detached call — the reflective
+/// construct kernel gates IsConstructor on both slots itself;
+/// newTarget defaults to target on the 2-arg form (§28.1.2 step 2).
+pub(super) unsafe fn reflect_construct_dyn(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let target = arg_at(argv, argc, 0);
+        let new_target = if argc >= 3 {
+            arg_at(argv, argc, 2)
+        } else {
+            target
+        };
+        crate::reflect_construct::__torajs_reflect_construct(
+            target,
+            arg_at(argv, argc, 1),
+            new_target,
+        )
+    }
+}

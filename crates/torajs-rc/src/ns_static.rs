@@ -243,6 +243,16 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // 20260801-ns-object-value, JSON extension). Lengths per spec.
     row("JSON", "parse", 2),
     row("JSON", "stringify", 3),
+    // §28.1.{6,9,11,2} Reflect get / has / ownKeys / construct —
+    // strict IsObject gate + the existing any-lane kernels
+    // (member-get / in-op / own-keys Names walk /
+    // __torajs_reflect_construct). The Reflect namespace-object
+    // singleton mint fills these cells alongside the nine rows
+    // above. Lengths per spec.
+    row("Reflect", "get", 2),
+    row("Reflect", "has", 2),
+    row("Reflect", "ownKeys", 1),
+    row("Reflect", "construct", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

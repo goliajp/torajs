@@ -102,27 +102,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 };
                 box_double(f(x, y))
             }
-            Disp::MinMax { is_max } => {
-                // §21.3.2.24/25 — coerce every arg in source order,
-                // fold pairwise through the typed-tier kernel (NaN
-                // propagation and ±0 ordering live there).
-                let mut acc = if *is_max {
-                    f64::NEG_INFINITY
-                } else {
-                    f64::INFINITY
-                };
-                for i in 0..argc {
-                    let Ok(x) = arg_num(argv, argc, i) else {
-                        return VALUE_UNDEFINED;
-                    };
-                    acc = if *is_max {
-                        __torajs_math_max(acc, x)
-                    } else {
-                        __torajs_math_min(acc, x)
-                    };
-                }
-                box_double(acc)
-            }
+            Disp::MinMax { is_max } => min_max_fold(*is_max, argv, argc),
             Disp::I32Pair(f) => {
                 let Ok(x) = arg_num(argv, argc, 0) else {
                     return VALUE_UNDEFINED;
@@ -271,7 +251,38 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             }
             Disp::JsonParse => json_parse_value(argv, argc),
             Disp::JsonStringify => json_stringify_value(argv, argc),
+            Disp::ReflectGet => super::ns_static_reflect::reflect_get(argv, argc),
+            Disp::ReflectHas => super::ns_static_reflect::reflect_has(argv, argc),
+            Disp::ReflectOwnKeys => super::ns_static_reflect::reflect_own_keys(argv, argc),
+            Disp::ReflectConstructDyn => {
+                super::ns_static_reflect::reflect_construct_dyn(argv, argc)
+            }
         }
+    }
+}
+
+/// §21.3.2.24/25 Math.min / Math.max arm — coerce every arg in
+/// source order, fold pairwise through the typed-tier kernel (NaN
+/// propagation and ±0 ordering live there). A coercion throw
+/// answers undefined with the pending throw recorded.
+unsafe fn min_max_fold(is_max: bool, argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let mut acc = if is_max {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+        for i in 0..argc {
+            let Ok(x) = arg_num(argv, argc, i) else {
+                return VALUE_UNDEFINED;
+            };
+            acc = if is_max {
+                __torajs_math_max(acc, x)
+            } else {
+                __torajs_math_min(acc, x)
+            };
+        }
+        box_double(acc)
     }
 }
 
@@ -301,8 +312,7 @@ unsafe fn json_stringify_value(argv: *const u64, argc: i64) -> u64 {
     unsafe {
         let v = arg_at(argv, argc, 0);
         let s = if argc >= 3 {
-            let gap =
-                crate::json_stringify::gap::__torajs_anyv_json_gap_str(arg_at(argv, argc, 2));
+            let gap = crate::json_stringify::gap::__torajs_anyv_json_gap_str(arg_at(argv, argc, 2));
             let out = crate::json_stringify::gap::__torajs_anyv_json_stringify_gap(
                 v,
                 gap.cast_const(),

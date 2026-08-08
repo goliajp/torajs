@@ -313,6 +313,7 @@ pub(crate) fn build(
         dynobj_define_from_desc_soft: init_b.object.dynobj_define_from_desc_soft,
         reflect_apply: init_b.object.reflect_apply,
         reflect_construct: init_b.object.reflect_construct,
+        ns_object_reflect: init_b.object.ns_object_reflect,
         dynobj_spread_from: init_b.object.dynobj_spread_from,
         accessor_pair_new: init_b.object.accessor_pair_new,
         accessor_invoke_getter: init_b.object.accessor_invoke_getter,

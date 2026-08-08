@@ -863,6 +863,9 @@ pub(crate) struct Intrinsics {
     /// RFC 20260801-ns-object-value (JSON extension) — JSON
     /// namespace object value.
     pub(crate) ns_object_json: FuncId,
+    /// RFC 20260801-ns-object-value (Reflect extension) — Reflect
+    /// namespace object value.
+    pub(crate) ns_object_reflect: FuncId,
     /// RFC 20260807-global-object G2 — globalThis singleton value.
     pub(crate) globalthis_object: FuncId,
     pub(crate) json_quote_str: FuncId,

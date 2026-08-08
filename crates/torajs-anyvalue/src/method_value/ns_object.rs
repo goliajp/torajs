@@ -177,6 +177,20 @@ pub(crate) fn json_object_ptr() -> *mut c_void {
     })
 }
 
+/// The interned Reflect singleton — 0 until first minted.
+static REFLECT_OBJECT: AtomicU64 = AtomicU64::new(0);
+
+/// The Reflect singleton's dynobj pointer (§28.1) — the thirteen
+/// function properties the ns-static table carries, no value
+/// properties.
+pub(crate) fn reflect_object_ptr() -> *mut c_void {
+    intern_singleton(&REFLECT_OBJECT, || unsafe {
+        let mut obj = __torajs_dynobj_alloc();
+        fill_ns_methods(&mut obj, "Reflect");
+        obj
+    })
+}
+
 /// Compiler face — `Math` lowered in a value position.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_ns_object_math() -> AnyValue {
@@ -187,6 +201,12 @@ pub extern "C" fn __torajs_ns_object_math() -> AnyValue {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_ns_object_json() -> AnyValue {
     box_void_ptr(json_object_ptr())
+}
+
+/// Compiler face — `Reflect` lowered in a value position.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_ns_object_reflect() -> AnyValue {
+    box_void_ptr(reflect_object_ptr())
 }
 
 /// Identity probe for the toString badge — true only for the minted
@@ -200,5 +220,12 @@ pub(crate) fn is_math_object(ptr: *const c_void) -> bool {
 /// [`is_math_object`]'s JSON twin — the §25.5.3 @@toStringTag badge.
 pub(crate) fn is_json_object(ptr: *const c_void) -> bool {
     let p = JSON_OBJECT.load(Ordering::Relaxed);
+    p != 0 && p == ptr as u64
+}
+
+/// [`is_math_object`]'s Reflect twin — the §28.1.14 @@toStringTag
+/// badge.
+pub(crate) fn is_reflect_object(ptr: *const c_void) -> bool {
+    let p = REFLECT_OBJECT.load(Ordering::Relaxed);
     p != 0 && p == ptr as u64
 }
