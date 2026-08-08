@@ -74,6 +74,63 @@ pub(super) fn collect_arraylit_binding_names(
     names
 }
 
+/// Array bindings for the B2 store-receiver bar (RFC
+/// 20260808-construct-channel) — like
+/// [`collect_arraylit_binding_names`] but WITHOUT the immutability
+/// requirement and admitting explicit array annotations (`any[]`,
+/// `number[]`): the store-receiver argument only needs "this root's
+/// `.constructor` face is a runtime props slot, never a typed struct
+/// field", which the checker's own type discipline preserves across
+/// a `var` reassignment (an array-typed binding can only rebind to
+/// an array). The knife-4 HOF collector keeps its stricter
+/// `mutable: false` bar — its consumers pair a receiver VALUE with a
+/// callback, where a rebind changes which cell the promoted callback
+/// meets.
+pub(super) fn collect_array_binding_names_lenient(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let mut other = std::collections::HashSet::new();
+    collect_array_lenient_inner(stmts, exprs, &mut names, &mut other);
+    names.retain(|n| !other.contains(n));
+    names
+}
+
+fn collect_array_lenient_inner(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    names: &mut std::collections::HashSet<String>,
+    other: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } if matches!(&exprs[init.0 as usize], Expr::Array(_))
+                && type_ann
+                    .as_deref()
+                    .is_none_or(|a| a == "any" || a.ends_with("[]")) =>
+            {
+                names.insert(name.clone());
+            }
+            Stmt::LetDecl { name, .. } => {
+                other.insert(name.clone());
+            }
+            Stmt::FnDecl { body, .. } => {
+                collect_array_lenient_inner(body, exprs, names, other);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_array_lenient_inner(inner, exprs, names, other);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn collect_arraylit_names_inner(
     stmts: &[Stmt],
     exprs: &[Expr],

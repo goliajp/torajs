@@ -92,6 +92,26 @@ pub(super) fn promote_variable_routed(
             _ => None,
         })
         .collect();
+    // RFC 20260808-construct-channel B2 — `Ctor.prototype` reads are
+    // the third receiver-safe use shape: a member READ never calls
+    // the closure, and `.prototype` on a promoted plain fn-expr
+    // answers the canonical fnprops cell the construct kernel links
+    // (§10.2.5 fn_prototype_pair — the create-species assert shape,
+    // `Object.getPrototypeOf(thisValue) === Ctor.prototype`). Only
+    // `.prototype` admits: `.call` / `.apply` reads feed an immediate
+    // call that rides its own `call_faces` replay bar, and any other
+    // member read stays loud until a consumer shape needs it.
+    let proto_read_idents: std::collections::HashSet<ExprId> = exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Member { obj, name }
+                if name == "prototype" && matches!(&exprs[obj.0 as usize], Expr::Ident(_)) =>
+            {
+                Some(*obj)
+            }
+            _ => None,
+        })
+        .collect();
     for (name, face_eids) in &faces_by_name {
         let use_eids: Vec<ExprId> = exprs
             .iter()
@@ -104,7 +124,10 @@ pub(super) fn promote_variable_routed(
             .filter(|e| !face_eids.contains(e))
             .copied()
             .collect();
-        if !mixed_calls.iter().all(|e| callee_idents.contains(e)) {
+        if !mixed_calls
+            .iter()
+            .all(|e| callee_idents.contains(e) || proto_read_idents.contains(e))
+        {
             continue;
         }
         let mut decls: Vec<(bool, ExprId)> = Vec::new();

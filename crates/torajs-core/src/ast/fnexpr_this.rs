@@ -51,8 +51,8 @@
 pub(crate) use super::fnexpr_this_faces::promote_recv_any;
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
-    collect_any_binding_names, collect_arraylit_binding_names, collect_gen_iter_binding_names,
-    collect_mapset_binding_names,
+    collect_any_binding_names, collect_array_binding_names_lenient, collect_arraylit_binding_names,
+    collect_gen_iter_binding_names, collect_mapset_binding_names,
 };
 use super::fnexpr_this_routed::promote_variable_routed;
 use super::{Expr, ExprId, Stmt};
@@ -126,61 +126,21 @@ fn collect_position_faces(
     let any_recvs = collect_any_binding_names(stmts, exprs);
     let gen_recvs = collect_gen_iter_binding_names(stmts, exprs);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
+    let array_lenient_recvs = collect_array_binding_names_lenient(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     for i in 0..exprs.len() {
-        // Member-store face — `anyRecv.m = <fn-expr>` (expando method
-        // on a wrapper / dynobj receiver). The stored closure is only
-        // reachable back through the receiver's props, so every call
-        // rides the runtime any-method dispatch, which reads the
-        // FLAG_CLOSURE_n header bit and seeds the receiver —
-        // zero-alias by construction for a literal fn-expr RHS. An
-        // Ident RHS (`o.m = f`) is a face POSITION for knife-2's
-        // use-shape analysis: the binding promotes only when its
-        // remaining uses are all face reads / direct calls, same bar
-        // as every other variable-routed face. (The Index-target
-        // twin `o["k"] = fn` rides this arm through the parser's
-        // Member desugar for STRING-literal keys; a computed key —
-        // `o[Symbol.match] = fn`, `o[k] = fn` — stays Expr::Index
-        // and matches the second target pattern: the stored value
-        // reaches calls only through the same runtime keyed
-        // dispatch, so the face bar is identical.)
         if let Expr::Assign { target, value } = &exprs[i] {
-            let store_recv = match &exprs[target.0 as usize] {
-                Expr::Member { obj, .. } => Some(*obj),
-                Expr::Index { obj, .. } => Some(*obj),
-                _ => None,
-            };
-            let admits = store_recv.is_some_and(|obj| match &exprs[obj.0 as usize] {
-                Expr::Ident(n) => any_recvs.contains(n),
-                // Knife 7 — `F.prototype.m = <fn-expr>` /
-                // `F.prototype[k] = <fn-expr>` (the test262
-                // fn-constructor idiom: `function It(){…}` +
-                // `It.prototype.next = function () { …this… }`). The
-                // prototype object is a runtime dynobj, so the stored
-                // closure is reachable only through instances' proto
-                // chains and the runtime keyed dispatch — which reads
-                // FLAG_CLOSURE_RECV_FIRST and seeds the receiver —
-                // the same zero-alias bar as the any-receiver store.
-                // By this pass a fn-decl name in receiver position is
-                // already a `__forward_*` Closure wrapper
-                // (`synthesize_fn_to_closure_forwarders`), so both
-                // spellings of "some named fn's .prototype" admit.
-                Expr::Member {
-                    obj: pobj,
-                    name: pname,
-                } => {
-                    pname == "prototype"
-                        && matches!(
-                            &exprs[pobj.0 as usize],
-                            Expr::Ident(_) | Expr::Closure { .. }
-                        )
-                }
-                _ => false,
-            });
-            if admits {
-                collect_face(stmts, exprs, *value, fn_expr_exprs, patches);
-                collect_ident_face(exprs, *value, ident_cands);
-            }
+            collect_store_face(
+                stmts,
+                exprs,
+                fn_expr_exprs,
+                &any_recvs,
+                &array_lenient_recvs,
+                *target,
+                *value,
+                patches,
+                ident_cands,
+            );
             continue;
         }
         let Expr::Call { callee, args } = &exprs[i] else {
@@ -320,38 +280,141 @@ fn collect_position_faces(
                 }
             }
             Expr::Member { obj, name } if is_hof_method(name) => {
-                let typed_ok = true;
-                // Typed Map / Set receivers ride the same channel for
-                // forEach only (their sole callback-bearing method —
-                // the mapset kernels thread the thisArg box).
-                let mapset_ok = name == "forEach";
-                // An INLINE array-literal receiver
-                // (`[1,2].forEach(<fn-expr>, thisArg)`) is the
-                // arraylit_recvs shape without the binding hop — same
-                // inlined-loop trio, same thisArg thread.
-                let inline_arraylit = typed_ok && matches!(&exprs[obj.0 as usize], Expr::Array(_));
-                if !inline_arraylit
-                    && !matches!(&exprs[obj.0 as usize], Expr::Ident(n)
-                    if any_recvs.contains(n)
-                        || (typed_ok && arraylit_recvs.contains(n))
-                        || (mapset_ok && mapset_recvs.contains(n)))
-                {
-                    continue;
-                }
-                if let Some(cb) = args.first() {
-                    collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
-                    // A variable-routed callback rides knife 2's
-                    // zero-alias profile. The HOF lowerings detect
-                    // the promoted binding through
-                    // `fnexpr_recv_locals` (the Closure-shape
-                    // detection alone ran the loop with shifted
-                    // args — probed rotation 260, fixed same
-                    // rotation).
-                    collect_ident_face(exprs, *cb, ident_cands);
-                }
+                collect_hof_cb_face(
+                    stmts,
+                    exprs,
+                    fn_expr_exprs,
+                    &any_recvs,
+                    &arraylit_recvs,
+                    &mapset_recvs,
+                    *obj,
+                    name,
+                    args,
+                    patches,
+                    ident_cands,
+                );
             }
             _ => {}
         }
+    }
+}
+
+/// Member-store face — `anyRecv.m = <fn-expr>` (expando method
+/// on a wrapper / dynobj receiver). The stored closure is only
+/// reachable back through the receiver's props, so every call
+/// rides the runtime any-method dispatch, which reads the
+/// FLAG_CLOSURE_n header bit and seeds the receiver —
+/// zero-alias by construction for a literal fn-expr RHS. An
+/// Ident RHS (`o.m = f`) is a face POSITION for knife-2's
+/// use-shape analysis: the binding promotes only when its
+/// remaining uses are all face reads / direct calls, same bar
+/// as every other variable-routed face. (The Index-target
+/// twin `o["k"] = fn` rides this arm through the parser's
+/// Member desugar for STRING-literal keys; a computed key —
+/// `o[Symbol.match] = fn`, `o[k] = fn` — stays Expr::Index
+/// and matches the second target pattern: the stored value
+/// reaches calls only through the same runtime keyed
+/// dispatch, so the face bar is identical.)
+///
+/// Admitted store receivers:
+/// * an `: any` binding Ident (the original arm);
+/// * knife 7 — `F.prototype.m = <fn-expr>` / `F.prototype[k] =
+///   <fn-expr>` (the test262 fn-constructor idiom). The prototype
+///   object is a runtime dynobj, so the stored closure is reachable
+///   only through instances' proto chains and the runtime keyed
+///   dispatch. By this pass a fn-decl name in receiver position is
+///   already a `__forward_*` Closure wrapper
+///   (`synthesize_fn_to_closure_forwarders`), so both spellings of
+///   "some named fn's .prototype" admit;
+/// * RFC 20260808-construct-channel B2 —
+///   `a.constructor[Symbol.species] = <fn>` / `a.constructor.k =
+///   <fn>` where `a` is a certain runtime-props receiver (an `: any`
+///   binding or an array binding, mutability irrelevant).
+///   `.constructor` on those shapes is never a typed struct slot —
+///   the stored closure is reachable only through the runtime keyed
+///   dispatch (ArraySpeciesCreate reads it back through the arrprops
+///   bag). Other member names on these roots stay loud until a
+///   consumer shape needs them.
+#[allow(clippy::too_many_arguments)]
+fn collect_store_face(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    any_recvs: &std::collections::HashSet<String>,
+    array_lenient_recvs: &std::collections::HashSet<String>,
+    target: ExprId,
+    value: ExprId,
+    patches: &mut Vec<FacePatch>,
+    ident_cands: &mut Vec<(String, ExprId)>,
+) {
+    let store_recv = match &exprs[target.0 as usize] {
+        Expr::Member { obj, .. } => Some(*obj),
+        Expr::Index { obj, .. } => Some(*obj),
+        _ => None,
+    };
+    let admits = store_recv.is_some_and(|obj| match &exprs[obj.0 as usize] {
+        Expr::Ident(n) => any_recvs.contains(n),
+        Expr::Member {
+            obj: pobj,
+            name: pname,
+        } => {
+            (pname == "prototype"
+                && matches!(
+                    &exprs[pobj.0 as usize],
+                    Expr::Ident(_) | Expr::Closure { .. }
+                ))
+                || (pname == "constructor"
+                    && matches!(&exprs[pobj.0 as usize], Expr::Ident(n)
+                        if any_recvs.contains(n) || array_lenient_recvs.contains(n)))
+        }
+        _ => false,
+    });
+    if admits {
+        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
+        collect_ident_face(exprs, value, ident_cands);
+    }
+}
+
+/// Knife 4 — the non-generator HOF callback arm: any-lane receivers
+/// (the kernels read the closure flag and seed argv[0] with the
+/// thisArg or the buffer's undefined padding — §23.1.3's T), typed
+/// ArrayLit-init receivers for the inlined-loop shapes that thread a
+/// thisArg (the trio / predicate family / `flatMap`), Map / Set
+/// receivers for `forEach` only, and the INLINE array-literal
+/// receiver (`[1,2].forEach(<fn-expr>, thisArg)` — the
+/// arraylit_recvs shape without the binding hop). Other receivers
+/// keep today's loud reject. A variable-routed callback rides knife
+/// 2's zero-alias profile; the HOF lowerings detect the promoted
+/// binding through `fnexpr_recv_locals` (the Closure-shape detection
+/// alone ran the loop with shifted args — probed rotation 260, fixed
+/// same rotation).
+#[allow(clippy::too_many_arguments)]
+fn collect_hof_cb_face(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    any_recvs: &std::collections::HashSet<String>,
+    arraylit_recvs: &std::collections::HashSet<String>,
+    mapset_recvs: &std::collections::HashSet<String>,
+    obj: ExprId,
+    name: &str,
+    args: &[ExprId],
+    patches: &mut Vec<FacePatch>,
+    ident_cands: &mut Vec<(String, ExprId)>,
+) {
+    let mapset_ok = name == "forEach";
+    let inline_arraylit = matches!(&exprs[obj.0 as usize], Expr::Array(_));
+    if !inline_arraylit
+        && !matches!(&exprs[obj.0 as usize], Expr::Ident(n)
+        if any_recvs.contains(n)
+            || arraylit_recvs.contains(n)
+            || (mapset_ok && mapset_recvs.contains(n)))
+    {
+        return;
+    }
+    if let Some(cb) = args.first() {
+        collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+        collect_ident_face(exprs, *cb, ident_cands);
     }
 }
 
