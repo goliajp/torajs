@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T02:06:43.705Z",
+  "generatedAt": "2026-08-08T03:44:53.750Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T02:04:44Z",
-    "headSha": "b60554b0",
-    "elapsedSec": 432.27,
+    "ranAt": "2026-08-08T03:42:47Z",
+    "headSha": "d28dbf5e",
+    "elapsedSec": 409.92,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22663,
-    "passNoOracle": 735,
+    "pass": 22829,
+    "passNoOracle": 754,
     "passNegative": 3957,
-    "passTotal": 27355,
-    "bug": 12353,
-    "incompatible": 13466,
+    "passTotal": 27540,
+    "bug": 12485,
+    "incompatible": 13149,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 39708,
-    "passRateInScope": 51.44,
-    "passRateTrAccepted": 68.89
+    "trAccepted": 40025,
+    "passRateInScope": 51.79,
+    "passRateTrAccepted": 68.81
   },
   "torajs": {
-    "commit": "b60554b0",
-    "commitSubject": "fix: the shadow exemption arms only for a bind-receiver binding",
+    "commit": "d28dbf5e",
+    "commitSubject": "fix: consumed eval calls blank out of the arena; this-touching dynamic functions decline",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "d28dbf5e",
+      "subject": "fix: consumed eval calls blank out of the arena; this-touching dynamic functions decline"
+    },
+    {
+      "hash": "947599c9",
+      "subject": "feat: closed multi-statement indirect eval completes with its trailing expression"
+    },
+    {
+      "hash": "d981d3db",
+      "subject": "feat: zero-argument eval returns undefined"
+    },
+    {
+      "hash": "f7e5628c",
+      "subject": "style: fmt-drift fix in eval completion pass"
+    },
+    {
+      "hash": "d7ea0752",
+      "subject": "feat: value-position eval of a non-parsing source throws syntaxerror"
+    },
+    {
+      "hash": "f164196c",
+      "subject": "feat: constant-string Function constructor resolves at compile time"
+    },
+    {
+      "hash": "b2936797",
+      "subject": "feat: multi-statement direct eval completes with its trailing expression"
+    },
+    {
+      "hash": "7380acc6",
+      "subject": "feat: eval argument folds constant string concatenation"
+    },
+    {
+      "hash": "241482a1",
+      "subject": "docs: rotation 332 sweep at b60554b0 — +29 passTotal zero regressions, crash counts restored, dashboard refresh"
+    },
+    {
       "hash": "b60554b0",
       "subject": "fix: the shadow exemption arms only for a bind-receiver binding"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "246dcad8",
       "subject": "fix: for-in over a typed array enumerates its expandos"
-    },
-    {
-      "hash": "0951f650",
-      "subject": "fix: a callable @@species constructor runs and its throw observes"
-    },
-    {
-      "hash": "2ab35aa2",
-      "subject": "fix: array keys and gOPN surfaces see expandos and skip holes"
-    },
-    {
-      "hash": "17ec5695",
-      "subject": "fix: an arguments-touching bind target rides the runtime kernel"
-    },
-    {
-      "hash": "d3ee1651",
-      "subject": "fix: a capturing fn-expr bind receiver carries its bound this"
-    },
-    {
-      "hash": "723c0449",
-      "subject": "docs: rotation 331 sweep at 80753982 — +43 passTotal zero regressions, clusters 315 to 311, dashboard refresh"
-    },
-    {
-      "hash": "80753982",
-      "subject": "refactor: the face-exclusion scan moves to the walkers sibling"
-    },
-    {
-      "hash": "325e3824",
-      "subject": "fix: an any key admits an index write on a typed-array receiver"
-    },
-    {
-      "hash": "a7256d89",
-      "subject": "fix: three composite variants survive the mono deep-clone"
-    },
-    {
-      "hash": "d02b7d84",
-      "subject": "fix: a non-numeric key on a typed-array in takes the boxed face"
     }
   ],
-  "headSha": "b60554b0",
+  "headSha": "d28dbf5e",
   "autorun": {
-    "total": 635,
+    "total": 636,
     "baselineTarget": 10,
-    "bySelf": 630,
+    "bySelf": 631,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786147040-257b",
-      "at": "2026-08-07T23:57:20Z",
-      "ts": 1786147040,
+      "rotationId": "r-1786154921-5a43",
+      "at": "2026-08-08T02:08:41Z",
+      "ts": 1786154921,
       "trigger": "self",
-      "prevHead": "723c0449",
-      "handoffSha": "sha256:ca11a5cd8755e659054ad9be7720dba54516336f983e8864f4bf28786b33c15f",
-      "handoffAgeSec": 51,
+      "prevHead": "241482a1",
+      "handoffSha": "sha256:1eef868683cc40375c520c7967d0fbbce929c7e52cc14c9e834a0454981110b8",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786154921-5a43",
+        "at": "2026-08-08T02:08:41Z",
+        "ts": 1786154921,
+        "trigger": "self",
+        "prevHead": "241482a1",
+        "handoffSha": "sha256:1eef868683cc40375c520c7967d0fbbce929c7e52cc14c9e834a0454981110b8",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786147040-257b",
         "at": "2026-08-07T23:57:20Z",
@@ -876,17 +887,6 @@
         "prevHead": "e0b4bf23",
         "handoffSha": "sha256:38059becae38de1fecc840845d5b4a7d392207ddbfb029e87d6c3921a4feab5d",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786072432-7c7a",
-        "at": "2026-08-07T03:13:52Z",
-        "ts": 1786072432,
-        "trigger": "self",
-        "prevHead": "f6c6aa5e",
-        "handoffSha": "sha256:84159342416ad67d95ad5bf03b93036ade32d4b1d1071e775df0b258e284f666",
-        "handoffAgeSec": 52,
         "conformanceBefore": null,
         "commitsInSession": null
       }
