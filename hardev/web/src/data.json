@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T07:21:33.860Z",
+  "generatedAt": "2026-08-08T09:14:26.531Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T07:18:06Z",
-    "headSha": "eec696c9",
-    "elapsedSec": 405.16,
+    "ranAt": "2026-08-08T09:11:44Z",
+    "headSha": "3a88f594",
+    "elapsedSec": 448.03,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22852,
-    "passNoOracle": 754,
+    "pass": 22924,
+    "passNoOracle": 756,
     "passNegative": 3957,
-    "passTotal": 27563,
-    "bug": 12475,
-    "incompatible": 13136,
+    "passTotal": 27637,
+    "bug": 12530,
+    "incompatible": 13007,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40038,
-    "passRateInScope": 51.84,
-    "passRateTrAccepted": 68.84
+    "trAccepted": 40167,
+    "passRateInScope": 51.97,
+    "passRateTrAccepted": 68.81
   },
   "torajs": {
-    "commit": "eec696c9",
-    "commitSubject": "fix: super property parses only in home-object contexts; eval super gate",
+    "commit": "3a88f594",
+    "commitSubject": "fix: bare return in a value-returning fn answers undefined",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "3a88f594",
+      "subject": "fix: bare return in a value-returning fn answers undefined"
+    },
+    {
+      "hash": "804a62a2",
+      "subject": "feat: JSON.parse reviver walk + reviver this channel"
+    },
+    {
+      "hash": "d12e2ef1",
+      "subject": "feat: any-lane JSON.parse runtime kernel"
+    },
+    {
+      "hash": "987af2e9",
+      "subject": "feat: prototype-store fn-expr faces get call-site this (knife 7)"
+    },
+    {
+      "hash": "d58106e9",
+      "subject": "fix: struct-field call lanes propagate pending throws"
+    },
+    {
+      "hash": "f53e169f",
+      "subject": "docs: rotation 334 close — sweep at eec696c9, +23 passTotal zero regressions, P-SURF stamp for r332-334, dashboard refresh"
+    },
+    {
       "hash": "eec696c9",
       "subject": "fix: super property parses only in home-object contexts; eval super gate"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c30cac08",
       "subject": "feat: superproperty reads and writes via __superbase__ marker desugar"
-    },
-    {
-      "hash": "72e3a65b",
-      "subject": "docs: rotation 333 sweep at d28dbf5e — +185 passTotal, eval A-layer seven blades, dashboard refresh"
-    },
-    {
-      "hash": "d28dbf5e",
-      "subject": "fix: consumed eval calls blank out of the arena; this-touching dynamic functions decline"
-    },
-    {
-      "hash": "947599c9",
-      "subject": "feat: closed multi-statement indirect eval completes with its trailing expression"
-    },
-    {
-      "hash": "d981d3db",
-      "subject": "feat: zero-argument eval returns undefined"
-    },
-    {
-      "hash": "f7e5628c",
-      "subject": "style: fmt-drift fix in eval completion pass"
-    },
-    {
-      "hash": "d7ea0752",
-      "subject": "feat: value-position eval of a non-parsing source throws syntaxerror"
     }
   ],
-  "headSha": "eec696c9",
+  "headSha": "3a88f594",
   "autorun": {
-    "total": 637,
+    "total": 638,
     "baselineTarget": 10,
-    "bySelf": 632,
+    "bySelf": 633,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786160806-0e0d",
-      "at": "2026-08-08T03:46:46Z",
-      "ts": 1786160806,
+      "rotationId": "r-1786173802-104e",
+      "at": "2026-08-08T07:23:22Z",
+      "ts": 1786173802,
       "trigger": "self",
-      "prevHead": "72e3a65b",
-      "handoffSha": "sha256:640f1a9bdb99d26b2ba907894ab4c626f7cc7c8b653823d8934c11c22995d2d5",
-      "handoffAgeSec": 40,
+      "prevHead": "f53e169f",
+      "handoffSha": "sha256:127536db98c107248196f4719fc25b404255acaff3ef6de1381dad3636b98a30",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786173802-104e",
+        "at": "2026-08-08T07:23:22Z",
+        "ts": 1786173802,
+        "trigger": "self",
+        "prevHead": "f53e169f",
+        "handoffSha": "sha256:127536db98c107248196f4719fc25b404255acaff3ef6de1381dad3636b98a30",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786160806-0e0d",
         "at": "2026-08-08T03:46:46Z",
@@ -876,17 +887,6 @@
         "prevHead": "99ffacbc",
         "handoffSha": "sha256:0088177171a7df0893fb0f446aa454d3eb97a1e0aa66e95d537b17c6a1e917ed",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786088046-637e",
-        "at": "2026-08-07T07:34:06Z",
-        "ts": 1786088046,
-        "trigger": "self",
-        "prevHead": "1ba7dc0a",
-        "handoffSha": "sha256:171fa488d24d5206cacbdc72f7fb7e04308d6b158539ae1593fc57e6eb3b68a4",
-        "handoffAgeSec": 18,
         "conformanceBefore": null,
         "commitsInSession": null
       }

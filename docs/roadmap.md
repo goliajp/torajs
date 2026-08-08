@@ -1530,7 +1530,42 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `eec696c9`** (2026-08-08, rotation 334 — SuperProperty
+**Latest @ `3a88f594`** (2026-08-08, rotation 335 — five knives across
+three fronts: the r334-logged silent-wrong (a `throw` inside an
+object-literal method body was swallowed — the struct-method-dispatch
+lane's two CallIndirect emitters carried no throw_check; fn-valued
+fields, arrow fields, accessor faces and user toJSON all rode the same
+hole), fnexpr-this knife 7 (`F.prototype.m = function () { …this… }` —
+the test262 fn-constructor idiom — joins the face family, cutting the
+`__this` cluster 160 → 101), and RFC 20260808-json-parse-any, all four
+blades: an any-lane `JSON.parse` runtime kernel (full ECMA-404
+recursive descent into NaN-boxed values; expression-position calls and
+`any`-annotated slots previously had NO lane at all), the §25.5.1.1
+reviver walk (children-first, ES key order, undefined deletes,
+holder-as-this through the boxed ABI), and the reviver slot as a
+fnexpr-this face. The mid-rotation sweep caught a +2 SIGSEGV signature
+that decomposed into a GENERAL closure defect: a bare `return;` in a
+mixed-return fn emitted `Ret(None)` from an Any-ret body — the caller
+read a garbage register as a NaN-box and the rc teardown crashed;
+knife 5 synthesizes the boxed undefined (§10.2.1.4) and also gates the
+reviver's delete on §10.1.10 step 4 (non-configurable refusal).
+Conformance gate 2596 → **2601/0/4** (+5 fixtures, five green gates);
+build determinism 44/44 (N=12). Against r334: passTotal 27563 →
+**27637 (+74)**, bug 12475 → 12530 (+55), trAccepted 40038 → **40167
+(+129)** / incompatible 13136 → **13007 (−129)** — conservation exact
+(129 = 74 + 55). GAINED 72 by dir: JSON 45, Set 6, staging/sm 4,
+String 3, WeakMap 3, WeakSet 3, Map 2, eval-code 2, singles 4
+(passNoOracle 754 → 756, passNegative flat). Regressions **zero**;
+crash flat vs r334 (exit-139 30 / tr-timeout 36 / exit-138 3 — the
+mid-sweep +2 both root-fixed by knife 5). Gate predicate **309
+clusters (−1) / 6222 cases (−112)**, residue 778 clusters 1030 cases,
+core **7252 (−113)**. Newly measured for L3b: bare namespace idents as
+values (`arr.every(cb, JSON)`, `Object.getPrototypeOf(JSON)`) reject
+at ~50 cases — needs namespace-singleton reification; the
+species/`Array.from.call` construct channel (shape B of the `__this`
+survey) stays the other big fn-value gap.)
+
+**Previous @ `eec696c9`** (2026-08-08, rotation 334 — SuperProperty
 substrate + the eval×super context gate; also stamps rotations 332-333,
 which updated plan-state only. r332 (`b60554b0`, five knives:
 super-adjacent class fixes) closed at passTotal 27355. r333
