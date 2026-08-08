@@ -20,7 +20,12 @@ use crate::index_any::MIRROR_ARR_LEN_OFF;
 /// # Safety
 /// `arr` is a live array heap block pointer; `argv` holds `argc`
 /// borrowed AnyValues.
-pub(crate) unsafe fn species_ctor_len(arr: *mut c_void, mid: i64, argv: *const u64, argc: i64) -> i64 {
+pub(crate) unsafe fn species_ctor_len(
+    arr: *mut c_void,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> i64 {
     let len = unsafe { *((arr as *const u8).add(MIRROR_ARR_LEN_OFF) as *const u64) as i64 };
     let int_arg = |k: i64, default: i64| -> i64 {
         if k >= argc {
@@ -73,4 +78,3 @@ pub(crate) unsafe fn species_ctor_len(arr: *mut c_void, mid: i64, argv: *const u
         0
     }
 }
-
