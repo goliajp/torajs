@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T23:56:50.142Z",
+  "generatedAt": "2026-08-08T02:06:43.705Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-07T23:54:00Z",
-    "headSha": "80753982",
-    "elapsedSec": 404.52,
+    "ranAt": "2026-08-08T02:04:44Z",
+    "headSha": "b60554b0",
+    "elapsedSec": 432.27,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 22634,
+    "pass": 22663,
     "passNoOracle": 735,
     "passNegative": 3957,
-    "passTotal": 27326,
-    "bug": 12382,
+    "passTotal": 27355,
+    "bug": 12353,
     "incompatible": 13466,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 39708,
-    "passRateInScope": 51.39,
-    "passRateTrAccepted": 68.82
+    "passRateInScope": 51.44,
+    "passRateTrAccepted": 68.89
   },
   "torajs": {
-    "commit": "80753982",
-    "commitSubject": "refactor: the face-exclusion scan moves to the walkers sibling",
+    "commit": "b60554b0",
+    "commitSubject": "fix: the shadow exemption arms only for a bind-receiver binding",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "b60554b0",
+      "subject": "fix: the shadow exemption arms only for a bind-receiver binding"
+    },
+    {
+      "hash": "bdcdaece",
+      "subject": "refactor: knife-2 growth moves out of two over-cap files"
+    },
+    {
+      "hash": "246dcad8",
+      "subject": "fix: for-in over a typed array enumerates its expandos"
+    },
+    {
+      "hash": "0951f650",
+      "subject": "fix: a callable @@species constructor runs and its throw observes"
+    },
+    {
+      "hash": "2ab35aa2",
+      "subject": "fix: array keys and gOPN surfaces see expandos and skip holes"
+    },
+    {
+      "hash": "17ec5695",
+      "subject": "fix: an arguments-touching bind target rides the runtime kernel"
+    },
+    {
+      "hash": "d3ee1651",
+      "subject": "fix: a capturing fn-expr bind receiver carries its bound this"
+    },
+    {
+      "hash": "723c0449",
+      "subject": "docs: rotation 331 sweep at 80753982 — +43 passTotal zero regressions, clusters 315 to 311, dashboard refresh"
+    },
+    {
       "hash": "80753982",
       "subject": "refactor: the face-exclusion scan moves to the walkers sibling"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "d02b7d84",
       "subject": "fix: a non-numeric key on a typed-array in takes the boxed face"
-    },
-    {
-      "hash": "132019f9",
-      "subject": "feat: a constructed fn-expr's arguments joins the static-argv face"
-    },
-    {
-      "hash": "37adebfc",
-      "subject": "feat: a construct site's full argument list reaches arguments"
-    },
-    {
-      "hash": "d284d879",
-      "subject": "docs: rotation 330 sweep at db28985d — +7 passTotal, 4 typed-lane regressions logged, dashboard refresh"
-    },
-    {
-      "hash": "db28985d",
-      "subject": "fix: a labeled multi-name var line keeps every declarator"
-    },
-    {
-      "hash": "b4e66e40",
-      "subject": "fix: the bind promotion ignores a shadow param's uses"
-    },
-    {
-      "hash": "5bded97b",
-      "subject": "fix: an annotated closure binding stays off the bind alias lane"
-    },
-    {
-      "hash": "84aef3bf",
-      "subject": "feat: a this-reading fn-expr works as a bind receiver"
-    },
-    {
-      "hash": "0d80d528",
-      "subject": "style: fmt-drift fix — the multi-splice let-else line"
     }
   ],
-  "headSha": "80753982",
+  "headSha": "b60554b0",
   "autorun": {
-    "total": 634,
+    "total": 635,
     "baselineTarget": 10,
-    "bySelf": 629,
+    "bySelf": 630,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786140858-4184",
-      "at": "2026-08-07T22:14:18Z",
-      "ts": 1786140858,
+      "rotationId": "r-1786147040-257b",
+      "at": "2026-08-07T23:57:20Z",
+      "ts": 1786147040,
       "trigger": "self",
-      "prevHead": "d284d879",
-      "handoffSha": "sha256:9105736ac8fcd2d6b24c6b083256480434837b7d525a14a22df4a01d5097d36b",
-      "handoffAgeSec": 10,
+      "prevHead": "723c0449",
+      "handoffSha": "sha256:ca11a5cd8755e659054ad9be7720dba54516336f983e8864f4bf28786b33c15f",
+      "handoffAgeSec": 51,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786147040-257b",
+        "at": "2026-08-07T23:57:20Z",
+        "ts": 1786147040,
+        "trigger": "self",
+        "prevHead": "723c0449",
+        "handoffSha": "sha256:ca11a5cd8755e659054ad9be7720dba54516336f983e8864f4bf28786b33c15f",
+        "handoffAgeSec": 51,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786140858-4184",
         "at": "2026-08-07T22:14:18Z",
@@ -876,17 +887,6 @@
         "prevHead": "f6c6aa5e",
         "handoffSha": "sha256:84159342416ad67d95ad5bf03b93036ade32d4b1d1071e775df0b258e284f666",
         "handoffAgeSec": 52,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786065748-2ecb",
-        "at": "2026-08-07T01:22:28Z",
-        "ts": 1786065748,
-        "trigger": "self",
-        "prevHead": "638cd96b",
-        "handoffSha": "sha256:f54b0690da96f00bb4083545b95cc9cac23a7b5882efab84ee3ac143eb05c599",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
