@@ -34,7 +34,14 @@
 //!   without disposing.
 //! - residuals (B6): `prototype[Symbol.dispose]` is a distinct
 //!   function from `prototype.dispose` (spec aliases the same
-//!   object); `@@toStringTag` prop-desc face.
+//!   object; engines answer `===` true for the sync pair, false for
+//!   the async pair); `@@toStringTag` prop-desc face. Both are
+//!   BLOCKED on a substrate bug found in rotation 343: an own write
+//!   to an injected class's prototype object is silently lost, and
+//!   `.prototype` / getPrototypeOf identity flips depending on
+//!   whether a write happened first — the post-class-assignment fix
+//!   is dead code until that lands (same family as the r332
+//!   error/proto DIAG cluster; L3b entry).
 //!
 //! Both classes ride the standalone-probe parity baseline
 //! (probe-dstack / probe-adstack, tr == bun byte-equal, rotation 342).

@@ -42,6 +42,32 @@ fn data_params_optional(sub_name: &str) -> bool {
     sub_name == "SuppressedError"
 }
 
+/// `Object.defineProperty(<class>, "length", { value: <len> })` —
+/// §20.5.8 pins SuppressedError's ctor `length` at 3 even though the
+/// TS-source params carry defaults (a default-carrying param drops
+/// out of the natural length count, and `new SuppressedError()` must
+/// stay legal, so the descriptor override is the only spelling that
+/// satisfies both faces). Runs after the class decl in the injected
+/// prefix.
+pub(super) fn build_length_override(ast: &mut Ast, class_name: &str, len: f64) -> Stmt {
+    let obj = ast.add_expr(Expr::Ident("Object".to_string()));
+    let dp = ast.add_expr(Expr::Member {
+        obj,
+        name: "defineProperty".to_string(),
+    });
+    let target = ast.add_expr(Expr::Ident(class_name.to_string()));
+    let key = ast.add_expr(Expr::String("length".to_string()));
+    let value = ast.add_expr(Expr::Number(len));
+    let desc = ast.add_expr(Expr::ObjectLit {
+        fields: vec![("value".to_string(), value)],
+    });
+    let call = ast.add_expr(Expr::Call {
+        callee: dp,
+        args: vec![target, key, desc],
+    });
+    Stmt::Expr(call)
+}
+
 pub(super) fn build_error_data_subclass(
     ast: &mut Ast,
     sub_name: &str,

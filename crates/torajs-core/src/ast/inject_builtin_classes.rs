@@ -423,6 +423,14 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         injected.push(
             super::inject_builtin_classes_data::build_error_data_subclass(ast, n, data_params),
         );
+        // §20.5.8 — SuppressedError's ctor length is 3 despite the
+        // all-optional params (RFC 20260809 B6 residual); the
+        // override statement runs after its class decl.
+        if *n == "SuppressedError" {
+            injected.push(super::inject_builtin_classes_data::build_length_override(
+                ast, n, 3.0,
+            ));
+        }
         ast.injected_error_classes.insert((*n).to_string());
     }
     ast.stmts.splice(0..0, injected);
