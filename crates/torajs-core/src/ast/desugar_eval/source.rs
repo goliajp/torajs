@@ -50,7 +50,7 @@ pub(super) fn literal_eval_call(eid: ExprId, ast: &Ast) -> Option<(String, CallF
 /// String + String exact concatenation, so folding it loses nothing.
 /// Mixed operands (`'a' + 1`) are left alone: they coerce, and the
 /// coercion rules are the runtime's business, not this pass's.
-fn const_string(eid: ExprId, ast: &Ast) -> Option<String> {
+pub(super) fn const_string(eid: ExprId, ast: &Ast) -> Option<String> {
     match ast.exprs.get(eid.0 as usize)? {
         Expr::String(s) => Some(s.clone()),
         Expr::BinOp {

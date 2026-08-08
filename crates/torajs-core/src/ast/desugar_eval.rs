@@ -43,12 +43,10 @@
 //!
 //! An INDIRECT call evaluates its source as *global* code
 //! (§19.2.1.1: no calling-context environment is passed), and the
-//! source's strictness is its own — it does not inherit the caller's,
-//! so without a `"use strict"` prologue the eval code is sloppy and its
-//! `var`s land on the global. Measured against bun: `(0,
-//! eval)("var q = 7")` makes `typeof q` answer `"number"` afterwards,
-//! `let` stays contained, and the completion value comes back exactly
-//! as for direct.
+//! source's strictness is its own: without a `"use strict"` prologue
+//! the eval code is sloppy and its `var`s land on the global —
+//! measured against bun, `(0, eval)("var q = 7")` makes `typeof q`
+//! answer `"number"` afterwards while `let` stays contained.
 //!
 //! tr has no separate global object; its top level IS its global. This
 //! pass therefore treats the program under **script framing** — the
@@ -138,11 +136,11 @@
 //!   pass does not do yet.
 
 mod completion;
+mod function_ctor;
 mod scope;
 mod source;
 mod walk;
-// The fnexpr-bind promotion shares the fn-ownership walk (its use
-// profile must not count a harness param's shadow uses).
+// fnexpr-bind promotion shares the fn-ownership walk (shadow-use aware)
 pub(super) use walk::{body_owned_exprs, fn_owned_exprs};
 
 use super::{Ast, Expr, Stmt, free_vars};
@@ -153,20 +151,22 @@ use source::{
 };
 
 /// Resolve every literal `eval` call this pass can resolve exactly.
-/// See the module doc for the boundaries.
+/// See the module doc for the boundaries. The dynamic-function desugar
+/// rides along, gated on ITS name only — a program that rebinds `eval`
+/// still gets its `Function("…")` calls resolved, and vice versa.
 pub fn desugar_eval(ast: &mut Ast) {
-    if binds_eval(ast) {
-        return;
+    if !binds_eval(ast) {
+        // Value-position collapses first: a collapsed call is no
+        // longer an eval call, so the statement walks below see only
+        // the sources that need inlining.
+        rewrite_value_position_evals(ast);
+        let mut stmts = std::mem::take(&mut ast.stmts);
+        rewrite_list(&mut stmts, ast, false);
+        ast.stmts = stmts;
+        rewrite_arrow_bodies(ast);
+        completion::rewrite_completion_value_evals(ast);
     }
-    // Value-position collapses first: a collapsed call is no longer an
-    // eval call, so the statement walks below see only the sources that
-    // need inlining.
-    rewrite_value_position_evals(ast);
-    let mut stmts = std::mem::take(&mut ast.stmts);
-    rewrite_list(&mut stmts, ast, false);
-    ast.stmts = stmts;
-    rewrite_arrow_bodies(ast);
-    completion::rewrite_completion_value_evals(ast);
+    function_ctor::rewrite_function_ctors(ast);
 }
 
 /// Collapse the eval calls whose value is exact without any scope

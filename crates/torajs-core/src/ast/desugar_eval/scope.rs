@@ -78,16 +78,23 @@ pub(super) fn seal_var_scope(stmts: &mut [Stmt]) {
 /// scope resolution that could tell which. Declining wholesale is the
 /// answer that cannot be wrong.
 pub(super) fn binds_eval(ast: &Ast) -> bool {
-    fn in_list(stmts: &[Stmt]) -> bool {
-        stmts.iter().any(in_stmt)
+    binds_name(ast, "eval")
+}
+
+/// The same wholesale-decline question for any global this family
+/// resolves at compile time — `Function` for the dynamic-function
+/// desugar uses it too.
+pub(super) fn binds_name(ast: &Ast, name: &str) -> bool {
+    fn in_list(stmts: &[Stmt], name: &str) -> bool {
+        stmts.iter().any(|s| in_stmt(s, name))
     }
-    fn in_stmt(s: &Stmt) -> bool {
+    fn in_stmt(s: &Stmt, want: &str) -> bool {
         match s {
-            Stmt::LetDecl { name, .. } => name == "eval",
+            Stmt::LetDecl { name, .. } => name == want,
             Stmt::FnDecl {
                 name, params, body, ..
-            } => name == "eval" || params.iter().any(|p| p.name == "eval") || in_list(body),
-            Stmt::ClassDecl { name, .. } => name == "eval",
+            } => name == want || params.iter().any(|p| p.name == want) || in_list(body, want),
+            Stmt::ClassDecl { name, .. } => name == want,
             Stmt::Try {
                 catch_param,
                 body,
@@ -95,35 +102,41 @@ pub(super) fn binds_eval(ast: &Ast) -> bool {
                 finally_body,
                 ..
             } => {
-                catch_param.as_deref() == Some("eval")
-                    || in_list(body)
-                    || in_list(catch_body)
-                    || finally_body.as_deref().is_some_and(in_list)
+                catch_param.as_deref() == Some(want)
+                    || in_list(body, want)
+                    || in_list(catch_body, want)
+                    || finally_body.as_deref().is_some_and(|f| in_list(f, want))
             }
-            Stmt::Block(b) | Stmt::Multi(b) => in_list(b),
+            Stmt::Block(b) | Stmt::Multi(b) => in_list(b, want),
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
-            } => in_stmt(then_branch) || else_branch.as_deref().is_some_and(in_stmt),
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => in_stmt(body),
-            Stmt::Labeled { body, .. } => in_stmt(body),
-            Stmt::For { init, body, .. } => init.as_deref().is_some_and(in_stmt) || in_stmt(body),
-            Stmt::ForOf { var_name, body, .. } => var_name == "eval" || in_stmt(body),
+            } => {
+                in_stmt(then_branch, want)
+                    || else_branch.as_deref().is_some_and(|e| in_stmt(e, want))
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => in_stmt(body, want),
+            Stmt::Labeled { body, .. } => in_stmt(body, want),
+            Stmt::For { init, body, .. } => {
+                init.as_deref().is_some_and(|i| in_stmt(i, want)) || in_stmt(body, want)
+            }
+            Stmt::ForOf { var_name, body, .. } => var_name == want || in_stmt(body, want),
             Stmt::Switch { cases, default, .. } => {
-                cases.iter().any(|c| in_list(&c.body)) || default.as_deref().is_some_and(in_list)
+                cases.iter().any(|c| in_list(&c.body, want))
+                    || default.as_deref().is_some_and(|d| in_list(d, want))
             }
             _ => false,
         }
     }
-    if in_list(&ast.stmts) {
+    if in_list(&ast.stmts, name) {
         return true;
     }
     // Arrows live in the expression arena, so a parameter or body
-    // binding named `eval` there is invisible to the statement walk.
+    // binding there is invisible to the statement walk.
     ast.exprs.iter().any(|e| match e {
         Expr::ArrowFn { params, body, .. } => {
-            params.iter().any(|p| p.name == "eval") || in_list(body)
+            params.iter().any(|p| p.name == name) || in_list(body, name)
         }
         _ => false,
     })
