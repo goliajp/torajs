@@ -153,15 +153,21 @@ pub(super) fn promote_variable_routed(
             if name_shadowed_elsewhere(stmts, name) {
                 continue;
             }
-            // A mixed binding must not also ride a boxed-argv call
-            // lane: the real-argc prepend contends for the same
-            // leading argv slot, and the variadic / full-arguments
-            // adapters (rest param, `arguments[i]` tier) materialize
-            // params straight off argv — a `__this` param would eat
-            // argv[0]. All stay loud. A `.call`/`.apply` face rides
-            // the same `closure_local` replay, so its binding is
-            // under the same bar even with zero direct calls.
-            if (!mixed_calls.is_empty() || face_eids.iter().any(|e| call_faces.contains(e)))
+            // A binding with a DIRECT CALL must not also ride a
+            // boxed-argv call lane: the real-argc prepend contends
+            // for the same leading argv slot, and the variadic /
+            // full-arguments adapters (rest param, `arguments[i]`
+            // tier) materialize params straight off argv — a
+            // `__this` param would eat argv[0]. All stay loud. A
+            // `.call`/`.apply` face rides the same `closure_local`
+            // replay, so its binding is under the same bar even with
+            // zero direct calls. A `.prototype` read is NOT under
+            // the bar (species key 2): it enters no call lane at
+            // all, and the store-face + argv combination is exactly
+            // the escape-store profile whose adapter order the
+            // rotation-338 knife fixed.
+            if (mixed_calls.iter().any(|e| callee_idents.contains(e))
+                || face_eids.iter().any(|e| call_faces.contains(e)))
                 && (closure_argc_locals.contains(name)
                     || closure_argv_locals.contains(name)
                     || fn_has_rest_param(stmts, fn_name))

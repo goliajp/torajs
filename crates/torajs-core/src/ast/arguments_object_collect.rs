@@ -352,62 +352,9 @@ fn safe_binding_chain(
                     matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == b) && !sh[i as usize]
                 })
                 .collect();
-            let mut legal: HashSet<u32> = HashSet::new();
-            for e in &ast.exprs {
-                if let Expr::Call { callee, .. } = e
-                    && b_eids.contains(&callee.0)
-                {
-                    legal.insert(callee.0);
-                }
-            }
-            for s in &ast.stmts {
-                if let Stmt::LetDecl { name, init, .. } = s
-                    && b_eids.contains(&init.0)
-                    && candidates.contains_key(name)
-                {
-                    legal.insert(init.0);
-                }
-            }
-            // Knife 4c — the seeding `ref = obj.m` Assign's own
-            // target Ident is the binding's definition, not a use.
-            for &t in assign_legal.intersection(&b_eids) {
-                legal.insert(t);
-            }
-            // RFC 20260808 escape-store — the binding stored into a
-            // boxed-face position (see `boxed_face_store` above) is
-            // not a kill: every path from that slot back to the body
-            // (species construct, builtin callback, any-lane member
-            // call) enters the boxed dual entry, which feeds the
-            // reshaped signature its REAL argc/argv. Any OTHER use
-            // shape still kills.
-            for e in &ast.exprs {
-                if let Expr::Assign { target, value } = e
-                    && b_eids.contains(&value.0)
-                    && boxed_face_store(*target)
-                {
-                    legal.insert(value.0);
-                }
-            }
-            // RFC 20260808 knife 2 — `b.bind(…)` as a Call callee:
-            // the bind desugar routes an arguments-touching target to
-            // the runtime kernel (member call kept), whose bound cell
-            // dispatches through the boxed dual entry — real
-            // argc/argv against the reshaped rest-tail signature, so
-            // the receiver position is NOT a kill. A `.bind` member
-            // read outside a call (a stored `b.bind` value) still
-            // kills the chain.
-            for (mi, e) in ast.exprs.iter().enumerate() {
-                if let Expr::Member { obj, name } = e
-                    && name == "bind"
-                    && b_eids.contains(&obj.0)
-                    && ast
-                        .exprs
-                        .iter()
-                        .any(|c| matches!(c, Expr::Call { callee, .. } if callee.0 == mi as u32))
-                {
-                    legal.insert(obj.0);
-                }
-            }
+            let legal = collect_legal_uses(ast, &candidates, &b_eids, &assign_legal, |t| {
+                boxed_face_store(t)
+            });
             if b_eids.difference(&legal).next().is_some() {
                 killed.insert(b.clone());
             }
@@ -423,6 +370,80 @@ fn safe_binding_chain(
         candidates.retain(|_, f| !killed_fns.contains(f));
     }
     candidates
+}
+
+/// The kill walk's legal-use set for one candidate binding — every
+/// arena occurrence of the name that does NOT kill the chain:
+/// * a Call callee (the direct-site shape the fold rewrites);
+/// * a still-candidate alias init (`const g = f`);
+/// * the knife-4c seeding Assign's own target Ident (the binding's
+///   definition, not a value use);
+/// * RFC 20260808 escape-store — a store into a boxed-face position:
+///   every path from that slot back to the body (species construct,
+///   builtin callback, any-lane member call) enters the boxed dual
+///   entry, which feeds the reshaped signature its REAL argc/argv;
+/// * RFC 20260808 knife 2 — `b.bind(…)` as a Call callee: the bind
+///   kernel's bound cell dispatches through the boxed dual entry. A
+///   `.bind` member read outside a call (a stored `b.bind` value)
+///   still kills;
+/// * species key 2 — `b.prototype` as a member-read receiver: the
+///   read touches the closure cell's fnprops canonical pair (RFC
+///   20260804), never the body, so no call path with the pre-reshape
+///   ABI exists through it; a prototype-object round trip back to
+///   the fn value (`b.prototype.constructor`) dispatches any-lane
+///   through the boxed dual entry — real argc/argv again.
+///   (create-species.js asserts `Object.getPrototypeOf(thisValue)
+///   === Ctor.prototype` — the read was killing the whole chain.)
+///
+/// Any other use shape kills.
+fn collect_legal_uses(
+    ast: &Ast,
+    candidates: &std::collections::HashMap<String, String>,
+    b_eids: &std::collections::HashSet<u32>,
+    assign_legal: &std::collections::HashSet<u32>,
+    boxed_face_store: impl Fn(ExprId) -> bool,
+) -> std::collections::HashSet<u32> {
+    let mut legal: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for e in &ast.exprs {
+        if let Expr::Call { callee, .. } = e
+            && b_eids.contains(&callee.0)
+        {
+            legal.insert(callee.0);
+        }
+    }
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && b_eids.contains(&init.0)
+            && candidates.contains_key(name)
+        {
+            legal.insert(init.0);
+        }
+    }
+    for &t in assign_legal.intersection(b_eids) {
+        legal.insert(t);
+    }
+    for e in &ast.exprs {
+        if let Expr::Assign { target, value } = e
+            && b_eids.contains(&value.0)
+            && boxed_face_store(*target)
+        {
+            legal.insert(value.0);
+        }
+    }
+    for (mi, e) in ast.exprs.iter().enumerate() {
+        if let Expr::Member { obj, name } = e
+            && b_eids.contains(&obj.0)
+            && (name == "prototype"
+                || (name == "bind"
+                    && ast
+                        .exprs
+                        .iter()
+                        .any(|c| matches!(c, Expr::Call { callee, .. } if callee.0 == mi as u32))))
+        {
+            legal.insert(obj.0);
+        }
+    }
+    legal
 }
 
 /// RFC 20260708-closure-argc-abi chunk 2 — every arena occurrence of
