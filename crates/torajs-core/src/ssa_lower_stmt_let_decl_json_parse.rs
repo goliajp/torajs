@@ -51,6 +51,16 @@ pub(crate) fn try_lower(
     } else {
         unreachable!()
     };
+    // RFC 20260808-json-parse-any blade 3 — the typed parse reads
+    // `text` as a Str cell; a non-String argument (admitted since the
+    // namespace sig widened to Any) must ride the any-lane kernel,
+    // whose ToString covers §25.5.1 step 1 (pre-gate this SIGSEGV'd:
+    // json_parse_int dereferenced a NaN-box as a Str pointer).
+    if let Some(t) = ctx.expr_types.get(&text_eid)
+        && !matches!(t, crate::check::Type::String)
+    {
+        return false;
+    }
     let text_op = ctx.lower_expr(text_eid);
     let cursor = ctx.alloca(Type::I64, Some("__json_pos"));
     ctx.f.append_void(

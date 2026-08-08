@@ -121,6 +121,7 @@ pub(crate) mod check_type_of_call_index_search_trailing;
 pub(crate) mod check_type_of_call_iterator_concat;
 pub(crate) mod check_type_of_call_iterator_from;
 pub(crate) mod check_type_of_call_iterator_zip;
+pub(crate) mod check_type_of_call_json_parse;
 pub(crate) mod check_type_of_call_json_stringify;
 pub(crate) mod check_type_of_call_map_group_by;
 pub(crate) mod check_type_of_call_mapset_add_set;

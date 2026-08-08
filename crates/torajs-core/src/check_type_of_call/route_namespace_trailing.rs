@@ -179,5 +179,10 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // RFC 20260808-json-parse-any blade 3 — `JSON.parse(text,
+    // reviver?, ...trailing)` arity wedge (0-2 useful slots).
+    if let Some(r) = crate::check_type_of_call_json_parse::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
     None
 }

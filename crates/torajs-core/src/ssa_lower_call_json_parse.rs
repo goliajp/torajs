@@ -9,8 +9,10 @@
 //! `json_any.rs` — ToString(text) + full ECMA-404 grammar +
 //! SyntaxError via pending-throw).
 //!
-//! Returns `Some(op)` on the 1-arg `JSON.parse(x)` Member-Ident
-//! shape; `None` otherwise (the 2-arg reviver form is blade 3).
+//! Returns `Some(op)` on the `JSON.parse(x)` / `JSON.parse(x,
+//! reviver)` Member-Ident shapes (blade 3 — a 0-arg call parses
+//! `"undefined"`, the runtime SyntaxError; args past slot 2 evaluate
+//! for side effects and drop, the S311 stringify shape).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -21,9 +23,6 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    if args.len() != 1 {
-        return None;
-    }
     let Expr::Member {
         obj: ns_id,
         name: m_name,
@@ -41,15 +40,40 @@ pub(crate) fn try_lower(
     if ns != "JSON" {
         return None;
     }
-    let text = args[0];
-    let op = ctx.lower_expr(text);
-    let arg = ctx.box_to_any_from_expr(text, op);
-    let out = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.json_parse_any, vec![arg]),
-        Type::Any,
-        None,
-    );
+    let arg = match args.first() {
+        Some(&text) => {
+            let op = ctx.lower_expr(text);
+            ctx.box_to_any_from_expr(text, op)
+        }
+        None => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            Operand::Value(v)
+        }
+    };
+    let (kernel, argv) = match args.get(1) {
+        Some(&rev) => {
+            let op = ctx.lower_expr(rev);
+            let rev_arg = ctx.box_to_any_from_expr(rev, op);
+            (ctx.intrinsics.json_parse_reviver, vec![arg, rev_arg])
+        }
+        None => (ctx.intrinsics.json_parse_any, vec![arg]),
+    };
+    for &extra in args.iter().skip(2) {
+        let op = ctx.lower_expr(extra);
+        let ty = ctx.operand_ty(&op);
+        ctx.emit_drop_value(op, ty);
+    }
+    let out = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::Call(kernel, argv), Type::Any, None);
     ctx.emit_throw_check(None);
     Some(Operand::Value(out))
 }

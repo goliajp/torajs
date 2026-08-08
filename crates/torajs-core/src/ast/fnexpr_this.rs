@@ -240,6 +240,21 @@ fn collect_position_faces(
                     }
                 }
             }
+            // RFC 20260808-json-parse-any blade 4 — `JSON.parse(text,
+            // <fn-expr>)`: the reviver slot. §25.5.1.1 calls it with
+            // the holder as `this`; the internalize kernel dispatches
+            // through `invoke_with_this`, which reads the closure's
+            // RECV flag and seeds the holder into the promoted
+            // `__this` slot. Inline fn-expr only — zero aliases.
+            Expr::Member { obj, name } if name == "parse" => {
+                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "JSON") {
+                    continue;
+                }
+                if let Some(rev) = args.get(1) {
+                    collect_face(stmts, exprs, *rev, fn_expr_exprs, patches);
+                    collect_ident_face(exprs, *rev, ident_cands);
+                }
+            }
             // Rotation 260 — `Array.from(iterable, <fn-expr>,
             // thisArg?)`: the static mapFn slot. Only the INLINE
             // fn-expr promotes (zero aliases by construction); the

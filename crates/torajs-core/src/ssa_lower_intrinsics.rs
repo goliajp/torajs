@@ -429,6 +429,7 @@ pub(crate) struct Intrinsics {
     pub(crate) json_raw_json: FuncId,
     pub(crate) json_is_raw_json: FuncId,
     pub(crate) json_parse_any: FuncId,
+    pub(crate) json_parse_reviver: FuncId,
     pub(crate) json_indent: FuncId,
     pub(crate) json_colon: FuncId,
     pub(crate) json_close_indent: FuncId,

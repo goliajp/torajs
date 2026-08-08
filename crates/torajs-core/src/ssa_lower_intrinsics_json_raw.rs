@@ -17,6 +17,7 @@ pub(crate) struct JsonRawIds {
     pub json_raw_json: FuncId,
     pub json_is_raw_json: FuncId,
     pub json_parse_any: FuncId,
+    pub json_parse_reviver: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> JsonRawIds {
@@ -33,6 +34,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_json_parse_any",
             &[Type::Any],
+            Type::Any,
+        ),
+        json_parse_reviver: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_json_parse_reviver",
+            &[Type::Any, Type::Any],
             Type::Any,
         ),
         json_is_raw_json: declare_intrinsic(

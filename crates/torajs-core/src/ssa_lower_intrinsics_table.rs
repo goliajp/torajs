@@ -381,6 +381,7 @@ pub(crate) fn build(
         json_raw_json: init_c.json_raw.json_raw_json,
         json_is_raw_json: init_c.json_raw.json_is_raw_json,
         json_parse_any: init_c.json_raw.json_parse_any,
+        json_parse_reviver: init_c.json_raw.json_parse_reviver,
 
         class_register: init_c.any_substrate.class_register,
         error_proto_install: init_c.any_substrate.error_proto_install,
