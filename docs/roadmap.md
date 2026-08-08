@@ -1530,7 +1530,52 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `6a724884`** (2026-08-09, rotation 339 — the species
+**Latest @ `5894bd1e`** (2026-08-09, rotation 340 — Array.from's
+whole call surface closed in three knives (RFC
+20260808-construct-channel B6, the trunk's last blade). Knife 1
+gives the detached value a real §23.1.2.1 any-tier kernel
+(torajs-anyvalue/array_from.rs: step-2 IsCallable before iteration,
+the unified iterable/array-like cascade, the exact «kValue, k»
+mapfn call shape with thisArg on the receiver channel, per-index
+Get/map interleave) — the loud reject retires. Knife 2 opens the
+ns-static RECEIVER channel: Array.from / fromAsync cells carry
+FLAG_CLOSURE_RECV_FIRST (keyed off the dispatch table), every
+receiver-honoring caller prepends the thisArg in argv[0], and the
+kernel's step-4 split constructs through C — Construct(C) for
+iterables, Construct(C, «len») for array-likes, elements through
+the species define-semantics store. Same channel:
+__torajs_reflect_construct grows the plain-fn Closure arm (the
+pre-B1 path only knew the class registry, so
+Reflect.construct(function(){}) always threw); fnexpr-this routed
+promotion admits construct-channel argument positions (whitelisted
+callees) and equality operands (the t262 identity-assert form);
+the checker types a reified ns-static's .call/.apply/.bind as
+any-dispatched and the fn-call-value this-drop replay lets those
+through to the runtime cell. Knife 3 converges the typed lowering:
+the array-like struct arm's undefined-filled stub retires (index
+properties really read), a SHARED checker/lowering predicate
+routes the mapFn escape shapes (non-fast-lane source /
+non-Function mapfn / explicit thisArg) to the new
+__torajs_array_from_dyn kernel while Str/Array/Set + Function
+2-arg keeps the typed devirt loop, and a nullish source compiles
+into the runtime step-5 TypeError. fromAsync's ~29
+stdout-mismatch cases were re-attributed to the
+collect-then-settle snapshot vs the spec's per-element async
+interleave (iterator liveness) — a promise-kernel structure blade,
+registered L3b; the receiver argv offset landed with knife 2.
+Sweep: passTotal 27900 → **27910 (+10)**, bug +7 (Array.from
+shapes now run to their honest failures), incompatible −17,
+conservation exact (17 = 10 + 7). All 18 moves forward, ZERO
+regressions: 10 straight to pass (items-is-null-throws /
+iter-cstm-ctor-err / mapfn-is-not-callable / mapfn-is-symbol /
+this-null / source-object ×5), 7 incompatible → bug (running,
+behavior-diff residue), and iter-map-fn-err's tr-timeout resolved
+(36 → 35). Gate predicate **311 clusters (flat) / 5877 cases (−9)
+/ residue 774 clusters 1021 cases / core 6898 (−17)**, register
+still empty. Conformance gate 2618 → **2622/0/4** (+4 fixtures,
+zero red gates). exit-139 32 / exit-138 3, both flat by name.)
+
+**Previous @ `6a724884`** (2026-08-09, rotation 339 — the species
 second key landed in four knives and the create-species family
 flipped. Knife 1 merges the two receiver collectors into ONE walk
 (`collect_props_receiver_binding_names`): a name admits when its
