@@ -121,15 +121,33 @@ pub(crate) fn try_lower(
     // name so the three share the SSA arm.
     let is_keys_only = m_name == "keys" || m_name == "__forinKeys";
 
-    // W-N-b — Arr<T> receiver: keys → `["0", ..., "<len-1>"]`,
-    // getOwnPropertyNames / ownKeys → `[..., "length"]`. Length is
-    // runtime-dynamic, so we Load `arr.len` at `ARR_LEN_OFF=8` and
-    // route through the per-surface helper instead of building a
-    // compile-time literal name list.
+    // W-N-b — Arr<T> receiver. The for-in surface keeps the
+    // len-driven index lane (its expando half is a recorded residue
+    // — see lower_arr_receiver_keys). keys / getOwnPropertyNames /
+    // ownKeys box the cell (borrow-shaped, RC-NEUTRAL) and ride the
+    // full `anyv_own_keys` arr arm instead: the old per-surface
+    // helpers minted index strings off `arr.len` alone, so expando
+    // keys living in the props bag never appeared — `a.p = 2;
+    // Object.getOwnPropertyNames(a)` answered without "p" (r330
+    // registered defect #4, sm/object/15.2.3.4-02).
     if matches!(arg_ty, Type::Arr(_)) {
-        let v = lower_arr_receiver_keys(ctx, arg_op, is_keys_only);
+        if m_name == "__forinKeys" {
+            let v = lower_arr_receiver_keys(ctx, arg_op);
+            ctx.release_owned_temp(args[0], &arg_raw);
+            return Some(v);
+        }
+        let boxed = ctx.box_to_any(arg_op);
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.anyv_own_keys,
+                vec![boxed, Operand::ConstI64(if is_keys_only { 0 } else { 1 })],
+            ),
+            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+            None,
+        );
         ctx.release_owned_temp(args[0], &arg_raw);
-        return Some(v);
+        return Some(Operand::Value(v));
     }
     if matches!(arg_ty, Type::Str) {
         return Some(lower_str_receiver_keys(
@@ -303,31 +321,19 @@ fn lower_str_receiver_keys(
     Operand::Value(v)
 }
 
-/// Typed-Arr receiver keys emit — keys / for-in ride the
-/// exotic-aware pointer helper (RFC 20260712-arr-exotic-define
-/// chunk C: a defineProperty'd index may be enumerable: false);
-/// gOPN / ownKeys keep the unfiltered len-driven mint (+ "length").
-fn lower_arr_receiver_keys(ctx: &mut LowerCtx<'_>, arg_op: Operand, is_keys_only: bool) -> Operand {
-    let v = if is_keys_only {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_keys_only_of, vec![arg_op]),
-            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
-            None,
-        )
-    } else {
-        let len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, arg_op, 8),
-            Type::I64,
-            None,
-        );
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_index_strs, vec![Operand::Value(len)]),
-            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
-            None,
-        )
-    };
+/// Typed-Arr receiver for-in keys emit — rides the exotic-aware
+/// pointer helper (RFC 20260712-arr-exotic-define chunk C: a
+/// defineProperty'd index may be enumerable: false). For-in only
+/// since RFC 20260808 knife 3: the keys / gOPN / ownKeys surfaces
+/// box the cell and take the full `anyv_own_keys` arr arm (index +
+/// props-bag expandos); the for-in expando half stays a recorded
+/// residue (enumerable expandos should enumerate — L3b).
+fn lower_arr_receiver_keys(ctx: &mut LowerCtx<'_>, arg_op: Operand) -> Operand {
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_keys_only_of, vec![arg_op]),
+        Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+        None,
+    );
     Operand::Value(v)
 }
