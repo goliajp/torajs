@@ -70,11 +70,17 @@ pub(super) fn const_string(eid: ExprId, ast: &Ast) -> Option<String> {
 /// argument is a NON-string literal. §19.2.1.1 step 2: if the argument
 /// is not a String, eval returns it unchanged, so the call collapses to
 /// the argument itself. Only literals qualify — a variable might hold a
-/// string at runtime, and the compiler cannot know.
+/// string at runtime, and the compiler cannot know. The zero-argument
+/// call is the same step over the missing argument: `eval()` is
+/// `eval(undefined)`, which returns `undefined`.
 pub(super) fn nonstring_literal_eval_arg(eid: ExprId, ast: &Ast) -> Option<Expr> {
     let Expr::Call { callee, args } = ast.exprs.get(eid.0 as usize)? else {
         return None;
     };
+    if args.is_empty() {
+        callee_eval_form(*callee, ast)?;
+        return Some(Expr::Ident("undefined".to_string()));
+    }
     if args.len() != 1 {
         return None;
     }
