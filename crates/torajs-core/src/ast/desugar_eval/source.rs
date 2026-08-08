@@ -91,7 +91,7 @@ pub(super) fn nonstring_literal_eval_arg(eid: ExprId, ast: &Ast) -> Option<Expr>
     }
 }
 
-fn callee_eval_form(callee: ExprId, ast: &Ast) -> Option<CallForm> {
+pub(super) fn callee_eval_form(callee: ExprId, ast: &Ast) -> Option<CallForm> {
     match ast.exprs.get(callee.0 as usize)? {
         Expr::Ident(n) if n == "eval" => Some(CallForm::Direct),
         Expr::Sequence { left, right } => {

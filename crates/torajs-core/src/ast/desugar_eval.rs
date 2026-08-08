@@ -130,6 +130,7 @@
 mod collapse;
 mod completion;
 mod completion_stmt;
+mod const_prop;
 mod function_ctor;
 mod scope;
 mod source;
@@ -151,6 +152,9 @@ use source::{
 /// still gets its `Function("…")` calls resolved, and vice versa.
 pub fn desugar_eval(ast: &mut Ast) {
     if !binds_eval(ast) {
+        // Named constant sources first — `var s = '…'; eval(s)`
+        // becomes a literal call, so every rewrite below sees it.
+        const_prop::propagate_eval_const_args(ast);
         // Value-position collapses first: a collapsed call is no
         // longer an eval call, so the statement walks below see only
         // the sources that need inlining.
