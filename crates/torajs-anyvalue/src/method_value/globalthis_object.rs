@@ -40,7 +40,8 @@ use crate::nanbox::box_void_ptr;
 
 use super::ctor::builtin_ctor_cell;
 use super::mint_immortal_str;
-use super::ns_object::math_object_ptr;
+use super::ns_object::{json_object_ptr, math_object_ptr, reflect_object_ptr};
+use super::ns_static::ns_static_cell;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -110,7 +111,6 @@ const CTOR_PROPS: &[(&[u8], i64)] = &[
 /// (torajs-core `check_js_semantics.rs`) minus the filled names.
 const MISSING_KNOWN: &[&[u8]] = &[
     b"console",
-    b"JSON",
     b"TypeError",
     b"RangeError",
     b"ReferenceError",
@@ -128,7 +128,6 @@ const MISSING_KNOWN: &[&[u8]] = &[
     b"parseFloat",
     b"isFinite",
     b"isNaN",
-    b"eval",
     b"queueMicrotask",
 ];
 
@@ -163,6 +162,33 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             key as *mut c_void,
             AnySlotTag::Heap as u64,
             math_object_ptr() as u64,
+            REF_PROP_FLAGS,
+        );
+        let key = mint_immortal_str(b"JSON");
+        __torajs_dynobj_define(
+            &mut obj,
+            key as *mut c_void,
+            AnySlotTag::Heap as u64,
+            json_object_ptr() as u64,
+            REF_PROP_FLAGS,
+        );
+        let key = mint_immortal_str(b"Reflect");
+        __torajs_dynobj_define(
+            &mut obj,
+            key as *mut c_void,
+            AnySlotTag::Heap as u64,
+            reflect_object_ptr() as u64,
+            REF_PROP_FLAGS,
+        );
+        // §19.2.1 — the same interned cell the bare `eval` ident
+        // answers, so identity holds through the dynamic lane too.
+        let key = mint_immortal_str(b"eval");
+        let eval_cell = ns_static_cell(torajs_rc::ns_static::ns_static_id("globalThis", "eval"));
+        __torajs_dynobj_define(
+            &mut obj,
+            key as *mut c_void,
+            AnySlotTag::Heap as u64,
+            eval_cell as u64,
             REF_PROP_FLAGS,
         );
         let key = mint_immortal_str(b"Infinity");
