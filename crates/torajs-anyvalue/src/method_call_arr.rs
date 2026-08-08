@@ -173,7 +173,11 @@ unsafe extern "C" {
 /// `method_call.rs::ANY_METHOD_THREW`.
 const ANY_METHOD_THREW: u64 = u64::MAX;
 
-/// `Tag::Arr` arm — id-switch onto the torajs-arr glue.
+/// `Tag::Arr` arm — the §23.1.3 species pre-gate around the
+/// id-switch (RFC 20260808 B3): `Early` is the gate's own answer
+/// (throw / concat derive), `TransplantInto` runs the default
+/// kernel below and moves its product's elements into the
+/// species-constructed one, `Proceed` is the ordinary derive.
 pub(crate) unsafe fn arr_method(
     arr: *mut c_void,
     mid: i64,
@@ -181,15 +185,29 @@ pub(crate) unsafe fn arr_method(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
-    // §23.1.3 species family pre-gate — ArraySpeciesCreate over the
-    // constructor / @@species faces (RFC 20260808; B3 derives concat
-    // into the constructed product). `Some` short-circuits with the
-    // gate's answer.
-    if let Some(early) =
-        unsafe { crate::method_call_arr_species::species_family_pregate(arr, mid, argv, argc) }
-    {
-        return early;
+    use crate::method_call_arr_species::{
+        SpeciesGate, family_sets_length, species_family_pregate, transplant_product,
+    };
+    unsafe {
+        match species_family_pregate(arr, mid, argv, argc) {
+            SpeciesGate::Early(v) => v,
+            SpeciesGate::TransplantInto(product) => {
+                let d = arr_method_inner(arr, mid, recv_slot, argv, argc);
+                transplant_product(product, d, family_sets_length(mid))
+            }
+            SpeciesGate::Proceed => arr_method_inner(arr, mid, recv_slot, argv, argc),
+        }
     }
+}
+
+/// The id-switch onto the torajs-arr glue.
+unsafe fn arr_method_inner(
+    arr: *mut c_void,
+    mid: i64,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
     let arg_at = |i: i64| -> u64 {
         if i < argc {
             unsafe { *argv.add(i as usize) }

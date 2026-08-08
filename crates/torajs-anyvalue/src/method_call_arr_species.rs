@@ -72,11 +72,27 @@ unsafe extern "C" {
     fn __torajs_arr_species_guard(arr: *const u8) -> i64;
 }
 
+/// How the §23.1.3 species-family pre-gate resolved (B3 cut 2).
+pub(crate) enum SpeciesGate {
+    /// The gate's own answer — a recorded throw's undefined, or the
+    /// concat derive into the constructed product.
+    Early(AnyValue),
+    /// Run the default kernel, then transplant its product's
+    /// elements into this constructed product
+    /// ([`transplant_product`]) — the slice / splice / filter / map
+    /// / flat / flatMap cut: the kernel keeps its receiver side
+    /// effects (splice's in-place mutation) and its element
+    /// semantics; only the product identity swaps. Recorded
+    /// approximation: the per-element CreateDataProperty timing
+    /// lands after the kernel run instead of interleaved with it —
+    /// unobservable without proxies, which tr does not surface.
+    TransplantInto(AnyValue),
+    /// No species face — derive with the default Array product.
+    Proceed,
+}
+
 /// The whole §23.1.3 species-family pre-gate, hoisted out of
-/// `arr_method` (file-size discipline): `Some` = the gate's early
-/// answer (a recorded throw's undefined, or B3's concat derive into
-/// the constructed product), `None` = derive with the default Array
-/// product.
+/// `arr_method` (file-size discipline).
 ///
 /// # Safety
 /// `arr` is a live array heap block pointer; `argv` holds `argc`
@@ -86,7 +102,7 @@ pub(crate) unsafe fn species_family_pregate(
     mid: i64,
     argv: *const u64,
     argc: i64,
-) -> Option<AnyValue> {
+) -> SpeciesGate {
     if !matches!(mid, m if m == torajs_rc::ANY_METHOD_SLICE
         || m == torajs_rc::ANY_METHOD_SPLICE
         || m == torajs_rc::ANY_METHOD_CONCAT
@@ -95,23 +111,84 @@ pub(crate) unsafe fn species_family_pregate(
         || m == torajs_rc::ANY_METHOD_FLAT
         || m == torajs_rc::ANY_METHOD_FLAT_MAP)
     {
-        return None;
+        return SpeciesGate::Proceed;
     }
     unsafe {
         if __torajs_arr_species_guard(arr as *const u8) != 0 {
-            return Some(VALUE_UNDEFINED);
+            return SpeciesGate::Early(VALUE_UNDEFINED);
         }
         match arr_species_object_face(arr) {
-            SpeciesOutcome::Threw => Some(VALUE_UNDEFINED),
+            SpeciesOutcome::Threw => SpeciesGate::Early(VALUE_UNDEFINED),
             SpeciesOutcome::Product(product) => {
                 if mid == torajs_rc::ANY_METHOD_CONCAT {
-                    return Some(concat_into_foreign(product, arr, argv, argc));
+                    return SpeciesGate::Early(concat_into_foreign(product, arr, argv, argc));
                 }
-                release_species_product(product);
+                SpeciesGate::TransplantInto(product)
+            }
+            SpeciesOutcome::Default => SpeciesGate::Proceed,
+        }
+    }
+}
+
+/// Does this family method run a `Set(A, "length", n, true)` step
+/// after its element writes? slice (§23.1.3.4 step 15) and splice
+/// (§23.1.3.31 step 12) do; map / filter / flat / flatMap only
+/// CreateDataProperty their elements — a non-Array species product
+/// keeps NO length entry there (concat's step rides its own derive).
+pub(crate) fn family_sets_length(mid: i64) -> bool {
+    mid == torajs_rc::ANY_METHOD_SLICE || mid == torajs_rc::ANY_METHOD_SPLICE
+}
+
+/// Move the default kernel's product into the species-constructed
+/// one (B3 cut 2): spread every element of the default Arr product
+/// into `product` through the same CreateDataPropertyOrThrow store
+/// the concat derive uses, set length, release the default. A
+/// pending throw (the kernel's own, or a poisoned store) releases
+/// the constructed product and answers the kernel's result verbatim
+/// — the dispatcher's throw check propagates it.
+///
+/// # Safety
+/// `product` is an owned AnyValue; `default_result` is the kernel's
+/// owned answer.
+pub(crate) unsafe fn transplant_product(
+    product: AnyValue,
+    default_result: AnyValue,
+    set_length: bool,
+) -> AnyValue {
+    unsafe {
+        if __torajs_throw_check() != 0 {
+            release_species_product(product);
+            return default_result;
+        }
+        let d_ptr = if is_cell(default_result) {
+            let p = as_void_ptr(default_result);
+            if !p.is_null() && (p.cast::<u8>().add(4) as *const u16).read() == Tag::Arr as u16 {
+                Some(p)
+            } else {
                 None
             }
-            SpeciesOutcome::Default => None,
+        } else {
+            None
+        };
+        let Some(d_ptr) = d_ptr else {
+            // Not an Arr product (a sentinel / undefined edge) — the
+            // constructed product has no elements to receive; hand
+            // the kernel's answer through unchanged.
+            release_species_product(product);
+            return default_result;
+        };
+        let mut product = product;
+        let mut n: i64 = 0;
+        let ok = append_spread(&mut product, d_ptr, &mut n);
+        if ok && set_length {
+            write_product_length(&mut product, n);
         }
+        release_species_product(default_result);
+        if !ok || __torajs_throw_check() != 0 {
+            release_species_product(product);
+            return VALUE_UNDEFINED;
+        }
+        product
     }
 }
 
