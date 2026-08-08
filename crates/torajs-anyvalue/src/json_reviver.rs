@@ -36,6 +36,9 @@ use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 const ANY_HEAP: u64 = 4;
 /// torajs-arr layout mirror (asserted there).
 const ARR_LEN_OFF: usize = 8;
+/// `torajs_dynobj::layout::BUCKET_FLAG_CONFIGURABLE` mirror — bit 2
+/// of the entry's key-tag word (the `prop_delete.rs` convention).
+const BUCKET_FLAG_CONFIGURABLE: u64 = 1 << 2;
 
 unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
@@ -46,6 +49,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
@@ -189,7 +193,13 @@ unsafe fn internalize_object_children(
                 return;
             }
             if is_undefined(r) {
-                __torajs_dynobj_delete(obj, key);
+                // §25.5.1.1 step 2.c.ii.2.a — `? val.[[Delete]](P)`:
+                // OrdinaryDelete answers false on a non-configurable
+                // entry (a reviver may have redefined it mid-walk),
+                // which is not abrupt — the property stays.
+                if __torajs_dynobj_get_flags(obj, key) & BUCKET_FLAG_CONFIGURABLE != 0 {
+                    __torajs_dynobj_delete(obj, key);
+                }
             } else {
                 let (t, v) = (
                     crate::__torajs_anyv_unbox_tag(r),

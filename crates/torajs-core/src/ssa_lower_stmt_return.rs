@@ -191,7 +191,26 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     // backlog rather than silently narrowed: not closing at all was
     // the strictly worse answer this replaces.
     crate::ssa_lower_for_of_teardown::emit_all_for_return(ctx);
-    let coerced = ret_operand.map(|op| coerce_to_ret(ctx, op, maybe));
+    let mut coerced = ret_operand.map(|op| coerce_to_ret(ctx, op, maybe));
+    // A bare `return;` in a value-returning fn answers `undefined`
+    // (§10.2.1.4 — [[Call]] of a completion with no value). The
+    // mixed-return shape (`if (c) return; return v;`) infers an Any
+    // ret, and emitting `Ret(None)` there handed the caller a
+    // garbage register read as a NaN-box — the rc teardown on that
+    // fake cell SIGSEGV'd (probe thj / JSON.parse reviver
+    // `if (k === 'b') return;`).
+    if coerced.is_none() && ctx.f.ret == Type::Any {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        coerced = Some(Operand::Value(v));
+    }
     let coerced = if ctx.f.ret == Type::Void {
         None
     } else {
