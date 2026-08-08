@@ -89,6 +89,84 @@ pub fn normalize_function_bind_call(ast: &mut Ast) {
     }
 }
 
+/// Step 3 (RFC 20260808-bind-arguments-unified 刀 1) — post-lift
+/// registration: a promoted bind-receiver binding's lifted closure
+/// joins `ast.fnexpr_recv_fns`, so the construction site stamps
+/// `FLAG_CLOSURE_RECV_FIRST` and the runtime bind kernel's
+/// `invoke_with_this` routes the bound this into the `__this` slot.
+/// Step 2 cannot do this itself — it runs pre-lift, when the lifted
+/// name does not exist yet. The static synth_bind lane (capture-less
+/// targets) never consults the flag — its wrapper calls the binding
+/// directly — so the stamp is inert there; the CAPTURING target,
+/// which `collect_closure_aliases` excludes and therefore rides the
+/// kernel lane, is who needs it (pre-fix its bound this fell into
+/// the plain boxed path's undefined padding: `this === obj` answered
+/// false, `this.prop` threw — silent wrong).
+///
+/// The predicate re-proves step 2's use profile on the post-lift
+/// tree rather than carrying state across the lift: a lifted
+/// `__closure_N` whose (post-`__env`) first param is `__this` AND
+/// whose binding is used exclusively in `.bind`-receiver position.
+/// The second leg is what keeps this narrow — a ctor-promoted or
+/// face-promoted `__this` closure has non-bind uses (`new F()`, a
+/// face argument) and never matches; the fnexpr_this family
+/// registers its own fns anyway (duplicate inserts are inert).
+pub fn register_bind_receiver_recv_fns(ast: &mut Ast) {
+    let owned = super::desugar_eval::fn_owned_exprs(ast);
+    let refs = crate::ast_refs::toplevel_binding_refs(ast);
+    let mut found: Vec<String> = Vec::new();
+    for st in crate::ast::toplevel_stmts_flat(ast) {
+        let Stmt::LetDecl { name, init, .. } = st else {
+            continue;
+        };
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*init) else {
+            continue;
+        };
+        if !fn_name.starts_with("__closure_") {
+            continue;
+        }
+        let Some(params) = ast.stmts.iter().find_map(|s| match s {
+            Stmt::FnDecl {
+                name: n, params, ..
+            } if n == fn_name => Some(params),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let user_start = usize::from(params.first().is_some_and(|p| p.name == "__env"));
+        if !params
+            .get(user_start)
+            .is_some_and(|p| p.name == "__this")
+        {
+            continue;
+        }
+        let visible_eids: Vec<u32> = ast
+            .exprs
+            .iter()
+            .enumerate()
+            .filter(|(i, e)| matches!(e, Expr::Ident(n) if n == name) && !owned[*i])
+            .map(|(i, _)| i as u32)
+            .collect();
+        if visible_eids.is_empty() {
+            continue;
+        }
+        let all_bind_receivers = visible_eids.iter().all(|eid| {
+            ast.exprs
+                .iter()
+                .any(|e| matches!(e, Expr::Member { obj, name: m } if obj.0 == *eid && m == "bind"))
+        });
+        if all_bind_receivers
+            && !refs.named_fn_refs.contains(name)
+            && !refs.closure_captured.contains(name)
+        {
+            found.push(fn_name.clone());
+        }
+    }
+    for f in found {
+        ast.fnexpr_recv_fns.insert(f);
+    }
+}
+
 /// Step 2 — give a bind-only this-mentioning fn-expr binding its
 /// `__this: any` leading param.
 pub fn promote_bind_receiver_this(ast: &mut Ast) {

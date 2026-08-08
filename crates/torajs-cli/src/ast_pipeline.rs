@@ -109,6 +109,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     // idempotent, so running it twice costs a walk that lifts nothing.
     ast::desugar_nested_fns(ast);
     ast::lift_arrow_fns(ast);
+    ast::register_bind_receiver_recv_fns(ast);
     ast::infer_anonymous_closure_params(ast);
     ast_closure_param_tag::tag_closure_arg_params(ast);
     ast::synthesize_forwarders(ast);

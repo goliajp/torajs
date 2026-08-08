@@ -135,7 +135,9 @@ pub use escape_analyze::escape_analyze_array_literals;
 pub use expr::{BinOp, Expr, ExprId, Param, UnaryOp};
 pub use fill_optional_fields::fill_optional_fields;
 pub use fn_constructor::synthesize_fn_constructors;
-pub use fnexpr_bind_this::{normalize_function_bind_call, promote_bind_receiver_this};
+pub use fnexpr_bind_this::{
+    normalize_function_bind_call, promote_bind_receiver_this, register_bind_receiver_recv_fns,
+};
 pub use fold_fromentries::fold_fromentries;
 pub use forwarders::synthesize_forwarders;
 pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};
