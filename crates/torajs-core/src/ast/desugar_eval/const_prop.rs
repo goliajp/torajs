@@ -82,20 +82,39 @@ fn scan_seq(
                 if prefix_inert {
                     if let Some(v) = const_string(*init, ast) {
                         cands.insert(name.clone(), v);
-                    } else if !init_inert(*init, ast) {
+                    } else if expr_calls_out(*init, ast) {
                         prefix_inert = false;
                     }
                 }
             }
+            // A statement that cannot CALL anything cannot run a
+            // closure either — the test262 harness prelude is exactly
+            // this shape (`assert.sameValue = function () {…};`), and
+            // it must not break the prefix for the case underneath.
+            Stmt::Expr(e) => {
+                if prefix_inert && expr_calls_out(*e, ast) {
+                    prefix_inert = false;
+                }
+            }
             Stmt::FnDecl { body, .. } => scan_seq(body, ast, cands, counts),
             Stmt::TypeDecl { .. } | Stmt::ImportDecl { .. } => {}
+            // A class declaration executes user code at declaration
+            // time only through static initializers or computed keys
+            // (the heritage clause is a bare name in this AST). The
+            // test262 harness opens with `class Test262Error extends
+            // Error {}` — it must not break the prefix.
             Stmt::ClassDecl {
+                name,
                 ctor,
                 methods,
                 static_methods,
+                static_init,
                 ..
             } => {
-                prefix_inert = false;
+                if !static_init.is_empty() || ast.class_computed_keys.keys().any(|(c, _)| c == name)
+                {
+                    prefix_inert = false;
+                }
                 if let Some(c) = ctor {
                     scan_seq(&c.body, ast, cands, counts);
                 }
@@ -167,23 +186,52 @@ fn walk_nested(s: &Stmt, ast: &Ast, counts: &mut HashMap<String, u32>) {
     }
 }
 
-/// An initializer that cannot run user code: a literal, a bare name
-/// (`var ev = eval`), or a fold-able string tree.
-fn init_inert(eid: ExprId, ast: &Ast) -> bool {
-    if const_string(eid, ast).is_some() {
+/// Can evaluating this expression transfer control into user code?
+/// Only a call-like node can (a plain property write cannot — a setter
+/// would first need a defineProperty CALL earlier in the prefix, which
+/// this walk would already have flagged). Unknown / future variants
+/// answer true, keeping the gate conservative.
+fn expr_calls_out(eid: ExprId, ast: &Ast) -> bool {
+    let Some(e) = ast.exprs.get(eid.0 as usize) else {
         return true;
+    };
+    let rec = |id: &ExprId| expr_calls_out(*id, ast);
+    match e {
+        Expr::Ident(_)
+        | Expr::String(_)
+        | Expr::Number(_)
+        | Expr::BigInt { .. }
+        | Expr::Bool(_)
+        | Expr::Uninit
+        | Expr::Regex { .. }
+        | Expr::Null
+        | Expr::This
+        | Expr::NewTarget
+        | Expr::Elision
+        | Expr::Closure { .. }
+        | Expr::ArrowFn { .. } => false,
+        Expr::BinOp { left, right, .. } => rec(left) || rec(right),
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::Delete { expr }
+        | Expr::Spread { expr }
+        | Expr::As { expr, .. }
+        | Expr::InstanceOf { expr, .. } => rec(expr),
+        Expr::PostIncr { target, .. } => rec(target),
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => rec(obj),
+        Expr::Index { obj, index } | Expr::OptIndex { obj, index } => rec(obj) || rec(index),
+        Expr::Assign { target, value } => rec(target) || rec(value),
+        Expr::Array(items) => items.iter().any(rec),
+        Expr::ObjectLit { fields } => fields.iter().any(|(_, v)| rec(v)),
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => rec(cond) || rec(then_branch) || rec(else_branch),
+        Expr::Sequence { left, right } => rec(left) || rec(right),
+        Expr::Nullish { lhs, rhs } => rec(lhs) || rec(rhs),
+        _ => true,
     }
-    matches!(
-        ast.exprs.get(eid.0 as usize),
-        Some(
-            Expr::Ident(_)
-                | Expr::Number(_)
-                | Expr::Bool(_)
-                | Expr::Null
-                | Expr::Uninit
-                | Expr::ArrowFn { .. }
-        )
-    )
 }
 
 /// Names that are ever written, rebound, or introduced by a non-let
