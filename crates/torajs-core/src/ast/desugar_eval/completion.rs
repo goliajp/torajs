@@ -19,7 +19,9 @@
 
 use super::super::{Ast, Expr, ExprId, Stmt};
 use super::rewrite_list;
-use super::source::{CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw};
+use super::source::{
+    CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
+};
 
 /// This pass runs LAST in the desugar deliberately: by then the
 /// statement walks have inlined every statement-position direct eval
