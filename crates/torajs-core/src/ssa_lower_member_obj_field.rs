@@ -205,5 +205,20 @@ fn lower_struct_field(
         field_ty,
         None,
     );
+    // RFC 20260809 B5 — an `any` slot's stake belongs to the SLOT
+    // (chunk 563 ledger): the field-assign lane drop-olds it without
+    // regard for live borrows, so a bare-Load borrow here dangles the
+    // moment the field is overwritten (`const st: any = this.__s;
+    // this.__s = [];` freed the array under the binding — closure
+    // underflow in the at-exit drain, probe u6/u18/u23). Answer owned
+    // instead — payload +1, eid recorded — exactly the contract the
+    // any-RECEIVER member lane adopted in rotation 324; every consumer
+    // already releases recorded owned member reads (chunk 717 track).
+    // Typed slots (Str/Arr/Obj) keep the borrow contract: their
+    // assign lane balances differently (probes u21/u22 clean).
+    if field_ty == Type::Any {
+        ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
+        ctx.owned_member_reads.insert(eid);
+    }
     Operand::Value(v)
 }
