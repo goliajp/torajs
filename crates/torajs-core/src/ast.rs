@@ -99,6 +99,7 @@ mod infer_closure_typevars;
 mod inject_builtin_classes;
 mod inject_builtin_classes_cause;
 mod inject_builtin_classes_data;
+mod inject_disposable_stack;
 mod lift_arrow_fns;
 mod module_passes;
 mod named_eval;
@@ -162,6 +163,7 @@ pub(crate) use implicit_generics_infer::{
 pub use infer_closure_params::infer_anonymous_closure_params;
 pub(crate) use inject_builtin_classes::class_reaches_error;
 pub use inject_builtin_classes::inject_builtin_classes;
+pub use inject_disposable_stack::inject_disposable_stack;
 pub use lift_arrow_fns::lift_arrow_fns;
 pub(crate) use lift_arrow_fns::{
     build_factory_body, default_init_for_field, default_init_for_type, is_fn_arr_ann,

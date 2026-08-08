@@ -65,6 +65,10 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
     ast::desugar_using(ast);
+    // RFC 20260809 B5 — after `desugar_using` (the classes contain no
+    // `using`), before `desugar_async` (their walk helpers are async
+    // fns the ordinary async desugar state-machines).
+    ast::inject_disposable_stack(ast);
     ast::hoist_gen_fn_exprs(ast);
     ast::desugar_generators(ast);
     ast::desugar_async(ast);

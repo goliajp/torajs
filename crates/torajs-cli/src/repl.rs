@@ -268,6 +268,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     a.source = src.to_string();
     a.warm_newline_cache();
     ast::desugar_using(&mut a);
+    ast::inject_disposable_stack(&mut a);
     ast::inject_builtin_classes(&mut a);
     ast::desugar_classes(&mut a);
     ast::materialize_expr_defaults(&mut a);
