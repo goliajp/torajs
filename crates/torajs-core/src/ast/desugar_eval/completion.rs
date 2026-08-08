@@ -18,6 +18,7 @@
 //! keep the honest reject.
 
 use super::super::{Ast, Expr, ExprId, Stmt, free_vars};
+use super::completion_stmt;
 use super::rewrite_list;
 use super::source::{
     CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
@@ -70,12 +71,7 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 if body.len() >= 2
                     && matches!(body.last(), Some(Stmt::Expr(_)))
                     && (form == CallForm::Direct
-                        || (!binds_anything(&body) && {
-                            let fv = free_vars::free_vars_of_body(ast, &[], &body);
-                            fv.is_empty()
-                                || (!fn_owned.get(i).copied().unwrap_or(false)
-                                    && fv.iter().all(|n| !nested_lexical.contains(n)))
-                        })) =>
+                        || scope_transparent(&body, ast, i, &fn_owned, &nested_lexical)) =>
             {
                 let Some(Stmt::Expr(tail)) = body.pop() else {
                     unreachable!()
@@ -87,9 +83,41 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 body.push(Stmt::Return(Some(tail)));
                 wrap_iife(i, body, ast);
             }
+            // A trailing statement (switch / loop / if / try / block)
+            // leaves the completion inside its own V accumulation —
+            // the UpdateEmpty desugar in `completion_stmt.rs`.
+            Some(mut body)
+                if !body.is_empty()
+                    && (form == CallForm::Direct
+                        || scope_transparent(&body, ast, i, &fn_owned, &nested_lexical)) =>
+            {
+                rewrite_list(&mut body, ast, true, super_ok);
+                let body = completion_stmt::rewrite_trailing_stmt_completion(body, ast);
+                wrap_iife(i, body, ast);
+            }
             Some(_) => {}
         }
         i += 1;
+    }
+}
+
+/// An INDIRECT source may take the IIFE only when scope cannot tell
+/// the arrow's frame apart from the global one: the source binds
+/// nothing, and its free variables are either none or resolved at a
+/// top-level call site no nested lexical name shadows — the same
+/// two-track rule the single-expression collapse applies.
+fn scope_transparent(
+    body: &[Stmt],
+    ast: &Ast,
+    i: usize,
+    fn_owned: &[bool],
+    nested_lexical: &std::collections::HashSet<String>,
+) -> bool {
+    !binds_anything(body) && {
+        let fv = free_vars::free_vars_of_body(ast, &[], body);
+        fv.is_empty()
+            || (!fn_owned.get(i).copied().unwrap_or(false)
+                && fv.iter().all(|n| !nested_lexical.contains(n)))
     }
 }
 

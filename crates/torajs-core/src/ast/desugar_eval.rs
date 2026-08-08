@@ -129,6 +129,7 @@
 
 mod collapse;
 mod completion;
+mod completion_stmt;
 mod function_ctor;
 mod scope;
 mod source;
