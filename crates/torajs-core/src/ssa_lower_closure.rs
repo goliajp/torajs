@@ -219,7 +219,15 @@ pub(crate) fn alloc_env(
     {
         flags |= 1 << 7;
     } else if ctx.ast.fn_proto_fns.contains(fn_name)
-        || decl_name.is_some_and(|n| !ctx.ast.async_generator_fns.contains(n))
+        || decl_name.is_some_and(|n| {
+            // A class method hoisted to a `__sm_` / `__cm_` decl is
+            // still a METHOD: §10.2.5 MakeConstructor never runs for
+            // it, so it owns no `.prototype` and no [[Construct]] —
+            // the construct kernel keys on this bit (§7.2.4).
+            !ctx.ast.async_generator_fns.contains(n)
+                && !n.starts_with("__sm_")
+                && !n.starts_with("__cm_")
+        })
     {
         flags |= 1 << 15;
     }
