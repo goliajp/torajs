@@ -76,6 +76,16 @@ pub(crate) fn check_member(
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }
+    // A namespace with a runtime singleton (RFC 20260801
+    // ns-object-value) is a REAL dynobj — `Math.length = 1` is an
+    // ordinary expando write on it, so the store rides the any
+    // lanes like every other dynobj write. Namespaces without a
+    // minted singleton keep the loud reject (admitting them would
+    // only move the same failure into the lowerer).
+    if matches!(*obj_ty, Type::Object("Math" | "JSON" | "Reflect")) {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
     if matches!(*obj_ty, Type::RegExp) && field == "lastIndex" {
         let value_ty = checker.type_of(ast, value)?;
         if !matches!(value_ty, Type::Number) {
@@ -310,6 +320,12 @@ pub(crate) fn check_index(
         return Ok(Type::Any);
     }
     let Type::Array(elem) = &obj_ty else {
+        // The singleton-backed namespaces again (member arm above)
+        // — `Math[0] = 1` is a keyed expando write on the dynobj.
+        if matches!(obj_ty, Type::Object("Math" | "JSON" | "Reflect")) {
+            let _ = checker.type_of(ast, value)?;
+            return Ok(Type::Any);
+        }
         return Err(format!(
             "index assignment target must be an array, got {obj_ty:?}"
         ));
