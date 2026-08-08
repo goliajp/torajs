@@ -316,6 +316,7 @@ pub(crate) mod ssa_lower_call_iter_next;
 pub(crate) mod ssa_lower_call_iterator_concat;
 pub(crate) mod ssa_lower_call_iterator_from;
 pub(crate) mod ssa_lower_call_iterator_zip;
+pub(crate) mod ssa_lower_call_json_parse;
 pub(crate) mod ssa_lower_call_json_raw;
 pub(crate) mod ssa_lower_call_json_stringify;
 pub(crate) mod ssa_lower_call_map_dispatch;

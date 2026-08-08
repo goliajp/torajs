@@ -99,7 +99,10 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // per-shape parser at lower time. check.rs accepts
         // any `Type::Any` slot, so the let binding's
         // declared `T` slot type drives the actual decode.
-        (Type::Object("JSON"), "parse") => Type::Function(vec![Type::String], Box::new(Type::Any)),
+        // The param admits Any (§25.5.1 step 1 is ToString(text) —
+        // the any-lane kernel coerces at runtime; the typed lane only
+        // ever sees Str-typed args anyway).
+        (Type::Object("JSON"), "parse") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // ES2026 json-parse-with-source — `JSON.rawJSON(text)` mints
         // the frozen [[IsRawJSON]] carrier (any-world dict-mode
         // object); `JSON.isRawJSON(O)` probes for the slot. Both are

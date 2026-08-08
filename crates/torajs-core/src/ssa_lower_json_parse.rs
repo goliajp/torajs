@@ -74,6 +74,20 @@ impl LowerCtx<'_> {
             }
             Type::Arr(arr_id) => self.lower_json_parse_arr(text_op, cursor_ptr, slot_ty, arr_id),
             Type::Obj(sid) => self.lower_json_parse_obj(text_op, cursor_ptr, sid),
+            // RFC 20260808-json-parse-any blade 2 — an `any` slot has
+            // no static shape to unfold: the whole text parses at
+            // runtime (kernel does its own ToString / cursor /
+            // trailing-garbage check; the shared cursor stays unread).
+            Type::Any => {
+                let arg = self.box_to_any(text_op);
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.json_parse_any, vec![arg]),
+                    Type::Any,
+                    None,
+                );
+                Operand::Value(v)
+            }
             other => panic!("ssa-lower: JSON.parse into type {other:?} not yet supported"),
         }
     }
