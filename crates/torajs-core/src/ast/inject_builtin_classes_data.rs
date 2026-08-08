@@ -30,6 +30,18 @@ use super::{Ast, ClassCtor, Expr, Param, Stmt};
 /// The trailing `options` param is the §20.5.8.1 error-cause face.
 /// It is only forwarded from here — `Error`'s ctor holds the single
 /// copy of the InstallErrorCause test.
+/// RFC 20260809 B6 — whether a data-carrying subclass's own params
+/// are OPTIONAL. §20.5.8 SuppressedError treats all three of
+/// (error, suppressed, message) as plain arguments — `new
+/// SuppressedError()` constructs with both own fields undefined.
+/// §20.5.7 AggregateError is different: step 3 iterates `errors`, so
+/// a missing argument is a RUNTIME TypeError (undefined is not
+/// iterable), and the checker's required-param face stays the loud
+/// stand-in until IterableToList lands.
+fn data_params_optional(sub_name: &str) -> bool {
+    sub_name == "SuppressedError"
+}
+
 pub(super) fn build_error_data_subclass(
     ast: &mut Ast,
     sub_name: &str,
@@ -64,12 +76,13 @@ pub(super) fn build_error_data_subclass(
         body.push(Stmt::Expr(assign));
     }
     let msg_default = build_absent_sentinel(ast);
+    let optional = data_params_optional(sub_name);
     let mut params: Vec<Param> = data_params
         .iter()
         .map(|p| Param {
             name: (*p).to_string(),
             type_ann: Some("any".to_string()),
-            default: None,
+            default: optional.then(|| ast.add_expr(Expr::Ident("undefined".to_string()))),
             is_rest: false,
         })
         .collect();
