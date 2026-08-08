@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T10:45:02.330Z",
+  "generatedAt": "2026-08-08T12:08:10.208Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T10:41:26Z",
-    "headSha": "685ff385",
-    "elapsedSec": 413.19,
+    "ranAt": "2026-08-08T12:04:30Z",
+    "headSha": "100d47f4",
+    "elapsedSec": 409.72,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23012,
+    "pass": 23020,
     "passNoOracle": 756,
     "passNegative": 3957,
-    "passTotal": 27725,
-    "bug": 12553,
-    "incompatible": 12896,
+    "passTotal": 27733,
+    "bug": 12565,
+    "incompatible": 12876,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40278,
-    "passRateInScope": 52.14,
-    "passRateTrAccepted": 68.83
+    "trAccepted": 40298,
+    "passRateInScope": 52.16,
+    "passRateTrAccepted": 68.82
   },
   "torajs": {
-    "commit": "685ff385",
-    "commitSubject": "fix: hoisted class methods carry no FLAG_FN_PROTO",
+    "commit": "100d47f4",
+    "commitSubject": "feat: extends-Array classes answer themselves to the species read",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "100d47f4",
+      "subject": "feat: extends-Array classes answer themselves to the species read"
+    },
+    {
+      "hash": "37a34cb3",
+      "subject": "feat: species family transplants the default product into the construct product"
+    },
+    {
+      "hash": "5e409b32",
+      "subject": "feat: concat derives into the species construct product"
+    },
+    {
+      "hash": "9fe0ef06",
+      "subject": "feat: fn-expr this admits the species escape store and prototype reads"
+    },
+    {
+      "hash": "ad812b93",
+      "subject": "docs: rotation 336 close — sweep at 685ff385, +88 passTotal, eval cluster 278 to 154, P-SURF stamp, dashboard refresh"
+    },
+    {
       "hash": "685ff385",
       "subject": "fix: hoisted class methods carry no FLAG_FN_PROTO"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "3a88f594",
       "subject": "fix: bare return in a value-returning fn answers undefined"
-    },
-    {
-      "hash": "804a62a2",
-      "subject": "feat: JSON.parse reviver walk + reviver this channel"
-    },
-    {
-      "hash": "d12e2ef1",
-      "subject": "feat: any-lane JSON.parse runtime kernel"
-    },
-    {
-      "hash": "987af2e9",
-      "subject": "feat: prototype-store fn-expr faces get call-site this (knife 7)"
-    },
-    {
-      "hash": "d58106e9",
-      "subject": "fix: struct-field call lanes propagate pending throws"
-    },
-    {
-      "hash": "f53e169f",
-      "subject": "docs: rotation 334 close — sweep at eec696c9, +23 passTotal zero regressions, P-SURF stamp for r332-334, dashboard refresh"
     }
   ],
-  "headSha": "685ff385",
+  "headSha": "100d47f4",
   "autorun": {
-    "total": 639,
+    "total": 640,
     "baselineTarget": 10,
-    "bySelf": 634,
+    "bySelf": 635,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786180505-714a",
-      "at": "2026-08-08T09:15:05Z",
-      "ts": 1786180505,
+      "rotationId": "r-1786186030-5a63",
+      "at": "2026-08-08T10:47:10Z",
+      "ts": 1786186030,
       "trigger": "self",
-      "prevHead": "b0798efd",
-      "handoffSha": "sha256:be533403dc9579b5049a0c6907eaef4c4e326e1b78c43eed5caa34beda115b86",
-      "handoffAgeSec": 57,
+      "prevHead": "ad812b93",
+      "handoffSha": "sha256:99c26cb66fa6928abf016f6980721f35441ac0a82dc9b33d897128cd44de33c9",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786186030-5a63",
+        "at": "2026-08-08T10:47:10Z",
+        "ts": 1786186030,
+        "trigger": "self",
+        "prevHead": "ad812b93",
+        "handoffSha": "sha256:99c26cb66fa6928abf016f6980721f35441ac0a82dc9b33d897128cd44de33c9",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786180505-714a",
         "at": "2026-08-08T09:15:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "d078df19",
         "handoffSha": "sha256:04cf79ff42397e797636f66262bc7cee41305b89e7d528a84a89aac0caf28484",
         "handoffAgeSec": 106,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786106011-1a98",
-        "at": "2026-08-07T12:33:31Z",
-        "ts": 1786106011,
-        "trigger": "self",
-        "prevHead": "75aaa30b",
-        "handoffSha": "sha256:d1011f56961323e6dc7e31687b0bb065471f942432b18e6c42f018e0d03c9c60",
-        "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `685ff385`** (2026-08-08, rotation 336 — the eval cluster
+**Latest @ `100d47f4`** (2026-08-08, rotation 337 — the
+construct-channel species face closed, RFC 20260808 B2-B5 in four
+knives. B2 admits a this-carrying fn-expr escaping into the species
+slot (store arm `a.constructor[k] = fn` on any/array roots plus
+`.prototype` reads as the third receiver-safe use shape); B3 hands
+the @@species construct product back to the dispatcher — concat
+derives into it directly, the other six family methods run their
+default kernel and TRANSPLANT its elements across (length only where
+the spec has a Set step: slice / splice — map / filter / flat /
+flatMap CreateDataProperty only, bun-verified); knife 4 + B5 close
+the `extends Array` inheritance face (the class object answers
+ITSELF to an own-miss species read via a CTOR-registry mark, and
+`program_constructs_from_value` arms factory adapters on the
+`X.constructor = …` assign shape). Sweep: passTotal 27725 →
+**27733 (+8)**, bug +12 (species product integrity shapes unlocked
+into honest bug classification), incompatible −20, conservation
+exact (20 = 8 + 12). GAINED 8 = species non-extensible-target throw
+observability across all seven methods; **LOST 0**. Gate predicate
+**309 clusters (flat) / 6087 cases (−20) / residue 780 clusters
+1034 cases / core 7121 (−20)**, register still empty. Crash triple
+unchanged (exit-139 32 = 32 by-name, tr-timeout 36, exit-138 3).
+Build determinism 44/44 (N=12). Remaining species residue: the
+create-species.js primary spelling still rides two pre-existing
+gaps — the lifted-fn-expr `arguments` materialization hole (escaped
+closure values never join the argv face) and one further checker
+reject; the exotic default ctor still drops its len argument to
+super.)
+
+**Previous @ `685ff385`** (2026-08-08, rotation 336 — the eval cluster
 re-attribution plus five knives. The B-layer artifact-size hard
 prerequisite got measured first (embed upper bound ≈ 4.4 MB of
 compiler machine code — torajs_core 2.73 + egraph 0.26 + codegen 0.07
