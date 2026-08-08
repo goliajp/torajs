@@ -1530,7 +1530,43 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `6aa2a36d`** (2026-08-09, rotation 341 — `using`
+**Latest @ `b02e97d0`** (2026-08-09, rotation 342 — DisposableStack /
+AsyncDisposableStack land as injected TS-source builtins (RFC
+20260809 B5 + the B6 core faces, five substrate commits, gate chain
+2626 → 2631/0/4 zero-red). The opener is an rc knife the injection
+itself flushed out: a nominal-struct `any`-field read handed out a
+bare-Load borrow while the field-assign lane drop-olds the slot's
+stake (chunk 563 slot-owns contract), so `const st: any = this.__s;
+this.__s = []` freed the entries chain under a live binding and the
+at-exit cycle drain segfaulted three layers away — the read now
+mints owned (payload +1, `owned_member_reads`), the rotation-324
+contract extended to the last unconverted read lane; underflow
+census 0 maintained, 300k-churn AOT RSS flat. The classes are plain
+TS parsed via `parse_into` (the `desugar_using` HELPER_SRC
+convention), demand-gated, front-spliced, with `{v,d,k}` dynobj
+entry records and injected async walk helpers that ride the
+ordinary async desugar — knives 1-4 of rotation 341 carry the whole
+implementation with zero new runtime surface. B6: SuppressedError's
+three ctor params go optional (AggregateError keeps its required
+face — §20.5.7 iterates errors); %Iterator.prototype%[@@dispose]
+reifies on MapIter / ArrIter / IterHelper (GetMethod-return
+semantics: no-op for Map/Set/Array iterators, an Iterator Helper
+closes through its own return under the executing gate), making
+iterators real `using` resources. Sweep passTotal 28042 → **28196
+(+154)** / bug **−147** / trAccepted +7 / incompatible −7,
+conservation exact; **zero pass regressions** (432-line verdicts
+diff all forward). exit-139 32 → 34: +3 −1, all inside the
+newly-runnable DisposableStack family — a non-underflow at-exit
+drain corruption (detector reports zero, release AOT clean, iter
+spawn-child crashes in mark_gray); minimal repro = top-level `var`
+stack + use + defer + double dispose, recorded for the collector
+chase. Recorded next: generator [@@dispose] (the right altitude is
+a real symbol-keyed entry on the %Iterator.prototype% dynobj — the
+gen proto chain already reaches it), async-gen [@@asyncDispose],
+prototype[@@dispose]/.dispose function identity, @@toStringTag
+prop-desc, SuppressedError length/ToString faces.)
+
+**Previous @ `6aa2a36d`** (2026-08-09, rotation 341 — `using`
 declarations land end-to-end (RFC 20260809, five knives, gate chain
 2622 → 2626/0/4 zero-red). Knife 1: the parse-reject upgrades to a
 real `Stmt::UsingDecl` and a prelude `desugar_using` pass rewrites

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T20:28:43.876Z",
+  "generatedAt": "2026-08-08T22:08:52.488Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T20:26:28Z",
-    "headSha": "6aa2a36d",
-    "elapsedSec": 461.55,
+    "ranAt": "2026-08-08T22:02:58Z",
+    "headSha": "b02e97d0",
+    "elapsedSec": 413.36,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23322,
-    "passNoOracle": 767,
+    "pass": 23463,
+    "passNoOracle": 780,
     "passNegative": 3953,
-    "passTotal": 28042,
-    "bug": 12719,
-    "incompatible": 12413,
+    "passTotal": 28196,
+    "bug": 12572,
+    "incompatible": 12406,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40761,
-    "passRateInScope": 52.74,
-    "passRateTrAccepted": 68.8
+    "trAccepted": 40768,
+    "passRateInScope": 53.03,
+    "passRateTrAccepted": 69.16
   },
   "torajs": {
-    "commit": "6aa2a36d",
-    "commitSubject": "fix: class symbol member keys define under the real symbol cell",
+    "commit": "b02e97d0",
+    "commitSubject": "style: chain.rs import order per rustfmt",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "b02e97d0",
+      "subject": "style: chain.rs import order per rustfmt"
+    },
+    {
+      "hash": "3a15b333",
+      "subject": "refactor: iter_helper chain dispatch moves to a child module"
+    },
+    {
+      "hash": "ec314355",
+      "subject": "feat: iterator cells inherit the iterator-prototype symbol dispose"
+    },
+    {
+      "hash": "2094e87e",
+      "subject": "feat: suppressed error constructs with all three params optional"
+    },
+    {
+      "hash": "8a27d3cd",
+      "subject": "feat: DisposableStack and AsyncDisposableStack inject as TS-source builtins"
+    },
+    {
+      "hash": "8e924b87",
+      "subject": "fix: nominal-struct any-field reads mint an owned payload stake"
+    },
+    {
+      "hash": "066b1761",
+      "subject": "docs: rotation 341 close — using declarations end-to-end in five knives, sweep +132/+80/-212 conservation exact, p-surf restamp"
+    },
+    {
       "hash": "6aa2a36d",
       "subject": "fix: class symbol member keys define under the real symbol cell"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "5b97fabf",
       "subject": "feat: using declarations sync form parses and desugars to dispose-stack try/finally"
-    },
-    {
-      "hash": "9f0c26df",
-      "subject": "docs: rotation 340 dashboard refresh"
-    },
-    {
-      "hash": "f9f718dc",
-      "subject": "docs: rotation 340 close — b6 array.from full call surface in three knives, sweep +10/+7/-17 zero regressions, p-surf restamp"
-    },
-    {
-      "hash": "5894bd1e",
-      "subject": "feat: array.from typed lowering reads real array-like elements and routes mapfn escape shapes to the kernel"
-    },
-    {
-      "hash": "4b811477",
-      "subject": "feat: ns-static receiver channel gives array.from.call(c) its construct face"
-    },
-    {
-      "hash": "1ea14c96",
-      "subject": "feat: array.from any-tier kernel serves detached calls"
-    },
-    {
-      "hash": "5549f870",
-      "subject": "docs: rotation 339 close addendum — P-SURF latest stamp and sweep artifacts"
-    },
-    {
-      "hash": "c2c963f3",
-      "subject": "docs: rotation 339 close — species second key + three follow-up knives flip the create-species family, sweep +19/-14/-5 zero regressions, P-SURF restamp, dashboard refresh"
     }
   ],
-  "headSha": "6aa2a36d",
+  "headSha": "b02e97d0",
   "autorun": {
-    "total": 644,
+    "total": 645,
     "baselineTarget": 10,
-    "bySelf": 639,
+    "bySelf": 640,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786211749-7f59",
-      "at": "2026-08-08T17:55:49Z",
-      "ts": 1786211749,
+      "rotationId": "r-1786221002-5558",
+      "at": "2026-08-08T20:30:02Z",
+      "ts": 1786221002,
       "trigger": "self",
-      "prevHead": "9f0c26df",
-      "handoffSha": "sha256:38af4c5df4639bec39ecc3eda9242402ca8c61c6002da651fd411ed8f9ba7aaf",
-      "handoffAgeSec": 7,
+      "prevHead": "066b1761",
+      "handoffSha": "sha256:37befdf546ed6bcb26c6a9569ccaa4b1bd9597dd59a90648ad6753992d7ee553",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786221002-5558",
+        "at": "2026-08-08T20:30:02Z",
+        "ts": 1786221002,
+        "trigger": "self",
+        "prevHead": "066b1761",
+        "handoffSha": "sha256:37befdf546ed6bcb26c6a9569ccaa4b1bd9597dd59a90648ad6753992d7ee553",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786211749-7f59",
         "at": "2026-08-08T17:55:49Z",
@@ -876,17 +887,6 @@
         "prevHead": "241482a1",
         "handoffSha": "sha256:1eef868683cc40375c520c7967d0fbbce929c7e52cc14c9e834a0454981110b8",
         "handoffAgeSec": 32,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786147040-257b",
-        "at": "2026-08-07T23:57:20Z",
-        "ts": 1786147040,
-        "trigger": "self",
-        "prevHead": "723c0449",
-        "handoffSha": "sha256:ca11a5cd8755e659054ad9be7720dba54516336f983e8864f4bf28786b33c15f",
-        "handoffAgeSec": 51,
         "conformanceBefore": null,
         "commitsInSession": null
       }
