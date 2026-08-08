@@ -3,7 +3,7 @@
 //! statements in the caller's arena. Split out of `desugar_eval.rs`
 //! when the indirect form pushed the file past the 500-line cap.
 
-use super::super::{Ast, Expr, ExprId, Stmt};
+use super::super::{Ast, BinOp, Expr, ExprId, Stmt};
 use crate::{lexer, parser};
 
 /// How the call site reaches `eval` — the distinction §19.2.1.1 hangs
@@ -40,8 +40,28 @@ pub(super) fn literal_eval_call(eid: ExprId, ast: &Ast) -> Option<(String, CallF
         return None;
     }
     let form = callee_eval_form(*callee, ast)?;
-    match ast.exprs.get(args[0].0 as usize)? {
-        Expr::String(s) => Some((s.clone(), form)),
+    Some((const_string(args[0], ast)?, form))
+}
+
+/// The compile-time string value of an expression, when it has one: a
+/// string literal, or a `+` tree of such. test262's generated Annex B
+/// cases build their source with literal concatenation —
+/// `eval('switch (1) {' + '  case 1:' + …)` — and §13.15.3 makes
+/// String + String exact concatenation, so folding it loses nothing.
+/// Mixed operands (`'a' + 1`) are left alone: they coerce, and the
+/// coercion rules are the runtime's business, not this pass's.
+fn const_string(eid: ExprId, ast: &Ast) -> Option<String> {
+    match ast.exprs.get(eid.0 as usize)? {
+        Expr::String(s) => Some(s.clone()),
+        Expr::BinOp {
+            op: BinOp::Add,
+            left,
+            right,
+        } => {
+            let mut s = const_string(*left, ast)?;
+            s.push_str(&const_string(*right, ast)?);
+            Some(s)
+        }
         _ => None,
     }
 }
