@@ -33,7 +33,8 @@
 
 use super::super::{Ast, Expr, ExprId, Stmt};
 use super::scope::binds_name;
-use super::source::{const_string, parse_eval_source};
+use super::source::{const_string, parse_eval_source, syntax_error_throw};
+use crate::lexer::{self, Token};
 
 /// Rewrite every argument-bearing `Function(...)` / `new Function(...)`
 /// whose arguments are all constant strings. The zero-argument shape is
@@ -52,33 +53,169 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
         };
         let name = format!("__dynfn_{synth}");
         let params = texts[..texts.len() - 1].join(",");
-        let body = &texts[texts.len() - 1];
+        let body = texts[texts.len() - 1].clone();
+        let strict_body = body_prologue_strict(&body);
+        // §15.2.1 — a bare `with` in a strict body is a SyntaxError
+        // whether tr's parser happens to read it (as a call to an
+        // unknown `with` ident) or not, so the check runs BEFORE the
+        // parse attempt and applies to both outcomes.
+        if strict_body && body_lexes_bare_with(&body) {
+            let throw = syntax_error_throw("dynamic function: `with` in strict mode".into(), ast);
+            wrap_throw_iife(i, throw, ast);
+            i += 1;
+            continue;
+        }
         let full = format!("function {name}({params}\n) {{\n{body}\n}}");
         let arena_before = ast.exprs.len();
-        if let Some(mut parsed) = parse_eval_source(&full, ast) {
-            let is_the_decl = matches!(
-                parsed.as_slice(),
-                [Stmt::FnDecl { name: n, .. }] if *n == name
-            );
-            // A body that touches `this` cannot be synthesized
-            // honestly: a dynamic function's sloppy `this` is the
-            // global OBJECT (`Function("return this")()` hands it
-            // back), and tr has no such object — its top level is its
-            // global. The parse appended the body's expressions after
-            // `arena_before`, so scanning that tail sees every `this`
-            // at any depth. Harness `fnGlobalObject.js` is exactly
-            // this shape; it keeps the loud reject.
-            let touches_this = ast.exprs[arena_before..]
-                .iter()
-                .any(|e| matches!(e, Expr::This));
-            if is_the_decl && !touches_this {
-                ast.stmts.push(parsed.pop().unwrap());
-                ast.exprs[i] = Expr::Ident(name);
-                synth += 1;
+        match parse_eval_source(&full, ast) {
+            Some(mut parsed) => {
+                let is_the_decl = matches!(
+                    parsed.as_slice(),
+                    [Stmt::FnDecl { name: n, .. }] if *n == name
+                );
+                // §20.2.1.1 steps 17/22 — a body whose directive
+                // prologue opens with 'use strict' subjects the
+                // synthesized function to the §15.2.1 strict early
+                // errors AT CREATION TIME: the call site becomes a
+                // throw-IIFE (same carrier as the parse-failure arm
+                // below). Gated on the prologue: the same shapes are
+                // LEGAL in a sloppy body.
+                let early = if is_the_decl && strict_body {
+                    strict_early_error(&parsed, ast, arena_before)
+                } else {
+                    None
+                };
+                if let Some(msg) = early {
+                    let throw = syntax_error_throw(msg, ast);
+                    wrap_throw_iife(i, throw, ast);
+                    i += 1;
+                    continue;
+                }
+                // A body that touches `this` cannot be synthesized
+                // honestly: a dynamic function's sloppy `this` is the
+                // global OBJECT (`Function("return this")()` hands it
+                // back), and tr has no such object — its top level is
+                // its global. The parse appended the body's
+                // expressions after `arena_before`, so scanning that
+                // tail sees every `this` at any depth. Harness
+                // `fnGlobalObject.js` is exactly this shape; it keeps
+                // the loud reject.
+                let touches_this = ast.exprs[arena_before..]
+                    .iter()
+                    .any(|e| matches!(e, Expr::This));
+                if is_the_decl && !touches_this {
+                    let mut decl = parsed.pop().unwrap();
+                    // The parse assigned spans relative to the
+                    // ASSEMBLED text, but the fn-source registry
+                    // slices the MAIN source by span — a stale
+                    // offset lands in unrelated bytes (silent-wrong
+                    // toString, or a panic when it splits a
+                    // multi-byte char). Synthesized decls carry the
+                    // (0,0) sentinel like every other synth site.
+                    if let Stmt::FnDecl { span, .. } = &mut decl {
+                        *span = crate::lexer::Span { start: 0, end: 0 };
+                    }
+                    ast.stmts.push(decl);
+                    ast.exprs[i] = Expr::Ident(name);
+                    synth += 1;
+                }
             }
+            None => {}
         }
         i += 1;
     }
+}
+
+/// Whether the body text's directive prologue opens with a
+/// 'use strict' directive (either quote form). First-statement-only is
+/// the §11.2.1 shape every test262 case uses; a directive buried
+/// after other directives is a recorded non-detection (stays sloppy
+/// here → no early error → the loud paths keep it).
+fn body_prologue_strict(body: &str) -> bool {
+    let t = body.trim_start();
+    t.starts_with("'use strict'") || t.starts_with("\"use strict\"")
+}
+
+/// §15.2.1 strict early errors detectable on the synthesized decl:
+/// duplicate parameter names, `eval` / `arguments` / a future
+/// reserved word as a parameter name, and assignment (or ++/--) to
+/// `eval` / `arguments` anywhere in the body — the parse appended
+/// every body expression after `arena_before`, so the arena tail scan
+/// sees all depths (same posture as the `this` scan).
+fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option<String> {
+    const FUTURE_RESERVED: &[&str] = &[
+        "eval",
+        "arguments",
+        "implements",
+        "interface",
+        "let",
+        "package",
+        "private",
+        "protected",
+        "public",
+        "static",
+        "yield",
+    ];
+    let [Stmt::FnDecl { params, .. }] = parsed else {
+        return None;
+    };
+    let mut seen: Vec<&str> = Vec::new();
+    for p in params {
+        let name = &p.name;
+        if seen.contains(&name.as_str()) {
+            return Some(format!("dynamic function: duplicate parameter `{name}`"));
+        }
+        if FUTURE_RESERVED.contains(&name.as_str()) {
+            return Some(format!(
+                "dynamic function: `{name}` as a parameter name in strict mode"
+            ));
+        }
+        seen.push(name);
+    }
+    for e in &ast.exprs[arena_before..] {
+        let target = match e {
+            Expr::Assign { target, .. } => target,
+            Expr::PostIncr { target, .. } => target,
+            _ => continue,
+        };
+        if let Expr::Ident(n) = ast.get_expr(*target)
+            && (n == "eval" || n == "arguments")
+        {
+            return Some(format!(
+                "dynamic function: assignment to `{n}` in strict mode"
+            ));
+        }
+    }
+    None
+}
+
+/// Whether the body text lexes a BARE `with` identifier token — one
+/// that is neither a member name (`x.with`) nor an object key
+/// (`{ with: 1 }`), the two positions where strict mode still allows
+/// the word. A "with" inside a string or comment never lexes as an
+/// Ident, so no textual false positives.
+fn body_lexes_bare_with(body: &str) -> bool {
+    let Ok(ts) = lexer::tokenize(body) else {
+        return false;
+    };
+    ts.iter().enumerate().any(|(idx, s)| {
+        matches!(&s.token, Token::Ident(n) if n == "with")
+            && !matches!(idx.checked_sub(1).map(|p| &ts[p].token), Some(Token::Dot))
+            && !matches!(ts.get(idx + 1).map(|n| &n.token), Some(Token::Colon))
+    })
+}
+
+/// Replace the call site with `(() => { throw ... })()`.
+fn wrap_throw_iife(i: usize, throw: Stmt, ast: &mut Ast) {
+    let arrow = ast.add_expr(Expr::ArrowFn {
+        params: Vec::new(),
+        return_type: None,
+        body: vec![throw],
+    });
+    ast.exprs[i] = Expr::Call {
+        callee: arrow,
+        args: Vec::new(),
+    };
 }
 
 /// The argument texts of a `Function(...)` or `new Function(...)`
