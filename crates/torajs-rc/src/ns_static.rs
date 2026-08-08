@@ -253,6 +253,13 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Reflect", "has", 2),
     row("Reflect", "ownKeys", 1),
     row("Reflect", "construct", 2),
+    // §19.2.1 the global `eval` as a VALUE — identity / typeof /
+    // name / length are real; tr performs no runtime evaluation
+    // (direct calls compile through the desugar_eval prefix), so a
+    // call through the escaped cell raises the recorded loud
+    // TypeError. Keyed under `globalThis` (its owning object).
+    // Length 1 per spec.
+    row("globalThis", "eval", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

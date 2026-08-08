@@ -257,6 +257,15 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ReflectConstructDyn => {
                 super::ns_static_reflect::reflect_construct_dyn(argv, argc)
             }
+            // §19.2.1 — tr performs no runtime evaluation (direct
+            // calls compile through the desugar_eval prefix); the
+            // escaped cell's call face is the recorded loud reject.
+            Disp::EvalDyn => {
+                __torajs_throw_type_error(
+                    c"eval through a runtime value is not supported".as_ptr(),
+                );
+                VALUE_UNDEFINED
+            }
         }
     }
 }

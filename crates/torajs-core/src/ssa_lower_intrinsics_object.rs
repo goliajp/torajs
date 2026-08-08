@@ -151,6 +151,10 @@ pub(crate) struct ObjectIds {
     /// RFC 20260801-ns-object-value (Reflect extension) — the
     /// Reflect namespace singleton in a value position.
     pub ns_object_reflect: FuncId,
+    /// §19.2.1 — the global `eval` cell in a value position
+    /// (identity / typeof / reflection; the call face is the
+    /// recorded loud TypeError).
+    pub global_eval_value: FuncId,
     /// §7.3.25 CopyDataProperties into the dynobj lane's fresh
     /// literal (`{ ...anySrc }`, rotation 267) — pointer-slot form
     /// so a member_set resize writes the relocated block back.
@@ -257,6 +261,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         reflect_apply: decl!("__torajs_reflect_apply", [Any, Any, Any], Any),
         reflect_construct: decl!("__torajs_reflect_construct", [Any, Any, Any], Any),
         ns_object_reflect: decl!("__torajs_ns_object_reflect", [], Any),
+        global_eval_value: decl!("__torajs_global_eval_value", [], Any),
         dynobj_spread_from: decl!("__torajs_dynobj_spread_from", [Ptr, Any, Ptr], Void),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),

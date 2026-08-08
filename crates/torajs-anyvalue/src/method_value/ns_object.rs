@@ -209,6 +209,16 @@ pub extern "C" fn __torajs_ns_object_reflect() -> AnyValue {
     box_void_ptr(reflect_object_ptr())
 }
 
+/// Compiler face — the global `eval` lowered in a value position
+/// (§19.2.1). The interned ns-static cell carries the name / length
+/// reflection and the recorded loud call face; identity holds
+/// across every read because the cell interns per id.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_global_eval_value() -> AnyValue {
+    let id = torajs_rc::ns_static::ns_static_id("globalThis", "eval");
+    box_void_ptr(ns_static_cell(id).cast())
+}
+
 /// Identity probe for the toString badge — true only for the minted
 /// singleton (0-compare before any mint, so a plain dynobj never
 /// false-positives).

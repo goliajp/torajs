@@ -65,6 +65,11 @@ pub(crate) fn check(
     }
     match name {
         "console" => Ok(Type::Object("console")),
+        // §19.2.1 — the global `eval` as a VALUE (thisArg / arg /
+        // identity). Any, like globalThis: the runtime cell rides
+        // the any lanes; direct `eval("...")` calls compiled away in
+        // the desugar_eval prefix and never reach an ident read.
+        "eval" => Ok(Type::Any),
         "Math" => Ok(Type::Object("Math")),
         // RFC 20260807-global-object G2 — `globalThis` as a VALUE is
         // the runtime singleton (an Any-boxed immortal dynobj), so

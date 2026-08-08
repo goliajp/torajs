@@ -350,6 +350,11 @@ pub(super) enum Disp {
     /// construct kernel (`crate::reflect_construct`), newTarget
     /// defaulting to target on the 2-arg form.
     ReflectConstructDyn,
+    /// §19.2.1 the global `eval` cell — the call face is the
+    /// recorded loud TypeError (tr performs no runtime evaluation;
+    /// the cell exists for identity / typeof / the reflection
+    /// surfaces).
+    EvalDyn,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -478,4 +483,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectHas,
     Disp::ReflectOwnKeys,
     Disp::ReflectConstructDyn,
+    Disp::EvalDyn,
 ];

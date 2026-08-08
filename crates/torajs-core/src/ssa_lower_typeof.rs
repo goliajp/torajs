@@ -103,7 +103,7 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
         | "Proxy" | "Iterator" | "BigInt" | "ArrayBuffer" | "DataView" | "TypeError"
         | "RangeError" | "SyntaxError" | "ReferenceError" | "EvalError" | "URIError"
         | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
-        | "encodeURIComponent" | "decodeURIComponent" => Some("function"),
+        | "encodeURIComponent" | "decodeURIComponent" | "eval" => Some("function"),
         n if n.starts_with("__class_") => Some("function"),
         _ => None,
     }

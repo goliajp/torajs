@@ -866,6 +866,8 @@ pub(crate) struct Intrinsics {
     /// RFC 20260801-ns-object-value (Reflect extension) — Reflect
     /// namespace object value.
     pub(crate) ns_object_reflect: FuncId,
+    /// §19.2.1 — the global `eval` cell as a value.
+    pub(crate) global_eval_value: FuncId,
     /// RFC 20260807-global-object G2 — globalThis singleton value.
     pub(crate) globalthis_object: FuncId,
     pub(crate) json_quote_str: FuncId,

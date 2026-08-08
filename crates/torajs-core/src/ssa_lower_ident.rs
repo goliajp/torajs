@@ -102,6 +102,7 @@ fn try_ns_object_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
         "Math" => ctx.intrinsics.ns_object_math,
         "JSON" => ctx.intrinsics.ns_object_json,
         "Reflect" => ctx.intrinsics.ns_object_reflect,
+        "eval" => ctx.intrinsics.global_eval_value,
         "globalThis" => ctx.intrinsics.globalthis_object,
         _ => return None,
     };
