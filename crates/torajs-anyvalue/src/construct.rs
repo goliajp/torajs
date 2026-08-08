@@ -29,14 +29,22 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use torajs_rc::{HeapHeader, Tag};
+use torajs_rc::{FLAG_FN_PROTO, HeapHeader, Tag};
 
-use crate::method_call_closure_dispatch::invoke_boxed;
+use crate::method_call_closure_dispatch::{invoke_boxed, invoke_with_this};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
+use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_object_create_link_proto(obj: *mut c_void, proto: u64);
+    fn __torajs_throw_check() -> i64;
 }
+
+/// Mirror of `method_value.rs`'s cell layout constant — the boxed
+/// dual-entry slot of a closure cell.
+const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
 /// Power of two, and comfortably above the 256 class tags
 /// `torajs-meta` allows, so the table never fills and probe chains
@@ -105,13 +113,12 @@ pub(crate) fn ctor_entry(key: u64) -> u64 {
 /// ES §7.2.4 IsConstructor, over the shapes tr can answer for today.
 ///
 /// A class object is a dynobj carrying `FLAG_DYNOBJ_CLASS_CTOR` — the
-/// same bit that makes `typeof C` answer `"function"`. Ordinary
-/// functions reach any-world as closure cells, and telling a
-/// constructible one from an arrow or a method needs information the
-/// closure cell does not carry yet, so they answer false here rather
-/// than guess. That is the conservative direction: a wrong false
-/// raises a TypeError the program can see, a wrong true would call
-/// something as a constructor that never agreed to be one.
+/// same bit that makes `typeof C` answer `"function"`. An ordinary
+/// function reaches any-world as a closure cell, and the compiler
+/// stamps `FLAG_FN_PROTO` on exactly the declaration forms that own a
+/// `.prototype` — which per §10.2.4 MakeConstructor are exactly the
+/// forms with [[Construct]] (arrows and methods carry neither), so
+/// that one bit answers both questions.
 ///
 /// # Safety
 /// `av` must be a live AnyValue.
@@ -126,7 +133,8 @@ pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
     // SAFETY: a cell-encoded AnyValue points at a live heap block,
     // whose header is the first `HeapHeader` bytes.
     let hdr = unsafe { &*(ptr as *const HeapHeader) };
-    hdr.type_tag == Tag::DynObj as u16 && hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0
+    (hdr.type_tag == Tag::DynObj as u16 && hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0)
+        || (hdr.type_tag == Tag::Closure as u16 && hdr.flags & FLAG_FN_PROTO != 0)
 }
 
 /// ES §7.2.4 IsConstructor as a value-level predicate.
@@ -164,6 +172,14 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
         }
         return VALUE_UNDEFINED;
     }
+    // A plain function constructs per §10.2.2 (base kind): fresh
+    // `this` from its `.prototype`, then the ordinary call channel.
+    let cell = as_void_ptr(callee);
+    // SAFETY: is_constructor above proved a live cell header.
+    let hdr = unsafe { &*(cell as *const HeapHeader) };
+    if hdr.type_tag == Tag::Closure as u16 {
+        return unsafe { construct_plain_fn(cell, argv, argc) };
+    }
     let entry = ctor_entry(as_void_ptr(callee) as u64);
     if entry == 0 {
         // The class is real but its factory has no boxed adapter —
@@ -178,4 +194,62 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
         return VALUE_UNDEFINED;
     }
     unsafe { invoke_boxed(core::ptr::null_mut(), entry, argv, argc) }
+}
+
+/// §10.2.2 [[Construct]], base kind, over a plain-fn closure cell:
+/// `this` is OrdinaryCreateFromConstructor(callee, "%Object.prototype%")
+/// — a fresh dynobj linked to the callee's `.prototype` (minted on
+/// first touch, `constructor` back-ref included) — the body runs
+/// through the same receiver-routing dispatcher every any-world call
+/// uses, and a non-object completion answers the fresh `this` (step
+/// 10.b). `new.target` inside the body is a recorded approximation:
+/// tr lowers it to undefined outside class ctors.
+///
+/// # Safety
+/// `cell` is a live closure cell carrying `FLAG_FN_PROTO`; `argv`
+/// points at `argc` readable AnyValue slots.
+unsafe fn construct_plain_fn(cell: *mut c_void, argv: *const u64, argc: i64) -> AnyValue {
+    unsafe {
+        let Some((_ptag, pval)) = crate::closure_proto::fn_prototype_pair(cell) else {
+            // Unreachable behind the is_constructor gate, but a loud
+            // answer beats UB if the gate ever drifts.
+            __torajs_throw_type_error(c"value is not a constructor".as_ptr());
+            return VALUE_UNDEFINED;
+        };
+        let this_obj = __torajs_dynobj_alloc();
+        __torajs_object_create_link_proto(this_obj, __torajs_anyv_box_pointer(pval as *mut c_void));
+        let this_av = __torajs_anyv_box_pointer(this_obj);
+        let entry = *((cell as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        let result = invoke_with_this(cell, entry, this_av, argv, argc);
+        if __torajs_throw_check() != 0 {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(this_av);
+            return VALUE_UNDEFINED;
+        }
+        if is_heap_object(result) {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(this_av);
+            return result;
+        }
+        if is_cell(result) && !as_void_ptr(result).is_null() {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(result);
+        }
+        this_av
+    }
+}
+
+/// Is this completion value an Object in the spec sense — a heap cell
+/// that is not one of the heap-shaped primitives (Str / Symbol /
+/// BigInt)?
+unsafe fn is_heap_object(av: AnyValue) -> bool {
+    if !is_cell(av) {
+        return false;
+    }
+    let ptr = as_void_ptr(av);
+    if ptr.is_null() {
+        return false;
+    }
+    // SAFETY: a cell-encoded AnyValue points at a live heap header.
+    let hdr = unsafe { &*(ptr as *const HeapHeader) };
+    hdr.type_tag != Tag::Str as u16
+        && hdr.type_tag != Tag::Symbol as u16
+        && hdr.type_tag != Tag::BigInt as u16
 }
