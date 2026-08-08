@@ -50,12 +50,14 @@ struct DeclaredShape {
 
 pub(super) fn rewrite_super_prop_sites(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
     for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in class_index {
-        let Some(parent_name) = parent.as_ref() else {
-            continue;
-        };
         // Instance context: ctor body (field inits are folded in) +
         // instance methods. Super base = <Parent>.prototype, receiver
-        // spelling = `this` (Pass 2 rewrites it to `__this`).
+        // spelling = `this` (Pass 2 rewrites it to `__this`). A class
+        // WITHOUT an extends clause still has a super base in its
+        // methods — `Object.prototype` (§10.2.4: the home object is
+        // C.prototype, whose [[Prototype]] is %Object.prototype%), so
+        // `class A { m() { return super.toString(); } }` reads there.
+        let parent_name = parent.as_deref();
         let mut inst = SuperPropSites::default();
         if let Some(c) = ctor.as_ref() {
             for s in &c.body {
@@ -69,22 +71,26 @@ pub(super) fn rewrite_super_prop_sites(ast: &mut Ast, class_index: &[ClassIndexE
         }
         rewrite_sites(ast, class_index, parent_name, cname, false, inst);
 
-        // Static context: super base = the <Parent> class object,
-        // receiver spelling = the class's own name.
-        let mut stat = SuperPropSites::default();
-        for m in static_methods {
-            for s in &m.body {
-                collect_superprop_in_stmt(ast, s, &mut stat);
+        // Static context: super base = the <Parent> class object.
+        // A base class's static super base would be
+        // %Function.prototype% — a read channel tr does not have yet,
+        // so those markers stay put and fail loud at the checker.
+        if let Some(parent_name) = parent_name {
+            let mut stat = SuperPropSites::default();
+            for m in static_methods {
+                for s in &m.body {
+                    collect_superprop_in_stmt(ast, s, &mut stat);
+                }
             }
+            rewrite_sites(ast, class_index, Some(parent_name), cname, true, stat);
         }
-        rewrite_sites(ast, class_index, parent_name, cname, true, stat);
     }
 }
 
 fn rewrite_sites(
     ast: &mut Ast,
     class_index: &[ClassIndexEntry],
-    parent_name: &str,
+    parent_name: Option<&str>,
     cname: &str,
     is_static: bool,
     found: SuperPropSites,
@@ -162,8 +168,10 @@ fn accessor_fn(is_static: bool, owner: &str, name: &str, suffix: &str) -> String
     }
 }
 
-fn mint_base(ast: &mut Ast, parent_name: &str, is_static: bool) -> ExprId {
-    let parent = ast.add_expr(Expr::Ident(parent_name.to_string()));
+fn mint_base(ast: &mut Ast, parent_name: Option<&str>, is_static: bool) -> ExprId {
+    // No extends clause → the instance super base is %Object.prototype%
+    // (the caller never reaches here for a base class's statics).
+    let parent = ast.add_expr(Expr::Ident(parent_name.unwrap_or("Object").to_string()));
     if is_static {
         parent
     } else {
@@ -189,11 +197,11 @@ fn mint_receiver(ast: &mut Ast, cname: &str, is_static: bool) -> ExprId {
 /// any accessor further up, exactly like the runtime chain would.
 fn nearest_declaring_shape(
     class_index: &[ClassIndexEntry],
-    start: &str,
+    start: Option<&str>,
     name: &str,
     is_static: bool,
 ) -> Option<DeclaredShape> {
-    let mut cur = start.to_string();
+    let mut cur = start?.to_string();
     for _ in 0..64 {
         let entry = class_index.iter().find(|e| e.1 == cur)?;
         let list: &[ClassMethod] = if is_static { &entry.8 } else { &entry.7 };
