@@ -29,14 +29,12 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
                 self.fmt_let_decl_body(*mutable, name, type_ann.as_deref(), *init, *is_var);
             }
-            Stmt::Return(opt) => {
-                self.write_indent();
-                self.write("return");
-                if let Some(eid) = opt {
-                    self.write(" ");
-                    self.fmt_expr(*eid);
-                }
-            }
+            Stmt::UsingDecl {
+                name,
+                type_ann,
+                init,
+            } => self.fmt_using_decl(name, type_ann.as_deref(), *init),
+            Stmt::Return(opt) => self.fmt_return(*opt),
             Stmt::Yield(eid) => {
                 self.write_indent();
                 self.write("yield ");
@@ -283,6 +281,32 @@ impl<'a> Formatter<'a> {
     }
 
     /// Shared LetDecl emission body (no leading indent) — used by the
+    /// `Stmt::Return` arm — `return( expr)?`.
+    fn fmt_return(&mut self, opt: Option<ExprId>) {
+        self.write_indent();
+        self.write("return");
+        if let Some(eid) = opt {
+            self.write(" ");
+            self.fmt_expr(eid);
+        }
+    }
+
+    /// `Stmt::UsingDecl` arm — `using x(: T)? = init;` (RFC
+    /// 20260809 B1; the formatter sees the variant only when running
+    /// on a raw pre-desugar tree).
+    fn fmt_using_decl(&mut self, name: &str, type_ann: Option<&str>, init: ExprId) {
+        self.write_indent();
+        self.write("using ");
+        self.write(name);
+        if let Some(t) = type_ann {
+            self.write(": ");
+            self.write(t);
+        }
+        self.write(" = ");
+        self.fmt_expr(init);
+        self.write(";");
+    }
+
     /// `Stmt::LetDecl` arm and [`Self::fmt_for_init`].
     /// `var` must format as `var` — emitting let/const here silently
     /// rewrote `var x` decls (zero-warn surfaced it).

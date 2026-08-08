@@ -175,6 +175,12 @@ fn check_list<'a>(list: impl Iterator<Item = &'a Stmt>, ast: &Ast, errors: &mut 
                     insert_lexical(name, DeclKind::Lexical, &mut lexical, errors);
                 }
             }
+            // `using` is a lexical (const-natured) binding — it
+            // participates in §14.2.1 duplicate / lexical∩var
+            // conflicts exactly like `const` (RFC 20260809 B1).
+            Stmt::UsingDecl { name, .. } => {
+                insert_lexical(name, DeclKind::Lexical, &mut lexical, errors);
+            }
             Stmt::FnDecl {
                 name, is_generator, ..
             } => {

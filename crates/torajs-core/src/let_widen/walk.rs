@@ -21,6 +21,17 @@ impl Walker<'_> {
                 self.walk_expr(*init);
                 self.register_let(name, *mutable, type_ann.is_none(), *init);
             }
+            // `using` is a const-natured binding (RFC 20260809); it
+            // only reaches this walker if desugar_using was skipped,
+            // and the conservative reading is identical to `const`.
+            Stmt::UsingDecl {
+                name,
+                type_ann,
+                init,
+            } => {
+                self.walk_expr(*init);
+                self.register_let(name, false, type_ann.is_none(), *init);
+            }
             Stmt::If {
                 cond,
                 then_branch,

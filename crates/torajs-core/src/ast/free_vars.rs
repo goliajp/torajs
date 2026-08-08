@@ -78,7 +78,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
         }
         Stmt::YieldInto { value, .. } => walk_expr(ast, *value, bound, out),
         Stmt::Return(None) => {}
-        Stmt::LetDecl { name, init, .. } => {
+        Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
             walk_expr(ast, *init, bound, out);
             bound.push(name.clone());
         }

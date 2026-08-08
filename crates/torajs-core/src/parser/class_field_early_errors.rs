@@ -105,7 +105,7 @@ fn expr_contains(ast: &Ast, eid: ExprId) -> bool {
 fn stmt_contains(ast: &Ast, s: &Stmt) -> bool {
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => expr_contains(ast, *e),
-        Stmt::LetDecl { init, .. } => expr_contains(ast, *init),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => expr_contains(ast, *init),
         Stmt::YieldInto { value, .. } => expr_contains(ast, *value),
         Stmt::Return(e) => e.is_some_and(|e| expr_contains(ast, e)),
         Stmt::If {

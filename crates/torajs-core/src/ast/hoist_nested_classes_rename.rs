@@ -19,7 +19,9 @@ fn rename_in_stmt(ast: &mut Ast, s: &mut Stmt, old: &str, new: &str) {
             rename_in_expr(ast, *e, old, new)
         }
         Stmt::YieldInto { value, .. } => rename_in_expr(ast, *value, old, new),
-        Stmt::LetDecl { init, .. } => rename_in_expr(ast, *init, old, new),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            rename_in_expr(ast, *init, old, new)
+        }
         Stmt::If {
             cond,
             then_branch,

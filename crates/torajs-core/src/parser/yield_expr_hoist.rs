@@ -316,7 +316,7 @@ fn expr_events(ast: &Ast, eid: ExprId, evs: &mut Vec<Ev>) {
 fn stmt_events(ast: &Ast, s: &Stmt, evs: &mut Vec<Ev>) {
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => expr_events(ast, *e, evs),
-        Stmt::LetDecl { init, .. } => expr_events(ast, *init, evs),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => expr_events(ast, *init, evs),
         Stmt::YieldInto { value, .. } => expr_events(ast, *value, evs),
         Stmt::Return(e) => {
             if let Some(e) = e {

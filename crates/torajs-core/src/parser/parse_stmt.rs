@@ -165,7 +165,16 @@ impl<'a> Parser<'a> {
         if let Some(mutable) = mutable {
             return self.parse_let_decl_stmt(mutable, is_var);
         }
-        self.reject_using_decl()?;
+        match self.using_decl_head() {
+            Some(false) => return self.parse_using_decl(),
+            Some(true) => {
+                return Err(format!(
+                    "not yet supported: `await using` declarations (Explicit Resource Management) at {}",
+                    self.at()
+                ));
+            }
+            None => {}
+        }
         if let Some(labeled) = self.try_parse_labeled()? {
             return Ok(labeled);
         }
@@ -192,38 +201,6 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         self.expr_stmt_or_dstr_assign(expr)
-    }
-
-    /// Explicit Resource Management (`using x = …` / `await using
-    /// x = …`) is unimplemented. `using` lexes as an ordinary Ident,
-    /// so without a loud reject the head parses as an expression
-    /// statement — `using a = r, b;` silently became a comma
-    /// statement that exits 0. The declaration head requires a
-    /// binding identifier on the SAME line after `using`; the
-    /// line-break form stays an expression statement per ASI, and
-    /// `using[i]` / `using(x)` stay member/call expressions.
-    fn reject_using_decl(&mut self) -> Result<(), String> {
-        let using_bind_pos = match self.peek() {
-            Token::Ident(n) if n == "using" => Some(self.pos + 1),
-            Token::Await => match self.tokens.get(self.pos + 1).map(|s| &s.token) {
-                Some(Token::Ident(n)) if n == "using" => Some(self.pos + 2),
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some(bind_pos) = using_bind_pos
-            && matches!(
-                self.tokens.get(bind_pos).map(|s| &s.token),
-                Some(Token::Ident(_))
-            )
-            && !self.has_newline_before(bind_pos)
-        {
-            return Err(format!(
-                "not yet supported: `using` declarations (Explicit Resource Management) at {}",
-                self.at()
-            ));
-        }
-        Ok(())
     }
 
     /// T-46 — labeled statement (`label: stmt`). JS spec §13.13.

@@ -135,7 +135,7 @@ fn scan_stmt(
         Stmt::Labeled { body, .. } => {
             scan_stmt(ast, body, direct, called, fn_values, expr_types);
         }
-        Stmt::LetDecl { name, init, .. } => {
+        Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
             scan_expr(ast, *init, called, direct, fn_values, expr_types);
             fn_values.insert(name.clone());
         }

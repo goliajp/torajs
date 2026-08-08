@@ -172,6 +172,16 @@ impl Checker {
                 // [`crate::check_stmt_let_decl::check`].
                 crate::check_stmt_let_decl::check(self, ast, *mutable, name, type_ann, *init);
             }
+            // `desugar_using` (prelude) rewrites every UsingDecl into
+            // try/finally + helper calls before check runs; one
+            // reaching this arm means a pipeline skipped the pass.
+            // Loud, not silent — checking it as a plain const would
+            // drop the dispose semantics on the floor.
+            Stmt::UsingDecl { name, .. } => {
+                self.errors.push_err(format!(
+                    "internal: `using {name}` survived desugar_using — pipeline is missing the pass"
+                ));
+            }
             Stmt::FnDecl {
                 name, params, body, ..
             } => {

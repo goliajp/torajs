@@ -51,7 +51,7 @@ pub(crate) fn check(
     // answers Any (the dynobj lane's runtime CopyDataProperties
     // names the fields). Remaining fields still typecheck below for
     // side effects.
-    let mut any_spread = false;
+    let mut dynobj_lane = false;
     for (n, eid) in fields {
         // S2.24 刀 4 — a CoverInitializedName field (`{ x = D }`)
         // reaching expression position is the §13.2.5.1 early error:
@@ -70,7 +70,7 @@ pub(crate) fn check(
             // already excludes the named keys, so this gate had no
             // missing implementation behind it.
             if matches!(src_ty, Type::Any) {
-                any_spread = true;
+                dynobj_lane = true;
                 continue;
             }
             let Type::Struct(src_fields) = &src_ty else {
@@ -111,13 +111,18 @@ pub(crate) fn check(
             // RFC 20260725-objlit-computed-key 刀 1 — a computed-key
             // field has no static name, so it contributes nothing to
             // the struct layer. Key and value still typecheck (side
-            // effects are real); the field itself only exists on the
-            // dynobj lane, where the runtime ToPropertyKey names it.
-            // A literal that never reaches that lane rejects at the
-            // struct-lane lowering instead.
+            // effects are real). RFC 20260809 刀 1 — the whole
+            // literal answers Any, the same exit the any-spread arm
+            // takes: only the dynobj lane can ToPropertyKey the key
+            // and name the property, and this holds at EVERY
+            // position (return值 / argument / field init), not just
+            // the declaration sites the degrade collector covers —
+            // `return { [Symbol.dispose]() {} }` previously panicked
+            // at the struct-lane lowering.
             let key_eid = ast.objlit_computed_keys[eid];
             checker.type_of(ast, key_eid)?;
             checker.type_of(ast, *eid)?;
+            dynobj_lane = true;
         } else {
             let ty = checker.type_of(ast, *eid)?;
             if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
@@ -127,7 +132,7 @@ pub(crate) fn check(
             }
         }
     }
-    if any_spread {
+    if dynobj_lane {
         return Ok(Type::Any);
     }
     Ok(Type::Struct(field_tys))

@@ -174,7 +174,7 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
         }
         Stmt::Return(None) | Stmt::Break(_) | Stmt::Continue(_) => true,
         Stmt::Labeled { body, .. } => eal_stmt_safe(ast, body, x_name),
-        Stmt::LetDecl { name, init, .. } => {
+        Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
             // `let Y = X[i]` is fine (Y holds an element value);
             // `let Y = X` would be escape (caught by eal_expr_safe).
             // The new let's name shadows X in the body if same name;

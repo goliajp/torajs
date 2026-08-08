@@ -64,6 +64,7 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::desugar_eval(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
+    ast::desugar_using(ast);
     ast::hoist_gen_fn_exprs(ast);
     ast::desugar_generators(ast);
     ast::desugar_async(ast);

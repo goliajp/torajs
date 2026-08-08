@@ -74,7 +74,9 @@ pub(super) fn collect_superprop_in_stmt(ast: &Ast, s: &Stmt, out: &mut SuperProp
                 walk_expr(ast, *eid, out, false);
             }
         }
-        Stmt::LetDecl { init, .. } => walk_expr(ast, *init, out, false),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            walk_expr(ast, *init, out, false)
+        }
         Stmt::If {
             cond,
             then_branch,

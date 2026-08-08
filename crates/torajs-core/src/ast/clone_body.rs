@@ -199,6 +199,15 @@ impl<'a> BodyCloner<'a> {
                 init: self.clone_expr(*init),
                 is_var: *is_var,
             },
+            Stmt::UsingDecl {
+                name,
+                type_ann,
+                init,
+            } => Stmt::UsingDecl {
+                name: name.clone(),
+                type_ann: type_ann.clone(),
+                init: self.clone_expr(*init),
+            },
             Stmt::If {
                 cond,
                 then_branch,

@@ -114,7 +114,7 @@ impl<'a> Linter<'a> {
         scopes: &mut Vec<HashSet<String>>,
     ) {
         match stmt {
-            Stmt::LetDecl { name, init, .. } => {
+            Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
                 // shadowed-let — does any enclosing scope declare the
                 // same name?
                 if scopes
@@ -326,7 +326,7 @@ fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
         }
         Stmt::Expr(eid) => expr_can_throw(ast, *eid),
         Stmt::Return(Some(eid)) => expr_can_throw(ast, *eid),
-        Stmt::LetDecl { init, .. } => expr_can_throw(ast, *init),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => expr_can_throw(ast, *init),
         Stmt::Yield(eid) => expr_can_throw(ast, *eid),
         Stmt::YieldInto { value, .. } => expr_can_throw(ast, *value),
         Stmt::If {

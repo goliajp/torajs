@@ -54,6 +54,15 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             // rewritten `var` decl (surfaced by the zero-warn rule).
             is_var: *is_var,
         },
+        Stmt::UsingDecl {
+            name,
+            type_ann,
+            init,
+        } => Stmt::UsingDecl {
+            name: name.clone(),
+            type_ann: type_ann.clone(),
+            init: sfi_rewrite_expr(ast, *init, x_name, i_name, v_name),
+        },
         Stmt::If {
             cond,
             then_branch,

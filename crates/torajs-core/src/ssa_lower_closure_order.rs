@@ -100,7 +100,9 @@ fn closures_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<String>) {
         }
         Stmt::YieldInto { value, .. } => closures_in_expr(ast, *value, out),
         Stmt::Return(None) | Stmt::Break(_) | Stmt::Continue(_) => {}
-        Stmt::LetDecl { init, .. } => closures_in_expr(ast, *init, out),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            closures_in_expr(ast, *init, out)
+        }
         Stmt::If {
             cond,
             then_branch,

@@ -88,7 +88,9 @@ fn stmt_assigns_matching(ast: &Ast, s: &Stmt, hit: HitFn) -> bool {
         }
         Stmt::YieldInto { value, .. } => expr_assigns_matching(ast, *value, hit),
         Stmt::Return(maybe) => maybe.is_some_and(|e| expr_assigns_matching(ast, e, hit)),
-        Stmt::LetDecl { init, .. } => expr_assigns_matching(ast, *init, hit),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            expr_assigns_matching(ast, *init, hit)
+        }
         Stmt::If {
             cond,
             then_branch,

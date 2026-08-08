@@ -210,6 +210,19 @@ impl<'a> Parser<'a> {
                         self.peek(),
                         Token::Case | Token::Default | Token::RBrace | Token::Eof
                     ) {
+                        // §14.12 (ES2026 ERM) — a UsingDeclaration
+                        // may not sit DIRECTLY in a case clause's
+                        // statement list (wrap it in a block). The
+                        // head test keeps `using[i]` / ASI forms as
+                        // expressions, and a Block re-enters
+                        // parse_stmt fresh, so `case 0: { using x =
+                        // … }` stays legal.
+                        if self.using_decl_head().is_some() {
+                            return Err(format!(
+                                "`using` declarations are not allowed directly in a case clause at {}",
+                                self.at()
+                            ));
+                        }
                         body.push(self.parse_stmt()?);
                     }
                     cases.push(ast::SwitchCase { value, body });
@@ -239,6 +252,13 @@ impl<'a> Parser<'a> {
                         self.peek(),
                         Token::Case | Token::Default | Token::RBrace | Token::Eof
                     ) {
+                        // Same §14.12 clause gate as `case` above.
+                        if self.using_decl_head().is_some() {
+                            return Err(format!(
+                                "`using` declarations are not allowed directly in a default clause at {}",
+                                self.at()
+                            ));
+                        }
                         body.push(self.parse_stmt()?);
                     }
                     default = Some(body);

@@ -40,7 +40,9 @@ pub(super) fn collect_supercall_in_stmt(
                 collect_supercall_in_expr(ast, *eid, out);
             }
         }
-        Stmt::LetDecl { init, .. } => collect_supercall_in_expr(ast, *init, out),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            collect_supercall_in_expr(ast, *init, out)
+        }
         Stmt::If {
             cond,
             then_branch,
@@ -256,7 +258,9 @@ pub(super) fn collect_super_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<(ExprId, 
                 collect_super_in_expr(ast, *eid, out);
             }
         }
-        Stmt::LetDecl { init, .. } => collect_super_in_expr(ast, *init, out),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            collect_super_in_expr(ast, *init, out)
+        }
         Stmt::If {
             cond,
             then_branch,

@@ -83,6 +83,14 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             println!("{pad}YieldInto var={var} ty={type_ann:?}");
             print_expr(ast, *value, indent + 1);
         }
+        Stmt::UsingDecl {
+            name,
+            type_ann,
+            init,
+        } => {
+            println!("{pad}UsingDecl {name} ty={type_ann:?}");
+            print_expr(ast, *init, indent + 1);
+        }
         Stmt::LetDecl {
             mutable,
             name,

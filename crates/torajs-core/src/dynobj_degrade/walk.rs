@@ -18,6 +18,11 @@ impl Walker<'_> {
                 type_ann,
                 init,
                 ..
+            }
+            | Stmt::UsingDecl {
+                name,
+                type_ann,
+                init,
             } => {
                 self.walk_expr(*init);
                 self.register_let(name, type_ann.is_none(), *init);

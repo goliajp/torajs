@@ -146,6 +146,25 @@ pub enum Stmt {
     /// Lowered to a write into `__torajs_throw_value` + an immediate
     /// return from the enclosing fn (with a sentinel result).
     Throw(ExprId),
+    /// `using x = expr;` — Explicit Resource Management (RFC
+    /// 20260809). A const-natured lexical binding that registers the
+    /// value's `[Symbol.dispose]` method AT BIND TIME and disposes
+    /// registered resources in reverse order when the enclosing
+    /// lexical scope exits (normal fall-through, throw, break,
+    /// return). `desugar_using` — which runs in the AST prelude
+    /// BEFORE the generator / async desugars, so state-machine
+    /// bodies inherit the try/finally shape — rewrites every one of
+    /// these into try/catch/finally + `__torajs_using_*` helper
+    /// calls; no later pass and no lowering ever sees this variant.
+    /// Multi-binding heads (`using a = x, b = y`) parse to one
+    /// UsingDecl per binding under `Stmt::Multi` (LetDecl
+    /// convention). The `await using` form stays parse-rejected
+    /// until its knife lands, so no `is_await` flag yet.
+    UsingDecl {
+        name: String,
+        type_ann: Option<String>,
+        init: ExprId,
+    },
     /// `try { body } catch (e) { catch_body } finally { finally_body }`.
     /// `had_catch` distinguishes `try {} catch {} finally {}` (where the
     /// catch swallows + finally runs) from `try {} finally {}` (where

@@ -20,7 +20,9 @@ pub(crate) fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, us
                 count_refs_expr(ast, *e, refs);
             }
         }
-        Stmt::LetDecl { init, .. } => count_refs_expr(ast, *init, refs),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            count_refs_expr(ast, *init, refs)
+        }
         Stmt::YieldInto { value, .. } => count_refs_expr(ast, *value, refs),
         Stmt::If {
             cond,
