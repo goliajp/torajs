@@ -56,6 +56,11 @@ const CTOR_MASK: u64 = CTOR_SLOTS as u64 - 1;
 static CTOR_KEY: [AtomicU64; CTOR_SLOTS] = [const { AtomicU64::new(0) }; CTOR_SLOTS];
 /// Address of that class's boxed factory adapter.
 static CTOR_ENTRY: [AtomicU64; CTOR_SLOTS] = [const { AtomicU64::new(0) }; CTOR_SLOTS];
+/// 1 when the class inherits `Array[@@species]`'s default getter
+/// (§23.1.2.5 — an `extends Array` class object with no own
+/// `@@species` answers ITSELF to the species read). Same slot index
+/// as `CTOR_KEY`.
+static CTOR_ARR_SPECIES: [AtomicU64; CTOR_SLOTS] = [const { AtomicU64::new(0) }; CTOR_SLOTS];
 
 /// MurmurHash3 finalizer, same mixer `fnprops` uses on fn pointers.
 /// Heap pointers are 8-aligned, so the low bits alone would collide
@@ -92,6 +97,46 @@ pub extern "C" fn __torajs_anyv_ctor_register(class_av: AnyValue, entry: *mut c_
         }
         i = (i + 1) & (CTOR_SLOTS - 1);
     }
+}
+
+/// Mark a class object as inheriting `Array[@@species]`'s default
+/// getter (§23.1.2.5) — emitted at module init for `extends Array`
+/// classes, right beside the factory-adapter registration. The
+/// species read answers the class ITSELF where a plain object's
+/// absent `@@species` defaults (a fn constructor's prototype chain
+/// carries no species getter, so plain fns never mark).
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_anyv_ctor_mark_arr_species(class_av: AnyValue) {
+    if !is_cell(class_av) {
+        return;
+    }
+    let key = as_void_ptr(class_av) as u64;
+    let mut i = (mix(key) & CTOR_MASK) as usize;
+    for _ in 0..CTOR_SLOTS {
+        let held = CTOR_KEY[i].load(Ordering::Relaxed);
+        if held == 0 || held == key {
+            CTOR_KEY[i].store(key, Ordering::Relaxed);
+            CTOR_ARR_SPECIES[i].store(1, Ordering::Relaxed);
+            return;
+        }
+        i = (i + 1) & (CTOR_SLOTS - 1);
+    }
+}
+
+/// Does this class object carry the inherited-`@@species` mark?
+pub(crate) fn ctor_arr_species_self(key: u64) -> bool {
+    let mut i = (mix(key) & CTOR_MASK) as usize;
+    for _ in 0..CTOR_SLOTS {
+        let held = CTOR_KEY[i].load(Ordering::Relaxed);
+        if held == key {
+            return CTOR_ARR_SPECIES[i].load(Ordering::Relaxed) != 0;
+        }
+        if held == 0 {
+            return false;
+        }
+        i = (i + 1) & (CTOR_SLOTS - 1);
+    }
+    false
 }
 
 /// Look up a class object's factory adapter; 0 if it has none.

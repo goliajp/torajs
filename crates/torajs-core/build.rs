@@ -60,6 +60,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_intrinsics_arr_any.rs",
     "src/ssa_lower_intrinsics_arr_str_etc.rs",
     "src/ssa_lower_intrinsics_object.rs",
+    "src/ssa_lower_intrinsics_subclass.rs",
     "src/ssa_lower_intrinsics_table.rs",
     "src/ssa_lower_call_object_integrity.rs",
     "src/ssa_lower_call_class_synth.rs",

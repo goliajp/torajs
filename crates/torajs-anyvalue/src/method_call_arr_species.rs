@@ -242,6 +242,17 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void) -> SpeciesOutcome
         let ctor_av = __torajs_anyv_box_pointer(cptr);
         let (stag, sval) = symbol_key_pair(ctor_av, sym as *const c_void);
         __torajs_value_drop_heap(sym);
+        // step 7.a with the INHERITED default getter (§23.1.2.5 —
+        // `get Array[@@species]` returns this, and an `extends
+        // Array` class inherits it through its static chain, which
+        // tr does not walk): an own-miss on a marked class answers
+        // the class itself. Recorded approximation: an explicit own
+        // `@@species = undefined` on a marked class would default
+        // per spec but constructs here (the override spelling is
+        // absent from the surveyed corpus).
+        if stag == 5 && crate::construct::ctor_arr_species_self(cptr as u64) {
+            return run_species_ctor(arr, ctor_av);
+        }
         // steps 7.b-8 — undefined / null species defaults.
         if stag == 5 || stag == 0 {
             return SpeciesOutcome::Default;

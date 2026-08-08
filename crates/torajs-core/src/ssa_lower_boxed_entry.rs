@@ -86,6 +86,18 @@ fn program_constructs_from_value(ast: &Ast) -> bool {
                 if name == "construct"
                     && matches!(ast.get_expr(*obj), crate::ast::Expr::Ident(ns) if ns == "Reflect")
         ),
+        // RFC 20260808-construct-channel B5 — a `constructor`
+        // property write is the ArraySpeciesCreate consumption
+        // signal (§9.4.2.3 step 5 reads it back and step 10
+        // constructs through the value; an `extends Array` class
+        // needs no explicit `@@species` write — the inherited
+        // default getter answers the class itself). Without the
+        // adapters the species construct dead-ends on a loud
+        // entry-miss for a class the program clearly wired up.
+        crate::ast::Expr::Assign { target, .. } => matches!(
+            ast.get_expr(*target),
+            crate::ast::Expr::Member { name, .. } if name == "constructor"
+        ),
         _ => false,
     })
 }
@@ -149,6 +161,95 @@ pub(crate) fn synthesize_boxed_entries(
             .copied()
             .unwrap_or_else(|| anon_stamp_pool.borrow_mut().assign_or_get(sid))
     };
+    let targets = collect_boxed_targets(ast, fn_table, fn_sigs, fn_sig_ids);
+    let mut entries = HashMap::new();
+    if targets.is_empty() {
+        return entries;
+    }
+    // Single-value ToString (the intrinsics table only carries the
+    // pair ABI) — declared once, lazily with the first adapter.
+    let anyv_to_str = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_to_str",
+        &[Type::Any],
+        Type::Ptr,
+    );
+    // S2.36 — struct-param coercion kernel + the release for its
+    // owned answer, declared lazily like anyv_to_str.
+    let arg_to_struct = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_arg_to_struct",
+        &[Type::Any, Type::I64],
+        Type::Any,
+    );
+    let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_rc_dec",
+        &[Type::Any],
+        Type::Void,
+    );
+    // S2.39 — the literal-default substitution kernel (answers the
+    // slot unless undefined, else boxes the baked literal), declared
+    // lazily like the trio above.
+    let anyv_or_default = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_or_default",
+        &[Type::Any, Type::I64, Type::I64],
+        Type::Any,
+    );
+    for t in targets {
+        let obj_tags: Vec<Option<u32>> = t
+            .user_tys
+            .iter()
+            .map(|ty| match ty {
+                Type::Obj(sid) => Some(sid_tag(*sid)),
+                _ => None,
+            })
+            .collect();
+        let pair = build_boxed_entry(
+            module,
+            fn_table,
+            fn_sigs,
+            fn_sig_ids,
+            intr,
+            anyv_to_str,
+            BoxedCoerceIntrinsics {
+                arg_to_struct,
+                anyv_rc_dec,
+                anyv_or_default,
+                obj_tags: &obj_tags,
+            },
+            &t.name,
+            t.fid,
+            &t.user_tys,
+            t.ret_ty,
+            t.has_real_argc,
+            t.has_argv,
+            t.recv_slot,
+            t.feeds_env,
+            &t.dflt_lits,
+        );
+        entries.insert(t.fid, pair);
+    }
+    entries
+}
+
+/// The per-FnDecl classification walk — which bodies get an adapter
+/// and with what argv-window shape (env/this head, static / factory
+/// head-less forms, argc/argv synthetic slots, the knife-2 receiver
+/// slot, S2.39 literal defaults). Carved out of
+/// [`synthesize_boxed_entries`] when the B5 predicate arm pushed it
+/// past the 200-line hard limit — verbatim move.
+fn collect_boxed_targets(
+    ast: &Ast,
+    fn_table: &HashMap<String, FuncId>,
+    fn_sigs: &[(Vec<Type>, Type)],
+    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
+) -> Vec<BoxedEntryTarget> {
     let constructs_from_value = program_constructs_from_value(ast);
     let mut targets: Vec<BoxedEntryTarget> = Vec::new();
     for stmt in &ast.stmts {
@@ -248,80 +349,7 @@ pub(crate) fn synthesize_boxed_entries(
             dflt_lits,
         });
     }
-    let mut entries = HashMap::new();
-    if targets.is_empty() {
-        return entries;
-    }
-    // Single-value ToString (the intrinsics table only carries the
-    // pair ABI) — declared once, lazily with the first adapter.
-    let anyv_to_str = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_to_str",
-        &[Type::Any],
-        Type::Ptr,
-    );
-    // S2.36 — struct-param coercion kernel + the release for its
-    // owned answer, declared lazily like anyv_to_str.
-    let arg_to_struct = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_arg_to_struct",
-        &[Type::Any, Type::I64],
-        Type::Any,
-    );
-    let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_rc_dec",
-        &[Type::Any],
-        Type::Void,
-    );
-    // S2.39 — the literal-default substitution kernel (answers the
-    // slot unless undefined, else boxes the baked literal), declared
-    // lazily like the trio above.
-    let anyv_or_default = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_or_default",
-        &[Type::Any, Type::I64, Type::I64],
-        Type::Any,
-    );
-    for t in targets {
-        let obj_tags: Vec<Option<u32>> = t
-            .user_tys
-            .iter()
-            .map(|ty| match ty {
-                Type::Obj(sid) => Some(sid_tag(*sid)),
-                _ => None,
-            })
-            .collect();
-        let pair = build_boxed_entry(
-            module,
-            fn_table,
-            fn_sigs,
-            fn_sig_ids,
-            intr,
-            anyv_to_str,
-            BoxedCoerceIntrinsics {
-                arg_to_struct,
-                anyv_rc_dec,
-                anyv_or_default,
-                obj_tags: &obj_tags,
-            },
-            &t.name,
-            t.fid,
-            &t.user_tys,
-            t.ret_ty,
-            t.has_real_argc,
-            t.has_argv,
-            t.recv_slot,
-            t.feeds_env,
-            &t.dflt_lits,
-        );
-        entries.insert(t.fid, pair);
-    }
-    entries
+    targets
 }
 
 /// S2.39 — one qualifying literal default (`b = 39` / `flag = true`),

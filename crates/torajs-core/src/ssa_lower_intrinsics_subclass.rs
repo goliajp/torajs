@@ -16,6 +16,11 @@ use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct ExoticSubclassIds {
+    /// RFC 20260808-construct-channel 刀 4 — mark an `extends Array`
+    /// class object as inheriting `Array[@@species]`'s default
+    /// getter (§23.1.2.5), so the species read answers the class
+    /// itself on an own miss.
+    pub ctor_mark_arr_species: FuncId,
     pub arr_subclass_alloc: FuncId,
     pub arr_subclass_super_len: FuncId,
     pub number_wrapper_subclass_alloc: FuncId,
@@ -45,6 +50,13 @@ pub(crate) fn declare(
          name: &str,
          params: &[Type]| declare_intrinsic(module, fn_table, name, params, Type::Any);
     ExoticSubclassIds {
+        ctor_mark_arr_species: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_ctor_mark_arr_species",
+            &[Type::Any][..],
+            Type::Void,
+        ),
         arr_subclass_alloc: d(
             module,
             fn_table,

@@ -55,9 +55,15 @@ pub(crate) fn try_lower(
     match name.as_str() {
         "__torajs_proto_register" => try_lower_proto_register(ctx, args),
         "__torajs_class_register" => try_lower_class_register(ctx, args),
-        "__torajs_error_proto_install" => try_lower_error_proto_install(ctx, args),
-        "__torajs_error_install_cause" => try_lower_error_install_cause(ctx, args),
-        "__torajs_error_is_error" => try_lower_error_is_error(ctx, args),
+        "__torajs_error_proto_install" => {
+            crate::ssa_lower_call_class_synth_error::try_lower_error_proto_install(ctx, args)
+        }
+        "__torajs_error_install_cause" => {
+            crate::ssa_lower_call_class_synth_error::try_lower_error_install_cause(ctx, args)
+        }
+        "__torajs_error_is_error" => {
+            crate::ssa_lower_call_class_synth_error::try_lower_error_is_error(ctx, args)
+        }
         "__torajs_is_constructor" => try_lower_is_constructor(ctx, args),
         "__torajs_static_method_reify" => reify::try_lower_static_method_reify(ctx, args),
         "__torajs_static_field_reify" => reify::try_lower_static_field_reify(ctx, args),
@@ -66,7 +72,9 @@ pub(crate) fn try_lower(
             reify::try_lower_class_accessor_reify(ctx, args, true)
         }
         "__torajs_class_computed_reify" => reify::try_lower_class_computed_reify(ctx, args),
-        "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
+        "__torajs_register_native_error" => {
+            crate::ssa_lower_call_class_synth_error::try_lower_register_native_error(ctx, args)
+        }
         "__torajs_undef_str" => crate::ssa_lower_call_error_magic::try_lower_undef_str(ctx, args),
         "__torajs_ctor_no_super_throw" => {
             crate::ssa_lower_call_error_magic::try_lower_ctor_no_super_throw(ctx, args)
@@ -200,92 +208,6 @@ fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
     Some(Operand::ConstI64(0))
 }
 
-/// `__torajs_error_install_cause(this, options.cause)` (§20.5.8.1) —
-/// the injected ctors' `cause` install. Spelled as a call rather than
-/// an assignment because CreateNonEnumerableDataPropertyOrThrow wants
-/// `{W:1, E:0, C:1}`, and an assignment can only produce the ordinary
-/// enumerable entry (which is still what a user's own `err.cause = x`
-/// after construction must produce — so only the ctor moves).
-fn try_lower_error_install_cause(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 2 {
-        return None;
-    }
-    let recv = ctx.lower_expr(args[0]);
-    let recv_any = if matches!(ctx.operand_ty(&recv), Type::Any) {
-        recv
-    } else {
-        ctx.box_to_any(recv)
-    };
-    let val = ctx.lower_expr(args[1]);
-    let val_any = if matches!(ctx.operand_ty(&val), Type::Any) {
-        val
-    } else {
-        ctx.box_to_any(val)
-    };
-    let cur_block = ctx.cur_block;
-    let install = ctx.intrinsics.error_install_cause;
-    ctx.f
-        .append_void(cur_block, InstKind::Call(install, vec![recv_any, val_any]));
-    Some(Operand::ConstI64(0))
-}
-
-/// `__torajs_error_proto_install("<C>")` (RFC 20260718 刀 1) —
-/// resolve the injected error class's tag and hand runtime the
-/// (tag, name Str) pair; it defines the §20.5.6.3/6.4 own `name` /
-/// `message` data properties on `__proto_<C>`. Dropout (no tag)
-/// lowers to nothing.
-fn try_lower_error_proto_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 1 {
-        return None;
-    }
-    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
-        return None;
-    };
-    let cname = cname.clone();
-    let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() else {
-        return Some(Operand::ConstI64(0));
-    };
-    let name_op = ctx.lower_expr(args[0]);
-    let cur_block = ctx.cur_block;
-    let install = ctx.intrinsics.error_proto_install;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(
-            install,
-            vec![Operand::ConstI64(tag as i64), name_op.clone()],
-        ),
-    );
-    // The lowered Str literal is a caller-owned temp — the runtime
-    // entries take their own stakes (rc_inc on the name value).
-    let ty = ctx.operand_ty(&name_op);
-    ctx.emit_drop_value(name_op, ty);
-    // rotation 186 — the install defines name/message/toString onto
-    // the prototype dynobj (may resize); refresh the module binding
-    // from the written-back table.
-    reify::emit_class_binding_writeback(ctx, &cname, tag, true);
-    Some(Operand::ConstI64(0))
-}
-
-/// `__torajs_error_is_error(x)` (RFC 20260718 刀 3) — the injected
-/// `Error.isError` static-method body: one Any operand in, Bool out.
-/// The operand is borrowed by the runtime probe (a flag read), so no
-/// ownership traffic — mirror of the genfn_chain arm's shape.
-fn try_lower_error_is_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 1 {
-        return None;
-    }
-    let v_op = ctx.lower_expr(args[0]);
-    let cur_block = ctx.cur_block;
-    let probe = ctx.intrinsics.error_is_error;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(probe, vec![v_op]),
-        Type::Bool,
-        None,
-    );
-    Some(Operand::Value(v))
-}
-
 /// `__torajs_is_constructor(x)` — §7.2.4 as a predicate: one Any in,
 /// Bool out.
 ///
@@ -384,51 +306,6 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
     Some(Operand::ConstI64(0))
 }
 
-fn try_lower_register_native_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 1 {
-        return None;
-    }
-    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
-        return None;
-    };
-    let cname = cname.clone();
-    let slot: i64 = match cname.as_str() {
-        "Error" => 0,
-        "TypeError" => 1,
-        "RangeError" => 2,
-        // RFC 20260718-error-message-own-prop 刀 3 — the
-        // derived-ctor no-super ReferenceError factory.
-        "ReferenceError" => 3,
-        // RFC 20260720 刀 5b — the StringToBigInt parse-failure
-        // SyntaxError factory.
-        "SyntaxError" => 4,
-        // §27.2.4.2 — the rejection an all-rejected `Promise.any`
-        // answers. Its factory takes the `errors` array ahead of the
-        // message, which is why torajs-throw reads this slot through
-        // its own typed lookup.
-        "AggregateError" => 5,
-        _ => return Some(Operand::ConstI64(0)),
-    };
-    let factory = format!("__new_{cname}");
-    if let Some(fid) = ctx.fn_table.get(&factory).copied()
-        && let Some(sig) = ctx.fn_sig_ids.get(&fid).copied()
-    {
-        let cur_block = ctx.cur_block;
-        let register_native_error = ctx.intrinsics.register_native_error;
-        let fnaddr = ctx
-            .f
-            .append_inst(cur_block, InstKind::FnAddr(fid), Type::FnSig(sig), None);
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Call(
-                register_native_error,
-                vec![Operand::ConstI64(slot), Operand::Value(fnaddr)],
-            ),
-        );
-    }
-    Some(Operand::ConstI64(0))
-}
-
 /// S-NEW 刀 2 — hand the runtime this class's boxed factory adapter,
 /// keyed on the very class value that was just registered.
 ///
@@ -437,6 +314,19 @@ fn try_lower_register_native_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> O
 /// and `__torajs_anyv_construct` answers that miss with its own
 /// message; inventing an entry here would be worse than the gap.
 fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
+    // RFC 20260808-construct-channel 刀 4 — an `extends Array` class
+    // inherits `Array[@@species]`'s default getter (§23.1.2.5)
+    // through its static chain, which the runtime species read does
+    // not walk: mark the class object so an own-miss answers the
+    // class itself. Not gated on the factory adapter below — the
+    // mark is a property-read fact; a missing adapter surfaces as
+    // the construct kernel's own loud miss.
+    if ctx.ast.exotic_parent.get(cname).map(String::as_str) == Some("Array") {
+        let cur_block = ctx.cur_block;
+        let mark = ctx.intrinsics.ctor_mark_arr_species;
+        ctx.f
+            .append_void(cur_block, InstKind::Call(mark, vec![class_op.clone()]));
+    }
     let Some(&factory) = ctx.fn_table.get(&format!("__new_{cname}")) else {
         return;
     };
