@@ -285,11 +285,41 @@ fn safe_binding_chain(
             break;
         }
     }
+    // RFC 20260808 knife 2 — the kill walk's by-name arena scan must
+    // not count a fn-local PARAM shadow's uses (the t262 harness
+    // declares a `func` param whose body uses killed every binding
+    // the bind family actually names `func`). Resolution is per fn —
+    // `toplevel_binding_refs` cannot arbitrate here: its Closure arm
+    // counts capture names unfiltered (the r290 over-approximation),
+    // so the harness param captured by its own inner closure poisons
+    // the whole set. A closure CAPTURE of the name outside a
+    // shadowing body is a real reference the walk can't see through —
+    // that still kills the chain.
+    let shadow_owned: std::collections::HashMap<String, Vec<bool>> = candidates
+        .keys()
+        .map(|b| {
+            (
+                b.clone(),
+                super::fnexpr_bind_this::shadowed_use_eids(ast, b),
+            )
+        })
+        .collect();
     loop {
         let mut killed: HashSet<String> = HashSet::new();
         for b in candidates.keys() {
+            let sh = &shadow_owned[b];
+            if ast.exprs.iter().enumerate().any(|(i, e)| {
+                matches!(e, Expr::Closure { captures, .. }
+                    if captures.iter().any(|c| c == b))
+                    && !sh[i]
+            }) {
+                killed.insert(b.clone());
+                continue;
+            }
             let b_eids: HashSet<u32> = (0..ast.exprs.len() as u32)
-                .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == b))
+                .filter(|&i| {
+                    matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == b) && !sh[i as usize]
+                })
                 .collect();
             let mut legal: HashSet<u32> = HashSet::new();
             for e in &ast.exprs {
@@ -311,6 +341,26 @@ fn safe_binding_chain(
             // target Ident is the binding's definition, not a use.
             for &t in assign_legal.intersection(&b_eids) {
                 legal.insert(t);
+            }
+            // RFC 20260808 knife 2 — `b.bind(…)` as a Call callee:
+            // the bind desugar routes an arguments-touching target to
+            // the runtime kernel (member call kept), whose bound cell
+            // dispatches through the boxed dual entry — real
+            // argc/argv against the reshaped rest-tail signature, so
+            // the receiver position is NOT a kill. A `.bind` member
+            // read outside a call (a stored `b.bind` value) still
+            // kills the chain.
+            for (mi, e) in ast.exprs.iter().enumerate() {
+                if let Expr::Member { obj, name } = e
+                    && name == "bind"
+                    && b_eids.contains(&obj.0)
+                    && ast
+                        .exprs
+                        .iter()
+                        .any(|c| matches!(c, Expr::Call { callee, .. } if callee.0 == mi as u32))
+                {
+                    legal.insert(obj.0);
+                }
             }
             if b_eids.difference(&legal).next().is_some() {
                 killed.insert(b.clone());

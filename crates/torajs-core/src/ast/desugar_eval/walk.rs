@@ -130,6 +130,15 @@ pub(crate) fn fn_owned_exprs(ast: &Ast) -> Vec<bool> {
     owned
 }
 
+/// Per-body twin of [`fn_owned_exprs`]: flag exactly the given stmt
+/// list's expression sub-tree. RFC 20260808 knife 2 — the bind
+/// collectors resolve a by-name use against the fn that SHADOWS the
+/// name (its body's uses belong to the local, not the top-level
+/// binding), which needs ownership per fn rather than one global bit.
+pub(crate) fn body_owned_exprs(ast: &Ast, body: &[Stmt], owned: &mut [bool]) {
+    mark_stmts(ast, body, true, owned);
+}
+
 fn mark_stmts(ast: &Ast, stmts: &[Stmt], in_fn: bool, owned: &mut [bool]) {
     for s in stmts {
         mark_stmt(ast, s, in_fn, owned);

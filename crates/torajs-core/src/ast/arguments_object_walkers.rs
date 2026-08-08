@@ -94,8 +94,10 @@ pub(super) fn collect_face_excluded_fns(
 }
 
 /// True if the body touches `arguments` in any form other than
-/// `arguments.length`.
-pub(super) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
+/// `arguments.length`. `pub(crate)`: the bind desugar's
+/// kernel-lane routing (RFC 20260808 knife 2) consults the same
+/// scan the collectors seed from.
+pub(crate) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter()
         .any(|s| stmt_scan(ast, s, ScanFor::NonLengthTouch))
 }
@@ -352,8 +354,9 @@ pub(super) fn count_user_params(_ast: &Ast, _eid: ExprId) -> usize {
 /// T-31 — returns true if the fn body references `arguments.length`
 /// (i.e. an `Expr::Member { obj: Ident("arguments"), name: "length" }`)
 /// anywhere. Used by `desugar_arguments_object` to decide whether to
-/// inject the `__torajs_real_argc` synthetic param.
-pub(super) fn body_has_arguments_length(ast: &Ast, body: &[Stmt]) -> bool {
+/// inject the `__torajs_real_argc` synthetic param, and by the bind
+/// desugar's kernel-lane routing (RFC 20260808 knife 2).
+pub(crate) fn body_has_arguments_length(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::Length))
 }
 

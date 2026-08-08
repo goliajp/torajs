@@ -112,8 +112,6 @@ pub fn normalize_function_bind_call(ast: &mut Ast) {
 /// face argument) and never matches; the fnexpr_this family
 /// registers its own fns anyway (duplicate inserts are inert).
 pub fn register_bind_receiver_recv_fns(ast: &mut Ast) {
-    let owned = super::desugar_eval::fn_owned_exprs(ast);
-    let refs = crate::ast_refs::toplevel_binding_refs(ast);
     let mut found: Vec<String> = Vec::new();
     for st in crate::ast::toplevel_stmts_flat(ast) {
         let Stmt::LetDecl { name, init, .. } = st else {
@@ -134,17 +132,23 @@ pub fn register_bind_receiver_recv_fns(ast: &mut Ast) {
             continue;
         };
         let user_start = usize::from(params.first().is_some_and(|p| p.name == "__env"));
-        if !params
-            .get(user_start)
-            .is_some_and(|p| p.name == "__this")
-        {
+        if !params.get(user_start).is_some_and(|p| p.name == "__this") {
             continue;
         }
+        // Post-lift the by-name profile CANNOT lean on
+        // `toplevel_binding_refs` — its Closure arm counts capture
+        // names without shadow filtering (the r290 over-approximation),
+        // so a harness fn's `func` PARAM captured by its own inner
+        // closure poisons both sets. Resolve per fn instead: a use or
+        // a capture inside a fn that declares the name as a param
+        // belongs to that local; everything else must be a `.bind`
+        // receiver.
+        let shadow_owned = shadowed_use_eids(ast, name);
         let visible_eids: Vec<u32> = ast
             .exprs
             .iter()
             .enumerate()
-            .filter(|(i, e)| matches!(e, Expr::Ident(n) if n == name) && !owned[*i])
+            .filter(|(i, e)| matches!(e, Expr::Ident(n) if n == name) && !shadow_owned[*i])
             .map(|(i, _)| i as u32)
             .collect();
         if visible_eids.is_empty() {
@@ -155,16 +159,60 @@ pub fn register_bind_receiver_recv_fns(ast: &mut Ast) {
                 .iter()
                 .any(|e| matches!(e, Expr::Member { obj, name: m } if obj.0 == *eid && m == "bind"))
         });
-        if all_bind_receivers
-            && !refs.named_fn_refs.contains(name)
-            && !refs.closure_captured.contains(name)
-        {
+        let captured_outside_shadow = ast.exprs.iter().enumerate().any(|(i, e)| {
+            matches!(e, Expr::Closure { captures, .. }
+                if captures.iter().any(|c| c == name))
+                && !shadow_owned[i]
+        });
+        if all_bind_receivers && !captured_outside_shadow {
             found.push(fn_name.clone());
         }
     }
     for f in found {
         ast.fnexpr_recv_fns.insert(f);
     }
+}
+
+/// Every arena expr slot where a by-name use of `name` resolves to
+/// something OTHER than the top-level binding:
+///
+/// 1. the body of a fn declaring `name` as a PARAM (the harness's
+///    `func` param is the motivating trap). Param-only on purpose —
+///    a body-`let` shadow keeps today's conservative refusal (the
+///    nested-decl recursion of `collect_local_binding_names` would
+///    over-shadow an OUTER fn's real reads, flipping conservative
+///    into wrong);
+/// 2. the body of a lifted closure LISTING `name` in its captures —
+///    those uses read the env slot, whose value came from the MINT
+///    site's scope, so the mint site (not the body) is where the
+///    reference really points. Callers judge un-owned mint sites
+///    separately: one outside every owned region captures the
+///    top-level binding itself.
+pub(super) fn shadowed_use_eids(ast: &Ast, name: &str) -> Vec<bool> {
+    let mut owned = vec![false; ast.exprs.len()];
+    let capture_fns: std::collections::HashSet<&str> = ast
+        .exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Closure { fn_name, captures } if captures.iter().any(|c| c == name) => {
+                Some(fn_name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl {
+            name: fname,
+            params,
+            body,
+            ..
+        } = s
+            && (params.iter().any(|p| p.name == name) || capture_fns.contains(fname.as_str()))
+        {
+            super::desugar_eval::body_owned_exprs(ast, body, &mut owned);
+        }
+    }
+    owned
 }
 
 /// Step 2 — give a bind-only this-mentioning fn-expr binding its

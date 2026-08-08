@@ -20,6 +20,9 @@ mod arguments_object_rewrite_spread;
 mod arguments_object_static_argv;
 mod arguments_object_synth;
 mod arguments_object_walkers;
+pub(crate) use arguments_object_walkers::{
+    body_has_arguments_length, body_has_non_length_arguments_touch,
+};
 mod class_globals;
 mod class_globals_register;
 mod clone_body;

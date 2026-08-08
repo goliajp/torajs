@@ -227,6 +227,16 @@ pub(crate) fn synthesize_boxed_entries(
                 _ => None,
             })
             .collect();
+        // RFC 20260808 knife 2 — a `__this` param sitting AFTER the
+        // argc/argv slots is an argv-face body's receiver channel:
+        // every dispatch to a recv-first cell prepends the receiver
+        // in argv[0], so the arguments window those slots describe
+        // starts one slot in (the receiver is not an argument,
+        // §10.4.4). Pre-fix the materialized `arguments` counted the
+        // bound this: length answered n+1 and arguments[0] read the
+        // receiver.
+        let recv_slot =
+            (has_real_argc || has_argv) && params.get(skip).is_some_and(|p| p.name == "__this");
         targets.push(BoxedEntryTarget {
             name: name.clone(),
             fid,
@@ -234,6 +244,7 @@ pub(crate) fn synthesize_boxed_entries(
             ret_ty,
             has_real_argc,
             has_argv,
+            recv_slot,
             feeds_env,
             dflt_lits,
         });
@@ -305,6 +316,7 @@ pub(crate) fn synthesize_boxed_entries(
             t.ret_ty,
             t.has_real_argc,
             t.has_argv,
+            t.recv_slot,
             t.feeds_env,
             &t.dflt_lits,
         );
@@ -330,6 +342,7 @@ struct BoxedEntryTarget {
     ret_ty: Type,
     has_real_argc: bool,
     has_argv: bool,
+    recv_slot: bool,
     feeds_env: bool,
     dflt_lits: Vec<Option<DfltLit>>,
 }
@@ -350,6 +363,7 @@ fn build_boxed_entry(
     ret_ty: Type,
     has_real_argc: bool,
     has_argv: bool,
+    recv_slot: bool,
     feeds_env: bool,
     dflt_lits: &[Option<DfltLit>],
 ) -> (FuncId, ssa::SigId) {
@@ -380,12 +394,46 @@ fn build_boxed_entry(
     }
     // RFC 20260708-variadic — feed the dispatcher's real argc into
     // the body's synthetic `__torajs_real_argc` slot; the argv-face
-    // body additionally takes the raw argv pointer.
+    // body additionally takes the raw argv pointer. A recv-slot body
+    // (RFC 20260808 knife 2) gets the window SHIFTED past argv[0]:
+    // the receiver riding there feeds `__this`, not `arguments`.
     if has_real_argc {
-        args.push(Operand::Value(argc));
+        if recv_slot {
+            let a = f.append_inst(
+                entry,
+                InstKind::BinOp(ssa::BinOp::Sub, Operand::Value(argc), Operand::ConstI64(1)),
+                Type::I64,
+                None,
+            );
+            args.push(Operand::Value(a));
+        } else {
+            args.push(Operand::Value(argc));
+        }
     }
     if has_argv {
-        args.push(Operand::Value(argv));
+        if recv_slot {
+            let pi = f.append_inst(
+                entry,
+                InstKind::PtrToInt(Operand::Value(argv)),
+                Type::I64,
+                None,
+            );
+            let off = f.append_inst(
+                entry,
+                InstKind::BinOp(ssa::BinOp::Add, Operand::Value(pi), Operand::ConstI64(8)),
+                Type::I64,
+                None,
+            );
+            let pv = f.append_inst(
+                entry,
+                InstKind::IntToPtr(Operand::Value(off)),
+                Type::Ptr,
+                None,
+            );
+            args.push(Operand::Value(pv));
+        } else {
+            args.push(Operand::Value(argv));
+        }
     }
     unbox_args(
         &mut f,

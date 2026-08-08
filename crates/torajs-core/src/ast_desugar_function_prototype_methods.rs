@@ -42,13 +42,17 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 /// truth the collector's receiver-wrap axis consults: a form this
 /// pass swallows becomes a direct call (receiver must NOT wrap, or
 /// the Ident match below would stop seeing it); a form it leaves —
-/// dynamic argArray, surplus bind partials — keeps the member call,
-/// whose fn-name receiver then rides the wrapped closure lane.
+/// dynamic argArray, surplus bind partials, an arguments-touching
+/// bind target — keeps the member call, whose fn-name receiver then
+/// rides the wrapped closure lane. `target_fn` is the FnDecl the
+/// call really dispatches to (a closure BINDING receiver resolves
+/// through its alias first).
 pub(crate) fn swallows_fn_proto_call(
     ast: &Ast,
     m_name: &str,
     args: &[ExprId],
     fn_params: &[Param],
+    target_fn: &str,
 ) -> bool {
     let fn_params_len = fn_params.len();
     match m_name {
@@ -73,11 +77,36 @@ pub(crate) fn swallows_fn_proto_call(
         // — the collector would leave a receiver unwrapped for a form
         // the desugar then declines to swallow.
         "bind" => {
+            // RFC 20260808 knife 2 — the static synth lane forwards a
+            // FIXED arg list (declared params), so an
+            // arguments-touching body would see the declared arity
+            // whatever the real call wrote. The runtime bind kernel's
+            // bound_entry concatenates partials with the live call's
+            // argv (real argc end to end) — route there by keeping
+            // the member call. Wider than the collectors' admission
+            // is the safe direction: a body they refuse stays loud on
+            // either lane.
+            if fn_body_touches_arguments(ast, target_fn) {
+                return false;
+            }
             let implicit_recv = usize::from(fn_params.first().is_some_and(|p| p.name == "__this"));
             args.len().saturating_sub(1) + implicit_recv <= fn_params_len
         }
         _ => false,
     }
+}
+
+/// True when the named top-level FnDecl's body touches `arguments`
+/// in any form (indexing, spread, `.length`, aliasing). The bind
+/// arm's kernel-lane routing predicate — see
+/// [`swallows_fn_proto_call`].
+pub(crate) fn fn_body_touches_arguments(ast: &Ast, fn_name: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name, body, .. }
+            if name == fn_name
+                && (crate::ast::body_has_non_length_arguments_touch(ast, body)
+                    || crate::ast::body_has_arguments_length(ast, body)))
+    })
 }
 
 pub(crate) fn run(ast: &mut Ast) {
@@ -133,7 +162,13 @@ pub(crate) fn run(ast: &mut Ast) {
         if fn_params.first().is_some_and(|p| p.name == "__env") {
             continue;
         }
-        if !swallows_fn_proto_call(ast, &m_name, &args_clone, &fn_params) {
+        // The arguments-touch probe reads the REAL FnDecl body — a
+        // closure binding resolves through its lifted alias.
+        let target_fn = closure_aliases
+            .get(&fn_name)
+            .cloned()
+            .unwrap_or_else(|| fn_name.clone());
+        if !swallows_fn_proto_call(ast, &m_name, &args_clone, &fn_params, &target_fn) {
             continue;
         }
 
