@@ -77,16 +77,17 @@ impl<'a> Parser<'a> {
             }
             let mut args: Vec<ExprId> = Vec::new();
             if !matches!(self.peek(), Token::RParen) {
-                args.push(self.parse_expr()?);
+                args.push(self.parse_call_arg()?);
                 while matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
-                    args.push(self.parse_expr()?);
+                    args.push(self.parse_call_arg()?);
                 }
             }
             match self.peek() {
                 Token::RParen => self.pos += 1,
                 t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
             }
+            let args = self.fold_static_spread(args);
             let callee = self
                 .ast
                 .add_expr(Expr::Ident(format!("__supercall__{m_name}")));
@@ -115,18 +116,25 @@ impl<'a> Parser<'a> {
                 self.at()
             ));
         }
+        // Ctor args ride the spread-aware arg parser like plain calls
+        // and `new` (chunk 684 shape): a static literal spread folds
+        // to fixed args here, a dynamic spread survives as
+        // Expr::Spread for `apply_spread_args` to desugar AFTER the
+        // class pass has rewritten this site into a plain
+        // `__cm_<Parent>__ctor(...)` call.
         let mut args: Vec<ExprId> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
-            args.push(self.parse_expr()?);
+            args.push(self.parse_call_arg()?);
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
-                args.push(self.parse_expr()?);
+                args.push(self.parse_call_arg()?);
             }
         }
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
+        let args = self.fold_static_spread(args);
         Ok(self.ast.add_expr(Expr::Super { args }))
     }
 
