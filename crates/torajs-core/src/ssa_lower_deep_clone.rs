@@ -173,6 +173,11 @@ pub(crate) fn deep_clone_expr(
         map.push((eid, new_id));
         return new_id;
     }
+    if let Some(e) = clone_tail_expr(ast, map, eid) {
+        let new_id = ast.add_expr(e);
+        map.push((eid, new_id));
+        return new_id;
+    }
     let new_expr = match ast.get_expr(eid) {
         Expr::BinOp { op, left, right } => {
             let op = *op;
@@ -304,6 +309,20 @@ pub(crate) fn deep_clone_expr(
                 expr: deep_clone_expr(ast, map, e),
             }
         }
+        leaf => clone_leaf(leaf),
+    };
+    let new_id = ast.add_expr(new_expr);
+    map.push((eid, new_id));
+    new_id
+}
+
+/// Optional-chain / postfix / sequence tail arms — same
+/// copy-then-recurse shape as the main match; an `Option`
+/// fall-through sibling of [`clone_container_expr`], extracted when
+/// the main fn regrew past the 200-line hard limit (file-size debt,
+/// rotation 343).
+fn clone_tail_expr(ast: &mut Ast, map: &mut Vec<(ExprId, ExprId)>, eid: ExprId) -> Option<Expr> {
+    Some(match ast.get_expr(eid) {
         Expr::Nullish { lhs, rhs } => {
             let l = *lhs;
             let r = *rhs;
@@ -361,11 +380,8 @@ pub(crate) fn deep_clone_expr(
                 right: deep_clone_expr(ast, map, r),
             }
         }
-        leaf => clone_leaf(leaf),
-    };
-    let new_id = ast.add_expr(new_expr);
-    map.push((eid, new_id));
-    new_id
+        _ => return None,
+    })
 }
 
 /// Container arms — `Expr::Array` / `Expr::ObjectLit` / `Expr::ArrowFn`
