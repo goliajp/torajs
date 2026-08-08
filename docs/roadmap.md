@@ -1530,7 +1530,45 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `049039cd`** (2026-08-08, rotation 338 — the
+**Latest @ `6a724884`** (2026-08-09, rotation 339 — the species
+second key landed in four knives and the create-species family
+flipped. Knife 1 merges the two receiver collectors into ONE walk
+(`collect_props_receiver_binding_names`): a name admits when its
+EVERY declaration is a runtime-props shape (`any` / `T[]`
+annotation, bare `{}` or array-literal init) — the retired pair of
+separately-walked collectors each classified the other's shape as
+"other", so a t262 harness helper's `const a: any` and the case
+body's `var a = []` under the same name killed each other and the
+B2 store arm never admitted `a.constructor[Symbol.species] = Ctor`.
+Knife 2 lets `Ctor.prototype` reads (create-species.js's assert
+shape) survive both guards — the arguments kill walk (exemption
+gated on an escape-store use after a same-rotation regression fix:
+the fn-ctor desugar SYNTHESIZES `F.prototype` reads, and the
+ungated exemption floated store-free fn-expr ctors off their
+static-argv channel — fnexpr-ctor-args-001, caught by the gate,
+bisected, fixed in `70a3de80`) and the knife-2 argv-contention bar
+(now keyed on an actual direct call in the mixed set). Knife 3
+hands the species Construct each family method's real
+ArraySpeciesCreate length (§23.1.3: concat/filter/flat/flatMap 0,
+map len, slice count, splice actualDeleteCount — the receiver-len
+shortcut fed filter 7 where the spec says 0). Knife 4 switches the
+concat derive / transplant element store to DEFINE semantics
+(§23.1.3.1.1 CreateDataPropertyOrThrow: a configurable
+non-writable entry redefines, a non-configurable one refuses).
+Sweep: passTotal 27881 → **27900 (+19)**, bug −14, incompatible
+−5, conservation exact (+5 = +19 − 14). All 19 moves forward, ZERO
+regressions: create-species.js ×5 (incompatible → pass), concat
+create-species-with-non-* ×4, target-array-with-non-* ×8 across
+filter/flat/flatMap/map/slice/splice (the define-semantics
+transplant dividend), create-species-neg-zero ×2. The
+create-species spot family ends 33 pass / 2 bug (both Proxy-faced)
+/ 6 incompat from rotation 338's 22 / 8 / 11. Gate predicate **311
+clusters (flat) / 5886 cases (−5) / residue 779 clusters 1029
+cases / core 6915 (−5)**, register still empty. Build determinism
+44/44 (N=12). Conformance gate 2614 → **2618/0/4** (+4 fixtures;
+one red gate mid-rotation, bisected and fixed same rotation).)
+
+**Previous @ `049039cd`** (2026-08-08, rotation 338 — the
 builtin-singleton value-position axis closed in five knives, all
 riding one generalized mint (`fill_ns_methods` + `intern_singleton`).
 JSON and Reflect become first-class namespace objects (interned
