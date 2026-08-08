@@ -33,7 +33,11 @@ use super::{Expr, ExprId, Stmt};
 ///   naming a non-generic FnDecl whose param says `: any` verbatim
 ///   (an untyped param turns into an implicit generic — its mono
 ///   instance is NOT Any — and a shadowed/duplicated fn name drops
-///   out of the map, both directions keeping (f) ⊆ the SSA route).
+///   out of the map, both directions keeping (f) ⊆ the SSA route);
+/// - (g) a computed-key field (`__computed_N__` sentinel) — the
+///   checker types the whole literal Any at every position (RFC
+///   20260809 knife 1b), the dynobj lane is the only one that can
+///   ToPropertyKey the key.
 ///
 /// Still NOT covered: closure-valued callees and method-shape calls
 /// whose any params the SSA route serves — those keep the nominal
@@ -49,11 +53,20 @@ pub(super) fn collect_anylane_objlits(
     let fn_any_params = collect_fn_any_params(stmts);
     for (i, e) in exprs.iter().enumerate() {
         match e {
-            // (b) — literal `undefined` field value.
+            // (b) — literal `undefined` field value; (g) — a
+            // computed-key field (the parser's `__computed_N__`
+            // sentinel name): the checker answers Any for the whole
+            // literal at EVERY position (RFC 20260809 knife 1b, the
+            // any-spread exit), so only the dynobj lane can name the
+            // property — a this-using method here must take the
+            // `__this: any` receiver-first shape or its receiver
+            // writes land on a struct-unbox COPY (the measured
+            // `this.x = 99` no-transmit / identity-loss family).
             Expr::ObjectLit { fields }
-                if fields.iter().any(
-                    |(_, fe)| matches!(&exprs[fe.0 as usize], Expr::Ident(n) if n == "undefined"),
-                ) =>
+                if fields.iter().any(|(n, fe)| {
+                    n.starts_with("__computed_")
+                        || matches!(&exprs[fe.0 as usize], Expr::Ident(x) if x == "undefined")
+                }) =>
             {
                 roots.push(ExprId(i as u32));
             }
