@@ -399,19 +399,21 @@ pub(super) unsafe fn define_face_reject() -> u64 {
     VALUE_UNDEFINED
 }
 
-/// §23.1.2.1 Array.from as a call — the full semantics need the
-/// iterator protocol + an optional mapFn over any source, and no
-/// AnyValue-tier kernel exists yet, so the arm stays a loud reject
-/// (RFC 20260721 records the face). The cell exists for the
-/// reflection surface (typeof / name / length / gOPD identity).
-pub(super) unsafe fn array_from_face_reject() -> u64 {
+/// §23.1.2.1 Array.from as a detached call (RFC
+/// 20260808-construct-channel B6 刀 1) — a bare cell call binds
+/// `this = undefined`, so IsConstructor(C) is false and both
+/// branches take ArrayCreate; the any-tier kernel walks the unified
+/// iterable/array-like cascade with the spec's exact «kValue, k»
+/// mapfn shape and thisArg binding. The `this = C` construct face is
+/// the receiver-channel knife (B6 刀 2).
+pub(super) unsafe fn array_from_value(argv: *const u64, argc: i64) -> u64 {
     unsafe {
-        __torajs_throw_type_error(
-            c"builtin namespace static called through a detached value is not supported for Array.from"
-                .as_ptr(),
+        crate::array_from::array_from_plain(
+            arg_at(argv, argc, 0),
+            arg_at(argv, argc, 1),
+            arg_at(argv, argc, 2),
         )
-    };
-    VALUE_UNDEFINED
+    }
 }
 
 unsafe extern "C" {

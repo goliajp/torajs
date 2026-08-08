@@ -95,6 +95,7 @@ mod arith_bitwise;
 pub(crate) mod arr_locale_string;
 mod arr_member_value;
 mod arr_proto_probe;
+mod array_from;
 pub(crate) mod closure_proto;
 mod coerce;
 mod collection_init;

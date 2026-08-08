@@ -204,7 +204,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::Gopd => super::ns_static_ctor::gopd_static(argv, argc),
             Disp::DefineFace => super::ns_static_ctor::define_face_reject(),
             Disp::OwnSymbols => super::ns_static_obj::own_symbols_value(arg_at(argv, argc, 0)),
-            Disp::ArrayFromFace => super::ns_static_ctor::array_from_face_reject(),
+            Disp::ArrayFromFace => super::ns_static_ctor::array_from_value(argv, argc),
             // Iterator statics delegate to the SAME kernels the
             // statics-wedge lowering bakes — a pending throw from a
             // refusal path rides out with the undefined answer.
