@@ -1530,7 +1530,49 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `5894bd1e`** (2026-08-09, rotation 340 — Array.from's
+**Latest @ `6aa2a36d`** (2026-08-09, rotation 341 — `using`
+declarations land end-to-end (RFC 20260809, five knives, gate chain
+2622 → 2626/0/4 zero-red). Knife 1: the parse-reject upgrades to a
+real `Stmt::UsingDecl` and a prelude `desugar_using` pass rewrites
+every resource scope to the textbook dispose-stack try/catch/finally
+(reverse order, null/undefined skip, bind-time method read,
+SuppressedError aggregation, for-init loop-exit timing) over
+parse_into-injected helpers; computed-key object literals now answer
+Any at every position, unblocking `return { [Symbol.dispose]() {} }`
+from the struct-lane panic. Knife 1b: the anylane recv promotion
+gains the (g) computed-key leg — a this-using method shorthand in
+such a literal had kept a nominal `__this` and written its receiver
+onto a struct-unbox copy (`this.x = 99` did not transmit; dispose
+identity broke). Knife 2: `await using` parses wherever `await` is
+legal and disposes through an injected async helper pair
+(@@asyncDispose first, @@dispose sync fallback un-awaited, null
+binding still one tick), awaited in the finally via the parser's own
+`.value`-read await spelling. Knife 3: `for ([await] using x of …)`
+heads wrap the body in a per-iteration UsingDecl (spec
+dispose-at-end-of-each-iteration for free); for-in heads and
+single-stmt-body positions reject per the negative family; the
+`{ async [key]() {} }` stub-drop dies. Knife 4: the class computed
+Symbol.<x> key fold narrows to exactly `Symbol.iterator` — every
+other symbol chain reifies under the real Symbol cell, so
+`c[Symbol.dispose]` / `C[Symbol.asyncDispose]` finally resolve.
+Sweep passTotal 27910 → **28042 (+132)** / bug +80 / trAccepted +212
+/ incompatible **−212**, conservation exact. The six "regressions"
+are all coincidental passes evaporating: four script/eval-top-level
+negatives that only passed because using used to parse-reject
+(script-mode distinction is the real gap, recorded), two
+redeclaration negatives now exposing the early_redecl fn-expr-body
+blind spot (recorded). using slice 0 → 55/78, await-using 0 → 48/94;
+the former top-1 `using` cluster (138) leaves the board. Gate
+predicate **311 clusters (flat) / 5671 cases (−206) / residue 771
+clusters 1015 cases / core 6686 (−212)**, register still empty.
+Recorded for the next knives: DisposableStack/AsyncDisposableStack
+injection (B5, 178 unknown-ident cases; its class-computed
+prerequisite fell this rotation), @@toPrimitive numeric-coercion
+dispatch, method-body self-reference, nested-async-fn-decl await
+crash (exit 138, pre-existing), SuppressedError optional-params
+checker face.)
+
+**Previous @ `5894bd1e`** (2026-08-09, rotation 340 — Array.from's
 whole call surface closed in three knives (RFC
 20260808-construct-channel B6, the trunk's last blade). Knife 1
 gives the detached value a real §23.1.2.1 any-tier kernel
