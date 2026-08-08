@@ -42,143 +42,148 @@ use crate::ast::Expr;
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
-    let ret_operand = maybe.map(|eid| {
-        // RFC 20260707 chunk 625 — an array literal returned from an
-        // `Arr<Any>`-ret fn takes the annotation-consuming widen
-        // (mirror of lower_let_init_val / assign_member's chunk 614
-        // arm): without it the literal lowered through the typed
-        // fast path, the block never got FLAG_ARR_ANY, and every
-        // kind-aware Arr<Any> reader saw UNSET (undefined) while its
-        // raw scalar slots misread as NaN-boxes elsewhere.
-        let v = if let Expr::Array(els) = ctx.ast.get_expr(eid)
-            && let Type::Arr(arr_id) = ctx.f.ret
-            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+/// The return-VALUE leg of [`lower`] — the annotation-consuming
+/// widen / declared-layout pin, the borrowed-read retain family
+/// (borrowed locals, escape-boxed bindings, K.3 globals, Arr elem
+/// reads), and the consume walk. Extracted verbatim when the parent
+/// crossed the 200-line cap (file-size debt, rotation 343).
+fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
+    // `Arr<Any>`-ret fn takes the annotation-consuming widen
+    // (mirror of lower_let_init_val / assign_member's chunk 614
+    // arm): without it the literal lowered through the typed
+    // fast path, the block never got FLAG_ARR_ANY, and every
+    // kind-aware Arr<Any> reader saw UNSET (undefined) while its
+    // raw scalar slots misread as NaN-boxes elsewhere.
+    let v = if let Expr::Array(els) = ctx.ast.get_expr(eid)
+        && let Type::Arr(arr_id) = ctx.f.ret
+        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+    {
+        let ids: Vec<crate::ast::ExprId> = els.clone();
+        ctx.lower_array_any_literal(&ids)
+    } else {
+        // A direct ObjectLit returned from a declared-Obj fn pins
+        // the declared layout, same as the let-decl chunk 780 arm:
+        // without the hint resolve_objlit_layout registers an anon
+        // layout off the field exprs' own types (`{ value: x }`
+        // with `x: any` got an Any slot), the caller reads the
+        // slot at the declared width, and the box bits misread as
+        // a raw scalar (`{ value: number }` return answered NaN;
+        // a generator's step struct hit the same lane through the
+        // desugared `return { value, done }`).
+        if let Expr::ObjectLit { .. } = ctx.ast.get_expr(eid)
+            && let Type::Obj(sid) = ctx.f.ret
         {
-            let ids: Vec<crate::ast::ExprId> = els.clone();
-            ctx.lower_array_any_literal(&ids)
-        } else {
-            // A direct ObjectLit returned from a declared-Obj fn pins
-            // the declared layout, same as the let-decl chunk 780 arm:
-            // without the hint resolve_objlit_layout registers an anon
-            // layout off the field exprs' own types (`{ value: x }`
-            // with `x: any` got an Any slot), the caller reads the
-            // slot at the declared width, and the box bits misread as
-            // a raw scalar (`{ value: number }` return answered NaN;
-            // a generator's step struct hit the same lane through the
-            // desugared `return { value, done }`).
-            if let Expr::ObjectLit { .. } = ctx.ast.get_expr(eid)
-                && let Type::Obj(sid) = ctx.f.ret
-            {
-                ctx.let_declared_obj_layout = Some(sid);
-            }
-            let v = ctx.lower_expr(eid);
-            ctx.let_declared_obj_layout = None;
-            v
-        };
-        let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(eid) {
-            ctx.locals
-                .get(name)
-                .is_some_and(|info| info.borrowed && info.ty.is_refcounted())
-                // Rotation 326 — an escape-boxed binding in its
-                // OWNING frame (`info.borrowed == false`; the box
-                // holds the payload's stake). Reading the ident
-                // answers the box's payload as a borrow, and the
-                // frame's exit still drops the whole box — so a
-                // `return fib` handed the caller the payload while
-                // the box release charged its only stake (a
-                // self-referential escaping closure was the census
-                // shape: zero incs, two decs on the env cell).
-                || (ctx.boxed_noncopy_lets.contains(name)
-                    && ctx
-                        .locals
-                        .get(name)
-                        .is_some_and(|info| info.ty.is_refcounted()))
-                // Cluster #4 follow-up (rotation 235) — a K.3 global
-                // slot read is ALWAYS a borrow (pure GlobalRef+Load,
-                // the slot keeps its stake), so returning it takes
-                // the same +1 the borrowed-local arm pays: the
-                // caller owns every return value. Without it a
-                // discarded `f()` freed the cell under the live slot
-                // (Symbol probe e1b SIGSEGV; the Str shape was the
-                // same double-dec that only happened not to crash).
-                || (ctx.locals.get(name).is_none()
-                    && ctx
-                        .globals
-                        .get(name)
-                        .is_some_and(|t| t.is_refcounted()))
-        } else {
-            false
-        };
-        if needs_retain {
-            ctx.emit_rc_inc(v.clone());
+            ctx.let_declared_obj_layout = Some(sid);
         }
-        // RFC 20260708-closure-argv-face (generalized chunk 674) —
-        // `return a[i]` where `a` is a local Arr<Any> hands back a
-        // box BORROWING the array's elem stake (get_any_boxed is a
-        // borrow read). The historical blanket fix marked `a` moved
-        // — skipping its scope drop and stranding one array per
-        // call (probe ag8: named fn `return a[0]` leaked; the
-        // materialized `__torajs_arguments` was the same shape).
-        // Retain the payload instead: the box leaves self-owned,
-        // the array keeps its scope drop, and only the index
-        // sub-expression feeds the consume walk. Gated on the
-        // receiver's static Arr<Any> type — other Any-producing
-        // index lanes may answer owned boxes where a retain would
-        // leak.
-        if let Expr::Index { obj, index } = ctx.ast.get_expr(eid)
-            && let Expr::Ident(obj_name) = ctx.ast.get_expr(*obj)
-            && ctx.operand_ty(&v) == Type::Any
-            && ctx.locals.get(obj_name).is_some_and(|info| {
-                matches!(info.ty, Type::Arr(id)
-                    if ctx.arr_layouts[id.0 as usize] == Type::Any)
-            })
-        {
-            let retained = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.anyv_retain, vec![v.clone()]),
-                Type::Any,
-                None,
-            );
-            ctx.consume_all_idents_in_return(*index);
-            return Operand::Value(retained);
-        }
-        // Rotation 326 — the typed sibling of the retain above:
-        // `return xs[i]` on a typed Arr<T> with refcounted T answers
-        // the slot's value as a BORROW (load_dyn reads the element
-        // in place; the slot keeps its stake), while the fn-return
-        // contract hands the caller an owned value. Without the +1
-        // the synthesized boxed entry boxed the borrow into `any`
-        // (owned by NaN-box contract) and the caller's drop stole
-        // the slot's stake (census: `() => bs[0]` on a `bigint[]`
-        // global underflowed the live element). Local and global
-        // receivers alike; Str/Substr receivers never reach here
-        // (s[i] answers a fresh owned Substr), and the Any-elem
-        // shape took the anyv_retain arm above.
-        if let Expr::Index { obj, index } = ctx.ast.get_expr(eid) {
-            let v_ty = ctx.operand_ty(&v);
-            let elem_matches =
-                matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_)))
-                    && v_ty.is_refcounted()
-                    && !matches!(v_ty, Type::Any | Type::Substr);
-            if elem_matches {
-                ctx.emit_rc_inc(v.clone());
-                ctx.consume_all_idents_in_return(*index);
-                return v;
-            }
-        }
-        // Chunk 752 — a Copy-typed result (scalar) cannot alias any
-        // local's heap, so no binding needs the moved mark; the
-        // blanket walk stranded every non-Copy local the expression
-        // touched (`return v.length` skipped v's scope drop and
-        // leaked one concat cell per call — probe vJ 15.97MB vs
-        // 6.37MB flat; the L3b #6 any-alias framing was refuted by
-        // the typed-string variant leaking identically).
-        if !ctx.operand_ty(&v).is_copy() {
-            ctx.consume_all_idents_in_return(eid);
-        }
+        let v = ctx.lower_expr(eid);
+        ctx.let_declared_obj_layout = None;
         v
-    });
+    };
+    let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(eid) {
+        ctx.locals
+            .get(name)
+            .is_some_and(|info| info.borrowed && info.ty.is_refcounted())
+            // Rotation 326 — an escape-boxed binding in its
+            // OWNING frame (`info.borrowed == false`; the box
+            // holds the payload's stake). Reading the ident
+            // answers the box's payload as a borrow, and the
+            // frame's exit still drops the whole box — so a
+            // `return fib` handed the caller the payload while
+            // the box release charged its only stake (a
+            // self-referential escaping closure was the census
+            // shape: zero incs, two decs on the env cell).
+            || (ctx.boxed_noncopy_lets.contains(name)
+                && ctx
+                    .locals
+                    .get(name)
+                    .is_some_and(|info| info.ty.is_refcounted()))
+            // Cluster #4 follow-up (rotation 235) — a K.3 global
+            // slot read is ALWAYS a borrow (pure GlobalRef+Load,
+            // the slot keeps its stake), so returning it takes
+            // the same +1 the borrowed-local arm pays: the
+            // caller owns every return value. Without it a
+            // discarded `f()` freed the cell under the live slot
+            // (Symbol probe e1b SIGSEGV; the Str shape was the
+            // same double-dec that only happened not to crash).
+            || (ctx.locals.get(name).is_none()
+                && ctx
+                    .globals
+                    .get(name)
+                    .is_some_and(|t| t.is_refcounted()))
+    } else {
+        false
+    };
+    if needs_retain {
+        ctx.emit_rc_inc(v.clone());
+    }
+    // RFC 20260708-closure-argv-face (generalized chunk 674) —
+    // `return a[i]` where `a` is a local Arr<Any> hands back a
+    // box BORROWING the array's elem stake (get_any_boxed is a
+    // borrow read). The historical blanket fix marked `a` moved
+    // — skipping its scope drop and stranding one array per
+    // call (probe ag8: named fn `return a[0]` leaked; the
+    // materialized `__torajs_arguments` was the same shape).
+    // Retain the payload instead: the box leaves self-owned,
+    // the array keeps its scope drop, and only the index
+    // sub-expression feeds the consume walk. Gated on the
+    // receiver's static Arr<Any> type — other Any-producing
+    // index lanes may answer owned boxes where a retain would
+    // leak.
+    if let Expr::Index { obj, index } = ctx.ast.get_expr(eid)
+        && let Expr::Ident(obj_name) = ctx.ast.get_expr(*obj)
+        && ctx.operand_ty(&v) == Type::Any
+        && ctx.locals.get(obj_name).is_some_and(|info| {
+            matches!(info.ty, Type::Arr(id)
+                if ctx.arr_layouts[id.0 as usize] == Type::Any)
+        })
+    {
+        let retained = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_retain, vec![v.clone()]),
+            Type::Any,
+            None,
+        );
+        ctx.consume_all_idents_in_return(*index);
+        return Operand::Value(retained);
+    }
+    // Rotation 326 — the typed sibling of the retain above:
+    // `return xs[i]` on a typed Arr<T> with refcounted T answers
+    // the slot's value as a BORROW (load_dyn reads the element
+    // in place; the slot keeps its stake), while the fn-return
+    // contract hands the caller an owned value. Without the +1
+    // the synthesized boxed entry boxed the borrow into `any`
+    // (owned by NaN-box contract) and the caller's drop stole
+    // the slot's stake (census: `() => bs[0]` on a `bigint[]`
+    // global underflowed the live element). Local and global
+    // receivers alike; Str/Substr receivers never reach here
+    // (s[i] answers a fresh owned Substr), and the Any-elem
+    // shape took the anyv_retain arm above.
+    if let Expr::Index { obj, index } = ctx.ast.get_expr(eid) {
+        let v_ty = ctx.operand_ty(&v);
+        let elem_matches = matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_)))
+            && v_ty.is_refcounted()
+            && !matches!(v_ty, Type::Any | Type::Substr);
+        if elem_matches {
+            ctx.emit_rc_inc(v.clone());
+            ctx.consume_all_idents_in_return(*index);
+            return v;
+        }
+    }
+    // Chunk 752 — a Copy-typed result (scalar) cannot alias any
+    // local's heap, so no binding needs the moved mark; the
+    // blanket walk stranded every non-Copy local the expression
+    // touched (`return v.length` skipped v's scope drop and
+    // leaked one concat cell per call — probe vJ 15.97MB vs
+    // 6.37MB flat; the L3b #6 any-alias framing was refuted by
+    // the typed-string variant leaking identically).
+    if !ctx.operand_ty(&v).is_copy() {
+        ctx.consume_all_idents_in_return(eid);
+    }
+    v
+}
+
+pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
+    let ret_operand = maybe.map(|eid| lower_return_value(ctx, eid));
     // §7.4.9 on the way out of every enclosing for-of. `break` gets
     // this from the loop's exit block; a return never reaches that
     // block, so the iterator stayed open AND its slot stake stayed
