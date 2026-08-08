@@ -173,12 +173,6 @@ unsafe extern "C" {
 /// `method_call.rs::ANY_METHOD_THREW`.
 const ANY_METHOD_THREW: u64 = u64::MAX;
 
-unsafe extern "C" {
-    /// torajs-arr — §9.4.2.3 constructor-face guard (RFC 20260713
-    /// blade 3); 1 = TypeError recorded, answer undefined early.
-    fn __torajs_arr_species_guard(arr: *const u8) -> i64;
-}
-
 /// `Tag::Arr` arm — id-switch onto the torajs-arr glue.
 pub(crate) unsafe fn arr_method(
     arr: *mut c_void,
@@ -187,24 +181,14 @@ pub(crate) unsafe fn arr_method(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
-    // §23.1.3 species family — ArraySpeciesCreate reads the
-    // constructor face before building the product; a heap-object
-    // constructor additionally reads @@species and RUNS a callable
-    // one (RFC 20260808 knife 4 — abrupt completions observable,
-    // product identity a recorded divergence).
-    if matches!(mid, m if m == torajs_rc::ANY_METHOD_SLICE
-        || m == torajs_rc::ANY_METHOD_SPLICE
-        || m == torajs_rc::ANY_METHOD_CONCAT
-        || m == torajs_rc::ANY_METHOD_FILTER
-        || m == torajs_rc::ANY_METHOD_MAP
-        || m == torajs_rc::ANY_METHOD_FLAT
-        || m == torajs_rc::ANY_METHOD_FLAT_MAP)
-        && unsafe {
-            __torajs_arr_species_guard(arr as *const u8) != 0
-                || crate::method_call_arr_species::arr_species_object_face(arr) != 0
-        }
+    // §23.1.3 species family pre-gate — ArraySpeciesCreate over the
+    // constructor / @@species faces (RFC 20260808; B3 derives concat
+    // into the constructed product). `Some` short-circuits with the
+    // gate's answer.
+    if let Some(early) =
+        unsafe { crate::method_call_arr_species::species_family_pregate(arr, mid, argv, argc) }
     {
-        return VALUE_UNDEFINED;
+        return early;
     }
     let arg_at = |i: i64| -> u64 {
         if i < argc {
