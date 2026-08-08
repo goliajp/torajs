@@ -86,20 +86,14 @@
 //! its source belongs to the global scope, and inlining it locally
 //! would let the source see the function's bindings.
 //!
-//! **A function declaration still escapes a direct eval, and that is a
-//! defect this pass inherits rather than introduces.** `eval("{
-//! function f() {} }")` leaves `f` visible afterwards under tr and does
-//! not under bun — but so does a plain `{ function f() {} }` with no
-//! eval anywhere, which is where the difference actually lives (§14.2
-//! says a block-level function declaration is block-scoped; Annex B
-//! B.3.3 hoists it only in sloppy mode, and tr is not in sloppy mode).
-//! Until that is fixed, `var` here follows the strict rule and
-//! `function` follows the sloppy one, which is not a coherent mode.
-//! Twenty-six `annexB/language/eval-code` cases currently report `pass`
-//! off the back of it — they are asking for the sloppy behaviour and
-//! getting it by accident, so they are counted as water under the
-//! no-metric-inflation rule and will fall back out when the block
-//! scoping is corrected.
+//! **A function declaration still escapes a direct eval — a defect
+//! this pass inherits rather than introduces.** A plain `{ function
+//! f() {} }` with no eval anywhere leaks `f` the same way (§14.2 makes
+//! it block-scoped; Annex B B.3.3 hoists it only in sloppy mode, and
+//! tr is not in sloppy mode), so `var` here follows the strict rule
+//! while `function` follows the sloppy one. AnnexB eval-code cases
+//! passing off the back of it are water under no-metric-inflation and
+//! fall back out as the family tightens (7 did in r333).
 //!
 //! This is why the sloppy-only corpus is out of reach here rather than
 //! merely unimplemented: 697 of the 1473 eval-blocked cases (47.3%)
@@ -128,12 +122,10 @@
 //!   named `eval` exists anywhere, the pass declines wholesale — a
 //!   local `eval` is not this `eval`, and proving which one a given
 //!   call site sees needs scope resolution this pass runs before.
-//! - **A parse failure in statement position becomes a throw**, per
-//!   §19.2.1.1 step 12 — raised when the eval is reached, so
-//!   `if (false) { eval("((("); }` still runs to completion. In value
-//!   position it is still left alone: JavaScript has no throw
-//!   expression, so that shape needs a statement-level rewrite this
-//!   pass does not do yet.
+//! - **A parse failure becomes a throw**, per §19.2.1.1 step 12 —
+//!   raised when the eval is reached (`if (false) { eval("((("); }`
+//!   completes normally): a statement rewrite in statement position,
+//!   a throw-IIFE in value position (`completion.rs`).
 
 mod completion;
 mod function_ctor;
@@ -474,6 +466,11 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
                     if form == CallForm::Direct || has_use_strict_prologue(&inlined, ast) {
                         seal_var_scope(&mut inlined);
                     }
+                    // Blank the consumed Call: an orphan still shaped
+                    // like an eval call would get an IIFE nobody
+                    // constructs from the arena-walking completion
+                    // pass (r333 harness-wide lifting break).
+                    ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
                     *s = Stmt::Block(inlined);
                     return;
                 }
@@ -484,6 +481,7 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
                     // `syntax_error_throw` on why this is a throw and
                     // not a compile error. Scope-independent, so it
                     // applies at any depth for both call forms.
+                    ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
                     *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
                     return;
                 }
@@ -502,6 +500,8 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool) {
             if matches!(ast.exprs.get(target.0 as usize), Some(Expr::Ident(_))) {
                 if let Some((src, _)) = literal_eval_call(value, ast) {
                     if parse_eval_source(&src, ast).is_none() {
+                        // Same orphan story as the inline above.
+                        ast.exprs[value.0 as usize] = Expr::Ident("undefined".to_string());
                         *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
                         return;
                     }

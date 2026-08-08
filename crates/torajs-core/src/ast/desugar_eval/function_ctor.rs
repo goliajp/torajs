@@ -54,12 +54,24 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
         let params = texts[..texts.len() - 1].join(",");
         let body = &texts[texts.len() - 1];
         let full = format!("function {name}({params}\n) {{\n{body}\n}}");
+        let arena_before = ast.exprs.len();
         if let Some(mut parsed) = parse_eval_source(&full, ast) {
             let is_the_decl = matches!(
                 parsed.as_slice(),
                 [Stmt::FnDecl { name: n, .. }] if *n == name
             );
-            if is_the_decl {
+            // A body that touches `this` cannot be synthesized
+            // honestly: a dynamic function's sloppy `this` is the
+            // global OBJECT (`Function("return this")()` hands it
+            // back), and tr has no such object — its top level is its
+            // global. The parse appended the body's expressions after
+            // `arena_before`, so scanning that tail sees every `this`
+            // at any depth. Harness `fnGlobalObject.js` is exactly
+            // this shape; it keeps the loud reject.
+            let touches_this = ast.exprs[arena_before..]
+                .iter()
+                .any(|e| matches!(e, Expr::This));
+            if is_the_decl && !touches_this {
                 ast.stmts.push(parsed.pop().unwrap());
                 ast.exprs[i] = Expr::Ident(name);
                 synth += 1;
