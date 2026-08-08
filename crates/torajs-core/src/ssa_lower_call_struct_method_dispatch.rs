@@ -236,6 +236,9 @@ fn emit_fnsig_call(
         );
         Operand::Value(v)
     };
+    // bug-327 C2.5 — indirect targets are unknown statically;
+    // propagate a pending throw the same way direct user-fn calls do.
+    ctx.emit_throw_check(None);
     for (op, ty) in coerce_owned {
         ctx.emit_drop_value(op, ty);
     }
@@ -361,7 +364,7 @@ fn finish_closure_call(ctx: &mut LowerCtx<'_>, site: ClosureCallSite) -> Operand
         argv,
         ..
     } = site;
-    if ret_ty == Type::Void {
+    let result = if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::CallIndirect(env_first_sig, fn_ptr, argv),
@@ -375,7 +378,11 @@ fn finish_closure_call(ctx: &mut LowerCtx<'_>, site: ClosureCallSite) -> Operand
             None,
         );
         Operand::Value(v)
-    }
+    };
+    // bug-327 C2.5 — indirect targets are unknown statically;
+    // propagate a pending throw the same way direct user-fn calls do.
+    ctx.emit_throw_check(None);
+    result
 }
 
 fn emit_closure_call(
