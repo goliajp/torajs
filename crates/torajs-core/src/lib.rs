@@ -22,6 +22,7 @@ pub(crate) mod ast_collect_fn_closure_expr;
 pub(crate) mod ast_collect_fn_closure_init;
 pub(crate) mod ast_desugar_builtin_new;
 pub(crate) mod ast_desugar_function_prototype_methods;
+pub(crate) mod ast_desugar_function_prototype_methods_synth;
 pub(crate) mod ast_desugar_implicit_generics;
 pub(crate) mod ast_desugar_implicit_generics_closure;
 pub(crate) mod ast_desugar_promise_try;
