@@ -308,6 +308,10 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
     if crate::method_value::ns_object::is_math_object(ptr) {
         return b"Math";
     }
+    // §25.5.3 — the JSON namespace singleton's @@toStringTag.
+    if crate::method_value::ns_object::is_json_object(ptr) {
+        return b"JSON";
+    }
     let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
     if proto_tag >= 0 {
         return match proto_tag {

@@ -18,6 +18,9 @@ pub(crate) struct JsonRawIds {
     pub json_is_raw_json: FuncId,
     pub json_parse_any: FuncId,
     pub json_parse_reviver: FuncId,
+    /// RFC 20260801-ns-object-value (JSON extension) — the `JSON`
+    /// namespace singleton in a value position.
+    pub ns_object_json: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> JsonRawIds {
@@ -48,6 +51,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_json_is_raw_json",
             &[Type::Any],
+            Type::Any,
+        ),
+        ns_object_json: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_ns_object_json",
+            &[],
             Type::Any,
         ),
     }

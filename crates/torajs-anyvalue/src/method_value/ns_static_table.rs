@@ -326,6 +326,16 @@ pub(super) enum Disp {
     /// throw out with the undefined answer).
     JsonRawJson,
     JsonIsRawJson,
+    /// §25.5.1 JSON.parse — the same-crate any-lane parse kernel
+    /// (`crate::json_any`), with the reviver walk when a second
+    /// argument is present (`crate::json_reviver` gates
+    /// IsCallable itself).
+    JsonParse,
+    /// §25.5.2 JSON.stringify — the same-crate any-lane walk
+    /// (`crate::json_stringify`), space normalized through the gap
+    /// kernel; `replacer` rides the same recorded ignore as the
+    /// typed lowering (S311).
+    JsonStringify,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -448,4 +458,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::PromiseSettle,
     Disp::JsonRawJson,
     Disp::JsonIsRawJson,
+    Disp::JsonParse,
+    Disp::JsonStringify,
 ];

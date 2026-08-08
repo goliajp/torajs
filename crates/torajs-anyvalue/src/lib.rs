@@ -482,6 +482,22 @@ mod tests {
     pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(_v: u64) -> u64 {
         0
     }
+    // The JsonParse / JsonStringify DISPATCH arms make the json
+    // kernels test-reachable, pulling in their torajs-num /
+    // torajs-date externs (shipped binary resolves the staticlibs);
+    // null stubs satisfy the linker — unit tests never walk JSON.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_json_parse_float(_s: *const u8, _pos: *mut i64) -> f64 {
+        0.0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_json_parse_string(_s: *const u8, _pos: *mut i64) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_date_to_json(_d: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(_obj: u64, _proto: u64) {}
     // RFC 20260721 刀 3 — `ctor_own_read_cell`'s `prototype` arm

@@ -269,7 +269,51 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::JsonIsRawJson => {
                 crate::json_raw::__torajs_json_is_raw_json(arg_at(argv, argc, 0))
             }
+            Disp::JsonParse => json_parse_value(argv, argc),
+            Disp::JsonStringify => json_stringify_value(argv, argc),
         }
+    }
+}
+
+/// §25.5.1 JSON.parse arm — parse + optional reviver walk. The
+/// reviver kernel gates IsCallable itself (non-callable →
+/// unfiltered root), so the split here is only an argv bounds
+/// guard.
+unsafe fn json_parse_value(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        if argc >= 2 {
+            crate::json_reviver::__torajs_json_parse_reviver(
+                arg_at(argv, argc, 0),
+                arg_at(argv, argc, 1),
+            )
+        } else {
+            crate::json_any::__torajs_json_parse_any(arg_at(argv, argc, 0))
+        }
+    }
+}
+
+/// §25.5.2 JSON.stringify arm — value + space through the gap
+/// kernel; `replacer` (argv[1]) rides the same recorded ignore as
+/// the typed lowering (S311). The walk answers an owned Str (or the
+/// undefined-Str sentinel), which the slot box turns back into the
+/// §25.5.2 undefined answer.
+unsafe fn json_stringify_value(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let v = arg_at(argv, argc, 0);
+        let s = if argc >= 3 {
+            let gap =
+                crate::json_stringify::gap::__torajs_anyv_json_gap_str(arg_at(argv, argc, 2));
+            let out = crate::json_stringify::gap::__torajs_anyv_json_stringify_gap(
+                v,
+                gap.cast_const(),
+                0,
+            );
+            __torajs_str_drop(gap.cast::<c_void>());
+            out
+        } else {
+            crate::json_stringify::__torajs_anyv_json_stringify(v)
+        };
+        crate::nanbox_encode::__torajs_anyv_box_str_slot(s.cast::<c_void>())
     }
 }
 

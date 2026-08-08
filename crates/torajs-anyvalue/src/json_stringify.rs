@@ -29,7 +29,7 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 mod composites;
-mod gap;
+pub(crate) mod gap;
 
 use crate::member_set::{STR_DATA_OFF, STR_LEN_OFF};
 use crate::nanbox::{

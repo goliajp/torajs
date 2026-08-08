@@ -236,6 +236,13 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // per spec.
     row("JSON", "rawJSON", 1),
     row("JSON", "isRawJSON", 1),
+    // §25.5.1/.2 JSON.parse / JSON.stringify — same-crate any-lane
+    // kernels (json_any.rs / json_reviver.rs / json_stringify.rs),
+    // so the detached call face is the real semantics. The JSON
+    // namespace-object singleton mint fills these cells (RFC
+    // 20260801-ns-object-value, JSON extension). Lengths per spec.
+    row("JSON", "parse", 2),
+    row("JSON", "stringify", 3),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
