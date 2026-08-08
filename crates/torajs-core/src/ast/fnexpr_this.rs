@@ -51,8 +51,8 @@
 pub(crate) use super::fnexpr_this_faces::promote_recv_any;
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
-    collect_any_binding_names, collect_array_binding_names_lenient, collect_arraylit_binding_names,
-    collect_gen_iter_binding_names, collect_mapset_binding_names,
+    collect_any_binding_names, collect_arraylit_binding_names, collect_gen_iter_binding_names,
+    collect_mapset_binding_names, collect_props_receiver_binding_names,
 };
 use super::fnexpr_this_routed::promote_variable_routed;
 use super::{Expr, ExprId, Stmt};
@@ -126,7 +126,7 @@ fn collect_position_faces(
     let any_recvs = collect_any_binding_names(stmts, exprs);
     let gen_recvs = collect_gen_iter_binding_names(stmts, exprs);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
-    let array_lenient_recvs = collect_array_binding_names_lenient(stmts, exprs);
+    let props_recvs = collect_props_receiver_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     for i in 0..exprs.len() {
         if let Expr::Assign { target, value } = &exprs[i] {
@@ -134,8 +134,7 @@ fn collect_position_faces(
                 stmts,
                 exprs,
                 fn_expr_exprs,
-                &any_recvs,
-                &array_lenient_recvs,
+                &props_recvs,
                 *target,
                 *value,
                 patches,
@@ -317,7 +316,11 @@ fn collect_position_faces(
 /// dispatch, so the face bar is identical.)
 ///
 /// Admitted store receivers:
-/// * an `: any` binding Ident (the original arm);
+/// * a runtime-props binding Ident — every declaration of the name
+///   is `: any` / `T[]`-annotated, an unannotated `{}` init, or an
+///   unannotated array literal (the species-key-2 merged predicate;
+///   an array's expando members live in the arrprops bag, the same
+///   runtime keyed dispatch the dynobj lane reads);
 /// * knife 7 — `F.prototype.m = <fn-expr>` / `F.prototype[k] =
 ///   <fn-expr>` (the test262 fn-constructor idiom). The prototype
 ///   object is a runtime dynobj, so the stored closure is reachable
@@ -328,20 +331,18 @@ fn collect_position_faces(
 ///   "some named fn's .prototype" admit;
 /// * RFC 20260808-construct-channel B2 —
 ///   `a.constructor[Symbol.species] = <fn>` / `a.constructor.k =
-///   <fn>` where `a` is a certain runtime-props receiver (an `: any`
-///   binding or an array binding, mutability irrelevant).
-///   `.constructor` on those shapes is never a typed struct slot —
-///   the stored closure is reachable only through the runtime keyed
-///   dispatch (ArraySpeciesCreate reads it back through the arrprops
-///   bag). Other member names on these roots stay loud until a
-///   consumer shape needs them.
-#[allow(clippy::too_many_arguments)]
+///   <fn>` where `a` is a runtime-props binding (same merged
+///   predicate, mutability irrelevant). `.constructor` on those
+///   shapes is never a typed struct slot — the stored closure is
+///   reachable only through the runtime keyed dispatch
+///   (ArraySpeciesCreate reads it back through the arrprops bag).
+///   Other member names on these roots stay loud until a consumer
+///   shape needs them.
 fn collect_store_face(
     stmts: &[Stmt],
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
-    any_recvs: &std::collections::HashSet<String>,
-    array_lenient_recvs: &std::collections::HashSet<String>,
+    props_recvs: &std::collections::HashSet<String>,
     target: ExprId,
     value: ExprId,
     patches: &mut Vec<FacePatch>,
@@ -353,7 +354,7 @@ fn collect_store_face(
         _ => None,
     };
     let admits = store_recv.is_some_and(|obj| match &exprs[obj.0 as usize] {
-        Expr::Ident(n) => any_recvs.contains(n),
+        Expr::Ident(n) => props_recvs.contains(n),
         Expr::Member {
             obj: pobj,
             name: pname,
@@ -365,7 +366,7 @@ fn collect_store_face(
                 ))
                 || (pname == "constructor"
                     && matches!(&exprs[pobj.0 as usize], Expr::Ident(n)
-                        if any_recvs.contains(n) || array_lenient_recvs.contains(n)))
+                        if props_recvs.contains(n)))
         }
         _ => false,
     });

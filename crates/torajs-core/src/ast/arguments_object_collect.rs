@@ -330,16 +330,10 @@ fn safe_binding_chain(
     // or the any-lane call path, both of which enter the boxed dual
     // entry with REAL argc/argv. Computed once for the kill walk's
     // escape-store exemption below.
-    let any_recvs = super::fnexpr_this_recvs::collect_any_binding_names(&ast.stmts, &ast.exprs);
-    let array_lenient_recvs =
-        super::fnexpr_this_recvs::collect_array_binding_names_lenient(&ast.stmts, &ast.exprs);
+    let props_recvs =
+        super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
     let boxed_face_store = |target: ExprId| -> bool {
-        super::arguments_object_escape_store::boxed_face_store_target(
-            ast,
-            target,
-            &any_recvs,
-            &array_lenient_recvs,
-        )
+        super::arguments_object_escape_store::boxed_face_store_target(ast, target, &props_recvs)
     };
     loop {
         let mut killed: HashSet<String> = HashSet::new();
