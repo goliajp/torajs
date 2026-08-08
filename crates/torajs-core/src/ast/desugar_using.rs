@@ -137,8 +137,9 @@ fn wrap_with_env(mut tail: Vec<Stmt>, ast: &mut Ast, n: &mut u32) -> Stmt {
     let env_name = format!("__usenv_{n}");
     let catch_name = format!("__usc_{n}");
     *n += 1;
+    let mut has_await = false;
     for s in tail.iter_mut() {
-        replace_using_shallow(s, &env_name, ast);
+        replace_using_shallow(s, &env_name, ast, &mut has_await);
     }
     // The env is built INLINE with an `: any` annotation — that is
     // what routes the literal down the dynobj lane, whose properties
@@ -167,7 +168,27 @@ fn wrap_with_env(mut tail: Vec<Stmt>, ast: &mut Ast, n: &mut u32) -> Stmt {
     let catch_eid = ast.add_expr(Expr::Ident(catch_name.clone()));
     let caught = call_expr(ast, "__torajs_using_caught", vec![env_eid, catch_eid]);
     let env_eid2 = ast.add_expr(Expr::Ident(env_name));
-    let dispose = call_expr(ast, "__torajs_using_dispose", vec![env_eid2]);
+    // Knife 2 — a scope holding ANY `await using` binding disposes
+    // through the async helper and awaits it (spec: the whole
+    // DisposeResources walk is async once an async-dispose hint is
+    // on the stack; sync entries in the same env just don't await
+    // their individual results). The await is minted in the parser's
+    // own spelling — a `.value` member read registered in
+    // `await_value_reads` — which the later async desugar / TLA
+    // machinery picks up exactly like a user-written `await`.
+    // Context legality is already guaranteed: `await using` only
+    // parses where `await` itself is legal (§15.8.1 gate).
+    let dispose = if has_await {
+        let call = call_expr(ast, "__torajs_using_dispose_async", vec![env_eid2]);
+        let read = ast.add_expr(Expr::Member {
+            obj: call,
+            name: "value".into(),
+        });
+        ast.await_value_reads.insert(read);
+        read
+    } else {
+        call_expr(ast, "__torajs_using_dispose", vec![env_eid2])
+    };
     let try_stmt = Stmt::Try {
         body: tail,
         had_catch: true,
@@ -183,19 +204,26 @@ fn wrap_with_env(mut tail: Vec<Stmt>, ast: &mut Ast, n: &mut u32) -> Stmt {
 /// `const x = __torajs_using_add(env, e)`. Only the CURRENT list
 /// level — nested lists were already rewritten (each with its own
 /// env) by the recursion in `rewrite_list`.
-fn replace_using_shallow(s: &mut Stmt, env_name: &str, ast: &mut Ast) {
+fn replace_using_shallow(s: &mut Stmt, env_name: &str, ast: &mut Ast, has_await: &mut bool) {
     match s {
         Stmt::UsingDecl { .. } => {
             let Stmt::UsingDecl {
                 name,
                 type_ann,
                 init,
+                is_await,
             } = std::mem::replace(s, Stmt::Break(None))
             else {
                 unreachable!()
             };
             let env_eid = ast.add_expr(Expr::Ident(env_name.to_string()));
-            let add = call_expr(ast, "__torajs_using_add", vec![env_eid, init]);
+            let helper = if is_await {
+                *has_await = true;
+                "__torajs_using_add_async"
+            } else {
+                "__torajs_using_add"
+            };
+            let add = call_expr(ast, helper, vec![env_eid, init]);
             *s = Stmt::LetDecl {
                 mutable: false,
                 name,
@@ -211,11 +239,11 @@ fn replace_using_shallow(s: &mut Stmt, env_name: &str, ast: &mut Ast) {
                 Stmt::Multi(inner) => {
                     for m in inner.iter_mut() {
                         if matches!(m, Stmt::UsingDecl { .. }) {
-                            replace_using_shallow(m, env_name, ast);
+                            replace_using_shallow(m, env_name, ast, has_await);
                         }
                     }
                 }
-                one => replace_using_shallow(one, env_name, ast),
+                one => replace_using_shallow(one, env_name, ast, has_await),
             };
         }
         _ => {}
@@ -335,6 +363,15 @@ fn call_expr(ast: &mut Ast, f: &str, args: Vec<ExprId>) -> ExprId {
 /// observable `.message` read is "" either way (Error.prototype
 /// fallback), only Object.hasOwnProperty("message") differs. B6
 /// (SuppressedError checker face: optional params) closes that.
+/// Knife 2 adds the async pair: `_add_async` resolves the dispose
+/// method with the §GetDisposeMethod async hint (`@@asyncDispose`
+/// first, then a `@@dispose` sync fallback whose RESULT is not
+/// awaited — the walk awaits undefined after it, spec's closure
+/// wrap), stacking a `k` kind tag (2 = async method / 1 = sync
+/// fallback / 0 = null-or-undefined binding, which still costs one
+/// await tick); sync `_add` entries carry no `k` and never await.
+/// `_dispose_async` is itself an injected `async function`, so the
+/// ordinary async desugar state-machines its awaits.
 /// Injected via the `parse_into` append convention (modules.rs);
 /// the fns ride the full downstream pipeline like user code, and
 /// `new SuppressedError(…)` here is what makes
@@ -351,6 +388,58 @@ function __torajs_using_add(env: any, value: any): any {
   }
   env.stack.push({ v: value, d: m });
   return value;
+}
+function __torajs_using_add_async(env: any, value: any): any {
+  if (value === null || value === undefined) {
+    env.stack.push({ v: undefined, d: undefined, k: 0 });
+    return value;
+  }
+  const m = value[Symbol.asyncDispose];
+  if (m === undefined || m === null) {
+    const sm = value[Symbol.dispose];
+    if (typeof sm !== "function") {
+      throw new TypeError("value is not async disposable: neither [Symbol.asyncDispose] nor [Symbol.dispose] is a function");
+    }
+    env.stack.push({ v: value, d: sm, k: 1 });
+    return value;
+  }
+  if (typeof m !== "function") {
+    throw new TypeError("value is not async disposable: [Symbol.asyncDispose] is not a function");
+  }
+  env.stack.push({ v: value, d: m, k: 2 });
+  return value;
+}
+async function __torajs_using_dispose_async(env: any): Promise<void> {
+  const st = env.stack;
+  let error = env.error;
+  let hasError = env.hasError;
+  let i = st.length - 1;
+  while (i >= 0) {
+    const r = st[i];
+    try {
+      if (r.k === 2) {
+        await r.d.call(r.v);
+      } else if (r.k === 1) {
+        r.d.call(r.v);
+        await undefined;
+      } else if (r.k === 0) {
+        await undefined;
+      } else {
+        r.d.call(r.v);
+      }
+    } catch (e) {
+      if (hasError) {
+        error = new SuppressedError(e, error, "");
+      } else {
+        error = e;
+      }
+      hasError = true;
+    }
+    i = i - 1;
+  }
+  if (hasError) {
+    throw error;
+  }
 }
 function __torajs_using_caught(env: any, e: any): void {
   env.error = e;

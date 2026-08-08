@@ -58,10 +58,12 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             name,
             type_ann,
             init,
+            is_await,
         } => Stmt::UsingDecl {
             name: name.clone(),
             type_ann: type_ann.clone(),
             init: sfi_rewrite_expr(ast, *init, x_name, i_name, v_name),
+            is_await: *is_await,
         },
         Stmt::If {
             cond,

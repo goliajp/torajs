@@ -158,12 +158,17 @@ pub enum Stmt {
     /// calls; no later pass and no lowering ever sees this variant.
     /// Multi-binding heads (`using a = x, b = y`) parse to one
     /// UsingDecl per binding under `Stmt::Multi` (LetDecl
-    /// convention). The `await using` form stays parse-rejected
-    /// until its knife lands, so no `is_await` flag yet.
+    /// convention).
     UsingDecl {
         name: String,
         type_ann: Option<String>,
         init: ExprId,
+        /// `await using x = …` (knife 2) — hint async-dispose: the
+        /// bind reads `@@asyncDispose` first (`@@dispose` sync
+        /// fallback), and the scope's disposal awaits (implicitly,
+        /// even for sync methods and null/undefined bindings). Only
+        /// parses where `await` itself is legal (§15.8.1 gate).
+        is_await: bool,
     },
     /// `try { body } catch (e) { catch_body } finally { finally_body }`.
     /// `had_catch` distinguishes `try {} catch {} finally {}` (where the

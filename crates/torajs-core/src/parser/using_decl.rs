@@ -6,15 +6,16 @@
 //! line-broken `using \n x` stays an expression statement per ASI.
 //! This is exactly the judgment the old loud-reject
 //! (`reject_using_decl`) sat on; this file upgrades the sync form to
-//! a real parse. The `await using` form keeps the loud reject until
-//! its knife lands (B3) — same message, same bucket.
+//! a real parse; knife 2 threads the `await using` head through the
+//! same body with `is_await` set (the §15.8.1 context gate lives at
+//! the parse_stmt dispatch).
 
 use super::*;
 
 impl<'a> Parser<'a> {
-    /// Head test: `Some(true)` = `await using` head (still
-    /// rejected), `Some(false)` = `using` head (parsed), `None` =
-    /// not a declaration head (expression reading stands).
+    /// Head test: `Some(true)` = `await using` head, `Some(false)`
+    /// = plain `using` head, `None` = not a declaration head (the
+    /// expression reading stands).
     pub(super) fn using_decl_head(&self) -> Option<bool> {
         let (using_kw_pos, is_await) = match self.peek() {
             Token::Ident(n) if n == "using" => (self.pos, false),
@@ -43,7 +44,7 @@ impl<'a> Parser<'a> {
     /// succeeds as an expression on its own terms). Only the FIRST
     /// binding carries the no-LineTerminator restriction; later
     /// bindings may wrap freely.
-    pub(super) fn parse_using_decl(&mut self) -> Result<Stmt, String> {
+    pub(super) fn parse_using_decl(&mut self, is_await: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `using`
         let mut decls: Vec<Stmt> = Vec::new();
         loop {
@@ -77,6 +78,7 @@ impl<'a> Parser<'a> {
                 name,
                 type_ann,
                 init,
+                is_await,
             });
             if matches!(self.peek(), Token::Comma) {
                 self.pos += 1;

@@ -33,7 +33,8 @@ impl<'a> Formatter<'a> {
                 name,
                 type_ann,
                 init,
-            } => self.fmt_using_decl(name, type_ann.as_deref(), *init),
+                is_await,
+            } => self.fmt_using_decl(name, type_ann.as_deref(), *init, *is_await),
             Stmt::Return(opt) => self.fmt_return(*opt),
             Stmt::Yield(eid) => {
                 self.write_indent();
@@ -294,8 +295,11 @@ impl<'a> Formatter<'a> {
     /// `Stmt::UsingDecl` arm — `using x(: T)? = init;` (RFC
     /// 20260809 B1; the formatter sees the variant only when running
     /// on a raw pre-desugar tree).
-    fn fmt_using_decl(&mut self, name: &str, type_ann: Option<&str>, init: ExprId) {
+    fn fmt_using_decl(&mut self, name: &str, type_ann: Option<&str>, init: ExprId, is_await: bool) {
         self.write_indent();
+        if is_await {
+            self.write("await ");
+        }
         self.write("using ");
         self.write(name);
         if let Some(t) = type_ann {

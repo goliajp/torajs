@@ -166,12 +166,19 @@ impl<'a> Parser<'a> {
             return self.parse_let_decl_stmt(mutable, is_var);
         }
         match self.using_decl_head() {
-            Some(false) => return self.parse_using_decl(),
+            Some(false) => return self.parse_using_decl(false),
             Some(true) => {
-                return Err(format!(
-                    "not yet supported: `await using` declarations (Explicit Resource Management) at {}",
-                    self.at()
-                ));
+                // §15.8.1 — `await using` is legal exactly where
+                // `await` is (async bodies + module top level; a
+                // class static block clears the flag).
+                if !self.await_allowed {
+                    return Err(format!(
+                        "`await` is only valid in async functions and at the top level of a                          module at {} (ES §15.8.1)",
+                        self.at()
+                    ));
+                }
+                self.pos += 1; // consume `await`
+                return self.parse_using_decl(true);
             }
             None => {}
         }

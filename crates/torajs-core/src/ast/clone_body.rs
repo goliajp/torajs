@@ -203,10 +203,12 @@ impl<'a> BodyCloner<'a> {
                 name,
                 type_ann,
                 init,
+                is_await,
             } => Stmt::UsingDecl {
                 name: name.clone(),
                 type_ann: type_ann.clone(),
                 init: self.clone_expr(*init),
+                is_await: *is_await,
             },
             Stmt::If {
                 cond,

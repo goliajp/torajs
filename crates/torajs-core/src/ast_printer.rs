@@ -87,8 +87,9 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             name,
             type_ann,
             init,
+            is_await,
         } => {
-            println!("{pad}UsingDecl {name} ty={type_ann:?}");
+            println!("{pad}UsingDecl {name} ty={type_ann:?} await={is_await}");
             print_expr(ast, *init, indent + 1);
         }
         Stmt::LetDecl {
