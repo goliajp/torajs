@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T15:29:54.057Z",
+  "generatedAt": "2026-08-08T17:20:24.873Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T15:27:20Z",
-    "headSha": "6a724884",
-    "elapsedSec": 413.81,
+    "ranAt": "2026-08-08T16:47:25Z",
+    "headSha": "5894bd1e",
+    "elapsedSec": 449.72,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23183,
+    "pass": 23193,
     "passNoOracle": 762,
     "passNegative": 3955,
-    "passTotal": 27900,
-    "bug": 12632,
-    "incompatible": 12642,
+    "passTotal": 27910,
+    "bug": 12639,
+    "incompatible": 12625,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40532,
-    "passRateInScope": 52.47,
+    "trAccepted": 40549,
+    "passRateInScope": 52.49,
     "passRateTrAccepted": 68.83
   },
   "torajs": {
-    "commit": "6a724884",
-    "commitSubject": "feat: concat species derive stores elements with define semantics",
+    "commit": "f9f718dc",
+    "commitSubject": "docs: rotation 340 close — b6 array.from full call surface in three knives, sweep +10/+7/-17 zero regressions, p-surf restamp",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "f9f718dc",
+      "subject": "docs: rotation 340 close — b6 array.from full call surface in three knives, sweep +10/+7/-17 zero regressions, p-surf restamp"
+    },
+    {
+      "hash": "5894bd1e",
+      "subject": "feat: array.from typed lowering reads real array-like elements and routes mapfn escape shapes to the kernel"
+    },
+    {
+      "hash": "4b811477",
+      "subject": "feat: ns-static receiver channel gives array.from.call(c) its construct face"
+    },
+    {
+      "hash": "1ea14c96",
+      "subject": "feat: array.from any-tier kernel serves detached calls"
+    },
+    {
+      "hash": "5549f870",
+      "subject": "docs: rotation 339 close addendum — P-SURF latest stamp and sweep artifacts"
+    },
+    {
+      "hash": "c2c963f3",
+      "subject": "docs: rotation 339 close — species second key + three follow-up knives flip the create-species family, sweep +19/-14/-5 zero regressions, P-SURF restamp, dashboard refresh"
+    },
+    {
       "hash": "6a724884",
       "subject": "feat: concat species derive stores elements with define semantics"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "479ec1a6",
       "subject": "feat: merged props-receiver collector ends the harness/case same-name mutual kill"
-    },
-    {
-      "hash": "141e0f3a",
-      "subject": "docs: rotation 338 close addendum — sixth knife swept at 049039cd, verdicts identical to 6a2b2adc (binary verified), P-SURF restamp, dashboard refresh"
-    },
-    {
-      "hash": "049039cd",
-      "subject": "feat: arguments-touching fn-exprs stored into boxed-face positions join the argv face"
-    },
-    {
-      "hash": "9bf055ac",
-      "subject": "docs: rotation 338 close — builtin-singleton value axis shipped, sweep at 6a2b2adc, +148 passTotal, two honest de-dilutions, P-SURF stamp, dashboard refresh"
-    },
-    {
-      "hash": "6a2b2adc",
-      "subject": "feat: globalThis fill gains the JSON / Reflect singletons and the eval cell"
-    },
-    {
-      "hash": "585f777b",
-      "subject": "feat: expando writes on the singleton-backed namespaces"
-    },
-    {
-      "hash": "70bfe9de",
-      "subject": "feat: the global eval as a first-class value"
     }
   ],
-  "headSha": "6a724884",
+  "headSha": "f9f718dc",
   "autorun": {
-    "total": 642,
+    "total": 643,
     "baselineTarget": 10,
-    "bySelf": 637,
+    "bySelf": 638,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786197869-383c",
-      "at": "2026-08-08T14:04:29Z",
-      "ts": 1786197869,
+      "rotationId": "r-1786203278-57dc",
+      "at": "2026-08-08T15:34:38Z",
+      "ts": 1786203278,
       "trigger": "self",
-      "prevHead": "141e0f3a",
-      "handoffSha": "sha256:72c1ad6429456fcd800632f3fef76b197e337473b80b18205da5f574de0f42f8",
-      "handoffAgeSec": 25,
+      "prevHead": "5549f870",
+      "handoffSha": "sha256:0fd95151edff9a2330195deba3eefc38845fcb8846058c958f44684421e44584",
+      "handoffAgeSec": 225,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786203278-57dc",
+        "at": "2026-08-08T15:34:38Z",
+        "ts": 1786203278,
+        "trigger": "self",
+        "prevHead": "5549f870",
+        "handoffSha": "sha256:0fd95151edff9a2330195deba3eefc38845fcb8846058c958f44684421e44584",
+        "handoffAgeSec": 225,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786197869-383c",
         "at": "2026-08-08T14:04:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "d284d879",
         "handoffSha": "sha256:9105736ac8fcd2d6b24c6b083256480434837b7d525a14a22df4a01d5097d36b",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786122524-259b",
-        "at": "2026-08-07T17:08:44Z",
-        "ts": 1786122524,
-        "trigger": "self",
-        "prevHead": "691d94c8",
-        "handoffSha": "sha256:00e54b2787406fb56118ea29c94a89a728c535f230b5ccbebe8f9254e4a97cbb",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
