@@ -34,6 +34,20 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+/// B6 刀 3 — the checker/lowering SHARED verdict for `Array.from(src,
+/// mapFn, …)`: `true` routes the any-tier kernel
+/// (`__torajs_array_from_dyn` — spec-exact «kValue, k» call shape,
+/// real thisArg binding, per-index Get/map interleave, runtime
+/// non-callable TypeError), `false` keeps the typed fast lane
+/// (String / typed Array / Set source, Function mapFn, no thisArg —
+/// the devirt map loop, no observable-shape difference). Both layers
+/// key on this ONE predicate so admit and lowering cannot drift.
+pub(crate) fn from_mapfn_routes_kernel(src_ty: &Type, mapfn_ty: &Type, argn: usize) -> bool {
+    !matches!(src_ty, Type::String | Type::Array(_) | Type::Set)
+        || !matches!(mapfn_ty, Type::Function(..))
+        || argn >= 3
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -127,55 +141,48 @@ pub(crate) fn try_match(
             if matches!(arg_ty, Type::Struct(_)) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
+            // B6 刀 3 — a nullish source is LEGAL to compile:
+            // §23.1.2.1 step 5's GetMethod runs ToObject(items),
+            // whose TypeError is a RUNTIME catchable (the
+            // items-is-null-throws t262 shape asserts exactly that
+            // throw), not a compile refusal.
+            if matches!(arg_ty, Type::Null | Type::Undefined) {
+                return Some(Ok(Type::Array(Box::new(Type::Any))));
+            }
             // Fall through to the static-sig path; the String
             // overload already covered there throws a sensible
             // arity / type mismatch otherwise.
         } else if args.len() >= 2 {
             // S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1.
-            // mapFn shape `(elem) → R` or `(elem, idx) → R`;
-            // result type is `Array<R>` where R = mapFn's ret.
-            // iter accepts the same three substrates as 1-arg
-            // (String / typed Array / Set); the actual ssa-lower
-            // path picks 1-arg substrate then runs a map loop.
-            //
-            // S275 — widen `args.len() == 2` to `>= 2` per ES
-            // §23.1.2.1: spec accepts `Array.from(iter, mapFn,
-            // thisArg)`; trailing args past thisArg silent-
-            // drop. tora's closures don't bind `this`, so
-            // thisArg + further trailing are typecheck-and-
-            // dropped; ssa_lower mirror evals-and-drops.
+            // The typed fast lane (String / typed Array / Set source
+            // + Function mapFn, exactly 2 args) keeps its precise
+            // `Array<R>` verdict for the devirt map loop; every
+            // other admitted shape routes the any-tier kernel (B6
+            // 刀 3 — `from_mapfn_routes_kernel`, the lowering keys
+            // on the SAME predicate), where a non-callable mapfn is
+            // the kernel's step-2 RUNTIME TypeError
+            // (mapfn-is-not-callable / mapfn-is-symbol) and an
+            // explicit thisArg really binds.
             let arg_ty = match checker.type_of(ast, args[0]) {
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
-            match &arg_ty {
-                Type::String | Type::Array(_) | Type::Set => {}
-                Type::Map | Type::MapIter | Type::ArrIter | Type::Any | Type::ClassRef(_) => {}
-                Type::Struct(_) => {}
-                _ => {
-                    return Some(Err(format!(
-                        "Array.from(iter, mapFn): iter must be string, Array, Set, an array-like {{length}} object, a class instance, or any; got {arg_ty:?}"
-                    )));
-                }
-            }
             let fn_ty = match checker.type_of(ast, args[1]) {
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
-            };
-            let ret_ty = match &fn_ty {
-                Type::Function(_, ret) => (**ret).clone(),
-                _ => {
-                    return Some(Err(format!(
-                        "Array.from: 2nd arg must be a function, got {fn_ty:?}"
-                    )));
-                }
             };
             for &a in &args[2..] {
                 if let Err(e) = checker.type_of(ast, a) {
                     return Some(Err(e));
                 }
             }
-            return Some(Ok(Type::Array(Box::new(ret_ty))));
+            if from_mapfn_routes_kernel(&arg_ty, &fn_ty, args.len()) {
+                return Some(Ok(Type::Array(Box::new(Type::Any))));
+            }
+            let Type::Function(_, ret) = &fn_ty else {
+                unreachable!("non-Function mapfn routes the kernel");
+            };
+            return Some(Ok(Type::Array(Box::new((**ret).clone()))));
         }
     }
     None

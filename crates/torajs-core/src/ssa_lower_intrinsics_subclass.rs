@@ -44,6 +44,16 @@ pub(crate) fn declare(
 ) -> ExoticSubclassIds {
     let tag_only = &[Type::I64][..];
     let super_pair = &[Type::Any, Type::Any][..];
+    // B6 刀 3 — the §23.1.2.1 any-tier kernel behind the typed
+    // lowering's escape shapes (`from_mapfn_routes_kernel`); the
+    // route resolves it by name off `fn_table`, so no struct slot.
+    declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_array_from_dyn",
+        &[Type::Any, Type::Any, Type::Any][..],
+        Type::Ptr,
+    );
     let d =
         |module: &mut Module,
          fn_table: &mut HashMap<String, FuncId>,

@@ -91,6 +91,19 @@ pub(crate) fn try_lower(
         }
         return Some(Operand::Value(v));
     }
+    // B6 刀 3 — the kernel route (shared predicate with the checker:
+    // non-fast-lane source / non-Function mapFn / explicit thisArg).
+    // Box the three operands and hand them to
+    // `__torajs_array_from_dyn` — the §23.1.2.1 any-tier walk with
+    // the spec's exact «kValue, k» call shape, real thisArg binding
+    // and per-index Get/map interleave.
+    if args.len() >= 2
+        && let (Some(src_ty), Some(fn_ty)) =
+            (ctx.expr_types.get(&args[0]), ctx.expr_types.get(&args[1]))
+        && crate::check_type_of_call_array_from::from_mapfn_routes_kernel(src_ty, fn_ty, args.len())
+    {
+        return Some(emit_kernel_route(ctx, args));
+    }
     // S275 — widen `== 1 || == 2` to `>= 1`. The 2-arg path below handles
     // iter+mapFn; trailing args (thisArg + extras) are eval-and-dropped
     // at the end so side-effect exprs fire per ES §23.1.2.1 trailing-arg
@@ -115,6 +128,58 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(a);
     }
     Some(emit_map_loop(ctx, src_arr_op, args))
+}
+
+/// The B6 刀 3 kernel route: box (src, mapFn, thisArg) and call
+/// `__torajs_array_from_dyn`. The kernel answers a raw fresh
+/// `Array<Any>` pointer (NULL under a pending throw, which the check
+/// right after forwards before anything consumes it). Owned temps
+/// keep the fromAsync arm's release shape.
+fn emit_kernel_route(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let src_op = ctx.lower_expr(args[0]);
+    let src_ty = ctx.operand_ty(&src_op);
+    let src_boxed = ctx.box_to_any_from_expr(args[0], src_op.clone());
+    let fn_op = ctx.lower_expr(args[1]);
+    let fn_ty = ctx.operand_ty(&fn_op);
+    let fn_boxed = ctx.box_to_any_from_expr(args[1], fn_op.clone());
+    let mut this_temp: Option<(Operand, Type)> = None;
+    let this_boxed = if let Some(&t) = args.get(2) {
+        let op = ctx.lower_expr(t);
+        let ty = ctx.operand_ty(&op);
+        let boxed = ctx.box_to_any_from_expr(t, op.clone());
+        this_temp = Some((op, ty));
+        boxed
+    } else {
+        Operand::Value(crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx))
+    };
+    for &a in args.iter().skip(3) {
+        let _ = ctx.lower_expr(a);
+    }
+    let fid = *ctx
+        .fn_table
+        .get("__torajs_array_from_dyn")
+        .expect("__torajs_array_from_dyn intrinsic missing");
+    let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![src_boxed, fn_boxed, this_boxed]),
+        Type::Arr(arr_id),
+        None,
+    );
+    ctx.emit_throw_check(None);
+    if src_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
+        ctx.emit_drop_value(src_op, src_ty);
+    }
+    if fn_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[1]) {
+        ctx.emit_drop_value(fn_op, fn_ty);
+    }
+    if let Some((op, ty)) = this_temp
+        && ty.is_refcounted()
+        && ctx.expr_is_fresh_owned(args[2])
+    {
+        ctx.emit_drop_value(op, ty);
+    }
+    Operand::Value(v)
 }
 
 /// Materialize `src_arr` from the iter arg per the four accepted shapes
@@ -178,54 +243,19 @@ fn materialize_src(
         // `ssa_lower_arr_from_set`.
         return crate::ssa_lower_arr_from_set::emit(ctx, arg_op);
     }
-    if let Type::Obj(sid) = arg_ty
-        && !struct_has_length(ctx, sid)
-    {
-        // ES §23.1.2.1 step 3 — the ITERABLE branch. A cell with no
-        // `length` is not array-like, so `Array.from` asks it for an
-        // iterator like every other consumer does, through the same
-        // materializer the `any` arm above uses. This is the shape a
-        // generator object and a hand-written iterator class wear;
-        // before knife 2 there was no lookup to make, so they fell
-        // into the array-like branch and read a `length` that a
-        // generator's layout does not have.
+    if matches!(arg_ty, Type::Obj(_)) {
+        // ES §23.1.2.1 step 3 — a struct source, iterable OR
+        // array-like: the boxed cell drives the same unified walk the
+        // `any` arm uses, whose cascade asks for an iterator first (a
+        // generator object / `[Symbol.iterator]()` class instance)
+        // and whose tail walks `length` + index keys otherwise. B6
+        // 刀 3 retires the undefined-filled stub the array-like side
+        // used to mint (it never read the index properties —
+        // `Array.from({'0': 41, length: 1})` answered `[undefined]`).
         let boxed = ctx.box_to_any(arg_op.clone());
         let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
-    }
-    if let Type::Obj(sid) = arg_ty {
-        // Array-like `{length: n}` (ES §23.1.2.1 non-iterable branch;
-        // the checker gated on a numeric length field) — every index
-        // read answers undefined, so the src is the same dense
-        // undefined-filled Array<Any> `new Array(n)` mints. ToLength
-        // rides coerce_to_i64; the alloc arms a RangeError for
-        // lengths outside [0, 2^32-1] and returns NULL.
-        let len_op = crate::ssa_lower_member_obj_field::try_lower(
-            ctx,
-            arg_eid,
-            arg_eid,
-            arg_op.clone(),
-            sid,
-            "length",
-        );
-        let len_i64 = ctx.coerce_to_i64(len_op);
-        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        let fid = *ctx
-            .fn_table
-            .get("__torajs_arr_alloc_any_filled")
-            .expect("__torajs_arr_alloc_any_filled intrinsic missing");
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(fid, vec![len_i64]),
-            Type::Arr(arr_id),
-            None,
-        );
-        ctx.emit_throw_check(None);
-        // A literal `{length: n}` direct arg is a fresh owned temp
-        // with no other release site; a borrowed Ident is a no-op.
-        ctx.release_owned_temp(arg_eid, &arg_op);
-        return Operand::Value(v);
     }
     if matches!(arg_ty, Type::Any) {
         // RFC 20260725-getiterator-getmethod knife 5 — an `any` source
@@ -237,6 +267,19 @@ fn materialize_src(
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
     }
+    // B6 刀 3 — a nullish source (checker-typed Null / Undefined)
+    // boxes and rides the unified walk to §23.1.2.1 step 5's RUNTIME
+    // TypeError (items-is-null-throws); the SSA lattice has no
+    // nullish variant, so the split keys on the checker record.
+    if matches!(
+        ctx.expr_types.get(&arg_eid),
+        Some(crate::check::Type::Null | crate::check::Type::Undefined)
+    ) {
+        let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        return materialized;
+    }
     if matches!(arg_ty, Type::Map | Type::MapIter | Type::ArrIter) {
         // `Array.from(map / iterator)` — box the heap source (tag-4
         // ANY_HEAP, rc-neutral encode) and drive the unified runtime
@@ -245,6 +288,8 @@ fn materialize_src(
         // mirrors the spread arm: `emit` borrows the boxed source and
         // yields an owned rc=1 array; `release_owned_temp` settles an
         // owned-temp source (`m.keys()` call) and no-ops a borrow.
+        // A nullish source rides the same walk to §23.1.2.1 step 5's
+        // RUNTIME TypeError (B6 刀 3, items-is-null-throws).
         let boxed = ctx.box_to_any(arg_op.clone());
         let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
         ctx.release_owned_temp(arg_eid, &arg_op);
@@ -253,13 +298,4 @@ fn materialize_src(
     panic!(
         "ssa-lower: Array.from requires a string, Array<T>, Set, or array-like arg, got {arg_ty:?}"
     )
-}
-
-/// Whether the struct carries a `length` field — the array-like test
-/// of ES §23.1.2.1, mirroring the checker's own gate so both layers
-/// route a source to the same branch.
-fn struct_has_length(ctx: &LowerCtx<'_>, sid: crate::ssa::StructId) -> bool {
-    ctx.struct_layouts
-        .get(sid.0 as usize)
-        .is_some_and(|layout| layout.iter().any(|(n, _)| n == "length"))
 }

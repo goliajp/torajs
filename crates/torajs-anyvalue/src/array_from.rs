@@ -55,6 +55,60 @@ unsafe extern "C" {
 /// `Some((env, entry))` = the boxed callable pair.
 type MapPair = Option<(*mut c_void, u64)>;
 
+/// The typed lowering's escape route (B6 刀 3 —
+/// `from_mapfn_routes_kernel` shapes): a direct `Array.from(src,
+/// mapFn?, thisArg?)` call whose `this` is %Array% itself, so both
+/// §23.1.2.1 branches take ArrayCreate and the answer is always a
+/// plain array — handed back as the RAW fresh `Array<Any>` pointer
+/// the `Type::Arr` lane consumes (NULL under a pending throw; the
+/// call site's throw check forwards before anything reads it).
+///
+/// # Safety
+/// Operands are live AnyValues borrowed for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_array_from_dyn(
+    items: AnyValue,
+    mapfn: AnyValue,
+    this_arg: AnyValue,
+) -> *mut c_void {
+    unsafe {
+        let v = from_plain_gated(items, mapfn, this_arg);
+        if crate::nanbox::is_cell(v) {
+            crate::nanbox::as_void_ptr(v)
+        } else {
+            core::ptr::null_mut()
+        }
+    }
+}
+
+/// [`from_plain`] behind the step-2 mapping gate — the shared entry
+/// for callers with no constructor `this`.
+unsafe fn from_plain_gated(items: AnyValue, mapfn: AnyValue, this_arg: AnyValue) -> AnyValue {
+    unsafe {
+        let Ok(map_pair) = mapping_gate(mapfn) else {
+            return VALUE_UNDEFINED;
+        };
+        from_plain(items, map_pair, this_arg)
+    }
+}
+
+/// Step 2 — mapping + IsCallable BEFORE any iteration. `Err` = the
+/// non-callable TypeError is recorded pending.
+unsafe fn mapping_gate(mapfn: AnyValue) -> Result<MapPair, ()> {
+    unsafe {
+        if is_undefined(mapfn) {
+            return Ok(None);
+        }
+        match closure_boxed_entry(mapfn) {
+            Some(pair) => Ok(Some(pair)),
+            None => {
+                __torajs_throw_type_error(c"Array.from: mapfn is not a function".as_ptr());
+                Err(())
+            }
+        }
+    }
+}
+
 /// §23.1.2.1 Array.from(items, mapfn?, thisArg?) with `this` from
 /// the call site (undefined on a bare detached call; the `.call(C)`
 /// receiver channel hands a real one). Step 8/12's IsConstructor
@@ -72,17 +126,8 @@ pub(crate) unsafe fn array_from_this(
     this_arg: AnyValue,
 ) -> AnyValue {
     unsafe {
-        // Step 2 — mapping + IsCallable BEFORE any iteration.
-        let map_pair: MapPair = if is_undefined(mapfn) {
-            None
-        } else {
-            match closure_boxed_entry(mapfn) {
-                Some(pair) => Some(pair),
-                None => {
-                    __torajs_throw_type_error(c"Array.from: mapfn is not a function".as_ptr());
-                    return VALUE_UNDEFINED;
-                }
-            }
+        let Ok(map_pair) = mapping_gate(mapfn) else {
+            return VALUE_UNDEFINED;
         };
         if !crate::construct::__torajs_is_constructor(this_c) {
             return from_plain(items, map_pair, this_arg);
