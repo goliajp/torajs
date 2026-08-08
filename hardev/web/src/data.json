@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T23:24:16.279Z",
+  "generatedAt": "2026-08-08T23:38:39.968Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.17
   },
   "torajs": {
-    "commit": "64d83b27",
-    "commitSubject": "refactor: return-value leg of the return lowering extracts to its own fn",
+    "commit": "adfb5fe8",
+    "commitSubject": "refactor: deep clone tail arms move to an option fall-through sibling",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "adfb5fe8",
+      "subject": "refactor: deep clone tail arms move to an option fall-through sibling"
+    },
+    {
+      "hash": "34798416",
+      "subject": "refactor: ast printer for-of arms extract, check_stmt takes the dispatch carve-out"
+    },
+    {
+      "hash": "300e4ea0",
+      "subject": "docs: rotation 343 close — gen dispose family lands, dynobj resize uaf root-caused with rfc, sweep +2/-2 conservation exact zero pass regressions"
+    },
+    {
       "hash": "64d83b27",
       "subject": "refactor: return-value leg of the return lowering extracts to its own fn"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "ec314355",
       "subject": "feat: iterator cells inherit the iterator-prototype symbol dispose"
-    },
-    {
-      "hash": "2094e87e",
-      "subject": "feat: suppressed error constructs with all three params optional"
-    },
-    {
-      "hash": "8a27d3cd",
-      "subject": "feat: DisposableStack and AsyncDisposableStack inject as TS-source builtins"
-    },
-    {
-      "hash": "8e924b87",
-      "subject": "fix: nominal-struct any-field reads mint an owned payload stake"
     }
   ],
-  "headSha": "64d83b27",
+  "headSha": "adfb5fe8",
   "autorun": {
     "total": 646,
     "baselineTarget": 10,
