@@ -17,11 +17,12 @@
 //! empty), so only the trailing-expression shape rewrites; the rest
 //! keep the honest reject.
 
-use super::super::{Ast, Expr, ExprId, Stmt};
+use super::super::{Ast, Expr, ExprId, Stmt, free_vars};
 use super::rewrite_list;
 use super::source::{
     CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
 };
+use super::walk;
 
 /// This pass runs LAST in the desugar deliberately: by then the
 /// statement walks have inlined every statement-position direct eval
@@ -36,6 +37,16 @@ use super::source::{
 /// arrow IIFE is exactly tr's statement-in-value-position carrier.
 /// Scope cannot matter to a throw, so this applies to both call forms.
 pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
+    // An INDIRECT source belongs to the global scope, and an IIFE sits
+    // in the caller's — the two agree only when scope cannot tell them
+    // apart: a source that binds nothing (an IIFE body is a function
+    // scope, so a sloppy global `var` would die in it) and whose free
+    // variables are either none or resolved at a top-level call site
+    // that no nested lexical name shadows. The same two-track rule the
+    // single-expression collapse already applies, extended to the
+    // multi-statement shape.
+    let fn_owned = walk::fn_owned_exprs(ast);
+    let nested_lexical = walk::nested_lexical_names(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
         let eid = ExprId(i as u32);
@@ -49,9 +60,15 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 wrap_iife(i, vec![throw], ast);
             }
             Some(mut body)
-                if form == CallForm::Direct
-                    && body.len() >= 2
-                    && matches!(body.last(), Some(Stmt::Expr(_))) =>
+                if body.len() >= 2
+                    && matches!(body.last(), Some(Stmt::Expr(_)))
+                    && (form == CallForm::Direct
+                        || (!binds_anything(&body) && {
+                            let fv = free_vars::free_vars_of_body(ast, &[], &body);
+                            fv.is_empty()
+                                || (!fn_owned.get(i).copied().unwrap_or(false)
+                                    && fv.iter().all(|n| !nested_lexical.contains(n)))
+                        })) =>
             {
                 let Some(Stmt::Expr(tail)) = body.pop() else {
                     unreachable!()
@@ -67,6 +84,55 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
         }
         i += 1;
     }
+}
+
+/// Any binding at any depth. A binding is what separates the IIFE from
+/// a real indirect eval: the eval's `var` lands on the GLOBAL and
+/// survives the call, while an IIFE's dies with the arrow's own scope.
+/// A declaration-free source never asks the question. Function bodies
+/// need no descent — the declaration itself already answers.
+fn binds_anything(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::LetDecl { .. } | Stmt::FnDecl { .. } | Stmt::ClassDecl { .. } => true,
+        Stmt::Block(b) | Stmt::Multi(b) => binds_anything(b),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            binds_anything(std::slice::from_ref(then_branch))
+                || else_branch
+                    .as_deref()
+                    .is_some_and(|e| binds_anything(std::slice::from_ref(e)))
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+            binds_anything(std::slice::from_ref(body))
+        }
+        // The loop variable is itself a binding.
+        Stmt::ForOf { .. } => true,
+        Stmt::For { init, body, .. } => {
+            init.as_deref()
+                .is_some_and(|i| binds_anything(std::slice::from_ref(i)))
+                || binds_anything(std::slice::from_ref(body))
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            catch_param,
+            ..
+        } => {
+            catch_param.is_some()
+                || binds_anything(body)
+                || binds_anything(catch_body)
+                || finally_body.as_deref().is_some_and(binds_anything)
+        }
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().any(|c| binds_anything(&c.body))
+                || default.as_deref().is_some_and(binds_anything)
+        }
+        _ => false,
+    })
 }
 
 /// Overwrite slot `i` with `(() => { body })()`.
