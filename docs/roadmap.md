@@ -1530,7 +1530,52 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `80753982`** (2026-08-08, rotation 331 — `new` +
+**Latest @ `eec696c9`** (2026-08-08, rotation 334 — SuperProperty
+substrate + the eval×super context gate; also stamps rotations 332-333,
+which updated plan-state only. r332 (`b60554b0`, five knives:
+super-adjacent class fixes) closed at passTotal 27355. r333
+(`d28dbf5e`, seven knives: the eval A-layer compile-time-text axis —
+literal concat folding, completion-value IIFE, Function-ctor literal
+synthesis, value-position SyntaxError, zero-arg, indirect closed
+completion, orphan-Call overwrite) closed at **27540 (+185)**, the
+largest single-rotation gain of the phase: class/elements
+eval-in-field-init 108, gate predicate 313 clusters / 6352 cases /
+core 7378. r334 lands the missing half of `super`: the parser accepts
+`super.x` / `super[k]` as `__superbase__`-marker reads desugared per
+§13.3.7 (getter dispatch / super-base member read / write-to-this),
+static-context `super.m()` dispatch, `super(...spread)`,
+dynamic-function strict early errors (§20.2.1.1 creation-time
+SyntaxError), and base-class instance super resolving to
+%Object.prototype% (§10.2.4). The mid-rotation sweep then caught the
+collateral: unconditional `super.x` parsing had broken 36 cases whose
+correct behavior WAS the parse failure — indirect eval containing
+super must throw SyntaxError before running a statement (§19.2.1.1),
+and bare super outside member bodies must fail at parse phase. The
+closing knife (`eec696c9`) makes position part of the grammar again:
+a `super_prop_allowed` parser flag (true across class bodies and
+object-literal method bodies, false in ordinary function bodies,
+arrows inherit; `super.#x` always rejected), and eval text parsed
+with the call site's §19.2.1.1 steps 4-6 home verdict
+(`walk::class_owned_exprs`), so illegal sources fail parse and ride
+the existing step-12 throw carriers — nothing in the source runs.
+Conformance gate 2589 → **2596/0/4** (+7 fixtures, six green gates);
+build determinism 44/44 (N=12). Against r333: passTotal 27540 →
+**27563 (+23)**, bug 12485 → 12475 (−10), trAccepted 40025 → 40038
+(+13) / incompatible 13149 → **13136 (−13)** — conservation exact
+(13 = 23 − 10). The +23 is all `pass`-family (passNoOracle 754 /
+passNegative 3957 both flat — zero dilution): super 6 (eval-code
+super-prop family — 9 of that directory's 10 now green), class 5,
+Function strict early errors 5 (the r333 regression family root-fixed,
+plus 15.3.2.1-11-{1,3,5}-s), with/object/new.target/staging singles.
+Regressions **zero** (the 36 mid-sweep LOSTs all recovered);
+crash/timeout flat (exit-139 31 / tr-timeout 36 / exit-138 3). Gate
+predicate **310 clusters (−3) / 6334 cases (−18)**, residue 780
+clusters 1031 cases, core **7365 (−13)**. Newly logged silent-wrong
+(pre-existing, L3b): a `throw` statement inside an object-literal
+method body is silently dropped — the method call site appears to
+miss pending-throw propagation.)
+
+**Previous @ `80753982`** (2026-08-08, rotation 331 — `new` +
 `arguments`: the construct site's full argument list finally reaches
 the body. `new H(1,2,3)` on an arguments-reading function answered
 `arguments.length` 0 — the `__fnctor_` factory forwarded by naming
