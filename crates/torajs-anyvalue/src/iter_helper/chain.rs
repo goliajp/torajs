@@ -8,8 +8,8 @@
 use core::ffi::c_void;
 
 use super::{
-    ITER_HELPER_DROP, ITER_HELPER_FILTER, ITER_HELPER_FLAT_MAP, ITER_HELPER_MAP, ITER_HELPER_TAKE,
-    RUNNING_OFF, __torajs_throw_type_error, iter_helper_do_return, iter_helper_mint,
+    __torajs_throw_type_error, ITER_HELPER_DROP, ITER_HELPER_FILTER, ITER_HELPER_FLAT_MAP,
+    ITER_HELPER_MAP, ITER_HELPER_TAKE, RUNNING_OFF, iter_helper_do_return, iter_helper_mint,
 };
 use crate::iter_helper_eager::{iter_eager, iter_to_array};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
