@@ -1530,7 +1530,61 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `100d47f4`** (2026-08-08, rotation 337 — the
+**Latest @ `049039cd`** (2026-08-08, rotation 338 — the
+builtin-singleton value-position axis closed in five knives, all
+riding one generalized mint (`fill_ns_methods` + `intern_singleton`).
+JSON and Reflect become first-class namespace objects (interned
+dynobj singletons pre-filled with their ns-static cells; parse /
+stringify and get / has / ownKeys / construct join the table over
+the existing any-lane kernels — the member-get pair with the
+accessor sentinel, the in-op walk, the Names own-keys walk,
+`__torajs_reflect_construct`; toString badges answer `[object
+JSON]` / `[object Reflect]` by pointer identity). The global `eval`
+becomes a first-class value (checker admits the ident as Any; an
+interned cell keyed under globalThis carries the real §19.2.1
+name / length / typeof / identity, while the call-through-a-value
+face stays the recorded loud TypeError — tr performs no runtime
+evaluation and direct literal calls keep compiling through the
+desugar_eval prefix). The checker admits expando writes on exactly
+the singleton-backed namespaces (`Math.length = 1; Math[0] = 1` —
+ordinary dynobj stores, unlocking Math as an array-like receiver
+for the generic Array.prototype methods), and the globalThis fill
+gains all three new identities. The factory-adapter predicate
+widens for aliased/detached Reflect.construct (method NAME arms a
+call; a bare member read arms too). Sweep: passTotal 27733 →
+**27881 (+148)**, bug +81 (eval-shape programs now run to their
+honest assertion failures), incompatible −229, conservation exact
+(229 = 148 + 81). GAINED 150 by dir: Array/prototype 34 (the
+Math-as-receiver family), Object create/defineProperties/
+defineProperty 51, Reflect 16, JSON 10, class 8, rest singles.
+**LOST 2 — both honest de-dilution**: postfix-increment/eval.js and
+postfix-decrement/eval.js passed-negative on the accidental
+`unknown identifier eval` compile reject; the real subject (strict
+`eval++` as an assignment-target early SyntaxError, §13.4.2.1) is
+now exposed as incompatible. Gate predicate **311 clusters (+2) /
+5891 cases (−196) / residue 779 clusters 1029 cases / core 6920
+(−201)** — the +2 with a −196 case drop is the unlock-exposes-new-
+signatures shape; the `unknown identifier eval` cluster leaves the
+top ranks. Crash triple unchanged (exit-139 32 = 32 by-name,
+tr-timeout 36, exit-138 3). Build determinism 44/44 (N=12). A sixth
+knife then landed the first key to the species family: an
+arguments-touching fn-expr STORED into a boxed-face position (the
+fnexpr-this B2 store roots) joins the argv face instead of killing
+the binding chain, and leaves the static face whose direct-site
+fold would materialize an empty `arguments` against the runtime
+call the store implies; the fnexpr-this promote now inserts
+`__this` AFTER the injected argc/argv slots — the pre-fix first
+position made the boxed adapter unbox the argv pointer as a user
+param, a SIGSEGV on the this+arguments combination that IS
+create-species.js's primary spelling (probe now answers bun's
+`1 true 1`). The re-swept verdicts @ `049039cd` are IDENTICAL to
+`6a2b2adc` line-for-line — the t262 species family still waits on
+the harness same-name collector mutual-kill fix (handoff 337 §4-④),
+so the knife's yield is the crash-face cure plus the
+infrastructure. Conformance gate 2608 → **2614/0/4**, six green
+gates, +6 fixtures.)
+
+**Previous @ `100d47f4`** (2026-08-08, rotation 337 — the
 construct-channel species face closed, RFC 20260808 B2-B5 in four
 knives. B2 admits a this-carrying fn-expr escaping into the species
 slot (store arm `a.constructor[k] = fn` on any/array roots plus
