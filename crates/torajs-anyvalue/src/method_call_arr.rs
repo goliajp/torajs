@@ -188,7 +188,10 @@ pub(crate) unsafe fn arr_method(
     argc: i64,
 ) -> AnyValue {
     // §23.1.3 species family — ArraySpeciesCreate reads the
-    // constructor face before building the product.
+    // constructor face before building the product; a heap-object
+    // constructor additionally reads @@species and RUNS a callable
+    // one (RFC 20260808 knife 4 — abrupt completions observable,
+    // product identity a recorded divergence).
     if matches!(mid, m if m == torajs_rc::ANY_METHOD_SLICE
         || m == torajs_rc::ANY_METHOD_SPLICE
         || m == torajs_rc::ANY_METHOD_CONCAT
@@ -196,7 +199,10 @@ pub(crate) unsafe fn arr_method(
         || m == torajs_rc::ANY_METHOD_MAP
         || m == torajs_rc::ANY_METHOD_FLAT
         || m == torajs_rc::ANY_METHOD_FLAT_MAP)
-        && unsafe { __torajs_arr_species_guard(arr as *const u8) } != 0
+        && unsafe {
+            __torajs_arr_species_guard(arr as *const u8) != 0
+                || crate::method_call_arr_species::arr_species_object_face(arr) != 0
+        }
     {
         return VALUE_UNDEFINED;
     }

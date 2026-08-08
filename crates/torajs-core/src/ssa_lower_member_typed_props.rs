@@ -48,6 +48,16 @@ pub(crate) fn try_lower(
     name: &str,
 ) -> Option<Operand> {
     if name == "constructor"
+        // RFC 20260808 knife 4 — an ARRAY receiver falls through to
+        // the props-read kernel instead (`__torajs_arr_member_value`:
+        // own expando first, then the Array.prototype face whose
+        // `constructor` entry answers this same interned value).
+        // Short-circuiting here skipped §10.1.8.1's own step, so
+        // `a.constructor = {}` wrote a bag entry no read ever saw —
+        // and the `a.constructor[Symbol.species] = …` that follows it
+        // in the t262 create-species family landed its write on the
+        // BUILTIN cell's expando instead of the user's object.
+        && !matches!(obj_ty, Type::Arr(_))
         && let Some(tag) = ctor_proto_tag_of(&obj_ty)
     {
         // RFC 20260721 G3 — the receiver's builtin constructor as
