@@ -19,7 +19,7 @@
 
 use super::super::{Ast, Expr, ExprId, Stmt};
 use super::rewrite_list;
-use super::source::{CallForm, literal_eval_call, parse_eval_source};
+use super::source::{CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw};
 
 /// This pass runs LAST in the desugar deliberately: by then the
 /// statement walks have inlined every statement-position direct eval
@@ -27,16 +27,30 @@ use super::source::{CallForm, literal_eval_call, parse_eval_source};
 /// value position — no parent-tracking is needed to know that, and
 /// the established sealed-block shape for statement evals stays
 /// untouched.
+///
+/// A source that does NOT parse gets the same IIFE treatment with a
+/// `throw` for a body: §19.2.1.1 step 12 wants the SyntaxError at
+/// evaluation time, JavaScript has no throw *expression*, and the
+/// arrow IIFE is exactly tr's statement-in-value-position carrier.
+/// Scope cannot matter to a throw, so this applies to both call forms.
 pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
     let mut i = 0;
     while i < ast.exprs.len() {
         let eid = ExprId(i as u32);
-        let Some((src, CallForm::Direct)) = literal_eval_call(eid, ast) else {
+        let Some((src, form)) = literal_eval_call(eid, ast) else {
             i += 1;
             continue;
         };
-        if let Some(mut body) = parse_eval_source(&src, ast) {
-            if body.len() >= 2 && matches!(body.last(), Some(Stmt::Expr(_))) {
+        match parse_eval_source(&src, ast) {
+            None => {
+                let throw = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
+                wrap_iife(i, vec![throw], ast);
+            }
+            Some(mut body)
+                if form == CallForm::Direct
+                    && body.len() >= 2
+                    && matches!(body.last(), Some(Stmt::Expr(_))) =>
+            {
                 let Some(Stmt::Expr(tail)) = body.pop() else {
                     unreachable!()
                 };
@@ -45,17 +59,23 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 // runs, so give the new body its own pass.
                 rewrite_list(&mut body, ast, true);
                 body.push(Stmt::Return(Some(tail)));
-                let arrow = ast.add_expr(Expr::ArrowFn {
-                    params: Vec::new(),
-                    return_type: None,
-                    body,
-                });
-                ast.exprs[i] = Expr::Call {
-                    callee: arrow,
-                    args: Vec::new(),
-                };
+                wrap_iife(i, body, ast);
             }
+            Some(_) => {}
         }
         i += 1;
     }
+}
+
+/// Overwrite slot `i` with `(() => { body })()`.
+fn wrap_iife(i: usize, body: Vec<Stmt>, ast: &mut Ast) {
+    let arrow = ast.add_expr(Expr::ArrowFn {
+        params: Vec::new(),
+        return_type: None,
+        body,
+    });
+    ast.exprs[i] = Expr::Call {
+        callee: arrow,
+        args: Vec::new(),
+    };
 }
