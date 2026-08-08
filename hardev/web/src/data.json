@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T14:03:07.852Z",
+  "generatedAt": "2026-08-08T15:29:54.057Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T14:01:00Z",
-    "headSha": "049039cd",
-    "elapsedSec": 414.67,
+    "ranAt": "2026-08-08T15:27:20Z",
+    "headSha": "6a724884",
+    "elapsedSec": 413.81,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23164,
+    "pass": 23183,
     "passNoOracle": 762,
     "passNegative": 3955,
-    "passTotal": 27881,
-    "bug": 12646,
-    "incompatible": 12647,
+    "passTotal": 27900,
+    "bug": 12632,
+    "incompatible": 12642,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40527,
-    "passRateInScope": 52.43,
-    "passRateTrAccepted": 68.8
+    "trAccepted": 40532,
+    "passRateInScope": 52.47,
+    "passRateTrAccepted": 68.83
   },
   "torajs": {
-    "commit": "049039cd",
-    "commitSubject": "feat: arguments-touching fn-exprs stored into boxed-face positions join the argv face",
+    "commit": "6a724884",
+    "commitSubject": "feat: concat species derive stores elements with define semantics",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "6a724884",
+      "subject": "feat: concat species derive stores elements with define semantics"
+    },
+    {
+      "hash": "abd86fd1",
+      "subject": "style: fmt-drift fix for the species-len split"
+    },
+    {
+      "hash": "b6930a57",
+      "subject": "feat: species construct receives each family method's ArraySpeciesCreate length"
+    },
+    {
+      "hash": "70a3de80",
+      "subject": "fix: gate the prototype-read kill exemption on an escape-store use"
+    },
+    {
+      "hash": "8692ca1a",
+      "subject": "feat: prototype reads of a stored fn binding survive the argv kill walk and the contention bar"
+    },
+    {
+      "hash": "479ec1a6",
+      "subject": "feat: merged props-receiver collector ends the harness/case same-name mutual kill"
+    },
+    {
+      "hash": "141e0f3a",
+      "subject": "docs: rotation 338 close addendum — sixth knife swept at 049039cd, verdicts identical to 6a2b2adc (binary verified), P-SURF restamp, dashboard refresh"
+    },
+    {
       "hash": "049039cd",
       "subject": "feat: arguments-touching fn-exprs stored into boxed-face positions join the argv face"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "70bfe9de",
       "subject": "feat: the global eval as a first-class value"
-    },
-    {
-      "hash": "b740ff15",
-      "subject": "feat: the Reflect namespace object as a first-class value"
-    },
-    {
-      "hash": "80dd3f0e",
-      "subject": "feat: the JSON namespace object as a first-class value"
-    },
-    {
-      "hash": "403187b8",
-      "subject": "docs: rotation 337 close — construct-channel species face shipped, sweep at 100d47f4, +8 passTotal zero regressions, P-SURF stamp, dashboard refresh"
-    },
-    {
-      "hash": "100d47f4",
-      "subject": "feat: extends-Array classes answer themselves to the species read"
-    },
-    {
-      "hash": "37a34cb3",
-      "subject": "feat: species family transplants the default product into the construct product"
-    },
-    {
-      "hash": "5e409b32",
-      "subject": "feat: concat derives into the species construct product"
-    },
-    {
-      "hash": "9fe0ef06",
-      "subject": "feat: fn-expr this admits the species escape store and prototype reads"
     }
   ],
-  "headSha": "049039cd",
+  "headSha": "6a724884",
   "autorun": {
-    "total": 641,
+    "total": 642,
     "baselineTarget": 10,
-    "bySelf": 636,
+    "bySelf": 637,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786191532-6821",
-      "at": "2026-08-08T12:18:52Z",
-      "ts": 1786191532,
+      "rotationId": "r-1786197869-383c",
+      "at": "2026-08-08T14:04:29Z",
+      "ts": 1786197869,
       "trigger": "self",
-      "prevHead": "403187b8",
-      "handoffSha": "sha256:ed925cbbe365415b2b6db213e3848143f50951889f5b31bab855c1df2fafb3c4",
-      "handoffAgeSec": 1,
+      "prevHead": "141e0f3a",
+      "handoffSha": "sha256:72c1ad6429456fcd800632f3fef76b197e337473b80b18205da5f574de0f42f8",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786197869-383c",
+        "at": "2026-08-08T14:04:29Z",
+        "ts": 1786197869,
+        "trigger": "self",
+        "prevHead": "141e0f3a",
+        "handoffSha": "sha256:72c1ad6429456fcd800632f3fef76b197e337473b80b18205da5f574de0f42f8",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786191532-6821",
         "at": "2026-08-08T12:18:52Z",
@@ -876,17 +887,6 @@
         "prevHead": "691d94c8",
         "handoffSha": "sha256:00e54b2787406fb56118ea29c94a89a728c535f230b5ccbebe8f9254e4a97cbb",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786116874-49a1",
-        "at": "2026-08-07T15:34:34Z",
-        "ts": 1786116874,
-        "trigger": "self",
-        "prevHead": "ab908de4",
-        "handoffSha": "sha256:a18d0044c531a68b3ba57713665228a064b31f1574edaf757fce7f90dcf148b0",
-        "handoffAgeSec": 186,
         "conformanceBefore": null,
         "commitsInSession": null
       }
