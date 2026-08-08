@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T12:08:10.208Z",
+  "generatedAt": "2026-08-08T13:28:28.848Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T12:04:30Z",
-    "headSha": "100d47f4",
-    "elapsedSec": 409.72,
+    "ranAt": "2026-08-08T13:25:24Z",
+    "headSha": "6a2b2adc",
+    "elapsedSec": 408.4,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23020,
-    "passNoOracle": 756,
-    "passNegative": 3957,
-    "passTotal": 27733,
-    "bug": 12565,
-    "incompatible": 12876,
+    "pass": 23164,
+    "passNoOracle": 762,
+    "passNegative": 3955,
+    "passTotal": 27881,
+    "bug": 12646,
+    "incompatible": 12647,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40298,
-    "passRateInScope": 52.16,
-    "passRateTrAccepted": 68.82
+    "trAccepted": 40527,
+    "passRateInScope": 52.43,
+    "passRateTrAccepted": 68.8
   },
   "torajs": {
-    "commit": "100d47f4",
-    "commitSubject": "feat: extends-Array classes answer themselves to the species read",
+    "commit": "6a2b2adc",
+    "commitSubject": "feat: globalThis fill gains the JSON / Reflect singletons and the eval cell",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "6a2b2adc",
+      "subject": "feat: globalThis fill gains the JSON / Reflect singletons and the eval cell"
+    },
+    {
+      "hash": "585f777b",
+      "subject": "feat: expando writes on the singleton-backed namespaces"
+    },
+    {
+      "hash": "70bfe9de",
+      "subject": "feat: the global eval as a first-class value"
+    },
+    {
+      "hash": "b740ff15",
+      "subject": "feat: the Reflect namespace object as a first-class value"
+    },
+    {
+      "hash": "80dd3f0e",
+      "subject": "feat: the JSON namespace object as a first-class value"
+    },
+    {
+      "hash": "403187b8",
+      "subject": "docs: rotation 337 close — construct-channel species face shipped, sweep at 100d47f4, +8 passTotal zero regressions, P-SURF stamp, dashboard refresh"
+    },
+    {
       "hash": "100d47f4",
       "subject": "feat: extends-Array classes answer themselves to the species read"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "685ff385",
       "subject": "fix: hoisted class methods carry no FLAG_FN_PROTO"
-    },
-    {
-      "hash": "eab78d31",
-      "subject": "feat: plain functions construct through the runtime value channel"
-    },
-    {
-      "hash": "29fb591c",
-      "subject": "fix: eval const-prop inert prefix survives the test262 harness prelude"
-    },
-    {
-      "hash": "c1e018d7",
-      "subject": "feat: propagate named compile-time string sources into eval calls"
-    },
-    {
-      "hash": "31825dd3",
-      "subject": "feat: eval statement completion value via UpdateEmpty desugar"
-    },
-    {
-      "hash": "b0798efd",
-      "subject": "docs: rotation 335 close — sweep at 3a88f594, +74 passTotal zero regressions, P-SURF stamp, dashboard refresh"
-    },
-    {
-      "hash": "3a88f594",
-      "subject": "fix: bare return in a value-returning fn answers undefined"
     }
   ],
-  "headSha": "100d47f4",
+  "headSha": "6a2b2adc",
   "autorun": {
-    "total": 640,
+    "total": 641,
     "baselineTarget": 10,
-    "bySelf": 635,
+    "bySelf": 636,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786186030-5a63",
-      "at": "2026-08-08T10:47:10Z",
-      "ts": 1786186030,
+      "rotationId": "r-1786191532-6821",
+      "at": "2026-08-08T12:18:52Z",
+      "ts": 1786191532,
       "trigger": "self",
-      "prevHead": "ad812b93",
-      "handoffSha": "sha256:99c26cb66fa6928abf016f6980721f35441ac0a82dc9b33d897128cd44de33c9",
-      "handoffAgeSec": 8,
+      "prevHead": "403187b8",
+      "handoffSha": "sha256:ed925cbbe365415b2b6db213e3848143f50951889f5b31bab855c1df2fafb3c4",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786191532-6821",
+        "at": "2026-08-08T12:18:52Z",
+        "ts": 1786191532,
+        "trigger": "self",
+        "prevHead": "403187b8",
+        "handoffSha": "sha256:ed925cbbe365415b2b6db213e3848143f50951889f5b31bab855c1df2fafb3c4",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786186030-5a63",
         "at": "2026-08-08T10:47:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "ab908de4",
         "handoffSha": "sha256:a18d0044c531a68b3ba57713665228a064b31f1574edaf757fce7f90dcf148b0",
         "handoffAgeSec": 186,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786111440-0576",
-        "at": "2026-08-07T14:04:00Z",
-        "ts": 1786111440,
-        "trigger": "self",
-        "prevHead": "d078df19",
-        "handoffSha": "sha256:04cf79ff42397e797636f66262bc7cee41305b89e7d528a84a89aac0caf28484",
-        "handoffAgeSec": 106,
         "conformanceBefore": null,
         "commitsInSession": null
       }
