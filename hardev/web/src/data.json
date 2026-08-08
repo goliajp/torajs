@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T22:08:52.488Z",
+  "generatedAt": "2026-08-08T23:24:16.279Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T22:02:58Z",
-    "headSha": "b02e97d0",
-    "elapsedSec": 413.36,
+    "ranAt": "2026-08-08T23:21:59Z",
+    "headSha": "64d83b27",
+    "elapsedSec": 408.27,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23463,
+    "pass": 23465,
     "passNoOracle": 780,
     "passNegative": 3953,
-    "passTotal": 28196,
-    "bug": 12572,
+    "passTotal": 28198,
+    "bug": 12570,
     "incompatible": 12406,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 40768,
     "passRateInScope": 53.03,
-    "passRateTrAccepted": 69.16
+    "passRateTrAccepted": 69.17
   },
   "torajs": {
-    "commit": "b02e97d0",
-    "commitSubject": "style: chain.rs import order per rustfmt",
+    "commit": "64d83b27",
+    "commitSubject": "refactor: return-value leg of the return lowering extracts to its own fn",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "64d83b27",
+      "subject": "refactor: return-value leg of the return lowering extracts to its own fn"
+    },
+    {
+      "hash": "e7fb14d3",
+      "subject": "feat: suppressed error pins ctor length at three via descriptor override"
+    },
+    {
+      "hash": "af601382",
+      "subject": "refactor: fmt_stmt signature trio moves to a sibling impl block"
+    },
+    {
+      "hash": "f58be71d",
+      "subject": "feat: async generator prototype carries the symbol asyncDispose entry"
+    },
+    {
+      "hash": "c6ec7920",
+      "subject": "feat: iterator prototype carries real symbol-keyed iterator and dispose entries"
+    },
+    {
+      "hash": "6df5d7d4",
+      "subject": "docs: rotation 342 close — disposable stacks land as injected builtins, sweep +154/-147/-7 conservation exact zero pass regressions, p-surf restamp"
+    },
+    {
       "hash": "b02e97d0",
       "subject": "style: chain.rs import order per rustfmt"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "8e924b87",
       "subject": "fix: nominal-struct any-field reads mint an owned payload stake"
-    },
-    {
-      "hash": "066b1761",
-      "subject": "docs: rotation 341 close — using declarations end-to-end in five knives, sweep +132/+80/-212 conservation exact, p-surf restamp"
-    },
-    {
-      "hash": "6aa2a36d",
-      "subject": "fix: class symbol member keys define under the real symbol cell"
-    },
-    {
-      "hash": "07213da5",
-      "subject": "feat: for-of using heads dispose per iteration and async computed methods parse for real"
-    },
-    {
-      "hash": "5acf353a",
-      "subject": "feat: await using declarations dispose through the async-hint helper pair"
-    },
-    {
-      "hash": "05803ee0",
-      "subject": "fix: computed-key object literals join the anylane recv promotion"
-    },
-    {
-      "hash": "5b97fabf",
-      "subject": "feat: using declarations sync form parses and desugars to dispose-stack try/finally"
     }
   ],
-  "headSha": "b02e97d0",
+  "headSha": "64d83b27",
   "autorun": {
-    "total": 645,
+    "total": 646,
     "baselineTarget": 10,
-    "bySelf": 640,
+    "bySelf": 641,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786221002-5558",
-      "at": "2026-08-08T20:30:02Z",
-      "ts": 1786221002,
+      "rotationId": "r-1786227037-2cda",
+      "at": "2026-08-08T22:10:37Z",
+      "ts": 1786227037,
       "trigger": "self",
-      "prevHead": "066b1761",
-      "handoffSha": "sha256:37befdf546ed6bcb26c6a9569ccaa4b1bd9597dd59a90648ad6753992d7ee553",
-      "handoffAgeSec": 4,
+      "prevHead": "6df5d7d4",
+      "handoffSha": "sha256:eae4de4b8dad9dc2b4d0b73b3e612d1285ca3522a3291eac0769890139ebb3dd",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786227037-2cda",
+        "at": "2026-08-08T22:10:37Z",
+        "ts": 1786227037,
+        "trigger": "self",
+        "prevHead": "6df5d7d4",
+        "handoffSha": "sha256:eae4de4b8dad9dc2b4d0b73b3e612d1285ca3522a3291eac0769890139ebb3dd",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786221002-5558",
         "at": "2026-08-08T20:30:02Z",
@@ -876,17 +887,6 @@
         "prevHead": "72e3a65b",
         "handoffSha": "sha256:640f1a9bdb99d26b2ba907894ab4c626f7cc7c8b653823d8934c11c22995d2d5",
         "handoffAgeSec": 40,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786154921-5a43",
-        "at": "2026-08-08T02:08:41Z",
-        "ts": 1786154921,
-        "trigger": "self",
-        "prevHead": "241482a1",
-        "handoffSha": "sha256:1eef868683cc40375c520c7967d0fbbce929c7e52cc14c9e834a0454981110b8",
-        "handoffAgeSec": 32,
         "conformanceBefore": null,
         "commitsInSession": null
       }
