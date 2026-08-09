@@ -485,6 +485,24 @@ mod tests {
     pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(_v: u64) -> u64 {
         0
     }
+    // The arguments-materialization "length" face kernels
+    // (torajs-arr arguments_length.rs) — prop_has / prop_delete /
+    // member_get_own reference them; unit tests never mint an
+    // arguments cell, so plain-array answers satisfy the linker.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_arguments_length_state(
+        _arr: *const core::ffi::c_void,
+        _key: *const core::ffi::c_void,
+    ) -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_arguments_length_delete(
+        _arr: *mut core::ffi::c_void,
+        _key: *mut core::ffi::c_void,
+    ) -> i64 {
+        0
+    }
     // The JsonParse / JsonStringify DISPATCH arms make the json
     // kernels test-reachable, pulling in their torajs-num /
     // torajs-date externs (shipped binary resolves the staticlibs);

@@ -15,6 +15,9 @@ unsafe extern "C" {
     /// 20260712-arr-exotic-define chunk A dynamic-key arm).
     fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64;
     fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64;
+    /// torajs-arr — the arguments-materialization `"length"` face:
+    /// 0 = plain array, 1 = arguments (intact), 2 = deleted.
+    fn __torajs_arr_arguments_length_state(arr: *const c_void, key: *const c_void) -> i64;
     /// torajs-str / torajs-dynobj — the `__proto__` simulation-slot
     /// probe behind [`user_proto_cell`].
     fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
@@ -202,6 +205,16 @@ pub(crate) unsafe fn arr_own_pair(ptr: *mut c_void, key: *const c_void) -> Optio
     let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
     let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
     if bytes == b"length" {
+        // A deleted arguments-materialization length (§10.4.4 hole
+        // tombstone) answers a definite undefined — falling through
+        // would let the expando probe read the tombstone entry
+        // itself. Recorded approximation: the spec would continue
+        // into the prototype walk (an Object.prototype `length`
+        // accessor is observable there); the deleted state is a
+        // narrow verifyProperty probe window, L3b.
+        if unsafe { __torajs_arr_arguments_length_state(ptr, key) } == 2 {
+            return Some((5, 0));
+        }
         return Some((AnySlotTag::I64 as u64, len));
     }
     let idx = canonical_index(bytes)?;

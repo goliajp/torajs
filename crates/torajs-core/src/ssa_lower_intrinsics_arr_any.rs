@@ -69,6 +69,11 @@ pub(crate) struct ArrAnyIds {
     /// heap cells); the `__torajs_arguments` materializer's second
     /// half.
     pub arr_any_push: FuncId,
+    /// §10.4.4 arguments-materialization stamp — sets
+    /// FLAG_ARR_ARGUMENTS on the fresh `__torajs_arguments` cell so
+    /// the keyed `"length"` readers answer the arguments-exotic
+    /// attributes (configurable true, deletable).
+    pub arr_mark_arguments: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrAnyIds {
@@ -97,6 +102,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     ArrAnyIds {
         arr_alloc_any,
         arr_any_push: decl!("__torajs_arr_any_push", [Ptr, Ptr, I64, Ptr], I64),
+        arr_mark_arguments: decl!("__torajs_arr_mark_arguments", [Ptr], Void),
         arr_push_any: decl!("__torajs_arr_push_any", [Ptr, I64, I64], Ptr),
         arr_mark_last_hole: decl!("__torajs_arr_mark_last_hole", [Ptr], Void),
         arr_any_to_locale_string: decl!("__torajs_arr_any_to_locale_string", [Ptr], Str),

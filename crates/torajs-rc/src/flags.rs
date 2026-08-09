@@ -45,6 +45,18 @@
 pub const FLAG_SUBCLASSED: u16 = 1 << 0;
 /// `str_split` single-malloc block carrying N inline substrs.
 pub const FLAG_SPLIT_BLOCK: u16 = 1 << 1;
+/// `Tag::Arr` cell is a materialized `arguments` object (the
+/// `__torajs_arguments` local both desugar lanes mint) — its
+/// `"length"` face carries §10.4.4.6 arguments-exotic attributes
+/// ({writable: true, enumerable: false, **configurable: true**})
+/// instead of §10.4.2's non-configurable array length. Readers that
+/// answer the length descriptor / delete / hasOwnProperty gate on
+/// this bit; a delete leaves a hole shadow entry under the `"length"`
+/// key in the expando props dynobj (the element-domain tombstone
+/// mechanism, RFC 20260712 chunk C — every enumerator already skips
+/// holes). Bit 1 is Tag::Arr-private (disjoint-by-tag reuse of the
+/// Str-only [`FLAG_SPLIT_BLOCK`]).
+pub const FLAG_ARR_ARGUMENTS: u16 = 1 << 1;
 /// rc_inc / rc_dec / str_free no-op when set (immortal literal).
 pub const FLAG_STATIC_LITERAL: u16 = 1 << 2;
 /// Array<Any>: 16-byte slots instead of 8.

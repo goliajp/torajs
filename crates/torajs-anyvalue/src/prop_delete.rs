@@ -46,6 +46,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-arr — expando delete through the props slot.
     fn __torajs_arrprops_delete(arr: *mut c_void, key: *const c_void) -> i32;
+    /// torajs-arr — arguments-materialization length delete (hole
+    /// tombstone); 0 = plain array, caller keeps the refusal.
+    fn __torajs_arr_arguments_length_delete(arr: *mut c_void, key: *mut c_void) -> i64;
     /// torajs-arr — canonical-index delete (§10.4.2 [[Delete]], RFC
     /// 20260713 chunk C): 1 = deleted / absent, 0 = refused
     /// (non-configurable).
@@ -145,8 +148,16 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
                 }
                 return 1;
             }
-            // `length` is permanently non-configurable (§10.4.2).
+            // `length` is permanently non-configurable (§10.4.2) —
+            // EXCEPT on an arguments materialization, whose length
+            // is a plain configurable data property (§10.4.4): the
+            // kernel leaves a hole tombstone under the `"length"`
+            // key and answers 1; a plain array answers 0 and keeps
+            // the refusal.
             if unsafe { crate::prop_has::key_is(key, b"length") } {
+                if unsafe { __torajs_arr_arguments_length_delete(ptr, key as *mut c_void) } != 0 {
+                    return 1;
+                }
                 return unsafe { refuse(throw_on_refusal) };
             }
             let props = unsafe { arr_props(ptr) };

@@ -263,6 +263,7 @@ pub(crate) fn build(
         process_stderr_write: init_c.runtime_misc.process_stderr_write,
         arr_alloc_any: init_b.arr_any.arr_alloc_any,
         arr_any_push: init_b.arr_any.arr_any_push,
+        arr_mark_arguments: init_b.arr_any.arr_mark_arguments,
         arr_push_any: init_b.arr_any.arr_push_any,
         arr_mark_last_hole: init_b.arr_any.arr_mark_last_hole,
         arr_any_to_locale_string: init_b.arr_any.arr_any_to_locale_string,

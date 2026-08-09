@@ -39,6 +39,9 @@ use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
 unsafe extern "C" {
     /// torajs-dynobj — own-entry presence (1 = live entry).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-arr — the arguments-materialization `"length"` face:
+    /// 0 = plain array, 1 = arguments (intact), 2 = deleted.
+    fn __torajs_arr_arguments_length_state(arr: *const c_void, key: *const c_void) -> i64;
     /// torajs-dynobj — packed W/E/C data-attribute flags
     /// (bit 1 = enumerable); answers 0 for an absent key, which is
     /// exactly the propertyIsEnumerable miss semantics.
@@ -253,7 +256,11 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
                 return (unsafe { __torajs_arr_index_flags(ptr, i) } & ARR_F_HOLE == 0) as i64;
             }
             if unsafe { key_is(key, b"length") } {
-                return 1;
+                // A deleted arguments-materialization length (hole
+                // tombstone, §10.4.4) is absent — and must NOT fall
+                // through to the bag probe below, which would see
+                // the tombstone entry itself.
+                return (unsafe { __torajs_arr_arguments_length_state(ptr, key) } != 2) as i64;
             }
             let props = unsafe {
                 ptr.cast::<u8>()

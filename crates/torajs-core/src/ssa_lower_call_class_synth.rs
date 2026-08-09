@@ -90,6 +90,7 @@ pub(crate) fn try_lower(
             crate::ssa_lower_call_exotic_subclass::try_lower(ctx, n, args)
         }
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
+        "__torajs_arguments_mark" => try_lower_arguments_mark(ctx, args),
         "__torajs_genfn_chain" => try_lower_genfn_chain(ctx, args),
         "__torajs_proto_chain_builtin" => try_lower_proto_chain_builtin(ctx, args),
         _ => None,
@@ -178,6 +179,24 @@ fn try_lower_arguments_materialize(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> O
         ),
     );
     Some(Operand::Value(arr))
+}
+
+/// `__torajs_arguments_mark(__torajs_arguments)` — the
+/// FLAG_ARR_ARGUMENTS stamp statement both desugar lanes append
+/// right after the mint (§10.4.4 arguments-exotic `"length"`
+/// attributes; the keyed readers gate on the bit). The operand is
+/// the binding's Arr pointer — a borrowed read, no rc movement.
+fn try_lower_arguments_mark(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 1 {
+        return None;
+    }
+    let arr = ctx.lower_expr(args[0]);
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.arr_mark_arguments, vec![arr]),
+    );
+    Some(Operand::ConstI64(0))
 }
 
 fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {

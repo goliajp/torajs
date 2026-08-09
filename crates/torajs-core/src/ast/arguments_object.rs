@@ -19,9 +19,7 @@ use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_method_static_argv, collect_named_static_argv,
     collect_objlit_method_static_argv, inject_iife_static_params,
 };
-use super::arguments_object_synth::{
-    synth_arguments_local, synth_arguments_local_argv, synth_arguments_local_rest,
-};
+use super::arguments_object_synth::{synth_arguments_local_argv, synth_materialized_arguments};
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_arguments_length_write,
     body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
@@ -319,10 +317,20 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             } else {
                 None
             };
+            // The FLAG_ARR_ARGUMENTS stamp rides a synthetic call
+            // statement right after the mint — one mechanism for
+            // both the literal and argv lanes (checker ident
+            // special-case + class-synth lowering arm).
+            let mark_opt = synth_opt
+                .is_some()
+                .then(|| super::arguments_object_synth::synth_arguments_mark(ast));
             if let Stmt::FnDecl { body: b, .. } = &mut ast.stmts[idx] {
                 if let Some(synth) = synth_opt {
-                    let mut full = Vec::with_capacity(new_body.len() + 1);
+                    let mut full = Vec::with_capacity(new_body.len() + 2);
                     full.push(synth);
+                    if let Some(mark) = mark_opt {
+                        full.push(mark);
+                    }
                     full.extend(new_body);
                     *b = full;
                 } else {
@@ -333,40 +341,6 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     }
 
     prepend_static_argc(ast, &uses_real_argc, iife_call_sites);
-}
-
-/// Build the materialized `__torajs_arguments` local for a fn under
-/// a materializing mode. A rest-tailed fn spreads the rest array
-/// (over-arity values live there — no extras were injected, see
-/// inject_iife_static_params); everyone else takes the positional
-/// builder over the leading `argc` params: over-arity is covered by
-/// the injected extras already in `params`, an under-filled site
-/// contributes only the args it actually passed.
-fn synth_materialized_arguments(
-    ast: &mut Ast,
-    decl_params: &[super::Param],
-    params: &[String],
-    argc_mode: ArgcMode,
-) -> Stmt {
-    if decl_params.last().is_some_and(|p| p.is_rest)
-        && let Some((rest_name, fixed)) = params.split_last()
-    {
-        let take = match argc_mode {
-            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
-                n.min(fixed.len())
-            }
-            _ => fixed.len(),
-        };
-        synth_arguments_local_rest(ast, &fixed[..take], rest_name)
-    } else {
-        let take = match argc_mode {
-            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
-                n.min(params.len())
-            }
-            _ => params.len(),
-        };
-        synth_arguments_local(ast, &params[..take])
-    }
 }
 
 /// Sloppy-mode shadow guard (rotation 270, test262 10.6-6-3/4) — a

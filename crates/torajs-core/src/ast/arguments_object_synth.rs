@@ -5,7 +5,8 @@
 //! walkers were always two identities sharing one file (its own
 //! header said so).
 
-use super::{Ast, Expr, ExprId, Stmt};
+use super::arguments_object::ArgcMode;
+use super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// T-11 — synthesize `let __torajs_arguments: any[] = [p0, p1, ...]`
 /// for prepending to a fn body. Each param Ident becomes one array
@@ -72,5 +73,58 @@ pub(super) fn synth_arguments_local_argv(ast: &mut Ast) -> Stmt {
         type_ann: Some("any[]".into()),
         init,
         is_var: false,
+    }
+}
+
+/// The `FLAG_ARR_ARGUMENTS` stamp statement —
+/// `__torajs_arguments_mark(__torajs_arguments);` — inserted right
+/// after the mint by [`super::arguments_object`]. The checker
+/// resolves the callee ident as a synthetic (any) -> void; the
+/// class-synth lowering lane expands it to the
+/// `__torajs_arr_mark_arguments` runtime call, which sets the
+/// Tag::Arr-private header bit the keyed `"length"` readers (gOPD /
+/// delete / hasOwnProperty / member-get) gate on (§10.4.4 arguments
+/// exotic length attributes).
+pub(super) fn synth_arguments_mark(ast: &mut Ast) -> Stmt {
+    let callee = ast.add_expr(Expr::Ident("__torajs_arguments_mark".into()));
+    let arg = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+    let call = ast.add_expr(Expr::Call {
+        callee,
+        args: vec![arg],
+    });
+    Stmt::Expr(call)
+}
+
+/// Build the materialized `__torajs_arguments` local for a fn under
+/// a materializing mode. A rest-tailed fn spreads the rest array
+/// (over-arity values live there — no extras were injected, see
+/// inject_iife_static_params); everyone else takes the positional
+/// builder over the leading `argc` params: over-arity is covered by
+/// the injected extras already in `params`, an under-filled site
+/// contributes only the args it actually passed.
+pub(super) fn synth_materialized_arguments(
+    ast: &mut Ast,
+    decl_params: &[Param],
+    params: &[String],
+    argc_mode: ArgcMode,
+) -> Stmt {
+    if decl_params.last().is_some_and(|p| p.is_rest)
+        && let Some((rest_name, fixed)) = params.split_last()
+    {
+        let take = match argc_mode {
+            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
+                n.min(fixed.len())
+            }
+            _ => fixed.len(),
+        };
+        synth_arguments_local_rest(ast, &fixed[..take], rest_name)
+    } else {
+        let take = match argc_mode {
+            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
+                n.min(params.len())
+            }
+            _ => params.len(),
+        };
+        synth_arguments_local(ast, &params[..take])
     }
 }

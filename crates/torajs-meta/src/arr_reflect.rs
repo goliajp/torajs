@@ -34,6 +34,9 @@ unsafe extern "C" {
     /// torajs-arr — per-index attribute flags (shadow entry or the
     /// implicit `w|e|c` defaults; chunk B).
     fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
+    /// torajs-arr — the arguments-materialization `"length"` face:
+    /// 0 = plain array, 1 = arguments (configurable), 2 = deleted.
+    fn __torajs_arr_arguments_length_state(arr: *const c_void, key: *const c_void) -> i64;
     /// torajs-arr — the index's AccessorPair, NULL when not an
     /// accessor (RFC 20260713 chunk C).
     fn __torajs_arr_index_accessor(arr: *const c_void, idx: u64) -> *mut c_void;
@@ -102,10 +105,19 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
         // false, configurable: false}. AnySlotTag::I64 = 2; the lock
         // is FLAG_ARR_LENGTH_RO (Tag::Arr-private bit 7 — bits 13-14
         // are the cycle-collector color field, RFC 20260713 chunk A).
+        // An arguments materialization (§10.4.4) carries a PLAIN
+        // data length instead — configurable true, and a deleted one
+        // has no own entry at all (the hole tombstone; the state
+        // kernel reads it off the expando bag).
+        let args_state = unsafe { __torajs_arr_arguments_length_state(arr, key) };
+        if args_state == 2 {
+            return VALUE_UNDEFINED_IMM;
+        }
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
         let flags = unsafe { arr.cast::<u8>().add(6).cast::<u16>().read() };
         let writable = (flags & ARR_FLAG_LENGTH_RO == 0) as u64;
-        return unsafe { build_data_descriptor(2, len, writable, 0, 0) };
+        let configurable = (args_state == 1) as u64;
+        return unsafe { build_data_descriptor(2, len, writable, 0, configurable) };
     }
     if let Some(idx) = canonical_index(bytes) {
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };

@@ -305,6 +305,9 @@ pub(crate) struct Intrinsics {
     /// RFC 20260708-closure-argv-face — bulk any-append over a raw
     /// argv window (`__torajs_arguments` materializer half 2).
     pub(crate) arr_any_push: FuncId,
+    /// §10.4.4 — the FLAG_ARR_ARGUMENTS stamp on the fresh
+    /// `__torajs_arguments` cell.
+    pub(crate) arr_mark_arguments: FuncId,
     pub(crate) arr_push_any: FuncId,
     pub(crate) arr_mark_last_hole: FuncId,
     pub(crate) arr_any_to_locale_string: FuncId,
