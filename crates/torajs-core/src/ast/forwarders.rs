@@ -164,7 +164,14 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
             arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
         }
         for p in user_params {
-            arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
+            let id = ast.add_expr(Expr::Ident(p.name.clone()));
+            // Rest param → spread-forward (see forwarders_object.rs —
+            // a bare ident would be re-packed by apply_rest_args).
+            if p.is_rest {
+                arg_eids.push(ast.add_expr(Expr::Spread { expr: id }));
+            } else {
+                arg_eids.push(id);
+            }
         }
         if takes_gen_argv {
             push_gen_argv_spread(ast, &mut arg_eids);

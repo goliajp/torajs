@@ -30,6 +30,7 @@ pub(super) fn build_boxed_entry(
     recv_slot: bool,
     feeds_env: bool,
     dflt_lits: &[Option<DfltLit>],
+    rest: bool,
 ) -> (FuncId, ssa::SigId) {
     let name = format!("__boxed_{body_name}");
     let fid = FuncId(module.funcs.len() as u32);
@@ -99,19 +100,40 @@ pub(super) fn build_boxed_entry(
             args.push(Operand::Value(argv));
         }
     }
+    // Rest split — the fixed prefix unboxes positionally; the rest
+    // slot itself is fed below from the trailing argv window.
+    let n_fixed = if rest {
+        user_tys.len() - 1
+    } else {
+        user_tys.len()
+    };
     unbox_args(
         &mut f,
         entry,
         argv,
-        user_tys,
+        &user_tys[..n_fixed],
         intr,
         anyv_to_str,
         &coerce,
         &mut args,
         &mut str_temps,
         &mut obj_temps,
-        dflt_lits,
+        &dflt_lits[..n_fixed.min(dflt_lits.len())],
     );
+    if rest {
+        let arr = emit_rest_collect(&mut f, entry, intr, argv, argc, n_fixed, user_tys[n_fixed]);
+        args.push(Operand::Value(arr));
+        let boxed_arr = f.append_inst(
+            entry,
+            InstKind::Call(
+                intr.any_box,
+                vec![Operand::ConstI64(4), Operand::Value(arr)],
+            ),
+            Type::Any,
+            None,
+        );
+        obj_temps.push(boxed_arr);
+    }
 
     let boxed = if ret_ty == Type::Void {
         f.append_void(entry, InstKind::Call(body_fid, args));
@@ -183,4 +205,102 @@ pub(super) fn build_boxed_entry(
     f.set_term(entry, Terminator::Ret(Some(Operand::Value(boxed))));
     module.funcs.push(f);
     (fid, own_sig)
+}
+
+/// Collect argv[n_fixed..argc] into a fresh Arr<Any> (§10.2.1.3 rest
+/// binding — every runtime argument past the fixed prefix, in order,
+/// `[]` when none). The count clamps at 0: a call may pass fewer than
+/// the fixed arity, and arr_alloc_any's u64 cap would treat a
+/// negative as huge; Select is egraph-elaborator-only territory, so
+/// the clamp is the branch-free sign mask `n & ~(n >> 63)`.
+/// Ownership: the caller boxes the returned arr (the pair box takes
+/// the alloc's +1) and releases it after the body call — the
+/// caller-owns convention direct call sites use for the packed
+/// literal.
+fn emit_rest_collect(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    intr: &BoxedEntryIntrinsics,
+    argv: ssa::ValueId,
+    argc: ssa::ValueId,
+    n_fixed: usize,
+    arr_ty: Type,
+) -> ssa::ValueId {
+    let n_rest = f.append_inst(
+        entry,
+        InstKind::BinOp(
+            ssa::BinOp::Sub,
+            Operand::Value(argc),
+            Operand::ConstI64(n_fixed as i64),
+        ),
+        Type::I64,
+        None,
+    );
+    let sign = f.append_inst(
+        entry,
+        InstKind::BinOp(
+            ssa::BinOp::AShr,
+            Operand::Value(n_rest),
+            Operand::ConstI64(63),
+        ),
+        Type::I64,
+        None,
+    );
+    let not_sign = f.append_inst(
+        entry,
+        InstKind::BinOp(ssa::BinOp::Xor, Operand::Value(sign), Operand::ConstI64(-1)),
+        Type::I64,
+        None,
+    );
+    let count = f.append_inst(
+        entry,
+        InstKind::BinOp(
+            ssa::BinOp::And,
+            Operand::Value(n_rest),
+            Operand::Value(not_sign),
+        ),
+        Type::I64,
+        None,
+    );
+    let arr = f.append_inst(
+        entry,
+        InstKind::Call(intr.arr_alloc_any, vec![Operand::Value(count)]),
+        arr_ty,
+        None,
+    );
+    let pi = f.append_inst(
+        entry,
+        InstKind::PtrToInt(Operand::Value(argv)),
+        Type::I64,
+        None,
+    );
+    let off = f.append_inst(
+        entry,
+        InstKind::BinOp(
+            ssa::BinOp::Add,
+            Operand::Value(pi),
+            Operand::ConstI64(8 * n_fixed as i64),
+        ),
+        Type::I64,
+        None,
+    );
+    let pv = f.append_inst(
+        entry,
+        InstKind::IntToPtr(Operand::Value(off)),
+        Type::Ptr,
+        None,
+    );
+    f.append_void(
+        entry,
+        InstKind::Call(
+            intr.arr_any_push,
+            vec![
+                Operand::Value(arr),
+                Operand::Value(pv),
+                Operand::Value(count),
+                Operand::ConstPtrNull,
+            ],
+        ),
+    );
+    arr
 }

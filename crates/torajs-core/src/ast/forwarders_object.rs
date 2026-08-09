@@ -439,7 +439,18 @@ fn synthesize_forwarder_decls(
             arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
         }
         for p in user_params {
-            arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
+            let id = ast.add_expr(Expr::Ident(p.name.clone()));
+            // A rest param forwards as a SPREAD: `target(args)` would
+            // get re-packed by apply_rest_args (runs after this pass)
+            // into `target([args])` — the double-wrap the adapter-side
+            // rest collection exposed. `target(...args)` rides that
+            // pass's single-spread arm (Array.from — §10.4.2's fresh
+            // CreateArrayFromList) instead.
+            if p.is_rest {
+                arg_eids.push(ast.add_expr(Expr::Spread { expr: id }));
+            } else {
+                arg_eids.push(id);
+            }
         }
         if takes_gen_argv {
             super::forwarders::push_gen_argv_spread(ast, &mut arg_eids);

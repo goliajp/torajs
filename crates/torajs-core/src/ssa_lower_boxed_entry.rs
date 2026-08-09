@@ -56,6 +56,13 @@ pub(crate) struct BoxedEntryIntrinsics {
     /// intrinsics table only carries the pair-ABI
     /// `__torajs_anyv_to_str_pair`).
     pub(crate) str_drop: FuncId,
+    /// `__torajs_arr_alloc_any(cap) -> Ptr` — the rest-param
+    /// adapter's fresh Arr<Any>.
+    pub(crate) arr_alloc_any: FuncId,
+    /// `__torajs_arr_any_push(arr, argv, argc, recv_slot) -> len` —
+    /// fills it from the trailing argv window (incs stored cells;
+    /// argv slots stay borrowed).
+    pub(crate) arr_any_push: FuncId,
 }
 
 /// `true` iff the type can cross the boxed boundary in either
@@ -247,6 +254,7 @@ pub(crate) fn synthesize_boxed_entries(
             t.recv_slot,
             t.feeds_env,
             &t.dflt_lits,
+            t.rest,
         );
         entries.insert(t.fid, pair);
     }
@@ -324,6 +332,21 @@ fn collect_boxed_targets(
         if user_tys.len() > MAX_BOXED_PARAMS {
             continue;
         }
+        // Rest-param body: direct call sites pack trailing args into
+        // an array literal (apply_rest_args), so the LAST param is an
+        // ordinary Arr the static world always feeds. A runtime call
+        // has no packing site — pre-fix the adapter unboxed argv
+        // positionally and the rest param read one lone argument as
+        // an array (garbage). The adapter now collects
+        // argv[fixed..argc] into a fresh Arr<Any> itself. Only the
+        // `any[]` spelling qualifies (untyped rest is implicitly
+        // any[]); a TYPED rest would need per-element unbox into a
+        // typed arr — no adapter, so a runtime call stays a loud
+        // not-callable instead of silent garbage.
+        let rest = params.last().is_some_and(|p| p.is_rest);
+        if rest && params.last().and_then(|p| p.type_ann.as_deref()) != Some("any[]") {
+            continue;
+        }
         if !user_tys.iter().all(boxable) || !(ret_ty == Type::Void || boxable(&ret_ty)) {
             continue;
         }
@@ -362,6 +385,7 @@ fn collect_boxed_targets(
             recv_slot,
             feeds_env,
             dflt_lits,
+            rest,
         });
     }
     targets
@@ -387,6 +411,9 @@ struct BoxedEntryTarget {
     recv_slot: bool,
     feeds_env: bool,
     dflt_lits: Vec<Option<DfltLit>>,
+    /// Last user param is an `any[]` rest — the adapter collects
+    /// argv[fixed..argc] into a fresh Arr<Any> for that slot.
+    rest: bool,
 }
 
 mod build;
