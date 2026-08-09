@@ -147,16 +147,26 @@ impl<'a> LowerCtx<'a> {
         // no env slot), so the side-channel triples are the env-layout
         // ground truth. A body ident not bound here falls through to
         // the globals path in ident resolution.
-        let cap_meta: Vec<(String, Type, bool)> = self
-            .closure_captures
-            .get(fn_name)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "ssa-lower: lifted closure `{fn_name}` has no capture types — \
-                     construction site must run before body lowering"
-                )
-            });
+        // A zero-capture body needs no side-channel lookup: the ann
+        // is the PRE-filter superset of the effective captures, so an
+        // empty ann means an empty layout — and the self-slot offset
+        // below is CAP_BASE exactly. Looking it up anyway made a
+        // self-named zero-capture fn-expr panic when its body lowered
+        // before its construction site (for-head destructuring
+        // defaults order it that way).
+        let cap_meta: Vec<(String, Type, bool)> = if cap_names.is_empty() {
+            Vec::new()
+        } else {
+            self.closure_captures
+                .get(fn_name)
+                .cloned()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "ssa-lower: lifted closure `{fn_name}` has no capture types — \
+                         construction site must run before body lowering"
+                    )
+                })
+        };
         let env_slot = self
             .locals
             .get("__env")

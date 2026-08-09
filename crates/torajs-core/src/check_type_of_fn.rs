@@ -187,6 +187,36 @@ pub(crate) fn check_closure(
     } = sig;
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(ret_ty);
+    // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds
+    // the closure itself inside the body, in a scope of its OWN
+    // between the enclosing environment and the body (the spec's
+    // funcEnv): params shadow it via ordinary inner-scope lookup,
+    // and a body-level `var n` / `let n` re-declaration is a legal
+    // shadow, not a redeclare reject (scope-lex-open /
+    // scope-var-open). `mutable: true` keeps the assign lane from a
+    // compile reject — writes resolving to this binding are marked
+    // via `self_name_active` and raise a runtime TypeError instead
+    // (strict semantics; module code always is). An inner closure
+    // reaches the name as an ordinary capture, but a write through
+    // it still hits the same immutable binding — the active channel
+    // rides the capture chain.
+    let saved_self_name = checker.self_name_active.take();
+    let mut active: Option<String> = None;
+    if let Some(sn) = ast.closure_self_names.get(&fn_name) {
+        let _ = checker.declare(
+            sn.clone(),
+            LocalInfo {
+                ty: value_ty.clone(),
+                mutable: true,
+                moved: false,
+                borrowed: false,
+                declared_class: None,
+                builtin_mv: false,
+            },
+        );
+        active = Some(sn.clone());
+        checker.scopes.push(HashMap::new());
+    }
     for (cap_name, cap_ty) in &cap_tys {
         let _ = checker.declare(
             cap_name.clone(),
@@ -213,37 +243,11 @@ pub(crate) fn check_closure(
             },
         );
     }
-    // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds the
-    // closure itself inside the body. Declared AFTER the params so a
-    // same-named param's entry wins (the redeclare reject leaves it in
-    // place). `mutable: true` keeps the assign lane from a compile
-    // reject — writes are marked via `self_name_active` and raise a
-    // runtime TypeError instead (strict semantics; module code always
-    // is). An inner closure reaches the name as an ordinary capture,
-    // but a write through it still hits the same immutable binding —
-    // the active channel rides the capture chain.
-    let saved_self_name = checker.self_name_active.take();
-    let mut active: Option<String> = None;
-    if let Some(sn) = ast.closure_self_names.get(&fn_name) {
-        if checker
-            .declare(
-                sn.clone(),
-                LocalInfo {
-                    ty: value_ty.clone(),
-                    mutable: true,
-                    moved: false,
-                    borrowed: false,
-                    declared_class: None,
-                    builtin_mv: false,
-                },
-            )
-            .is_ok()
-        {
-            active = Some(sn.clone());
-        }
-    } else if let Some(sn) = &saved_self_name {
-        if cap_tys.iter().any(|(n, _)| n == sn) && !real_params.iter().any(|p| p.name == *sn) {
-            active = Some(sn.clone());
+    if active.is_none() {
+        if let Some(sn) = &saved_self_name {
+            if cap_tys.iter().any(|(n, _)| n == sn) && !real_params.iter().any(|p| p.name == *sn) {
+                active = Some(sn.clone());
+            }
         }
     }
     checker.self_name_active = active;
