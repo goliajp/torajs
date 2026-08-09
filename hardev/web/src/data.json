@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T07:47:45.465Z",
+  "generatedAt": "2026-08-09T13:22:39.819Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-09T07:44:22Z",
-    "headSha": "68b66460",
-    "elapsedSec": 418.69,
+    "ranAt": "2026-08-09T13:20:52Z",
+    "headSha": "9379c782",
+    "elapsedSec": 417.78,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23651,
-    "passNoOracle": 812,
-    "passNegative": 3953,
-    "passTotal": 28416,
-    "bug": 12593,
-    "incompatible": 12165,
+    "pass": 23910,
+    "passNoOracle": 813,
+    "passNegative": 3955,
+    "passTotal": 28678,
+    "bug": 12664,
+    "incompatible": 11832,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41009,
-    "passRateInScope": 53.44,
-    "passRateTrAccepted": 69.29
+    "trAccepted": 41342,
+    "passRateInScope": 53.93,
+    "passRateTrAccepted": 69.37
   },
   "torajs": {
-    "commit": "68b66460",
-    "commitSubject": "feat: new-expression callees join the construct-channel use shapes",
+    "commit": "9379c782",
+    "commitSubject": "fix: yield rejects as a destructuring-assignment target at parse phase",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "9379c782",
+      "subject": "fix: yield rejects as a destructuring-assignment target at parse phase"
+    },
+    {
+      "hash": "cddb0b8e",
+      "subject": "feat: fromAsync constructs through a constructor this-value"
+    },
+    {
+      "hash": "94e68164",
+      "subject": "feat: uninitialized static fields become real mutable slots"
+    },
+    {
+      "hash": "29b752a4",
+      "subject": "feat: undefined-typed keys join the property-key domain"
+    },
+    {
+      "hash": "5f805306",
+      "subject": "feat: zero-field struct member reads ride the any lane"
+    },
+    {
+      "hash": "c5f98b1e",
+      "subject": "feat: function-this stops riding up the free-var walk"
+    },
+    {
+      "hash": "0efb5440",
+      "subject": "docs: rotation 345 close — cluster #2 dissolves, fnexpr-this closes four layers, gate chain ends 2647/0/4"
+    },
+    {
       "hash": "68b66460",
       "subject": "feat: new-expression callees join the construct-channel use shapes"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "18e215df",
       "subject": "feat: globalThis expando mutations land on the singleton"
-    },
-    {
-      "hash": "2342270f",
-      "subject": "docs: rotation 344 close — store split ships, gate chain ends 2641/0/4"
-    },
-    {
-      "hash": "58ae9866",
-      "subject": "feat: async for-of returns join the promise wrap"
-    },
-    {
-      "hash": "3de850c5",
-      "subject": "feat: nested async fn decls get their promise wrap"
-    },
-    {
-      "hash": "48d7c59f",
-      "subject": "feat: ns-static fn values reach typed fn slots through a forwarder"
-    },
-    {
-      "hash": "90a6521b",
-      "subject": "feat: error-family constructors tostring a present message"
-    },
-    {
-      "hash": "ed4f0cb2",
-      "subject": "feat: disposable stack dispose aliases + toStringTag land post store-split"
-    },
-    {
-      "hash": "8906c35c",
-      "subject": "feat: dynobj backing-store split — resize swaps the store, never the header"
     }
   ],
-  "headSha": "68b66460",
+  "headSha": "9379c782",
   "autorun": {
-    "total": 648,
+    "total": 649,
     "baselineTarget": 10,
-    "bySelf": 643,
+    "bySelf": 644,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786256211-43b3",
-      "at": "2026-08-09T06:16:51Z",
-      "ts": 1786256211,
+      "rotationId": "r-1786261773-2b63",
+      "at": "2026-08-09T07:49:33Z",
+      "ts": 1786261773,
       "trigger": "self",
-      "prevHead": "2342270f",
-      "handoffSha": "sha256:4151631508914b6f27883d6e1159ea926a9c914efab0f747461b159fe6a5a2e8",
-      "handoffAgeSec": 39,
+      "prevHead": "0efb5440",
+      "handoffSha": "sha256:22adf293c3cc348ebc556f4881ec1c9502a70af19d88c11bad3cff2cbc439aa1",
+      "handoffAgeSec": 27,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786261773-2b63",
+        "at": "2026-08-09T07:49:33Z",
+        "ts": 1786261773,
+        "trigger": "self",
+        "prevHead": "0efb5440",
+        "handoffSha": "sha256:22adf293c3cc348ebc556f4881ec1c9502a70af19d88c11bad3cff2cbc439aa1",
+        "handoffAgeSec": 27,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786256211-43b3",
         "at": "2026-08-09T06:16:51Z",
@@ -876,17 +887,6 @@
         "prevHead": "ad812b93",
         "handoffSha": "sha256:99c26cb66fa6928abf016f6980721f35441ac0a82dc9b33d897128cd44de33c9",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786180505-714a",
-        "at": "2026-08-08T09:15:05Z",
-        "ts": 1786180505,
-        "trigger": "self",
-        "prevHead": "b0798efd",
-        "handoffSha": "sha256:be533403dc9579b5049a0c6907eaef4c4e326e1b78c43eed5caa34beda115b86",
-        "handoffAgeSec": 57,
         "conformanceBefore": null,
         "commitsInSession": null
       }

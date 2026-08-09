@@ -1530,7 +1530,41 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `68b66460`** (2026-08-09, rotation 345 — cluster #2
+**Latest @ `9379c782`** (2026-08-09, rotation 346 — the `__this`
+cluster and the empty-struct family fall through one root cause:
+function-this stops riding the free-var walk. A nested `function`
+(and a marked fn-expr / objlit method) binds its own `this`
+(§10.2.1.1), but the walk reported the body's `__this` as free in
+the enclosing scope — every argument-position fn-expr enclosing a
+FnDecl-this lifted with a phantom capture its scope cannot supply
+(the whole 99-case unknown-`__this` cluster). Three boundaries land
+in `free_vars` (FnDecl / marked-fn-expr / objlit-method bodies bind
+`__this`; a lifted function-this closure's `__this` capture is the
+promote protocol's marker, not a lexical need, and stops riding
+into encloser snapshots), the promote candidate walks recurse
+through every compound-statement body via a shared spine
+(`stmt_nested_lists` — the capturing-lane `const` inside
+desugar_async's Try never reached the candidate set), and a seventh
+receiver-safe face position admits fn-exprs returned from objlit
+method/accessor bodies (any-lane consumption, every call path
+flag-aware — the old capture-supply path was receiver-correct only
+by coincidence). Alongside: zero-field struct member reads answer
+Any (the `var o = {}` apply-thisArg shape, 91-case cluster);
+Undefined-typed keys join the property-key domain
+(ToPropertyKey(undefined) = "undefined", the 69-case dstr harness
+cluster); uninitialized static fields become real mutable slots
+(two stale gates, the 68-case rs-static-privatename family); and
+Array.fromAsync constructs through a constructor this-value (RFC
+20260808 B6 knife 4 — readonly-elements now completes end-to-end).
+One sweep-caught regression (`0, { yield } = {}` phase mismatch)
+fixed same-rotation at the §13.15.1 gate. Gate chain 2647 →
+2654/0/4 zero-red (+7 fixtures). Sweep passTotal 28416 → **28678
+(+262)**, incompatible 12165 → 11832 (−333), conservation exact
+(+333 = +262 pass + 71 bug), zero pass regressions. Gate predicate:
+305 clusters (−7) / 5116 cases (−319) / core 6105 (−333) — both
+numbers down together again.)
+
+**Previous @ `68b66460`** (2026-08-09, rotation 345 — cluster #2
 dissolves and the fn-expr `this` family closes four layers deep.
 G2.5 narrows the globalThis mutation gate from all-property-writes
 to builtin-name overrides only: expando stores / updates / deletes
