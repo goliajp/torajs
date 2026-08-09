@@ -122,11 +122,16 @@ pub(crate) fn check_delete(
     operand: ExprId,
 ) -> Result<Type, String> {
     match ast.get_expr(operand) {
-        crate::ast::Expr::Member { obj, .. } => {
-            // G2 — `delete globalThis.x` mutates the singleton while
-            // bare-name reads keep static resolution; loud like the
-            // member-store gate (check_type_of_assign).
-            crate::check_type_of_assign::reject_globalthis_mutation(checker, ast, *obj)?;
+        crate::ast::Expr::Member { obj, name } => {
+            // G2.5 — `delete globalThis.x` takes the builtin-name
+            // gate; expando deletes ride the singleton's dynobj lane
+            // like the member-store arm (check_type_of_assign).
+            crate::check_type_of_assign::reject_globalthis_mutation(
+                checker,
+                ast,
+                *obj,
+                Some(name.as_str()),
+            )?;
             let obj_ty = checker.type_of(ast, *obj)?;
             if receiver_admits_delete(&obj_ty) {
                 Ok(Type::Boolean)
@@ -135,8 +140,14 @@ pub(crate) fn check_delete(
             }
         }
         crate::ast::Expr::Index { obj, index } => {
-            // G2 — the Index spelling of the globalThis delete gate.
-            crate::check_type_of_assign::reject_globalthis_mutation(checker, ast, *obj)?;
+            // G2.5 — the Index spelling of the globalThis delete gate:
+            // string-literal keys resolve to the builtin-name check.
+            crate::check_type_of_assign::reject_globalthis_mutation(
+                checker,
+                ast,
+                *obj,
+                crate::check_type_of_assign::literal_index_key(ast, *index),
+            )?;
             let obj_ty = checker.type_of(ast, *obj)?;
             let idx_ty = checker.type_of(ast, *index)?;
             if !receiver_admits_delete(&obj_ty) {
@@ -299,12 +310,26 @@ pub(crate) fn check_post_incr(
     ast: &Ast,
     target: ExprId,
 ) -> Result<Type, String> {
-    // G2 — `globalThis.x++` is a member store in update-expression
-    // clothing; loud like the assign / delete gates.
-    if let crate::ast::Expr::Member { obj, .. } | crate::ast::Expr::Index { obj, .. } =
-        ast.get_expr(target)
-    {
-        crate::check_type_of_assign::reject_globalthis_mutation(checker, ast, *obj)?;
+    // G2.5 — `globalThis.x++` is a member store in update-expression
+    // clothing; same builtin-name gate as the assign / delete arms.
+    match ast.get_expr(target) {
+        crate::ast::Expr::Member { obj, name } => {
+            crate::check_type_of_assign::reject_globalthis_mutation(
+                checker,
+                ast,
+                *obj,
+                Some(name.as_str()),
+            )?;
+        }
+        crate::ast::Expr::Index { obj, index } => {
+            crate::check_type_of_assign::reject_globalthis_mutation(
+                checker,
+                ast,
+                *obj,
+                crate::check_type_of_assign::literal_index_key(ast, *index),
+            )?;
+        }
+        _ => {}
     }
     let ty = checker.type_of(ast, target)?;
     // RFC 20260730-undeclared-ident, write position — §13.4.4.1 step 1

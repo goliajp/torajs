@@ -38,15 +38,12 @@ pub(crate) fn check(
             crate::check_assign_ident::check(checker, ast, target, name, value)
         }
         Expr::Member { obj, name: field } => {
-            // RFC 20260807-global-object G2 — a member STORE through
-            // bare `globalThis` stays loud: the write would land on
-            // the runtime singleton while every bare-name read keeps
-            // its static resolution (`globalThis.Array = x` then
-            // `Array` reading the original ctor is the exact silent
-            // wrong G2 refuses; expando globals `globalThis.g = 1`
-            // then bare `g` diverge the same way). A user binding
-            // named globalThis shadows through the lookup gate.
-            reject_globalthis_mutation(checker, ast, obj)?;
+            // G2.5 — a member STORE through bare `globalThis` is loud
+            // only for known-builtin names (silent divergence from
+            // bare-name static resolution); expando names land on the
+            // singleton's dynobj lanes. A user binding named
+            // globalThis shadows through the lookup gate.
+            reject_globalthis_mutation(checker, ast, obj, Some(field.as_str()))?;
             // RFC 20260710 C5 — writing the member invalidates its
             // own narrow entry and every narrow rooted deeper in it
             // (chunk 789: `h.o = ...` kills ("h.o", cb) AND
@@ -61,10 +58,10 @@ pub(crate) fn check(
             crate::check_assign_target::check_member(checker, ast, obj, field, value)
         }
         Expr::Index { obj, index } => {
-            // G2 — the Index spelling of the globalThis member store
-            // (`globalThis["x"] = v` / computed key) rejects for the
-            // same reason as the Member arm above.
-            reject_globalthis_mutation(checker, ast, obj)?;
+            // G2.5 — the Index spelling: a string-literal key takes
+            // the same builtin-name gate as the Member arm; computed
+            // keys pass (alias-write exposure).
+            reject_globalthis_mutation(checker, ast, obj, literal_index_key(ast, index))?;
             // Chunk 790 — an element write invalidates narrows rooted
             // at that element path; a computed index (`arr[i] = ...`)
             // conservatively kills every index-rooted narrow under
@@ -85,21 +82,42 @@ pub(crate) fn check(
     }
 }
 
-/// RFC 20260807-global-object G2 — property mutation through bare
-/// `globalThis` (no user binding shadowing it) is a typecheck error:
-/// the singleton is read-only surface until global-binding reflection
-/// lands (G4). Alias writes (`var g = globalThis; g.x = 1`) are out
-/// of this gate's reach and land on the singleton's dynobj lanes —
-/// the same exposure the `Math` ns-object accepted (RFC 20260801).
+/// RFC 20260807-global-object G2.5 — property mutation through bare
+/// `globalThis` (no user binding shadowing it) is loud only when the
+/// key names a KNOWN builtin global: that write would land on the
+/// runtime singleton while bare-name reads keep static resolution
+/// (`globalThis.Array = x` then `Array` reading the original ctor is
+/// the silent wrong G2 refuses). Expando keys pass — a bare read of
+/// such a name is a compile-time unknown-identifier reject, so the
+/// write/read pair through `globalThis` can never diverge silently.
+/// Computed / symbol keys pass on the same grounds as alias writes
+/// (`var g = globalThis; g.x = 1`): the singleton's dynobj lanes,
+/// the exposure the `Math` ns-object accepted (RFC 20260801).
 pub(crate) fn reject_globalthis_mutation(
     checker: &Checker,
     ast: &Ast,
     obj: ExprId,
+    key: Option<&str>,
 ) -> Result<(), String> {
-    if matches!(ast.get_expr(obj), Expr::Ident(n) if n == "globalThis")
-        && checker.lookup("globalThis").is_none()
+    if !matches!(ast.get_expr(obj), Expr::Ident(n) if n == "globalThis")
+        || checker.lookup("globalThis").is_some()
     {
-        return Err("not yet supported: assigning to / deleting a property of `globalThis`".into());
+        return Ok(());
     }
-    Ok(())
+    match key {
+        Some(name) if crate::check_js_semantics::is_known_builtin_global(name) => Err(format!(
+            "not yet supported: overriding builtin global `{name}` through `globalThis`"
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// The statically-decidable spelling of an Index key — a string
+/// literal (`globalThis["x"]`) resolves to the same name domain as
+/// the Member form and takes the same builtin-name gate above.
+pub(crate) fn literal_index_key(ast: &Ast, index: ExprId) -> Option<&str> {
+    match ast.get_expr(index) {
+        Expr::String(s) => Some(s),
+        _ => None,
+    }
 }
