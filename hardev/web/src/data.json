@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T13:22:39.819Z",
+  "generatedAt": "2026-08-09T15:13:56.359Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-09T13:20:52Z",
-    "headSha": "9379c782",
-    "elapsedSec": 417.78,
+    "ranAt": "2026-08-09T15:09:20Z",
+    "headSha": "4d626200",
+    "elapsedSec": 420.94,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23910,
-    "passNoOracle": 813,
+    "pass": 23925,
+    "passNoOracle": 827,
     "passNegative": 3955,
-    "passTotal": 28678,
-    "bug": 12664,
-    "incompatible": 11832,
+    "passTotal": 28707,
+    "bug": 12671,
+    "incompatible": 11796,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41342,
-    "passRateInScope": 53.93,
-    "passRateTrAccepted": 69.37
+    "trAccepted": 41378,
+    "passRateInScope": 53.99,
+    "passRateTrAccepted": 69.38
   },
   "torajs": {
-    "commit": "9379c782",
-    "commitSubject": "fix: yield rejects as a destructuring-assignment target at parse phase",
+    "commit": "4d626200",
+    "commitSubject": "feat: instanceof reaches a bare fndecl name through its canonical cell",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "4d626200",
+      "subject": "feat: instanceof reaches a bare fndecl name through its canonical cell"
+    },
+    {
+      "hash": "5e3af784",
+      "subject": "fix: allkeyed fixture keeps to the faces the promise pool survives"
+    },
+    {
+      "hash": "460c76bd",
+      "subject": "feat: promise combinators learn the keyed pair from await-dictionary"
+    },
+    {
+      "hash": "5d73a304",
+      "subject": "feat: rest params materialize through the any-lane boxed adapter"
+    },
+    {
+      "hash": "81b85fea",
+      "subject": "feat: yield-into temps bind inside generator expression bodies"
+    },
+    {
+      "hash": "8ff9a184",
+      "subject": "docs: rotation 346 close — function-this free-var boundary fells four top clusters, gate chain ends 2654/0/4"
+    },
+    {
       "hash": "9379c782",
       "subject": "fix: yield rejects as a destructuring-assignment target at parse phase"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c5f98b1e",
       "subject": "feat: function-this stops riding up the free-var walk"
-    },
-    {
-      "hash": "0efb5440",
-      "subject": "docs: rotation 345 close — cluster #2 dissolves, fnexpr-this closes four layers, gate chain ends 2647/0/4"
-    },
-    {
-      "hash": "68b66460",
-      "subject": "feat: new-expression callees join the construct-channel use shapes"
-    },
-    {
-      "hash": "46dc80e5",
-      "subject": "feat: instanceof answers fn-value bindings through the prototype walk"
-    },
-    {
-      "hash": "fc8f0e3c",
-      "subject": "feat: generic params prove call-free and argv faces survive argument escapes"
-    },
-    {
-      "hash": "2885cacb",
-      "subject": "feat: this-reading fn-exprs admit explicit-any argument positions"
-    },
-    {
-      "hash": "18e215df",
-      "subject": "feat: globalThis expando mutations land on the singleton"
     }
   ],
-  "headSha": "9379c782",
+  "headSha": "4d626200",
   "autorun": {
-    "total": 649,
+    "total": 650,
     "baselineTarget": 10,
-    "bySelf": 644,
+    "bySelf": 645,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786261773-2b63",
-      "at": "2026-08-09T07:49:33Z",
-      "ts": 1786261773,
+      "rotationId": "r-1786281850-298e",
+      "at": "2026-08-09T13:24:10Z",
+      "ts": 1786281850,
       "trigger": "self",
-      "prevHead": "0efb5440",
-      "handoffSha": "sha256:22adf293c3cc348ebc556f4881ec1c9502a70af19d88c11bad3cff2cbc439aa1",
-      "handoffAgeSec": 27,
+      "prevHead": "8ff9a184",
+      "handoffSha": "sha256:897a7886e684589fbd88147d8c3225348068f3e82c06efa1431644632a445d0c",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786281850-298e",
+        "at": "2026-08-09T13:24:10Z",
+        "ts": 1786281850,
+        "trigger": "self",
+        "prevHead": "8ff9a184",
+        "handoffSha": "sha256:897a7886e684589fbd88147d8c3225348068f3e82c06efa1431644632a445d0c",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786261773-2b63",
         "at": "2026-08-09T07:49:33Z",
@@ -876,17 +887,6 @@
         "prevHead": "403187b8",
         "handoffSha": "sha256:ed925cbbe365415b2b6db213e3848143f50951889f5b31bab855c1df2fafb3c4",
         "handoffAgeSec": 1,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786186030-5a63",
-        "at": "2026-08-08T10:47:10Z",
-        "ts": 1786186030,
-        "trigger": "self",
-        "prevHead": "ad812b93",
-        "handoffSha": "sha256:99c26cb66fa6928abf016f6980721f35441ac0a82dc9b33d897128cd44de33c9",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }

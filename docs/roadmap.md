@@ -1530,7 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `9379c782`** (2026-08-09, rotation 346 — the `__this`
+**Latest @ `4d626200`** (2026-08-10, rotation 347 — four knives off
+the recorded queues. The yield-into temp binds inside generator
+EXPRESSION bodies (free_vars treated it as expression-only, so
+every expression-position yield "captured" its own temp and the
+hoist panicked — the 20-case yield-spread/dstr family). Rest params
+materialize through the any-lane boxed adapter (argv[fixed..argc]
+collects into a fresh Arr<Any>; both forwarder synthesis sites now
+spread-forward the rest param so apply_rest_args does not re-pack —
+the [null,true,null] family that blocked fromAsync). Promise.allKeyed
+/ allSettledKeyed land end-to-end (await-dictionary: null-proto
+keyed result, §10.1.11.1 order, records translated into real
+{status, value|reason} dynobjs — sidestepping the recorded
+record-identity blindness; bun lacks the proposal so the fixture
+carries an .expected oracle). And `og instanceof G` reaches a bare
+top-level FnDecl through its __forward canonical cell (§7.3.22
+against the same fnprops cell the construct kernel links). The
+first gate run flushed out a pre-existing promise-pool double-drop
+(unobserved rejected combinator promise underflows; the freed cell
+recycles under the microtask queue — full evidence dossier in
+plan-state, next knife). Gate chain 2654 → 2658/0/4 zero-red (+4
+fixtures). Sweep passTotal 28678 → **28707 (+29)** / bug +7 /
+trAccepted +36 / incompatible **−36**, conservation exact. One pass
+regression re-baselined as de-watering: the old Reflect.apply pass
+rode the broken rest-adapter's garbage read; the honest collection
+exposes closure length-accessor-define as silently ignored
+(recorded). exit-139 31 (+1 — a newly-runnable allSettledKeyed case
+hitting the recorded pool UAF); exit-138 3 flat; tr-timeout 36
+flat. Gate predicate: 305 clusters (flat) / 5078 cases (−38) /
+core 6069 (−36).)
+
+**Previous @ `9379c782`** (2026-08-09, rotation 346 — the `__this`
 cluster and the empty-struct family fall through one root cause:
 function-this stops riding the free-var walk. A nested `function`
 (and a marked fn-expr / objlit method) binds its own `this`
