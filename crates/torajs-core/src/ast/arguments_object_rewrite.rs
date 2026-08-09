@@ -194,6 +194,30 @@ pub(super) fn rewrite_arguments_in_expr(
 ) -> ExprId {
     let e = ast.get_expr(eid).clone();
     match e {
+        // `arguments.callee` — §10.4.4.6 step 21: on tr's
+        // always-strict module goal the read runs the
+        // %ThrowTypeError% getter. Rewrites to the synthetic
+        // `__torajs_arguments_callee()` call (checker ident
+        // special-case, class-synth lowering arm, runtime
+        // TypeError) — the 10.6-13-c strict family's direct-read
+        // spelling; the escaped keyed read rides the gOPD /
+        // member-get arguments arms instead.
+        Expr::Member { obj, name } if name == "callee" => {
+            if let Expr::Ident(n) = ast.get_expr(obj)
+                && n == "arguments"
+            {
+                let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
+                return ast.add_expr(Expr::Call {
+                    callee,
+                    args: Vec::new(),
+                });
+            }
+            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
+            if o == obj {
+                return eid;
+            }
+            return ast.add_expr(Expr::Member { obj: o, name });
+        }
         // `arguments.length` — T-31: when this fn uses real argc,
         // route to `Ident("__torajs_real_argc")` (the synthetic param
         // injected by `desugar_arguments_object`). Otherwise fall back

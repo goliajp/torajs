@@ -37,6 +37,10 @@ unsafe extern "C" {
     /// torajs-arr — the arguments-materialization `"length"` face:
     /// 0 = plain array, 1 = arguments (configurable), 2 = deleted.
     fn __torajs_arr_arguments_length_state(arr: *const c_void, key: *const c_void) -> i64;
+    /// torajs-arr — bare FLAG_ARR_ARGUMENTS probe (the callee arm).
+    fn __torajs_arr_is_arguments(arr: *const c_void) -> i64;
+    /// torajs-rc — the interned §10.2.4 %ThrowTypeError% method cell.
+    fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-arr — the index's AccessorPair, NULL when not an
     /// accessor (RFC 20260713 chunk C).
     fn __torajs_arr_index_accessor(arr: *const c_void, idx: u64) -> *mut c_void;
@@ -63,6 +67,10 @@ const ARR_F_HOLE: u64 = 1 << 3;
 /// this crate keeps its dep tree narrow — the u16 bit position is
 /// part of the header ABI).
 const ARR_FLAG_LENGTH_RO: u16 = 1 << 7;
+
+/// Mirror of `torajs_rc::ANY_METHOD_THROW_TYPE_ERROR` (the
+/// `object_proto_install` sibling keeps the same local mirror).
+const ANY_METHOD_THROW_TYPE_ERROR_MID: i64 = 155;
 
 /// Key Str payload as a byte slice.
 unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
@@ -118,6 +126,17 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
         let writable = (flags & ARR_FLAG_LENGTH_RO == 0) as u64;
         let configurable = (args_state == 1) as u64;
         return unsafe { build_data_descriptor(2, len, writable, 0, configurable) };
+    }
+    if bytes == b"callee" && unsafe { __torajs_arr_is_arguments(arr) } != 0 {
+        // §10.4.4.6 CreateUnmappedArgumentsObject step 21 — `callee`
+        // is the %ThrowTypeError% accessor pair, enumerable false,
+        // configurable false (tr's module goal is always strict /
+        // unmapped). The interned thrower cell is immortal — the
+        // descriptor's stake no-ops.
+        let thrower = unsafe { __torajs_builtin_method_cell(ANY_METHOD_THROW_TYPE_ERROR_MID) };
+        return unsafe {
+            crate::reflect::build_accessor_descriptor(4, thrower as u64, 4, thrower as u64, 0, 0)
+        };
     }
     if let Some(idx) = canonical_index(bytes) {
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };

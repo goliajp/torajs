@@ -74,6 +74,10 @@ pub(crate) struct ArrAnyIds {
     /// the keyed `"length"` readers answer the arguments-exotic
     /// attributes (configurable true, deletable).
     pub arr_mark_arguments: FuncId,
+    /// §10.4.4.6 step 21 — the strict `arguments.callee` read
+    /// (%ThrowTypeError% getter; answers undefined with the pending
+    /// TypeError).
+    pub arguments_callee: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrAnyIds {
@@ -103,6 +107,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_alloc_any,
         arr_any_push: decl!("__torajs_arr_any_push", [Ptr, Ptr, I64, Ptr], I64),
         arr_mark_arguments: decl!("__torajs_arr_mark_arguments", [Ptr], Void),
+        arguments_callee: decl!("__torajs_arguments_callee", [], Any),
         arr_push_any: decl!("__torajs_arr_push_any", [Ptr, I64, I64], Ptr),
         arr_mark_last_hole: decl!("__torajs_arr_mark_last_hole", [Ptr], Void),
         arr_any_to_locale_string: decl!("__torajs_arr_any_to_locale_string", [Ptr], Str),

@@ -129,6 +129,10 @@ pub(crate) fn check(
         // The FLAG_ARR_ARGUMENTS stamp — one call right after the
         // mint (both desugar lanes); lowered in the class-synth lane.
         "__torajs_arguments_mark" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Void))),
+        // §10.4.4.6 step 21 — the `arguments.callee` strict read
+        // (rewritten by the arguments desugar): runs the
+        // %ThrowTypeError% getter at runtime.
+        "__torajs_arguments_callee" => Ok(Type::Function(Vec::new(), Box::new(Type::Any))),
         "__torajs_proto_register" => Ok(Type::Function(
             vec![Type::Any, Type::String],
             Box::new(Type::Void),

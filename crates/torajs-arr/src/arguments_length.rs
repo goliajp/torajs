@@ -30,6 +30,27 @@ unsafe extern "C" {
     /// the lazy expando first (the `store_shadow` idiom).
     fn __torajs_dynobj_set_entry_hole(obj_slot: *mut *mut c_void, key: *mut c_void);
     fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// NaN-box `undefined` immediate (torajs-anyvalue encoding mirror —
+/// `join.rs` keeps the same local constant).
+const VALUE_UNDEFINED_IMM: u64 = 0x0000_0000_0000_000A;
+
+/// §10.4.4.6 step 21 — the strict `arguments.callee` read: the
+/// %ThrowTypeError% getter. The desugar rewrites the direct
+/// `arguments.callee` spelling to this no-arg call; the escaped
+/// keyed read answers the accessor descriptor through the gOPD
+/// arguments arm instead (torajs-meta `arr_reflect.rs`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arguments_callee() -> u64 {
+    unsafe {
+        __torajs_throw_type_error(
+            c"'callee' may not be accessed on an arguments object in strict mode".as_ptr(),
+        )
+    };
+    VALUE_UNDEFINED_IMM
 }
 
 /// Stamp the freshly minted `__torajs_arguments` cell — called once
@@ -45,6 +66,17 @@ pub unsafe extern "C" fn __torajs_arr_mark_arguments(arr: *mut c_void) {
     }
     let fp = unsafe { (arr as *mut u8).add(6) }.cast::<u16>();
     unsafe { fp.write(fp.read() | FLAG_ARR_ARGUMENTS) };
+}
+
+/// Bare FLAG_ARR_ARGUMENTS probe — the `callee` descriptor arm and
+/// any other keyed reader that needs the identity without the
+/// length-tombstone question.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_is_arguments(arr: *const c_void) -> i64 {
+    unsafe { (header_flags(arr) & FLAG_ARR_ARGUMENTS != 0) as i64 }
 }
 
 /// The `"length"` face state of an Arr cell: 0 = plain array (the

@@ -308,6 +308,8 @@ pub(crate) struct Intrinsics {
     /// §10.4.4 — the FLAG_ARR_ARGUMENTS stamp on the fresh
     /// `__torajs_arguments` cell.
     pub(crate) arr_mark_arguments: FuncId,
+    /// §10.4.4.6 step 21 — the strict `arguments.callee` read.
+    pub(crate) arguments_callee: FuncId,
     pub(crate) arr_push_any: FuncId,
     pub(crate) arr_mark_last_hole: FuncId,
     pub(crate) arr_any_to_locale_string: FuncId,

@@ -91,6 +91,24 @@ pub(crate) fn try_lower(
         }
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
         "__torajs_arguments_mark" => try_lower_arguments_mark(ctx, args),
+        // §10.4.4.6 step 21 — the strict `arguments.callee` read:
+        // one no-arg runtime call answering undefined with the
+        // pending %ThrowTypeError% TypeError.
+        "__torajs_arguments_callee" if args.is_empty() => {
+            let cur_block = ctx.cur_block;
+            let v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.arguments_callee, Vec::new()),
+                Type::Any,
+                None,
+            );
+            // The kernel ALWAYS records a TypeError — the check is
+            // what routes it into the enclosing try/catch. Target
+            // None: the targeted form skips intrinsics as
+            // never-throwing, and this one exists to throw.
+            ctx.emit_throw_check(None);
+            Some(Operand::Value(v))
+        }
         "__torajs_genfn_chain" => try_lower_genfn_chain(ctx, args),
         "__torajs_proto_chain_builtin" => try_lower_proto_chain_builtin(ctx, args),
         _ => None,
