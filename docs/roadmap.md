@@ -1530,7 +1530,50 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `58ae9866`** (2026-08-09, rotations 343+344 — the B6 tail
+**Latest @ `68b66460`** (2026-08-09, rotation 345 — cluster #2
+dissolves and the fn-expr `this` family closes four layers deep.
+G2.5 narrows the globalThis mutation gate from all-property-writes
+to builtin-name overrides only: expando stores / updates / deletes
+(member, string-literal index, computed key) ride the singleton's
+existing dynobj lanes — a bare read of an expando name is already a
+compile-time unknown-identifier reject, so the write/read pair
+cannot diverge silently; `globalThis.Array = x` stays loud. The
+whole 113-case "assigning to / deleting a property of globalThis"
+cluster dissolves to ZERO. The `__this` family (102 cases) gets its
+knife chain: explicit-`any` param argument positions admit (the
+any lane honors FLAG_CLOSURE_RECV_FIRST on every call path);
+generic type-param slots admit behind a greatest-fixpoint call-free
+proof over every same-name use in the program (eq / typeof / `!x` /
+explicit-any let-init / recursive safe-param argument are harmless,
+anything else refutes — and the any-let walk must reach every
+body-owning stmt shape, the if-branch decl in sameValueCheck caught
+the FnDecl/Block-only first cut); the argv face survives the same
+argument escapes (escape-store's twin, so this+arguments fn-exprs
+materialize through the boxed dual entry); `o instanceof C` gains a
+fn-value lane (§7.3.22 OrdinaryHasInstance via a runtime prototype
+walk) — which flushed out that `fn_prototype_pair` minted a FRESH
+prototype on every call because its probe lived in the member-get
+callers only, so construct products diverged from the canonical
+cell (probe now lives in the mint itself); and `new C()` callees
+join the construct-channel shapes. The Array/from/iter-cstm-ctor
+t262 shape passes all asserts end-to-end. Gate chain 2641 →
+2647/0/4 zero-red (+6 fixtures). Sweep passTotal 28377 → **28416
+(+39)** / bug +37 / trAccepted **+76** / incompatible **−76**,
+conservation exact (+76 = +39+37; the unlocked cases split between
+direct passes and honest next-blocker bug entries — import-defer
+semantics, `with`, FnDecl-this). **Zero pass regressions** (246-line
+diff, all forward). exit-139 30 flat / exit-138 3 flat / tr-timeout
+35 flat — no new crash surface. Gate predicate **312 clusters (+3,
+the known unlock-exposes-signatures shape) / 5435 cases (−72) /
+residue 767 clusters 1003 cases / core 6438 (−76)**, register still
+empty. Build determinism 44/44 (N=12), zero compile failures.
+Recorded next: the `__this` residue (100 cases) is dominated by
+**FnDecl-this** — `function MyArray() { this.length = 4 }`
+constructed via `Array.fromAsync.call(MyArray, …)` — a separate
+shape family the fnexpr passes never touch; plus Any-binding rhs
+instanceof, and the NewDynamic-callee promote admit's checker face.)
+
+**Previous @ `58ae9866`** (2026-08-09, rotations 343+344 — the B6 tail
 closes, then the dynobj backing-store split lands. Rotation 343 gave
 the generator family its only real inheritance point
 (%Iterator.prototype% true symbol-keyed own entries installed at
