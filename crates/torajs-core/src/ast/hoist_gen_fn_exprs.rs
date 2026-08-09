@@ -201,12 +201,36 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         if has_recv {
             ast.fnexpr_recv_fns.insert(format!("__forward_{name}"));
         }
-        // Self-name stays a plain free var on this lane for now — the
-        // generator half of RFC 20260810 (knife 3) will pre-bind it
-        // and route the wrapper cell in as a leading argument.
-        let captures =
+        // §15.5.5 (RFC 20260810 knife 3) — the self-name binds inside
+        // the body, never a capture the enclosing scope must supply. A
+        // body that READS it takes the wrapper route below: the
+        // wrapper ArrowFn reuses this ExprId, so `fn_expr_self_names`
+        // already names it and the knife-1 self-slot binds the name
+        // inside the wrapper — which then forwards its own cell as a
+        // leading argument the prep pass moves onto `this.<name>`. A
+        // body that WRITES it stays refused: after the prep rewrite a
+        // write would be a silent `this` field store, not the §15.5.5
+        // strict TypeError.
+        let self_name = ast.fn_expr_self_names.get(&eid).cloned();
+        let mut captures =
             crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names, None);
-        if !captures.is_empty() {
+        let self_ref = self_name
+            .as_ref()
+            .is_some_and(|sn| captures.iter().any(|c| c == sn));
+        if self_ref {
+            let sn = self_name.as_ref().unwrap();
+            if !captures_snapshot_safe(ast, std::slice::from_ref(sn)) {
+                panic!(
+                    "generator expression whose self-name `{sn}` is reassigned in the \
+                     body is not yet supported (RFC 20260810: the factory receives the \
+                     wrapper cell through a param the generator prep rewrites onto \
+                     `this.{sn}`, so a write would be a silent field store instead of \
+                     the strict-mode TypeError)"
+                );
+            }
+            captures.retain(|c| c != sn);
+        }
+        if !captures.is_empty() || self_ref {
             // Wrapper route (module doc "Capture policy") — refuse
             // the combinations whose plumbing is unproven, and any
             // capture where a call-time snapshot is observably
@@ -234,7 +258,13 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
             // generator prep moves onto `this.<name>` — the body
             // compiles untouched.
             let callee = ast.add_expr(Expr::Ident(name.clone()));
-            let mut args: Vec<ExprId> = Vec::with_capacity(captures.len() + params.len());
+            let mut args: Vec<ExprId> =
+                Vec::with_capacity(usize::from(self_ref) + captures.len() + params.len());
+            // The wrapper's own cell rides first — inside the wrapper
+            // the self-name resolves through the knife-1 self-slot.
+            if let Some(sn) = self_name.as_ref().filter(|_| self_ref) {
+                args.push(ast.add_expr(Expr::Ident(sn.clone())));
+            }
             for c in &captures {
                 args.push(ast.add_expr(Expr::Ident(c.clone())));
             }
@@ -247,8 +277,10 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
                 return_type: None,
                 body: vec![Stmt::Return(Some(call))],
             };
-            let cap_params: Vec<super::Param> = captures
+            let lead_params: Vec<super::Param> = self_name
                 .iter()
+                .filter(|_| self_ref)
+                .chain(captures.iter())
                 .map(|c| super::Param {
                     name: c.clone(),
                     type_ann: Some("any".to_string()),
@@ -256,7 +288,7 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
                     is_rest: false,
                 })
                 .collect();
-            params.splice(0..0, cap_params);
+            params.splice(0..0, lead_params);
         }
         // Param-destructuring prefix carries over under the hoisted
         // name so desugar_generators moves it into the __Gen ctor
