@@ -183,6 +183,14 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         &closure_idents,
         &mut existing_forwarders,
     );
+    crate::ast_closure_param_tag_axes::wrap_ns_static_values(
+        ast,
+        &fn_params,
+        &fn_returns,
+        &marked,
+        &ret_marked,
+        &mut existing_forwarders,
+    );
 }
 
 /// Closure-shaped value predicate shared by the param-arg and
@@ -199,6 +207,20 @@ fn is_closure_shaped(
         Expr::Ident(n) => closure_idents.contains(n),
         Expr::Call { callee, .. } => {
             matches!(ast.get_expr(*callee), Expr::Ident(f) if ret_marked.contains(f))
+        }
+        // A namespace-static fn value (`Math.sin` outside a call
+        // position) lowers to the interned dispatcher cell —
+        // `Type::Closure`, env-first ABI (RFC 20260719-ns-static-
+        // value-reify). Left unmarked, the `__fn(` param keeps the
+        // bare-fn-pointer lane and `blr`s the cell's heap header —
+        // the bug-327 SIGBUS family, third value shape (test262
+        // S12.9_A4 `DD_operator(Math.sin, ...)`). Same approximation
+        // grade as the rest of this pass: a user binding shadowing
+        // the namespace over-marks the param, which costs direct
+        // dispatch but keeps the shapes uniform.
+        Expr::Member { obj, name } => {
+            matches!(ast.get_expr(*obj), Expr::Ident(ns)
+                if torajs_rc::ns_static_id(ns, name) != torajs_rc::NS_STATIC_UNKNOWN)
         }
         _ => false,
     }
@@ -317,7 +339,7 @@ fn retag_fn_decls(stmts: &mut [Stmt], marked: &HashSet<(String, usize)>) {
 }
 
 /// Push every Stmt nested inside `s` (one level) onto the walk stack.
-fn push_child_stmts<'a>(s: &'a Stmt, stack: &mut Vec<&'a Stmt>) {
+pub(crate) fn push_child_stmts<'a>(s: &'a Stmt, stack: &mut Vec<&'a Stmt>) {
     match s {
         Stmt::If {
             then_branch,
@@ -635,6 +657,45 @@ mod tests {
         );
         assert!(fn_param_ann(&ast, "g3", 0).unwrap().starts_with("__fn("));
         assert!(fn_param_ann(&ast, "h", 0).unwrap().starts_with("__fn("));
+    }
+
+    #[test]
+    fn ns_static_member_arg_retags_param() {
+        // bug-327 third value shape: `Math.sin` outside a call
+        // position is the interned dispatcher cell (Type::Closure),
+        // so the receiving param needs the env-first ABI.
+        let ast = pass_output(
+            "function apply1(f: (n: number) => number, x: number): number { return f(x); }\napply1(Math.sin, 0);\n",
+        );
+        let ann = fn_param_ann(&ast, "apply1", 0).unwrap();
+        assert!(ann.starts_with("__cls("), "expected __cls retag, got {ann}");
+        // …and the member arg is wrapped: the cell's fn_addr is the
+        // RFC B4 loud reject, so the typed lane needs a real closure.
+        assert!(
+            ast.stmts.iter().any(|s| matches!(
+                s,
+                Stmt::FnDecl { name, .. } if name == "__forward_ns_Math_sin"
+            )),
+            "expected __forward_ns_Math_sin decl"
+        );
+        assert!(
+            ast.exprs.iter().any(|e| matches!(
+                e,
+                Expr::Closure { fn_name, .. } if fn_name == "__forward_ns_Math_sin"
+            )),
+            "apply1(Math.sin, ...) arg should be rewritten"
+        );
+    }
+
+    #[test]
+    fn unknown_member_arg_keeps_fnsig() {
+        // A member read that is not a namespace static says nothing
+        // about the value's shape — no retag.
+        let ast = pass_output(
+            "function f(thunk: () => void): void { thunk(); }\nlet o = { m: function() {} };\nf(o.m);\n",
+        );
+        let ann = fn_param_ann(&ast, "f", 0).unwrap();
+        assert!(ann.starts_with("__fn("), "no retag expected, got {ann}");
     }
 
     #[test]
