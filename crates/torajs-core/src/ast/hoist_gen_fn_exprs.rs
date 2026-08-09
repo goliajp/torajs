@@ -11,14 +11,24 @@
 //! `let f = function*(){}` flows through the M2 fn-addr let →
 //! CallIndirect machinery unchanged.
 //!
-//! Capture policy: capture-free bodies only. The generator desugar has
-//! no env channel (prep rewrites params + lifted lets to `this.<name>`;
-//! anything else must resolve as a module-level global), so a body
-//! referencing an enclosing FUNCTION local cannot be compiled — we
-//! panic loudly naming the captured idents instead of silently
-//! mis-binding. Module-level bindings (let / var / fn / class names)
-//! are globals in tr's model and pre-bind as non-captures, matching
-//! what an equivalent decl-form generator at top level sees.
+//! Capture policy (rotation 348): a body capturing enclosing locals
+//! compiles through the WRAPPER route when a call-time snapshot is
+//! provably equivalent to live by-reference capture — the captured
+//! names are prepended as factory params (the generator prep already
+//! moves params onto `this.<name>`, so the body compiles untouched)
+//! and the expression slot becomes an ordinary arrow
+//! `(orig params) => __genexpr_N(<caps>, orig params)`, which
+//! `lift_arrow_fns` turns into a closure carrying the real env. The
+//! wrapper reads each captured name at CALL time, so the only
+//! observable divergence from by-reference capture is a reassignment
+//! — [`captures_snapshot_safe`] therefore refuses any captured name
+//! that is ever reassigned (Assign / PostIncr) or rebound by a
+//! for-of/for-in head anywhere in the program (conservative:
+//! same-named bindings in unrelated scopes also refuse). Unsafe
+//! captures — and captures combined with a rest param or a
+//! `__genrecv` receiver — keep the loud panic instead of silently
+//! mis-binding. A destructuring-param prefix composes fine: the
+//! prefix counts BODY stmts, which the prepended params don't touch.
 //!
 //! NamedEvaluation: resolved in this pass and parked in
 //! `ast.genexpr_names` for the fn-name registry (V4 刀 2). It cannot
@@ -29,6 +39,100 @@
 //! elem typing can't see hoisted names.
 
 use super::{Ast, Expr, ExprId, Stmt};
+
+/// True when a snapshot of `captures` taken at each wrapper call is
+/// observably identical to live by-reference capture: none of the
+/// captured names is ever reassigned (`Assign` / `PostIncr`) or
+/// rebound by a for-of / for-in loop head anywhere in the program.
+/// Conservative by name — a same-named binding in an unrelated scope
+/// also refuses (compound assignment already parses to `Assign`, and
+/// pre-increment to `x = x + 1`, so the two expr forms cover every
+/// write spelling).
+fn captures_snapshot_safe(ast: &Ast, captures: &[String]) -> bool {
+    let is_cap = |eid: ExprId| matches!(&ast.exprs[eid.0 as usize], Expr::Ident(n) if captures.iter().any(|c| c == n));
+    let mut arrow_bodies: Vec<&Stmt> = Vec::new();
+    for e in &ast.exprs {
+        match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } if is_cap(*target) => {
+                return false;
+            }
+            // Loop heads inside arrow bodies rebind through the same
+            // stmt shapes — feed them into the walk below (`for (x
+            // of xs)` with no declarator assigns the OUTER x).
+            Expr::ArrowFn { body, .. } => arrow_bodies.extend(body.iter()),
+            _ => {}
+        }
+    }
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
+    stack.extend(arrow_bodies);
+    while let Some(s) = stack.pop() {
+        match s {
+            Stmt::ForOf { var_name, body, .. } | Stmt::ForOfSplitIter { var_name, body, .. } => {
+                if captures.iter().any(|c| c == var_name) {
+                    return false;
+                }
+                stack.push(body);
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                stack.push(then_branch);
+                if let Some(e) = else_branch {
+                    stack.push(e);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+                stack.push(body)
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    stack.push(i);
+                }
+                stack.push(body);
+            }
+            Stmt::Switch { cases, default, .. } => {
+                for c in cases {
+                    stack.extend(c.body.iter());
+                }
+                if let Some(d) = default {
+                    stack.extend(d.iter());
+                }
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                stack.extend(body.iter());
+                stack.extend(catch_body.iter());
+                if let Some(f) = finally_body {
+                    stack.extend(f.iter());
+                }
+            }
+            Stmt::Block(b) | Stmt::Multi(b) => stack.extend(b.iter()),
+            Stmt::FnDecl { body, .. } => stack.extend(body.iter()),
+            Stmt::ClassDecl {
+                methods,
+                static_methods,
+                ..
+            } => {
+                for m in methods.iter().chain(static_methods.iter()) {
+                    stack.extend(m.body.iter());
+                }
+            }
+            Stmt::ExportDecl { inner, .. } => {
+                if let Some(i) = inner {
+                    stack.push(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    true
+}
 
 pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
     if ast.gen_fn_exprs.is_empty() {
@@ -78,7 +182,7 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         ast.genexpr_names.insert(name.clone(), visible);
         let arrow = std::mem::replace(&mut ast.exprs[i], Expr::Ident(name.clone()));
         let Expr::ArrowFn {
-            params,
+            mut params,
             return_type,
             body,
         } = arrow
@@ -91,21 +195,65 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         // method-shaped call of the wrapped cell seeds the receiver
         // into argv[0] — which lands exactly on the leading
         // `__genrecv` param the forwarder forwards verbatim.
-        if params
+        let has_recv = params
             .first()
-            .is_some_and(|p| p.name == crate::ast::GEN_RECV_PARAM)
-        {
+            .is_some_and(|p| p.name == crate::ast::GEN_RECV_PARAM);
+        if has_recv {
             ast.fnexpr_recv_fns.insert(format!("__forward_{name}"));
         }
         let captures =
             crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names);
         if !captures.is_empty() {
-            panic!(
-                "generator expression capturing outer binding(s) {captures:?} is not yet \
-                 supported (RFC 20260713-generator-fn-value-substrate: hoisted generator \
-                 bodies have no closure-env channel — move the generator to a declaration \
-                 or pass the value as a parameter)"
-            );
+            // Wrapper route (module doc "Capture policy") — refuse
+            // the combinations whose plumbing is unproven, and any
+            // capture where a call-time snapshot is observably
+            // different from live capture.
+            if has_recv || params.iter().any(|p| p.is_rest) {
+                panic!(
+                    "generator expression capturing outer binding(s) {captures:?} combined \
+                     with a rest param or receiver-threaded `this` is not yet supported \
+                     (RFC 20260713-generator-fn-value-substrate residual)"
+                );
+            }
+            if !captures_snapshot_safe(ast, &captures) {
+                panic!(
+                    "generator expression capturing outer binding(s) {captures:?} where a \
+                     captured name is reassigned is not yet supported (RFC \
+                     20260713-generator-fn-value-substrate: the hoisted body reads a \
+                     call-time snapshot, and a later reassignment would be observable — \
+                     move the generator to a declaration or pass the value as a parameter)"
+                );
+            }
+            // The expression slot becomes `(orig params) =>
+            // __genexpr_N(<caps>, orig params)`; lift_arrow_fns turns
+            // it into a closure carrying the real env. The factory
+            // gains the captured names as leading params, which the
+            // generator prep moves onto `this.<name>` — the body
+            // compiles untouched.
+            let callee = ast.add_expr(Expr::Ident(name.clone()));
+            let mut args: Vec<ExprId> = Vec::with_capacity(captures.len() + params.len());
+            for c in &captures {
+                args.push(ast.add_expr(Expr::Ident(c.clone())));
+            }
+            for p in &params {
+                args.push(ast.add_expr(Expr::Ident(p.name.clone())));
+            }
+            let call = ast.add_expr(Expr::Call { callee, args });
+            ast.exprs[i] = Expr::ArrowFn {
+                params: params.clone(),
+                return_type: None,
+                body: vec![Stmt::Return(Some(call))],
+            };
+            let cap_params: Vec<super::Param> = captures
+                .iter()
+                .map(|c| super::Param {
+                    name: c.clone(),
+                    type_ann: Some("any".to_string()),
+                    default: None,
+                    is_rest: false,
+                })
+                .collect();
+            params.splice(0..0, cap_params);
         }
         // Param-destructuring prefix carries over under the hoisted
         // name so desugar_generators moves it into the __Gen ctor
