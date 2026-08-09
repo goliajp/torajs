@@ -32,21 +32,106 @@ pub fn desugar_async(ast: &mut Ast) {
     if ast.async_fns.is_empty() {
         return;
     }
-    // Find every async FnDecl by index so we can mutate ast.stmts in
-    // place. We only touch stmts; field shapes stay otherwise unchanged.
-    let async_indices: Vec<usize> = ast
-        .stmts
-        .iter()
-        .enumerate()
-        .filter_map(|(i, s)| match s {
-            Stmt::FnDecl { name, .. } if ast.async_fns.contains(name) => Some(i),
-            _ => None,
-        })
-        .collect();
+    // Walk every FnDecl at any nesting depth. An async fn declared
+    // inside another fn's body parses through the same parse_fn and
+    // registers in async_fns like a top-level one, but the original
+    // top-level index scan never reached it: annotated nested bodies
+    // then failed check (`Promise(Number)` vs bare `Number`), and
+    // unannotated ones leaked bare values out of the Promise lane
+    // (the probe-aw6 crash family). The taken tree keeps `ast.exprs`
+    // free for the rewrites to append to.
+    let mut stmts = std::mem::take(&mut ast.stmts);
+    for s in &mut stmts {
+        rewrite_async_decls(ast, s);
+    }
+    ast.stmts = stmts;
+}
 
-    for idx in async_indices {
-        // Snapshot the FnDecl pieces so we can rebuild it in place.
-        let (name, type_params, params, return_type, body, span) = match &ast.stmts[idx] {
+/// Depth-first FnDecl rewrite: children first, so an async fn nested
+/// inside an async fn carries its own Promise wrap before the outer
+/// body is rebuilt around it (`rewrite_returns_for_async` never
+/// descends into a nested FnDecl — returns attribute to their own
+/// fn — so the outer rebuild leaves the finished inner wrap alone).
+fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
+    match s {
+        Stmt::FnDecl { body, .. } => {
+            for c in body {
+                rewrite_async_decls(ast, c);
+            }
+        }
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            rewrite_async_decls(ast, then_branch);
+            if let Some(eb) = else_branch.as_deref_mut() {
+                rewrite_async_decls(ast, eb);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+            rewrite_async_decls(ast, body);
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init.as_deref_mut() {
+                rewrite_async_decls(ast, i);
+            }
+            rewrite_async_decls(ast, body);
+        }
+        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
+            rewrite_async_decls(ast, body);
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases {
+                for cs in &mut c.body {
+                    rewrite_async_decls(ast, cs);
+                }
+            }
+            if let Some(d) = default {
+                for ds in d {
+                    rewrite_async_decls(ast, ds);
+                }
+            }
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for bs in body {
+                rewrite_async_decls(ast, bs);
+            }
+            for cs in catch_body {
+                rewrite_async_decls(ast, cs);
+            }
+            if let Some(fb) = finally_body {
+                for fs in fb {
+                    rewrite_async_decls(ast, fs);
+                }
+            }
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for bs in stmts {
+                rewrite_async_decls(ast, bs);
+            }
+        }
+        Stmt::ExportDecl { inner, .. } => {
+            if let Some(i) = inner.as_deref_mut() {
+                rewrite_async_decls(ast, i);
+            }
+        }
+        _ => {}
+    }
+    let Stmt::FnDecl { name, .. } = s else {
+        return;
+    };
+    if !ast.async_fns.contains(name) {
+        return;
+    }
+    // Rebuild this async FnDecl in place.
+    let (name, type_params, params, return_type, body, span) =
+        match std::mem::replace(s, Stmt::Block(Vec::new())) {
             Stmt::FnDecl {
                 name,
                 type_params,
@@ -55,39 +140,30 @@ pub fn desugar_async(ast: &mut Ast) {
                 body,
                 span,
                 ..
-            } => (
-                name.clone(),
-                type_params.clone(),
-                params.clone(),
-                return_type.clone(),
-                body.clone(),
-                *span,
-            ),
+            } => (name, type_params, params, return_type, body, span),
             _ => unreachable!(),
         };
-        // P10.7 — Default-Any async fn. When the user omits the
-        // return-type annotation (`async function foo() {...}`),
-        // infer `Promise<any>` so the body's `return e` rewrites
-        // produce `Promise.resolve(e as any)` (the `As`-wrap
-        // happens inside `rewrite_returns_for_async` when
-        // inner_ty == "any"). `Promise.resolve` accepts Any at
-        // `check/promise_static.rs`; `.then` / `.catch` accept
-        // `Promise<Any>` at `check.rs:5008` / `:5054`.
-        let declared_ty = return_type.unwrap_or_else(|| "any".into());
-        let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty);
-
-        ast.stmts[idx] = Stmt::FnDecl {
-            name,
-            type_params,
-            params,
-            return_type: Some(promise_ty),
-            body: wrapped_body,
-            is_generator: false,
-            // in-place rewrite of the user's declaration -- toString
-            // answers the source text they wrote (B1b)
-            span,
-        };
-    }
+    // P10.7 — Default-Any async fn. When the user omits the
+    // return-type annotation (`async function foo() {...}`),
+    // infer `Promise<any>` so the body's `return e` rewrites
+    // produce `Promise.resolve(e as any)` (the `As`-wrap
+    // happens inside `rewrite_returns_for_async` when
+    // inner_ty == "any"). `Promise.resolve` accepts Any at
+    // `check/promise_static.rs`; `.then` / `.catch` accept
+    // `Promise<Any>` at `check.rs:5008` / `:5054`.
+    let declared_ty = return_type.unwrap_or_else(|| "any".into());
+    let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty);
+    *s = Stmt::FnDecl {
+        name,
+        type_params,
+        params,
+        return_type: Some(promise_ty),
+        body: wrapped_body,
+        is_generator: false,
+        // in-place rewrite of the user's declaration -- toString
+        // answers the source text they wrote (B1b)
+        span,
+    };
 }
 
 /// RFC 20260713 blade 3 — async function-VALUE expressions (`async
