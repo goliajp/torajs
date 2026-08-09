@@ -220,6 +220,19 @@ pub(crate) fn check(
         }
         return Ok(Type::Any);
     }
+    // Rotation 346 — a ZERO-field anonymous Struct is the
+    // `var o = {}` shape: it declares no surface a typo could miss,
+    // and it only grows through runtime writes (expando stores, an
+    // apply/call thisArg receiver) — §10.1.8.1 [[Get]] on an absent
+    // property answers undefined, exactly the ClassRef posture
+    // above. Answer Any; the lowering boxes the receiver and rides
+    // the any-member lane. A NON-empty literal keeps the loud
+    // reject: its fields ARE statically known, so a miss there is
+    // overwhelmingly a typo (the recorded diagnostic-posture
+    // boundary).
+    if matches!(obj_ty, Type::Struct(ref f) if f.is_empty()) {
+        return Ok(Type::Any);
+    }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
 }
 
