@@ -82,6 +82,32 @@ pub unsafe fn arr_data_is_inline(arr: *const u8) -> bool {
     unsafe { arr_data(arr) == (arr as *mut u8).add(ARR_CELL_SIZE) }
 }
 
+/// The number of slots that physically exist in the data buffer —
+/// `len`, unless the cell carries a sparse tail
+/// (`FLAG_ARR_SPARSE_TAIL`), whose invariant is `materialized extent
+/// == cap` (the sparse transition compacts the deque head and trims
+/// the buffer to the old length, so `cap` doubles as the extent —
+/// no new header field). Every walk that touches raw slots (drop,
+/// teardown, shrink, enumeration) must use this, not `len`: indexes
+/// in `[extent, len)` are implicit holes with no storage (RFC
+/// 20260810-arr-sparse-grow).
+///
+/// # Safety
+/// `arr` must be a live array cell.
+#[inline]
+pub unsafe fn arr_live_extent(arr: *const u8) -> u64 {
+    unsafe {
+        let flags = *(arr.add(6) as *const u16);
+        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        if flags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0 {
+            let cap = *(arr.add(ARR_CAP_OFF) as *const u32) as u64;
+            if cap < len { cap } else { len }
+        } else {
+            len
+        }
+    }
+}
+
 /// Copy the element-descriptor bits (`FLAG_ARR_ANY` +
 /// `ARR_ELEM_KIND_*`) from `src`'s header onto the fresh derive
 /// product `dst`. Every clone that memcpys slots verbatim (slice /

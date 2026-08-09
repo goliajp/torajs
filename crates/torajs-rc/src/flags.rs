@@ -15,7 +15,7 @@
 //! | 3     | [`FLAG_ARR_ANY`] (Arr) / [`FLAG_FN_GENERATOR`] (Closure) | disjoint-by-tag |
 //! | 4     | [`FLAG_FROZEN`] | universal |
 //! | 5     | [`FLAG_BUFFERED`] | universal (cycle collector) |
-//! | 6     | NULL_PROTO (torajs-dynobj private, DynObj) / [`FLAG_CLASS_METHOD_THIS_FREE`] (Closure) | disjoint-by-tag |
+//! | 6     | NULL_PROTO (torajs-dynobj private, DynObj) / [`FLAG_CLASS_METHOD_THIS_FREE`] (Closure) / [`FLAG_ARR_SPARSE_TAIL`] (Arr) | disjoint-by-tag |
 //! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) / [`FLAG_FN_ASYNC`] (Closure) | disjoint-by-tag |
 //! | 8     | [`FLAG_NON_EXTENSIBLE`] | universal |
 //! | 9     | [`FLAG_SEALED`] | universal |
@@ -134,6 +134,20 @@ pub const FLAG_CLOSURE_RECV_FIRST: u16 = 1 << 12;
 /// thisArgument. Bit 6 is Tag::Closure-private (disjoint-by-tag
 /// reuse of the DynObj NULL_PROTO bit).
 pub const FLAG_CLASS_METHOD_THIS_FREE: u16 = 1 << 6;
+/// `Tag::Arr` cell whose logical `len` exceeds its materialized slot
+/// extent (RFC 20260810-arr-sparse-grow) — `arr.length = N` past the
+/// dense limit writes only the length field (§10.4.2.4 grow is
+/// O(1); the tail is implicit holes with no storage, no shadow
+/// entries). Invariant while set: the deque head is 0 and the
+/// materialized extent equals `cap` (the sparse transition compacts
+/// the head and trims the buffer), so `min(len, cap)` is the bound
+/// every slot-buffer walk must use instead of `len`
+/// (torajs-arr `layout::arr_live_extent`). Only ever set on a
+/// [`FLAG_ARR_ANY`] cell — typed arrays keep the materializing grow,
+/// so the typed static load/store emit never meets a sparse tail.
+/// Bit 6 is Tag::Arr-private (disjoint-by-tag reuse of the DynObj
+/// NULL_PROTO / Closure this-free bit).
+pub const FLAG_ARR_SPARSE_TAIL: u16 = 1 << 6;
 /// `Tag::Arr` cell carries at least one array index with non-default
 /// property attributes (RFC 20260712-arr-exotic-define chunk B) — set
 /// by `Object.defineProperty(arr, index, desc)` when the resulting

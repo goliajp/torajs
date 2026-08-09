@@ -416,10 +416,13 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
         };
         // §10.4.2.5 step 4 — the removed slots' refs die here (this
         // is the only owner walk; value_drop_heap's cell gate skips
-        // immediates / raw scalars stay unwalked).
+        // immediates / raw scalars stay unwalked). Bounded by the
+        // materialized extent — a sparse tail (RFC
+        // 20260810-arr-sparse-grow) has no slots to walk.
+        let drop_hi = core::cmp::min(old, unsafe { crate::layout::arr_live_extent(arr) });
         if is_any || header.arr_elem_kind() == torajs_rc::ARR_KIND_HEAP {
             let slots = unsafe { arr_data(arr) };
-            for i in land..old {
+            for i in land..drop_hi {
                 let av = unsafe { *(slots.add((head + i as usize) * 8) as *const u64) };
                 unsafe { __torajs_value_drop_heap(av as *mut c_void) };
             }

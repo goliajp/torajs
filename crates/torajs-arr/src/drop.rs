@@ -25,7 +25,7 @@ use torajs_rc::{
     FLAG_STATIC_LITERAL, FLAG_SUBCLASSED, HeapHeader,
 };
 
-use crate::layout::{ARR_LEN_OFF, arr_data, arr_data_is_inline};
+use crate::layout::{arr_data, arr_data_is_inline, arr_live_extent};
 
 /// 8-byte slot stride for Array<Any> — Step 7e-A (NaN-box AnyValue
 /// per slot; mirrors `any.rs`'s `ANY_SLOT_BYTES`).
@@ -181,7 +181,10 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
             __torajs_cycle_unbuffer(arr);
         }
         let arr_u8 = arr as *mut u8;
-        let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
+        // Sparse tail (RFC 20260810-arr-sparse-grow) — only the
+        // materialized extent holds slots; the implicit-hole tail has
+        // no storage to walk.
+        let len = arr_live_extent(arr_u8);
         let slots = arr_data(arr_u8);
         for i in 0..len {
             let off = (i as usize) * ANY_SLOT_BYTES;
@@ -250,7 +253,10 @@ pub unsafe extern "C" fn __torajs_arr_drop_heap(arr: *mut c_void) {
             __torajs_cycle_unbuffer(arr);
         }
         let arr_u8 = arr as *mut u8;
-        let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
+        // Sparse tail (RFC 20260810-arr-sparse-grow) — only the
+        // materialized extent holds slots; the implicit-hole tail has
+        // no storage to walk.
+        let len = arr_live_extent(arr_u8);
         let slots = crate::ops::data_ptr(arr_u8);
         for i in 0..len {
             let child = *(slots.add(i as usize * 8) as *const *mut c_void);

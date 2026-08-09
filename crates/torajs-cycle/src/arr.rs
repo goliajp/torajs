@@ -63,15 +63,37 @@ unsafe fn arr_data(p: *mut c_void) -> *mut u8 {
     unsafe { *((p as *const u8).add(ARR_DATA_PTR_OFF) as *const *mut u8) }
 }
 
-/// Read the logical `len` of an Array<T> block.
+/// The slot-walk bound of an Array<T> block — its logical `len`,
+/// unless the header carries the sparse-tail flag (torajs-rc
+/// `FLAG_ARR_SPARSE_TAIL`, bit 6; layout-consumer mirror like the
+/// NaN-box constants below), where only `min(len, cap)` slots are
+/// materialized: the implicit-hole tail has no storage, and walking
+/// `len` slots would trace unmapped memory (RFC
+/// 20260810-arr-sparse-grow; mirrors torajs-arr
+/// `layout::arr_live_extent`).
 ///
 /// # Safety
 /// `p` must be a non-NULL Array<T> heap pointer (caller filtered
 /// via `is_visitable_arr`).
 #[inline]
 pub unsafe fn arr_len_of(p: *mut c_void) -> u64 {
-    unsafe { *((p as *const u8).add(ARR_LEN_OFF) as *const u64) }
+    unsafe {
+        let flags = *((p as *const u8).add(6) as *const u16);
+        let len = *((p as *const u8).add(ARR_LEN_OFF) as *const u64);
+        if flags & ARR_SPARSE_TAIL_MIRROR != 0 {
+            let cap = *((p as *const u8).add(ARR_CAP_OFF) as *const u32) as u64;
+            core::cmp::min(len, cap)
+        } else {
+            len
+        }
+    }
 }
+
+/// torajs-rc `FLAG_ARR_SPARSE_TAIL` mirror (bit 6, Tag::Arr-private).
+const ARR_SPARSE_TAIL_MIRROR: u16 = 1 << 6;
+
+/// Byte offset of `cap` (u32) inside an Array<T> heap block.
+const ARR_CAP_OFF: usize = 16;
 
 /// Address of logical slot `i` in an Array<T> block, applying the
 /// deque-shift `head` offset (through the data pointer — B1).

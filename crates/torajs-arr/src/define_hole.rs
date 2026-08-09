@@ -247,7 +247,13 @@ pub(crate) unsafe fn shrink_purge_shadows(arr: *mut c_void, new_len: u64, old_le
         return new_len;
     }
     let props = unsafe { *slot };
-    let mut i = old_len;
+    // Shadow entries only ever exist below the materialized extent —
+    // an implicit sparse tail (RFC 20260810-arr-sparse-grow) never
+    // minted any, so the sweep skips it instead of probing 0..4e9
+    // keys one by one.
+    let mut i = core::cmp::min(old_len, unsafe {
+        crate::layout::arr_live_extent(arr as *const u8)
+    });
     while i > new_len {
         i -= 1;
         let key = unsafe { crate::define::mint_index_key(i) };

@@ -221,7 +221,7 @@ pub use arr_kind::{
 };
 pub use color::{COLOR_MASK, COLOR_SHIFT, Color};
 pub use flags::{
-    FLAG_ARR_ANY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_BUFFERED,
+    FLAG_ARR_ANY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_ARR_SPARSE_TAIL, FLAG_BUFFERED,
     FLAG_CLASS_METHOD_THIS_FREE, FLAG_CLOSURE_RECV_FIRST, FLAG_DYNOBJ_CLASS_CTOR,
     FLAG_DYNOBJ_RAW_JSON, FLAG_ERROR, FLAG_FN_ASYNC, FLAG_FN_GENERATOR, FLAG_FN_LENGTH_DELETED,
     FLAG_FN_NAME_DELETED, FLAG_FN_PROTO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_OBJ_EXOTIC_FIELD,
@@ -606,18 +606,20 @@ mod tests {
             FLAG_FN_LENGTH_DELETED,
             FLAG_ARR_EXOTIC_INDEX,
             FLAG_ARR_LENGTH_RO,
+            FLAG_ARR_SPARSE_TAIL,
             ARR_ELEM_KIND_MASK,
         ] {
             assert_eq!(f & shared, 0, "flag {f:#06x} overlaps color/buffered");
         }
         // Same-tag flags stay disjoint: Closure = tombstones;
-        // Arr = elem-kind + exotic + length-RO (+ ARR_ANY).
+        // Arr = elem-kind + exotic + length-RO + sparse-tail (+ ARR_ANY).
         assert_eq!(FLAG_FN_NAME_DELETED & FLAG_FN_LENGTH_DELETED, 0);
         let arr_flags = [
             FLAG_ARR_ANY,
             ARR_ELEM_KIND_MASK,
             FLAG_ARR_EXOTIC_INDEX,
             FLAG_ARR_LENGTH_RO,
+            FLAG_ARR_SPARSE_TAIL,
         ];
         for (i, a) in arr_flags.iter().enumerate() {
             for b in &arr_flags[i + 1..] {
