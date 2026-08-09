@@ -99,6 +99,7 @@ mod infer_closure_typevars;
 mod inject_builtin_classes;
 mod inject_builtin_classes_cause;
 mod inject_builtin_classes_data;
+mod inject_builtin_classes_message;
 mod inject_disposable_stack;
 mod lift_arrow_fns;
 mod module_passes;

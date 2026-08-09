@@ -18,13 +18,16 @@
 //!   * `build_error_subclass` — synth `class <N> extends Error` for
 //!     each requested NativeError subclass.
 //!
-//! Two siblings carry the pieces that would push this file past the
-//! 500-line limit: `inject_builtin_classes_cause` (§20.5.8.1, the
-//! `options` / `cause` face every ctor accepts) and
+//! Three siblings carry the pieces that would push this file past
+//! the 500-line limit: `inject_builtin_classes_cause` (§20.5.8.1,
+//! the `options` / `cause` face every ctor accepts),
 //! `inject_builtin_classes_data` (§20.5.7 / §20.5.8, the subclasses
-//! whose ctors carry own data params ahead of `message`).
+//! whose ctors carry own data params ahead of `message`) and
+//! `inject_builtin_classes_message` (§20.5.1.1 step 3, the root
+//! ctor's message coercion + own-absence install).
 
 use super::inject_builtin_classes_cause::{build_install_cause, build_options_param};
+use super::inject_builtin_classes_message::build_message_install;
 use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 /// Synthetic root `class Error { message: string; name: string;
@@ -69,16 +72,7 @@ pub(super) fn build_absent_sentinel(ast: &mut Ast) -> ExprId {
 }
 
 fn build_error_class(ast: &mut Ast) -> Stmt {
-    let this0 = ast.add_expr(Expr::This);
-    let msg_member = ast.add_expr(Expr::Member {
-        obj: this0,
-        name: "message".to_string(),
-    });
-    let msg_value = ast.add_expr(Expr::Ident("message".to_string()));
-    let assign1 = ast.add_expr(Expr::Assign {
-        target: msg_member,
-        value: msg_value,
-    });
+    let install_message = build_message_install(ast);
     // §20.5.3.2 — `name` is `Error.prototype`'s own property, not the
     // instance's; `__torajs_error_proto_install` already puts it there
     // with the spec `{W:1, E:0, C:1}` attributes. Writing the class
@@ -117,9 +111,12 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         value: stack_expr,
     });
 
-    // §20.5.1.1 — `message` is optional (`new Error()` is legal);
-    // a missing one stores the own-absence sentinel (刀 2).
-    let msg_default = build_absent_sentinel(ast);
+    // §20.5.1.1 — `message` is optional (`new Error()` is legal).
+    // The default is plain `undefined`, folding the absent case into
+    // the explicit-undefined arm of `build_message_install` — the
+    // sentinel itself must NOT ride the `any` param (see that
+    // builder's doc for the identity-stripping rationale).
+    let msg_default = ast.add_expr(Expr::Ident("undefined".to_string()));
     // §20.5.8.1 runs last: `cause` is installed after `stack`, so a
     // reader walking own keys sees the declared fields first and the
     // conditional one behind them.
@@ -129,14 +126,14 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         params: vec![
             Param {
                 name: "message".to_string(),
-                type_ann: Some("string".to_string()),
+                type_ann: Some("any".to_string()),
                 default: Some(msg_default),
                 is_rest: false,
             },
             options_param,
         ],
         body: vec![
-            Stmt::Expr(assign1),
+            install_message,
             Stmt::Expr(assign2),
             Stmt::Expr(assign3),
             install_cause,
@@ -212,14 +209,16 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
     });
 
     // Same §20.5.1.1 optional-message face as the Error root ctor,
-    // and the same §20.5.8.1 options tail it forwards to.
-    let msg_default = build_absent_sentinel(ast);
+    // and the same §20.5.8.1 options tail it forwards to. Plain
+    // `undefined` default — absence resolves in the root ctor's
+    // message install; the sentinel must not ride the `any` param.
+    let msg_default = ast.add_expr(Expr::Ident("undefined".to_string()));
     let options_param = build_options_param(ast);
     let ctor = ClassCtor {
         params: vec![
             Param {
                 name: "message".to_string(),
-                type_ann: Some("string".to_string()),
+                type_ann: Some("any".to_string()),
                 default: Some(msg_default),
                 is_rest: false,
             },

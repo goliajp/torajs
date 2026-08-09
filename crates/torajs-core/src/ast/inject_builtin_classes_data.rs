@@ -3,7 +3,6 @@
 //! lines; the shared one-shape builder stays there, the data-param
 //! variant lives here).
 
-use super::inject_builtin_classes::build_absent_sentinel;
 use super::{Ast, ClassCtor, Expr, Param, Stmt};
 
 /// §20.5.7 AggregateError / §20.5.8 SuppressedError — the two
@@ -101,7 +100,9 @@ pub(super) fn build_error_data_subclass(
         });
         body.push(Stmt::Expr(assign));
     }
-    let msg_default = build_absent_sentinel(ast);
+    // Plain `undefined` default (Error-root message install resolves
+    // absence; the sentinel must not ride the `any` param).
+    let msg_default = ast.add_expr(Expr::Ident("undefined".to_string()));
     let optional = data_params_optional(sub_name);
     let mut params: Vec<Param> = data_params
         .iter()
@@ -114,7 +115,7 @@ pub(super) fn build_error_data_subclass(
         .collect();
     params.push(Param {
         name: "message".to_string(),
-        type_ann: Some("string".to_string()),
+        type_ann: Some("any".to_string()),
         default: Some(msg_default),
         is_rest: false,
     });
