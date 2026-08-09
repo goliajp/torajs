@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T18:26:53.692Z",
+  "generatedAt": "2026-08-09T20:37:31.716Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-09T18:25:28Z",
-    "headSha": "bfcf353e",
-    "elapsedSec": 377.09,
+    "ranAt": "2026-08-09T20:35:53Z",
+    "headSha": "9dbb59cf",
+    "elapsedSec": 333.96,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23984,
+    "pass": 23999,
     "passNoOracle": 828,
     "passNegative": 3955,
-    "passTotal": 28767,
-    "bug": 12704,
-    "incompatible": 11703,
+    "passTotal": 28782,
+    "bug": 12706,
+    "incompatible": 11686,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41471,
-    "passRateInScope": 54.1,
+    "trAccepted": 41488,
+    "passRateInScope": 54.13,
     "passRateTrAccepted": 69.37
   },
   "torajs": {
-    "commit": "bfcf353e",
-    "commitSubject": "fix: self-name binds in its own scope; zero-capture body skips the capture side-channel",
+    "commit": "9dbb59cf",
+    "commitSubject": "feat: a giant length grow on an any array goes sparse in constant time",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "9dbb59cf",
+      "subject": "feat: a giant length grow on an any array goes sparse in constant time"
+    },
+    {
+      "hash": "6729d741",
+      "subject": "feat: sparse-tail walker gates - every raw slot walk rejects loudly, tail writes extend the length"
+    },
+    {
+      "hash": "e2a508e1",
+      "subject": "feat: sparse-tail enumeration clamp - the own-key walks stop at the materialized extent"
+    },
+    {
+      "hash": "edf8c9d2",
+      "subject": "feat: sparse-tail funnel gates - reads answer undefined, has/in fall through to the prototype walk, tail writes materialize exactly"
+    },
+    {
+      "hash": "446831d3",
+      "subject": "feat: sparse-tail representation plumbing - every slot walk bounds itself by the materialized extent"
+    },
+    {
+      "hash": "ba6d85f6",
+      "subject": "fix: a class extending its own name throws the TDZ ReferenceError instead of hanging the compiler"
+    },
+    {
+      "hash": "9d99b944",
+      "subject": "feat: delete of a non-reference operand evaluates it and answers true"
+    },
+    {
+      "hash": "3fa340d7",
+      "subject": "docs: rotation 349 close — self-name lands, biglen gates land, sweep archived"
+    },
+    {
       "hash": "bfcf353e",
       "subject": "fix: self-name binds in its own scope; zero-capture body skips the capture side-channel"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "bc625341",
       "subject": "feat: generator-expression self-name binds via the wrapper cell as a leading param"
-    },
-    {
-      "hash": "5a37c9e8",
-      "subject": "feat: fn-expr self-name binds inside the body via a trailing env self-slot"
-    },
-    {
-      "hash": "3d362776",
-      "subject": "docs: rotation 348 close — uaf knife lands, capture channel opens, sweep archived"
-    },
-    {
-      "hash": "7392dfaa",
-      "subject": "Revert \"test: lock allsettled record any-lane reads\""
-    },
-    {
-      "hash": "e5622897",
-      "subject": "test: lock allsettled record any-lane reads"
-    },
-    {
-      "hash": "a2a94631",
-      "subject": "feat: generator expressions capture enclosing locals through a wrapper closure"
-    },
-    {
-      "hash": "4a3826e8",
-      "subject": "feat: defineProperty'd length/name on a function reads back through the expando"
-    },
-    {
-      "hash": "065c60ae",
-      "subject": "fix: unhandled sweep and microtask drain run before top-level teardown"
-    },
-    {
-      "hash": "9941d35b",
-      "subject": "docs: rotation 347 close — four knives off the recorded queues, gate chain ends 2658/0/4"
     }
   ],
-  "headSha": "bfcf353e",
+  "headSha": "9dbb59cf",
   "autorun": {
-    "total": 652,
+    "total": 653,
     "baselineTarget": 10,
-    "bySelf": 647,
+    "bySelf": 648,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786293968-4089",
-      "at": "2026-08-09T16:46:08Z",
-      "ts": 1786293968,
+      "rotationId": "r-1786300089-3b4b",
+      "at": "2026-08-09T18:28:09Z",
+      "ts": 1786300089,
       "trigger": "self",
-      "prevHead": "3d362776",
-      "handoffSha": "sha256:4f674c632846abaaa553bb1b7eaa1090edd5ae5cfeb9ae19185eaa55920f6bc3",
-      "handoffAgeSec": 501,
+      "prevHead": "3fa340d7",
+      "handoffSha": "sha256:995d9a659fac451434c83e1f80ddfd69a2c1c9aaa0b7189de95517a8f4b8c72b",
+      "handoffAgeSec": 18,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786300089-3b4b",
+        "at": "2026-08-09T18:28:09Z",
+        "ts": 1786300089,
+        "trigger": "self",
+        "prevHead": "3fa340d7",
+        "handoffSha": "sha256:995d9a659fac451434c83e1f80ddfd69a2c1c9aaa0b7189de95517a8f4b8c72b",
+        "handoffAgeSec": 18,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786293968-4089",
         "at": "2026-08-09T16:46:08Z",
@@ -876,17 +887,6 @@
         "prevHead": "9f0c26df",
         "handoffSha": "sha256:38af4c5df4639bec39ecc3eda9242402ca8c61c6002da651fd411ed8f9ba7aaf",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786203278-57dc",
-        "at": "2026-08-08T15:34:38Z",
-        "ts": 1786203278,
-        "trigger": "self",
-        "prevHead": "5549f870",
-        "handoffSha": "sha256:0fd95151edff9a2330195deba3eefc38845fcb8846058c958f44684421e44584",
-        "handoffAgeSec": 225,
         "conformanceBefore": null,
         "commitsInSession": null
       }
