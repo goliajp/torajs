@@ -1530,7 +1530,47 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `b02e97d0`** (2026-08-09, rotation 342 — DisposableStack /
+**Latest @ `58ae9866`** (2026-08-09, rotations 343+344 — the B6 tail
+closes, then the dynobj backing-store split lands. Rotation 343 gave
+the generator family its only real inheritance point
+(%Iterator.prototype% true symbol-keyed own entries installed at
+tag-15 mint; kind-1 gen_proto carries §27.1.6.1 [@@asyncDispose]) and
+pinned SuppressedError.length to 3; its survey found the root cause
+behind the r332 error/proto cluster and the r342 at-exit SIGSEGVs:
+dynobj resize freed the old block while every other owner
+(`__proto_<C>` global, classmeta registry, instance chains, aliases)
+still pointed at it. Rotation 344 knife 1 split the header from the
+backing store (CPython ma_keys shape, RFC 20260809-dynobj-store-split
+A+B+C+D in one atomic cut): the 32B header cell address is immortal,
+resize swaps the store pointer under it, the whole owner set stays
+valid across growth — the r6.ts at-exit crash repro exits 0, churn
+RSS flat, bench ratios flat. Knives 2-3 land the unblocked residue:
+the dispose alias pairs + @@toStringTag entries (store-split-gated
+own writes), and the Error-family message-ToString knife (§20.5.1.1
+step 3 — message: any, single-point coercion in the root ctor).
+Knives 4-6 clear a bug-327/async family: `Math.sin` as a VALUE into a
+fn-typed param now wraps in a `__forward_ns_*` closure (the
+dispatcher cell's fn_addr is the RFC B4 loud reject, so the `__cls(`
+typed lane needs a real closure; the forwarder signature parses from
+the receiving slot's own annotation); desugar_async's top-level index
+scan becomes a depth-first walk so NESTED async fn decls finally get
+their Promise wrap; and rewrite_returns_for_async gains its missing
+ForOf arm (a `return` inside an async body's for-of leaked its bare
+value). Gate chain 2631 → 2641/0/4 zero-red (+10 fixtures across the
+two rotations). Sweep passTotal 28196 → **28377 (+181)** / bug
+**−16** / trAccepted +165 / incompatible **−165**, conservation
+exact; **zero pass regressions** (343: 4-line diff; 344: 716-line
+diff all forward). exit-139 34 → **30 (−4 net)** — the store split
+keeps cashing in; exit-138 3 flat, tr-timeout 35 flat. Gate predicate
+**309 clusters (−2) / 5507 cases (−157) / residue 768 clusters 1007
+cases / core 6514 (−165)**, register still empty — both axes fell
+together again. Build determinism 44/44 (N=12), zero compile
+failures. Recorded next: typed-receiver `Object.hasOwn(new Error(),
+"message")` sentinel-blind face, @@toPrimitive numeric-coercion
+dispatch, script-mode distinction, early_redecl fn-expr-body blind
+spot, promise micro-tick ordering.)
+
+**Previous @ `b02e97d0`** (2026-08-09, rotation 342 — DisposableStack /
 AsyncDisposableStack land as injected TS-source builtins (RFC
 20260809 B5 + the B6 core faces, five substrate commits, gate chain
 2626 → 2631/0/4 zero-red). The opener is an rc knife the injection

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T23:38:39.968Z",
+  "generatedAt": "2026-08-09T06:14:59.116Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-08T23:21:59Z",
-    "headSha": "64d83b27",
-    "elapsedSec": 408.27,
+    "ranAt": "2026-08-09T06:10:55Z",
+    "headSha": "58ae9866",
+    "elapsedSec": 412.1,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23465,
+    "pass": 23644,
     "passNoOracle": 780,
     "passNegative": 3953,
-    "passTotal": 28198,
-    "bug": 12570,
-    "incompatible": 12406,
+    "passTotal": 28377,
+    "bug": 12556,
+    "incompatible": 12241,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 40768,
-    "passRateInScope": 53.03,
-    "passRateTrAccepted": 69.17
+    "trAccepted": 40933,
+    "passRateInScope": 53.37,
+    "passRateTrAccepted": 69.33
   },
   "torajs": {
-    "commit": "adfb5fe8",
-    "commitSubject": "refactor: deep clone tail arms move to an option fall-through sibling",
+    "commit": "58ae9866",
+    "commitSubject": "feat: async for-of returns join the promise wrap",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "58ae9866",
+      "subject": "feat: async for-of returns join the promise wrap"
+    },
+    {
+      "hash": "3de850c5",
+      "subject": "feat: nested async fn decls get their promise wrap"
+    },
+    {
+      "hash": "48d7c59f",
+      "subject": "feat: ns-static fn values reach typed fn slots through a forwarder"
+    },
+    {
+      "hash": "90a6521b",
+      "subject": "feat: error-family constructors tostring a present message"
+    },
+    {
+      "hash": "ed4f0cb2",
+      "subject": "feat: disposable stack dispose aliases + toStringTag land post store-split"
+    },
+    {
+      "hash": "8906c35c",
+      "subject": "feat: dynobj backing-store split — resize swaps the store, never the header"
+    },
+    {
+      "hash": "ceeb2f4e",
+      "subject": "docs: rotation 343 dashboard restamp — eight commits, gate chain closes at 2634/0/4"
+    },
+    {
       "hash": "adfb5fe8",
       "subject": "refactor: deep clone tail arms move to an option fall-through sibling"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "e7fb14d3",
       "subject": "feat: suppressed error pins ctor length at three via descriptor override"
-    },
-    {
-      "hash": "af601382",
-      "subject": "refactor: fmt_stmt signature trio moves to a sibling impl block"
-    },
-    {
-      "hash": "f58be71d",
-      "subject": "feat: async generator prototype carries the symbol asyncDispose entry"
-    },
-    {
-      "hash": "c6ec7920",
-      "subject": "feat: iterator prototype carries real symbol-keyed iterator and dispose entries"
-    },
-    {
-      "hash": "6df5d7d4",
-      "subject": "docs: rotation 342 close — disposable stacks land as injected builtins, sweep +154/-147/-7 conservation exact zero pass regressions, p-surf restamp"
-    },
-    {
-      "hash": "b02e97d0",
-      "subject": "style: chain.rs import order per rustfmt"
-    },
-    {
-      "hash": "3a15b333",
-      "subject": "refactor: iter_helper chain dispatch moves to a child module"
-    },
-    {
-      "hash": "ec314355",
-      "subject": "feat: iterator cells inherit the iterator-prototype symbol dispose"
     }
   ],
-  "headSha": "adfb5fe8",
+  "headSha": "58ae9866",
   "autorun": {
-    "total": 646,
+    "total": 647,
     "baselineTarget": 10,
-    "bySelf": 641,
+    "bySelf": 642,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786227037-2cda",
-      "at": "2026-08-08T22:10:37Z",
-      "ts": 1786227037,
+      "rotationId": "r-1786232453-5e55",
+      "at": "2026-08-08T23:40:53Z",
+      "ts": 1786232453,
       "trigger": "self",
-      "prevHead": "6df5d7d4",
-      "handoffSha": "sha256:eae4de4b8dad9dc2b4d0b73b3e612d1285ca3522a3291eac0769890139ebb3dd",
-      "handoffAgeSec": 6,
+      "prevHead": "ceeb2f4e",
+      "handoffSha": "sha256:9bdac95c3b1c462cea42e8394272c8becd1c66735b5853985253bf7d79406fc1",
+      "handoffAgeSec": 118,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786232453-5e55",
+        "at": "2026-08-08T23:40:53Z",
+        "ts": 1786232453,
+        "trigger": "self",
+        "prevHead": "ceeb2f4e",
+        "handoffSha": "sha256:9bdac95c3b1c462cea42e8394272c8becd1c66735b5853985253bf7d79406fc1",
+        "handoffAgeSec": 118,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786227037-2cda",
         "at": "2026-08-08T22:10:37Z",
@@ -876,17 +887,6 @@
         "prevHead": "f53e169f",
         "handoffSha": "sha256:127536db98c107248196f4719fc25b404255acaff3ef6de1381dad3636b98a30",
         "handoffAgeSec": 32,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786160806-0e0d",
-        "at": "2026-08-08T03:46:46Z",
-        "ts": 1786160806,
-        "trigger": "self",
-        "prevHead": "72e3a65b",
-        "handoffSha": "sha256:640f1a9bdb99d26b2ba907894ab4c626f7cc7c8b653823d8934c11c22995d2d5",
-        "handoffAgeSec": 40,
         "conformanceBefore": null,
         "commitsInSession": null
       }
