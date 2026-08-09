@@ -121,24 +121,20 @@ fn emit_static_inits(
     for (block_idx, si) in static_init.iter().enumerate() {
         match si {
             StaticInit::Field(sf) => {
-                // V3-18 m1.h.26 — static fields with primitive Copy
-                // types (number / boolean / int width-specifiers) are
-                // mutable by default (`Counter.value = 5` is valid
-                // TS). Refcount-typed fields (string / string[] /
-                // Foo[] / etc) stay `mutable: false` because
-                // ssa_lower's globals registry can't yet handle
-                // mutable refcount globals — Str writes would need
-                // ARC-dec-old + ARC-inc-new + writeback to the slot,
-                // which the K.6 globals path doesn't yet emit. Marking
-                // those as mutable makes ssa_lower skip them from
-                // globals entirely (line ~3947), and the read path
-                // then fails with "unknown ident".
-                let is_copy_prim = matches!(
-                    sf.type_ann.as_str(),
-                    "number" | "boolean" | "i64" | "f64" | "bool" | "i32"
-                );
+                // V3-18 m1.h.26 — static fields are mutable by
+                // default (`Counter.value = 5` is valid TS). The
+                // historical carve-out that kept refcount-typed
+                // fields `mutable: false` (the K.6 globals path once
+                // had no dec-old/inc-new for mutable refcount slots,
+                // so ssa_lower skipped them and reads failed) is
+                // retired — rotation 346: top-level `var g: any` /
+                // `var s: string` reassignment has ridden K.6 for a
+                // long while, and the false spelling made every
+                // WRITE to an uninitialized `static x;` slot (typed
+                // "any", init undefined) an unknown-ident reject
+                // (the 68-case rs-static-privatename family).
                 static_field_inits.push(Stmt::LetDecl {
-                    mutable: is_copy_prim,
+                    mutable: true,
                     name: format!("__sf_{cname}__{}", sf.name),
                     type_ann: Some(sf.type_ann.clone()),
                     init: sf.init,

@@ -208,8 +208,14 @@ fn slot_type_supported(
         // computed-field key globals (RFC 20260802 刀 3 后半):
         // `__ccmk_<C>_<n>` holds the class-definition-time evaluated
         // key that the `__new_<C>` factory's ctor prefix reads per
-        // construction.
-        && (!name.starts_with("__") || name.starts_with("__ccmk_")))
+        // construction — and the static-field slots (rotation 346):
+        // `__sf_<C>__<n>` is the class's static storage, exactly the
+        // named-fn-visible home the Any gate exists for (an
+        // uninitialized `static x;` types "any" with an undefined
+        // init, and every `__sm_` method write lands on it).
+        && (!name.starts_with("__")
+            || name.starts_with("__ccmk_")
+            || name.starts_with("__sf_")))
 }
 
 /// Whether a MUTABLE refcounted binding still promotes to a data
