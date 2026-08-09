@@ -428,6 +428,45 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
             }
         }
         unsafe { *len_ptr = land };
+        // RFC 20260810 刀 E — a shrink that lands inside the
+        // materialized extent leaves every remaining index with a
+        // slot behind it: the cell is dense again, the flag drops
+        // (its explicit-hole shadows persist independently).
+        if header.flags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0 {
+            let cap = unsafe { *(arr.add(ARR_HDR_CAP_OFF) as *const u32) } as u64;
+            if land <= cap {
+                unsafe {
+                    (*(arr as *mut torajs_rc::HeapHeader)).flags &=
+                        !torajs_rc::FLAG_ARR_SPARSE_TAIL;
+                }
+            }
+        }
+        return;
+    }
+    // RFC 20260810 刀 E — a giant grow on an `Array<Any>` cell goes
+    // SPARSE instead of materializing: `len` moves, `cap` stays the
+    // materialized extent (`cap == extent` invariant; Any-arrays
+    // never deque-shift so head is 0), and `[extent, len)` becomes
+    // implicit holes with no storage and no shadow entries — O(1)
+    // where the fill below is O(new_n) time and memory (the
+    // `a.length = 4294967295` shape was a 34GB materialization).
+    // Below the limit the historical materializing grow keeps its
+    // exact semantics; typed cells always materialize (their static
+    // emit lanes never see a sparse cell).
+    if is_any && new_n > crate::any::ARR_DENSE_LIMIT {
+        let already_sparse = header.flags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0;
+        if !already_sparse {
+            // `cap` becomes the extent ledger: every index in
+            // `[0, old)` has a slot (cap >= len always holds for a
+            // dense cell), so the extent is exactly `old`.
+            unsafe { *(arr.add(ARR_HDR_CAP_OFF) as *mut u32) = old as u32 };
+            unsafe {
+                (*(arr as *mut torajs_rc::HeapHeader)).flags |= torajs_rc::FLAG_ARR_SPARSE_TAIL;
+            }
+        }
+        // Already-sparse: `cap` is the live extent — only `len`
+        // moves.
+        unsafe { *len_ptr = new_n };
         return;
     }
     // Grow — every kind grows now (RFC 20260721 刀 5 G3): NaN-box
