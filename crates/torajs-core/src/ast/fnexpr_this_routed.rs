@@ -57,6 +57,102 @@ fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
     }
 }
 
+/// B6 刀 2 — an EQUALITY operand (`result.constructor === C`, the
+/// t262 identity-assert spelling) is the fifth receiver-safe use
+/// shape: like a `.prototype` read it enters no call lane at all —
+/// the comparison consumes the cell pointer as a value. Ordering /
+/// arithmetic operands stay loud (they coerce, which is observable
+/// and untested here).
+fn eq_operand_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::BinOp {
+                op:
+                    super::BinOp::Eq
+                    | super::BinOp::Neq
+                    | super::BinOp::LooseEq
+                    | super::BinOp::LooseNeq,
+                left,
+                right,
+            } => Some([*left, *right]),
+            _ => None,
+        })
+        .flatten()
+        .filter(|a| matches!(&exprs[a.0 as usize], Expr::Ident(_)))
+        .collect()
+}
+
+/// The sixth receiver-safe use shape (RFC 20260808-construct-channel
+/// B2 knife, rotation 345): an Ident standing as an argument to a
+/// program-local FnDecl whose matching param is EXPLICITLY `any`.
+/// The value crosses into the any lane as a boxed cell, and every
+/// any-lane call path honors the receiver channel
+/// (`__torajs_any_call` / `invoke_with_this` shift argv on
+/// FLAG_CLOSURE_RECV_FIRST), so no receiver-unaware call can reach
+/// the promoted closure. Generic-`T` params stay loud for now —
+/// monomorphization may bind a TYPED fn slot whose CallIndirect
+/// bypasses the flag (the exact shifted-args silent wrong the
+/// zero-alias bar forbids). The callee must be the program's only
+/// FnDecl of that name (a duplicate poisons the entry), and a call
+/// carrying a spread admits nothing (positions shift).
+fn any_param_arg_idents(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    let mut fn_params: std::collections::HashMap<&str, Option<&[super::Param]>> =
+        std::collections::HashMap::new();
+    collect_fn_decl_params(stmts, &mut fn_params);
+    let mut out = std::collections::HashSet::new();
+    for e in exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(fname) = &exprs[callee.0 as usize] else {
+            continue;
+        };
+        let Some(Some(params)) = fn_params.get(fname.as_str()) else {
+            continue;
+        };
+        if args
+            .iter()
+            .any(|a| matches!(&exprs[a.0 as usize], Expr::Spread { .. }))
+        {
+            continue;
+        }
+        for (i, a) in args.iter().enumerate() {
+            if matches!(&exprs[a.0 as usize], Expr::Ident(_))
+                && let Some(p) = params.get(i)
+                && !p.is_rest
+                && p.type_ann.as_deref() == Some("any")
+            {
+                out.insert(*a);
+            }
+        }
+    }
+    out
+}
+
+/// FnDecl params by name over the whole program (fn bodies and
+/// blocks recurse). A second decl of the same name poisons the
+/// entry to `None` — a by-name call cannot tell which one runs.
+fn collect_fn_decl_params<'a>(
+    stmts: &'a [Stmt],
+    out: &mut std::collections::HashMap<&'a str, Option<&'a [super::Param]>>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::FnDecl {
+                name, params, body, ..
+            } => {
+                out.entry(name.as_str())
+                    .and_modify(|e| *e = None)
+                    .or_insert(Some(params.as_slice()));
+                collect_fn_decl_params(body, out);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => collect_fn_decl_params(inner, out),
+            _ => {}
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn promote_variable_routed(
     stmts: &[Stmt],
@@ -152,29 +248,11 @@ pub(super) fn promote_variable_routed(
         })
         .flatten()
         .collect();
-    // B6 刀 2 — an EQUALITY operand (`result.constructor === C`, the
-    // t262 identity-assert spelling) is the fifth receiver-safe use
-    // shape: like a `.prototype` read it enters no call lane at all
-    // — the comparison consumes the cell pointer as a value.
-    // Ordering / arithmetic operands stay loud (they coerce, which
-    // is observable and untested here).
-    let eq_operand_idents: std::collections::HashSet<ExprId> = exprs
-        .iter()
-        .filter_map(|e| match e {
-            Expr::BinOp {
-                op:
-                    super::BinOp::Eq
-                    | super::BinOp::Neq
-                    | super::BinOp::LooseEq
-                    | super::BinOp::LooseNeq,
-                left,
-                right,
-            } => Some([*left, *right]),
-            _ => None,
-        })
-        .flatten()
-        .filter(|a| matches!(&exprs[a.0 as usize], Expr::Ident(_)))
-        .collect();
+    // Fifth shape — equality operands (doc on the free fn below).
+    let eq_operand_idents = eq_operand_idents(exprs);
+    // Sixth shape — explicit-`any` param argument positions (doc on
+    // the free fn above).
+    let any_arg_idents = any_param_arg_idents(stmts, exprs);
     for (name, face_eids) in &faces_by_name {
         let use_eids: Vec<ExprId> = exprs
             .iter()
@@ -192,6 +270,7 @@ pub(super) fn promote_variable_routed(
                 || proto_read_idents.contains(e)
                 || construct_arg_idents.contains(e)
                 || eq_operand_idents.contains(e)
+                || any_arg_idents.contains(e)
         }) {
             continue;
         }
