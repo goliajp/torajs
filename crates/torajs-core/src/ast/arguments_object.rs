@@ -151,6 +151,15 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     ) {
         static_argv.remove(&f);
     }
+    // Rotation 345 — the argument-position variant of the same
+    // profile (boxed-consumption arg sites; doc on the fn).
+    for f in super::arguments_object_escape_store::collect_escape_arg_positions(
+        ast,
+        &value_argv_pre,
+        &argv_locals,
+    ) {
+        static_argv.remove(&f);
+    }
     let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
     // A named fn admitted to the static face must leave the T-31

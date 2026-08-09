@@ -46,6 +46,43 @@ pub(super) fn collect_escape_stored(
     stored
 }
 
+/// Rotation 345 — the ARGUMENT-POSITION variant of the escape-store
+/// profile: of the argv-face fns, the ones whose binding stands as
+/// an argument to an explicit-`any` / proven-generic param or to a
+/// construct-channel builtin (`Array.from.call(C, …)` family). Both
+/// channels reach the fn's calls through the boxed dual entry with
+/// REAL argc/argv, which the static fold cannot see — the caller
+/// evicts these from the STATIC face like the store profile above.
+pub(super) fn collect_escape_arg_positions(
+    ast: &Ast,
+    argv_fns: &std::collections::HashSet<String>,
+    argv_locals: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let mut arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
+    arg_sites.extend(super::fnexpr_this_args::construct_channel_arg_idents(
+        &ast.exprs,
+    ));
+    let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for b in argv_locals {
+        let escapes = ast.exprs.iter().enumerate().any(|(i, e)| {
+            matches!(e, Expr::Ident(n) if n == b) && arg_sites.contains(&ExprId(i as u32))
+        });
+        if !escapes {
+            continue;
+        }
+        for s in &ast.stmts {
+            if let Stmt::LetDecl { name, init, .. } = s
+                && name == b
+                && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
+                && argv_fns.contains(fn_name)
+            {
+                out.insert(fn_name.clone());
+            }
+        }
+    }
+    out
+}
+
 /// The store-position admit the fnexpr-this store arm defined (B2,
 /// rotation 337; species key 2 merged the receiver predicate):
 /// `<props>.k` / `<props>[k]` / `X.prototype.k` /

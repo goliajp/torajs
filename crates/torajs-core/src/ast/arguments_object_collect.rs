@@ -335,6 +335,20 @@ fn safe_binding_chain(
     let boxed_face_store = |target: ExprId| -> bool {
         super::arguments_object_escape_store::boxed_face_store_target(ast, target, &props_recvs)
     };
+    // Rotation 345 — boxed-consumption ARGUMENT positions are legal
+    // too, on the same reasoning as the escape-store profile: a value
+    // handed to an explicit-`any` / proven-generic param crosses into
+    // the any lane, and a construct-channel builtin argument reaches
+    // its call through the construct kernel — both enter the boxed
+    // dual entry with REAL argc/argv, never the declared static sig.
+    let mut boxed_arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
+    boxed_arg_sites.extend(super::fnexpr_this_args::construct_channel_arg_idents(
+        &ast.exprs,
+    ));
+    // An equality operand (`r.constructor === C`) compares the cell
+    // pointer — no call lane at all, so it cannot reach the body on
+    // the declared signature either.
+    boxed_arg_sites.extend(super::fnexpr_this_args::eq_operand_idents(&ast.exprs));
     loop {
         let mut killed: HashSet<String> = HashSet::new();
         for b in candidates.keys() {
@@ -355,7 +369,10 @@ fn safe_binding_chain(
             let legal = collect_legal_uses(ast, &candidates, &b_eids, &assign_legal, |t| {
                 boxed_face_store(t)
             });
-            if b_eids.difference(&legal).next().is_some() {
+            if b_eids
+                .difference(&legal)
+                .any(|&i| !boxed_arg_sites.contains(&ExprId(i)))
+            {
                 killed.insert(b.clone());
             }
         }
