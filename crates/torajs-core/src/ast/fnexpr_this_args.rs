@@ -41,7 +41,7 @@ fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
 /// entry, so such an argument position must not evict the fn from
 /// the argv face either.
 pub(super) fn construct_channel_arg_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
-    exprs
+    let mut out: std::collections::HashSet<ExprId> = exprs
         .iter()
         .filter_map(|e| match e {
             Expr::Call { callee, args } if construct_channel_callee(exprs, *callee) => Some(
@@ -52,7 +52,19 @@ pub(super) fn construct_channel_arg_idents(exprs: &[Expr]) -> std::collections::
             _ => None,
         })
         .flatten()
-        .collect()
+        .collect();
+    // Rotation 345 knife 5 — `new C()` (the NewDynamic callee) rides
+    // the same channel: `__torajs_anyv_construct` → the plain-fn
+    // kernel invokes through `invoke_with_this` with the allocated
+    // `this`, which shifts argv on FLAG_CLOSURE_RECV_FIRST — and its
+    // boxed dual entry carries real argc/argv for the arguments face.
+    out.extend(exprs.iter().filter_map(|e| match e {
+        Expr::NewDynamic { callee, .. } if matches!(&exprs[callee.0 as usize], Expr::Ident(_)) => {
+            Some(*callee)
+        }
+        _ => None,
+    }));
+    out
 }
 
 /// B6 刀 2 — an EQUALITY operand (`result.constructor === C`, the
