@@ -250,11 +250,19 @@ impl Checker {
     /// subclass.
     pub(crate) fn is_descendant_of(&self, ast: &Ast, child: &str, ancestor: &str) -> bool {
         let mut cur = child;
+        // Hop bound doubles as a cycle guard — a mutual-extends cycle
+        // in class_parents must not spin the walk (the declared-before
+        // rule rejects such programs, but this helper can run first).
+        let mut hops = ast.class_parents.len() + 1;
         while let Some(parent) = ast.class_parents.get(cur).and_then(|p| p.as_deref()) {
             if parent == ancestor {
                 return true;
             }
             cur = parent;
+            hops -= 1;
+            if hops == 0 {
+                break;
+            }
         }
         false
     }

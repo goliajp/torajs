@@ -188,6 +188,12 @@ impl<'a> Parser<'a> {
     // doesn't resolve to the synth name.
     pub(super) fn parse_primary_class_expr(&mut self) -> Result<ExprId, String> {
         let stmt = self.parse_class_decl_with_abstract(false, true, true)?;
+        // `class x extends x {}` in expression position — the TDZ
+        // ReferenceError shape (class_self_heritage): the decl never
+        // reaches synth_classes, the use site throws when evaluated.
+        if let Some(name) = super::class_self_heritage::expr_self_extends(&self.ast, &stmt) {
+            return Ok(self.class_expr_self_tdz(&name));
+        }
         let cls_name = match &stmt {
             Stmt::ClassDecl { name, .. } => name.clone(),
             _ => unreachable!("parse_class_decl_with_abstract returns ClassDecl"),

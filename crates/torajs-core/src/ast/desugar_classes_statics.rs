@@ -127,7 +127,15 @@ pub(super) fn build_static_member_rewrites(
     }
     for (_, cname, _, parent, _, _, _, _, _) in class_index {
         let mut cur = parent.clone();
+        // Cycle guard — same rationale as the collect_abstract_classes
+        // walk: a mutual-extends cycle must not spin here (the checker
+        // rejects it loudly right after this pass).
+        let mut seen: Vec<String> = Vec::new();
         while let Some(p) = cur {
+            if seen.contains(&p) {
+                break;
+            }
+            seen.push(p.clone());
             if let Some((p_sfs, p_sms)) = class_static_index.get(&p) {
                 for sf_name in p_sfs {
                     let key = (cname.clone(), sf_name.clone());

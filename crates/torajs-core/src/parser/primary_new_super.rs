@@ -212,6 +212,19 @@ impl<'a> Parser<'a> {
             // consumes `class` + body itself.
             Token::Class => {
                 let stmt = self.parse_class_decl_with_abstract(false, true, true)?;
+                // `new class x extends x {}` — the definition would
+                // throw the TDZ ReferenceError before `new` ever ran;
+                // the NewHead machinery is name-based and cannot carry
+                // a throwing expression, so this stays a loud reject
+                // (class_self_heritage covers the decl/expr forms).
+                if let Some(name) = super::class_self_heritage::expr_self_extends(&self.ast, &stmt)
+                {
+                    return Err(format!(
+                        "`new` on a class expression extending its own name `{name}` \
+                         (a TDZ ReferenceError at runtime) is not supported at {}",
+                        self.at()
+                    ));
+                }
                 let cls_name = match &stmt {
                     Stmt::ClassDecl { name, .. } => name.clone(),
                     _ => unreachable!(),

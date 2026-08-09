@@ -136,7 +136,8 @@ impl<'a> Parser<'a> {
             && matches!(next.token, Token::Class)
         {
             self.pos += 1; // consume `abstract`
-            return self.parse_class_decl_with_abstract(true, false, false);
+            let stmt = self.parse_class_decl_with_abstract(true, false, false)?;
+            return Ok(self.finish_class_decl_stmt(stmt));
         }
         if matches!(self.peek(), Token::Return) {
             return self.parse_return();

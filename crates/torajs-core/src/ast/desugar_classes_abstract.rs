@@ -76,6 +76,16 @@ pub(super) fn collect_abstract_classes(
                 .iter()
                 .find(|t| t.1 == c)
                 .and_then(|t| t.3.clone());
+            // A mutual `extends` cycle (a → b → a) must not spin the
+            // walk — the checker's declared-before rule rejects the
+            // program right after this pass, loudly. (Direct
+            // self-extends never gets here: the parser rewrites it to
+            // the TDZ throw, see parser/class_self_heritage.rs.)
+            if let Some(next) = &cur
+                && chain.contains(next)
+            {
+                break;
+            }
         }
         chain.reverse();
         let mut unimplemented: HashSet<String> = HashSet::new();

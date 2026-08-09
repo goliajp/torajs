@@ -37,6 +37,7 @@ mod arrow_fn;
 mod class_field_early_errors;
 mod class_field_inits;
 mod class_member;
+mod class_self_heritage;
 mod cursor;
 mod delete_expr;
 mod destr_defaults;
@@ -470,6 +471,7 @@ impl Parser<'_> {
     /// post-parse by `desugar_classes` into a `TypeDecl` + a series of
     /// `FnDecl`s. The parser only assembles the structure here.
     fn parse_class_decl(&mut self) -> Result<Stmt, String> {
-        self.parse_class_decl_with_abstract(false, false, false)
+        let stmt = self.parse_class_decl_with_abstract(false, false, false)?;
+        Ok(self.finish_class_decl_stmt(stmt))
     }
 }
