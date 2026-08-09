@@ -164,18 +164,26 @@ pub(crate) fn synthesize_main(
             prev = Some(*s);
         }
         if ctx.cur_open() {
-            ctx.emit_drops_for_owned_locals();
-            ctx.emit_drops_for_globals();
-            // v0.5 T-15.e — drain pending Promise callbacks before
-            // process exit. Cheap no-op when the queue is empty (one
-            // fn call + one mt_len_ load + branch-not-taken). Emitted
-            // unconditionally so async-unaware programs still get
-            // correct semantics if they import a module that schedules
-            // microtasks at top level.
+            // v0.5 T-15.e — drain pending Promise callbacks FIRST,
+            // before any top-level teardown: a deferred settle / user
+            // `.then` callback runs user code, which must observe the
+            // top-level locals, globals and class registry alive.
+            // (Draining after the drops ran callbacks against a
+            // partially-torn-down world — rotation 348.)
             ctx.f.append_void(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
             );
+            // P10.5-A3-b — sweep unhandled rejections + capture the
+            // exit code while the heap is still fully alive. The
+            // reporter resolves a rejected reason's `name` through
+            // its class prototype chain, and instance→proto edges
+            // are borrowed from the class registry, so the sweep
+            // must precede the registry-stake drops below (the
+            // rotation-348 promise-pool UAF / rc-underflow family).
+            let exit_code = crate::ssa_lower_main_exit::emit_exit_code(&mut ctx);
+            ctx.emit_drops_for_owned_locals();
+            ctx.emit_drops_for_globals();
             // V3-10.b — drain the cycle collector buffer one last
             // time before returning from main. Cheap when the
             // buffer is empty; sweeps any orphaned cycles
@@ -185,7 +193,7 @@ pub(crate) fn synthesize_main(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
             );
-            crate::ssa_lower_main_exit::emit_ret(&mut ctx);
+            crate::ssa_lower_main_exit::emit_ret(&mut ctx, exit_code);
         }
     }
     (f, new_strings)

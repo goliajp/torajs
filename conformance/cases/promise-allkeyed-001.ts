@@ -1,15 +1,9 @@
 // Promise.allKeyed / allSettledKeyed (await-dictionary proposal).
 // bun 1.3.14 does not implement the proposal, so the oracle lives in
 // the sibling .expected file (spec semantics: null-prototype result,
-// §10.1.11.1 key order, per-key {status, value|reason} records).
-//
-// REJECTION faces (TypeError on non-object, first-rejection-wins,
-// reason identity) are deliberately NOT in this fixture: a rejected
-// combinator promise trips a PRE-EXISTING promise-pool double-drop
-// (rc underflow -> cell recycle under the microtask queue; repros
-// with plain `Promise.all(5 as any);` on the pre-knife HEAD, zero
-// knife-3 code in the path). Recorded in plan-state as the next
-// knife; the reject faces live in probes until it lands.
+// §10.1.11.1 key order, first-rejection-wins for allKeyed, per-key
+// {status, value|reason} records for allSettledKeyed, TypeError
+// REJECTION on a non-object argument).
 var input: any = {
   first: Promise.resolve(1),
   second: 2,
@@ -19,6 +13,9 @@ Promise.allKeyed(input).then(function (r: any) {
   console.log(Object.getPrototypeOf(r) === null);
   console.log(Object.keys(r));
   console.log(r.first, r.second, r.third);
+});
+Promise.allKeyed(5 as any).then(null, function (e: any) {
+  console.log("rejected", e instanceof TypeError);
 });
 var resolveFirst: any;
 var resolveSecond: any;
@@ -35,11 +32,14 @@ combined.then(function (r: any) {
 Promise.allKeyed({} as any).then(function (r: any) {
   console.log("empty", Object.keys(r).length, Object.getPrototypeOf(r) === null);
 });
-var allOk: any = {
-  a: Promise.resolve(10),
-  b: "plain",
+var mixed: any = {
+  ok: Promise.resolve(1),
+  bad: Promise.reject(new Error("boom")),
 };
-Promise.allSettledKeyed(allOk).then(function (r: any) {
-  console.log(r.a.status, r.a.value);
-  console.log(r.b.status, r.b.value);
+Promise.allSettledKeyed(mixed).then(function (r: any) {
+  console.log(r.ok.status, r.ok.value);
+  console.log(r.bad.status, r.bad.reason instanceof Error);
+});
+Promise.allKeyed({ nope: Promise.reject(new TypeError("no")) } as any).then(null, function (e: any) {
+  console.log("allKeyed rejected", e instanceof TypeError);
 });

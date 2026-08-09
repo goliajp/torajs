@@ -43,18 +43,27 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     declare_intrinsic(module, fn_table, UNCAUGHT_EXIT_CODE_SYM, &[], Type::I32);
 }
 
-/// Emit the synthesized-main exit sequence — `call
-/// __torajs_main_exit_code; ret <i32>` — as the terminator of
-/// `ctx.cur_block`. Called from `synthesize_main` immediately
-/// after the microtask drain + cycle-collector drain.
-pub(crate) fn emit_ret(ctx: &mut LowerCtx) {
+/// Emit `call __torajs_main_exit_code` and answer the exit-code
+/// value. Called from `synthesize_main` right after the microtask
+/// drain and BEFORE the top-level teardown (locals / globals drops +
+/// cycle drain): the sweep inside fires the unhandled-rejection
+/// reporter, which walks a rejected reason's prototype chain, and a
+/// class instance's proto edge is borrowed from the class registry —
+/// sweeping after the registry stakes were dropped read freed proto
+/// cells (the rotation-348 promise-pool UAF / rc-underflow family).
+pub(crate) fn emit_exit_code(ctx: &mut LowerCtx) -> crate::ssa::ValueId {
     let fid = *ctx
         .fn_table
         .get(MAIN_EXIT_CODE_SYM)
         .expect("__torajs_main_exit_code must be declared before main emit");
-    let exit_code = ctx
-        .f
-        .append_inst(ctx.cur_block, InstKind::Call(fid, vec![]), Type::I32, None);
+    ctx.f
+        .append_inst(ctx.cur_block, InstKind::Call(fid, vec![]), Type::I32, None)
+}
+
+/// Terminate the synthesized main: `ret <exit_code>`. Runs after the
+/// teardown sequence, returning the value [`emit_exit_code`] captured
+/// while the heap was still fully alive.
+pub(crate) fn emit_ret(ctx: &mut LowerCtx, exit_code: crate::ssa::ValueId) {
     let cb = ctx.cur_block;
     ctx.f
         .set_term(cb, Terminator::Ret(Some(Operand::Value(exit_code))));

@@ -84,13 +84,29 @@ pub unsafe extern "C" fn __torajs_anyv_property_key_drop(p: *mut c_void) {
 
 const ANY_ACCESSOR_TAG: u64 = 6;
 
+/// AnySlotTag heap-cell index in the probe pair's tag channel.
+const ANY_HEAP_TAG: u64 = 4;
+
 /// Member probe pair by a Str / Symbol cell key, accessor-aware.
+///
+/// The `member_get` pair is borrow-shaped on EVERY arm (its module
+/// doc), while this entry's contract — the one all three consumers
+/// (the keyed combinators' value collect, `settle_str_lane`'s
+/// released read, the lowering's `owned_member_reads` bookkeeping)
+/// release against — is owned. The +1 below is where the borrow is
+/// promoted; without it a dict-held Promise collected by
+/// `Promise.allKeyed` was released once more than it was retained
+/// (rc underflow → pool recycle under a live `.then` receiver, the
+/// rotation-348 crash family).
 unsafe fn probe_key_cell(recv: AnyValue, key: *const c_void) -> AnyValue {
     unsafe {
         let tag = crate::member_get::__torajs_any_member_get_tag(recv, key);
         let value = crate::member_get::__torajs_any_member_get_value(recv, key);
         if tag == ANY_ACCESSOR_TAG {
             return crate::struct_probe::__torajs_any_accessor_get(recv, key, value);
+        }
+        if tag == ANY_HEAP_TAG && value != 0 {
+            __torajs_rc_inc(value as *mut c_void);
         }
         crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64)
     }
