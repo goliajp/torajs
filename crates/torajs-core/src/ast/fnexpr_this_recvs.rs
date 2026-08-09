@@ -253,23 +253,17 @@ pub(super) fn collect_this_fnexpr_decl_names(
     out: &mut Vec<String>,
 ) {
     for s in stmts {
-        match s {
-            Stmt::LetDecl { name, init, .. } => {
-                if fn_expr_exprs.contains(init)
-                    && matches!(&exprs[init.0 as usize], Expr::Closure { captures, .. }
-                        if captures.iter().any(|c| c == "__this"))
-                {
-                    out.push(name.clone());
-                }
+        if let Stmt::LetDecl { name, init, .. } = s {
+            if fn_expr_exprs.contains(init)
+                && matches!(&exprs[init.0 as usize], Expr::Closure { captures, .. }
+                    if captures.iter().any(|c| c == "__this"))
+            {
+                out.push(name.clone());
             }
-            Stmt::FnDecl { body, .. } => {
-                collect_this_fnexpr_decl_names(body, exprs, fn_expr_exprs, out)
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_this_fnexpr_decl_names(inner, exprs, fn_expr_exprs, out)
-            }
-            _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_this_fnexpr_decl_names(inner, exprs, fn_expr_exprs, out)
+        });
     }
 }
 
@@ -280,29 +274,30 @@ pub(super) fn fn_has_rest_param(stmts: &[Stmt], fn_name: &str) -> bool {
     })
 }
 
-/// Every `LetDecl` matching `name`, walking fn bodies and blocks (the
-/// same recursion set as [`collect_binding_names_inner`]) — knife 2's
-/// uniqueness guard needs the full program-wide count, not just the
-/// first hit.
+/// Every `LetDecl` matching `name`, over the full
+/// [`for_each_nested_list`] spine — knife 2's uniqueness guard needs
+/// the program-wide count, and it must re-find every decl the
+/// candidate walk above can find (same spine = never mis-paired).
 pub(super) fn collect_decls_by_name(
     stmts: &[Stmt],
     name: &str,
     out: &mut Vec<(bool, super::ExprId)>,
 ) {
     for s in stmts {
-        match s {
-            Stmt::LetDecl {
-                mutable,
-                name: dn,
-                init,
-                ..
-            } if dn == name => {
+        if let Stmt::LetDecl {
+            mutable,
+            name: dn,
+            init,
+            ..
+        } = s
+        {
+            if dn == name {
                 out.push((*mutable, *init));
             }
-            Stmt::FnDecl { body, .. } => collect_decls_by_name(body, name, out),
-            Stmt::Block(inner) | Stmt::Multi(inner) => collect_decls_by_name(inner, name, out),
-            _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_decls_by_name(inner, name, out)
+        });
     }
 }
 

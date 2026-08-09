@@ -71,6 +71,41 @@ fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
     }
 }
 
+/// A nested `function` declaration's body walk. The decl's own name is
+/// hoist-bound by the enclosing list walk. Its body is a scope of its
+/// own: params and the decl's `arguments` quasi-binding bind, and
+/// whatever stays free inside is free in the enclosing scope too — a
+/// nested decl reading an outer local makes the enclosing closure
+/// capture it. Ignoring the body (the pre-fix behavior) both reported
+/// the decl's NAME as a phantom capture and hid its real ones.
+///
+/// `__this` binds too: a `function` declaration binds its own `this`
+/// (§10.2.1.1 non-lexical [[ThisMode]]), so the body's `__this` — the
+/// desugar_classes pass-2 spelling — is NOT free in the enclosing
+/// scope. Without this bound entry an enclosing lifted closure carries
+/// a phantom `__this` capture its definition scope cannot supply, and
+/// the checker rejects the whole closure (unknown identifier) even
+/// though the nested decl itself promotes fine.
+fn walk_fn_decl(
+    ast: &Ast,
+    params: &[Param],
+    body: &[Stmt],
+    bound: &mut Vec<String>,
+    out: &mut Vec<String>,
+) {
+    let saved = bound.len();
+    for p in params {
+        bound.push(p.name.clone());
+    }
+    bound.push("arguments".into());
+    bound.push("__this".into());
+    hoist_fn_decl_names(body, bound);
+    for s in body {
+        walk_stmt(ast, s, bound, out);
+    }
+    bound.truncate(saved);
+}
+
 fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match s {
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
@@ -236,26 +271,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
                 bound.truncate(saved);
             }
         }
-        Stmt::FnDecl { params, body, .. } => {
-            // The decl's own name is hoist-bound by the enclosing list
-            // walk. Its body is a scope of its own: params and the
-            // decl's `arguments` quasi-binding bind, and whatever stays
-            // free inside is free in the enclosing scope too — a nested
-            // decl reading an outer local makes the enclosing closure
-            // capture it. Ignoring the body (the pre-fix behavior) both
-            // reported the decl's NAME as a phantom capture and hid its
-            // real ones.
-            let saved = bound.len();
-            for p in params {
-                bound.push(p.name.clone());
-            }
-            bound.push("arguments".into());
-            hoist_fn_decl_names(body, bound);
-            for s in body {
-                walk_stmt(ast, s, bound, out);
-            }
-            bound.truncate(saved);
-        }
+        Stmt::FnDecl { params, body, .. } => walk_fn_decl(ast, params, body, bound, out),
         Stmt::TypeDecl { .. } => {}
         Stmt::ClassDecl { .. } => {
             // desugar_classes runs before lift_arrow_fns; if a ClassDecl
@@ -280,79 +296,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
 /// asks it whether an `extends <name>` parent resolves globally,
 /// and the let-widen pre-pass classifies `Ns.method(...)` rhs
 /// shapes against it.
-pub(crate) fn is_global_name(name: &str) -> bool {
-    // Compiler-synthesized helpers (`__torajs_date_from_ms`, the
-    // arguments materializer, reify hooks, ...) resolve through the
-    // checker's ident fallback and lower as intrinsics — capturing
-    // one renames it out from under that resolution (a lifted
-    // closure inside desugared Date code answered "references
-    // unknown identifier `__torajs_date_from_ms`").
-    if name.starts_with("__torajs_") {
-        return true;
-    }
-    matches!(
-        name,
-        // Built-in objects + namespaces
-        "console"
-            | "Math"
-            | "JSON"
-            | "Object"
-            | "Array"
-            | "String"
-            | "Number"
-            | "Boolean"
-            | "Symbol"
-            | "Date"
-            | "RegExp"
-            | "Error"
-            | "TypeError"
-            | "RangeError"
-            | "SyntaxError"
-            | "ReferenceError"
-            | "EvalError"
-            | "URIError"
-            | "Promise"
-            | "Map"
-            | "Set"
-            | "WeakMap"
-            | "WeakSet"
-            | "Proxy"
-            | "Reflect"
-            | "BigInt"
-            | "ArrayBuffer"
-            | "DataView"
-            | "Function"
-            // §27.1.3 Iterator global (RFC 20260730-iterator-global
-            // 刀 1) — landed in the checker fallback but this table
-            // drifted: a closure body's `Iterator.concat(...)`
-            // collected `Iterator` as a capture and the rename broke
-            // both the checker resolution and the statics wedge.
-            | "Iterator"
-            | "WeakRef"
-            // Runtime module namespaces the checker fallback types
-            // (kept in the same sync).
-            | "fs"
-            | "fs_promises"
-            | "process"
-            | "Bun"
-            // Numeric constants
-            | "NaN"
-            | "Infinity"
-            | "undefined"
-            // Top-level coercion functions
-            | "parseInt"
-            | "parseFloat"
-            | "isNaN"
-            | "isFinite"
-            | "encodeURI"
-            | "decodeURI"
-            | "encodeURIComponent"
-            | "decodeURIComponent"
-            | "globalThis"
-            // WHATWG HTML microtask scheduling (P10.1)
-            | "queueMicrotask"
-    )
-}
+pub(crate) use super::free_vars_globals::is_global_name;
 
 fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match ast.get_expr(eid) {
@@ -407,6 +351,19 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             for p in params {
                 bound.push(p.name.clone());
             }
+            // A marked fn-expr (`function () {}` parsed into an
+            // ArrowFn node and listed in `ast.fn_expr_exprs`) and an
+            // object-literal method shorthand (incl. get/set —
+            // `ast.objlit_method_exprs`) are FUNCTION-this: §10.2.1.2
+            // binds their `this` at their own call site, so the
+            // body's `__this` is not free in the enclosing scope
+            // (same boundary as the Stmt::FnDecl arm). A plain arrow
+            // stays lexical — its `__this` keeps riding up to the
+            // enclosing function, which is what hands an arrow inside
+            // a promoted fn-expr its receiver.
+            if ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid) {
+                bound.push("__this".into());
+            }
             hoist_fn_decl_names(body, bound);
             for s in body {
                 walk_stmt(ast, s, bound, out);
@@ -414,11 +371,27 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             bound.truncate(saved);
         }
         Expr::Closure { captures, .. } => {
-            // Already lifted (shouldn't normally happen during this pass,
-            // but guard for nested-lift cases): the captures referenced
-            // by an already-lifted closure are themselves free in the
-            // current arrow body if not bound here.
+            // Already lifted (the arena is walked in index order, so an
+            // inner lambda is a Closure by the time its encloser's
+            // captures are computed): the captures referenced by an
+            // already-lifted closure are themselves free in the current
+            // arrow body if not bound here — EXCEPT `__this` on a
+            // function-this closure (a marked fn-expr or an objlit
+            // method shorthand; the eid survives the in-place lift, so
+            // the marker sets still answer). That capture is the
+            // promote protocol's marker — `fnexpr_this` /
+            // `objlit_nominal` later turn it into a receiver param —
+            // not a lexical need the enclosing scope must supply;
+            // riding it up left the encloser with a stale `__this`
+            // capture after the inner promote (unknown-identifier
+            // reject). An ARROW's `__this` capture stays lexical and
+            // keeps riding up.
             for c in captures {
+                if c == "__this"
+                    && (ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid))
+                {
+                    continue;
+                }
                 if !bound.contains(c) && !out.contains(c) {
                     out.push(c.clone());
                 }

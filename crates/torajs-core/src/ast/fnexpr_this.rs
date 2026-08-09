@@ -90,6 +90,15 @@ pub(crate) fn run(
         &mut ident_cands,
         &mut call_faces,
     );
+    // Seventh face position (rotation 346) — marked fn-exprs returned
+    // from an objlit method/accessor body (doc on the collector).
+    super::fnexpr_this_faces::collect_method_return_faces(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        objlit_method_exprs,
+        &mut patches,
+    );
     promote_variable_routed(
         stmts,
         exprs,

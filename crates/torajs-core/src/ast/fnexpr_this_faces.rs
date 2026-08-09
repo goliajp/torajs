@@ -164,3 +164,68 @@ pub(crate) fn promote_recv_any(
         }
     }
 }
+
+/// Rotation 346 — the seventh receiver-safe face position: a marked
+/// fn-expr RETURNED from an object-literal method or accessor body
+/// (`get f() { return function () { …this… } }`, the await-using
+/// dispose-getter family). The value leaves through the method's
+/// return channel, and a method/accessor result is consumed on the
+/// any lane (the accessor protocol / method dispatch), where every
+/// call path is receiver-flag-aware — no receiver-unaware call can
+/// reach it (rotation 345's any-lane anchor). Zero aliases: the
+/// fn-expr is the return operand itself. Without the promote the
+/// inner `__this` stayed a capture the method had to supply —
+/// receiver-correct only when the method receiver and the eventual
+/// call-site receiver happened to be the same object — and the
+/// pre-promote capture snapshot rode every enclosing lift as a stale
+/// `__this` (the `await-using` unknown-identifier reject family).
+pub(super) fn collect_method_return_faces(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    objlit_method_exprs: &std::collections::HashSet<ExprId>,
+    patches: &mut Vec<FacePatch>,
+) {
+    let method_fns: std::collections::HashSet<&str> = objlit_method_exprs
+        .iter()
+        .filter_map(|eid| match &exprs[eid.0 as usize] {
+            Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
+            _ => None,
+        })
+        .collect();
+    if method_fns.is_empty() {
+        return;
+    }
+    for s in stmts {
+        let Stmt::FnDecl { name, body, .. } = s else {
+            continue;
+        };
+        if !method_fns.contains(name.as_str()) {
+            continue;
+        }
+        collect_return_faces_in(body, stmts, exprs, fn_expr_exprs, patches);
+    }
+}
+
+/// Every `return <marked fn-expr>` in the METHOD's own body — nested
+/// compound statements walk through the shared spine, but a nested
+/// `function` declaration is its own return scope and is skipped.
+fn collect_return_faces_in(
+    body: &[Stmt],
+    all_stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    patches: &mut Vec<FacePatch>,
+) {
+    for s in body {
+        if let Stmt::Return(Some(e)) = s {
+            collect_face(all_stmts, exprs, *e, fn_expr_exprs, patches);
+        }
+        if matches!(s, Stmt::FnDecl { .. }) {
+            continue;
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_return_faces_in(inner, all_stmts, exprs, fn_expr_exprs, patches)
+        });
+    }
+}
