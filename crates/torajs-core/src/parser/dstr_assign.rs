@@ -316,9 +316,13 @@ impl<'a> Parser<'a> {
         // temp, which is not a valid assignment target (§13.15.1).
         self.reject_invalid_assignment_target(target)?;
         // §13.15.1 — `eval` / `arguments` are not valid simple
-        // assignment targets in strict code (module code always is).
+        // assignment targets in strict code (module code always is),
+        // and `yield` is a strict-mode reserved word outright
+        // (rotation 346 — `0, { yield } = {}` must reject at parse
+        // phase; the checker-side admits landed this rotation let it
+        // fall through to a runtime unknown-ident instead).
         if let Expr::Ident(n) = self.ast.get_expr(target)
-            && (n == "arguments" || n == "eval")
+            && (n == "arguments" || n == "eval" || n == "yield")
         {
             return Err(format!(
                 "`{n}` is not a valid assignment target in a destructuring pattern at {} \
