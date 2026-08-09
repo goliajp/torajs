@@ -76,7 +76,7 @@ pub unsafe extern "C" fn __torajs_arr_index_strs(len: i64) -> *mut c_void {
 /// `arr` is a live `Tag::Arr` heap pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_index_strs_of(arr: *const c_void) -> *mut c_void {
-    let len = unsafe { (arr.cast::<u8>().add(8) as *const u64).read() } as i64;
+    let len = unsafe { arr_walk_bound(arr) };
     let exotic = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() } & (1 << 15) != 0;
     if !exotic {
         return unsafe { __torajs_arr_index_strs(len) };
@@ -97,6 +97,30 @@ pub unsafe extern "C" fn __torajs_arr_index_strs_of(arr: *const c_void) -> *mut 
 /// `arr_index_flags` result bit 3 — deleted index (hole;
 /// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
 const ARR_F_HOLE: u64 = 1 << 3;
+
+/// `torajs_rc::FLAG_ARR_SPARSE_TAIL` mirror (bit 6, RFC
+/// 20260810-arr-sparse-grow) — same local-mirror shape as the exotic
+/// bit read below.
+const ARR_F_SPARSE_TAIL: u16 = 1 << 6;
+
+/// Materialized-extent bound for the index walks — `len`, unless the
+/// cell carries a sparse tail: `[extent, len)` is implicit holes with
+/// no own entry, so both key surfaces stop at the extent (`cap`
+/// doubles as the extent under the sparse invariant, torajs-arr
+/// `layout::arr_live_extent` mirror). Semantically equal to probing
+/// the tail per index (the funnel answers F_HOLE for all of it) —
+/// this keeps the walk O(extent) instead of O(len).
+unsafe fn arr_walk_bound(arr: *const c_void) -> i64 {
+    let len = unsafe { (arr.cast::<u8>().add(8) as *const u64).read() };
+    let flags = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() };
+    if flags & ARR_F_SPARSE_TAIL != 0 {
+        let cap = unsafe { (arr.cast::<u8>().add(16) as *const u32).read() } as u64;
+        if cap < len {
+            return cap as i64;
+        }
+    }
+    len as i64
+}
 
 /// `torajs_dynobj::layout::BUCKET_FLAG_ENUMERABLE` mirror (bit 1) —
 /// the descriptor bit `Object.assign`'s CopyDataProperties filters on.
@@ -125,7 +149,7 @@ const DYNOBJ_FLAG_ENUMERABLE: u64 = 1 << 1;
 /// `arr` is a live `Tag::Arr` heap pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_keys_only_of(arr: *const c_void) -> *mut c_void {
-    let len = unsafe { (arr.cast::<u8>().add(8) as *const u64).read() } as i64;
+    let len = unsafe { arr_walk_bound(arr) };
     let exotic = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() } & (1 << 15) != 0;
     if !exotic {
         return unsafe { __torajs_arr_keys_only(len) };
