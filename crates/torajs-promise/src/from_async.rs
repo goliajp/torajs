@@ -46,6 +46,18 @@ unsafe extern "C" {
     /// any-held callee (argv slots BORROWED, return caller-owned;
     /// non-callable mints a catchable TypeError).
     fn __torajs_any_call(recv: u64, argv: *const u64, argc: i64) -> u64;
+    /// torajs-anyvalue — §7.2.4 IsConstructor over an any box.
+    fn __torajs_is_constructor(v: u64) -> bool;
+    fn __torajs_anyv_rc_inc(v: u64);
+    /// torajs-anyvalue — the constructor-`this` finish kernel:
+    /// Construct + define walk + length over the settled boxes
+    /// (OWNED, transferred in). Undefined + pending throw on abrupt.
+    fn __torajs_from_async_construct_finish(
+        this_c: u64,
+        items: u64,
+        elems: *const u64,
+        n: i64,
+    ) -> u64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
 }
@@ -135,6 +147,68 @@ pub unsafe extern "C" fn __torajs_array_from_async_dyn(v: u64) -> *mut c_void {
             *(data.add((head as usize + i) * 8) as *mut u64) = v;
         }
         crate::combinator::defer_settle(STATE_FULFILLED, out as i64, 1, REPR_HEAP)
+    }
+}
+
+/// `Array.fromAsync.call(C, items)` — the constructor-`this` face
+/// (proposal §2.1.1 steps 3.j / 3.k.iv; RFC 20260808 B6 刀 4). A
+/// non-constructor `this` (undefined on a bare call) takes the plain
+/// ArrayCreate kernel unchanged; a constructor settles every element
+/// exactly like the plain form, then hands the owned boxes to the
+/// anyvalue finish kernel (Construct + CreateDataPropertyOrThrow walk
+/// + `length`) and fulfills with its product.
+///
+/// # Safety
+/// `this_c` and `v` are live any-boxed values the caller owns for
+/// the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_array_from_async_this_dyn(this_c: u64, v: u64) -> *mut c_void {
+    unsafe {
+        if !__torajs_is_constructor(this_c) {
+            return __torajs_array_from_async_dyn(v);
+        }
+        let items = match collect_items(v, __torajs_any_iter_next_array_like) {
+            Err(rejected) => return rejected,
+            Ok(items) => items,
+        };
+        let mut settled: Vec<u64> = Vec::with_capacity(items.len());
+        let mut verdict: Option<*mut c_void> = None;
+        for &bits in &items {
+            match settle_slot(bits) {
+                Ok((elem, owned)) => {
+                    // The finish kernel consumes OWNED boxes; a plain
+                    // element's collected stake transfers below (the
+                    // items loop skips its release), an unwrapped one
+                    // is already fresh.
+                    settled.push(elem);
+                    if !owned {
+                        // Transferred verbatim — do not release with
+                        // the items sweep. Mark by leaking the items
+                        // stake: swap in a second stake instead.
+                        __torajs_anyv_rc_inc(bits);
+                    }
+                }
+                Err(rejected) => {
+                    verdict = Some(rejected);
+                    break;
+                }
+            }
+        }
+        for it in items {
+            __torajs_anyv_rc_dec(it);
+        }
+        if let Some(rejected) = verdict {
+            for s in settled {
+                __torajs_anyv_rc_dec(s);
+            }
+            return rejected;
+        }
+        let n = settled.len() as i64;
+        let product = __torajs_from_async_construct_finish(this_c, v, settled.as_ptr(), n);
+        if __torajs_throw_check() != 0 {
+            return crate::combinator_dyn::reject_with_pending_throw();
+        }
+        crate::combinator::defer_settle(STATE_FULFILLED, product as i64, 1, REPR_ANY)
     }
 }
 
