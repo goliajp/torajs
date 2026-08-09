@@ -32,6 +32,9 @@ use crate::nanbox_ffi::__torajs_anyv_to_bool;
 unsafe extern "C" {
     /// torajs-throw — pending-throw flag (1 = a throw is recorded).
     fn __torajs_throw_check() -> i64;
+    /// torajs-throw — map's §23.1.3.20 step 4 ArraySpeciesCreate cap
+    /// (records the pending throw and returns).
+    fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
     /// torajs-arr — fresh Array<Any> (map / filter products).
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     /// torajs-arr — append one (tag, value) pair; ANY_HEAP transfers
@@ -218,6 +221,18 @@ pub(crate) unsafe fn arraylike_hof(
             }
             // every / some / forEach / map / filter — has-gated walk.
             _ => {
+                // §23.1.3.20 step 4 — map's ArraySpeciesCreate(O, len)
+                // throws RangeError above 2^32-1 before any element
+                // read (O(1) early exit; the clamp walked ~2^53
+                // indexes, which reads as a hang). The other walkers
+                // stay ungated: every/some/forEach create no product
+                // and filter/flatMap seed ArraySpeciesCreate(O, 0).
+                if mid == ANY_METHOD_MAP && len > 4294967295 {
+                    __torajs_throw_range_error(
+                        c"Array length must be a positive integer of safe magnitude.".as_ptr(),
+                    );
+                    return VALUE_UNDEFINED;
+                }
                 // Cap hint only (push grows on demand) — a
                 // ToLength-sized length must not size the malloc.
                 let mut product: *mut u8 = if mid == ANY_METHOD_MAP

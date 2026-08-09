@@ -183,6 +183,15 @@ pub(crate) unsafe fn arraylike_to_spliced(
             __torajs_throw_type_error(c"Invalid array length".as_ptr());
             return VALUE_UNDEFINED;
         }
+        // Step 11 — ArrayCreate(newLen) then caps at 2^32-1
+        // (RangeError; ordered after the step-10 TypeError, before
+        // any element read).
+        if new_len > 4294967295 {
+            __torajs_throw_range_error(
+                c"Array length must be a positive integer of safe magnitude.".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
         let mut dst = __torajs_arr_alloc_any(new_len.clamp(0, 4096) as u64);
         dst = append_gets(dst, obj, 0, actual_start);
         if __torajs_throw_check() != 0 {
@@ -235,6 +244,15 @@ pub(crate) unsafe fn arraylike_with(
         let actual = if rel < 0 { rel + len } else { rel };
         if actual < 0 || actual >= len {
             __torajs_throw_range_error(c"Invalid index".as_ptr());
+            return VALUE_UNDEFINED;
+        }
+        // §23.1.3.39 step 7 — ArrayCreate(len) throws RangeError
+        // above 2^32-1 (ordered after the step-5 index check, before
+        // any element read).
+        if len > 4294967295 {
+            __torajs_throw_range_error(
+                c"Array length must be a positive integer of safe magnitude.".as_ptr(),
+            );
             return VALUE_UNDEFINED;
         }
         let mut dst = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);

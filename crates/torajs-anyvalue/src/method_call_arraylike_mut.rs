@@ -17,6 +17,8 @@
 
 use core::ffi::c_void;
 
+mod ops;
+
 use torajs_rc::{
     ANY_METHOD_COPY_WITHIN, ANY_METHOD_FILL, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REVERSE,
     ANY_METHOD_SHIFT, ANY_METHOD_SORT, ANY_METHOD_SPLICE, ANY_METHOD_UNSHIFT,
@@ -62,6 +64,11 @@ unsafe extern "C" {
     fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64;
     /// torajs-throw — pending-throw flag (the sort comparator leg).
     fn __torajs_throw_check() -> i64;
+    /// torajs-throw — §23.1.3.23/.31/.36 integer-limit gates (records
+    /// the pending throw and returns; the call site's throw-check
+    /// propagates).
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
 }
 
 /// 3b mutator set — the dynobj routing gates on this alongside
@@ -188,6 +195,16 @@ pub(crate) unsafe fn arraylike_mut(
                 }
             }
             m if m == ANY_METHOD_PUSH => {
+                // §23.1.3.23 step 4 — the product length caps at
+                // 2^53-1 BEFORE any element write (O(1) early exit;
+                // JSC words it per-method).
+                if len + argc > 9007199254740991 {
+                    __torajs_throw_type_error(
+                        c"push cannot produce an array of length larger than (2 ** 53) - 1"
+                            .as_ptr(),
+                    );
+                    return VALUE_UNDEFINED;
+                }
                 for i in 0..argc {
                     let v = arg_at(i);
                     // Borrowed argv slot → the bucket's stake.
@@ -220,6 +237,16 @@ pub(crate) unsafe fn arraylike_mut(
             }
             m if m == ANY_METHOD_UNSHIFT => {
                 if argc > 0 {
+                    // §23.1.3.36 step 4.a — same 2^53-1 cap, checked
+                    // before the O(len) shift walk (the zero-arg form
+                    // never throws).
+                    if len + argc > 9007199254740991 {
+                        __torajs_throw_type_error(
+                            c"unshift cannot produce an array of length larger than (2 ** 53) - 1"
+                                .as_ptr(),
+                        );
+                        return VALUE_UNDEFINED;
+                    }
                     let mut k = len - 1;
                     while k >= 0 {
                         if arraylike_has(obj, k) {
@@ -240,9 +267,9 @@ pub(crate) unsafe fn arraylike_mut(
                 __torajs_anyv_box_i64(len + argc)
             }
             m if m == ANY_METHOD_SPLICE => do_splice(&mut obj, len, argv, argc),
-            m if m == ANY_METHOD_SORT => do_sort(&mut obj, len, arg_at(0)),
-            m if m == ANY_METHOD_FILL => do_fill(&mut obj, len, argv, argc),
-            m if m == ANY_METHOD_COPY_WITHIN => do_copy_within(&mut obj, len, argv, argc),
+            m if m == ANY_METHOD_SORT => ops::do_sort(&mut obj, len, arg_at(0)),
+            m if m == ANY_METHOD_FILL => ops::do_fill(&mut obj, len, argv, argc),
+            m if m == ANY_METHOD_COPY_WITHIN => ops::do_copy_within(&mut obj, len, argv, argc),
             // reverse — §23.1.3.26 two-pointer swap with the four
             // present/absent cases.
             _ => {
@@ -316,6 +343,20 @@ unsafe fn do_splice(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64
             to_index(arg_at(1), 0).clamp(0, len - start)
         };
         let items = (argc - 2).max(0);
+        // §23.1.3.31 step 8 — the post-splice length caps at 2^53-1
+        // (TypeError), then step 9's ArraySpeciesCreate(O,
+        // actualDeleteCount) caps the removed product at 2^32-1
+        // (RangeError). Both fire before any element read.
+        if len + items - del > 9007199254740991 {
+            __torajs_throw_type_error(
+                c"Splice cannot produce an array of length larger than (2 ** 53) - 1".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
+        if del > 4294967295 {
+            __torajs_throw_range_error(c"Length exceeded the maximum array length".as_ptr());
+            return VALUE_UNDEFINED;
+        }
         let mut removed = __torajs_arr_alloc_any(del.clamp(0, 4096) as u64);
         for k in 0..del {
             let v = if arraylike_has(*obj, start + k) {
@@ -366,127 +407,5 @@ unsafe fn do_splice(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64
         }
         set_len(obj, len - del + items);
         __torajs_anyv_box_pointer(removed as *mut c_void)
-    }
-}
-
-/// `sort(comparefn)` per §23.1.3.30 — the present Gets stage into a
-/// fresh Array<Any>, the existing kind-aware merge-sort kernel runs
-/// (boxed comparator or the ToString default), the sorted prefix
-/// Sets back and the hole tail Deletes.
-unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: AnyValue) -> AnyValue {
-    unsafe {
-        let (cb_env, cb_entry, has_cb) = if is_undefined(cmp) {
-            (core::ptr::null_mut(), 0u64, 0i64)
-        } else {
-            let Some((e, en)) = closure_boxed_entry(cmp) else {
-                return not_callable();
-            };
-            (e, en, 1)
-        };
-        let mut tmp = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
-        let mut count: i64 = 0;
-        for j in 0..len {
-            if arraylike_has(*obj, j) {
-                let v = arraylike_get(*obj, j);
-                tmp = __torajs_arr_push_any(
-                    tmp as *mut c_void,
-                    __torajs_anyv_unbox_tag(v) as u64,
-                    __torajs_anyv_unbox_value(v) as u64,
-                );
-                count += 1;
-            }
-        }
-        __torajs_arr_any_sort(tmp, cb_env, cb_entry, has_cb);
-        if __torajs_throw_check() != 0 {
-            __torajs_value_drop_heap(tmp as *mut c_void);
-            return VALUE_UNDEFINED;
-        }
-        for j in 0..count {
-            let bv = __torajs_arr_get_any_boxed(tmp as *const c_void, j as u64);
-            // Borrowed slot read → the bucket's stake.
-            __torajs_rc_inc(bv as *mut c_void);
-            set_at(obj, j, bv);
-        }
-        for j in count..len {
-            delete_at(*obj, j);
-        }
-        __torajs_value_drop_heap(tmp as *mut c_void);
-        __torajs_rc_inc(*obj);
-        __torajs_anyv_box_pointer(*obj)
-    }
-}
-
-/// `fill(value, start, end)` per §23.1.3.7 — relative-wrapped Sets
-/// of the same borrowed value (a stake per slot).
-unsafe fn do_fill(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64) -> AnyValue {
-    unsafe {
-        let arg_at = |i: i64| -> u64 {
-            if i < argc {
-                *argv.add(i as usize)
-            } else {
-                VALUE_UNDEFINED
-            }
-        };
-        let v = arg_at(0);
-        let wrap = |r: i64| if r < 0 { (r + len).max(0) } else { r.min(len) };
-        let lo = wrap(to_index(arg_at(1), 0));
-        let hi = wrap(to_index(arg_at(2), i64::MAX));
-        let mut k = lo;
-        while k < hi {
-            __torajs_rc_inc(v as *mut c_void);
-            set_at(obj, k, v);
-            k += 1;
-        }
-        __torajs_rc_inc(*obj);
-        __torajs_anyv_box_pointer(*obj)
-    }
-}
-
-/// `copyWithin(target, start, end)` per §23.1.3.4 — direction-aware
-/// Has-gated moves.
-unsafe fn do_copy_within(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64) -> AnyValue {
-    unsafe {
-        let arg_at = |i: i64| -> u64 {
-            if i < argc {
-                *argv.add(i as usize)
-            } else {
-                VALUE_UNDEFINED
-            }
-        };
-        let wrap = |r: i64| if r < 0 { (r + len).max(0) } else { r.min(len) };
-        let mut to = wrap(to_index(arg_at(0), 0));
-        let mut from = wrap(to_index(arg_at(1), 0));
-        let fin = wrap(to_index(arg_at(2), i64::MAX));
-        let mut count = (fin - from).min(len - to);
-        if count > 0 && from < to && to < from + count {
-            // Overlap — copy backwards.
-            from += count - 1;
-            to += count - 1;
-            while count > 0 {
-                if arraylike_has(*obj, from) {
-                    let v = arraylike_get(*obj, from);
-                    set_at(obj, to, v);
-                } else {
-                    delete_at(*obj, to);
-                }
-                from -= 1;
-                to -= 1;
-                count -= 1;
-            }
-        } else {
-            while count > 0 {
-                if arraylike_has(*obj, from) {
-                    let v = arraylike_get(*obj, from);
-                    set_at(obj, to, v);
-                } else {
-                    delete_at(*obj, to);
-                }
-                from += 1;
-                to += 1;
-                count -= 1;
-            }
-        }
-        __torajs_rc_inc(*obj);
-        __torajs_anyv_box_pointer(*obj)
     }
 }
