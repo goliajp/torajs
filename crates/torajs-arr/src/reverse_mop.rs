@@ -76,6 +76,14 @@ unsafe fn delete_or_throw(arr: *mut c_void, idx: u64) {
 /// on the first pending throw (getter / setter / refused delete).
 pub(crate) unsafe fn reverse_mop(arr: *mut u8) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — ~len/2 Has/Get/Set rounds over the
+        // unmaterialized tail; loud reject.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.reverse\0".as_ptr(),
+        ) {
+            return arr;
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let middle = len / 2;
         let recv = arr as *mut c_void;

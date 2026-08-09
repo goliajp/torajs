@@ -89,6 +89,18 @@ pub(crate) unsafe fn slot_anyvalue_ptr(arr: *mut u8, i: u64) -> *mut u64 {
 pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8 {
     let arr = arr as *mut u8;
     unsafe {
+        // RFC 20260810 刀 D — the append slot sits past the
+        // materialized extent; loud reject (the transferred value is
+        // released to keep the pair ledger balanced).
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.push\0".as_ptr(),
+        ) {
+            if tag == ANY_HEAP {
+                __torajs_value_drop_heap(value as *mut c_void);
+            }
+            return arr;
+        }
         if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
             // Chunk 622 — typed block behind the static Arr<Any>
             // view: kind-coerce and append raw (mismatch TypeError).
@@ -118,6 +130,15 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — both sides walk raw slots: dst appends
+        // at `dst_len` (no slot behind a sparse dst), src reads
+        // `[0, src_len)`. Loud reject on either.
+        let msg = b"sparse array tail is not yet supported in an array concat/spread\0".as_ptr();
+        if crate::sparse_gate::sparse_tail_rejects(dst as *const c_void, msg)
+            || crate::sparse_gate::sparse_tail_rejects(src as *const c_void, msg)
+        {
+            return dst;
+        }
         // RFC 20260707 chunk 624 — typed blocks on either side of
         // the concat splice. The dst seed comes from arr_any_slice,
         // which hands a typed source back as a kind-marked typed
@@ -230,13 +251,16 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
             return crate::any_typed_bridge::typed_set_grow(arr, i, tag, value);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
-        // Sparse tail (RFC 20260810) — an in-bounds index with no
-        // slot behind it. Below the dense limit the write
+        // Sparse tail (RFC 20260810) — an index with no slot behind
+        // it, in-tail OR past the end (the plain grow lane below
+        // widens `cap` without materializing `[extent, len)`, which
+        // would corrupt the sparse invariant — every no-slot write
+        // funnels here instead). Below the dense limit the write
         // materializes the extension exactly (cap == extent is the
         // sparse invariant, so growth is exact, not 2x-amortized;
         // the gap becomes explicit holes); past the limit it is the
         // same loud RangeError as the past-the-end lane.
-        if (*(arr as *const HeapHeader)).flags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0 && i < len {
+        if (*(arr as *const HeapHeader)).flags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0 {
             let extent = crate::layout::arr_live_extent(arr);
             if i >= extent {
                 if i >= ARR_DENSE_LIMIT {
@@ -255,8 +279,12 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
                     crate::define_hole::mark_hole_range(arr as *mut c_void, extent, i);
                 }
                 // cap == extent again; the crossover back to a fully
-                // dense cell clears the flag.
+                // dense cell clears the flag (an append past `len`
+                // also extends it, §10.4.2.1 OrdinarySet).
                 if i + 1 >= len {
+                    if i + 1 > len {
+                        *(arr.add(ARR_LEN_OFF) as *mut u64) = i + 1;
+                    }
                     (*(arr as *mut HeapHeader)).flags &= !torajs_rc::FLAG_ARR_SPARSE_TAIL;
                 }
                 return arr;
@@ -339,6 +367,16 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
 /// so no drop races occur even if dst grows.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
+    // RFC 20260810 刀 D — the outer walk reads raw slots; loud
+    // reject (a sparse INNER array is caught by `extend_any`).
+    if unsafe {
+        crate::sparse_gate::sparse_tail_rejects(
+            outer as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.flat\0".as_ptr(),
+        )
+    } {
+        return unsafe { crate::alloc::__torajs_arr_alloc_any(0) };
+    }
     let outer_len = unsafe { *(outer.add(ARR_LEN_OFF) as *const u64) };
     // Start with cap == outer_len; arr_push_any / arr_extend_any
     // grow on demand so over-estimating isn't required.

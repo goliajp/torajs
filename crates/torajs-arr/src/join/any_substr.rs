@@ -33,6 +33,14 @@ use super::*;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — a sparse tail would ToString ~len
+        // slots; loud reject until join grows real sparse support.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.join\0".as_ptr(),
+        ) {
+            return alloc_join_out(0, true);
+        }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
         let sep_data = str_data(sep);

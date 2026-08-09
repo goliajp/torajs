@@ -141,6 +141,14 @@ fn clamp_range(ilen: i64, start: i64, end: i64) -> (i64, i64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end: i64) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — the bulk copy has no slots behind the
+        // tail; loud reject until slice grows real sparse support.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.slice\0".as_ptr(),
+        ) {
+            return crate::alloc::__torajs_arr_alloc_any(0);
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let (lo, hi) = clamp_range(len as i64, start, end);
         let out_len = (hi - lo) as u64;
@@ -210,6 +218,13 @@ pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end:
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_to_reversed(arr: *const u8) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — same loud reject as `arr_any_slice`.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.toReversed\0".as_ptr(),
+        ) {
+            return crate::alloc::__torajs_arr_alloc_any(0);
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         let total = ARR_CELL_SIZE + (len as usize) * ANY_SLOT_BYTES;
         let p = malloc(total) as *mut u8;

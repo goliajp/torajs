@@ -41,6 +41,7 @@ pub(crate) mod combinator_any;
 pub mod combinator_dyn;
 pub(crate) mod combinator_fanin_slot;
 pub mod combinator_keyed;
+pub(crate) mod combinator_sparse;
 pub mod from_async;
 pub mod layout;
 pub mod micro;
@@ -126,6 +127,12 @@ pub unsafe extern "C" fn __torajs_throw_set(_tag: i64, _value: i64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
     panic!("torajs-promise test stub: throw_type_error should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    panic!("torajs-promise test stub: throw_range_error should not be called from cargo test");
 }
 
 #[cfg(test)]

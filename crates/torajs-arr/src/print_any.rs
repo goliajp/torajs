@@ -147,6 +147,15 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
             put_bytes(b"null");
             return;
         }
+        // RFC 20260810 刀 D — the inspect walk reads raw slots; loud
+        // reject (real sparse printing is a follow-up knife — it
+        // needs bun's `empty x N` collapsed form).
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in console.log\0".as_ptr(),
+        ) {
+            return;
+        }
         // Any-dynamic-access RFC (20260704) S2 — a typed Array<T>
         // boxed into `any` reaches this walker through the Tag::Arr
         // print arms. Raw-scalar element kinds (recorded by

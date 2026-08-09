@@ -38,6 +38,14 @@ pub unsafe extern "C" fn __torajs_arr_fill_any(
 ) -> *mut u8 {
     let arr = arr as *mut u8;
     unsafe {
+        // RFC 20260810 刀 D — the fill walk crosses the
+        // unmaterialized tail; loud reject.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.fill\0".as_ptr(),
+        ) {
+            return arr;
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64) as i64;
         let lo = if start < 0 {
             0

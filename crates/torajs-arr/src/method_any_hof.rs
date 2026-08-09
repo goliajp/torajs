@@ -86,6 +86,16 @@ unsafe fn hof_loop(
     this_arg: u64,
 ) -> u64 {
     unsafe {
+        // RFC 20260810 刀 D — a sparse tail would spin ~len rounds
+        // and allocate a len-sized result; loud reject until the
+        // iteration methods grow real sparse support.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in Array.prototype.map/filter/forEach\0"
+                .as_ptr(),
+        ) {
+            return undef();
+        }
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
         let s = recv_first_shift(cb_env);
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
@@ -217,6 +227,14 @@ unsafe fn find_loop(
     this_arg: u64,
 ) -> u64 {
     unsafe {
+        // RFC 20260810 刀 D — same loud reject as `hof_loop`.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in the Array.prototype find/every/some family\0"
+                .as_ptr(),
+        ) {
+            return undef();
+        }
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
         let s = recv_first_shift(cb_env);
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
@@ -395,6 +413,13 @@ pub unsafe extern "C" fn __torajs_arr_any_reduce(
     right: i64,
 ) -> u64 {
     unsafe {
+        // RFC 20260810 刀 D — same loud reject as `hof_loop`.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in Array.prototype.reduce\0".as_ptr(),
+        ) {
+            return undef();
+        }
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
         let s = recv_first_shift(cb_env);
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;

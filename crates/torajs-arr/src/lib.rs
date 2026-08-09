@@ -75,6 +75,7 @@ pub mod props;
 pub mod reverse_mop;
 pub mod slice;
 pub mod sort;
+pub mod sparse_gate;
 pub mod species;
 pub mod str_bridge;
 pub mod subclass_alloc;

@@ -36,7 +36,10 @@ unsafe extern "C" {
     /// the result array is any-consumable via the settled cell's
     /// REPR_HEAP stamp, so it needs the mark too.
     fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
+
 }
+
+pub(crate) use crate::combinator_sparse::sparse_input_rejects;
 
 /// Read logical Array<T> slot `i` from `arr` (8B stride; pointer-
 /// shape values stored as raw bits).
@@ -222,6 +225,9 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
+    if unsafe { sparse_input_rejects(promises_arr) } {
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
+    }
     // An `Array<Any>` input carries NaN-box slots (mixed promise /
     // plain-value elements) — the raw-pointer walk below would
     // dereference immediates; route to the any-lane sibling.
@@ -321,6 +327,9 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
+    if unsafe { sparse_input_rejects(promises_arr) } {
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
+    }
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
         return unsafe { crate::combinator_any::race_sync_any(promises_arr) };
     }
@@ -411,6 +420,9 @@ unsafe fn race_fan_in(promises_arr: *mut c_void, len: u64) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
+    }
+    if unsafe { sparse_input_rejects(promises_arr) } {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {

@@ -72,6 +72,15 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
     recv_slot: *mut u64,
 ) -> u64 {
     unsafe {
+        // RFC 20260810 刀 D — the append slot sits past the
+        // materialized extent; loud reject until push grows real
+        // sparse support.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in Array.prototype.push\0".as_ptr(),
+        ) {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         let mut cur = arr as *mut u8;
         for i in 0..argc {
             let av = *argv.add(i as usize);
@@ -148,6 +157,14 @@ unsafe fn kind_mismatch_threw(msg: &core::ffi::CStr) -> u64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
     unsafe {
+        // RFC 20260810 刀 D — `len - 1` has no slot behind it; loud
+        // reject until pop grows real sparse support.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in Array.prototype.pop\0".as_ptr(),
+        ) {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         // RFC 20260713 blade 4 — frozen / RO-length receivers throw
         // before the empty short-circuit (§23.1.3.20 step 3.b).
         if crate::define_length::__torajs_arr_len_write_guard(arr) != 0 {
@@ -191,6 +208,14 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
     unsafe {
+        // RFC 20260810 刀 D — the relocation walk crosses the
+        // unmaterialized tail; loud reject.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in Array.prototype.shift\0".as_ptr(),
+        ) {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         // RFC 20260713 blade 4 — pop's twin (§23.1.3.29 step 3.b).
         if crate::define_length::__torajs_arr_len_write_guard(arr) != 0 {
             return __torajs_anyv_box_from_pair(5, 0);
@@ -241,6 +266,14 @@ pub unsafe extern "C" fn __torajs_arr_any_unshift(
     recv_slot: *mut u64,
 ) -> u64 {
     unsafe {
+        // RFC 20260810 刀 D — the relocation walk crosses the
+        // unmaterialized tail; loud reject.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in Array.prototype.unshift\0".as_ptr(),
+        ) {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         let mut cur = arr as *mut u8;
         for i in (0..argc).rev() {
             let av = *argv.add(i as usize);
@@ -307,6 +340,13 @@ unsafe fn any_unshift_adopt(p: *mut u8, av: u64) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_unshift_any(arr: *mut u8, tag: i64, value: i64) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — same loud reject as `arr_any_unshift`.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.unshift\0".as_ptr(),
+        ) {
+            return arr;
+        }
         // Chunk 628 — a typed block behind a static Arr<Any> view
         // (T-11 container widen) kind-coerces into a raw slot instead
         // of adopting NaN-box bits (622's push twin, the station that

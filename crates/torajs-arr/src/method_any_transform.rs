@@ -179,6 +179,14 @@ pub unsafe extern "C" fn __torajs_arr_any_copy_within(
     end: i64,
 ) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — the block move crosses the
+        // unmaterialized tail; loud reject.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.copyWithin\0".as_ptr(),
+        ) {
+            return arr;
+        }
         let len = arr_len(arr);
         let to = wrap_clamp(target, len);
         let lo = wrap_clamp(start, len);
@@ -241,6 +249,14 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
     item_count: i64,
 ) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — the relocation walk crosses the
+        // unmaterialized tail; loud reject.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.splice\0".as_ptr(),
+        ) {
+            return crate::alloc::__torajs_arr_alloc_any(0);
+        }
         let len = arr_len(arr);
         let header = &*(arr as *const HeapHeader);
         let is_any = header.flags & FLAG_ARR_ANY != 0;

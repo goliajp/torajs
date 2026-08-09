@@ -411,6 +411,14 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
     has_cb: i64,
 ) -> *mut u8 {
     unsafe {
+        // RFC 20260810 刀 D — the sort staging walk crosses the
+        // unmaterialized tail; loud reject.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const core::ffi::c_void,
+            b"sparse array tail is not yet supported in Array.prototype.sort\0".as_ptr(),
+        ) {
+            return arr;
+        }
         let len = *(arr.add(ARR_HDR_LEN_OFF) as *const u64) as usize;
         if len < 2 {
             return arr;

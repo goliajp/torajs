@@ -118,6 +118,15 @@ const OBJECT_PROTO_TAG_I64: i64 = 1;
 /// slot matches, or -1. `same_value_zero` adds the NaN row.
 unsafe fn search(arr: *const c_void, needle: u64, from: i64, same_value_zero: bool) -> i64 {
     unsafe {
+        // RFC 20260810 刀 D — a sparse tail would spin ~len rounds;
+        // loud reject until the search family grows real support.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in the Array.prototype search family\0"
+                .as_ptr(),
+        ) {
+            return -1;
+        }
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
         let needle_nan = same_value_zero && is_nan_boxed(needle);
         // §23.1.3.17 step 9.a — indexOf gates each slot on
@@ -183,6 +192,14 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
     from: i64,
 ) -> i64 {
     unsafe {
+        // RFC 20260810 刀 D — same loud reject as `search`.
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr,
+            b"sparse array tail is not yet supported in the Array.prototype search family\0"
+                .as_ptr(),
+        ) {
+            return -1;
+        }
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
         // §23.1.3.20 step 8.a — HasProperty gate, see `search`.
         let skip_holes = crate::define::header_flags(arr) & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;

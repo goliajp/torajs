@@ -200,6 +200,9 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
+    if unsafe { crate::combinator::sparse_input_rejects(promises_arr) } {
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
+    }
     // An `Array<Any>` input carries NaN-box slots — route to the
     // any-lane sibling (same gate as all / race / any).
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
