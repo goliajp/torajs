@@ -96,7 +96,10 @@ impl<'a> LowerCtx<'a> {
         // property from the key's runtime value (the read-side
         // lower_typed_arr_any_key's write mirror; checker admit in
         // check_assign_target::check_index).
-        let key_is_any = matches!(self.expr_types.get(&index), Some(crate::check::Type::Any));
+        let key_is_any = matches!(
+            self.expr_types.get(&index),
+            Some(crate::check::Type::Any | crate::check::Type::Undefined)
+        );
         let (arr_val, arr_ty) =
             if matches!(arr_ty, Type::Obj(_)) || (matches!(arr_ty, Type::Arr(_)) && key_is_any) {
                 (self.box_to_any(arr_val), Type::Any)
@@ -108,67 +111,7 @@ impl<'a> LowerCtx<'a> {
         // OOB → catchable RangeError, elem-kind mismatch → catchable
         // TypeError, so the throw check follows.
         if arr_ty == Type::Any {
-            // L3b #13 (chunk 528) — string keys store by property
-            // per ES ToPropertyKey. A compile-time literal rides
-            // the member-assign path (`o["k"] = v` ≡ `o.k = v`,
-            // lastIndex / length hints included); a dynamic string
-            // key rides the key-parameterized core (no hint —
-            // recorded boundary).
-            if let Expr::String(lit) = self.ast.get_expr(index) {
-                let lit = lit.clone();
-                let obj_ident = if let Expr::Ident(n) = self.ast.get_expr(obj) {
-                    Some(n.clone())
-                } else {
-                    None
-                };
-                let v_raw = self.lower_expr(value);
-                // Chunk 567 — SHARE, no consume (see
-                // pack_any_slot_value_shared).
-                let v_ty = self.operand_ty(&v_raw);
-                let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
-                let recv_owned = self.expr_transfers_ownership(obj);
-                crate::ssa_lower_assign_member_any::emit_any_member_set(
-                    self, arr_val, &lit, tag_op, value_op, &obj_ident, recv_owned,
-                );
-                mint_index_assign_value(self, eid, &v_raw);
-                return v_raw;
-            }
-            if matches!(
-                self.expr_types.get(&index),
-                Some(crate::check::Type::String)
-            ) {
-                return self.lower_any_index_assign_str_key(eid, obj, arr_val, index, value);
-            }
-            // §6.1.7 / §7.1.19 step 2 — a symbol key reaches the set
-            // core as its own cell, uncoerced.
-            if matches!(
-                self.expr_types.get(&index),
-                Some(crate::check::Type::Symbol)
-            ) {
-                return self.lower_any_index_assign_symbol_key(eid, obj, arr_val, index, value);
-            }
-            // Cluster #1 blade 4 — an `any`-typed key rides the keyed
-            // set kernel's runtime ToPropertyKey dispatch.
-            if matches!(self.expr_types.get(&index), Some(crate::check::Type::Any)) {
-                return self.lower_any_index_assign_any_key(eid, obj, arr_val, index, value);
-            }
-            let idx_val = self.lower_index_operand(index);
-            let v_raw = self.lower_expr(value);
-            // Chunk 567 — SHARE, no consume.
-            let v_ty = self.operand_ty(&v_raw);
-            let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
-            let recv_slot = self.resolve_any_recv_slot(obj);
-            let cur_block = self.cur_block;
-            self.f.append_void(
-                cur_block,
-                InstKind::Call(
-                    self.intrinsics.any_index_set,
-                    vec![arr_val, idx_val, tag_op, value_op, recv_slot],
-                ),
-            );
-            self.emit_throw_check(None);
-            mint_index_assign_value(self, eid, &v_raw);
-            return v_raw;
+            return self.lower_any_recv_index_assign(eid, obj, index, value, arr_val);
         }
         let elem_ty = match arr_ty {
             Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
@@ -437,5 +380,87 @@ impl<'a> LowerCtx<'a> {
             }
             _ => (v, transfers),
         }
+    }
+
+    /// The `any`-receiver store lane (Any-dynamic-access RFC
+    /// 20260704 S3-set; carved out of [`Self::lower_index_assign`]
+    /// when the rotation-346 undefined-key arm pushed it past the
+    /// 200-line fn limit — body verbatim). Key dispatch: literal
+    /// string → member-assign path; String / Symbol / Any-or-
+    /// Undefined → the keyed set kernels; number → any_index_set.
+    fn lower_any_recv_index_assign(
+        &mut self,
+        eid: ExprId,
+        obj: ExprId,
+        index: ExprId,
+        value: ExprId,
+        arr_val: Operand,
+    ) -> Operand {
+        // L3b #13 (chunk 528) — string keys store by property
+        // per ES ToPropertyKey. A compile-time literal rides
+        // the member-assign path (`o["k"] = v` ≡ `o.k = v`,
+        // lastIndex / length hints included); a dynamic string
+        // key rides the key-parameterized core (no hint —
+        // recorded boundary).
+        if let Expr::String(lit) = self.ast.get_expr(index) {
+            let lit = lit.clone();
+            let obj_ident = if let Expr::Ident(n) = self.ast.get_expr(obj) {
+                Some(n.clone())
+            } else {
+                None
+            };
+            let v_raw = self.lower_expr(value);
+            // Chunk 567 — SHARE, no consume (see
+            // pack_any_slot_value_shared).
+            let v_ty = self.operand_ty(&v_raw);
+            let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
+            let recv_owned = self.expr_transfers_ownership(obj);
+            crate::ssa_lower_assign_member_any::emit_any_member_set(
+                self, arr_val, &lit, tag_op, value_op, &obj_ident, recv_owned,
+            );
+            mint_index_assign_value(self, eid, &v_raw);
+            return v_raw;
+        }
+        if matches!(
+            self.expr_types.get(&index),
+            Some(crate::check::Type::String)
+        ) {
+            return self.lower_any_index_assign_str_key(eid, obj, arr_val, index, value);
+        }
+        // §6.1.7 / §7.1.19 step 2 — a symbol key reaches the set
+        // core as its own cell, uncoerced.
+        if matches!(
+            self.expr_types.get(&index),
+            Some(crate::check::Type::Symbol)
+        ) {
+            return self.lower_any_index_assign_symbol_key(eid, obj, arr_val, index, value);
+        }
+        // Cluster #1 blade 4 — an `any`-typed key rides the keyed
+        // set kernel's runtime ToPropertyKey dispatch. An
+        // UNDEFINED key joins (rotation 346, boxed to ANY_UNDEF
+        // inside the lane).
+        if matches!(
+            self.expr_types.get(&index),
+            Some(crate::check::Type::Any | crate::check::Type::Undefined)
+        ) {
+            return self.lower_any_index_assign_any_key(eid, obj, arr_val, index, value);
+        }
+        let idx_val = self.lower_index_operand(index);
+        let v_raw = self.lower_expr(value);
+        // Chunk 567 — SHARE, no consume.
+        let v_ty = self.operand_ty(&v_raw);
+        let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
+        let recv_slot = self.resolve_any_recv_slot(obj);
+        let cur_block = self.cur_block;
+        self.f.append_void(
+            cur_block,
+            InstKind::Call(
+                self.intrinsics.any_index_set,
+                vec![arr_val, idx_val, tag_op, value_op, recv_slot],
+            ),
+        );
+        self.emit_throw_check(None);
+        mint_index_assign_value(self, eid, &v_raw);
+        return v_raw;
     }
 }

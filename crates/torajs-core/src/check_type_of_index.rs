@@ -62,9 +62,19 @@ pub(crate) fn check(
     // KEY rides the runtime keyed kernel's ToPropertyKey dispatch on
     // both receivers (a struct receiver boxes at the lane boundary,
     // same as its str/symbol-key path).
+    // Rotation 346 — an UNDEFINED key joins every receiver already in
+    // the property-key domain: §7.1.19 ToPropertyKey(undefined) is
+    // the string key "undefined", and the boxed undefined rides the
+    // same runtime dispatch the `any` key does (the t262 dstr
+    // harness's `{}[thrower()]` shape, where the throwing callee
+    // types its result Undefined). `Void` stays out — a Void expr
+    // has no SSA value to box.
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any | Type::Struct(_))
-            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
         // An ARRAY receiver takes the same key domain the `any` and
         // struct receivers do, and for the same reason: `a[k]` is an
         // element read, a property read, or a miss, and §7.1.19
@@ -75,21 +85,30 @@ pub(crate) fn check(
         // receiver's is: the three outcomes have no common narrower
         // type.
         && !(matches!(obj_ty, Type::Array(_))
-            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
         // A STRING receiver takes that same key domain, and §10.4.3
         // decides the outcome the same three ways: `s["0"]` is the
         // character, `s["length"]` ≡ `s.length`, and anything else
         // reads through to the method surface or a miss. Only the
         // number key keeps the narrow String answer below.
         && !(matches!(obj_ty, Type::String)
-            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
         // Map / Set receivers join the property-key domain for the
         // same §7.1.19 reason — `m[Symbol.iterator]()` is an ordinary
         // property read off the prototype surface (no element lane to
         // collide with; a NUMBER key stays the loud reject below,
         // since Map/Set carry no indexed elements at all).
         && !(matches!(obj_ty, Type::Map | Type::Set)
-            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
         // A REGEXP receiver joins for the same §7.1.19 reason as
         // Map/Set — `re[Symbol.match]` is an ordinary property read
         // off the prototype surface (r289; the well-known-symbol
@@ -97,17 +116,32 @@ pub(crate) fn check(
         // key stays the loud reject: a RegExp carries no indexed
         // elements.
         && !(matches!(obj_ty, Type::RegExp)
-            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     match obj_ty {
         // See the note on the reject above — the three outcomes have
         // no common narrower type, so a non-number key answers Any.
-        Type::String if matches!(idx_ty, Type::String | Type::Symbol | Type::Any) => Ok(Type::Any),
+        Type::String
+            if matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ) =>
+        {
+            Ok(Type::Any)
+        }
         Type::String => Ok(Type::String),
         // See the note on the reject above.
-        Type::Array(_) if matches!(idx_ty, Type::String | Type::Symbol | Type::Any) => {
+        Type::Array(_)
+            if matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ) =>
+        {
             Ok(Type::Any)
         }
         // An element read must answer with the element's own type,

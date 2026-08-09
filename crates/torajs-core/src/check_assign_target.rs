@@ -292,7 +292,18 @@ pub(crate) fn check_index(
     // of the read-side admit in `check_type_of_index`).
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any)
-            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
+        // Rotation 346 — a STRUCT receiver under an UNDEFINED key:
+        // §7.1.19 ToPropertyKey(undefined) is the fixed string key
+        // "undefined" (no element spelling, so none of the recorded
+        // shadow-split concern that keeps dynamic STRING keys out).
+        // The t262 dstr harness's `[ {}[thrower()] ] = it` target —
+        // the key expr throws before any store happens; the lowering
+        // boxes the struct and rides the keyed set kernel.
+        && !(matches!(obj_ty, Type::Struct(_)) && idx_ty == Type::Undefined)
         // An ARRAY receiver admits an `any` key: §7.1.19 decides
         // element-vs-property from the runtime value, so the write
         // rides the keyed set kernel with the receiver boxed (the
@@ -316,6 +327,14 @@ pub(crate) fn check_index(
     // `__torajs_any_index_set`. The value still typechecks for its
     // own side effects / diagnostics.
     if matches!(obj_ty, Type::Any) {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
+    // Rotation 346 — the struct + undefined-key pair the number
+    // gate above admitted: the lowering boxes the struct receiver
+    // and rides the keyed set kernel (fixed "undefined" string key
+    // per §7.1.19, no element spelling to shadow-split).
+    if matches!(obj_ty, Type::Struct(_)) && idx_ty == Type::Undefined {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }

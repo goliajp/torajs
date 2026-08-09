@@ -110,6 +110,23 @@ pub(crate) fn lower_str_recv_index(
     Operand::Value(v)
 }
 
+/// Lower a property-key expression for the keyed kernels' §7.1.19
+/// ToPropertyKey dispatch. An `any` key is already a box; an
+/// UNDEFINED-typed key (the t262 dstr `{}[thrower()]` shape — a
+/// throwing callee types its result Undefined) lowers as a Ptr and
+/// boxes to ANY_UNDEF here, which the kernel coerces to the fixed
+/// string key "undefined".
+pub(crate) fn lower_any_key(ctx: &mut LowerCtx<'_>, index: ExprId) -> Operand {
+    let raw = ctx.lower_expr(index);
+    if matches!(
+        ctx.expr_types.get(&index),
+        Some(crate::check::Type::Undefined)
+    ) {
+        return ctx.box_to_any_from_expr(index, raw);
+    }
+    raw
+}
+
 pub(crate) fn lower_array_any_index(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,

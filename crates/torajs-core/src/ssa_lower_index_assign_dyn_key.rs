@@ -108,7 +108,7 @@ impl<'a> LowerCtx<'a> {
         index: ExprId,
         value: ExprId,
     ) -> Operand {
-        let k_raw = self.lower_expr(index);
+        let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, index);
         let key_transfers = self.expr_transfers_ownership(index);
         let v_raw = self.lower_expr(value);
         let v_ty = self.operand_ty(&v_raw);
