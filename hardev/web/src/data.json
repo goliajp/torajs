@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T15:13:56.359Z",
+  "generatedAt": "2026-08-09T16:32:56.721Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-09T15:09:20Z",
-    "headSha": "4d626200",
-    "elapsedSec": 420.94,
+    "ranAt": "2026-08-09T16:31:15Z",
+    "headSha": "7392dfaa",
+    "elapsedSec": 425.34,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23925,
-    "passNoOracle": 827,
+    "pass": 23948,
+    "passNoOracle": 828,
     "passNegative": 3955,
-    "passTotal": 28707,
-    "bug": 12671,
-    "incompatible": 11796,
+    "passTotal": 28731,
+    "bug": 12725,
+    "incompatible": 11718,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41378,
-    "passRateInScope": 53.99,
-    "passRateTrAccepted": 69.38
+    "trAccepted": 41456,
+    "passRateInScope": 54.03,
+    "passRateTrAccepted": 69.3
   },
   "torajs": {
-    "commit": "4d626200",
-    "commitSubject": "feat: instanceof reaches a bare fndecl name through its canonical cell",
+    "commit": "7392dfaa",
+    "commitSubject": "Revert \"test: lock allsettled record any-lane reads\"",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "7392dfaa",
+      "subject": "Revert \"test: lock allsettled record any-lane reads\""
+    },
+    {
+      "hash": "e5622897",
+      "subject": "test: lock allsettled record any-lane reads"
+    },
+    {
+      "hash": "a2a94631",
+      "subject": "feat: generator expressions capture enclosing locals through a wrapper closure"
+    },
+    {
+      "hash": "4a3826e8",
+      "subject": "feat: defineProperty'd length/name on a function reads back through the expando"
+    },
+    {
+      "hash": "065c60ae",
+      "subject": "fix: unhandled sweep and microtask drain run before top-level teardown"
+    },
+    {
+      "hash": "9941d35b",
+      "subject": "docs: rotation 347 close — four knives off the recorded queues, gate chain ends 2658/0/4"
+    },
+    {
       "hash": "4d626200",
       "subject": "feat: instanceof reaches a bare fndecl name through its canonical cell"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "8ff9a184",
       "subject": "docs: rotation 346 close — function-this free-var boundary fells four top clusters, gate chain ends 2654/0/4"
-    },
-    {
-      "hash": "9379c782",
-      "subject": "fix: yield rejects as a destructuring-assignment target at parse phase"
-    },
-    {
-      "hash": "cddb0b8e",
-      "subject": "feat: fromAsync constructs through a constructor this-value"
-    },
-    {
-      "hash": "94e68164",
-      "subject": "feat: uninitialized static fields become real mutable slots"
-    },
-    {
-      "hash": "29b752a4",
-      "subject": "feat: undefined-typed keys join the property-key domain"
-    },
-    {
-      "hash": "5f805306",
-      "subject": "feat: zero-field struct member reads ride the any lane"
-    },
-    {
-      "hash": "c5f98b1e",
-      "subject": "feat: function-this stops riding up the free-var walk"
     }
   ],
-  "headSha": "4d626200",
+  "headSha": "7392dfaa",
   "autorun": {
-    "total": 650,
+    "total": 651,
     "baselineTarget": 10,
-    "bySelf": 645,
+    "bySelf": 646,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786281850-298e",
-      "at": "2026-08-09T13:24:10Z",
-      "ts": 1786281850,
+      "rotationId": "r-1786288526-26dd",
+      "at": "2026-08-09T15:15:26Z",
+      "ts": 1786288526,
       "trigger": "self",
-      "prevHead": "8ff9a184",
-      "handoffSha": "sha256:897a7886e684589fbd88147d8c3225348068f3e82c06efa1431644632a445d0c",
-      "handoffAgeSec": 1,
+      "prevHead": "9941d35b",
+      "handoffSha": "sha256:ef9078323272f5e0ec5512dbb687c4ab1d1d50a33077648ad6bcdd1f64d41a12",
+      "handoffAgeSec": 19,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786288526-26dd",
+        "at": "2026-08-09T15:15:26Z",
+        "ts": 1786288526,
+        "trigger": "self",
+        "prevHead": "9941d35b",
+        "handoffSha": "sha256:ef9078323272f5e0ec5512dbb687c4ab1d1d50a33077648ad6bcdd1f64d41a12",
+        "handoffAgeSec": 19,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786281850-298e",
         "at": "2026-08-09T13:24:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "141e0f3a",
         "handoffSha": "sha256:72c1ad6429456fcd800632f3fef76b197e337473b80b18205da5f574de0f42f8",
         "handoffAgeSec": 25,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786191532-6821",
-        "at": "2026-08-08T12:18:52Z",
-        "ts": 1786191532,
-        "trigger": "self",
-        "prevHead": "403187b8",
-        "handoffSha": "sha256:ed925cbbe365415b2b6db213e3848143f50951889f5b31bab855c1df2fafb3c4",
-        "handoffAgeSec": 1,
         "conformanceBefore": null,
         "commitsInSession": null
       }
