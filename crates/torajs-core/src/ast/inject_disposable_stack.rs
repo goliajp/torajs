@@ -32,16 +32,17 @@
 //! - `move()` answers a fresh intrinsic-class stack (spec pins
 //!   %DisposableStack%, no species) and leaves the source disposed
 //!   without disposing.
-//! - residuals (B6): `prototype[Symbol.dispose]` is a distinct
-//!   function from `prototype.dispose` (spec aliases the same
-//!   object; engines answer `===` true for the sync pair, false for
-//!   the async pair); `@@toStringTag` prop-desc face. Both are
-//!   BLOCKED on a substrate bug found in rotation 343: an own write
-//!   to an injected class's prototype object is silently lost, and
-//!   `.prototype` / getPrototypeOf identity flips depending on
-//!   whether a write happened first — the post-class-assignment fix
-//!   is dead code until that lands (same family as the r332
-//!   error/proto DIAG cluster; L3b entry).
+//! - B6 residuals (landed post store-split): BOTH dispose pairs are
+//!   aliased by post-class assignments — spec pins
+//!   `prototype[@@dispose]` / `prototype[@@asyncDispose]` to the
+//!   same function object as `dispose` / `disposeAsync`, and each
+//!   assignment overwrites the class body's wrapper entry (bun
+//!   answers `===` true for both pairs — the earlier "async pair is
+//!   distinct" note was a mis-probe). `@@toStringTag` is a
+//!   defineProperty W0/E0/C1 entry on both prototypes. These are own
+//!   writes past the 7-entry initial dense capacity — dead until RFC
+//!   20260809-dynobj-store-split made resize address-stable
+//!   (previously the write vanished and `.prototype` identity split).
 //!
 //! Both classes ride the standalone-probe parity baseline
 //! (probe-dstack / probe-adstack, tr == bun byte-equal, rotation 342).
@@ -141,6 +142,8 @@ class DisposableStack {
     return this.dispose();
   }
 }
+(DisposableStack.prototype as any)[Symbol.dispose] = (DisposableStack.prototype as any).dispose;
+Object.defineProperty(DisposableStack.prototype, Symbol.toStringTag, { value: "DisposableStack", configurable: true });
 "#;
 
 const ASYNC_SRC: &str = r#"
@@ -250,6 +253,8 @@ class AsyncDisposableStack {
     return this.disposeAsync();
   }
 }
+(AsyncDisposableStack.prototype as any)[Symbol.asyncDispose] = (AsyncDisposableStack.prototype as any).disposeAsync;
+Object.defineProperty(AsyncDisposableStack.prototype, Symbol.toStringTag, { value: "AsyncDisposableStack", configurable: true });
 "#;
 
 /// A program mentions the class — the `inject_builtin_classes`
