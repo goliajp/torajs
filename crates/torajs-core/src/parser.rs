@@ -38,6 +38,7 @@ mod class_field_early_errors;
 mod class_field_inits;
 mod class_member;
 mod cursor;
+mod delete_expr;
 mod destr_defaults;
 mod destr_helpers;
 mod destr_shape;

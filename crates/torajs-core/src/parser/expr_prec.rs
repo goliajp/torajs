@@ -438,39 +438,12 @@ impl<'a> Parser<'a> {
             let inner = self.parse_unary()?;
             return Ok(self.ast.add_expr(Expr::TypeOf { expr: inner }));
         }
-        // `delete obj.k` per ES §13.5.1 — only a property reference
-        // is accepted: deleting a variable is the strict-mode
-        // SyntaxError (modules are strict), and the exotic
-        // non-reference forms (`delete 42`, always true) stay a loud
-        // recorded boundary.
+        // `delete <expr>` — the operand triage lives in
+        // `parser/delete_expr.rs` (§13.5.1: real delete vs strict
+        // early error vs non-reference true-lane).
         if matches!(self.peek(), Token::Delete) {
             self.pos += 1;
-            let inner = self.parse_unary()?;
-            // §13.5.1.1 early error — the operand must not be a
-            // private reference (`delete o.#m`), however the
-            // receiver is shaped. Parens are transparent in the
-            // arena, so the covered forms land here too. A private
-            // name parses to its `__priv_<cls>__<n>` mangling
-            // (member_name_after_dot), so that prefix is the marker.
-            if let Expr::Member { name, .. } = self.ast.get_expr(inner)
-                && (name.starts_with("__priv_") || name.starts_with("__privu_"))
-            {
-                let bare = name.rsplit("__").next().unwrap_or(name);
-                return Err(format!(
-                    "deleting the private name `#{bare}` is forbidden at {}",
-                    self.at()
-                ));
-            }
-            if !matches!(
-                self.ast.get_expr(inner),
-                Expr::Member { .. } | Expr::Index { .. }
-            ) {
-                return Err(format!(
-                    "`delete` target must be a property reference (obj.k / obj[k]) at {}",
-                    self.at()
-                ));
-            }
-            return Ok(self.ast.add_expr(Expr::Delete { expr: inner }));
+            return self.parse_delete_operand();
         }
         // V3-18 m1.h.30 — `void <expr>` evaluates expr (for side
         // effects) then yields `undefined`. Desugars to
