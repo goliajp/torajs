@@ -399,6 +399,13 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
         Stmt::Labeled { body, .. } => {
             rewrite_returns_for_async(ast, body, inner_ty);
         }
+        // probe aw7-forof — a `return` inside an async body's for-of
+        // kept its bare value (this match simply never had the arm):
+        // annotated fns failed check, unannotated ones leaked the
+        // bare value out of the Promise lane.
+        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
+            rewrite_returns_for_async(ast, body, inner_ty);
+        }
         Stmt::For { body, init, .. } => {
             if let Some(i) = init.as_deref_mut() {
                 rewrite_returns_for_async(ast, i, inner_ty);
