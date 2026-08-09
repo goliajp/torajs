@@ -380,9 +380,13 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         // the arrow's params nor declared by an inner let, and not a
         // top-level FnDecl name).
         let captures = match &ast.exprs[i] {
-            Expr::ArrowFn { params, body, .. } => {
-                crate::ast::free_vars::free_vars_of_arrow(ast, params, body, &global_fn_names)
-            }
+            Expr::ArrowFn { params, body, .. } => crate::ast::free_vars::free_vars_of_arrow(
+                ast,
+                params,
+                body,
+                &global_fn_names,
+                ast.closure_self_names.get(&name).map(|s| s.as_str()),
+            ),
             _ => Vec::new(),
         };
         // P3.closure-in-struct-field — always produce a Closure value

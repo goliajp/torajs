@@ -102,7 +102,7 @@ fn body_safe_default(ast: &Ast, e: ExprId, global_fns: &[String]) -> bool {
             .iter()
             .all(|(_, v)| body_safe_default(ast, *v, global_fns)),
         Expr::ArrowFn { params, body, .. } => {
-            super::free_vars::free_vars_of_arrow(ast, params, body, global_fns).is_empty()
+            super::free_vars::free_vars_of_arrow(ast, params, body, global_fns, None).is_empty()
         }
         _ => false,
     }

@@ -63,6 +63,7 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_map!(ary_destr_groups);
     copy_map!(iter_destr_srcs);
     copy_map!(undeclared_reads);
+    copy_set!(self_name_writes);
     copy_map!(call_type_args);
     copy_map!(regex_parse_errors);
     copy_map!(objlit_computed_accessors);

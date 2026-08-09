@@ -26,6 +26,7 @@ pub(super) fn free_vars_of_arrow(
     params: &[Param],
     body: &[Stmt],
     global_fn_names: &[String],
+    self_name: Option<&str>,
 ) -> Vec<String> {
     // Pre-bind top-level fn names so they're treated as already-in-scope
     // and don't fall into the captures set.
@@ -36,6 +37,12 @@ pub(super) fn free_vars_of_arrow(
     // Pre-613 it leaked into the captures set and the checker rejected
     // the closure with "unknown identifier `arguments`".
     bound.push("arguments".into());
+    // §15.5.5 — a named fn-expression's self-name is the function
+    // env's own binding (the mint site writes the cell into a trailing
+    // env slot), never something the enclosing scope must supply.
+    if let Some(sn) = self_name {
+        bound.push(sn.to_string());
+    }
     free_vars_of_body(ast, &bound, body)
 }
 

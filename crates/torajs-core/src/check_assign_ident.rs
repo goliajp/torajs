@@ -86,6 +86,23 @@ pub(crate) fn check(
     // behind and the assign lane threw a spurious ReferenceError
     // (test262 parameter-name-shadowing-parameter-name-let-const-and-var).
     checker.undeclared_reads.remove(&target);
+    // §15.5.5 (RFC 20260810) — a write resolving to the enclosing
+    // fn-expression's self-name hits an immutable function-env
+    // binding: mark the target eid for the assign lane's runtime
+    // TypeError (strict semantics — module code always is) and keep
+    // typing the RHS (§13.15.2 evaluates rref before PutValue
+    // throws). A deeper-scope shadow re-declared the name and owns
+    // the write instead, so the mark stays off for it.
+    if checker.self_name_active.as_deref() == Some(name.as_str())
+        && checker
+            .scopes
+            .iter()
+            .skip(1)
+            .all(|s| !s.contains_key(&name))
+    {
+        checker.self_name_writes.insert(target);
+        return checker.type_of(ast, value);
+    }
     if !info.mutable {
         return Err(format!("cannot assign to const `{name}`"));
     }

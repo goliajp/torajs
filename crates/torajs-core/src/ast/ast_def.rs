@@ -111,6 +111,14 @@ pub struct Ast {
     /// post-check AST (same ride as `iter_destr_srcs`). Empty
     /// pre-check.
     pub undeclared_reads: std::collections::HashMap<ExprId, String>,
+    /// RFC 20260810 — writes to a fn-expression's own self-name
+    /// (§15.5.5: an immutable function-env binding; a strict-mode
+    /// write — module code always is — raises TypeError at run time,
+    /// not a compile reject). The checker marks the TARGET ident eid,
+    /// the assign lane raises through the readonly-assign kernel.
+    /// Parked by `check_monomorph` on the owned post-check AST (same
+    /// ride as `undeclared_reads`). Empty pre-check.
+    pub self_name_writes: std::collections::HashSet<ExprId>,
     /// RFC 20260714-dstr-residual blade 4 — NamedEvaluation for
     /// anonymous class expressions: synth class name
     /// (`__ClassExpr_<id>`) → binding identifier, recorded by the

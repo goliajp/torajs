@@ -212,6 +212,8 @@ impl Checker {
             contextual_any_literals: std::collections::HashSet::new(),
             iter_destr_srcs: HashMap::new(),
             undeclared_reads: std::collections::HashMap::new(),
+            self_name_active: None,
+            self_name_writes: std::collections::HashSet::new(),
             unresolved_captures: HashMap::new(),
             assign_narrows: HashMap::new(),
             member_narrows: HashMap::new(),
@@ -397,6 +399,16 @@ pub(crate) struct Checker {
     /// (speculative pre-pass typing self-heals). Carried to the
     /// lowerer on the post-check AST by `check_monomorph`.
     pub(crate) undeclared_reads: std::collections::HashMap<ExprId, String>,
+    /// RFC 20260810 — the self-name of the fn-expression body being
+    /// checked, when `check_closure` declared it (a same-named param
+    /// wins and leaves this `None`). `check_assign_ident` marks writes
+    /// that resolve to this binding in `self_name_writes`; both ride
+    /// to the lowerer via `check_monomorph`.
+    pub(crate) self_name_active: Option<String>,
+    /// RFC 20260810 — target ident eids of writes to a fn-expression's
+    /// own self-name (§15.5.5 immutable binding; strict-mode write =
+    /// runtime TypeError through the readonly-assign kernel).
+    pub(crate) self_name_writes: std::collections::HashSet<ExprId>,
     /// RFC 20260730-undeclared-ident 刀 3 — closure captures that
     /// resolved nowhere, keyed by the `Expr::Closure` construction
     /// site. `check_closure` skips them (the body's Ident read takes

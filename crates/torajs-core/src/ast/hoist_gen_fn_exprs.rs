@@ -201,8 +201,11 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         if has_recv {
             ast.fnexpr_recv_fns.insert(format!("__forward_{name}"));
         }
+        // Self-name stays a plain free var on this lane for now — the
+        // generator half of RFC 20260810 (knife 3) will pre-bind it
+        // and route the wrapper cell in as a leading argument.
         let captures =
-            crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names);
+            crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names, None);
         if !captures.is_empty() {
             // Wrapper route (module doc "Capture policy") — refuse
             // the combinations whose plumbing is unproven, and any

@@ -86,6 +86,14 @@ pub(crate) fn lower(
         // the check is unreachable — nothing to hand a consumer.
         return lower_undeclared_write_throw(ctx, &name, value);
     }
+    if ctx.ast.self_name_writes.contains(&target) {
+        // §15.5.5 (RFC 20260810) — write to the enclosing
+        // fn-expression's self-name: an immutable function-env
+        // binding, so a strict-mode write (module code always is)
+        // raises TypeError. Same kernel and message as bun's JSC
+        // ("Attempted to assign to readonly property.").
+        return lower_self_name_write_throw(ctx, value);
+    }
     let v = if ctx.locals.get(&name).is_none()
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {
@@ -122,6 +130,23 @@ fn mint_consumer_stake(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Operand) {
 /// side uses. The lane past the throw-check is unreachable;
 /// `undefined`'s shape stands in so the enclosing expression still
 /// types out.
+/// §13.15.2 — the RHS evaluates first and its value drops (the throw
+/// makes it unobservable), then the readonly-assign raiser records the
+/// pending TypeError and the throw-check propagates it. `undefined`'s
+/// shape stands in so the enclosing expression still types out.
+fn lower_self_name_write_throw(ctx: &mut LowerCtx<'_>, value: ExprId) -> Operand {
+    let v = ctx.lower_expr(value);
+    let v_ty = ctx.operand_ty(&v);
+    if !v_ty.is_copy() {
+        ctx.emit_drop_value(v, v_ty);
+    }
+    let raiser = ctx.intrinsics.throw_readonly_assign;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(cur_block, InstKind::Call(raiser, vec![]));
+    ctx.emit_throw_check(None);
+    Operand::ConstPtrNull
+}
+
 fn lower_undeclared_write_throw(ctx: &mut LowerCtx<'_>, name: &str, value: ExprId) -> Operand {
     let v = ctx.lower_expr(value);
     let v_ty = ctx.operand_ty(&v);

@@ -157,9 +157,29 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         return v;
     }
 
-    let env_v = alloc_env(ctx, closure_ty, eff_captures.len(), &fn_name);
+    // §15.5.5 (RFC 20260810) — a named fn-expression gets one extra
+    // trailing env slot holding the cell itself (the body preamble
+    // binds the self-name from it). The store is a borrowed self-edge:
+    // the slot can never outlive the cell, so no rc_inc, no env-drop
+    // entry, no trace edge — `cap_meta` stays captures-only and the
+    // drop/trace synthesizers follow it.
+    let has_self_slot = ctx.ast.closure_self_names.contains_key(&fn_name);
+    let env_v = alloc_env(
+        ctx,
+        closure_ty,
+        eff_captures.len() + usize::from(has_self_slot),
+        &fn_name,
+    );
     init_env_header(ctx, env_v, fid, &fn_name);
     write_captures(ctx, env_v, &eff_captures);
+    if has_self_slot {
+        let off = CLOSURE_CAP_BASE_OFF + 8 * eff_captures.len() as u64;
+        let cur_block = ctx.cur_block;
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Store(Operand::Value(env_v), Operand::Value(env_v), off),
+        );
+    }
     Operand::Value(env_v)
 }
 

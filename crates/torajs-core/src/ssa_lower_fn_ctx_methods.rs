@@ -134,7 +134,11 @@ impl<'a> LowerCtx<'a> {
         let Some(cap_names) = decode_env_ann(ann) else {
             return;
         };
-        if cap_names.is_empty() {
+        // §15.5.5 (RFC 20260810) — a named fn-expression carries one
+        // extra trailing env slot with the cell itself; bind it even
+        // when the capture list is empty.
+        let self_name = self.ast.closure_self_names.get(fn_name).cloned();
+        if cap_names.is_empty() && self_name.is_none() {
             return;
         }
         // The `__env(c1|c2|...)` ann is the PRE-filter capture list —
@@ -210,6 +214,44 @@ impl<'a> LowerCtx<'a> {
                 },
             );
             self.scope_stack[0].push(cap_name.clone());
+        }
+        // Self-name binding — the trailing slot after the captures
+        // holds the cell (mint-site self-store; borrowed edge, no
+        // stake to release at exit). A same-named param shadows the
+        // binding (§15.5.5), so an existing local wins.
+        if let Some(sn) = self_name {
+            if !self.locals.contains_key(&sn) {
+                let closure_ty = crate::ssa_lower_closure::closure_value_ty(self, fn_name);
+                let env_ptr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
+                    Type::Ptr,
+                    None,
+                );
+                let offset = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(closure_ty, Operand::Value(env_ptr), offset),
+                    closure_ty,
+                    None,
+                );
+                let local = self.alloca(closure_ty, Some(&sn));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
+                );
+                self.locals.insert(
+                    sn.clone(),
+                    LocalInfo {
+                        slot: local,
+                        ty: closure_ty,
+                        moved: true,
+                        borrowed: true,
+                        scope_depth: 0,
+                    },
+                );
+                self.scope_stack[0].push(sn);
+            }
         }
     }
 }

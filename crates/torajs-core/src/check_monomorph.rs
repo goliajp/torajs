@@ -151,6 +151,7 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     // above) ride to the lowerer on the AST it already reads.
     owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
     owned_ast.undeclared_reads = std::mem::take(&mut c.undeclared_reads);
+    owned_ast.self_name_writes = std::mem::take(&mut c.self_name_writes);
     prune_unresolved_captures(c, &mut owned_ast);
     MonoOutput {
         mono_ast: owned_ast,
