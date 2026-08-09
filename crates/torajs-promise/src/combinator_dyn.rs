@@ -137,7 +137,7 @@ unsafe fn dyn_combinator(
 /// an any-shape array, which `all_sync` hands to its any-lane sibling
 /// before that form would be consulted, so `0` ("the site could not
 /// name a lane") is the honest word here rather than a lost opportunity.
-unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_void {
+pub(crate) unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_void {
     unsafe { crate::combinator::__torajs_promise_all_sync(arr, 0) }
 }
 
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn __torajs_promise_any_dyn(v: u64) -> *mut c_void {
 /// holds, and the dyn entry has no call site to derive either from.
 /// Two zeros leave the records anonymous with their slots untouched —
 /// the posture every allSettled record had before those words existed.
-unsafe extern "C" fn allsettled_sync_untagged(arr: *mut c_void) -> *mut c_void {
+pub(crate) unsafe extern "C" fn allsettled_sync_untagged(arr: *mut c_void) -> *mut c_void {
     unsafe { crate::combinator_allsettled::__torajs_promise_allsettled_sync(arr, 0, 0) }
 }
 

@@ -34,6 +34,33 @@ pub(crate) fn try_match(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
+    // await-dictionary proposal — `Promise.allKeyed(obj)` /
+    // `.allSettledKeyed(obj)` take an OBJECT of promises and fulfill
+    // with a null-prototype object keyed the same way, so the result
+    // is `Promise<any>` whatever the argument's static shape. The
+    // runtime kernel validates: a non-object REJECTS with TypeError
+    // (proposal step 3), which is why every argument type is admitted
+    // here rather than gated on a struct shape.
+    if let Expr::Member {
+        obj: ns_id,
+        name: m_name,
+    } = ast.get_expr(*callee)
+        && (m_name == "allKeyed" || m_name == "allSettledKeyed")
+        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+        && ns == "Promise"
+    {
+        if args.is_empty() {
+            return Some(Err(format!(
+                "Promise.{m_name} expects 1 arg (the object of Promises), got 0"
+            )));
+        }
+        for &a in args {
+            if let Err(e) = checker.type_of(ast, a) {
+                return Some(Err(e));
+            }
+        }
+        return Some(Ok(Type::Promise(Box::new(Type::Any))));
+    }
     /* T-17.a (v0.5.0) — Promise.all<T>(promises: Promise<T>[])
      * → Promise<Array<T>>. Sync fast-path MVP — caller's
      * input must be all-fulfilled at call time (pending

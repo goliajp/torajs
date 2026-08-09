@@ -559,6 +559,8 @@ pub(crate) fn build(
         promise_race_dyn: init_d.promise.promise_race_dyn,
         promise_any_dyn: init_d.promise.promise_any_dyn,
         promise_allsettled_dyn: init_d.promise.promise_allsettled_dyn,
+        promise_all_keyed_dyn: init_d.promise.promise_all_keyed_dyn,
+        promise_allsettled_keyed_dyn: init_d.promise.promise_allsettled_keyed_dyn,
         array_from_async_dyn: init_d.promise.array_from_async_dyn,
         array_from_async_map_dyn: init_d.promise.array_from_async_map_dyn,
         promise_with_resolvers: init_d.promise.promise_with_resolvers,

@@ -71,6 +71,9 @@ pub(crate) fn try_lower(
         "all" | "race" | "any" | "allSettled" if !args.is_empty() => {
             Some(lower_aggregate(ctx, eid, m, args))
         }
+        "allKeyed" | "allSettledKeyed" if !args.is_empty() => Some(
+            crate::ssa_lower_call_promise_keyed::lower_keyed(ctx, m, args),
+        ),
         "resolve" | "reject" if args.is_empty() => Some(lower_zero_arg(ctx, m)),
         "resolve" | "reject" => Some(lower_one_plus(ctx, eid, m, args)),
         "withResolvers" => Some(lower_with_resolvers(ctx, args)),

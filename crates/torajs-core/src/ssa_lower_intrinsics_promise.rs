@@ -88,6 +88,10 @@ pub(crate) struct PromiseIds {
     pub promise_race_dyn: FuncId,
     pub promise_any_dyn: FuncId,
     pub promise_allsettled_dyn: FuncId,
+    /// await-dictionary — keyed combinators over an OBJECT argument;
+    /// fulfill with a null-prototype object keyed like the input.
+    pub promise_all_keyed_dyn: FuncId,
+    pub promise_allsettled_keyed_dyn: FuncId,
     /// `Array.fromAsync(items)` sync-source MVP — the array-like
     /// step protocol collects, promise elements unwrap (§2.1.1
     /// step 5.e award), result promise holds an `Array<Any>`.
@@ -326,6 +330,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_allsettled_dyn",
+            &[Type::Any],
+            Type::Promise,
+        ),
+        promise_all_keyed_dyn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_all_keyed_dyn",
+            &[Type::Any],
+            Type::Promise,
+        ),
+        promise_allsettled_keyed_dyn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_allsettled_keyed_dyn",
             &[Type::Any],
             Type::Promise,
         ),

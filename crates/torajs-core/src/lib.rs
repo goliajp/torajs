@@ -344,6 +344,7 @@ pub(crate) mod ssa_lower_call_object_integrity;
 pub(crate) mod ssa_lower_call_object_is;
 pub(crate) mod ssa_lower_call_object_keys;
 pub(crate) mod ssa_lower_call_object_values;
+pub(crate) mod ssa_lower_call_promise_keyed;
 pub(crate) mod ssa_lower_call_promise_static;
 pub(crate) mod ssa_lower_call_recognizers;
 pub(crate) mod ssa_lower_call_reflect_get;
