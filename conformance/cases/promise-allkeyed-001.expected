@@ -1,9 +1,7 @@
-rejected true
 empty 0 true
 true
 [ "first", "second", "third" ]
 1 2 three
 [ "first", "second" ] first second
-fulfilled 1
-rejected true
-allKeyed rejected true
+fulfilled 10
+fulfilled plain
