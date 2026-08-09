@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use crate::layout::{
     BUCKET_FLAGS_MASK, BUCKET_KEY_PTR_MASK, DYNOBJ_CAP_OFF, DYNOBJ_COUNT_OFF,
-    DYNOBJ_ENTRIES_CAP_OFF, DYNOBJ_ENTRIES_LEN_OFF, DYNOBJ_INDEX_OFF, IDX_EMPTY, IDX_TOMBSTONE,
+    DYNOBJ_ENTRIES_CAP_OFF, DYNOBJ_ENTRIES_LEN_OFF, DYNOBJ_STORE_OFF, IDX_EMPTY, IDX_TOMBSTONE,
     STR_DATA_OFF, STR_LEN_OFF, TAG_SYMBOL_KEY,
 };
 
@@ -123,24 +123,43 @@ pub(crate) unsafe fn entries_cap(obj: *const c_void) -> u32 {
     unsafe { *((obj as *const u8).add(DYNOBJ_ENTRIES_CAP_OFF) as *const u32) }
 }
 
-/// Pointer to the start of the `index[cap]` u32 array.
+/// Read the dynobj's `store: *mut u8` (the index+entries block).
 ///
 /// # Safety
-/// `obj` must point at a live dynobj heap block.
+/// `obj` must point at a live dynobj header cell.
+#[inline]
+pub(crate) unsafe fn store_ptr(obj: *const c_void) -> *mut u8 {
+    unsafe { *((obj as *const u8).add(DYNOBJ_STORE_OFF) as *const *mut u8) }
+}
+
+/// Write the dynobj's `store: *mut u8` — [`crate::alloc`]'s fresh
+/// wiring and [`crate::resize`]'s swap are the only writers.
+///
+/// # Safety
+/// `obj` must point at a live dynobj header cell.
+#[inline]
+pub(crate) unsafe fn set_store_ptr(obj: *mut c_void, p: *mut u8) {
+    unsafe { *((obj as *mut u8).add(DYNOBJ_STORE_OFF) as *mut *mut u8) = p }
+}
+
+/// Pointer to the start of the `index[cap]` u32 array (store offset 0).
+///
+/// # Safety
+/// `obj` must point at a live dynobj header cell with a live store.
 #[inline]
 pub(crate) unsafe fn index_ptr(obj: *const c_void) -> *mut u32 {
-    unsafe { (obj as *mut u8).add(DYNOBJ_INDEX_OFF) as *mut u32 }
+    unsafe { store_ptr(obj) as *mut u32 }
 }
 
 /// Pointer to the start of the dense entry array (sits after the
-/// index, so the offset depends on the block's `cap`).
+/// index within the store, so the offset depends on `cap`).
 ///
 /// # Safety
-/// `obj` must point at a live dynobj heap block.
+/// `obj` must point at a live dynobj header cell with a live store.
 #[inline]
 pub(crate) unsafe fn entries(obj: *const c_void) -> *mut Entry {
     let cap = unsafe { cap(obj) };
-    unsafe { (obj as *mut u8).add(DYNOBJ_INDEX_OFF + cap as usize * 4) as *mut Entry }
+    unsafe { store_ptr(obj).add(cap as usize * 4) as *mut Entry }
 }
 
 /// Read a Str's `len: u64` (offset 8).

@@ -7,16 +7,33 @@
 //! (property printing / `Object.keys` / `for-in` share this root), so
 //! a bare linear-probe table cannot back a dynobj.
 //!
+//! Two blocks (RFC 20260809-dynobj-store-split). The **header cell**
+//! is a fixed 32-byte allocation whose address never changes for the
+//! object's lifetime — identity, refcount, every owner's pointer, the
+//! cycle collector's buffer and weak references all stay stable across
+//! growth. The **store** is an independent allocation holding the hash
+//! index + dense entries; [`crate::resize`] swaps it out wholesale
+//! (CPython's `ma_keys` / V8's properties backing store shape). The
+//! previous single-block layout made resize relocate the header, which
+//! split identity across owners and left every non-updated owner on a
+//! freed block (multi-owner UAF).
+//!
 //! ```text
+//! header cell (32B, address-stable)
+//! offset  | size | field
+//! --------|------|------
+//!   0     |  8B  | universal heap header (refcount + type_tag + flags)
+//!   8     |  4B  | count       (u32) — # of live entries (holes excluded)
+//!  12     |  4B  | cap         (u32) — hash-index slot count (power of 2)
+//!  16     |  4B  | entries_len (u32) — dense-array used length (holes included)
+//!  20     |  4B  | entries_cap (u32) — dense-array capacity = cap * 7/8
+//!  24     |  8B  | store       (*mut u8) — the index+entries block
+//!
+//! store block (store_bytes(cap), swapped on resize)
 //! offset  | size    | field
 //! --------|---------|------
-//!   0     |  8B     | universal heap header (refcount + type_tag + flags)
-//!   8     |  4B     | count       (u32) — # of live entries (holes excluded)
-//!  12     |  4B     | cap         (u32) — hash-index slot count (power of 2)
-//!  16     |  4B     | entries_len (u32) — dense-array used length (holes included)
-//!  20     |  4B     | entries_cap (u32) — dense-array capacity = cap * 7/8
-//!  24     |  4×cap  | index[cap]  (u32) — IDX_EMPTY / IDX_TOMBSTONE / entry idx
-//!  24+4×cap | 16×ecap | entries[entries_cap] — { key_ptr_tagged, value_anyv }
+//!   0     |  4×cap  | index[cap] (u32) — IDX_EMPTY / IDX_TOMBSTONE / entry idx
+//!  4×cap  | 16×ecap | entries[entries_cap] — { key_ptr_tagged, value_anyv }
 //! ```
 //!
 //! Deletion: the index slot becomes [`IDX_TOMBSTONE`] (probe walks
@@ -64,9 +81,13 @@
 /// Universal heap header size (`{ refcount: u32, type_tag: u16, flags: u16 }`).
 pub const HEAP_HEADER_SIZE: usize = 8;
 
-/// Header bytes before `index[]` — heap header (8) +
-/// count/cap/entries_len/entries_cap (4 × u32).
-pub const DYNOBJ_HDR_SIZE: usize = 24;
+/// Header-cell allocation size — heap header (8) +
+/// count/cap/entries_len/entries_cap (4 × u32) + store pointer (8).
+/// Fixed for the object's lifetime; the address never changes.
+pub const DYNOBJ_HEADER_BYTES: usize = 32;
+
+/// Offset of the `store: *mut u8` pointer within the header cell.
+pub const DYNOBJ_STORE_OFF: usize = 24;
 
 /// Per-entry size in the dense array. `key_ptr_tagged: u64` (8) +
 /// `value_anyv: u64` (8). 4 entries per 64-byte cache line.
@@ -154,9 +175,6 @@ pub const DYNOBJ_ENTRIES_LEN_OFF: usize = HEAP_HEADER_SIZE + 8;
 
 /// Offset of the `entries_cap` u32 within the heap block.
 pub const DYNOBJ_ENTRIES_CAP_OFF: usize = HEAP_HEADER_SIZE + 12;
-
-/// Offset of the `index[cap]` u32 array within the heap block.
-pub const DYNOBJ_INDEX_OFF: usize = DYNOBJ_HDR_SIZE;
 
 /// Hash-index "slot never used" sentinel (CPython `DKIX_EMPTY`
 /// analogue). All-ones so a `write_bytes(.., 0xFF, ..)` fill
@@ -265,9 +283,9 @@ pub const fn entries_cap_for(cap: u32) -> u32 {
     cap - cap / 8
 }
 
-/// Total heap-block byte size for a given hash-index `cap`:
-/// header + `index[cap]` + `entries[entries_cap]`.
+/// Store-block byte size for a given hash-index `cap`:
+/// `index[cap]` + `entries[entries_cap]`.
 #[inline]
-pub const fn block_bytes(cap: u32) -> usize {
-    DYNOBJ_HDR_SIZE + cap as usize * 4 + entries_cap_for(cap) as usize * DYNOBJ_ENTRY_SIZE
+pub const fn store_bytes(cap: u32) -> usize {
+    cap as usize * 4 + entries_cap_for(cap) as usize * DYNOBJ_ENTRY_SIZE
 }

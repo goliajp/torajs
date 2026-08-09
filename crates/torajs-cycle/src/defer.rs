@@ -30,7 +30,9 @@ use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
 use crate::arr::arr_spilled_data;
 use crate::collect::{clear_child_slot, for_each_child};
-use crate::dynobj::{dynobj_block_bytes, dynobj_entries_len, dynobj_key_at};
+use crate::dynobj::{
+    DYNOBJ_HEADER_BYTES, dynobj_entries_len, dynobj_key_at, dynobj_store_bytes, dynobj_store_ptr,
+};
 use crate::layout::{
     CLOSURE_DROP_FN_OFF, HeapHeader, STRING_WRAPPER_CELL_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE,
     TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, is_class_obj,
@@ -153,7 +155,12 @@ pub(crate) unsafe fn finalize_all() {
                 unsafe { drop_fn(p) };
             }
         } else if tag == TAG_DYNOBJ {
-            unsafe { free_sized(p, dynobj_block_bytes(p)) };
+            // Two sized frees since the store split — the independent
+            // index+entries block first, then the header cell.
+            unsafe {
+                free_sized(dynobj_store_ptr(p), dynobj_store_bytes(p));
+                free_sized(p, DYNOBJ_HEADER_BYTES);
+            }
         } else {
             if !matches!(
                 tag,

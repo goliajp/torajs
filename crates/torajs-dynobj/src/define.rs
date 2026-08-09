@@ -155,7 +155,7 @@ pub(crate) unsafe fn define_apply(
     flags_byte: u64,
     throw_on_refusal: bool,
 ) -> i64 {
-    let mut obj = unsafe { *obj_slot };
+    let obj = unsafe { *obj_slot };
     if obj.is_null() {
         return 1;
     }
@@ -262,12 +262,10 @@ pub(crate) unsafe fn define_apply(
     if let Some((data, len)) = unsafe { key_str_bytes(key) } {
         unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
     }
-    // Dense-array-full guard — same shape as set.rs.
+    // Dense-array-full guard — same shape as set.rs. Resize swaps the
+    // store inside the header cell — `obj` itself stays valid.
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
-        unsafe {
-            resize(obj_slot);
-            obj = *obj_slot;
-        }
+        unsafe { resize(obj) };
     }
 
     let pr = unsafe { probe(obj, key as *const c_void) };

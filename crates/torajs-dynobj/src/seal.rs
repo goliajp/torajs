@@ -206,15 +206,10 @@ mod tests {
     use super::*;
     use crate::alloc::__torajs_dynobj_alloc;
     use crate::layout::{
-        BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, DYNOBJ_INITIAL_CAP,
-        STR_DATA_OFF, STR_LEN_OFF, block_bytes,
+        BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, STR_DATA_OFF,
+        STR_LEN_OFF,
     };
     use crate::probe::{Entry, bucket_make_key_tagged, entries, set_entries_len};
-
-    unsafe extern "C" {
-        #[link_name = "__torajs_free"]
-        fn free(p: *mut c_void, size: usize);
-    }
 
     fn make_str(s: &str) -> Vec<u64> {
         let bytes = STR_DATA_OFF + s.len();
@@ -245,7 +240,7 @@ mod tests {
             assert!(__torajs_dynobj_all_entries_non_configurable(obj));
             __torajs_dynobj_seal_entries(obj);
             assert!(__torajs_dynobj_all_entries_non_configurable(obj));
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 
@@ -270,7 +265,7 @@ mod tests {
                 let kp = (*entries(obj).add(i)).key_ptr_tagged & (BUCKET_FLAGS_DEFAULT);
                 assert_eq!(kp, kept);
             }
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 
@@ -292,7 +287,7 @@ mod tests {
             // The hole's word is still DYNOBJ_KEY_HOLE — seal must
             // not flip it.
             assert_eq!((*entries(obj).add(1)).key_ptr_tagged, DYNOBJ_KEY_HOLE);
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 

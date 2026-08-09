@@ -1,19 +1,22 @@
 //! Initial-cap dynobj LIFO pool — recycler for the uniform
-//! `block_bytes(DYNOBJ_INITIAL_CAP)` = 168-byte block size class
-//! (same shape as `torajs-str`'s small-Str pool).
+//! header-cell + initial-cap-store PAIR (32B + 144B; same shape as
+//! `torajs-str`'s small-Str pool). Each slot holds a header pointer
+//! whose store pointer still carries a live `store_bytes(8)` block —
+//! push keeps the pair wired, pop hands both back in one pointer.
 //!
 //! Round 5 regex re-decomposition attack #3 — the regex wire-back
 //! attaches `index` / `input` / `groups` to every match result via a
 //! fresh props dynobj, so tight `str.match(re)` loops allocate + free
-//! one 168-byte `calloc` per iteration (and macOS 26's xzone malloc
-//! zeroes on free, making the free as expensive as the alloc). The
-//! pool turns that round trip into pointer-pop / pointer-push; the
-//! popped block is re-initialised by the allocator (header + counts +
-//! 32-byte index fill ≈ 48 bytes written vs. a 168-byte calloc).
+//! two `calloc`s per iteration (and macOS 26's xzone malloc zeroes on
+//! free, making the free as expensive as the alloc). The pool turns
+//! that round trip into pointer-pop / pointer-push; the popped pair is
+//! re-initialised by the allocator (header + counts + 32-byte index
+//! fill ≈ 48 bytes written vs. two callocs).
 //!
-//! Only never-grown blocks (`cap == DYNOBJ_INITIAL_CAP`) are pooled —
-//! grown blocks have a different byte size and take the plain free
-//! path.
+//! Only never-grown objects (`cap == DYNOBJ_INITIAL_CAP`) are pooled —
+//! a grown object's store has a different byte size, so the pair takes
+//! the plain two-block free path. A store swapped OUT by resize is a
+//! bare block with no header and never enters the pool.
 //!
 //! Single-threaded by contract, `Atomic*` under `Relaxed` for the
 //! same safety story as `torajs-str::pool` (identical codegen, no
@@ -33,9 +36,10 @@ static SLOTS: [AtomicPtr<u8>; DYNOBJ_POOL_SLOTS] =
     [const { AtomicPtr::new(ptr::null_mut()) }; DYNOBJ_POOL_SLOTS];
 static COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// Pop the most-recently-pushed block, or `None` if the pool is
-/// empty. The popped block's bytes are stale — the allocator must
-/// re-initialise header, counts and hash index before exposing it.
+/// Pop the most-recently-pushed header (its store still wired), or
+/// `None` if the pool is empty. Both blocks' bytes are stale — the
+/// allocator must re-initialise header, counts and hash index before
+/// exposing the pair.
 #[inline]
 pub fn pop() -> Option<NonNull<u8>> {
     let count = COUNT.load(Ordering::Relaxed);
@@ -48,9 +52,10 @@ pub fn pop() -> Option<NonNull<u8>> {
     NonNull::new(p)
 }
 
-/// Push a dead initial-cap block onto the LIFO. Returns `true` if
-/// accepted, `false` if the pool was full (caller frees instead).
-/// The caller transfers ownership of the block.
+/// Push a dead initial-cap header (store still wired) onto the LIFO.
+/// Returns `true` if accepted, `false` if the pool was full (caller
+/// frees both blocks instead). The caller transfers ownership of the
+/// pair.
 #[inline]
 pub fn push(p: NonNull<u8>) -> bool {
     let count = COUNT.load(Ordering::Relaxed);

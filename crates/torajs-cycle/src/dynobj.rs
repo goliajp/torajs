@@ -2,19 +2,27 @@
 //! 20260717-cycle-walk-dynobj blade 2) — the `arr.rs` twin for the
 //! compact insertion-ordered dict.
 //!
-//! Layout mirror of `torajs-dynobj/src/layout.rs` (single heap
-//! block):
+//! Layout mirror of `torajs-dynobj/src/layout.rs` (two blocks since
+//! RFC 20260809-dynobj-store-split — a 32-byte address-stable header
+//! cell plus an independent index+entries store the header points at;
+//! resize swaps the store, never the header):
 //!
 //! ```text
-//! offset      | field
-//! ------------|------
-//!   0         | universal heap header (8B)
-//!   8         | count (u32)
-//!  12         | cap (u32) — hash-index slot count
-//!  16         | entries_len (u32) — dense-array used length (holes included)
-//!  20         | entries_cap (u32)
-//!  24         | index[cap] (4B each)
-//!  24 + 4×cap | entries[] — { key_ptr_tagged: u64, value_anyv: u64 }
+//! header cell (32B)
+//! offset | field
+//! -------|------
+//!   0    | universal heap header (8B)
+//!   8    | count (u32)
+//!  12    | cap (u32) — hash-index slot count
+//!  16    | entries_len (u32) — dense-array used length (holes included)
+//!  20    | entries_cap (u32)
+//!  24    | store (*mut u8) — the index+entries block
+//!
+//! store block (store_bytes(cap))
+//! offset | field
+//! -------|------
+//!   0    | index[cap] (4B each)
+//!  4×cap | entries[] — { key_ptr_tagged: u64, value_anyv: u64 }
 //! ```
 //!
 //! A deleted entry is a hole: `key_ptr_tagged == 0` (skipped by
@@ -26,8 +34,10 @@ use core::ffi::c_void;
 
 use crate::layout::nan_box_is_cell_like;
 
-/// Header bytes before `index[]` (heap header 8 + 4 × u32).
-const DYNOBJ_HDR_SIZE: usize = 24;
+/// Header-cell allocation size (heap header 8 + 4 × u32 + store ptr 8).
+pub const DYNOBJ_HEADER_BYTES: usize = 32;
+/// `store: *mut u8` offset within the header cell.
+const DYNOBJ_STORE_OFF: usize = 24;
 /// Per-entry stride: `key_ptr_tagged: u64` + `value_anyv: u64`.
 const DYNOBJ_ENTRY_SIZE: usize = 16;
 /// `cap: u32` offset (hash-index slot count).
@@ -47,14 +57,23 @@ pub unsafe fn dynobj_entries_len(p: *mut c_void) -> u64 {
     unsafe { *((p as *const u8).add(DYNOBJ_ENTRIES_LEN_OFF) as *const u32) as u64 }
 }
 
-/// Address of entry `i`'s 16-byte record.
+/// The header cell's store pointer (the index+entries block).
+///
+/// # Safety
+/// `p` must be a live DynObj header cell.
+#[inline]
+pub unsafe fn dynobj_store_ptr(p: *mut c_void) -> *mut c_void {
+    unsafe { *((p as *const u8).add(DYNOBJ_STORE_OFF) as *const *mut c_void) }
+}
+
+/// Address of entry `i`'s 16-byte record (inside the store).
 ///
 /// # Safety
 /// `p` live DynObj; `i < dynobj_entries_len(p)`.
 #[inline]
 unsafe fn entry_at(p: *mut c_void, i: u64) -> *mut u8 {
     let cap = unsafe { *((p as *const u8).add(DYNOBJ_CAP_OFF) as *const u32) } as usize;
-    unsafe { (p as *mut u8).add(DYNOBJ_HDR_SIZE + 4 * cap + i as usize * DYNOBJ_ENTRY_SIZE) }
+    unsafe { (dynobj_store_ptr(p) as *mut u8).add(4 * cap + i as usize * DYNOBJ_ENTRY_SIZE) }
 }
 
 /// Entry `i`'s value as a walkable-child candidate: NULL for a hole
@@ -99,17 +118,18 @@ pub unsafe fn dynobj_key_at(p: *mut c_void, i: u64) -> *mut c_void {
     (tagged & BUCKET_KEY_PTR_MASK) as *mut c_void
 }
 
-/// Total heap-block byte size (header + `index[cap]` +
-/// `entries[entries_cap]`) — `torajs-dynobj::layout::block_bytes`
-/// mirror. The dict is a SIZED `__torajs_calloc` allocation with no
-/// libc-shim size header, so collect_white must release it through
-/// the sized `__torajs_free`, not `__torajs_libc_free` (which reads
-/// a size word at `p - 8` that a sized allocation never wrote).
+/// The store block's byte size (`index[cap]` + `entries[entries_cap]`)
+/// — `torajs-dynobj::layout::store_bytes` mirror. Both blocks are
+/// SIZED `__torajs_calloc` allocations with no libc-shim size header,
+/// so collect_white must release each through the sized
+/// `__torajs_free` (store first, then the [`DYNOBJ_HEADER_BYTES`]
+/// header cell), not `__torajs_libc_free` (which reads a size word at
+/// `p - 8` that a sized allocation never wrote).
 ///
 /// # Safety
-/// `p` must be a live DynObj heap pointer.
-pub unsafe fn dynobj_block_bytes(p: *mut c_void) -> usize {
+/// `p` must be a live DynObj header cell.
+pub unsafe fn dynobj_store_bytes(p: *mut c_void) -> usize {
     let cap = unsafe { *((p as *const u8).add(DYNOBJ_CAP_OFF) as *const u32) };
     let entries_cap = (cap - cap / 8) as usize;
-    DYNOBJ_HDR_SIZE + cap as usize * 4 + entries_cap * DYNOBJ_ENTRY_SIZE
+    cap as usize * 4 + entries_cap * DYNOBJ_ENTRY_SIZE
 }

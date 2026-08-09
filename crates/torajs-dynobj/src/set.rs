@@ -98,7 +98,7 @@ unsafe fn dynobj_set_impl(
     value: u64,
     throw_on_refusal: bool,
 ) -> i64 {
-    let mut obj = unsafe { *obj_slot };
+    let obj = unsafe { *obj_slot };
     if obj.is_null() {
         return 1;
     }
@@ -113,11 +113,10 @@ unsafe fn dynobj_set_impl(
     }
     // Dense-array-full guard: compact (and grow if genuinely full)
     // before probing so a fresh insert always has an append slot.
+    // Resize swaps the store inside the header cell — `obj` itself
+    // stays valid (RFC 20260809-dynobj-store-split).
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
-        unsafe {
-            resize(obj_slot);
-            obj = *obj_slot;
-        }
+        unsafe { resize(obj) };
     }
 
     let pr = unsafe { probe(obj, key as *const c_void) };
@@ -241,15 +240,12 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
     key: *mut c_void,
     flags: u64,
 ) {
-    let mut obj = unsafe { *obj_slot };
+    let obj = unsafe { *obj_slot };
     if obj.is_null() {
         return;
     }
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
-        unsafe {
-            resize(obj_slot);
-            obj = *obj_slot;
-        }
+        unsafe { resize(obj) };
     }
     let pr = unsafe { probe(obj, key as *const c_void) };
     let ent = unsafe { entries(obj) };
@@ -291,15 +287,12 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_hole(
     obj_slot: *mut *mut c_void,
     key: *mut c_void,
 ) {
-    let mut obj = unsafe { *obj_slot };
+    let obj = unsafe { *obj_slot };
     if obj.is_null() {
         return;
     }
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
-        unsafe {
-            resize(obj_slot);
-            obj = *obj_slot;
-        }
+        unsafe { resize(obj) };
     }
     let pr = unsafe { probe(obj, key as *const c_void) };
     let ent = unsafe { entries(obj) };

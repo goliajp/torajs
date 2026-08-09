@@ -304,18 +304,10 @@ pub unsafe extern "C" fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) 
 mod tests {
     use super::*;
     use crate::alloc::__torajs_dynobj_alloc;
-    use crate::layout::{
-        BUCKET_FLAGS_DEFAULT, DYNOBJ_INITIAL_CAP, IDX_TOMBSTONE, STR_DATA_OFF, STR_LEN_OFF,
-        block_bytes,
-    };
+    use crate::layout::{BUCKET_FLAGS_DEFAULT, IDX_TOMBSTONE, STR_DATA_OFF, STR_LEN_OFF};
     use crate::probe::{
         Entry, bucket_make_key_tagged, count, entries, index_ptr, probe, set_count, set_entries_len,
     };
-
-    unsafe extern "C" {
-        #[link_name = "__torajs_free"]
-        fn free(p: *mut c_void, size: usize);
-    }
 
     /// Synthesize a Str-shaped heap block: [hdr:8][len:8][bytes].
     /// Backed by a `Vec<u64>` so the base pointer is 8-aligned — the
@@ -407,7 +399,7 @@ mod tests {
             assert_eq!(__torajs_dynobj_iter_key(obj, 3), core::ptr::null_mut());
             assert_eq!(__torajs_dynobj_iter_value(obj, 99), 0);
 
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 
@@ -467,7 +459,7 @@ mod tests {
                 0
             );
 
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 
@@ -490,7 +482,7 @@ mod tests {
             let n = __torajs_dynobj_iter_order(obj, out.as_mut_ptr(), 2);
             assert_eq!(n, 2);
             assert_eq!(out, [1, 0]);
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 
@@ -568,7 +560,7 @@ mod tests {
                 0
             );
 
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 
@@ -602,7 +594,7 @@ mod tests {
             assert!(!probe(obj, p1).found);
             assert!(probe(obj, kstr.as_ptr() as *const c_void).found);
 
-            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+            crate::alloc::free_dynobj_blocks(obj);
         }
     }
 }

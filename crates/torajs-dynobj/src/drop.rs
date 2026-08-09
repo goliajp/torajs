@@ -4,12 +4,13 @@
 //! (torajs-value-drop) when a dynobj's refcount transitions to zero.
 //!
 //! Walks the dense entry array in order, drops each live entry's key
-//! cell + any ANY_HEAP value (holes are skipped), then frees the block.
+//! cell + any ANY_HEAP value (holes are skipped), then frees the
+//! store block and the header cell.
 
 use core::ffi::c_void;
 
-use crate::layout::{DYNOBJ_KEY_HOLE, block_bytes};
-use crate::probe::{bucket_key_ptr, cap, drop_key, entries, entries_len};
+use crate::layout::{DYNOBJ_HEADER_BYTES, DYNOBJ_KEY_HOLE, store_bytes};
+use crate::probe::{bucket_key_ptr, cap, drop_key, entries, entries_len, store_ptr};
 
 unsafe extern "C" {
     /// Cross-tier — torajs-rc's refcount dec. Returns 1 iff the
@@ -66,10 +67,11 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
         }
     }
     let obj_cap = unsafe { cap(obj) };
-    // Round 5 attack #3 — never-grown blocks recycle through the
-    // LIFO pool (uniform 168-byte size class); the allocator re-inits
-    // header/counts/index on pop. Grown blocks have a different byte
-    // size and take the plain free path.
+    // Round 5 attack #3 — never-grown objects recycle through the
+    // LIFO pool as a header+store pair (the store stays wired on the
+    // header's store pointer; the allocator re-inits header / counts
+    // / index on pop). Grown objects carry a different-size store and
+    // take the plain free path.
     if obj_cap == crate::layout::DYNOBJ_INITIAL_CAP {
         if let Some(nn) = core::ptr::NonNull::new(obj as *mut u8) {
             if crate::pool::push(nn) {
@@ -78,6 +80,7 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
         }
     }
     unsafe {
-        free(obj, block_bytes(obj_cap));
+        free(store_ptr(obj) as *mut c_void, store_bytes(obj_cap));
+        free(obj, DYNOBJ_HEADER_BYTES);
     }
 }
