@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T16:32:56.721Z",
+  "generatedAt": "2026-08-09T18:26:53.692Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-09T16:31:15Z",
-    "headSha": "7392dfaa",
-    "elapsedSec": 425.34,
+    "ranAt": "2026-08-09T18:25:28Z",
+    "headSha": "bfcf353e",
+    "elapsedSec": 377.09,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 23948,
+    "pass": 23984,
     "passNoOracle": 828,
     "passNegative": 3955,
-    "passTotal": 28731,
-    "bug": 12725,
-    "incompatible": 11718,
+    "passTotal": 28767,
+    "bug": 12704,
+    "incompatible": 11703,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41456,
-    "passRateInScope": 54.03,
-    "passRateTrAccepted": 69.3
+    "trAccepted": 41471,
+    "passRateInScope": 54.1,
+    "passRateTrAccepted": 69.37
   },
   "torajs": {
-    "commit": "7392dfaa",
-    "commitSubject": "Revert \"test: lock allsettled record any-lane reads\"",
+    "commit": "bfcf353e",
+    "commitSubject": "fix: self-name binds in its own scope; zero-capture body skips the capture side-channel",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "bfcf353e",
+      "subject": "fix: self-name binds in its own scope; zero-capture body skips the capture side-channel"
+    },
+    {
+      "hash": "b5563f8a",
+      "subject": "fix: array-like mutator walks stop on a pending throw"
+    },
+    {
+      "hash": "1e6f40ac",
+      "subject": "feat: integer-limit early-exit gates on the array-like lanes"
+    },
+    {
+      "hash": "bc625341",
+      "subject": "feat: generator-expression self-name binds via the wrapper cell as a leading param"
+    },
+    {
+      "hash": "5a37c9e8",
+      "subject": "feat: fn-expr self-name binds inside the body via a trailing env self-slot"
+    },
+    {
+      "hash": "3d362776",
+      "subject": "docs: rotation 348 close — uaf knife lands, capture channel opens, sweep archived"
+    },
+    {
       "hash": "7392dfaa",
       "subject": "Revert \"test: lock allsettled record any-lane reads\""
     },
@@ -735,51 +759,38 @@
     {
       "hash": "9941d35b",
       "subject": "docs: rotation 347 close — four knives off the recorded queues, gate chain ends 2658/0/4"
-    },
-    {
-      "hash": "4d626200",
-      "subject": "feat: instanceof reaches a bare fndecl name through its canonical cell"
-    },
-    {
-      "hash": "5e3af784",
-      "subject": "fix: allkeyed fixture keeps to the faces the promise pool survives"
-    },
-    {
-      "hash": "460c76bd",
-      "subject": "feat: promise combinators learn the keyed pair from await-dictionary"
-    },
-    {
-      "hash": "5d73a304",
-      "subject": "feat: rest params materialize through the any-lane boxed adapter"
-    },
-    {
-      "hash": "81b85fea",
-      "subject": "feat: yield-into temps bind inside generator expression bodies"
-    },
-    {
-      "hash": "8ff9a184",
-      "subject": "docs: rotation 346 close — function-this free-var boundary fells four top clusters, gate chain ends 2654/0/4"
     }
   ],
-  "headSha": "7392dfaa",
+  "headSha": "bfcf353e",
   "autorun": {
-    "total": 651,
+    "total": 652,
     "baselineTarget": 10,
-    "bySelf": 646,
+    "bySelf": 647,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786288526-26dd",
-      "at": "2026-08-09T15:15:26Z",
-      "ts": 1786288526,
+      "rotationId": "r-1786293968-4089",
+      "at": "2026-08-09T16:46:08Z",
+      "ts": 1786293968,
       "trigger": "self",
-      "prevHead": "9941d35b",
-      "handoffSha": "sha256:ef9078323272f5e0ec5512dbb687c4ab1d1d50a33077648ad6bcdd1f64d41a12",
-      "handoffAgeSec": 19,
+      "prevHead": "3d362776",
+      "handoffSha": "sha256:4f674c632846abaaa553bb1b7eaa1090edd5ae5cfeb9ae19185eaa55920f6bc3",
+      "handoffAgeSec": 501,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786293968-4089",
+        "at": "2026-08-09T16:46:08Z",
+        "ts": 1786293968,
+        "trigger": "self",
+        "prevHead": "3d362776",
+        "handoffSha": "sha256:4f674c632846abaaa553bb1b7eaa1090edd5ae5cfeb9ae19185eaa55920f6bc3",
+        "handoffAgeSec": 501,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786288526-26dd",
         "at": "2026-08-09T15:15:26Z",
@@ -876,17 +887,6 @@
         "prevHead": "5549f870",
         "handoffSha": "sha256:0fd95151edff9a2330195deba3eefc38845fcb8846058c958f44684421e44584",
         "handoffAgeSec": 225,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786197869-383c",
-        "at": "2026-08-08T14:04:29Z",
-        "ts": 1786197869,
-        "trigger": "self",
-        "prevHead": "141e0f3a",
-        "handoffSha": "sha256:72c1ad6429456fcd800632f3fef76b197e337473b80b18205da5f574de0f42f8",
-        "handoffAgeSec": 25,
         "conformanceBefore": null,
         "commitsInSession": null
       }
