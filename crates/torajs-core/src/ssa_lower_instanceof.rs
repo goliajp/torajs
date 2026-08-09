@@ -209,28 +209,63 @@ fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> O
 /// The runtime helper throws on a prototype-less callable (step 5),
 /// so the call carries a throw check.
 fn try_lower_fn_value(ctx: &mut LowerCtx<'_>, v_any: Operand, class_name: &str) -> Option<Operand> {
-    let info = crate::ssa_lower_call_closure_local::resolve_closure_binding(ctx, class_name)?;
-    if !matches!(info.ty, Type::Closure(_)) {
-        return None;
+    if let Some(info) =
+        crate::ssa_lower_call_closure_local::resolve_closure_binding(ctx, class_name)
+        && matches!(info.ty, Type::Closure(_))
+    {
+        let cur_block = ctx.cur_block;
+        let cell = ctx.f.append_inst(
+            cur_block,
+            InstKind::Load(info.ty.clone(), Operand::Value(info.slot), 0),
+            info.ty,
+            None,
+        );
+        return Some(emit_has_instance(ctx, v_any, Operand::Value(cell), None));
     }
+    // Bare FnDecl name (nested or top-level `function F() {}`): no
+    // Closure binding exists, but a VALUE use elsewhere synthesized
+    // the `__forward_F` wrapper whose canonical `__fncell_*` cell is
+    // the ES singleton every channel shares — the construct path's
+    // `fn_prototype_pair` hangs the canonical `.prototype` off that
+    // same cell, so the §7.3.22 walk converges. The canonical mint
+    // answers +1 per use; the probe releases it after the call. A fn
+    // never used as a value has no forwarder and keeps the
+    // constant-false fallback (recorded residue: nothing constructed
+    // through it either, so the answer is right anyway).
+    let fwd = format!("__forward_{class_name}");
+    let fid = ctx.fn_table.get(&fwd).copied()?;
+    let closure_ty = crate::ssa_lower_closure::closure_value_ty(ctx, &fwd);
+    let cell = crate::ssa_lower_closure_canonical::try_lower_canonical_cell(
+        ctx, &fwd, fid, closure_ty, false,
+    )?;
+    Some(emit_has_instance(ctx, v_any, cell, Some(closure_ty)))
+}
+
+/// The §7.3.22 runtime call + throw check; `release` carries the
+/// cell's type when the operand arrived OWNED (the canonical mint's
+/// +1 per use) and needs a post-call drop — the binding lane's Load
+/// answers a borrow and passes `None`.
+fn emit_has_instance(
+    ctx: &mut LowerCtx<'_>,
+    v_any: Operand,
+    cell: Operand,
+    release: Option<Type>,
+) -> Operand {
     let cur_block = ctx.cur_block;
-    let cell = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(info.ty.clone(), Operand::Value(info.slot), 0),
-        info.ty,
-        None,
-    );
     let r = ctx.f.append_inst(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.instanceof_fn_value,
-            vec![v_any, Operand::Value(cell)],
+            vec![v_any, cell.clone()],
         ),
         Type::Bool,
         None,
     );
     ctx.emit_throw_check(None);
-    Some(Operand::Value(r))
+    if let Some(ty) = release {
+        ctx.emit_drop_value(cell, ty);
+    }
+    Operand::Value(r)
 }
 
 fn builtin_type_tag(class_name: &str) -> Option<i64> {
@@ -264,7 +299,12 @@ fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str
         let is_fn_binding = matches!(
             ctx.locals.get(class_name).map(|i| &i.ty),
             Some(Type::Closure(_))
-        ) || matches!(ctx.globals.get(class_name), Some(Type::Closure(_)));
+        ) || matches!(ctx.globals.get(class_name), Some(Type::Closure(_)))
+            // Bare FnDecl name with a synthesized forwarder — the
+            // canonical-cell lane inside try_lower_fn_value.
+            || ctx
+                .fn_table
+                .contains_key(format!("__forward_{class_name}").as_str());
         if is_fn_binding {
             let v_any = ctx.box_to_any(v);
             if let Some(r) = try_lower_fn_value(ctx, v_any, class_name) {
