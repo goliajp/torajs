@@ -333,6 +333,7 @@ pub(crate) struct Intrinsics {
     pub(crate) get_builtin_prototype: FuncId,
     pub(crate) instanceof_class_any_tag: FuncId,
     pub(crate) instanceof_builtin_any_tag: FuncId,
+    pub(crate) instanceof_fn_value: FuncId,
     pub(crate) instanceof_object_any: FuncId,
     pub(crate) in_op_any_num: FuncId,
     pub(crate) in_op_any_str: FuncId,

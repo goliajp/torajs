@@ -40,6 +40,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_object_create_link_proto(obj: *mut c_void, proto: u64);
     fn __torajs_throw_check() -> i64;
+    fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
 }
 
 /// Mirror of `method_value.rs`'s cell layout constant — the boxed
@@ -278,6 +279,42 @@ unsafe fn construct_plain_fn(cell: *mut c_void, argv: *const u64, argc: i64) -> 
             crate::nanbox_ffi::__torajs_anyv_rc_dec(result);
         }
         this_av
+    }
+}
+
+/// §7.3.22 OrdinaryHasInstance(C, O) where C is a plain-fn VALUE —
+/// `o instanceof C` with a fn-expr binding behind the name (no class
+/// resolves, so the compile-time tag dispatch has nothing to fold).
+/// O must be an Object (step 3, non-objects answer false); P is
+/// C's canonical `.prototype` (the same fnprops cell the construct
+/// kernel links, so `Array.from.call(C, …)` products match); the
+/// walk follows [[Prototype]] links (the proto getter answers
+/// borrows / immortal singletons — nothing to release) comparing
+/// cell identity per step 7. A callable with no object-shaped
+/// `.prototype` throws (step 5's Get + step 6's Type check).
+///
+/// # Safety
+/// `v` is a valid AnyValue; `cell` is a live `Tag::Closure` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void) -> bool {
+    unsafe {
+        let Some((_ptag, pval)) = crate::closure_proto::fn_prototype_pair(cell) else {
+            __torajs_throw_type_error(
+                c"Function has non-object prototype in instanceof check".as_ptr(),
+            );
+            return false;
+        };
+        if !is_heap_object(v) {
+            return false;
+        }
+        let mut cur = __torajs_anyv_get_proto_of_any(v);
+        while cur != crate::nanbox::VALUE_NULL && cur != 0 {
+            if is_cell(cur) && as_void_ptr(cur) as u64 == pval {
+                return true;
+            }
+            cur = __torajs_anyv_get_proto_of_any(cur);
+        }
+        false
     }
 }
 

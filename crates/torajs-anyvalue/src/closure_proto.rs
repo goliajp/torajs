@@ -110,15 +110,28 @@ unsafe fn has_fn_proto_flag(ptr: *const c_void) -> bool {
 
 /// Materialize (or answer the already-minted) `.prototype` of a
 /// plain-fn closure as a borrow pair; `None` for every cell without
-/// the flag. Caller (both member-get channels) has already probed the
-/// props dynobj and missed — the mint below writes the entry there,
-/// so the second channel's probe hits and this runs at most once per
-/// cell.
+/// the flag. Probes the props dynobj itself before minting (rotation
+/// 345): the original contract left the probe to the member-get
+/// callers, and the two non-member-get consumers that arrived since
+/// (`construct_plain_fn`, the instanceof fn-value walk) called
+/// straight in — every call minted a FRESH prototype and overwrote
+/// the entry, so `o instanceof C` compared o's chain against a
+/// just-minted twin and repeated `Reflect.construct(C)` products
+/// diverged. The probe makes the mint once-per-cell wherever the
+/// call comes from; the member-get pre-probes stay as fast paths.
 pub(crate) unsafe fn fn_prototype_pair(ptr: *mut c_void) -> Option<(u64, u64)> {
     if !unsafe { has_fn_proto_flag(ptr) } {
         return None;
     }
     unsafe {
+        let props = closure_props(ptr);
+        if !props.is_null() {
+            let key = interned_key(&PROTO_KEY_CELL, b"prototype");
+            let tag = __torajs_dynobj_get_tag(props, key);
+            if tag != 5 {
+                return Some((tag, __torajs_dynobj_get_value(props, key)));
+            }
+        }
         // Fresh prototype object with the `constructor` back-ref.
         // The closure ref is inc'd because define consumes one rc of
         // its heap value; the resulting cycle is collector-walked.

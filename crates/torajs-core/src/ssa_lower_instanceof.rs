@@ -193,9 +193,44 @@ fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> O
     }
     let descendant_tags = compute_descendant_tags(ctx, class_name);
     if descendant_tags.is_empty() {
+        if let Some(r) = try_lower_fn_value(ctx, v, class_name) {
+            return r;
+        }
         return Operand::ConstBool(false);
     }
     emit_any_class_or_chain(ctx, v, &descendant_tags)
+}
+
+/// Rotation 345 (RFC 20260808-construct-channel) — `o instanceof C`
+/// where the name resolves to a Closure-typed BINDING rather than a
+/// class: §7.3.22 OrdinaryHasInstance against the fn value's
+/// canonical `.prototype` (the same fnprops cell the construct
+/// kernel links, so `Array.from.call(C, …)` products answer true).
+/// The runtime helper throws on a prototype-less callable (step 5),
+/// so the call carries a throw check.
+fn try_lower_fn_value(ctx: &mut LowerCtx<'_>, v_any: Operand, class_name: &str) -> Option<Operand> {
+    let info = crate::ssa_lower_call_closure_local::resolve_closure_binding(ctx, class_name)?;
+    if !matches!(info.ty, Type::Closure(_)) {
+        return None;
+    }
+    let cur_block = ctx.cur_block;
+    let cell = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(info.ty.clone(), Operand::Value(info.slot), 0),
+        info.ty,
+        None,
+    );
+    let r = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.instanceof_fn_value,
+            vec![v_any, Operand::Value(cell)],
+        ),
+        Type::Bool,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    Some(Operand::Value(r))
 }
 
 fn builtin_type_tag(class_name: &str) -> Option<i64> {
@@ -222,6 +257,20 @@ fn builtin_type_tag(class_name: &str) -> Option<i64> {
 fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> Operand {
     let descendant_tags = compute_descendant_tags(ctx, class_name);
     if descendant_tags.is_empty() {
+        // Fn-value binding behind the name — box the typed receiver
+        // and take the OrdinaryHasInstance walk (doc on the fn). The
+        // cheap existence probe keeps the constant-false path free
+        // of a dead box (resolve emits a GlobalRef when it hits).
+        let is_fn_binding = matches!(
+            ctx.locals.get(class_name).map(|i| &i.ty),
+            Some(Type::Closure(_))
+        ) || matches!(ctx.globals.get(class_name), Some(Type::Closure(_)));
+        if is_fn_binding {
+            let v_any = ctx.box_to_any(v);
+            if let Some(r) = try_lower_fn_value(ctx, v_any, class_name) {
+                return r;
+            }
+        }
         return Operand::ConstBool(false);
     }
     let cur_block = ctx.cur_block;

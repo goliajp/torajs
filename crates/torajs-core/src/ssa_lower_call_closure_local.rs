@@ -252,7 +252,7 @@ pub(crate) fn try_lower_with_this(
 /// shape-identical for both. Variadic globals never promote
 /// (collect gate), so the caller's variadic_locals check stays
 /// local-only by construction.
-fn resolve_closure_binding(
+pub(crate) fn resolve_closure_binding(
     ctx: &mut LowerCtx<'_>,
     callee_name: &str,
 ) -> Option<crate::ssa_lower::LocalInfo> {
