@@ -111,7 +111,16 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
             walk_expr(ast, *eid, bound, out)
         }
-        Stmt::YieldInto { value, .. } => walk_expr(ast, *value, bound, out),
+        // YieldInto is the parse-time spelling of `let var = yield value`
+        // (yield_expr_hoist) — the temp BINDS from here on, exactly like
+        // LetDecl below. Without the bind every downstream `__yx_N` read
+        // reported free, so a generator EXPRESSION whose body used
+        // expression-position yield always "captured" its own temp and
+        // the hoist pass panicked.
+        Stmt::YieldInto { var, value, .. } => {
+            walk_expr(ast, *value, bound, out);
+            bound.push(var.clone());
+        }
         Stmt::Return(None) => {}
         Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
             walk_expr(ast, *init, bound, out);
