@@ -126,6 +126,15 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
             return __torajs_arr_proto_index_get(arr, idx);
         }
         let header = &*(arr as *const HeapHeader);
+        // Sparse tail (RFC 20260810-arr-sparse-grow) — `[extent,
+        // len)` is implicit holes with no storage: same prototype
+        // continuation as an explicit hole, before anything touches
+        // the slot buffer.
+        if header.flags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0
+            && idx as u64 >= crate::layout::arr_live_extent(p)
+        {
+            return __torajs_arr_proto_index_get(arr, idx);
+        }
         // Exotic slow path (chunk C accessor) — an accessor index
         // reads through its getter; plain arrays never take this
         // branch (one predictable bit test).

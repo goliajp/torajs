@@ -92,6 +92,10 @@ const ARR_LEN_OFF: usize = 8;
 // its first non-index property.
 const ARR_PROPS_OFF: usize = 24;
 
+// Byte offset of `cap` (u32) — the materialized-extent bound while
+// `FLAG_ARR_SPARSE_TAIL` is up (torajs-arr `layout::ARR_CAP_OFF`).
+const ARR_CAP_OFF: usize = 16;
+
 // Tag value ssa_lower emits for NaN-boxed heap pointers (mirrors
 // `ANY_TAG_HEAP = 4` from torajs-anyvalue / ssa_lower).
 const ANY_TAG_HEAP: i64 = 4;
@@ -210,7 +214,20 @@ pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
     };
     if type_tag == TAG_ARR {
         let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
-        if key >= 0 && key < len {
+        // Sparse tail (RFC 20260810-arr-sparse-grow) — `[extent,
+        // len)` is implicit holes: skip the fast own-answer and fall
+        // to the string face, whose chain walk consults the
+        // prototype digit keys (same continuation as an explicit
+        // hole).
+        let sparse_tail = unsafe { *((ptr as *const u8).add(6) as *const u16) }
+            & crate::FLAG_ARR_SPARSE_TAIL
+            != 0
+            && key >= 0
+            && {
+                let cap = unsafe { *((ptr as *const u8).add(ARR_CAP_OFF) as *const u32) } as i64;
+                key >= cap
+            };
+        if key >= 0 && key < len && !sparse_tail {
             // §13.10.1 HasProperty — a hole (elision / delete /
             // length-grow) is absent as an OWN property, but the walk
             // continues along the chain (刀 5 G3): a holed index falls

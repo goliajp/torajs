@@ -78,6 +78,13 @@ pub(crate) unsafe fn index_flags_with_key(arr: *const c_void, key: *const c_void
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64 {
     let hflags = unsafe { header_flags(arr) };
+    // Sparse tail (RFC 20260810) — an index over the materialized
+    // extent is an implicit hole: absent, no shadow entry to probe.
+    if hflags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0
+        && idx >= unsafe { crate::layout::arr_live_extent(arr as *const u8) }
+    {
+        return F_HOLE;
+    }
     if hflags & FLAG_ARR_EXOTIC_INDEX == 0 {
         return apply_integrity_level(FLAGS_DEFAULT, hflags);
     }

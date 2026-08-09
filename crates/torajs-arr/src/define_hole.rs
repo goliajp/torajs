@@ -291,8 +291,14 @@ pub unsafe extern "C" fn __torajs_arr_has_index(arr: *mut c_void, idx: i64) -> i
             return 0;
         }
         let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
-        let exotic = crate::define::header_flags(arr) & FLAG_ARR_EXOTIC_INDEX != 0;
-        if (idx as u64) < len && !exotic {
+        let hflags = crate::define::header_flags(arr);
+        let exotic = hflags & FLAG_ARR_EXOTIC_INDEX != 0;
+        // Sparse tail (RFC 20260810) — implicit holes are absent as
+        // own properties: fall through to the walk (shadow probe
+        // finds nothing, the chain consults prototype digit keys).
+        let in_tail = hflags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0
+            && (idx as u64) >= crate::layout::arr_live_extent(arr as *const u8);
+        if (idx as u64) < len && !exotic && !in_tail {
             return 1;
         }
         // Exotic (hole shadows possible) or OOB (prototype digit
