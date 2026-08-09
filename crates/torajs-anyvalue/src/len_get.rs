@@ -60,8 +60,9 @@ const ANY_ACCESSOR_TAG: u64 = 6;
 /// A data pair takes `payload_rc_inc` before boxing — both arms answer
 /// OWNED (RFC 20260713-accessor-void-kind blade 2; pre-fix the
 /// `.length` / `.size` special-prop reads boxed the raw accessor pair
-/// as data: the getter never ran).
-unsafe fn box_probe_pair(dtag: u64, dval: u64, recv: AnyValue) -> AnyValue {
+/// as data: the getter never ran). `pub(crate)`: `name_get.rs`'s
+/// closure expando shadow shares it for the same accessor face.
+pub(crate) unsafe fn box_probe_pair(dtag: u64, dval: u64, recv: AnyValue) -> AnyValue {
     unsafe {
         if dtag == ANY_ACCESSOR_TAG {
             let got = __torajs_accessor_invoke_getter(dval as *const c_void, recv);
@@ -187,18 +188,33 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             return box_probe_pair(dtag, dval, recv);
         }
         if tag == Tag::Closure as u16 {
-            // chunk C (RFC 20260711) — a tombstoned virtual `length`
-            // reads the expando recreate or undefined.
-            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) {
-                let props = crate::member_get::closure_props(ptr);
-                if !props.is_null() {
-                    let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-                    let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
-                    let dval = __torajs_dynobj_get_value(props, key as *const c_void);
-                    __torajs_str_drop(key as *mut c_void);
+            // §10.1.6.3 — a define/write that landed in the expando
+            // is a REDEFINED own `length` and shadows every virtual
+            // source below: the tombstone recreate (chunk C), the
+            // reflection-surface cells (RFC 20260721 刀 2), and a
+            // `defineProperty(f, "length", …)` data or accessor form
+            // (pre-fix the registry arity answered first and the
+            // define was invisible — the rotation-347 recorded
+            // silent-wrong). Present-undefined answers undefined
+            // (the wrapper arm's `has` form).
+            let props = crate::member_get::closure_props(ptr);
+            if !props.is_null() {
+                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+                let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
+                __torajs_str_drop(key as *mut c_void);
+                if present {
                     return box_probe_pair(dtag, dval, recv);
                 }
-                return VALUE_UNDEFINED;
+            }
+            // chunk C (RFC 20260711) — a tombstoned virtual `length`
+            // with no expando recreate continues along [[Prototype]]:
+            // %Function.prototype% carries an own `length` 0 (§20.2.3),
+            // so `delete f.length; f.length` answers 0 like bun (the
+            // formerly recorded undefined edge).
+            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) {
+                return crate::nanbox_encode::__torajs_anyv_box_i64(0);
             }
             // chunk 715 — a reified builtin method cell answers its
             // ES-spec arity; chunk 716 — an ordinary closure walks
@@ -213,20 +229,6 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             // 0 via the has-length fallback).
             if let Some(l) = closure_length_of(ptr) {
                 return crate::nanbox_encode::__torajs_anyv_box_i64(l);
-            }
-            // RFC 20260721 刀 2 — a reflection-surface cell (the
-            // %GeneratorPrototype% step methods) carries `length` as
-            // an own props entry and never joins the fn-addr
-            // registry; probe before the undefined fallthrough.
-            let props = crate::member_get::closure_props(ptr);
-            if !props.is_null() {
-                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
-                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
-                __torajs_str_drop(key as *mut c_void);
-                if dtag != 5 {
-                    return box_probe_pair(dtag, dval, recv);
-                }
             }
         }
     }

@@ -222,16 +222,26 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
             let key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
             let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
             let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+            let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
             __torajs_str_drop(key as *mut c_void);
-            if dtag != 5 {
-                crate::payload_rc_inc(dtag as i64, dval as i64);
-                return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+            if present {
+                // Shared with the `.length` face: a data pair boxes
+                // owned, an accessor entry runs its getter (pre-fix
+                // the raw accessor pair boxed as data — a
+                // `defineProperty(f, "name", {get})` read answered
+                // the pair, not the getter). A heap cell's pointer
+                // bits ARE its box encoding, so the receiver
+                // reconstructs from `ptr`.
+                return crate::len_get::box_probe_pair(dtag, dval, ptr as u64);
             }
         }
-        // chunk C — a tombstoned virtual `name` reads undefined
-        // until an expando write recreates it (probed above).
+        // chunk C — a tombstoned virtual `name` with no expando
+        // recreate (probed above) continues along [[Prototype]]:
+        // %Function.prototype% carries an own `name` "" (§20.2.3),
+        // matching bun on `delete f.name; f.name`.
         if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED) {
-            return VALUE_UNDEFINED;
+            let empty = __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(4, empty as i64);
         }
         let cell = closure_name_str(ptr);
         crate::nanbox_encode::__torajs_anyv_box_from_pair(4, cell as i64)

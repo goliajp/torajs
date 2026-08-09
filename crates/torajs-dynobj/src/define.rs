@@ -104,6 +104,86 @@ pub unsafe extern "C" fn __torajs_dynobj_define_soft(
     unsafe { define_apply(obj_slot, key, tag, value, flags_byte, false) }
 }
 
+/// `AnySlotTag::I64` mirror (torajs-rc) — the entry tag a seeded
+/// integer `length` stores under.
+const ANY_I64: u64 = 2;
+
+/// `torajs_rc::FLAG_FN_NAME_DELETED` / `FLAG_FN_LENGTH_DELETED`
+/// mirrors (closure header bits 10-11) — a tombstoned virtual prop
+/// has no current descriptor to materialize.
+const FN_NAME_DELETED: u16 = 1 << 10;
+const FN_LENGTH_DELETED: u16 = 1 << 11;
+
+unsafe extern "C" {
+    /// torajs-anyvalue — a closure cell's ES `length` metadata
+    /// (`-1` = none: arrow / anon cells off the fn-addr registry).
+    fn __torajs_closure_length(p: *mut c_void) -> i64;
+    /// torajs-anyvalue — a closure cell's ES `name` as a fresh owned
+    /// Str (anonymous answers `""`).
+    fn __torajs_closure_name_str(p: *mut c_void) -> *mut u8;
+}
+
+/// Lazily materialize a function's virtual own `length` / `name`
+/// into the expando ahead of a defineProperty against it, so
+/// §10.1.6.3 validates the user descriptor against the REAL current
+/// attributes — §20.2.3: non-writable, non-enumerable,
+/// CONFIGURABLE — instead of treating the define as a brand-new
+/// property, whose absent fields default false (a partial-descriptor
+/// define then bricked the slot: a later redefine met
+/// configurable=false and was refused where bun accepts it).
+///
+/// Skips symbol keys / other names, an existing expando entry (the
+/// current attributes already live there), a tombstoned slot
+/// (`delete f.length` removed the current), and a metadata miss.
+unsafe fn seed_virtual_fn_prop(
+    fn_cell: *mut c_void,
+    props_slot: *mut *mut c_void,
+    key: *mut c_void,
+) {
+    unsafe {
+        let Some((data, len)) = key_str_bytes(key as *const c_void) else {
+            return;
+        };
+        let name = core::slice::from_raw_parts(data, len as usize);
+        let is_length = name == b"length";
+        if !is_length && name != b"name" {
+            return;
+        }
+        if probe(*props_slot, key as *const c_void).found {
+            return;
+        }
+        let hflags = *(fn_cell.cast::<u8>().add(6) as *const u16);
+        let tomb = if is_length {
+            FN_LENGTH_DELETED
+        } else {
+            FN_NAME_DELETED
+        };
+        if hflags & tomb != 0 {
+            return;
+        }
+        let (tag, value) = if is_length {
+            let l = __torajs_closure_length(fn_cell);
+            if l < 0 {
+                return;
+            }
+            (ANY_I64, l as u64)
+        } else {
+            let s = __torajs_closure_name_str(fn_cell);
+            if s.is_null() {
+                return;
+            }
+            // Owned Str transfers into the seeded entry's value.
+            (ANY_HEAP, s as u64)
+        };
+        let flags = DEFINE_PRESENT_VALUE
+            | crate::layout::DEFINE_PRESENT_WRITABLE
+            | crate::layout::DEFINE_PRESENT_ENUMERABLE
+            | crate::layout::DEFINE_PRESENT_CONFIGURABLE
+            | DEFINE_FLAG_CONFIGURABLE;
+        define_apply(props_slot, key, tag, value, flags, false);
+    }
+}
+
 /// Shared refusal answer — record the TypeError only for the
 /// throwing flavor, release the caller-transferred [[Value]] stake
 /// (gated on `has_value` — `value` is honored only under
@@ -206,6 +286,7 @@ pub(crate) unsafe fn define_apply(
             if (*props_slot).is_null() {
                 *props_slot = crate::alloc::__torajs_dynobj_alloc();
             }
+            seed_virtual_fn_prop(obj, props_slot, key);
             return define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal);
         }
     }
