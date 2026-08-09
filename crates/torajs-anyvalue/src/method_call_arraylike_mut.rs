@@ -221,7 +221,12 @@ pub(crate) unsafe fn arraylike_mut(
                 } else {
                     let first = arraylike_get(obj, 0);
                     let mut k = 1;
-                    while k < len {
+                    // Has/Get/Set reach user getters and setters — a
+                    // pending throw must stop the walk (it previously
+                    // rode silently to the end), while the relocate
+                    // writeback below the match still runs (break,
+                    // not return).
+                    while k < len && __torajs_throw_check() == 0 {
                         if arraylike_has(obj, k) {
                             let v = arraylike_get(obj, k);
                             set_at(&mut obj, k - 1, v);
@@ -230,9 +235,14 @@ pub(crate) unsafe fn arraylike_mut(
                         }
                         k += 1;
                     }
-                    delete_at(obj, len - 1);
-                    set_len(&mut obj, len - 1);
-                    first
+                    if __torajs_throw_check() != 0 {
+                        __torajs_value_drop_heap(first as *mut c_void);
+                        VALUE_UNDEFINED
+                    } else {
+                        delete_at(obj, len - 1);
+                        set_len(&mut obj, len - 1);
+                        first
+                    }
                 }
             }
             m if m == ANY_METHOD_UNSHIFT => {
@@ -248,7 +258,8 @@ pub(crate) unsafe fn arraylike_mut(
                         return VALUE_UNDEFINED;
                     }
                     let mut k = len - 1;
-                    while k >= 0 {
+                    // Same pending-throw stop as the shift walk.
+                    while k >= 0 && __torajs_throw_check() == 0 {
                         if arraylike_has(obj, k) {
                             let v = arraylike_get(obj, k);
                             set_at(&mut obj, k + argc, v);
@@ -257,14 +268,20 @@ pub(crate) unsafe fn arraylike_mut(
                         }
                         k -= 1;
                     }
-                    for i in 0..argc {
-                        let v = arg_at(i);
-                        __torajs_rc_inc(v as *mut c_void);
-                        set_at(&mut obj, i, v);
+                    if __torajs_throw_check() == 0 {
+                        for i in 0..argc {
+                            let v = arg_at(i);
+                            __torajs_rc_inc(v as *mut c_void);
+                            set_at(&mut obj, i, v);
+                        }
                     }
                 }
-                set_len(&mut obj, len + argc);
-                __torajs_anyv_box_i64(len + argc)
+                if __torajs_throw_check() != 0 {
+                    VALUE_UNDEFINED
+                } else {
+                    set_len(&mut obj, len + argc);
+                    __torajs_anyv_box_i64(len + argc)
+                }
             }
             m if m == ANY_METHOD_SPLICE => do_splice(&mut obj, len, argv, argc),
             m if m == ANY_METHOD_SORT => ops::do_sort(&mut obj, len, arg_at(0)),
@@ -275,7 +292,12 @@ pub(crate) unsafe fn arraylike_mut(
             _ => {
                 let mut lo = 0;
                 let mut hi = len - 1;
-                while lo < hi {
+                // A giant ToLength'd length starts the walk at the
+                // UPPER end (§23.1.3.26 — hi = len-1 first), so a
+                // getter there must throw out of the first round: the
+                // pending throw previously rode silently through
+                // ~2^52 rounds, which read as a hang.
+                while lo < hi && __torajs_throw_check() == 0 {
                     let lo_has = arraylike_has(obj, lo);
                     let hi_has = arraylike_has(obj, hi);
                     let lo_v = if lo_has {
@@ -288,6 +310,11 @@ pub(crate) unsafe fn arraylike_mut(
                     } else {
                         VALUE_UNDEFINED
                     };
+                    if __torajs_throw_check() != 0 {
+                        __torajs_value_drop_heap(lo_v as *mut c_void);
+                        __torajs_value_drop_heap(hi_v as *mut c_void);
+                        break;
+                    }
                     if hi_has {
                         set_at(&mut obj, lo, hi_v);
                     } else {
@@ -301,10 +328,14 @@ pub(crate) unsafe fn arraylike_mut(
                     lo += 1;
                     hi -= 1;
                 }
-                // The receiver is the return value (chaining) — a
-                // fresh stake under the owned protocol.
-                __torajs_rc_inc(obj);
-                __torajs_anyv_box_pointer(obj)
+                if __torajs_throw_check() != 0 {
+                    VALUE_UNDEFINED
+                } else {
+                    // The receiver is the return value (chaining) — a
+                    // fresh stake under the owned protocol.
+                    __torajs_rc_inc(obj);
+                    __torajs_anyv_box_pointer(obj)
+                }
             }
         }
     };
@@ -358,7 +389,12 @@ unsafe fn do_splice(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64
             return VALUE_UNDEFINED;
         }
         let mut removed = __torajs_arr_alloc_any(del.clamp(0, 4096) as u64);
-        for k in 0..del {
+        // Has/Get/Set reach user getters and setters — every walk
+        // stops on a pending throw (it previously rode silently to
+        // the end). A fn-level return is safe here: the relocate
+        // writeback runs in the caller, after this returns.
+        let mut k = 0;
+        while k < del && __torajs_throw_check() == 0 {
             let v = if arraylike_has(*obj, start + k) {
                 arraylike_get(*obj, start + k)
             } else {
@@ -369,10 +405,11 @@ unsafe fn do_splice(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64
                 __torajs_anyv_unbox_tag(v) as u64,
                 __torajs_anyv_unbox_value(v) as u64,
             );
+            k += 1;
         }
         if items < del {
             let mut k = start;
-            while k < len - del {
+            while k < len - del && __torajs_throw_check() == 0 {
                 let from = k + del;
                 if arraylike_has(*obj, from) {
                     let v = arraylike_get(*obj, from);
@@ -383,13 +420,13 @@ unsafe fn do_splice(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64
                 k += 1;
             }
             let mut k = len;
-            while k > len - del + items {
+            while k > len - del + items && __torajs_throw_check() == 0 {
                 delete_at(*obj, k - 1);
                 k -= 1;
             }
         } else if items > del {
             let mut k = len - del;
-            while k > start {
+            while k > start && __torajs_throw_check() == 0 {
                 let from = k + del - 1;
                 if arraylike_has(*obj, from) {
                     let v = arraylike_get(*obj, from);
@@ -399,6 +436,10 @@ unsafe fn do_splice(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64
                 }
                 k -= 1;
             }
+        }
+        if __torajs_throw_check() != 0 {
+            __torajs_value_drop_heap(removed as *mut c_void);
+            return VALUE_UNDEFINED;
         }
         for i in 0..items {
             let v = arg_at(2 + i);

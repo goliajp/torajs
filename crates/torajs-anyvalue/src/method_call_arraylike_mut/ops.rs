@@ -18,7 +18,11 @@ pub(super) unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: AnyValue) -> 
         };
         let mut tmp = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
         let mut count: i64 = 0;
-        for j in 0..len {
+        // The staging Gets reach user getters — stop on a pending
+        // throw (a fn-level return is safe: the relocate writeback
+        // runs in the caller).
+        let mut j = 0;
+        while j < len && __torajs_throw_check() == 0 {
             if arraylike_has(*obj, j) {
                 let v = arraylike_get(*obj, j);
                 tmp = __torajs_arr_push_any(
@@ -28,22 +32,32 @@ pub(super) unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: AnyValue) -> 
                 );
                 count += 1;
             }
+            j += 1;
         }
-        __torajs_arr_any_sort(tmp, cb_env, cb_entry, has_cb);
+        if __torajs_throw_check() == 0 {
+            __torajs_arr_any_sort(tmp, cb_env, cb_entry, has_cb);
+        }
         if __torajs_throw_check() != 0 {
             __torajs_value_drop_heap(tmp as *mut c_void);
             return VALUE_UNDEFINED;
         }
-        for j in 0..count {
+        let mut j = 0;
+        while j < count && __torajs_throw_check() == 0 {
             let bv = __torajs_arr_get_any_boxed(tmp as *const c_void, j as u64);
             // Borrowed slot read → the bucket's stake.
             __torajs_rc_inc(bv as *mut c_void);
             set_at(obj, j, bv);
+            j += 1;
         }
-        for j in count..len {
+        let mut j = count;
+        while j < len && __torajs_throw_check() == 0 {
             delete_at(*obj, j);
+            j += 1;
         }
         __torajs_value_drop_heap(tmp as *mut c_void);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
         __torajs_rc_inc(*obj);
         __torajs_anyv_box_pointer(*obj)
     }
@@ -70,10 +84,14 @@ pub(super) unsafe fn do_fill(
         let lo = wrap(to_index(arg_at(1), 0));
         let hi = wrap(to_index(arg_at(2), i64::MAX));
         let mut k = lo;
-        while k < hi {
+        // Sets reach user setters — stop on a pending throw.
+        while k < hi && __torajs_throw_check() == 0 {
             __torajs_rc_inc(v as *mut c_void);
             set_at(obj, k, v);
             k += 1;
+        }
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
         }
         __torajs_rc_inc(*obj);
         __torajs_anyv_box_pointer(*obj)
@@ -105,7 +123,9 @@ pub(super) unsafe fn do_copy_within(
             // Overlap — copy backwards.
             from += count - 1;
             to += count - 1;
-            while count > 0 {
+            // Has/Get/Set reach user accessors — stop on a pending
+            // throw (both directions).
+            while count > 0 && __torajs_throw_check() == 0 {
                 if arraylike_has(*obj, from) {
                     let v = arraylike_get(*obj, from);
                     set_at(obj, to, v);
@@ -117,7 +137,7 @@ pub(super) unsafe fn do_copy_within(
                 count -= 1;
             }
         } else {
-            while count > 0 {
+            while count > 0 && __torajs_throw_check() == 0 {
                 if arraylike_has(*obj, from) {
                     let v = arraylike_get(*obj, from);
                     set_at(obj, to, v);
@@ -128,6 +148,9 @@ pub(super) unsafe fn do_copy_within(
                 to += 1;
                 count -= 1;
             }
+        }
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
         }
         __torajs_rc_inc(*obj);
         __torajs_anyv_box_pointer(*obj)
