@@ -66,6 +66,17 @@ pub(crate) unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {
     unsafe { *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void }
 }
 
+/// Promise-cell lazy expando slot — mirror of `torajs-promise`'s
+/// props slot @ +32 (rotation 352 `478088d4`; +24 is the callback
+/// list). NULL until the first defineProperty against the promise.
+const PROMISE_PROPS_OFF: usize = 32;
+
+/// The promise's `props_dynobj` pointer, NULL when no expando was
+/// ever written (see [`PROMISE_PROPS_OFF`]).
+pub(crate) unsafe fn promise_props(ptr: *mut c_void) -> *const c_void {
+    unsafe { *(ptr.cast::<u8>().add(PROMISE_PROPS_OFF) as *const u64) as *const c_void }
+}
+
 /// Universal heap-header flags probe — u16 at +6 (RFC 20260711
 /// chunk C consumers test the `FLAG_FN_*_DELETED` tombstones).
 ///

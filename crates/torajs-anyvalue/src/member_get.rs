@@ -83,7 +83,7 @@ unsafe extern "C" {
 // every `crate::member_get::` consumer face unchanged.
 pub(crate) use crate::member_get_layout::{
     CLOSURE_PROPS_OFF, STR_DATA_OFF, STR_LEN_OFF, closure_props, header_flag, header_flag_set,
-    is_wrapper_tag, recv_cell, wrapper_props,
+    is_wrapper_tag, promise_props, recv_cell, wrapper_props,
 };
 
 /// See module doc.
@@ -194,6 +194,28 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                     return tag;
                 }
                 if __torajs_dynobj_has(fp, key) != 0 {
+                    return 5;
+                }
+            }
+            reify_tag(recv, key)
+        },
+        // RFC 20260810-sloppy-goal-arguments rotation 353 (plan-state
+        // L3b ①) — promise-cell own-property probe via the +32 lazy
+        // expando the defineProperty arm writes (rotation 352
+        // `478088d4` stored entries only `then`-dispatch could read
+        // back; `(p as any).foo` answered undefined). Mirror of the
+        // closure arm's bag segment; the miss falls through to the
+        // builtin reify (`.then` / `.catch` / `.finally` /
+        // `.constructor`).
+        Some((ptr, t)) if t == Tag::Promise as u16 => unsafe {
+            let props = promise_props(ptr);
+            if !props.is_null() {
+                let tag = __torajs_dynobj_get_tag(props, key);
+                if tag != 5 {
+                    return tag;
+                }
+                // Stored-undefined expando shadows the builtin reify.
+                if __torajs_dynobj_has(props, key) != 0 {
                     return 5;
                 }
             }

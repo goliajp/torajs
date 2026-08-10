@@ -129,6 +129,22 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             }
             reify_value(recv, key)
         },
+        // Promise-cell own-property value probe via the +32 lazy
+        // expando — tag twin in member_get.rs (rotation 353,
+        // plan-state L3b ①).
+        Some((ptr, t)) if t == Tag::Promise as u16 => unsafe {
+            let props = crate::member_get_layout::promise_props(ptr);
+            if !props.is_null() {
+                if __torajs_dynobj_get_tag(props, key) != 5 {
+                    return __torajs_dynobj_get_value(props, key);
+                }
+                // Stored-undefined shadow — see the tag twin.
+                if __torajs_dynobj_has(props, key) != 0 {
+                    return 0;
+                }
+            }
+            reify_value(recv, key)
+        },
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper own-
         // property expando value probe (mirror of the closure arm).
         Some((ptr, t)) if is_wrapper_tag(t) => unsafe {
