@@ -116,7 +116,21 @@ pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
                 })
         }
         (Type::Function(formal_ps, formal_ret), Type::Function(actual_ps, actual_ret)) => {
-            actual_ps.len() <= formal_ps.len()
+            // RFC 20260810-indirect-argc-abi S2 — the REVERSE arity
+            // direction: a callback may also declare MORE params than
+            // the formal face, when every excess slot is Any. The
+            // §10.2.1.4 argument binding gives unpassed positions
+            // `undefined`, which the S2 callee-side argc
+            // normalization delivers into exactly those Any slots
+            // (a typed excess slot has no undefined repr — stays
+            // rejected). This is the `assert.throws(SyntaxError, f)`
+            // face: f declares a defaulted param, the harness's
+            // Function-typed slot declares none.
+            let arity_ok = actual_ps.len() <= formal_ps.len()
+                || actual_ps[formal_ps.len()..]
+                    .iter()
+                    .all(|a| matches!(a, Type::Any));
+            arity_ok
                 && (formal_ret.as_ref() == actual_ret.as_ref()
                     || matches!(formal_ret.as_ref(), Type::Any)
                     || matches!(actual_ret.as_ref(), Type::Any))

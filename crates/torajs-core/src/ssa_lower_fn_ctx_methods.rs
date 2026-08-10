@@ -5,8 +5,20 @@
 //! verbatim to keep that file under the size limit.
 
 use crate::ast;
-use crate::ssa::{InstKind, Operand, Type, ValueId};
+use crate::ssa::{InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, LocalInfo, LowerCtx, decode_env_ann};
+
+/// The lifter's synthetic param names — never user ARGUMENTS, so the
+/// S2 missing-argument normalization below skips them and they don't
+/// advance the user-argument index the argc compare counts against.
+const SYNTHETIC_PARAMS: [&str; 6] = [
+    "__env",
+    "__torajs_argc",
+    "__this",
+    "__torajs_real_argc",
+    "__torajs_argv",
+    "__yield_arg",
+];
 
 impl<'a> LowerCtx<'a> {
     /// T-15.g.5 escape-captured Copy binding: box the value on the heap
@@ -52,13 +64,108 @@ impl<'a> LowerCtx<'a> {
     /// caller's stake (t262 gen dstr-default regression: the freed
     /// default generator's address was recycled by the next gen cell,
     /// whose ctor-side IteratorClose then closed ITSELF).
+    /// RFC 20260810-indirect-argc-abi S2 — §10.2.1.4 argument
+    /// binding: a user parameter position at or past the call's real
+    /// argc was not passed, so it binds `undefined` regardless of
+    /// what a short argv left in its register (the indirect-call
+    /// crash lane: a declared-more closure called through a
+    /// narrower Function face). Alloca-shaped select (`Select` is
+    /// elaborator-only territory): store the raw param, overwrite
+    /// with the undefined box on the missing path, load back. The
+    /// existing `=== undefined` body guards then fire the param's
+    /// default exactly like an explicit-undefined argument.
+    fn normalize_missing_any_param(&mut self, pid: ValueId, argc: ValueId, idx: i64) -> ValueId {
+        let tmp = self.alloca(Type::Any, None);
+        let cb = self.cur_block;
+        self.f.append_void(
+            cb,
+            InstKind::Store(Operand::Value(pid), Operand::Value(tmp), 0),
+        );
+        let missing = self.f.append_inst(
+            cb,
+            InstKind::ICmp(
+                crate::ssa::IPred::Sle,
+                Operand::Value(argc),
+                Operand::ConstI64(idx),
+            ),
+            Type::Bool,
+            None,
+        );
+        let fill_blk = self.f.add_block();
+        let join_blk = self.f.add_block();
+        self.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: Operand::Value(missing),
+                then_blk: fill_blk,
+                else_blk: join_blk,
+            },
+        );
+        let undef = self.f.append_inst(
+            fill_blk,
+            InstKind::Call(
+                self.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        self.f.append_void(
+            fill_blk,
+            InstKind::Store(Operand::Value(undef), Operand::Value(tmp), 0),
+        );
+        self.f.set_term(fill_blk, Terminator::Br(join_blk));
+        self.cur_block = join_blk;
+        self.f.append_inst(
+            join_blk,
+            InstKind::Load(Type::Any, Operand::Value(tmp), 0),
+            Type::Any,
+            None,
+        )
+    }
+
     pub(crate) fn materialize_fn_params(
         &mut self,
         fn_name: &str,
         param_setup: Vec<(String, ValueId, Type)>,
         assigned_in_body: &std::collections::HashSet<String>,
     ) {
+        // S2 normalization applies only to `__env`-first fns (they
+        // carry the hidden argc) and only to Any-repr user params —
+        // a typed slot cannot hold the undefined box, and the
+        // checker's short-call admit is gated to all-Any tails.
+        let argc_pid = param_setup
+            .iter()
+            .find(|(n, _, _)| n == "__torajs_argc")
+            .map(|(_, p, _)| *p);
+        let mut user_idx: i64 = 0;
         for (pname, pid, ty) in param_setup {
+            let synthetic = SYNTHETIC_PARAMS.contains(&pname.as_str());
+            let pid = match (synthetic, ty, argc_pid) {
+                (false, Type::Any, Some(argc)) => {
+                    self.normalize_missing_any_param(pid, argc, user_idx)
+                }
+                _ => pid,
+            };
+            if !synthetic {
+                user_idx += 1;
+            }
+            self.materialize_one_param(fn_name, pname, pid, ty, assigned_in_body);
+        }
+    }
+
+    /// One param's alloca/box/LocalInfo bookkeeping — the loop body
+    /// `materialize_fn_params` carried before the S2 normalization
+    /// grew the fn past the size limit.
+    fn materialize_one_param(
+        &mut self,
+        fn_name: &str,
+        pname: String,
+        pid: ValueId,
+        ty: Type,
+        assigned_in_body: &std::collections::HashSet<String>,
+    ) {
+        {
             // RFC 20260710 C4 — a mutated non-Copy captured PARAM
             // promotes to a capture box like a let (the caller keeps
             // its stake, so the box incs its own share); the byref /
