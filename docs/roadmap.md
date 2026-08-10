@@ -1530,7 +1530,50 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `4d626200`** (2026-08-10, rotation 347 — four knives off
+**Latest @ `76c7061a`** (2026-08-10, rotation 351 — the arguments
+exotic object's whole reflective face landed in seven knives.
+`FLAG_ARR_ARGUMENTS` (Tag::Arr-private bit 1 — the survey flipped
+the planned bits 10/11, which are the elem-kind field) stamps the
+materialized `__torajs_arguments` cell via a synthetic mark call
+both desugar lanes append; the keyed readers gate on it. The
+`length` face carries §10.4.4's plain-data attributes (gOPD
+configurable true; delete leaves the element-domain hole tombstone
+under the "length" key — every enumerator already skips holes;
+hasOwnProperty and the any-lane member read see the tombstone; the
+direct `delete arguments.length` spelling routes as a keyed delete).
+`callee` is the %ThrowTypeError% accessor across all three touch
+positions (read rewrites to a thrower call; write evaluates the RHS
+then throws — §13.15.2 order; delete throws per §13.5.1.2 step 3.a;
+the thrower joins the may-throw analysis — without it a pending
+TypeError strands across the fn boundary, the S10.6_A3_T4 SIGSEGV,
+caught by the mid-rotation sweep and fixed same rotation), answers
+the interned thrower pair through gOPD (get === set), and joins the
+hasOwnProperty arm. The [[Prototype]] answers %Object.prototype%
+(§10.4.4.7 step 2) — whose comparison target exposed an independent
+hole: INLINE `Object.getPrototypeOf({})` read a dynobj header field
+as a class tag through the Obj arm (an empty struct layout is a
+dynobj at runtime); empty-layout receivers now ride the runtime
+classifier. `delete arguments[i]` rides the materialized array
+(mutation walk + rewrite both learned Delete). Sweep: passTotal
+28782 → **28818 (+36)**, bug −36, incompatible flat, conservation
+exact (0 = +36 − 36). +36 pass all by-name in the arguments /
+delete families; +1 pass-no-oracle (ThrowTypeError
+unique-per-realm) against −2 de-dilution (10.6-12-1 / S10.6_A3_T4:
+noStrict sloppy callee-write round-trips were passing on the
+expando-store accident; strict throw semantics is correct). Gate
+predicate **304 clusters / 4962 cases / residue 763 clusters 997
+cases / core 5959 — all flat** (the whole yield is bug→pass, which
+never touches the incompat census). Crash triple: exit-139 by-name
++1 (sm/function-caller-skips-eval-frames unlocked from its compile
+reject into a deep caller-eval combination — pending throw across
+the eval boundary, L3b; minimal reproductions all clean),
+tr-timeout 11 flat, exit-138 3 flat. Build determinism 44/44
+(N=12). Conformance gate 2668 → **2675/0/4** (+7 fixtures, chain
+zero-red. Rotations 348-350 landed between this stamp and the
+previous one — sparse-grow Phase 1 and the delete/class knives —
+their numbers live in plan-state / the handoff chain.)
+
+**Previous @ `4d626200`** (2026-08-10, rotation 347 — four knives off
 the recorded queues. The yield-into temp binds inside generator
 EXPRESSION bodies (free_vars treated it as expression-only, so
 every expression-position yield "captured" its own temp and the
