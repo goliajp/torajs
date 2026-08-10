@@ -257,8 +257,8 @@ fn coerce_args(
 }
 
 /// S3.8 — a runtime `undefined` actual binds a typed param's
-/// Number/Bool literal default (§10.2.11: explicit undefined and
-/// missing bind alike). The call-site pad handles the static
+/// Number/Bool/short-string literal default (§10.2.11: explicit
+/// undefined and missing bind alike). The call-site pad handles the static
 /// spellings; an `any`-typed actual can only be tested at runtime,
 /// so it routes through the same branchless or_default kernel the
 /// boxed dual-entry adapter uses, ahead of the ordinary Any→typed
@@ -284,7 +284,10 @@ fn apply_runtime_dflt_lits(
             continue;
         };
         if ctx.operand_ty(&argv[i]) != Type::Any
-            || !matches!(expected, Type::F64 | Type::I64 | Type::I32 | Type::Bool)
+            || !matches!(
+                expected,
+                Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str
+            )
         {
             continue;
         }

@@ -370,15 +370,13 @@ fn collect_boxed_targets(
         // aligned with `user_tys`. The adapter fills these when an
         // argv slot arrives undefined (missing OR explicit — ES
         // §10.2.1.3 treats both alike), which a runtime call cannot
-        // get from the caller-side default injection. Only Number /
-        // Bool literals qualify (an expression default may reference
-        // prior params and needs real callee-side evaluation).
+        // get from the caller-side default injection. Qualifying
+        // literals per [`DfltLit::of_default_expr`].
         let dflt_lits: Vec<Option<DfltLit>> = params[ast_skip..]
             .iter()
-            .map(|p| match p.default.map(|d| ast.get_expr(d)) {
-                Some(crate::ast::Expr::Number(n)) => Some(DfltLit::Num(*n)),
-                Some(crate::ast::Expr::Bool(b)) => Some(DfltLit::Bool(*b)),
-                _ => None,
+            .map(|p| {
+                p.default
+                    .and_then(|d| DfltLit::of_default_expr(ast.get_expr(d)))
             })
             .collect();
         // RFC 20260808 knife 2 — a promoted `__this` param sitting
@@ -414,12 +412,19 @@ fn collect_boxed_targets(
     targets
 }
 
-/// S2.39 — one qualifying literal default (`b = 39` / `flag = true`),
-/// substituted by the adapter when the argv slot arrives undefined.
+/// S2.39 — one qualifying literal default (`b = 39` / `flag = true` /
+/// `d = "d"`), substituted by the adapter when the argv slot arrives
+/// undefined.
 #[derive(Clone, Copy)]
 pub(crate) enum DfltLit {
     Num(f64),
     Bool(bool),
+    /// A string literal default whose UTF-8 body fits the ShortStr
+    /// inline encoding (≤ 5 bytes) — stored as the complete prebaked
+    /// nanbox bit pattern. Longer bodies need an interned `.rodata`
+    /// global instead of a compile-time constant, so they do not
+    /// qualify (L3b).
+    Str(u64),
 }
 
 /// S3.8 — the Pass-1 per-fn literal-default map threaded to the
@@ -428,11 +433,29 @@ pub(crate) enum DfltLit {
 pub(crate) type FnDfltLits = HashMap<FuncId, Vec<Option<DfltLit>>>;
 
 impl DfltLit {
+    /// The one qualifying-literal classifier both table builders
+    /// share (Pass 1's `dflt_lits_of_params` and the boxed-adapter
+    /// targets loop). An expression default may reference prior
+    /// params and needs real callee-side evaluation — only these
+    /// self-contained literal shapes qualify.
+    pub(crate) fn of_default_expr(e: &crate::ast::Expr) -> Option<DfltLit> {
+        match e {
+            crate::ast::Expr::Number(n) => Some(DfltLit::Num(*n)),
+            crate::ast::Expr::Bool(b) => Some(DfltLit::Bool(*b)),
+            crate::ast::Expr::String(s) => {
+                crate::short_str_encode::encode_short_str_literal(s.as_bytes()).map(DfltLit::Str)
+            }
+            _ => None,
+        }
+    }
+
     /// The `(tag, bits)` pair `__torajs_anyv_or_default` bakes the
     /// literal as. Integral numbers box as tag-2 i64, fractional as
     /// tag-3 f64 bits — the same split the typed-return boxing uses.
-    /// Shared by the adapter's per-slot unbox and the direct-call
-    /// terminal's Any-arg coercion (S3.8).
+    /// Short strings pass tag 6: their `bits` ARE the complete
+    /// prebaked box, no pair decode. Shared by the adapter's
+    /// per-slot unbox and the direct-call terminal's Any-arg
+    /// coercion (S3.8).
     pub(crate) fn box_encoding(self) -> (i64, ssa::Operand) {
         match self {
             DfltLit::Num(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => {
@@ -440,6 +463,7 @@ impl DfltLit {
             }
             DfltLit::Num(n) => (3i64, ssa::Operand::ConstI64(n.to_bits() as i64)),
             DfltLit::Bool(b) => (1i64, ssa::Operand::ConstI64(i64::from(b))),
+            DfltLit::Str(bits) => (6i64, ssa::Operand::ConstI64(bits as i64)),
         }
     }
 }

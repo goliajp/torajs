@@ -23,13 +23,13 @@ use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower::{effective_ret_ty, intern_fn_sig};
 use crate::ssa_lower_parse_type::parse_type;
 
-/// S3.8 — a typed param's Number/Bool literal default, positionally
-/// aligned with the fn's sig `param_tys` (the `__env`-first hidden
-/// argc slot mirrors as a `None`). The direct-call terminal consults
-/// this to bind the default when a runtime `undefined` arrives in an
-/// `any` actual (§10.2.11 — the call-site pad only covers the static
-/// spellings). Only fns with at least one qualifying literal enter
-/// the map.
+/// S3.8 — a typed param's literal default (Number / Bool / short
+/// string), positionally aligned with the fn's sig `param_tys` (the
+/// `__env`-first hidden argc slot mirrors as a `None`). The
+/// direct-call terminal consults this to bind the default when a
+/// runtime `undefined` arrives in an `any` actual (§10.2.11 — the
+/// call-site pad only covers the static spellings). Only fns with at
+/// least one qualifying literal enter the map.
 fn dflt_lits_of_params(
     ast: &Ast,
     params: &[crate::ast::Param],
@@ -37,10 +37,9 @@ fn dflt_lits_of_params(
     use crate::ssa_lower_boxed_entry::DfltLit;
     let mut lits: Vec<Option<DfltLit>> = params
         .iter()
-        .map(|p| match p.default.map(|d| ast.get_expr(d)) {
-            Some(crate::ast::Expr::Number(n)) => Some(DfltLit::Num(*n)),
-            Some(crate::ast::Expr::Bool(b)) => Some(DfltLit::Bool(*b)),
-            _ => None,
+        .map(|p| {
+            p.default
+                .and_then(|d| DfltLit::of_default_expr(ast.get_expr(d)))
         })
         .collect();
     if !lits.iter().any(Option::is_some) {
