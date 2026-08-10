@@ -212,8 +212,18 @@ fn emit_fnsig_call(
     // block with the merge block's operands (chunk 659, same family
     // as the chunk-656 regex-method fix). The fn_ptr load above
     // dominates the merge block, so the cross-block use is sound.
-    let mut argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
     let (params, ret_ty) = ctx.fn_sigs[sig_id.0 as usize].clone();
+    // S3.5 — beyond-arity args evaluate for their side effects but
+    // stay out of the bare-sig argv (mirror of emit_closure_call).
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len());
+    for (i, a) in args.iter().enumerate() {
+        let op = ctx.lower_expr(*a);
+        if i >= params.len() {
+            ctx.release_owned_temp(*a, &op);
+            continue;
+        }
+        argv.push(op);
+    }
     // RFC 20260714-t262-top-clusters 刀 1 — same call-boundary
     // coercion as the direct-call terminal: an Array-literal arg
     // into an any param used to pass its typed repr raw (elem reads
@@ -404,8 +414,17 @@ fn emit_closure_call(
     let fixed = site.argv.len();
     // Same post-lower cur_block rule as emit_fnsig_call above — a
     // branching arg moves cur_block; the loads dominate the merge.
-    for a in args {
+    // S3.5 (RFC 20260810-indirect-argc-abi) — beyond-arity args still
+    // lower (ES §13.3.6.1 side effects) but never enter argv; the S1
+    // argc slot already carries the real count. A fresh-owned extra
+    // releases right away — no callee ever borrows it.
+    let declared = site.user_params.len();
+    for (i, a) in args.iter().enumerate() {
         let op = ctx.lower_expr(*a);
+        if i >= declared {
+            ctx.release_owned_temp(*a, &op);
+            continue;
+        }
         site.argv.push(op);
     }
     // RFC 20260714-t262-top-clusters 刀 1 — same call-boundary

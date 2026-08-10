@@ -72,18 +72,6 @@ pub(crate) fn general_call(
         params.len(),
         &mut effective_args,
     )?;
-    // RFC 20260708-closure-argc-abi chunk 1 — length-only real-argc
-    // closure binding wedge: admit beyond-arity calls (extra args
-    // typecheck then drop out of the pairing; the body counts them
-    // through the S1 hidden argc). Runs before T-28 so a
-    // fewer-than-declared call still records its pad count.
-    crate::check_type_of_call_closure_argc::apply(
-        checker,
-        ast,
-        callee,
-        &params,
-        &mut effective_args,
-    )?;
     // RFC 20260708-variadic — rest-param callee admit: pop the
     // trailing `Type::Rest(elem)` sentinel and stretch the param
     // list to the argument count so the arity gate and per-arg
@@ -103,6 +91,21 @@ pub(crate) fn general_call(
         return r;
     }
     apply_arity_narrow_wedges(checker, ast, callee, &mut effective_args, &mut params)?;
+    // RFC 20260810-indirect-argc-abi S3.5 — beyond-arity calls are
+    // universally admitted (ES §13.3.6.1: every argument evaluates,
+    // extras never bind a parameter). The extras still typecheck —
+    // a type error inside one stays loud — then drop out of the
+    // pairing; the lowering lanes evaluate them for their side
+    // effects without letting them enter argv, and argc-carrying
+    // ABIs pass the REAL count. Replaces the name-keyed length-only
+    // closure wedge (check_type_of_call_closure_argc): the general
+    // rule covers its list.
+    if effective_args.len() > params.len() {
+        for a in &effective_args[params.len()..] {
+            checker.type_of(ast, *a)?;
+        }
+        effective_args.truncate(params.len());
+    }
     if params.len() != effective_args.len() {
         return Err(format!(
             "expected {} argument(s), got {}",
