@@ -37,6 +37,7 @@ use infer::inferred_slot_ty;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_toplevel_globals(
     ast: &Ast,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -92,6 +93,7 @@ pub(crate) fn collect_toplevel_globals(
                     name,
                     *init,
                     ast,
+                    expr_types,
                     aliases,
                     arr_layouts,
                     fn_sigs,
@@ -306,6 +308,7 @@ fn annotated_slot_ty(
     name: &str,
     init: ExprId,
     ast: &Ast,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -332,7 +335,28 @@ fn annotated_slot_ty(
         struct_layouts,
         fn_sigs,
     );
-    let init_is_lifted_arrow = matches!(ast.get_expr(init), Expr::Closure { .. });
+    // Rotation 357 — the arrow probe peels `as` casts (`(<arrow>) as
+    // any` is the probe-abi1 shape): the cast is a value-layer
+    // pass-through, so the init still mints the env cell a FnSig
+    // slot would dispatch as a raw code address (RFC
+    // 20260810-indirect-argc-abi L3b ③).
+    let mut peeled = init;
+    while let Expr::As { expr, .. } = ast.get_expr(peeled) {
+        peeled = *expr;
+    }
+    let init_is_lifted_arrow = matches!(ast.get_expr(peeled), Expr::Closure { .. });
+    // Any other Any-typed init (an any-bound ident, an any member
+    // read) carries the cell shape too, but K.4's global-init store
+    // lane has no Any→Closure conversion — keep the binding
+    // main-local instead, where the fn-local let lane converts
+    // (`initial_let_ty` mirror). A named-fn read of such a binding
+    // stays the recorded main-local unknown-ident limitation.
+    if matches!(parsed, Type::FnSig(_))
+        && !init_is_lifted_arrow
+        && matches!(expr_types.get(&init), Some(crate::check::Type::Any))
+    {
+        return None;
+    }
     let parsed = match parsed {
         Type::FnSig(sig) if !ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
         Type::Closure(_) if ann.contains("__rest(") => return None,

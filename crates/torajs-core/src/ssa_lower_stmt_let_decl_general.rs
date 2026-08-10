@@ -47,13 +47,20 @@ pub(crate) fn initial_let_ty(
         // => number = () => x`) re-reprs the same way (728fix
         // toplevel gate, fn-local mirror): every arrow lifts to
         // Expr::Closure and mints an env cell, which a FnSig slot
-        // dispatches as a raw code address (SIGBUS). Immutable
-        // named-fn inits never reach here (fn_addr_let claims them
-        // above — direct dispatch preserved). Variadic anns parse to
-        // Closure already and never take this arm.
+        // dispatches as a raw code address (SIGBUS). Rotation 357 —
+        // an Any-typed init (`= f as any` / an any-bound ident)
+        // re-reprs too: an Any box only ever carries the CELL shape
+        // of a callable, so unboxing into a FnSig slot jumps the
+        // cell header (probe-abi1's EXIT=138 truth, RFC
+        // 20260810-indirect-argc-abi L3b ③). Immutable named-fn
+        // inits never reach here (fn_addr_let claims them above —
+        // direct dispatch preserved). Variadic anns parse to Closure
+        // already and never take this arm.
         let parsed = match parsed {
             Type::FnSig(sig)
-                if mutable || matches!(ctx.ast.get_expr(init), Expr::Closure { .. }) =>
+                if mutable
+                    || matches!(ctx.ast.get_expr(init), Expr::Closure { .. })
+                    || matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any)) =>
             {
                 Type::Closure(sig)
             }

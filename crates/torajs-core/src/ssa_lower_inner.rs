@@ -134,6 +134,7 @@ pub(crate) fn lower_inner(
 
     let globals = register_toplevel_globals(
         ast,
+        expr_types,
         &aliases,
         &mut arr_layouts,
         &mut fn_sigs,
@@ -357,6 +358,7 @@ fn setup_callable_infra(
 #[allow(clippy::too_many_arguments)]
 fn register_toplevel_globals(
     ast: &Ast,
+    expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -372,6 +374,7 @@ fn register_toplevel_globals(
     // the global space) lives in ssa_lower_toplevel_globals.
     let globals = crate::ssa_lower_toplevel_globals::collect_toplevel_globals(
         ast,
+        expr_types,
         aliases,
         arr_layouts,
         fn_sigs,
