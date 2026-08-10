@@ -55,8 +55,11 @@ pub(super) fn unbox_args(
         // (a branchless kernel call — lower-time SSA has no Select;
         // that inst is egraph-internal), so every per-type unbox arm
         // below stays untouched.
-        if let Some(lit) = dflt_lits.get(i).copied().flatten() {
-            let (box_tag, box_bits) = lit.box_encoding();
+        if let Some(Some((box_tag, box_bits))) = dflt_lits
+            .get(i)
+            .and_then(|l| l.as_ref())
+            .map(|lit| lit.box_encoding())
+        {
             av = Operand::Value(f.append_inst(
                 entry,
                 InstKind::Call(

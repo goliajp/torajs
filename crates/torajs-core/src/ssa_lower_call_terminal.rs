@@ -280,7 +280,7 @@ fn apply_runtime_dflt_lits(
         if i >= argv.len() {
             break;
         }
-        let Some(Some(lit)) = lits.get(i).copied() else {
+        let Some(Some(lit)) = lits.get(i) else {
             continue;
         };
         if ctx.operand_ty(&argv[i]) != Type::Any
@@ -291,7 +291,27 @@ fn apply_runtime_dflt_lits(
         {
             continue;
         }
-        let (tag, bits) = lit.box_encoding();
+        // A long-string literal has no compile-time box — intern it
+        // as a static `.rodata` Str global (rc no-op) and pass the
+        // pointer bits under the pair protocol's Heap tag. The
+        // "ownership transfer" the tag-4 doc names is vacuous for a
+        // FLAG_STATIC_LITERAL global, and the downstream AnyToStr
+        // coercion mints its own owned copy either way.
+        let (tag, bits) = match lit {
+            crate::ssa_lower_boxed_entry::DfltLit::StrLong(s) => {
+                let ptr = ctx.intern_string_literal(s);
+                let p = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::PtrToInt(Operand::Value(ptr)),
+                    Type::I64,
+                    None,
+                );
+                (4i64, Operand::Value(p))
+            }
+            lit => lit
+                .box_encoding()
+                .expect("non-StrLong DfltLit always has a compile-time box"),
+        };
         argv[i] = Operand::Value(ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
