@@ -10,11 +10,8 @@
 //!    sites only (see `consume`).
 //! 2. **Module global** (`Checker::globals`) — typed at declaration
 //!    site.
-//! 3. **Built-in namespace** — `console` / `Math` / `Object` /
-//!    `Number` / `String` / `Boolean` / `JSON` / `Array` / `Reflect`
-//!    / `Date` / `WeakRef` / `WeakMap` / `WeakSet` / `Map` / `Set` /
-//!    `Symbol` / `BigInt` / `Promise` / `fs` / `fs_promises` /
-//!    `process` / `Bun` → `Type::Object(name)`.
+//! 3. **Built-in namespace** — the [`NS_OBJECT_IDENTS`] table →
+//!    `Type::Object(name)`.
 //! 4. **Synthesized intrinsic fns** (`__torajs_*` family) —
 //!    `_date_now` / `_date_from_ms` / `_date_from_iso` /
 //!    `_date_from_components` / `_proto_register` / `_class_register`
@@ -46,6 +43,40 @@ fn error_synth_ty(name: &str) -> Option<Type> {
     })
 }
 
+/// The builtin namespace-object idents — every arm was the identical
+/// `"X" => Ok(Type::Object("X"))` shape, collapsed to this table
+/// (per-name rationale lives in git history: RegExp / Function /
+/// Iterator grew their arms in their own RFCs). `eval` / `globalThis`
+/// are NOT here: they type Any (runtime cells riding the any lanes),
+/// not namespace objects.
+const NS_OBJECT_IDENTS: [&str; 25] = [
+    "console",
+    "Math",
+    "Object",
+    "Number",
+    "String",
+    "Boolean",
+    "JSON",
+    "Array",
+    "Reflect",
+    "Date",
+    "WeakRef",
+    "WeakMap",
+    "WeakSet",
+    "Map",
+    "Set",
+    "Symbol",
+    "BigInt",
+    "Promise",
+    "RegExp",
+    "Function",
+    "Iterator",
+    "fs",
+    "fs_promises",
+    "process",
+    "Bun",
+];
+
 pub(crate) fn check(
     checker: &mut Checker,
     eid: crate::ast::ExprId,
@@ -63,14 +94,15 @@ pub(crate) fn check(
         checker.undeclared_reads.remove(&eid);
         return Ok(ty);
     }
+    if let Some(&ns) = NS_OBJECT_IDENTS.iter().find(|&&n| n == name) {
+        return Ok(Type::Object(ns));
+    }
     match name {
-        "console" => Ok(Type::Object("console")),
         // §19.2.1 — the global `eval` as a VALUE (thisArg / arg /
         // identity). Any, like globalThis: the runtime cell rides
         // the any lanes; direct `eval("...")` calls compiled away in
         // the desugar_eval prefix and never reach an ident read.
         "eval" => Ok(Type::Any),
-        "Math" => Ok(Type::Object("Math")),
         // RFC 20260807-global-object G2 — `globalThis` as a VALUE is
         // the runtime singleton (an Any-boxed immortal dynobj), so
         // member reads ride the any lanes: unknown names answer
@@ -79,40 +111,6 @@ pub(crate) fn check(
         // reads never get here — the G1 desugar rewrote them to bare
         // names. `typeof globalThis` keeps its static "object" lane.
         "globalThis" => Ok(Type::Any),
-        "Object" => Ok(Type::Object("Object")),
-        "Number" => Ok(Type::Object("Number")),
-        "String" => Ok(Type::Object("String")),
-        "Boolean" => Ok(Type::Object("Boolean")),
-        "JSON" => Ok(Type::Object("JSON")),
-        "Array" => Ok(Type::Object("Array")),
-        "Reflect" => Ok(Type::Object("Reflect")),
-        "Date" => Ok(Type::Object("Date")),
-        "WeakRef" => Ok(Type::Object("WeakRef")),
-        "WeakMap" => Ok(Type::Object("WeakMap")),
-        "WeakSet" => Ok(Type::Object("WeakSet")),
-        "Map" => Ok(Type::Object("Map")),
-        "Set" => Ok(Type::Object("Set")),
-        "Symbol" => Ok(Type::Object("Symbol")),
-        "BigInt" => Ok(Type::Object("BigInt")),
-        "Promise" => Ok(Type::Object("Promise")),
-        // The RegExp constructor as a VALUE. `new RegExp(...)` never
-        // came through here (the builtin-new desugar owns it), so the
-        // ident stayed unlisted and `RegExp.prototype` answered
-        // "unknown identifier" — while the lowerer had carried the
-        // ctor-namespace face (proto tag 7, name, length) all along.
-        "RegExp" => Ok(Type::Object("RegExp")),
-        // RFC 20260711-closure-reflection chunk A — `Function.prototype.<m>`
-        // (call/apply/bind method cells) needs the namespace ident typed.
-        "Function" => Ok(Type::Object("Function")),
-        // RFC 20260730-iterator-global 刀 1 — the `Iterator` global
-        // as a VALUE (§27.1.3). The type-annotation head `Iterator<T>`
-        // resolves in a separate namespace (check_type_ann collapses
-        // it to Any) — recorded boundary, no mechanical conflict.
-        "Iterator" => Ok(Type::Object("Iterator")),
-        "fs" => Ok(Type::Object("fs")),
-        "fs_promises" => Ok(Type::Object("fs_promises")),
-        "process" => Ok(Type::Object("process")),
-        "Bun" => Ok(Type::Object("Bun")),
         "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
         "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
         "__torajs_date_from_iso" => Ok(Type::Function(vec![Type::String], Box::new(Type::Date))),
