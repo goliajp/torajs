@@ -355,8 +355,15 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // KeepLoud keeps the strict thrower even under the
             // sloppy goal: an env closure has no plain-call shim to
             // forward to (recorded sloppy-goal face, plan-state L3b).
+            // Class methods (the flattened `__cm*` family — the
+            // generator state machine's included) are excluded
+            // wholesale: the plain-call shim would feed their
+            // receiver slot `undefined` (the forbidden-ext async-gen
+            // family's "expected ClassRef, got Undefined"), and a
+            // method's callee value is a recorded sloppy window.
             let wants_callee_value = ast.sloppy_script_goal
                 && argc_mode != ArgcMode::KeepLoud
+                && !name.starts_with("__cm")
                 && (needs_materialize || body_has_callee_touch(ast, body));
             let spelling_opt = if wants_callee_value {
                 callee_value_fn(ast, name, &mut pending_fwds)
