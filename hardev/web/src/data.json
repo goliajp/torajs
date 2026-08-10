@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T14:07:44.336Z",
+  "generatedAt": "2026-08-10T15:42:46.632Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T13:56:38Z",
-    "headSha": "f8146176",
-    "elapsedSec": 319.4,
+    "ranAt": "2026-08-10T15:41:13Z",
+    "headSha": "0b875877",
+    "elapsedSec": 315.65,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 791,
     "passNegative": 3955,
     "passTotal": 28881,
-    "bug": 12770,
-    "incompatible": 11523,
+    "bug": 12769,
+    "incompatible": 11524,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41651,
+    "trAccepted": 41650,
     "passRateInScope": 54.31,
     "passRateTrAccepted": 69.34
   },
   "torajs": {
-    "commit": "13759663",
-    "commitSubject": "refactor: collapse the namespace-object ident arms into a lookup table",
+    "commit": "0b875877",
+    "commitSubject": "style: fmt-drift fix on the recv_slot line",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "0b875877",
+      "subject": "style: fmt-drift fix on the recv_slot line"
+    },
+    {
+      "hash": "dafbeae4",
+      "subject": "fix: key the recv_slot correction on the post-slot __this shape, not the injected slots (rfc 20260810-indirect-argc-abi s3.4 gap)"
+    },
+    {
+      "hash": "4613a83c",
+      "subject": "fix: any-typed init into a fn-annotated binding keeps the closure cell repr (rfc 20260810-indirect-argc-abi l3b probe-abi1)"
+    },
+    {
+      "hash": "a4e9d4a7",
+      "subject": "fix: exclude the injected __torajs_argv slot from the fn .length fold (rfc 20260810-indirect-argc-abi s3.7)"
+    },
+    {
+      "hash": "4752f4c3",
+      "subject": "refactor: narrow the boxed-entry recv_slot predicate to has_argv; assert the env-first real_argc retirement (rfc 20260810-indirect-argc-abi s3.7)"
+    },
+    {
+      "hash": "0d5d144e",
+      "subject": "refactor: retire the __clsargc mono lane; argc-reading closures ride the s1 hidden argc (rfc 20260810-indirect-argc-abi s3.6)"
+    },
+    {
+      "hash": "f85e9d99",
+      "subject": "feat: env-first materialize take-count reads hidden argc; retire env-first real_argc injection and a-station second push (rfc 20260810-indirect-argc-abi s3.3+s3.4)"
+    },
+    {
+      "hash": "27771085",
+      "subject": "docs: rotation 356 close - self-tail-call and stack-args blades land, s3.1+s3.2 open, sweep +24 zero regressions, dashboard refresh"
+    },
+    {
       "hash": "13759663",
       "subject": "refactor: collapse the namespace-object ident arms into a lookup table"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "7d3a1645",
       "subject": "feat: admit __torajs_argc in the checker ident cascade (rfc 20260810-indirect-argc-abi s3.1)"
-    },
-    {
-      "hash": "721f10c7",
-      "subject": "feat: aapcs64 stack args - 9th+ register-class argument goes through the stack"
-    },
-    {
-      "hash": "39d7934d",
-      "subject": "feat: self-tail-call elimination pass (rfc 20260810-self-tail-call)"
-    },
-    {
-      "hash": "e67f498e",
-      "subject": "docs: rotation 355 close - indirect-argc-abi s1+s2+s2b land, declare-arguments checker face unlocked, s3 phase a decomposed, dashboard refresh"
-    },
-    {
-      "hash": "392db22c",
-      "subject": "fix: scope the s2 subtype relaxations to the call face (rfc 20260810-indirect-argc-abi)"
-    },
-    {
-      "hash": "2e03be22",
-      "subject": "style: fmt-drift fix in callback_subtype (mini pre-flight fmt not rsynced back)"
-    },
-    {
-      "hash": "cc92c68a",
-      "subject": "feat: void-return exception on function faces (rfc 20260810-indirect-argc-abi s2b)"
-    },
-    {
-      "hash": "b9edbbe4",
-      "subject": "feat: missing arguments bind undefined through the argc slot (rfc 20260810-indirect-argc-abi s2)"
-    },
-    {
-      "hash": "eacf265e",
-      "subject": "feat: closure call abi carries hidden argc slot (rfc 20260810-indirect-argc-abi s1)"
     }
   ],
-  "headSha": "13759663",
+  "headSha": "0b875877",
   "autorun": {
-    "total": 659,
+    "total": 660,
     "baselineTarget": 10,
-    "bySelf": 654,
+    "bySelf": 655,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786364353-2f7c",
-      "at": "2026-08-10T12:19:13Z",
-      "ts": 1786364353,
+      "rotationId": "r-1786370898-5fbe",
+      "at": "2026-08-10T14:08:18Z",
+      "ts": 1786370898,
       "trigger": "self",
-      "prevHead": "e67f498e",
-      "handoffSha": "sha256:b9e80b9c3623b4ab528d6eb1ef383fc33b32ea2181d89e6c31b994a6f9cc49d4",
-      "handoffAgeSec": 31,
+      "prevHead": "27771085",
+      "handoffSha": "sha256:51cb81d33921d5cfe4344d01da69c9313f1f1c5c5b2df53b096670b6adb48bb4",
+      "handoffAgeSec": 120,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786370898-5fbe",
+        "at": "2026-08-10T14:08:18Z",
+        "ts": 1786370898,
+        "trigger": "self",
+        "prevHead": "27771085",
+        "handoffSha": "sha256:51cb81d33921d5cfe4344d01da69c9313f1f1c5c5b2df53b096670b6adb48bb4",
+        "handoffAgeSec": 120,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786364353-2f7c",
         "at": "2026-08-10T12:19:13Z",
@@ -876,17 +887,6 @@
         "prevHead": "9941d35b",
         "handoffSha": "sha256:ef9078323272f5e0ec5512dbb687c4ab1d1d50a33077648ad6bcdd1f64d41a12",
         "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786281850-298e",
-        "at": "2026-08-09T13:24:10Z",
-        "ts": 1786281850,
-        "trigger": "self",
-        "prevHead": "8ff9a184",
-        "handoffSha": "sha256:897a7886e684589fbd88147d8c3225348068f3e82c06efa1431644632a445d0c",
-        "handoffAgeSec": 1,
         "conformanceBefore": null,
         "commitsInSession": null
       }
