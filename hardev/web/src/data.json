@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T05:46:23.435Z",
+  "generatedAt": "2026-08-10T08:08:45.741Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T05:37:44Z",
-    "headSha": "380172de",
-    "elapsedSec": 344.14,
+    "ranAt": "2026-08-10T08:07:02Z",
+    "headSha": "33c57cd0",
+    "elapsedSec": 318.9,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24038,
-    "passNoOracle": 827,
+    "pass": 24045,
+    "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28820,
-    "bug": 12674,
-    "incompatible": 11680,
-    "bunSkip": 7159,
+    "passTotal": 28791,
+    "bug": 12702,
+    "incompatible": 11681,
+    "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41494,
-    "passRateInScope": 54.2,
-    "passRateTrAccepted": 69.46
+    "trAccepted": 41493,
+    "passRateInScope": 54.14,
+    "passRateTrAccepted": 69.39
   },
   "torajs": {
-    "commit": "42c2a060",
-    "commitSubject": "refactor: object_lit's cell-construction tail moves to a child module at the file cap",
+    "commit": "33c57cd0",
+    "commitSubject": "feat: promise expando entries read back through the any member lane",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "33c57cd0",
+      "subject": "feat: promise expando entries read back through the any member lane"
+    },
+    {
+      "hash": "901e1aa0",
+      "subject": "fix: sloppy callee-value synthesis excludes the flattened class-method family"
+    },
+    {
+      "hash": "41ff7c43",
+      "subject": "feat: sloppy simple-param arguments map to params through the literal-index substitution"
+    },
+    {
+      "hash": "532b6c20",
+      "subject": "feat: sloppy-goal arguments.callee is the fn value with the full own-property face"
+    },
+    {
+      "hash": "542ed88f",
+      "subject": "feat: .cts maps to the commonjs sloppy script goal and nostrict test262 cases stage as case.cts"
+    },
+    {
+      "hash": "d2d2094e",
+      "subject": "docs: rotation 352 close - promise iterator-interleave I1-I4 lands whole, tr-timeout 11 to 5, borrowed-binding double-spend rooted, P-SURF restamp, dashboard refresh"
+    },
+    {
       "hash": "42c2a060",
       "subject": "refactor: object_lit's cell-construction tail moves to a child module at the file cap"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "285f8824",
       "subject": "feat: the then override GET runs accessor getters and iterator close gains an abrupt extern face"
-    },
-    {
-      "hash": "478088d4",
-      "subject": "feat: promise cells carry a lazy expando props bag and a then override rides it"
-    },
-    {
-      "hash": "1d74facf",
-      "subject": "docs: rotation 351 close - arguments exotic reflective face lands in seven knives, sweep +36 zero regressions, P-SURF restamp, dashboard refresh"
-    },
-    {
-      "hash": "76c7061a",
-      "subject": "feat: the direct delete of arguments.length rides the keyed tombstone"
-    },
-    {
-      "hash": "5a07060b",
-      "subject": "fix: callee write and delete positions throw instead of minting a call target, and the thrower joins may-throw"
-    },
-    {
-      "hash": "1914196c",
-      "subject": "feat: deleting an arguments element rides the materialized array"
-    },
-    {
-      "hash": "e971b1a0",
-      "subject": "feat: callee is an own property in the arguments hasOwnProperty probe"
     }
   ],
-  "headSha": "42c2a060",
+  "headSha": "33c57cd0",
   "autorun": {
-    "total": 655,
+    "total": 656,
     "baselineTarget": 10,
-    "bySelf": 650,
+    "bySelf": 651,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786327134-7d7e",
-      "at": "2026-08-10T01:58:54Z",
-      "ts": 1786327134,
+      "rotationId": "r-1786340869-35a7",
+      "at": "2026-08-10T05:47:49Z",
+      "ts": 1786340869,
       "trigger": "self",
-      "prevHead": "1d74facf",
-      "handoffSha": "sha256:73f5a4610c0f933ae9f9dd79863b1821c770ea35726e71bf0d882ea1ae69d007",
-      "handoffAgeSec": 58,
+      "prevHead": "d2d2094e",
+      "handoffSha": "sha256:18837f8fca745c5acdf8feabbefe0d032a74fbc0bc9703d011c0c72b39d63201",
+      "handoffAgeSec": 33,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786340869-35a7",
+        "at": "2026-08-10T05:47:49Z",
+        "ts": 1786340869,
+        "trigger": "self",
+        "prevHead": "d2d2094e",
+        "handoffSha": "sha256:18837f8fca745c5acdf8feabbefe0d032a74fbc0bc9703d011c0c72b39d63201",
+        "handoffAgeSec": 33,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786327134-7d7e",
         "at": "2026-08-10T01:58:54Z",
@@ -876,17 +887,6 @@
         "prevHead": "ceeb2f4e",
         "handoffSha": "sha256:9bdac95c3b1c462cea42e8394272c8becd1c66735b5853985253bf7d79406fc1",
         "handoffAgeSec": 118,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786227037-2cda",
-        "at": "2026-08-08T22:10:37Z",
-        "ts": 1786227037,
-        "trigger": "self",
-        "prevHead": "6df5d7d4",
-        "handoffSha": "sha256:eae4de4b8dad9dc2b4d0b73b3e612d1285ca3522a3291eac0769890139ebb3dd",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
