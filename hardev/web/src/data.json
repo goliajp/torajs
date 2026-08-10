@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T21:54:38.508Z",
+  "generatedAt": "2026-08-10T23:54:05.165Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T21:51:48Z",
-    "headSha": "1e1c6083",
-    "elapsedSec": 320.45,
+    "ranAt": "2026-08-10T23:50:14Z",
+    "headSha": "9239da40",
+    "elapsedSec": 325.5,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24155,
+    "pass": 24182,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28901,
-    "bug": 12779,
-    "incompatible": 11494,
+    "passTotal": 28928,
+    "bug": 12791,
+    "incompatible": 11455,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41680,
-    "passRateInScope": 54.35,
+    "trAccepted": 41719,
+    "passRateInScope": 54.4,
     "passRateTrAccepted": 69.34
   },
   "torajs": {
-    "commit": "1e1c6083",
-    "commitSubject": "feat: length-only env-first bodies read the s1 hidden argc without binding-chain admission (rfc 20260810-indirect-argc-abi l3b escaped-closure forward face)",
+    "commit": "9239da40",
+    "commitSubject": "feat: the boxed adapter binds a long-string literal default too (mints the static global directly on module.strings — synthesis precedes per-fn lower, stringid final at mint)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "9239da40",
+      "subject": "feat: the boxed adapter binds a long-string literal default too (mints the static global directly on module.strings — synthesis precedes per-fn lower, stringid final at mint)"
+    },
+    {
+      "hash": "132c4bde",
+      "subject": "feat: a runtime-undefined actual binds a typed param's long-string literal default on the direct lane (interned static global, heap-tag or_default; dflt_lit family split to child module)"
+    },
+    {
+      "hash": "5382ce15",
+      "subject": "feat: a runtime-undefined actual binds a typed param's short-string literal default (prebaked shortstr box, or_default tag 6, both lanes)"
+    },
+    {
+      "hash": "de2fcc81",
+      "subject": "feat: any arg into a scalar param admitted on class-method and member-callee lanes (both route coerce_args_by_param_tys)"
+    },
+    {
+      "hash": "10ba2e12",
+      "subject": "fix: a fn-typed param with a closure-shaped default gets the cell repr tag (the arg-scan round never sees the call-site pad)"
+    },
+    {
+      "hash": "2500e6c7",
+      "subject": "fix: call-returning-closure, ternary and nullish inits into a fn-sig-annotated binding keep the cell repr (r358 arm family unified into one recursive walk)"
+    },
+    {
+      "hash": "5cd414aa",
+      "subject": "feat: runtime-undefined any actual binds a typed param's literal default on the direct-call lane (es 10.2.11, s3.8 blade 2)"
+    },
+    {
+      "hash": "8fbcb710",
+      "subject": "feat: literal-undefined argument binds the parameter default at the call site (es 10.2.11 step 26, s3.8 blade 1)"
+    },
+    {
+      "hash": "7116e725",
+      "subject": "docs: rotation 358 close - objlit-this nominal width join, universal beyond-arity admit, twin repr holes and escaped-closure argc admission, sweep +20 zero regressions, dashboard refresh"
+    },
+    {
       "hash": "1e1c6083",
       "subject": "feat: length-only env-first bodies read the s1 hidden argc without binding-chain admission (rfc 20260810-indirect-argc-abi l3b escaped-closure forward face)"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "626c7e5d",
       "subject": "fix: closure-ident init into a fn-sig-annotated binding keeps the cell repr (rfc 20260810-indirect-argc-abi l3b, as-any hole sibling)"
-    },
-    {
-      "hash": "e1e4178d",
-      "subject": "feat: universal beyond-arity call admit per es 13.3.6.1, retiring the name-keyed length-only closure wedge (rfc 20260810-indirect-argc-abi s3.5)"
-    },
-    {
-      "hash": "b6ceac08",
-      "subject": "fix: objlit method receiver lost to twin-sid width split - join the literal onto its __ObjLit nominal class and widen the TypeDecl fn-sig faces by field key"
-    },
-    {
-      "hash": "907416a2",
-      "subject": "docs: rotation 357 close - s3.3-s3.7 land, env-first real_argc fully retired, as-any repr and recv_slot holes fixed, sweep flat zero regressions, dashboard refresh"
-    },
-    {
-      "hash": "0b875877",
-      "subject": "style: fmt-drift fix on the recv_slot line"
-    },
-    {
-      "hash": "dafbeae4",
-      "subject": "fix: key the recv_slot correction on the post-slot __this shape, not the injected slots (rfc 20260810-indirect-argc-abi s3.4 gap)"
-    },
-    {
-      "hash": "4613a83c",
-      "subject": "fix: any-typed init into a fn-annotated binding keeps the closure cell repr (rfc 20260810-indirect-argc-abi l3b probe-abi1)"
-    },
-    {
-      "hash": "a4e9d4a7",
-      "subject": "fix: exclude the injected __torajs_argv slot from the fn .length fold (rfc 20260810-indirect-argc-abi s3.7)"
-    },
-    {
-      "hash": "4752f4c3",
-      "subject": "refactor: narrow the boxed-entry recv_slot predicate to has_argv; assert the env-first real_argc retirement (rfc 20260810-indirect-argc-abi s3.7)"
-    },
-    {
-      "hash": "0d5d144e",
-      "subject": "refactor: retire the __clsargc mono lane; argc-reading closures ride the s1 hidden argc (rfc 20260810-indirect-argc-abi s3.6)"
     }
   ],
-  "headSha": "1e1c6083",
+  "headSha": "9239da40",
   "autorun": {
-    "total": 661,
+    "total": 662,
     "baselineTarget": 10,
-    "bySelf": 656,
+    "bySelf": 657,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786376650-3c8a",
-      "at": "2026-08-10T15:44:10Z",
-      "ts": 1786376650,
+      "rotationId": "r-1786398950-1980",
+      "at": "2026-08-10T21:55:50Z",
+      "ts": 1786398950,
       "trigger": "self",
-      "prevHead": "907416a2",
-      "handoffSha": "sha256:4b5dc9f07747e3100cf0119f5c86c33de287bffe61c071c4f17154acefbdd30e",
-      "handoffAgeSec": 34,
+      "prevHead": "7116e725",
+      "handoffSha": "sha256:f0afdbb63d5a16c5f896a2136b707d3e534f7104bf1020ad5c9461041a65d638",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786398950-1980",
+        "at": "2026-08-10T21:55:50Z",
+        "ts": 1786398950,
+        "trigger": "self",
+        "prevHead": "7116e725",
+        "handoffSha": "sha256:f0afdbb63d5a16c5f896a2136b707d3e534f7104bf1020ad5c9461041a65d638",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786376650-3c8a",
         "at": "2026-08-10T15:44:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "3fa340d7",
         "handoffSha": "sha256:995d9a659fac451434c83e1f80ddfd69a2c1c9aaa0b7189de95517a8f4b8c72b",
         "handoffAgeSec": 18,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786293968-4089",
-        "at": "2026-08-09T16:46:08Z",
-        "ts": 1786293968,
-        "trigger": "self",
-        "prevHead": "3d362776",
-        "handoffSha": "sha256:4f674c632846abaaa553bb1b7eaa1090edd5ae5cfeb9ae19185eaa55920f6bc3",
-        "handoffAgeSec": 501,
         "conformanceBefore": null,
         "commitsInSession": null
       }
