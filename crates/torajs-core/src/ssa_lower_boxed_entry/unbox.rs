@@ -56,16 +56,7 @@ pub(super) fn unbox_args(
         // that inst is egraph-internal), so every per-type unbox arm
         // below stays untouched.
         if let Some(lit) = dflt_lits.get(i).copied().flatten() {
-            let (box_tag, box_bits) = match lit {
-                // Integral numbers box as tag-2 i64, fractional as
-                // tag-3 f64 bits — the same split the typed-return
-                // boxing above the adapter uses.
-                super::DfltLit::Num(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => {
-                    (2i64, Operand::ConstI64(n as i64))
-                }
-                super::DfltLit::Num(n) => (3i64, Operand::ConstI64(n.to_bits() as i64)),
-                super::DfltLit::Bool(b) => (1i64, Operand::ConstI64(i64::from(b))),
-            };
+            let (box_tag, box_bits) = lit.box_encoding();
             av = Operand::Value(f.append_inst(
                 entry,
                 InstKind::Call(

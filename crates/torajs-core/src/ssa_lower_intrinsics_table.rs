@@ -450,6 +450,7 @@ pub(crate) fn build(
         any_bitnot: init_c.any_substrate.any_bitnot,
         any_incr_slot: init_c.any_substrate.any_incr_slot,
         anyv_incr_value: init_c.runtime_misc.anyv_incr_value,
+        anyv_or_default: init_c.runtime_misc.anyv_or_default,
         any_compare: init_c.any_substrate.any_compare,
         any_strict_eq: init_c.any_substrate.any_strict_eq,
         any_svz: init_c.any_substrate.any_svz,

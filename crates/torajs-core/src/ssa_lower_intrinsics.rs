@@ -518,6 +518,10 @@ pub(crate) struct Intrinsics {
     /// Value-shaped ToNumeric + step twin — the any-member update
     /// lane's GetV → step → member-set composition (§13.4.4.1).
     pub(crate) anyv_incr_value: FuncId,
+    /// Literal-default substitution kernel (S2.39 / S3.8) — answers
+    /// the value unless undefined, else boxes the baked Number/Bool
+    /// default (§10.2.11 explicit-undefined binding).
+    pub(crate) anyv_or_default: FuncId,
     pub(crate) any_compare: FuncId,
     pub(crate) any_strict_eq: FuncId,
     /// SameValueZero pair variant (§7.2.9) — includes-with-any-needle.

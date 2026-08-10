@@ -63,6 +63,10 @@ pub(crate) struct BoxedEntryIntrinsics {
     /// fills it from the trailing argv window (incs stored cells;
     /// argv slots stay borrowed).
     pub(crate) arr_any_push: FuncId,
+    /// `__torajs_anyv_or_default(v, tag, bits)` — the S2.39
+    /// literal-default substitution kernel, shared with the
+    /// direct-call terminal (S3.8) through the intrinsics table.
+    pub(crate) anyv_or_default: FuncId,
 }
 
 /// `true` iff the type can cross the boxed boundary in either
@@ -213,16 +217,11 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any],
         Type::Void,
     );
-    // S2.39 — the literal-default substitution kernel (answers the
-    // slot unless undefined, else boxes the baked literal), declared
-    // lazily like the trio above.
-    let anyv_or_default = crate::ssa_lower_synthesize_main::declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_anyv_or_default",
-        &[Type::Any, Type::I64, Type::I64],
-        Type::Any,
-    );
+    // S2.39 — the literal-default substitution kernel rides the
+    // intrinsics table since S3.8 (the direct-call terminal consumes
+    // it too; a second lazy declare here would push a same-named
+    // duplicate declaration into the module).
+    let anyv_or_default = intr.anyv_or_default;
     for t in targets {
         let obj_tags: Vec<Option<u32>> = t
             .user_tys
@@ -421,6 +420,28 @@ fn collect_boxed_targets(
 pub(crate) enum DfltLit {
     Num(f64),
     Bool(bool),
+}
+
+/// S3.8 — the Pass-1 per-fn literal-default map threaded to the
+/// direct-call terminal (sig-aligned positions; only fns with at
+/// least one qualifying literal have an entry).
+pub(crate) type FnDfltLits = HashMap<FuncId, Vec<Option<DfltLit>>>;
+
+impl DfltLit {
+    /// The `(tag, bits)` pair `__torajs_anyv_or_default` bakes the
+    /// literal as. Integral numbers box as tag-2 i64, fractional as
+    /// tag-3 f64 bits — the same split the typed-return boxing uses.
+    /// Shared by the adapter's per-slot unbox and the direct-call
+    /// terminal's Any-arg coercion (S3.8).
+    pub(crate) fn box_encoding(self) -> (i64, ssa::Operand) {
+        match self {
+            DfltLit::Num(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => {
+                (2i64, ssa::Operand::ConstI64(n as i64))
+            }
+            DfltLit::Num(n) => (3i64, ssa::Operand::ConstI64(n.to_bits() as i64)),
+            DfltLit::Bool(b) => (1i64, ssa::Operand::ConstI64(i64::from(b))),
+        }
+    }
 }
 
 /// One adapter-synthesis target — the per-FnDecl facts the targets

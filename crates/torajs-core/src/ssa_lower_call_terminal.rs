@@ -252,7 +252,53 @@ fn coerce_args(
         return Vec::new();
     };
     let param_tys = ctx.fn_sigs[sig_id.0 as usize].0.clone();
+    apply_runtime_dflt_lits(ctx, target, &param_tys, argv);
     coerce_args_by_param_tys(ctx, &param_tys, args, argv)
+}
+
+/// S3.8 — a runtime `undefined` actual binds a typed param's
+/// Number/Bool literal default (§10.2.11: explicit undefined and
+/// missing bind alike). The call-site pad handles the static
+/// spellings; an `any`-typed actual can only be tested at runtime,
+/// so it routes through the same branchless or_default kernel the
+/// boxed dual-entry adapter uses, ahead of the ordinary Any→typed
+/// coercion (which would have answered NaN / false). Positions
+/// whose param is itself `Any` never qualify: their default is the
+/// body-side IsUndefined guard (`materialize_expr_defaults`), and
+/// Pass 1 sees the rewritten `undefined` literal there — no entry.
+fn apply_runtime_dflt_lits(
+    ctx: &mut LowerCtx<'_>,
+    target: FuncId,
+    param_tys: &[Type],
+    argv: &mut [Operand],
+) {
+    let Some(lits) = ctx.fn_dflt_lits.get(&target) else {
+        return;
+    };
+    let lits = lits.clone();
+    for (i, expected) in param_tys.iter().enumerate() {
+        if i >= argv.len() {
+            break;
+        }
+        let Some(Some(lit)) = lits.get(i).copied() else {
+            continue;
+        };
+        if ctx.operand_ty(&argv[i]) != Type::Any
+            || !matches!(expected, Type::F64 | Type::I64 | Type::I32 | Type::Bool)
+        {
+            continue;
+        }
+        let (tag, bits) = lit.box_encoding();
+        argv[i] = Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.anyv_or_default,
+                vec![argv[i], Operand::ConstI64(tag), bits],
+            ),
+            Type::Any,
+            None,
+        ));
+    }
 }
 
 /// Per-arg conversion against a declared param-type list, applying the

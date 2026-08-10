@@ -27,6 +27,12 @@ pub(crate) struct LowerCtx<'a> {
     /// `let f = global_fn` to allocate the right FnSig slot type and by
     /// `FnAddr(fid)` to type its result. M2 Phase B Stage 4.
     pub(crate) fn_sig_ids: &'a HashMap<FuncId, ssa::SigId>,
+    /// S3.8 — FuncId → sig-aligned Number/Bool literal defaults (Pass
+    /// 1). The direct-call terminal routes an Any actual through the
+    /// or_default kernel at these positions (§10.2.11 runtime
+    /// undefined).
+    pub(crate) fn_dflt_lits:
+        &'a HashMap<FuncId, Vec<Option<crate::ssa_lower_boxed_entry::DfltLit>>>,
     /// Resolved FuncIds for the runtime intrinsics. Read at every site that
     /// emits a runtime call — string-literal lowering needs `str_alloc`,
     /// `console.log` needs `print_i64` / `str_print`, etc.

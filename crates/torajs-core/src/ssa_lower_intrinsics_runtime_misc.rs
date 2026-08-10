@@ -71,6 +71,13 @@ pub(crate) struct RuntimeMiscIds {
     /// member-set kernel. Writes the coerced old value through the
     /// ptr arg, answers the stepped new value.
     pub anyv_incr_value: FuncId,
+    /// S2.39 / S3.8 — `__torajs_anyv_or_default(v, tag, bits)`: the
+    /// literal-default substitution kernel (answers `v` unless
+    /// undefined, else boxes the baked literal). Consumed by the
+    /// boxed dual-entry adapter's per-slot unbox and the direct-call
+    /// terminal's Any-arg coercion (a runtime `undefined` actual
+    /// binds a typed param's Number/Bool default per §10.2.11).
+    pub anyv_or_default: FuncId,
 }
 
 pub(crate) fn declare(
@@ -209,6 +216,13 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_anyv_incr_value",
             &[Type::Any, Type::I64, Type::Ptr],
+            Type::Any,
+        ),
+        anyv_or_default: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_or_default",
+            &[Type::Any, Type::I64, Type::I64],
             Type::Any,
         ),
     }

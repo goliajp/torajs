@@ -180,6 +180,7 @@ pub(crate) fn lower_inner(
         &fn_table,
         &signatures,
         &fn_sig_ids,
+        &pass1.fn_dflt_lits,
         &intrinsics,
         &aliases,
         &mut arr_layouts,

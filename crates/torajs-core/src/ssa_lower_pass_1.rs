@@ -23,9 +23,41 @@ use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower::{effective_ret_ty, intern_fn_sig};
 use crate::ssa_lower_parse_type::parse_type;
 
+/// S3.8 — a typed param's Number/Bool literal default, positionally
+/// aligned with the fn's sig `param_tys` (the `__env`-first hidden
+/// argc slot mirrors as a `None`). The direct-call terminal consults
+/// this to bind the default when a runtime `undefined` arrives in an
+/// `any` actual (§10.2.11 — the call-site pad only covers the static
+/// spellings). Only fns with at least one qualifying literal enter
+/// the map.
+fn dflt_lits_of_params(
+    ast: &Ast,
+    params: &[crate::ast::Param],
+) -> Option<Vec<Option<crate::ssa_lower_boxed_entry::DfltLit>>> {
+    use crate::ssa_lower_boxed_entry::DfltLit;
+    let mut lits: Vec<Option<DfltLit>> = params
+        .iter()
+        .map(|p| match p.default.map(|d| ast.get_expr(d)) {
+            Some(crate::ast::Expr::Number(n)) => Some(DfltLit::Num(*n)),
+            Some(crate::ast::Expr::Bool(b)) => Some(DfltLit::Bool(*b)),
+            _ => None,
+        })
+        .collect();
+    if !lits.iter().any(Option::is_some) {
+        return None;
+    }
+    if params.first().is_some_and(|p| p.name == "__env") {
+        lits.insert(1, None);
+    }
+    Some(lits)
+}
+
 pub(crate) struct Pass1 {
     pub decl_indices: Vec<(usize, FuncId)>,
     pub fn_sig_ids: HashMap<FuncId, ssa::SigId>,
+    /// S3.8 — per-fn Number/Bool literal defaults, sig-aligned (see
+    /// [`dflt_lits_of_params`]).
+    pub fn_dflt_lits: HashMap<FuncId, Vec<Option<crate::ssa_lower_boxed_entry::DfltLit>>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -44,6 +76,8 @@ pub(crate) fn run(
 ) -> Pass1 {
     let mut decl_indices: Vec<(usize, FuncId)> = Vec::new();
     let mut fn_sig_ids: HashMap<FuncId, ssa::SigId> = HashMap::new();
+    let mut fn_dflt_lits: HashMap<FuncId, Vec<Option<crate::ssa_lower_boxed_entry::DfltLit>>> =
+        HashMap::new();
 
     // Pass 0.4 — register every Pass-0 intrinsic's signature in
     // `fn_sig_ids`. The call-site coercion arm later (`Expr::Call`
@@ -174,6 +208,9 @@ pub(crate) fn run(
             // FnAddr's result type. M2 Phase B Stage 4.
             let sig_id = intern_fn_sig(fn_sigs, param_tys, ret_ty);
             fn_sig_ids.insert(fid, sig_id);
+            if let Some(lits) = dflt_lits_of_params(ast, params) {
+                fn_dflt_lits.insert(fid, lits);
+            }
             module.funcs.push(ssa::Function::new(name.clone(), ret_ty));
             decl_indices.push((i, fid));
         }
@@ -182,5 +219,6 @@ pub(crate) fn run(
     Pass1 {
         decl_indices,
         fn_sig_ids,
+        fn_dflt_lits,
     }
 }

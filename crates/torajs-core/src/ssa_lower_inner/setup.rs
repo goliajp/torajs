@@ -60,6 +60,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
             str_drop: intrinsics.str_drop,
             arr_alloc_any: intrinsics.arr_alloc_any,
             arr_any_push: intrinsics.arr_any_push,
+            anyv_or_default: intrinsics.anyv_or_default,
         },
         anon_stamp_pool,
         class_name_to_tag,
