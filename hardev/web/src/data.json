@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T10:40:39.054Z",
+  "generatedAt": "2026-08-10T12:17:45.931Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T10:38:11Z",
-    "headSha": "3ad5bce1",
-    "elapsedSec": 320.86,
+    "ranAt": "2026-08-10T12:15:53Z",
+    "headSha": "392db22c",
+    "elapsedSec": 317.52,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24094,
+    "pass": 24111,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28840,
-    "bug": 12655,
-    "incompatible": 11679,
+    "passTotal": 28857,
+    "bug": 12784,
+    "incompatible": 11533,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41495,
-    "passRateInScope": 54.24,
-    "passRateTrAccepted": 69.5
+    "trAccepted": 41641,
+    "passRateInScope": 54.27,
+    "passRateTrAccepted": 69.3
   },
   "torajs": {
-    "commit": "3ad5bce1",
-    "commitSubject": "feat: promise bag holds symbol-keyed properties",
+    "commit": "392db22c",
+    "commitSubject": "fix: scope the s2 subtype relaxations to the call face (rfc 20260810-indirect-argc-abi)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "392db22c",
+      "subject": "fix: scope the s2 subtype relaxations to the call face (rfc 20260810-indirect-argc-abi)"
+    },
+    {
+      "hash": "2e03be22",
+      "subject": "style: fmt-drift fix in callback_subtype (mini pre-flight fmt not rsynced back)"
+    },
+    {
+      "hash": "cc92c68a",
+      "subject": "feat: void-return exception on function faces (rfc 20260810-indirect-argc-abi s2b)"
+    },
+    {
+      "hash": "b9edbbe4",
+      "subject": "feat: missing arguments bind undefined through the argc slot (rfc 20260810-indirect-argc-abi s2)"
+    },
+    {
+      "hash": "eacf265e",
+      "subject": "feat: closure call abi carries hidden argc slot (rfc 20260810-indirect-argc-abi s1)"
+    },
+    {
+      "hash": "8879aec0",
+      "subject": "docs: rotation 354 sweep artifacts into hardev (missed by a bad add path in the close commit)"
+    },
+    {
+      "hash": "c1b48e5f",
+      "subject": "docs: rotation 354 close - eval declare-arguments knife b lands 48, promise bag grows the full property face, indirect-argc-abi rfc decaled, dashboard refresh"
+    },
+    {
       "hash": "3ad5bce1",
       "subject": "feat: promise bag holds symbol-keyed properties"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "61817d4d",
       "subject": "feat: param-default direct eval declaring arguments throws syntaxerror at call time"
-    },
-    {
-      "hash": "22e3103b",
-      "subject": "docs: rotation 353 close - cts sloppy goal lands whole, nine arguments cases pass, oracle revival de-waters eval-code, promise bag read channel opens, dashboard refresh"
-    },
-    {
-      "hash": "33c57cd0",
-      "subject": "feat: promise expando entries read back through the any member lane"
-    },
-    {
-      "hash": "901e1aa0",
-      "subject": "fix: sloppy callee-value synthesis excludes the flattened class-method family"
-    },
-    {
-      "hash": "41ff7c43",
-      "subject": "feat: sloppy simple-param arguments map to params through the literal-index substitution"
-    },
-    {
-      "hash": "532b6c20",
-      "subject": "feat: sloppy-goal arguments.callee is the fn value with the full own-property face"
-    },
-    {
-      "hash": "542ed88f",
-      "subject": "feat: .cts maps to the commonjs sloppy script goal and nostrict test262 cases stage as case.cts"
-    },
-    {
-      "hash": "d2d2094e",
-      "subject": "docs: rotation 352 close - promise iterator-interleave I1-I4 lands whole, tr-timeout 11 to 5, borrowed-binding double-spend rooted, P-SURF restamp, dashboard refresh"
     }
   ],
-  "headSha": "3ad5bce1",
+  "headSha": "392db22c",
   "autorun": {
-    "total": 657,
+    "total": 658,
     "baselineTarget": 10,
-    "bySelf": 652,
+    "bySelf": 653,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786349411-6986",
-      "at": "2026-08-10T08:10:11Z",
-      "ts": 1786349411,
+      "rotationId": "r-1786358492-63a1",
+      "at": "2026-08-10T10:41:32Z",
+      "ts": 1786358492,
       "trigger": "self",
-      "prevHead": "22e3103b",
-      "handoffSha": "sha256:c63750aa89b213a0084846b5f1cd31ff5617ecd0f66b36d5847d0e4aa3045dc8",
-      "handoffAgeSec": 25,
+      "prevHead": "8879aec0",
+      "handoffSha": "sha256:be29555988ac2e4035455996033ae85809cc3436da398fdab0ea04cb178ba0f5",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786358492-63a1",
+        "at": "2026-08-10T10:41:32Z",
+        "ts": 1786358492,
+        "trigger": "self",
+        "prevHead": "8879aec0",
+        "handoffSha": "sha256:be29555988ac2e4035455996033ae85809cc3436da398fdab0ea04cb178ba0f5",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786349411-6986",
         "at": "2026-08-10T08:10:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "0efb5440",
         "handoffSha": "sha256:22adf293c3cc348ebc556f4881ec1c9502a70af19d88c11bad3cff2cbc439aa1",
         "handoffAgeSec": 27,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786256211-43b3",
-        "at": "2026-08-09T06:16:51Z",
-        "ts": 1786256211,
-        "trigger": "self",
-        "prevHead": "2342270f",
-        "handoffSha": "sha256:4151631508914b6f27883d6e1159ea926a9c914efab0f747461b159fe6a5a2e8",
-        "handoffAgeSec": 39,
         "conformanceBefore": null,
         "commitsInSession": null
       }
