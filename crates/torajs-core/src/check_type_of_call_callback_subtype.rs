@@ -86,10 +86,23 @@ pub(crate) fn matches_resolved(
             Box::new(one(ret)),
         )
     };
-    matches(&resolve_sig(param_ty), &resolve_sig(arg_ty))
+    matches_face(&resolve_sig(param_ty), &resolve_sig(arg_ty), true)
 }
 
+/// Assignment-position face (let / assign / field / array-literal
+/// unification through `check_assignable`): the S133 shorter-arity
+/// admit WITHOUT the S2 call-face relaxations. The two S2 arms
+/// (excess-Any-tail arity, void-formal ret) are deliberately
+/// call-arg-only — as a unification proxy the wider admit collapsed
+/// previously-heterogeneous array literals (`[{then(a)}, {then(a,
+/// b)}]` went Array<Struct> instead of Array<Any>) and downstream
+/// arms keyed on that shape (the Promise.all thenable family,
+/// rotation 355 sweep regression).
 pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
+    matches_face(param_ty, arg_ty, false)
+}
+
+fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
     match (param_ty, arg_ty) {
         // RFC 20260708-variadic — formal ends with the Rest(elem)
         // sentinel (`(...args: E[]) => R`): the actual callback may
@@ -127,9 +140,10 @@ pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
             // face: f declares a defaulted param, the harness's
             // Function-typed slot declares none.
             let arity_ok = actual_ps.len() <= formal_ps.len()
-                || actual_ps[formal_ps.len()..]
-                    .iter()
-                    .all(|a| matches!(a, Type::Any));
+                || (call_face
+                    && actual_ps[formal_ps.len()..]
+                        .iter()
+                        .all(|a| matches!(a, Type::Any)));
             // S2 also adds the TS void-return exception: a
             // `() => void` face accepts a value-returning callback —
             // the call site lowers through the formal sig and
@@ -140,10 +154,8 @@ pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
             // Void calls Undefined), so both spellings admit.
             arity_ok
                 && (formal_ret.as_ref() == actual_ret.as_ref()
-                    || matches!(
-                        formal_ret.as_ref(),
-                        Type::Any | Type::Void | Type::Undefined
-                    )
+                    || matches!(formal_ret.as_ref(), Type::Any)
+                    || (call_face && matches!(formal_ret.as_ref(), Type::Void | Type::Undefined))
                     || matches!(actual_ret.as_ref(), Type::Any))
                 && actual_ps
                     .iter()
