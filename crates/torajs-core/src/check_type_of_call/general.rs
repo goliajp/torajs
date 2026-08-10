@@ -329,15 +329,17 @@ fn arg_admitted(
     }
     // RFC 20260708-spread-call chunk 2a — TS any-assignability
     // at the call boundary: an Any arg into a scalar / String
-    // param is admitted, paired with a caller-side coerce at
-    // every plain-Ident-callee lowering lane (terminal
-    // coerce_args / closure-local / fn-indirect). The admit is
-    // gated to plain Ident callees: `__cm_` class-method calls
-    // route through vtable / sibling-static dispatch and
-    // Member-callee shapes through struct-method dispatch —
-    // none of those lanes has a per-param coerce hook, so they
-    // stay loud. Heap-typed params (Array / struct / Map / …)
-    // also stay loud: there is no caller-side Any→heap unbox
+    // param is admitted, paired with a caller-side coerce at the
+    // lowering lanes. Originally gated to plain Ident callees;
+    // r359 extends it to `__cm_` class-method idents and
+    // Member-callee shapes — both route through
+    // `coerce_args_by_param_tys` (the terminal serves `__cm_`
+    // direct calls, and the struct-method dispatch shares the
+    // same contract since RFC 20260714 刀 1), so the coerce hook
+    // the original gate was missing exists now (probe: plain-fn
+    // `f(u)` coerced while `new A().m(u)` stayed a loud reject —
+    // bun accepts both). Heap-typed params (Array / struct /
+    // Map / …) stay loud: there is no caller-side Any→heap unbox
     // helper (mirrors the let-decl lane's wrong-repr stance).
     if matches!(arg_ty, Type::Any)
         && matches!(
@@ -346,7 +348,7 @@ fn arg_admitted(
         )
         && matches!(
             ast.get_expr(*callee),
-            crate::ast::Expr::Ident(n) if !crate::check::is_class_method_name(n)
+            crate::ast::Expr::Ident(_) | crate::ast::Expr::Member { .. }
         )
     {
         return true;
