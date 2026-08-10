@@ -69,12 +69,33 @@ pub(crate) fn initial_let_ty(
             matches!(ctx.ast.get_expr(init), Expr::Ident(n)
                 if matches!(ctx.locals.get(n), Some(li) if matches!(li.ty, Type::Closure(_))))
         };
+        // …and a MEMBER init reading a struct's fn-typed field: the
+        // field slot is Closure-typed by construction
+        // (`tag_struct_field_closure_types` retags every struct-field
+        // fn annotation `__cls(` — even a forwarder-wrapped named fn
+        // is stored as a cell), so the read hands back a cell too.
+        let member_cell_init = || {
+            let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
+                return false;
+            };
+            let Some(crate::check::Type::Struct(fields)) = ctx.expr_types.get(obj) else {
+                return false;
+            };
+            fields.iter().any(|(n, t)| {
+                let t = match t {
+                    crate::check::Type::Nullable(inner) => inner.as_ref(),
+                    other => other,
+                };
+                n == name && matches!(t, crate::check::Type::Function(..))
+            })
+        };
         let parsed = match parsed {
             Type::FnSig(sig)
                 if mutable
                     || matches!(ctx.ast.get_expr(init), Expr::Closure { .. })
                     || matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any))
-                    || ident_cell_init() =>
+                    || ident_cell_init()
+                    || member_cell_init() =>
             {
                 Type::Closure(sig)
             }

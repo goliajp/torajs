@@ -26,3 +26,12 @@ function make(base: number) {
   return h(10);
 }
 console.log(make(5));
+
+// member read of a struct's fn-typed field hands back a cell too
+// (struct field slots are Closure-typed by construction)
+type S = { f: (x: number) => number };
+function mk(): S { return { f: (x: number) => x * 3 }; }
+const sv = mk();
+const gm: (x: number) => number = sv.f;
+console.log(gm(2));
+console.log(gm(2, 9));
