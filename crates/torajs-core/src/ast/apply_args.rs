@@ -133,6 +133,41 @@ fn synthetic_fn_ident(e: &Expr) -> Option<String> {
     }
 }
 
+/// One call's §10.2.11 default bindings: substitute a literal
+/// `undefined` actual with the position's default (step 26 binds the
+/// default for an explicit `undefined` exactly as for a missing
+/// argument — `f(undefined)` on `f(x: number = 5)` is 5, and the
+/// typed direct lane was rejecting it at the checker), then pad the
+/// missing tail. A hole in the defaults past the actuals abandons the
+/// padding (the language binds undefined there and the body-side lane
+/// owns it) but keeps any substitutions. Runtime-undefined actuals
+/// (an `any` value) are the lowering's or_default lane, not this
+/// walk — a literal is the only spelling the AST can prove.
+fn defaulted_args(ast: &Ast, args: &[ExprId], defaults: &[Option<ExprId>]) -> Option<Vec<ExprId>> {
+    let mut new_args = args.to_vec();
+    let mut subst = false;
+    for (slot, dflt) in new_args.iter_mut().zip(defaults) {
+        if let Some(default_eid) = dflt
+            && matches!(ast.get_expr(*slot), Expr::Ident(n) if n == "undefined")
+        {
+            *slot = *default_eid;
+            subst = true;
+        }
+    }
+    let mut padded = args.len() < defaults.len();
+    for dflt in &defaults[args.len().min(defaults.len())..] {
+        match dflt {
+            Some(default_eid) => new_args.push(*default_eid),
+            None => {
+                padded = false;
+                new_args.truncate(args.len());
+                break;
+            }
+        }
+    }
+    (subst || padded).then_some(new_args)
+}
+
 pub fn apply_default_args(ast: &mut Ast) {
     let fn_defaults = collect_fn_defaults(ast);
     // Sibling-shape Member calls (`obj.method(args)`) survive desugar
@@ -294,7 +329,6 @@ pub fn apply_default_args(ast: &mut Ast) {
                 continue;
             }
             let callee = *callee;
-            let args_len = args.len();
             // Pick defaults: prefer Ident match, fall back to Member
             // (sibling-shape) lookup.
             let defaults: Vec<Option<ExprId>> = match ast.get_expr(callee).clone() {
@@ -325,23 +359,11 @@ pub fn apply_default_args(ast: &mut Ast) {
                 }
                 _ => continue,
             };
-            if args_len >= defaults.len() {
-                continue;
-            }
-            let mut new_args = match &ast.exprs[i] {
+            let args = match &ast.exprs[i] {
                 Expr::Call { args, .. } => args.clone(),
                 _ => unreachable!(),
             };
-            let mut ok = true;
-            for j in args_len..defaults.len() {
-                if let Some(default_eid) = defaults[j] {
-                    new_args.push(default_eid);
-                } else {
-                    ok = false;
-                    break;
-                }
-            }
-            if ok {
+            if let Some(new_args) = defaulted_args(ast, &args, &defaults) {
                 ast.exprs[i] = Expr::Call {
                     callee,
                     args: new_args,
