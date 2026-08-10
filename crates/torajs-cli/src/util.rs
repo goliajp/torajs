@@ -53,6 +53,14 @@ pub(crate) fn rand_suffix() -> String {
     format!("{n:x}")
 }
 
+/// RFC 20260810-sloppy-goal-arguments S1 — bun's file-extension goal
+/// mapping: a `.cts` input compiles under the CommonJS sloppy-script
+/// goal. Stdin (`-`) and every other extension stay on the default
+/// always-strict module goal.
+pub(crate) fn sloppy_goal_for(file_arg: &str) -> bool {
+    file_arg.ends_with(".cts")
+}
+
 /// Read source from a path or `-` for stdin. Mirrors common Unix-CLI
 /// convention.
 pub(crate) fn read_source(arg: &str) -> Result<String, String> {

@@ -26,7 +26,7 @@ use torajs_link::archive_emit::link_to_exec_with_archives;
 use torajs_link::exec::{LinkConfig, UserClassLayoutEntry, UserDataGlobalEntry, UserVtableEntry};
 use torajs_link::resolve::SymTable;
 
-use crate::util::{base_dir_for, read_source};
+use crate::util::{base_dir_for, read_source, sloppy_goal_for};
 
 pub(crate) fn run(args: &[String]) -> ExitCode {
     if matches!(
@@ -130,6 +130,9 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     })?;
     ast.source = src.to_string();
     ast.warm_newline_cache();
+    // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
+    // extension (bun mapping: `.cts` = CommonJS sloppy).
+    ast.sloppy_script_goal = sloppy_goal_for(input);
     let base_dir = base_dir_for(input);
     modules::resolve_imports(&mut ast, &base_dir).map_err(|e| {
         eprintln!("import error: {e}");

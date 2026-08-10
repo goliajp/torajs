@@ -572,6 +572,13 @@ pub struct Ast {
     /// Cached newline byte offsets, lazily built on first
     /// `byte_to_line_col` call. Empty before that.
     pub newline_offsets: Vec<u32>,
+    /// RFC 20260810-sloppy-goal-arguments S1 — true when the input
+    /// file compiles under the CommonJS sloppy-script goal, keyed on
+    /// bun's file-extension goal mapping (`.ts` = ESM always-strict,
+    /// `.cts` = CommonJS sloppy). The arguments-object desugar family
+    /// reads it for the sloppy `callee` / mapped-aliasing faces;
+    /// every other pass keeps the strict-goal behavior regardless.
+    pub sloppy_script_goal: bool,
 }
 
 /// Thin wrapper preserving the `ast::desugar_builtin_new` public

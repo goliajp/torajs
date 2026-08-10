@@ -35,6 +35,14 @@ impl Frontmatter {
     pub fn is_async(&self) -> bool {
         self.flags.iter().any(|f| f == "async")
     }
+
+    /// RFC 20260810-sloppy-goal-arguments S1 — `flags: [noStrict]`
+    /// cases run under the sloppy goal only (official test262 host
+    /// convention). The runner stages them as `case.cts`, which maps
+    /// to the CommonJS sloppy goal for bun and tr alike.
+    pub fn is_no_strict(&self) -> bool {
+        self.flags.iter().any(|f| f == "noStrict")
+    }
 }
 
 /// Parse the `/*--- ... ---*/` block out of `src`. Missing block or

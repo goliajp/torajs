@@ -426,25 +426,35 @@ fn run_case(
     let harness_min = harness.minimal_for(&transformed);
     let full = format!("{harness_min}\n{transformed}");
 
+    // RFC 20260810-sloppy-goal-arguments S1 — noStrict cases run
+    // under the sloppy goal only (official test262 host convention:
+    // the strict twin is what onlyStrict / the strict pass of an
+    // unflagged case would be). `.cts` is bun's extension-mapped
+    // CommonJS sloppy goal, and tr adopts the same mapping — one tmp
+    // file gives both runtimes the same goal.
+    let ext = if fm.is_no_strict() { "cts" } else { "ts" };
+
     // `--dump-src`: persist the assembled source for runner-isomorphic
-    // reproduction (byte-identical to the tmp file executed below).
+    // reproduction (byte-identical to the tmp file executed below,
+    // same extension so the goal survives the round trip).
     if let Some(dir) = dump_src {
         let rel = path
             .strip_prefix(TEST262_ROOT)
             .unwrap_or(path)
             .to_string_lossy()
             .replace('/', "__");
-        let _ = std::fs::write(dir.join(format!("{rel}.ts")), &full);
+        let _ = std::fs::write(dir.join(format!("{rel}.{ext}")), &full);
     }
 
     // Distinct tmp SUBDIRECTORY per worker slot to avoid races —
     // sibling `*_FIXTURE.js` files stage beside the assembled case
     // so its relative module imports resolve (fixtures module doc).
-    // `.ts` so tr's read_source treats it as a normal source file.
+    // `.ts` (or `.cts` for the sloppy goal) so tr's read_source
+    // treats it as a normal source file.
     let slot_dir =
         std::env::temp_dir().join(format!("torajs-test262-{}-{}", std::process::id(), slot));
     let fixture_salt = fixtures::stage(&slot_dir, path, &case_src);
-    let tmp_path = slot_dir.join("case.ts");
+    let tmp_path = slot_dir.join(format!("case.{ext}"));
     if let Err(e) = std::fs::write(&tmp_path, &full) {
         return Outcome::HarnessError {
             msg: format!("write tmp: {e}"),
@@ -481,11 +491,23 @@ fn run_case(
     // fixture bytes: their cached verdicts predate resolvable
     // imports (fixtures module doc). Fixture-less cases keep their
     // existing entries.
+    // The sloppy goal salts the oracle key too: the same transformed
+    // bytes behave differently as `.cts` vs `.ts` (mapped arguments,
+    // callee, ...), and an unsalted key would score sloppy runs
+    // against strict-goal oracle entries cached before S1.
     let salted_case: Vec<u8>;
-    let oracle_case: &[u8] = if fixture_salt.is_empty() {
+    let oracle_case: &[u8] = if fixture_salt.is_empty() && !fm.is_no_strict() {
         transformed.as_bytes()
     } else {
-        salted_case = [transformed.as_bytes(), &[0xff], &fixture_salt].concat();
+        let mut v = transformed.as_bytes().to_vec();
+        if !fixture_salt.is_empty() {
+            v.push(0xff);
+            v.extend_from_slice(&fixture_salt);
+        }
+        if fm.is_no_strict() {
+            v.extend_from_slice(b"\xfegoal:sloppy");
+        }
+        salted_case = v;
         &salted_case
     };
     let (bun_success, bun_stdout) =

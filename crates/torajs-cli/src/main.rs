@@ -167,10 +167,10 @@ fn run_pipeline(file_arg: Option<&String>, stage: Stage) -> ExitCode {
         }
     };
     let base_dir = base_dir_for(path);
-    pipeline(&src, &base_dir, stage)
+    pipeline(&src, &base_dir, stage, util::sloppy_goal_for(path))
 }
 
-fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
+fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> ExitCode {
     let tokens = match lexer::tokenize(src) {
         Ok(t) => t,
         Err(e) => {
@@ -197,6 +197,9 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     // during runtime panic backtraces.
     ast.source = src.to_string();
     ast.warm_newline_cache();
+    // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
+    // extension (bun mapping: `.cts` = CommonJS sloppy).
+    ast.sloppy_script_goal = sloppy_goal;
     // K.2 — resolve cross-file imports BEFORE the desugar pipeline so
     // imported decls go through the same downstream passes (class
     // desugar, arrow lift, etc.) as same-file decls.
