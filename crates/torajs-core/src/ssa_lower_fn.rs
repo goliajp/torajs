@@ -230,10 +230,8 @@ pub(crate) fn lower_fn(
 /// parse + width-promote each declared param into an SSA param slot,
 /// and register the annotation-keyed variadic lane — RFC
 /// 20260708-variadic `variadic_locals`: `__rest(`-bearing anns route
-/// the boxed-dual-entry call lane. (The `__clsargc(` argc-prepend
-/// registration retired in RFC 20260810-indirect-argc-abi S3.4 —
-/// the mono track stopped minting that prefix once the env-first
-/// `__torajs_real_argc` injection went away.)
+/// the boxed-dual-entry call lane. (The `__clsargc(` argc lane
+/// retired in RFC 20260810-indirect-argc-abi S3.4/S3.6.)
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn setup_fn_params(
     f: &mut ssa::Function,

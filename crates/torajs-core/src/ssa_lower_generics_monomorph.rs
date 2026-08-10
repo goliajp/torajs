@@ -193,9 +193,6 @@ pub(crate) fn compute_arg_anns(
                     ClsShape::Closure if ann.starts_with("__fn(") => {
                         format!("__cls({}", &ann["__fn(".len()..])
                     }
-                    ClsShape::ClosureArgc if ann.starts_with("__fn(") => {
-                        format!("__clsargc({}", &ann["__fn(".len()..])
-                    }
                     _ => ann,
                 }
             }

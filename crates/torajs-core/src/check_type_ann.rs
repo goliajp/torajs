@@ -116,7 +116,7 @@ fn resolve_type_ann_inner(
     // receiver is not in the signature (it is the lifted fn's hidden
     // `__this`, reassembled at the field-call arm), so `o.m(x)` types at
     // the arity the source has. The prefix exists only to tell that call
-    // arm to push the receiver — the `__clsargc(` idiom.
+    // arm to push the receiver — the `__cls(`-marker idiom.
     if let Some(rest) = name.strip_prefix("__mth(") {
         return markers::resolve_fn_cls(rest, aliases, type_params, generic_aliases, in_flight);
     }

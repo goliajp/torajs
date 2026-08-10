@@ -69,9 +69,9 @@ pub(super) fn collect_value_argc(
     // RFC chunk 2 (mono track) — a length-only closure passed
     // DIRECTLY as an argument to a fn whose receiving param is
     // unannotated: that param goes through implicit generics (__T),
-    // and the monomorphizer instantiates the slot as `__clsargc(`
-    // (see ssa_lower_generics_mono_shapes), whose param-call arm
-    // prepends the runtime argc. Two gates: the receiving param must
+    // and the monomorphizer instantiates the slot as `__cls(`; the
+    // body's length read rides the S1 hidden argc the param-call
+    // arm feeds. Two gates: the receiving param must
     // be unannotated (mono track — a typed param never sees the
     // argc-shaped signature), and the receiving body must consume it
     // by DIRECT CALL only (any other use — alias, re-pass, store —

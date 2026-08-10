@@ -22,16 +22,16 @@ use crate::check as check_mod;
 /// through the wrong ABI, so unknown shapes keep today's behavior
 /// rather than guessing).
 /// What kind of callable a type-param's instantiating arg holds.
+/// (The `__clsargc(` third state retired in RFC
+/// 20260810-indirect-argc-abi S3.6 — an argc-reading closure body
+/// rides the S1 hidden argc every env-first call path feeds, so the
+/// mono track no longer needs an argc-carrying spelling.)
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClsShape {
     /// Not statically a closure — keep the `__fn(` status quo.
     NotClosure,
     /// A closure value (env-block ptr) — flip to `__cls(`.
     Closure,
-    /// A closure carrying the synthetic `__torajs_real_argc` first
-    /// param (RFC 20260708-closure-argc-abi) — flip to `__clsargc(`
-    /// so the mono body's param-call arm prepends the runtime argc.
-    ClosureArgc,
 }
 
 pub(crate) fn compute_typevar_closure_shapes(
@@ -69,49 +69,31 @@ pub(crate) fn compute_typevar_closure_shapes(
 }
 
 /// A closure literal, or an ident whose top-level `let`/`const`
-/// binding init is one; argc-carrying closures (synthetic
-/// `__torajs_real_argc` after `__env`) report `ClosureArgc`.
+/// binding init is one.
 ///
 /// `param_env` maps an enclosing specialization's param names to
-/// their substituted annotations — an Ident arg naming a `__cls(`/
-/// `__clsargc(` param carries that shape through generic-to-generic
-/// calls (same env as `num_width::infer_arg_width`; without it the
-/// mono body's call arm would jump an env-block ptr as a bare fn
-/// ptr, SIGBUS).
+/// their substituted annotations — an Ident arg naming a `__cls(`
+/// param carries that shape through generic-to-generic calls (same
+/// env as `num_width::infer_arg_width`; without it the mono body's
+/// call arm would jump an env-block ptr as a bare fn ptr, SIGBUS).
 fn arg_cls_shape(ast: &Ast, eid: ExprId, param_env: &HashMap<String, String>) -> ClsShape {
     if let Expr::Ident(n) = ast.get_expr(eid)
         && let Some(ann) = param_env.get(n.as_str())
+        && ann.starts_with("__cls(")
     {
-        if ann.starts_with("__clsargc(") {
-            return ClsShape::ClosureArgc;
-        }
-        if ann.starts_with("__cls(") {
-            return ClsShape::Closure;
-        }
+        return ClsShape::Closure;
     }
-    let fn_name = match ast.get_expr(eid) {
-        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-        Expr::Ident(n) => ast.stmts.iter().find_map(|s| match s {
-            Stmt::LetDecl { name, init, .. } if name == n => match ast.get_expr(*init) {
-                Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-                _ => None,
-            },
-            _ => None,
+    let is_closure = match ast.get_expr(eid) {
+        Expr::Closure { .. } => true,
+        Expr::Ident(n) => ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::LetDecl { name, init, .. }
+                if name == n && matches!(ast.get_expr(*init), Expr::Closure { .. }))
         }),
-        _ => None,
+        _ => false,
     };
-    let Some(fn_name) = fn_name else {
-        return ClsShape::NotClosure;
-    };
-    let has_argc = ast.stmts.iter().any(|s| {
-        matches!(s, Stmt::FnDecl { name, params, .. }
-            if *name == fn_name
-                && params.first().is_some_and(|p| p.name == "__env")
-                && params.get(1).is_some_and(|p| p.name == "__torajs_real_argc"))
-    });
-    if has_argc {
-        ClsShape::ClosureArgc
-    } else {
+    if is_closure {
         ClsShape::Closure
+    } else {
+        ClsShape::NotClosure
     }
 }

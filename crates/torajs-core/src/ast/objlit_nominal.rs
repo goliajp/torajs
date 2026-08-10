@@ -27,7 +27,7 @@
 //! a second param: `(__env, __this, ...user)`.
 //!
 //! The field annotation is minted as `__mth(<recv>|<user params>)->R`.
-//! The marker rides the prefix (the `__clsargc(` idiom from RFC
+//! The marker rides the prefix (the `__cls(`-marker idiom from RFC
 //! 20260708): `parse_type` decodes it exactly like `__cls(` so the SSA
 //! sig carries the receiver and `CallIndirect`'s argv lines up, while
 //! the checker drops the leading receiver so `o.m(x)` types with the
