@@ -169,7 +169,7 @@ fn try_lower_genfn_chain(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Oper
 }
 
 /// RFC 20260708-closure-argv-face — expand the synthetic
-/// `__torajs_arguments_materialize(__torajs_argv, __torajs_real_argc)`
+/// `__torajs_arguments_materialize(__torajs_argv, <argc>)`
 /// call (desugar_arguments_object prepends it to full-arguments
 /// closure bodies) into `arr_alloc_any(argc)` + `arr_any_push(arr,
 /// argv, argc, NULL)`. cap == argc so the push never relocates; the

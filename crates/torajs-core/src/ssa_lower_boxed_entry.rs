@@ -319,11 +319,21 @@ fn collect_boxed_targets(
         let has_real_argc = params
             .get(env_count)
             .is_some_and(|p| p.name == "__torajs_real_argc");
+        // RFC 20260810-indirect-argc-abi S3.4 — env-first faces are
+        // off the real_argc injection (readers ride the S1 hidden
+        // slot); only the head-less / `__cm_` this-first families
+        // still carry the injected param. Machine proof of the
+        // retirement boundary:
+        debug_assert!(
+            !(has_real_argc && first_is_env),
+            "env-first body {name} still carries __torajs_real_argc"
+        );
         // RFC 20260708-closure-argv-face — a full-arguments body
-        // also carries the raw argv pointer right after the argc
-        // slot; the adapter feeds its own argv argument there.
+        // also carries the raw argv pointer: right after the argc
+        // slot on the this-first face, directly at the first user
+        // slot on the env-first face (S3.4 dropped its argc).
         let has_argv = params
-            .get(env_count + 1)
+            .get(env_count + usize::from(has_real_argc))
             .is_some_and(|p| p.name == "__torajs_argv");
         // param 0 is the env Ptr (when the body carries one); the
         // boxed surface covers the rest (minus the argc/argv slots,

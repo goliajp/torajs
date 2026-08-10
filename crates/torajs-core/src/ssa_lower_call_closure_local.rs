@@ -116,17 +116,6 @@ pub(crate) fn try_lower_with_this(
     env_first_params.extend(user_params.iter().copied());
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
 
-    // RFC 20260708-closure-argc-abi chunk 1 — a length-only
-    // real-argc closure binding (safety-walked in
-    // desugar_arguments_object): prepend ConstI64(user arg count)
-    // into the synthetic `__torajs_real_argc` slot (user_params[0]),
-    // and shift the arg↔param pairing by one. Args beyond the
-    // declared list still lower (ES §13.3.6.1 ArgumentListEvaluation
-    // side effects) but don't enter argv — the length-only tier
-    // never reads their values.
-    let needs_argc =
-        ctx.ast.closure_argc_locals.contains(callee_name) || ctx.argc_locals.contains(callee_name);
-
     // P0.5 mirror — Type::Any param boxes the concrete arg.
     // S126-3 see direct fn-call P0.9 in ssa_lower.
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 4);
@@ -154,9 +143,7 @@ pub(crate) fn try_lower_with_this(
                 );
                 argv.push(boxed);
             }
-            // `undefined` NaN-box into the `__this` slot (an argc
-            // binding never promotes — the AST pass keeps the two
-            // leading-slot prepends from coexisting).
+            // `undefined` NaN-box into the `__this` slot.
             None => {
                 let undef_box = ctx.f.append_inst(
                     ctx.cur_block,
@@ -171,27 +158,29 @@ pub(crate) fn try_lower_with_this(
             }
         }
     }
-    if needs_argc {
-        argv.push(Operand::ConstI64(args.len() as i64));
-    }
+    // RFC 20260810-indirect-argc-abi S3.4 — the length-only tier's
+    // second argc push (into an injected `__torajs_real_argc` user
+    // slot) retired with the injection: every env-first reader now
+    // rides the S1 hidden argc pushed above. Args beyond the declared
+    // list still lower (ES §13.3.6.1 ArgumentListEvaluation side
+    // effects) but don't enter argv.
     for (i, a) in args.iter().enumerate() {
-        let param_idx = if needs_argc { i + 1 } else { i };
         // Chunk 641 — empty `[]` arg allocs with the param's layout.
         let raw = ctx
-            .try_lower_empty_array_arg(*a, user_params.get(param_idx))
+            .try_lower_empty_array_arg(*a, user_params.get(i))
             .unwrap_or_else(|| ctx.lower_expr(*a));
         // Chunk 569 — snapshot pre-box owned temps for the
         // post-call release; borrow-shape args pass +0 and keep
         // their stake (no inc: the body never drops params, no
         // consume: TS args share).
         owned_temps.push((*a, raw));
-        if param_idx >= user_params.len() {
+        if i >= user_params.len() {
             continue; // beyond-arity: evaluated, value unused
         }
         // RFC 20260707 chunk 626 — typed array into an Arr<Any>
         // param marks the block's elem kind (T-11 call-boundary
         // widen; self-gating no-op for other type pairs).
-        if let Some(p) = user_params.get(param_idx) {
+        if let Some(p) = user_params.get(i) {
             ctx.mark_arr_arg_for_any_param(*p, &raw);
         }
         // This lane used to spell the conversions out itself, and it
@@ -199,7 +188,7 @@ pub(crate) fn try_lower_with_this(
         // param some other call site widened to F64 went in raw:
         // `const f = (b: number) => …; f(6.5); f(2)` printed 6.5
         // twice, the callee reading integer bits out of an f64 slot.
-        let converted = match user_params.get(param_idx) {
+        let converted = match user_params.get(i) {
             Some(&p) => {
                 crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, p, *a, raw, &mut coerce_owned)
             }

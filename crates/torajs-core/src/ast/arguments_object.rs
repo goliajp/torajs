@@ -225,14 +225,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         super::arguments_object_method_argv::collect_method_argv(ast, &excluded, &iife_static_argv);
     ast.method_argv_fns = method_argv_fns.clone();
 
-    inject_argc_params(
-        ast,
-        &uses_real_argc,
-        &iife_real_argc,
-        &value_real_argc,
-        &value_argv_fns,
-        &method_argv_fns,
-    );
+    inject_argc_params(ast, &uses_real_argc, &value_argv_fns, &method_argv_fns);
 
     // S2 — the sloppy goal's callee-value shims, appended to the
     // module after the loop (appending mid-loop is safe for the
@@ -371,7 +364,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             let argc_len_opt = (argc_mode == ArgcMode::RealLocal)
                 .then(|| super::arguments_object_synth::synth_argc_len_local(ast));
             let synth_opt = if is_argv_fn {
-                Some(synth_arguments_local_argv(ast))
+                // S3.3 — the materialize take-count follows the face:
+                // env-first bodies read the S1 hidden argc, `__cm_`
+                // this-first bodies keep the injected real_argc.
+                Some(synth_arguments_local_argv(
+                    ast,
+                    value_argv_fns.contains(name),
+                ))
             } else if needs_materialize && argc_mode != ArgcMode::KeepLoud {
                 Some(synth_materialized_arguments(
                     ast,

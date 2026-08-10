@@ -33,9 +33,9 @@ pub(super) fn collect_value_argc(
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form: a
     // lifted closure that reads `arguments.length` and is NOT an IIFE
     // has no static call site, so the real argc travels at runtime
-    // (the ssa_lower closure-local call arm prepends
-    // ConstI64(user-arg count) for bindings in `argc_locals`). Two
-    // gates keep this zero-silent-wrong:
+    // (the S1 hidden-ABI `__torajs_argc` slot every env-first call
+    // path feeds; bindings in `argc_locals` get the checker's
+    // beyond-arity admit). Two gates keep this zero-silent-wrong:
     //
     // 1. Only the length-only tier qualifies: a body that also reads
     //    `arguments[dynamic]` / spreads `...arguments` needs the arg
@@ -47,9 +47,9 @@ pub(super) fn collect_value_argc(
     //    other use — passed as an argument, stored in a container,
     //    returned, reassigned — kills the whole chain back to the
     //    fn, which then stays KeepLoud (checker rejects `arguments`
-    //    loudly, today's behavior): a call-emit site that doesn't
-    //    know about the argc slot would feed the callee garbage.
-    //    The HOF/param-infection face is the RFC's chunk 2.
+    //    loudly, today's behavior): an unseen call site would refuse
+    //    the beyond-arity shape the tier exists to serve. The
+    //    HOF/param-infection face is the RFC's chunk 2.
     let mut value_real_argc: HashSet<String> = HashSet::new();
     // binding name → source lifted-closure fn name (aliases share
     // the source fn).

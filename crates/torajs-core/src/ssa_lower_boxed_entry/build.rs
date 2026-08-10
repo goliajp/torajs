@@ -79,9 +79,9 @@ pub(super) fn build_boxed_entry(
     if first_is_env {
         args.push(user_argc);
     }
-    // RFC 20260708-variadic — feed the dispatcher's real argc into
-    // the body's synthetic `__torajs_real_argc` slot; the argv-face
-    // body additionally takes the raw argv pointer.
+    // Feed the real argc into the injected `__torajs_real_argc`
+    // slot (head-less / this-first faces only since S3.4 —
+    // env-first bodies read the hidden slot fed above).
     if has_real_argc {
         args.push(user_argc);
     }

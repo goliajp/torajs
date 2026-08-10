@@ -53,15 +53,26 @@ pub(super) fn synth_arguments_local_rest(ast: &mut Ast, fixed: &[String], rest: 
 
 /// RFC 20260708-closure-argv-face — synthesize
 /// `let __torajs_arguments: any[] =
-///   __torajs_arguments_materialize(__torajs_argv, __torajs_real_argc)`
+///   __torajs_arguments_materialize(__torajs_argv, <argc>)`
 /// for a full-arguments closure body. The synthetic call resolves in
 /// the checker's ident special-case and lowers in the class-synth
 /// lane to `arr_alloc_any` + `arr_any_push` over the adapter's argv,
 /// so beyond-declared argument VALUES are reachable (the
 /// `[p0, p1, …]` builder above only covers declared params).
-pub(super) fn synth_arguments_local_argv(ast: &mut Ast) -> Stmt {
+///
+/// The take-count follows the face (RFC 20260810-indirect-argc-abi
+/// S3.3): an env-first body reads the S1 hidden-ABI `__torajs_argc`;
+/// a `__cm_` this-first body has no hidden slot and keeps the
+/// injected `__torajs_real_argc` until the S1-extension blade covers
+/// that entry family.
+pub(super) fn synth_arguments_local_argv(ast: &mut Ast, env_first: bool) -> Stmt {
     let argv = ast.add_expr(Expr::Ident("__torajs_argv".into()));
-    let argc = ast.add_expr(Expr::Ident("__torajs_real_argc".into()));
+    let argc_name = if env_first {
+        "__torajs_argc"
+    } else {
+        "__torajs_real_argc"
+    };
+    let argc = ast.add_expr(Expr::Ident(argc_name.into()));
     let callee = ast.add_expr(Expr::Ident("__torajs_arguments_materialize".into()));
     let init = ast.add_expr(Expr::Call {
         callee,

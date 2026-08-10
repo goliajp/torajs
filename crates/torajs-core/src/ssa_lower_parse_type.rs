@@ -203,10 +203,10 @@ pub(crate) fn parse_type(
     //   Fn-typed param / return / let bindings keep `__fn(P)->R` →
     //   Type::FnSig via try_parse_fn_type below, preserving direct
     //   dispatch on the hot fn-as-callback path.
-    // - RFC 20260708-closure-argc-abi `__clsargc(P)->R`: a `__cls(`
-    //   slot whose closure carries the synthetic real-argc first
-    //   param; the TYPE parses identically — the argc-prepend signal
-    //   rides the ann prefix (lower_fn marks `argc_locals`).
+    // - `__clsargc(P)->R`: historical mono spelling for an argc-
+    //   carrying closure slot, parses identically to `__cls(`. Dead
+    //   since RFC 20260810-indirect-argc-abi S3.4; the parse arm
+    //   stays until the S3.6 mono-track removal blade.
     // - RFC 20260714-objlit-accessor `__mth(recv|P)->R`: an object-literal
     //   method slot. Closure-repr like `__cls(`, and the sig KEEPS the
     //   leading receiver — `CallIndirect`'s argv must match it, and the

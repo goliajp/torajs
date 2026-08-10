@@ -95,7 +95,7 @@ pub(crate) fn lower_fn(
     );
     let mut f = ssa::Function::new(name, ret_ty);
 
-    let (param_setup, argc_locals, variadic_locals) = setup_fn_params(
+    let (param_setup, variadic_locals) = setup_fn_params(
         &mut f,
         name,
         params,
@@ -141,7 +141,6 @@ pub(crate) fn lower_fn(
         pending_break_flag: None,
         pending_continue_flag: None,
         locals: HashMap::new(),
-        argc_locals,
         variadic_locals,
         ns_static_locals: HashMap::new(),
         builtin_mv_locals: HashMap::new(),
@@ -229,13 +228,12 @@ pub(crate) fn lower_fn(
 
 /// Param materialize prelude of [`lower_fn`] (chunk 775 extraction):
 /// parse + width-promote each declared param into an SSA param slot,
-/// and register the two annotation-keyed lanes —
-///
-/// - RFC 20260708-closure-argc-abi chunk 2 `argc_locals`:
-///   `__clsargc(`-annotated params (mono-instantiated real-argc
-///   closure slots) register for the call arm's argc prepend.
-/// - RFC 20260708-variadic `variadic_locals`: `__rest(`-bearing anns
-///   route the boxed-dual-entry call lane.
+/// and register the annotation-keyed variadic lane — RFC
+/// 20260708-variadic `variadic_locals`: `__rest(`-bearing anns route
+/// the boxed-dual-entry call lane. (The `__clsargc(` argc-prepend
+/// registration retired in RFC 20260810-indirect-argc-abi S3.4 —
+/// the mono track stopped minting that prefix once the env-first
+/// `__torajs_real_argc` injection went away.)
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn setup_fn_params(
     f: &mut ssa::Function,
@@ -251,18 +249,10 @@ fn setup_fn_params(
 ) -> (
     Vec<(String, ValueId, Type)>,
     std::collections::HashSet<String>,
-    std::collections::HashSet<String>,
 ) {
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
-    let mut argc_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut variadic_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
     for p in params {
-        if p.type_ann
-            .as_deref()
-            .is_some_and(|a| a.starts_with("__clsargc("))
-        {
-            argc_locals.insert(p.name.clone());
-        }
         if p.type_ann.as_deref().is_some_and(|a| a.contains("__rest(")) {
             variadic_locals.insert(p.name.clone());
         }
@@ -296,7 +286,7 @@ fn setup_fn_params(
             param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
         }
     }
-    (param_setup, argc_locals, variadic_locals)
+    (param_setup, variadic_locals)
 }
 
 /// Terminate a block that the body walk left open — the path that

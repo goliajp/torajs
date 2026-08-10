@@ -6,70 +6,53 @@
 
 use super::{Ast, Expr, Param, Stmt};
 
-/// T-31 — inject `__torajs_real_argc: number` at param[0] for each
-/// uses_real_argc fn. Done before the body-rewrite walk so the
-/// typechecker (which runs after desugar) sees the new signature
-/// and so the recursive `arguments.length` rewrite can resolve
-/// `Ident("__torajs_real_argc")` cleanly.
+/// T-31 — inject the synthetic argc/argv params ahead of the
+/// body-rewrite walk so the typechecker (which runs after desugar)
+/// sees the new signature and the recursive rewrites can resolve the
+/// synthetic idents cleanly.
+///
+/// RFC 20260810-indirect-argc-abi S3.4 — env-first faces are off the
+/// `__torajs_real_argc` injection entirely: every reader on those
+/// faces (length reads S3.2, materialize take-count S3.3) rides the
+/// S1 hidden-ABI `__torajs_argc`, so the injected slot would only be
+/// a dead param the A-station has to double-feed. What remains:
+///
+/// - `uses_real_argc` (head-less top-level fns): argc at param[0] —
+///   no hidden slot exists there until the S1-extension blade.
+/// - `value_argv_fns` (env-first argv face): ONLY the raw argv
+///   pointer, at the first user slot after `__env`.
+/// - `method_argv_fns` (`__cm_` this-first): argc + argv after
+///   `__this` — that entry family has no hidden slot either.
 pub(super) fn inject_argc_params(
     ast: &mut Ast,
     uses_real_argc: &std::collections::HashSet<String>,
-    iife_real_argc: &std::collections::HashSet<String>,
-    value_real_argc: &std::collections::HashSet<String>,
     value_argv_fns: &std::collections::HashSet<String>,
     method_argv_fns: &std::collections::HashSet<String>,
 ) {
-    if uses_real_argc.is_empty()
-        && iife_real_argc.is_empty()
-        && value_real_argc.is_empty()
-        && value_argv_fns.is_empty()
-        && method_argv_fns.is_empty()
-    {
+    if uses_real_argc.is_empty() && value_argv_fns.is_empty() && method_argv_fns.is_empty() {
         return;
     }
+    let real_argc = || Param {
+        name: "__torajs_real_argc".into(),
+        type_ann: Some("number".into()),
+        default: None,
+        is_rest: false,
+    };
+    let argv = || Param {
+        name: "__torajs_argv".into(),
+        type_ann: Some("__argvptr()".into()),
+        default: None,
+        is_rest: false,
+    };
     for s in ast.stmts.iter_mut() {
         if let Stmt::FnDecl { name, params, .. } = s {
-            // RFC 20260708 value-form closures put the synthetic
-            // param AFTER the hidden `__env` (first USER param slot);
-            // knife-4a method bodies put it after `__this` — the
-            // same index, and `build_boxed_entry` finds it at
-            // `params[env_count]` in both shapes. The IIFE tier
-            // (chunk 613) left this list in S3.2: its
-            // `arguments.length` reads the S1 hidden-ABI argc now, so
-            // the injected param + call-site prepend would only shift
-            // the user args AND inflate the hidden argc by one (the
-            // A-station counts every user-position argument).
-            let at = if value_real_argc.contains(name)
-                || value_argv_fns.contains(name)
-                || method_argv_fns.contains(name)
-            {
-                1
-            } else if uses_real_argc.contains(name) {
-                0
-            } else {
-                continue;
-            };
-            params.insert(
-                at,
-                Param {
-                    name: "__torajs_real_argc".into(),
-                    type_ann: Some("number".into()),
-                    default: None,
-                    is_rest: false,
-                },
-            );
-            // argv-face bodies also take the adapter's raw argv
-            // pointer right after the argc slot.
-            if value_argv_fns.contains(name) || method_argv_fns.contains(name) {
-                params.insert(
-                    at + 1,
-                    Param {
-                        name: "__torajs_argv".into(),
-                        type_ann: Some("__argvptr()".into()),
-                        default: None,
-                        is_rest: false,
-                    },
-                );
+            if uses_real_argc.contains(name) {
+                params.insert(0, real_argc());
+            } else if value_argv_fns.contains(name) {
+                params.insert(1, argv());
+            } else if method_argv_fns.contains(name) {
+                params.insert(1, real_argc());
+                params.insert(2, argv());
             }
         }
     }

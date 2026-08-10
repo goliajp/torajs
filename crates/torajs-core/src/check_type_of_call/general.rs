@@ -73,15 +73,15 @@ pub(crate) fn general_call(
         &mut effective_args,
     )?;
     // RFC 20260708-closure-argc-abi chunk 1 — length-only real-argc
-    // closure binding wedge: pop the synthetic argc slot, admit
-    // beyond-arity calls (extra args typecheck then drop out of the
-    // pairing). Runs before T-28 so a fewer-than-declared call still
-    // records its pad count against the popped param list.
+    // closure binding wedge: admit beyond-arity calls (extra args
+    // typecheck then drop out of the pairing; the body counts them
+    // through the S1 hidden argc). Runs before T-28 so a
+    // fewer-than-declared call still records its pad count.
     crate::check_type_of_call_closure_argc::apply(
         checker,
         ast,
         callee,
-        &mut params,
+        &params,
         &mut effective_args,
     )?;
     // RFC 20260708-variadic — rest-param callee admit: pop the

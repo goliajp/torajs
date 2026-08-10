@@ -96,7 +96,6 @@ pub(crate) fn synthesize_main(
             pending_continue_flag: None,
             try_finally_loop_depth: Vec::new(),
             locals: HashMap::new(),
-            argc_locals: std::collections::HashSet::new(),
             variadic_locals: std::collections::HashSet::new(),
             ns_static_locals: HashMap::new(),
             builtin_mv_locals: HashMap::new(),

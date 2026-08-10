@@ -275,8 +275,10 @@ pub struct Ast {
     /// length-only real-argc closure VALUE and passed the
     /// direct-call-or-alias safety walk. Populated by
     /// `desugar_arguments_object`; the checker's closure-argc call
-    /// wedge admits beyond-arity calls through these names and the
-    /// ssa_lower closure-local call arm prepends the runtime argc.
+    /// wedge admits beyond-arity calls through these names (the
+    /// count itself rides the S1 hidden argc since RFC
+    /// 20260810-indirect-argc-abi S3.2/S3.4 — no injected slot, no
+    /// call-site prepend remains).
     pub closure_argc_locals: std::collections::HashSet<String>,
     /// RFC 20260714-objlit-accessor blade 1 — ExprIds of object-literal
     /// METHOD-shorthand values (`{ m() { ... } }`). The parser desugars
@@ -444,8 +446,8 @@ pub struct Ast {
     /// RFC 20260708-closure-argv-face — lifted closures whose body
     /// reads `arguments[i]` (the full-arguments tier) and whose
     /// value passed the direct-call-or-alias safety walk. These
-    /// bodies carry the synthetic `__torajs_real_argc` +
-    /// `__torajs_argv` params and a materialized
+    /// bodies carry the synthetic `__torajs_argv` param (their argc
+    /// rides the S1 hidden slot since S3.4) and a materialized
     /// `__torajs_arguments` local; the checker mints their Function
     /// type rest-tail (`(...args: any[]) => R`) so every call rides
     /// the boxed dual entry (which feeds real argc + argv).
