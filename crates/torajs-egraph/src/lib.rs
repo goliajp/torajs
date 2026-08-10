@@ -39,6 +39,7 @@ pub mod rc_peephole;
 pub mod rewrite;
 pub mod scope_map;
 pub mod select_form;
+pub mod self_tail_call;
 pub mod sext_elide;
 pub mod slot_forward;
 pub mod srem_parity;
@@ -286,6 +287,20 @@ pub fn transform_module(mut module: Module) -> Module {
         "CTPOP_RANGESUM",
         &mut module,
         ctpop_range_sum::form_ctpop_range_sums,
+    );
+    // Self-tail-call elimination — rewrite `return f(args)` self
+    // recursion into parameter rebinding + a branch back to the header
+    // behind a runtime cell==env guard, so 100k-deep tail recursion
+    // runs in O(1) stack (RFC 20260810-self-tail-call). After
+    // mem2reg/phi_promote (param uses are direct SSA and the multi-def
+    // Copy shape is legal) and after branch_fold (CFG settled); before
+    // select_form so the matched throw_check diamond is still the raw
+    // ssa_lower shape. `TORAJS_SELF_TAIL_CALL_OFF=1` skips (bisect
+    // gate).
+    gated_pass(
+        "SELF_TAIL_CALL",
+        &mut module,
+        self_tail_call::eliminate_self_tail_calls,
     );
     // Select formation — if-convert pure CondBr diamonds into csel-
     // shaped `Select` defs (RFC 20260719-select-formation blade 2).
