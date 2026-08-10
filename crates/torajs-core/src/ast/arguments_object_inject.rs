@@ -29,14 +29,17 @@ pub(super) fn inject_argc_params(
     }
     for s in ast.stmts.iter_mut() {
         if let Stmt::FnDecl { name, params, .. } = s {
-            // Chunk 613 — IIFE closures put the synthetic param
-            // AFTER the hidden `__env` (first USER param slot);
-            // RFC 20260708 value-form closures share that slot, and
+            // RFC 20260708 value-form closures put the synthetic
+            // param AFTER the hidden `__env` (first USER param slot);
             // knife-4a method bodies put it after `__this` — the
             // same index, and `build_boxed_entry` finds it at
-            // `params[env_count]` in both shapes.
-            let at = if iife_real_argc.contains(name)
-                || value_real_argc.contains(name)
+            // `params[env_count]` in both shapes. The IIFE tier
+            // (chunk 613) left this list in S3.2: its
+            // `arguments.length` reads the S1 hidden-ABI argc now, so
+            // the injected param + call-site prepend would only shift
+            // the user args AND inflate the hidden argc by one (the
+            // A-station counts every user-position argument).
+            let at = if value_real_argc.contains(name)
                 || value_argv_fns.contains(name)
                 || method_argv_fns.contains(name)
             {
@@ -72,16 +75,14 @@ pub(super) fn inject_argc_params(
     }
 }
 
-/// T-31 + chunk 613 — prepend the argc argument at static call
-/// sites: every direct-Ident call to a `uses_real_argc` top-level
-/// fn gets `Number(args.len())` as new arg[0], and each qualifying
-/// IIFE call site gets its static count (the closure's `__env` is
-/// not part of the Call args, so the count lands in the injected
-/// first-USER-param slot).
+/// T-31 — prepend the argc argument at static call sites: every
+/// direct-Ident call to a `uses_real_argc` top-level fn gets
+/// `Number(args.len())` as new arg[0]. (The IIFE tier's call-site
+/// prepend retired in S3.2 along with its param injection — that
+/// face reads the S1 hidden-ABI argc.)
 pub(super) fn prepend_static_argc(
     ast: &mut Ast,
     uses_real_argc: &std::collections::HashSet<String>,
-    iife_call_sites: Vec<usize>,
 ) {
     // T-31 — arena walk: every Call whose callee is a direct Ident to
     // a uses_real_argc fn gets `Number(args.len())` prepended as new
@@ -115,24 +116,5 @@ pub(super) fn prepend_static_argc(
                 args: new_args,
             };
         }
-    }
-
-    // Chunk 613 — prepend the static argc at each qualifying IIFE
-    // call site (the closure's `__env` is not part of the Call args,
-    // so the count lands in the injected first-USER-param slot).
-    for i in iife_call_sites {
-        let Expr::Call { callee, args } = &ast.exprs[i] else {
-            continue;
-        };
-        let callee = *callee;
-        let args_clone = args.clone();
-        let argc_lit = ast.add_expr(Expr::Number(args_clone.len() as f64));
-        let mut new_args = Vec::with_capacity(args_clone.len() + 1);
-        new_args.push(argc_lit);
-        new_args.extend(args_clone);
-        ast.exprs[i] = Expr::Call {
-            callee,
-            args: new_args,
-        };
     }
 }

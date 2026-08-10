@@ -105,9 +105,8 @@ pub(super) fn snapshot_fn_params(
 pub(super) fn collect_iife_real_argc(
     ast: &Ast,
     shadowed: &std::collections::HashSet<String>,
-) -> (std::collections::HashSet<String>, Vec<usize>) {
+) -> std::collections::HashSet<String> {
     let mut iife_real_argc = std::collections::HashSet::new();
-    let mut iife_call_sites: Vec<usize> = Vec::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, .. } = &ast.exprs[i] else {
             continue;
@@ -130,8 +129,7 @@ pub(super) fn collect_iife_real_argc(
         });
         if has_len {
             iife_real_argc.insert(fn_name);
-            iife_call_sites.push(i);
         }
     }
-    (iife_real_argc, iife_call_sites)
+    iife_real_argc
 }

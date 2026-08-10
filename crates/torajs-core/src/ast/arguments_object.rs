@@ -34,8 +34,15 @@ use super::{Ast, Stmt};
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ArgcMode {
-    /// Fn has the synthetic `__torajs_real_argc` param — read it.
-    Real,
+    /// Fn carries a real argc to read. `env_first: true` = closure
+    /// face (`__env`-first entry): reads route to the S1 hidden-ABI
+    /// `__torajs_argc` param (RFC 20260810-indirect-argc-abi S3.2) —
+    /// the AST-injected `__torajs_real_argc` on this face is now a
+    /// dead length-read slot retired in S3.4. `env_first: false` =
+    /// head-less top-level fn: still reads the injected
+    /// `__torajs_real_argc` (no hidden param exists there until the
+    /// S1-extension ABI blade lands).
+    Real { env_first: bool },
     /// Fold to the declared arity (legacy fallback; still serves
     /// class methods, whose ABI is untouched — recorded face).
     FoldArity,
@@ -108,7 +115,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     let shadowed = collect_arguments_shadowed_fns(ast);
     let excluded = super::arguments_object_walkers::collect_face_excluded_fns(ast, &shadowed);
     let (mut fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
-    let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast, &shadowed);
+    let iife_real_argc = collect_iife_real_argc(ast, &shadowed);
 
     // RFC 20260801-arguments-escape-face knives 1+3a — static-argv
     // face: any non-length arguments touch (index / spread / bare
@@ -296,12 +303,11 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 } else {
                     ArgcMode::FoldTo(n)
                 }
-            } else if uses_real_argc.contains(name)
-                || iife_real_argc.contains(name)
-                || value_real_argc.contains(name)
-                || is_argv_fn
+            } else if uses_real_argc.contains(name) {
+                ArgcMode::Real { env_first: false }
+            } else if iife_real_argc.contains(name) || value_real_argc.contains(name) || is_argv_fn
             {
-                ArgcMode::Real
+                ArgcMode::Real { env_first: true }
             } else if env_fns.contains(name)
                 && (body_has_arguments_length(ast, body)
                     || body_has_non_length_arguments_touch(ast, body))
@@ -450,5 +456,5 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // S2 — land the sloppy callee-value shims synthesized above.
     ast.stmts.extend(pending_fwds.decls);
 
-    prepend_static_argc(ast, &uses_real_argc, iife_call_sites);
+    prepend_static_argc(ast, &uses_real_argc);
 }

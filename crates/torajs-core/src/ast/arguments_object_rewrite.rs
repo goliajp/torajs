@@ -137,39 +137,7 @@ pub(super) fn rewrite_arguments_in_expr(
             if let Expr::Ident(n) = ast.get_expr(obj)
                 && n == "arguments"
             {
-                match argc_mode {
-                    ArgcMode::Real => {
-                        return ast.add_expr(Expr::Ident("__torajs_real_argc".into()));
-                    }
-                    ArgcMode::FoldArity => {
-                        return ast.add_expr(Expr::Number(params.len() as f64));
-                    }
-                    // RFC 20260801 — IIFE static-argv face: the call
-                    // site's exact arg count (NOT params.len(), which
-                    // over-counts on an under-filled site and carries
-                    // the injected extras otherwise). The unmapped
-                    // face folds the same count — only element
-                    // aliasing differs (see the Index arm).
-                    ArgcMode::FoldTo(n) | ArgcMode::Unmapped(n) | ArgcMode::Mapped(n) => {
-                        return ast.add_expr(Expr::Number(n as f64));
-                    }
-                    // Length-write knife — reads AND writes ride the
-                    // materialized array's live `.length` (this arm
-                    // serves both positions: an Assign target and a
-                    // PostIncr target flow through it unchanged).
-                    ArgcMode::LiveLength(_) => {
-                        let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-                        return ast.add_expr(Expr::Member {
-                            obj: synth_obj,
-                            name,
-                        });
-                    }
-                    // Keep the `arguments.length` node untouched so the
-                    // checker rejects it loudly — a closure VALUE's real
-                    // argc needs the ABI face (recorded); folding the
-                    // declared arity here would be silent-wrong.
-                    ArgcMode::KeepLoud => return eid,
-                }
+                return rewrite_length_read(ast, argc_mode, params, eid);
             }
             // Recurse through the receiver. Copy-on-write: an
             // unchanged child keeps the original node — ExprId-keyed
@@ -292,6 +260,52 @@ pub(super) fn rewrite_arguments_in_expr(
     }
 }
 
+/// The `arguments.length` fold, one arm per [`ArgcMode`]. Returns
+/// `None` for [`ArgcMode::KeepLoud`]'s untouched node (the caller
+/// returns the original ExprId so the checker rejects it loudly — a
+/// closure VALUE's real argc needs the ABI face; folding the declared
+/// arity would be silent-wrong).
+fn rewrite_length_read(
+    ast: &mut Ast,
+    argc_mode: ArgcMode,
+    params: &[String],
+    eid: ExprId,
+) -> ExprId {
+    match argc_mode {
+        // S3.2 — the env-first face reads the S1 hidden ABI argc; the
+        // head-less face keeps the injected param until the
+        // S1-extension blade covers it.
+        ArgcMode::Real { env_first } => {
+            let argc = if env_first {
+                "__torajs_argc"
+            } else {
+                "__torajs_real_argc"
+            };
+            ast.add_expr(Expr::Ident(argc.into()))
+        }
+        ArgcMode::FoldArity => ast.add_expr(Expr::Number(params.len() as f64)),
+        // RFC 20260801 — IIFE static-argv face: the call site's exact
+        // arg count (NOT params.len(), which over-counts on an
+        // under-filled site and carries the injected extras
+        // otherwise). The unmapped face folds the same count — only
+        // element aliasing differs (see the Index arm).
+        ArgcMode::FoldTo(n) | ArgcMode::Unmapped(n) | ArgcMode::Mapped(n) => {
+            ast.add_expr(Expr::Number(n as f64))
+        }
+        // Length-write knife — reads AND writes ride the materialized
+        // array's live `.length` (this arm serves both positions: an
+        // Assign target and a PostIncr target flow through it
+        // unchanged).
+        ArgcMode::LiveLength(_) => {
+            let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+            ast.add_expr(Expr::Member {
+                obj: synth_obj,
+                name: "length".into(),
+            })
+        }
+        ArgcMode::KeepLoud => eid,
+    }
+}
 /// RFC 20260801 knife 2 — the mechanical copy-on-write recursion
 /// arms (walker-mirror family): every shape here mirrors one the
 /// walkers' detection scan reaches, so a body the pass decided to
