@@ -43,6 +43,10 @@ const CELL_PROPS_OFF: usize = 24;
 /// wrappers' expando slot.
 const WRAPPER_PROPS_OFF: usize = 16;
 
+/// Promise-cell lazy expando slot (`torajs_dynobj::layout::
+/// PROMISE_PROPS_OFF` mirror — +24 is the callback list).
+const PROMISE_PROPS_OFF: usize = 32;
+
 /// The in-layout expando-dict slot for a shape that carries one, or
 /// `None` for a shape that cannot hold a symbol-keyed property.
 fn props_slot_off(cell_tag: u16) -> Option<usize> {
@@ -59,6 +63,11 @@ fn props_slot_off(cell_tag: u16) -> Option<usize> {
         || cell_tag == Tag::BooleanWrapper as u16
     {
         return Some(WRAPPER_PROPS_OFF);
+    }
+    // Rotation 354 — promise bag at +32 (the +24 slot is the
+    // callback list).
+    if cell_tag == Tag::Promise as u16 {
+        return Some(PROMISE_PROPS_OFF);
     }
     None
 }

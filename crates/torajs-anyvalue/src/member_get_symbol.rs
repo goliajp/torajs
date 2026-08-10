@@ -72,6 +72,11 @@ pub(crate) unsafe fn own_dict(ptr: *mut c_void, t: u16) -> *const c_void {
         // Both keep the expando dict in the same +24 slot.
         return unsafe { closure_props(ptr) };
     }
+    // Rotation 354 — promise bag at +32 (the +24 slot is the
+    // callback list).
+    if t == Tag::Promise as u16 {
+        return unsafe { crate::member_get::promise_props(ptr) };
+    }
     // Blade 2 (RFC 20260714-struct-dynamic-props) — a struct cell
     // carries the same +24 expando slot; a symbol-keyed expando
     // (`(c as any)[sym] = v`) lives there like any other key.

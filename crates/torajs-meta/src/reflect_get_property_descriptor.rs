@@ -100,6 +100,9 @@ unsafe fn symbol_key_descriptor_via_dict(
         // has nowhere else it could live — the layout metadata is
         // name-keyed by construction.
         TAG_ARR | TAG_CLOSURE | TAG_OBJ => CELL_PROPS_OFF,
+        // Rotation 354 — promise bag at +32 (the +24 slot is the
+        // callback list).
+        TAG_PROMISE => PROMISE_PROPS_OFF,
         t if is_wrapper_tag(t) => WRAPPER_PROPS_OFF,
         _ => return VALUE_UNDEFINED_IMM,
     };
