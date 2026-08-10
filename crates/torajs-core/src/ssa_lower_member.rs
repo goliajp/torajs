@@ -148,6 +148,16 @@ pub(crate) fn lower_with_val(
     if matches!(obj_ty, Type::Any) {
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, obj_val, name);
     }
+    if obj_ty == Type::Promise {
+        // Typed Promise receiver expando read — box into the any
+        // member lane, whose Tag::Promise arm probes the +32 bag and
+        // falls through to the builtin reify (rotation 353 get
+        // channel). The `.value` fast-path family answered earlier in
+        // the ladder; whatever reaches here is an expando (or proto)
+        // name the typed world has no slot for.
+        let boxed = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, name);
+    }
     if matches!(obj_ty, Type::Closure(_)) {
         // RFC 20260722-find-miss chunk C — an expando read through a
         // find/findLast miss must throw like bun, not read past the

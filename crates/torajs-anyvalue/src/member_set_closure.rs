@@ -14,6 +14,44 @@ use crate::member_set::{
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
 
+/// Promise-cell lazy props slot — mirror of torajs-dynobj
+/// `layout.rs::PROMISE_PROPS_OFF` (+24 is the callback list).
+const MEMBER_SET_PROMISE_PROPS_OFF: usize = 32;
+
+/// `Tag::Promise` receiver — the plain-assign twin of the
+/// defineProperty arm's `define_into_expando(.., PROMISE_PROPS_OFF,
+/// ..)` (RFC 20260810-sloppy-goal-arguments L3b ⑦: `p.foo = v` never
+/// landed in the bag the get channel reads). A promise instance is an
+/// ordinary object (§27.2) with no own reflection pair — `name` /
+/// `length` / `then` are all prototype surface, so every key takes
+/// the expando write; an own `then` stored here shadows the builtin
+/// through the get arm's bag-first probe.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Promise` cell; `key` is a live Str cell;
+/// `(tag, value)` carries the caller's +1 on heap payloads.
+pub(crate) unsafe fn set_promise_member(
+    ptr: *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    unsafe {
+        let props_slot = ptr.cast::<u8>().add(MEMBER_SET_PROMISE_PROPS_OFF) as *mut u64;
+        let mut props = *props_slot as *mut c_void;
+        if props.is_null() {
+            props = __torajs_dynobj_alloc();
+        }
+        let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
+        // First-write alloc and resize relocation both land the
+        // fresh table back in the +32 slot; the promise cell
+        // itself never moves.
+        *props_slot = props as u64;
+        wrote
+    }
+}
+
 /// `Tag::Closure` receiver — chunk C (RFC 20260711) reflection-pair
 /// refusals plus the lazy expando write. Flavored (R3-style):
 /// refusals throw or answer 0 per `throw_on_refusal`.

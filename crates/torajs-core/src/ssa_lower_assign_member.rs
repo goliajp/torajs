@@ -67,6 +67,19 @@ pub(crate) fn lower(
             ctx, eid, obj_val, &field, value, &obj_ident, recv_owned,
         );
     }
+    if obj_ty == Type::Promise {
+        // Promise receiver — box the cell as a heap AnyValue and take
+        // the any-lane member set; the runtime dispatch lands in
+        // member_set's Tag::Promise arm (the +32 expando bag the get
+        // channel probes). No write-back: the cell never relocates
+        // (the bag lives in its own slot), and the binding's Promise
+        // repr must not be replaced by a box. The box is a pure
+        // bit-encode borrow (+0), so no release rides the tail.
+        let boxed = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
+            ctx, eid, boxed, &field, value, &None, false,
+        );
+    }
     if matches!(obj_ty, Type::Closure(_)) {
         return lower_closure_props_assign(ctx, eid, obj_val, &field, value);
     }
