@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T01:56:57.069Z",
+  "generatedAt": "2026-08-10T05:46:23.435Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T01:54:47Z",
-    "headSha": "76c7061a",
-    "elapsedSec": 337.16,
+    "ranAt": "2026-08-10T05:37:44Z",
+    "headSha": "380172de",
+    "elapsedSec": 344.14,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24036,
+    "pass": 24038,
     "passNoOracle": 827,
     "passNegative": 3955,
-    "passTotal": 28818,
-    "bug": 12670,
-    "incompatible": 11686,
-    "bunSkip": 7155,
+    "passTotal": 28820,
+    "bug": 12674,
+    "incompatible": 11680,
+    "bunSkip": 7159,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41488,
+    "trAccepted": 41494,
     "passRateInScope": 54.2,
     "passRateTrAccepted": 69.46
   },
   "torajs": {
-    "commit": "76c7061a",
-    "commitSubject": "feat: the direct delete of arguments.length rides the keyed tombstone",
+    "commit": "42c2a060",
+    "commitSubject": "refactor: object_lit's cell-construction tail moves to a child module at the file cap",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "42c2a060",
+      "subject": "refactor: object_lit's cell-construction tail moves to a child module at the file cap"
+    },
+    {
+      "hash": "380172de",
+      "subject": "feat: fromAsync's mapped form iterates per element and closes the iterator on abrupts"
+    },
+    {
+      "hash": "1637e590",
+      "subject": "feat: race, allSettled and any ride the interleaved lane with per-mode resolver pairs"
+    },
+    {
+      "hash": "dd9e2db2",
+      "subject": "feat: promise.all dyn rides the iterator-interleaved lane with per-element then observation"
+    },
+    {
+      "hash": "5224ff9b",
+      "subject": "fix: an object literal field off a borrowed binding always takes its own share"
+    },
+    {
+      "hash": "285f8824",
+      "subject": "feat: the then override GET runs accessor getters and iterator close gains an abrupt extern face"
+    },
+    {
+      "hash": "478088d4",
+      "subject": "feat: promise cells carry a lazy expando props bag and a then override rides it"
+    },
+    {
+      "hash": "1d74facf",
+      "subject": "docs: rotation 351 close - arguments exotic reflective face lands in seven knives, sweep +36 zero regressions, P-SURF restamp, dashboard refresh"
+    },
+    {
       "hash": "76c7061a",
       "subject": "feat: the direct delete of arguments.length rides the keyed tombstone"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "e971b1a0",
       "subject": "feat: callee is an own property in the arguments hasOwnProperty probe"
-    },
-    {
-      "hash": "a36be57d",
-      "subject": "feat: an arguments object's prototype is object-prototype, and an inline empty literal classifies at runtime"
-    },
-    {
-      "hash": "7db787df",
-      "subject": "feat: the arguments object's callee face is the strict-mode thrower accessor"
-    },
-    {
-      "hash": "2917f19c",
-      "subject": "feat: the arguments object's length face carries its exotic attributes"
-    },
-    {
-      "hash": "595fd831",
-      "subject": "docs: rotation 350 close - sparse-grow phase 1 lands, sweep archived"
-    },
-    {
-      "hash": "9dbb59cf",
-      "subject": "feat: a giant length grow on an any array goes sparse in constant time"
-    },
-    {
-      "hash": "6729d741",
-      "subject": "feat: sparse-tail walker gates - every raw slot walk rejects loudly, tail writes extend the length"
-    },
-    {
-      "hash": "e2a508e1",
-      "subject": "feat: sparse-tail enumeration clamp - the own-key walks stop at the materialized extent"
-    },
-    {
-      "hash": "edf8c9d2",
-      "subject": "feat: sparse-tail funnel gates - reads answer undefined, has/in fall through to the prototype walk, tail writes materialize exactly"
     }
   ],
-  "headSha": "76c7061a",
+  "headSha": "42c2a060",
   "autorun": {
-    "total": 654,
+    "total": 655,
     "baselineTarget": 10,
-    "bySelf": 649,
+    "bySelf": 650,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786307954-4d20",
-      "at": "2026-08-09T20:39:14Z",
-      "ts": 1786307954,
+      "rotationId": "r-1786327134-7d7e",
+      "at": "2026-08-10T01:58:54Z",
+      "ts": 1786327134,
       "trigger": "self",
-      "prevHead": "595fd831",
-      "handoffSha": "sha256:e11dbf9e74eabacf2a6e038aec5470a552c93423d50192ed0e42213bf4a9eb60",
-      "handoffAgeSec": 24,
+      "prevHead": "1d74facf",
+      "handoffSha": "sha256:73f5a4610c0f933ae9f9dd79863b1821c770ea35726e71bf0d882ea1ae69d007",
+      "handoffAgeSec": 58,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786327134-7d7e",
+        "at": "2026-08-10T01:58:54Z",
+        "ts": 1786327134,
+        "trigger": "self",
+        "prevHead": "1d74facf",
+        "handoffSha": "sha256:73f5a4610c0f933ae9f9dd79863b1821c770ea35726e71bf0d882ea1ae69d007",
+        "handoffAgeSec": 58,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786307954-4d20",
         "at": "2026-08-09T20:39:14Z",
@@ -876,17 +887,6 @@
         "prevHead": "6df5d7d4",
         "handoffSha": "sha256:eae4de4b8dad9dc2b4d0b73b3e612d1285ca3522a3291eac0769890139ebb3dd",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786221002-5558",
-        "at": "2026-08-08T20:30:02Z",
-        "ts": 1786221002,
-        "trigger": "self",
-        "prevHead": "066b1761",
-        "handoffSha": "sha256:37befdf546ed6bcb26c6a9569ccaa4b1bd9597dd59a90648ad6753992d7ee553",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }

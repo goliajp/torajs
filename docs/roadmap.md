@@ -1522,7 +1522,7 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `176bcffb` (53174 cases,
+**Where the numbers come from.** Full sweep @ `380172de` (53174 cases,
 `hardev/test262-latest.json`), then the `incompatible` bucket dumped per
 case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
@@ -1530,7 +1530,41 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `76c7061a`** (2026-08-10, rotation 351 — the arguments
+**Latest @ `380172de`** (2026-08-10, rotation 352 — the promise
+iterator-interleave RFC landed whole, I1-I4 in six substrate commits
+plus a file-cap refactor. Promise cells grew a lazy expando props
+bag (layout 32 → 40; defineProperty on a promise receiver was a
+silent no-op before), the per-element `then` GET observation reads
+it (data + accessor getters), and all four dyn combinators now
+iterate the spec's way: the loop probes each promise element for a
+user `then` override, activates a growable fan-in block on the
+spec's remaining-sentinel protocol, hands the override a freshly
+minted resolveElement / rejectElement pair (per-mode entry matrix),
+and a then GET/INVOKE throw closes the iterator once and rejects —
+which is what unhangs the infinite-iterable invoke-then-error-close
+family. fromAsync's mapped form iterates per element likewise
+(mapfn throw / rejected element close). The probe chain also caught
+a latent codegen double-spend: an object-literal field initialized
+from a BORROWED binding (closure captures are registered
+moved-at-birth) bare-stored the env's stake — `return {value:
+captured}` from a nested fn freed the captured cell on the first
+call, and for-of over such literals rode the same hole; borrowed
+bindings now always inc into the field. Sweep: passTotal 28818 →
+**28820 (+2)**, bug +4, trAccepted +6, incompatible **−6**,
+conservation exact (+6 = +2 + 4). tr-timeout **11 → 5**: fromAsync
+mapfn ×2 went timeout → PASS; the four Promise
+invoke-then[-get]-error-close cases went timeout → bug:no-oracle
+exit 1 — the interleave itself works (close runs once, the
+assertion passes), the nonzero exit is the unhandled-rejection
+fatal host semantic, byte-identical with bun's (test262's official
+host is non-fatal there; registered L3b as a host-semantics
+census). Gate predicate **304 clusters flat / 4956 cases (−6) /
+residue 763 / 997 flat / core 5953 (−6)**. True pass regressions 0
+(the verdict diff is exactly the six timeout conversions). Build
+determinism 44/44 (N=12). Conformance gate 2675 → **2685/0/4**
+(+10 fixtures, chain zero-red).)
+
+**Previous @ `76c7061a`** (2026-08-10, rotation 351 — the arguments
 exotic object's whole reflective face landed in seven knives.
 `FLAG_ARR_ARGUMENTS` (Tag::Arr-private bit 1 — the survey flipped
 the planned bits 10/11, which are the elem-kind field) stamps the
