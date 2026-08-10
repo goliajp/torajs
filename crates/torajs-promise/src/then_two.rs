@@ -70,7 +70,7 @@ unsafe fn run_leg(handler: *mut c_void, flags: u8, repr: u8, value: i64) -> i64 
         let r = if flags & FLAG_CLOSURE != 0 {
             let fn_ptr = *((handler as *mut u8).add(8) as *const *mut c_void);
             let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
-            cb(handler, value)
+            cb(handler, 1, value)
         } else {
             let cb: ThenCbI64 = core::mem::transmute(handler);
             cb(value)

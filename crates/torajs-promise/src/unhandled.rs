@@ -81,7 +81,9 @@ type SimpleCb = unsafe extern "C" fn(reason: i64);
 /// Closure cb shape — env+8 carries the user fn pointer
 /// `extern "C" fn(env: *mut c_void, reason: i64)` (same env layout
 /// as `promise_then_closure` / `microtask_enqueue_closure`).
-type ClosureCb = unsafe extern "C" fn(env: *mut c_void, reason: i64);
+// S1 (RFC 20260810-indirect-argc-abi) — env-first entry: hidden
+// argc rides between the env and the reason.
+type ClosureCb = unsafe extern "C" fn(env: *mut c_void, argc: i64, reason: i64);
 
 /// Universal heap-header `type_tag` for Str (0). Mirrors
 /// `torajs_rc::Tag::Str`. Re-declared as a `u16` constant to keep
@@ -320,7 +322,7 @@ unsafe fn sweep_unhandled_list() {
                         let fn_addr = *((cb_ptr as *mut u8).add(8) as *const *mut c_void);
                         if !fn_addr.is_null() {
                             let cb: ClosureCb = core::mem::transmute(fn_addr);
-                            cb(cb_ptr, reason);
+                            cb(cb_ptr, 1, reason);
                         }
                     }
                     // A user listener suppresses the default exit-code

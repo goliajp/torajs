@@ -253,6 +253,7 @@ pub(crate) fn synthesize_boxed_entries(
             t.has_argv,
             t.recv_slot,
             t.feeds_env,
+            t.first_is_env,
             &t.dflt_lits,
             t.rest,
         );
@@ -326,9 +327,15 @@ fn collect_boxed_targets(
             .is_some_and(|p| p.name == "__torajs_argv");
         // param 0 is the env Ptr (when the body carries one); the
         // boxed surface covers the rest (minus the argc/argv slots,
-        // which never consume argv positions).
-        let skip = env_count + usize::from(has_real_argc) + usize::from(has_argv);
-        let user_tys = param_tys[skip..].to_vec();
+        // which never consume argv positions). Two skip counts since
+        // RFC 20260810-indirect-argc-abi S1: the AST param list has
+        // no hidden slot, the SSA sig of an `__env`-first body has
+        // the injected I64 `__torajs_argc` at position 1 — cutting
+        // both sides with one count was the exact AST↔sig mis-align
+        // this split exists to prevent.
+        let ast_skip = env_count + usize::from(has_real_argc) + usize::from(has_argv);
+        let sig_skip = ast_skip + usize::from(first_is_env);
+        let user_tys = param_tys[sig_skip..].to_vec();
         if user_tys.len() > MAX_BOXED_PARAMS {
             continue;
         }
@@ -357,7 +364,7 @@ fn collect_boxed_targets(
         // get from the caller-side default injection. Only Number /
         // Bool literals qualify (an expression default may reference
         // prior params and needs real callee-side evaluation).
-        let dflt_lits: Vec<Option<DfltLit>> = params[skip..]
+        let dflt_lits: Vec<Option<DfltLit>> = params[ast_skip..]
             .iter()
             .map(|p| match p.default.map(|d| ast.get_expr(d)) {
                 Some(crate::ast::Expr::Number(n)) => Some(DfltLit::Num(*n)),
@@ -374,7 +381,7 @@ fn collect_boxed_targets(
         // bound this: length answered n+1 and arguments[0] read the
         // receiver.
         let recv_slot =
-            (has_real_argc || has_argv) && params.get(skip).is_some_and(|p| p.name == "__this");
+            (has_real_argc || has_argv) && params.get(ast_skip).is_some_and(|p| p.name == "__this");
         targets.push(BoxedEntryTarget {
             name: name.clone(),
             fid,
@@ -384,6 +391,7 @@ fn collect_boxed_targets(
             has_argv,
             recv_slot,
             feeds_env,
+            first_is_env,
             dflt_lits,
             rest,
         });
@@ -410,6 +418,11 @@ struct BoxedEntryTarget {
     has_argv: bool,
     recv_slot: bool,
     feeds_env: bool,
+    /// RFC 20260810-indirect-argc-abi S1 — an `__env`-first body's
+    /// SSA sig carries the hidden I64 `__torajs_argc` at position 1;
+    /// the adapter forwards its own argc there. This-first (`__cm_`)
+    /// bodies have no such slot.
+    first_is_env: bool,
     dflt_lits: Vec<Option<DfltLit>>,
     /// Last user param is an `any[]` rest — the adapter collects
     /// argv[fixed..argc] into a fresh Arr<Any> for that slot.

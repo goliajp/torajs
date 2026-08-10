@@ -29,6 +29,7 @@ pub(super) fn build_boxed_entry(
     has_argv: bool,
     recv_slot: bool,
     feeds_env: bool,
+    first_is_env: bool,
     dflt_lits: &[Option<DfltLit>],
     rest: bool,
 ) -> (FuncId, ssa::SigId) {
@@ -57,23 +58,32 @@ pub(super) fn build_boxed_entry(
     if feeds_env {
         args.push(Operand::Value(env));
     }
+    // User-argument count the body-side slots receive: a recv-slot
+    // body (RFC 20260808 knife 2) gets the window SHIFTED past
+    // argv[0] — the receiver riding there feeds `__this`, not
+    // `arguments` (§10.4.4) — so the count drops by one.
+    let user_argc = if recv_slot {
+        Operand::Value(f.append_inst(
+            entry,
+            InstKind::BinOp(ssa::BinOp::Sub, Operand::Value(argc), Operand::ConstI64(1)),
+            Type::I64,
+            None,
+        ))
+    } else {
+        Operand::Value(argc)
+    };
+    // RFC 20260810-indirect-argc-abi S1 — an `__env`-first body's
+    // sig carries the hidden I64 `__torajs_argc` at position 1;
+    // forward the adapter's real argc there (any-lane calls thereby
+    // get the true-argc channel for free).
+    if first_is_env {
+        args.push(user_argc);
+    }
     // RFC 20260708-variadic — feed the dispatcher's real argc into
     // the body's synthetic `__torajs_real_argc` slot; the argv-face
-    // body additionally takes the raw argv pointer. A recv-slot body
-    // (RFC 20260808 knife 2) gets the window SHIFTED past argv[0]:
-    // the receiver riding there feeds `__this`, not `arguments`.
+    // body additionally takes the raw argv pointer.
     if has_real_argc {
-        if recv_slot {
-            let a = f.append_inst(
-                entry,
-                InstKind::BinOp(ssa::BinOp::Sub, Operand::Value(argc), Operand::ConstI64(1)),
-                Type::I64,
-                None,
-            );
-            args.push(Operand::Value(a));
-        } else {
-            args.push(Operand::Value(argc));
-        }
+        args.push(user_argc);
     }
     if has_argv {
         if recv_slot {

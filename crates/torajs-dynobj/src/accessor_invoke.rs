@@ -125,34 +125,43 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
         return unsafe { call(getter, buf.as_ptr(), 0) };
     }
     let fn_addr = unsafe { *((getter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
+    // S1 (RFC 20260810-indirect-argc-abi) — env-first entries carry
+    // the hidden i64 argc after the env; a getter passes 0 user
+    // arguments. A NAKED getter reads neither register, so the shape
+    // stays correct for both (see the note above).
     unsafe {
         match ret_kind {
             ACC_KIND_F64 => {
-                let f: unsafe extern "C" fn(*mut c_void) -> f64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(3, f(getter).to_bits() as i64)
+                let f: unsafe extern "C" fn(*mut c_void, i64) -> f64 =
+                    core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(3, f(getter, 0).to_bits() as i64)
             }
             ACC_KIND_BOOL => {
-                let f: unsafe extern "C" fn(*mut c_void) -> i64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(1, i64::from(f(getter) != 0))
+                let f: unsafe extern "C" fn(*mut c_void, i64) -> i64 =
+                    core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(1, i64::from(f(getter, 0) != 0))
             }
             ACC_KIND_I64 => {
-                let f: unsafe extern "C" fn(*mut c_void) -> i64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(2, f(getter))
+                let f: unsafe extern "C" fn(*mut c_void, i64) -> i64 =
+                    core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(2, f(getter, 0))
             }
             ACC_KIND_PTR => {
-                let f: unsafe extern "C" fn(*mut c_void) -> u64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(4, f(getter) as i64)
+                let f: unsafe extern "C" fn(*mut c_void, i64) -> u64 =
+                    core::mem::transmute(fn_addr);
+                __torajs_anyv_box_from_pair(4, f(getter, 0) as i64)
             }
             ACC_KIND_VOID => {
-                let f: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_addr);
-                f(getter);
+                let f: unsafe extern "C" fn(*mut c_void, i64) = core::mem::transmute(fn_addr);
+                f(getter, 0);
                 VALUE_UNDEFINED
             }
             // ACC_KIND_ANY (and any unknown): the getter already
             // returns a NaN-box AnyValue — pass it through verbatim.
             _ => {
-                let f: unsafe extern "C" fn(*mut c_void) -> u64 = core::mem::transmute(fn_addr);
-                f(getter)
+                let f: unsafe extern "C" fn(*mut c_void, i64) -> u64 =
+                    core::mem::transmute(fn_addr);
+                f(getter, 0)
             }
         }
     }
@@ -263,29 +272,31 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
         return 1;
     }
     let fn_addr = unsafe { *((setter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
+    // S1 — env-first setter takes the hidden i64 argc after the env
+    // (one user argument: the assigned value).
     unsafe {
         match param_kind {
             ACC_KIND_F64 => {
                 let v = f64::from_bits(__torajs_anyv_unbox_value(value_anyv) as u64);
-                let f: unsafe extern "C" fn(*mut c_void, f64) = core::mem::transmute(fn_addr);
-                f(setter, v);
+                let f: unsafe extern "C" fn(*mut c_void, i64, f64) = core::mem::transmute(fn_addr);
+                f(setter, 1, v);
             }
             ACC_KIND_BOOL | ACC_KIND_I64 => {
                 let v = __torajs_anyv_unbox_value(value_anyv);
-                let f: unsafe extern "C" fn(*mut c_void, i64) = core::mem::transmute(fn_addr);
-                f(setter, v);
+                let f: unsafe extern "C" fn(*mut c_void, i64, i64) = core::mem::transmute(fn_addr);
+                f(setter, 1, v);
             }
             ACC_KIND_PTR => {
                 let v = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;
-                let f: unsafe extern "C" fn(*mut c_void, *mut c_void) =
+                let f: unsafe extern "C" fn(*mut c_void, i64, *mut c_void) =
                     core::mem::transmute(fn_addr);
-                f(setter, v);
+                f(setter, 1, v);
             }
             // ACC_KIND_ANY (and any unknown): the setter takes an
             // AnyValue — pass the NaN-box through verbatim.
             _ => {
-                let f: unsafe extern "C" fn(*mut c_void, u64) = core::mem::transmute(fn_addr);
-                f(setter, value_anyv);
+                let f: unsafe extern "C" fn(*mut c_void, i64, u64) = core::mem::transmute(fn_addr);
+                f(setter, 1, value_anyv);
             }
         }
     }

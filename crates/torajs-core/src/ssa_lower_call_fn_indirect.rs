@@ -253,16 +253,21 @@ pub(crate) fn emit_closure_callee_with_this(
         None,
     );
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
-    let mut env_first = Vec::with_capacity(user_params.len() + 2);
+    let mut env_first = Vec::with_capacity(user_params.len() + 3);
     env_first.push(Type::Ptr);
+    // S1 (RFC 20260810-indirect-argc-abi) — hidden I64 argc at ABI
+    // position 1 of every `__env`-first entry.
+    env_first.push(Type::I64);
     if !matches!(this_arg, ClosureThis::None) {
         env_first.push(Type::Any);
     }
     env_first.extend(user_params);
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty);
     let user_params = ctx.fn_sigs[user_sig_id.0 as usize].0.clone();
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 2);
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
     argv.push(Operand::Value(env_ptr));
+    // S1 argc slot — the real user argument count.
+    argv.push(Operand::ConstI64(args.len() as i64));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     match this_arg {

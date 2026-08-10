@@ -86,7 +86,10 @@ pub(crate) fn closure_value_ty(ctx: &mut LowerCtx<'_>, fn_name: &str) -> Type {
         .copied()
         .unwrap_or_else(|| panic!("ssa-lower: closure `{fn_name}` has no interned sig"));
     let (own_params, user_ret_ty) = ctx.fn_sigs[own_sig.0 as usize].clone();
-    let hidden = 1 + usize::from(fn_has_this_param(ctx, fn_name));
+    // RFC 20260810-indirect-argc-abi S1 — the hidden head is now two
+    // slots (`__env` + the SSA-injected I64 `__torajs_argc`), plus
+    // the object-literal method's `__this` when present.
+    let hidden = 2 + usize::from(fn_has_this_param(ctx, fn_name));
     let user_param_tys: Vec<Type> = own_params.iter().skip(hidden).copied().collect();
     Type::Closure(intern_fn_sig(ctx.fn_sigs, user_param_tys, user_ret_ty))
 }

@@ -288,7 +288,8 @@ pub(crate) fn emit_closure_call_ops(
     arg_ops: Vec<Operand>,
     takes_recv: bool,
 ) -> Operand {
-    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv);
+    let mut site =
+        prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv, arg_ops.len());
     site.argv.extend(arg_ops);
     finish_closure_call(ctx, site)
 }
@@ -313,6 +314,7 @@ fn prepare_closure_call(
     offset: u64,
     user_sig_id: SigId,
     takes_recv: bool,
+    user_argc: usize,
 ) -> ClosureCallSite {
     let closure_env = ctx.f.append_inst(
         ctx.cur_block,
@@ -332,9 +334,12 @@ fn prepare_closure_call(
     // every Type so a `__mth(` slot can live in its own struct's layout
     // without the layout naming itself (see `ast/objlit_nominal.rs`).
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
-    let fixed = 1 + usize::from(takes_recv);
+    let fixed = 2 + usize::from(takes_recv);
     let mut abi_params = Vec::with_capacity(user_params.len() + fixed);
     abi_params.push(Type::Ptr);
+    // S1 (RFC 20260810-indirect-argc-abi) — hidden I64 argc at ABI
+    // position 1 of every `__env`-first entry.
+    abi_params.push(Type::I64);
     if takes_recv {
         abi_params.push(Type::Ptr);
     }
@@ -342,6 +347,7 @@ fn prepare_closure_call(
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, abi_params, ret_ty);
     let mut argv: Vec<Operand> = Vec::with_capacity(user_params.len() + fixed);
     argv.push(Operand::Value(closure_env));
+    argv.push(Operand::ConstI64(user_argc as i64));
     if takes_recv {
         // Borrowed, like a class method's receiver — a method does not
         // consume its `this`.
@@ -394,7 +400,7 @@ fn emit_closure_call(
     takes_recv: bool,
     pad_n: usize,
 ) -> Operand {
-    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv);
+    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv, args.len());
     let fixed = site.argv.len();
     // Same post-lower cur_block rule as emit_fnsig_call above — a
     // branching arg moves cur_block; the loads dominate the merge.

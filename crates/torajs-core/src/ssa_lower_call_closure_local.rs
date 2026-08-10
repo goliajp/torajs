@@ -104,8 +104,12 @@ pub(crate) fn try_lower_with_this(
     let needs_this = ctx.ast.fnexpr_recv_locals.contains(callee_name);
 
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
-    let mut env_first_params = Vec::with_capacity(user_params.len() + 2);
+    let mut env_first_params = Vec::with_capacity(user_params.len() + 3);
     env_first_params.push(Type::Ptr);
+    // RFC 20260810-indirect-argc-abi S1 — the hidden I64
+    // `__torajs_argc` sits at ABI position 1 of every `__env`-first
+    // entry (JSC callframe-header shape).
+    env_first_params.push(Type::I64);
     if needs_this {
         env_first_params.push(Type::Any);
     }
@@ -125,8 +129,11 @@ pub(crate) fn try_lower_with_this(
 
     // P0.5 mirror — Type::Any param boxes the concrete arg.
     // S126-3 see direct fn-call P0.9 in ssa_lower.
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 4);
     argv.push(Operand::Value(env_ptr));
+    // S1 argc slot — the REAL user argument count (beyond-arity args
+    // included; they're evaluated but never enter argv).
+    argv.push(Operand::ConstI64(args.len() as i64));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     if needs_this {

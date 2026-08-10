@@ -285,6 +285,16 @@ fn setup_fn_params(
         );
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
+        // RFC 20260810-indirect-argc-abi S1 — def-side twin of the
+        // Pass-1 sig injection: an `__env`-first fn takes the hidden
+        // I64 `__torajs_argc` right after the env. Binding it through
+        // param_setup gives S2's default guard / arguments.length a
+        // named local; S1 bodies never read it (egraph DCE clears the
+        // dead slot).
+        if p.name == "__env" && param_setup.len() == 1 {
+            let apid = f.add_param(Type::I64, "__torajs_argc");
+            param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
+        }
     }
     (param_setup, argc_locals, variadic_locals)
 }

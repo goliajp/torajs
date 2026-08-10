@@ -217,7 +217,7 @@ unsafe extern "C" fn finally_closure_dispatch(arg: i64) {
     unsafe {
         let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: FinallyClosureFn = core::mem::transmute(fn_ptr);
-        let raw = cb((*a).env);
+        let raw = cb((*a).env, 0);
         let ret = returned_value((*a).ret_repr, raw);
         // The env dies with the job either way; `finish` may hand the
         // rest on to a waiting job.

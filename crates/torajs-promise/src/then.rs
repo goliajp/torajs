@@ -73,9 +73,12 @@ pub(crate) unsafe fn stamp_result_repr(result: *mut c_void, repr: u8) {
 pub type ThenCbI64 = unsafe extern "C" fn(i64) -> i64;
 
 /// User-fn signature for the closure variants. First param is the
-/// closure env block (the body uses it to load captures); second is
-/// the source's resolved value.
-pub type ThenClosureFn = unsafe extern "C" fn(*mut c_void, i64) -> i64;
+/// closure env block (the body uses it to load captures); second the
+/// hidden argc (S1, RFC 20260810-indirect-argc-abi — every
+/// `__env`-first entry carries it right after the env; a then/catch
+/// handler receives exactly one argument); third the source's
+/// resolved value.
+pub type ThenClosureFn = unsafe extern "C" fn(*mut c_void, i64, i64) -> i64;
 
 /// `.finally(cb)` simple — no value in. §27.2.5.3 runs the handler
 /// argument-free but USES what it returns (a thenable is waited on),
@@ -83,8 +86,9 @@ pub type ThenClosureFn = unsafe extern "C" fn(*mut c_void, i64) -> i64;
 /// site's ret-repr word saying whether the register holds anything.
 pub type FinallyCb = unsafe extern "C" fn() -> i64;
 
-/// `.finally(cb)` closure — env in, return as above.
-pub type FinallyClosureFn = unsafe extern "C" fn(*mut c_void) -> i64;
+/// `.finally(cb)` closure — env + hidden argc in (§27.2.5.3 runs the
+/// handler argument-free, so argc is 0), return as above.
+pub type FinallyClosureFn = unsafe extern "C" fn(*mut c_void, i64) -> i64;
 
 // ============================================================
 // .then simple — cb: (v: i64) -> i64
@@ -204,7 +208,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
         // Load fn_addr from env+8, call cb(env, value).
         let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
-        let result = cb((*a).env, value);
+        let result = cb((*a).env, 1, value);
         // A Void-ret handler leaves garbage in the return register —
         // settle a clean 0 behind the VOID stamp.
         let result = if (*a).ret_repr == REPR_VOID {
@@ -364,7 +368,7 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
             );
             let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
             let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
-            let result = cb((*a).env, v);
+            let result = cb((*a).env, 1, v);
             // A Void-ret handler leaves garbage in the return
             // register — settle a clean 0 behind the VOID stamp.
             let result = if (*a).ret_repr == REPR_VOID {

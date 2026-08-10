@@ -216,9 +216,11 @@ impl<'a> LowerCtx<'a> {
         };
         let mut argv: Vec<Operand> = match fn_ty {
             Type::Closure(_) => {
-                /* Closure ABI: first arg is env_ptr, then user args. */
-                let mut a = Vec::with_capacity(args.len() + 1);
+                /* Closure ABI: env_ptr, S1 argc, then user args. */
+                let user_argc = (args.len() - sig_skip) as i64;
+                let mut a = Vec::with_capacity(args.len() + 2);
                 a.push(fn_val);
+                a.push(Operand::ConstI64(user_argc));
                 a.extend(args);
                 a
             }
@@ -258,8 +260,11 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 let (user_params, ret_ty) = self.fn_sigs[user_sig_id.0 as usize].clone();
-                let mut env_first = Vec::with_capacity(user_params.len() + 1 + sig_skip);
+                let mut env_first = Vec::with_capacity(user_params.len() + 2 + sig_skip);
                 env_first.push(Type::Ptr);
+                // S1 (RFC 20260810-indirect-argc-abi) — hidden I64
+                // argc at ABI position 1.
+                env_first.push(Type::I64);
                 // Skipped leading argv entries (a promoted callback's
                 // boxed `__this`) are in the native ABI but shed from
                 // the user sig — the indirect call's own sig must
@@ -271,8 +276,9 @@ impl<'a> LowerCtx<'a> {
                 }
                 env_first.extend(user_params);
                 let env_first_sig = intern_fn_sig(self.fn_sigs, env_first, ret_ty);
-                let mut argv = Vec::with_capacity(args.len() + 1);
+                let mut argv = Vec::with_capacity(args.len() + 2);
                 argv.push(Operand::Value(env_ptr));
+                argv.push(Operand::ConstI64((args.len() - sig_skip) as i64));
                 argv.extend(args);
                 self.f.append_inst(
                     self.cur_block,

@@ -125,6 +125,16 @@ pub(crate) fn run(
                 );
                 param_tys.push(pty);
             }
+            // RFC 20260810-indirect-argc-abi S1 — every `__env`-first
+            // fn (lifted closure entry) carries a hidden I64
+            // `__torajs_argc` at sig position 1, SSA-only (the AST
+            // param list and the checker's Function face never see
+            // it). `setup_fn_params` injects the def-side twin; the
+            // two sites must not drift (same contract as the W1
+            // widen note above).
+            if params.first().is_some_and(|p| p.name == "__env") {
+                param_tys.insert(1, Type::I64);
+            }
             let mut ret_ty = effective_ret_ty(
                 parse_type(
                     return_type.as_deref(),

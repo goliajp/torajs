@@ -151,7 +151,9 @@ fn try_closure_local_binding(
             && params[0] == Type::Ptr
             && fn_name_ref.starts_with("__closure_")
         {
-            params.len() - 1
+            // env + the S1 hidden I64 argc slot (RFC
+            // 20260810-indirect-argc-abi).
+            params.len() - 2
         } else {
             params.len()
         };

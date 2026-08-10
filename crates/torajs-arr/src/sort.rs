@@ -148,22 +148,30 @@ impl SortCmp for Cmp {
             let elem_f64 = self.mode & MODE_ELEM_F64 != 0;
             let ret_f64 = self.mode & MODE_RET_F64 != 0;
             let has_env = self.mode & MODE_HAS_ENV != 0;
+            // S1 (RFC 20260810-indirect-argc-abi) — the env-first
+            // shapes carry the hidden i64 argc after the env; a
+            // comparator receives two arguments. FnSig shapes (no
+            // env) are named fns and carry no argc slot.
             match (has_env, elem_f64, ret_f64) {
                 (true, false, false) => {
-                    let c: unsafe extern "C" fn(*mut u8, i64, i64) -> i64 = core::mem::transmute(f);
-                    c(e, a as i64, b as i64) > 0
+                    let c: unsafe extern "C" fn(*mut u8, i64, i64, i64) -> i64 =
+                        core::mem::transmute(f);
+                    c(e, 2, a as i64, b as i64) > 0
                 }
                 (true, false, true) => {
-                    let c: unsafe extern "C" fn(*mut u8, i64, i64) -> f64 = core::mem::transmute(f);
-                    c(e, a as i64, b as i64) > 0.0
+                    let c: unsafe extern "C" fn(*mut u8, i64, i64, i64) -> f64 =
+                        core::mem::transmute(f);
+                    c(e, 2, a as i64, b as i64) > 0.0
                 }
                 (true, true, false) => {
-                    let c: unsafe extern "C" fn(*mut u8, f64, f64) -> i64 = core::mem::transmute(f);
-                    c(e, f64::from_bits(a), f64::from_bits(b)) > 0
+                    let c: unsafe extern "C" fn(*mut u8, i64, f64, f64) -> i64 =
+                        core::mem::transmute(f);
+                    c(e, 2, f64::from_bits(a), f64::from_bits(b)) > 0
                 }
                 (true, true, true) => {
-                    let c: unsafe extern "C" fn(*mut u8, f64, f64) -> f64 = core::mem::transmute(f);
-                    c(e, f64::from_bits(a), f64::from_bits(b)) > 0.0
+                    let c: unsafe extern "C" fn(*mut u8, i64, f64, f64) -> f64 =
+                        core::mem::transmute(f);
+                    c(e, 2, f64::from_bits(a), f64::from_bits(b)) > 0.0
                 }
                 (false, false, false) => {
                     let c: unsafe extern "C" fn(i64, i64) -> i64 = core::mem::transmute(f);
@@ -510,7 +518,10 @@ mod tests {
         a - b
     }
 
-    unsafe extern "C" fn cmp_env_count(env: *mut u8, a: i64, b: i64) -> i64 {
+    // S1 (RFC 20260810-indirect-argc-abi) — env-first shape carries
+    // the hidden argc between the env and the elements.
+    unsafe extern "C" fn cmp_env_count(env: *mut u8, argc: i64, a: i64, b: i64) -> i64 {
+        assert_eq!(argc, 2, "comparator receives two arguments");
         unsafe { *(env as *mut i64) += 1 };
         a - b
     }

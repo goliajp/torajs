@@ -31,8 +31,10 @@ unsafe extern "C" fn queue_micro_closure_dispatch(arg: i64) {
     let env = arg as *mut c_void;
     unsafe {
         let fn_ptr = *((env as *mut u8).add(8) as *const *mut c_void);
-        let cb: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_ptr);
-        cb(env);
+        // S1 (RFC 20260810-indirect-argc-abi) — env-first entry takes
+        // the hidden argc after the env; queueMicrotask passes none.
+        let cb: unsafe extern "C" fn(*mut c_void, i64) = core::mem::transmute(fn_ptr);
+        cb(env, 0);
         __torajs_value_drop_heap(env);
     }
 }
