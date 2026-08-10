@@ -56,11 +56,25 @@ pub(crate) fn initial_let_ty(
         // inits never reach here (fn_addr_let claims them above —
         // direct dispatch preserved). Variadic anns parse to Closure
         // already and never take this arm.
+        // Rotation 358 (S3.5 recon find) — an IDENT init whose local
+        // binding already holds the cell repr (`const f = (x) => x;
+        // const g: (x: number) => number = f`) re-reprs too: the
+        // stored value IS an env cell, and a FnSig slot would
+        // call_indirect the cell header (EXIT=138, same family as the
+        // as-any hole below). Keyed on the binding's SSA repr, not the
+        // checked Function type: a FnSig-repr source (forwarder-
+        // wrapped struct-field read bound earlier) is a real code
+        // address and must keep direct dispatch.
+        let ident_cell_init = || {
+            matches!(ctx.ast.get_expr(init), Expr::Ident(n)
+                if matches!(ctx.locals.get(n), Some(li) if matches!(li.ty, Type::Closure(_))))
+        };
         let parsed = match parsed {
             Type::FnSig(sig)
                 if mutable
                     || matches!(ctx.ast.get_expr(init), Expr::Closure { .. })
-                    || matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any)) =>
+                    || matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any))
+                    || ident_cell_init() =>
             {
                 Type::Closure(sig)
             }
