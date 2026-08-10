@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T08:08:45.741Z",
+  "generatedAt": "2026-08-10T10:40:39.054Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T08:07:02Z",
-    "headSha": "33c57cd0",
-    "elapsedSec": 318.9,
+    "ranAt": "2026-08-10T10:38:11Z",
+    "headSha": "3ad5bce1",
+    "elapsedSec": 320.86,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24045,
+    "pass": 24094,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28791,
-    "bug": 12702,
-    "incompatible": 11681,
+    "passTotal": 28840,
+    "bug": 12655,
+    "incompatible": 11679,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41493,
-    "passRateInScope": 54.14,
-    "passRateTrAccepted": 69.39
+    "trAccepted": 41495,
+    "passRateInScope": 54.24,
+    "passRateTrAccepted": 69.5
   },
   "torajs": {
-    "commit": "33c57cd0",
-    "commitSubject": "feat: promise expando entries read back through the any member lane",
+    "commit": "3ad5bce1",
+    "commitSubject": "feat: promise bag holds symbol-keyed properties",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "3ad5bce1",
+      "subject": "feat: promise bag holds symbol-keyed properties"
+    },
+    {
+      "hash": "98bf1953",
+      "subject": "feat: promise bag enumerates through keys, values, entries and for-in"
+    },
+    {
+      "hash": "d0a9a5cd",
+      "subject": "feat: promise bag answers has, delete and getOwnPropertyDescriptor"
+    },
+    {
+      "hash": "5c99588e",
+      "subject": "feat: promise expando plain-assign and typed-receiver member channels"
+    },
+    {
+      "hash": "61817d4d",
+      "subject": "feat: param-default direct eval declaring arguments throws syntaxerror at call time"
+    },
+    {
+      "hash": "22e3103b",
+      "subject": "docs: rotation 353 close - cts sloppy goal lands whole, nine arguments cases pass, oracle revival de-waters eval-code, promise bag read channel opens, dashboard refresh"
+    },
+    {
       "hash": "33c57cd0",
       "subject": "feat: promise expando entries read back through the any member lane"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d2d2094e",
       "subject": "docs: rotation 352 close - promise iterator-interleave I1-I4 lands whole, tr-timeout 11 to 5, borrowed-binding double-spend rooted, P-SURF restamp, dashboard refresh"
-    },
-    {
-      "hash": "42c2a060",
-      "subject": "refactor: object_lit's cell-construction tail moves to a child module at the file cap"
-    },
-    {
-      "hash": "380172de",
-      "subject": "feat: fromAsync's mapped form iterates per element and closes the iterator on abrupts"
-    },
-    {
-      "hash": "1637e590",
-      "subject": "feat: race, allSettled and any ride the interleaved lane with per-mode resolver pairs"
-    },
-    {
-      "hash": "dd9e2db2",
-      "subject": "feat: promise.all dyn rides the iterator-interleaved lane with per-element then observation"
-    },
-    {
-      "hash": "5224ff9b",
-      "subject": "fix: an object literal field off a borrowed binding always takes its own share"
-    },
-    {
-      "hash": "285f8824",
-      "subject": "feat: the then override GET runs accessor getters and iterator close gains an abrupt extern face"
     }
   ],
-  "headSha": "33c57cd0",
+  "headSha": "3ad5bce1",
   "autorun": {
-    "total": 656,
+    "total": 657,
     "baselineTarget": 10,
-    "bySelf": 651,
+    "bySelf": 652,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786340869-35a7",
-      "at": "2026-08-10T05:47:49Z",
-      "ts": 1786340869,
+      "rotationId": "r-1786349411-6986",
+      "at": "2026-08-10T08:10:11Z",
+      "ts": 1786349411,
       "trigger": "self",
-      "prevHead": "d2d2094e",
-      "handoffSha": "sha256:18837f8fca745c5acdf8feabbefe0d032a74fbc0bc9703d011c0c72b39d63201",
-      "handoffAgeSec": 33,
+      "prevHead": "22e3103b",
+      "handoffSha": "sha256:c63750aa89b213a0084846b5f1cd31ff5617ecd0f66b36d5847d0e4aa3045dc8",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786349411-6986",
+        "at": "2026-08-10T08:10:11Z",
+        "ts": 1786349411,
+        "trigger": "self",
+        "prevHead": "22e3103b",
+        "handoffSha": "sha256:c63750aa89b213a0084846b5f1cd31ff5617ecd0f66b36d5847d0e4aa3045dc8",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786340869-35a7",
         "at": "2026-08-10T05:47:49Z",
@@ -876,17 +887,6 @@
         "prevHead": "2342270f",
         "handoffSha": "sha256:4151631508914b6f27883d6e1159ea926a9c914efab0f747461b159fe6a5a2e8",
         "handoffAgeSec": 39,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786232453-5e55",
-        "at": "2026-08-08T23:40:53Z",
-        "ts": 1786232453,
-        "trigger": "self",
-        "prevHead": "ceeb2f4e",
-        "handoffSha": "sha256:9bdac95c3b1c462cea42e8394272c8becd1c66735b5853985253bf7d79406fc1",
-        "handoffAgeSec": 118,
         "conformanceBefore": null,
         "commitsInSession": null
       }
