@@ -397,8 +397,7 @@ fn collect_boxed_targets(
         // arguments.length === 1 when the slot-keyed predicate went
         // false). A `__cm_` this-first head never reaches ast_skip
         // (env_count consumes it) and twins are not env-first.
-        let recv_slot =
-            first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
+        let recv_slot = first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
         targets.push(BoxedEntryTarget {
             name: name.clone(),
             fid,
