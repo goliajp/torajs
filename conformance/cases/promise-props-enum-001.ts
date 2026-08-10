@@ -1,0 +1,10 @@
+var p: any = Promise.resolve(1);
+p.foo = 42;
+p.bar = 7;
+console.log("k1", JSON.stringify(Object.keys(p)));
+console.log("k2", JSON.stringify(Object.getOwnPropertyNames(p)));
+for (const k in p) console.log("k3", k);
+console.log("k4", JSON.stringify(Object.entries(p)));
+console.log("k5", JSON.stringify(Object.values(p)));
+var q: any = Promise.resolve(9);
+console.log("k6", JSON.stringify(Object.keys(q)));
