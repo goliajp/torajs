@@ -396,6 +396,18 @@ fn rewrite_recurse_arm(
             }
             ast.add_expr(Expr::TypeOf { expr: e2 })
         }
+        // `delete arguments[i]` — §10.4.4.6 unmapped elements are
+        // plain data properties, so the delete rides the
+        // materialized array's index-delete (hole shadow entry). The
+        // missing recursion left the raw `arguments` ident inside
+        // the Delete node (10.5-7-b-4-s's ReferenceError).
+        Expr::Delete { expr } => {
+            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
+            if e2 == expr {
+                return eid;
+            }
+            ast.add_expr(Expr::Delete { expr: e2 })
+        }
         // Length-write knife — `arguments.length--` (walker-mirror:
         // the scans reach PostIncr targets; without this arm the
         // stale Member leaked to the lowering as "post-incr field on

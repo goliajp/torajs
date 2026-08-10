@@ -120,6 +120,16 @@ fn expr_walk(ast: &Ast, eid: ExprId, params: &[String]) -> bool {
         Expr::PostIncr { target, .. } => {
             is_write_target_hit(ast, *target, params) || expr_walk(ast, *target, params)
         }
+        // `delete arguments[i]` — a MUTATION (§10.4.4.6 unmapped
+        // elements are plain deletable data properties): the
+        // snapshot substitution would turn the target into a bare
+        // param name (10.5-7-b-4-s's "must be a property reference"
+        // reject). Routes the body to the materialized array.
+        Expr::Delete { expr } => {
+            matches!(ast.get_expr(*expr), Expr::Index { obj, .. }
+                if is_arguments_ident(ast, *obj))
+                || expr_walk(ast, *expr, params)
+        }
         // `arguments[i]` read — absorbed (obj not recursed): the
         // substitution answer is the snapshot value, correct while
         // no write / escape exists elsewhere in the body.
