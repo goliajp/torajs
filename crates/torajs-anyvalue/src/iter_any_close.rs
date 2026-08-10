@@ -48,6 +48,20 @@ pub(crate) unsafe fn iter_close_under_pending_throw(iter: AnyValue) {
     }
 }
 
+/// `__torajs_iter_close_abrupt(iter)` — §7.4.9 IteratorClose under
+/// an ABRUPT completion, exported for the promise combinators'
+/// §27.2.4.1 step 8.a (`then` GET/INVOKE threw mid-iteration → close
+/// the iterator, original throw wins). The extern face of
+/// [`iter_close_under_pending_throw`]; the iterator reference stays
+/// the caller's.
+///
+/// # Safety
+/// `iter` is `undefined` or a live AnyValue; a throw is pending.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_iter_close_abrupt(iter: AnyValue) {
+    unsafe { iter_close_under_pending_throw(iter) }
+}
+
 /// `__torajs_any_iter_close(recv, iter_slot)` — ES §7.4.9
 /// IteratorClose. A consumer that stops before the iterator reports
 /// done owes it a `return()` call: that is what runs a generator's
