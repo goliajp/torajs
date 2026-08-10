@@ -132,6 +132,7 @@ mod completion;
 mod completion_stmt;
 mod const_prop;
 mod function_ctor;
+mod param_default;
 mod scope;
 mod source;
 mod walk;
@@ -155,6 +156,12 @@ pub fn desugar_eval(ast: &mut Ast) {
         // Named constant sources first — `var s = '…'; eval(s)`
         // becomes a literal call, so every rewrite below sees it.
         const_prop::propagate_eval_const_args(ast);
+        // §19.2.1.3 special case BEFORE the value collapse: a direct
+        // eval in non-arrow default-parameter position whose source
+        // var-declares `arguments` must throw a SyntaxError when the
+        // function is called, while the collapse would fold the
+        // declarations-only source to `undefined` and swallow it.
+        param_default::rewrite_param_default_arguments_evals(ast);
         // Value-position collapses first: a collapsed call is no
         // longer an eval call, so the statement walks below see only
         // the sources that need inlining.

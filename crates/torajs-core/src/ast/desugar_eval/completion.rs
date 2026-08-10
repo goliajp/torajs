@@ -171,7 +171,7 @@ fn binds_anything(stmts: &[Stmt]) -> bool {
 }
 
 /// Overwrite slot `i` with `(() => { body })()`.
-fn wrap_iife(i: usize, body: Vec<Stmt>, ast: &mut Ast) {
+pub(super) fn wrap_iife(i: usize, body: Vec<Stmt>, ast: &mut Ast) {
     let arrow = ast.add_expr(Expr::ArrowFn {
         params: Vec::new(),
         return_type: None,
