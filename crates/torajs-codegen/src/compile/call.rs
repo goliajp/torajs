@@ -23,7 +23,8 @@ use super::{FP_SCRATCH_LHS, OP_SCRATCH_LHS, write_u32};
 use crate::enc::{
     bl_imm26, blr_reg, fcvtzs_x_d, fmov_d_to_d, mov_x_reg, scvtf_d_x, str_d_imm12, str_x_imm12,
 };
-use crate::reg::{Fpr, Gpr, Reg, aapcs64};
+use crate::linear_scan_lanes::{ArgLane, classify_lanes};
+use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
 
@@ -130,59 +131,77 @@ fn pass_args(
     alloc: &Assignment,
     param_types: Option<&[Type]>,
 ) {
-    let mut int_idx = 0;
-    let mut fp_idx = 0;
-    for (i, arg) in args.iter().enumerate() {
+    // Expected lane: prefer the declared param type when available
+    // and within the declared arity; varargs / over-supplied args
+    // fall back to the operand's own classification.
+    let expected_f64 = |i: usize, arg: &Operand| match param_types {
+        Some(pt) if i < pt.len() => pt[i] == Type::F64,
+        _ => operand_is_f64(arg, alloc),
+    };
+    let lanes = classify_lanes(args.iter().enumerate().map(|(i, arg)| expected_f64(i, arg)));
+    // Stack lanes first: their materializes read arbitrary homes
+    // (which may include an ARG_RET register a later reg-lane move
+    // would overwrite), while the stores themselves only touch the
+    // outgoing area at [sp, #j*8] — carved into this frame's bottom by
+    // `allocate_linear_scan`, so sp does not move.
+    for (i, (arg, lane)) in args.iter().zip(&lanes).enumerate() {
+        let ArgLane::Stack(j) = lane else { continue };
         let actual_is_f64 = operand_is_f64(arg, alloc);
-        // Expected lane: prefer the declared param type when available
-        // and within the declared arity; varargs / over-supplied args
-        // fall back to the operand's own classification.
-        let expected_is_f64 = match param_types {
-            Some(pt) if i < pt.len() => pt[i] == Type::F64,
-            _ => actual_is_f64,
-        };
-        if expected_is_f64 {
-            assert!(
-                fp_idx < aapcs64::FP_ARG_RET.len(),
-                "S4-D supports up to {} fp args; got more (stack-pass lands later)",
-                aapcs64::FP_ARG_RET.len()
-            );
-            let arg_reg = aapcs64::FP_ARG_RET[fp_idx];
-            if actual_is_f64 {
-                let src =
-                    materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-                if src != arg_reg {
-                    write_u32(bytes, fmov_d_to_d(arg_reg, src));
-                }
+        if expected_f64(i, arg) {
+            let src = if actual_is_f64 {
+                materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc)
             } else {
-                // i64-shaped operand into an f64 param: SCVTF the int
-                // value into the FP arg lane.
-                let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
-                write_u32(bytes, scvtf_d_x(arg_reg, src));
-            }
-            fp_idx += 1;
+                let g = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, scvtf_d_x(FP_SCRATCH_LHS, g));
+                FP_SCRATCH_LHS
+            };
+            write_u32(bytes, str_d_imm12(src, Gpr::SP, j * 8));
         } else {
-            assert!(
-                int_idx < aapcs64::ARG_RET.len(),
-                "S4-D supports up to {} int args; got more (stack-pass lands later)",
-                aapcs64::ARG_RET.len()
-            );
-            let arg_reg = aapcs64::ARG_RET[int_idx];
-            if actual_is_f64 {
-                // f64 operand into an i64-shaped param: FCVTZS
-                // (truncate toward zero) from the FP src register
-                // straight into the int arg lane. Mirrors JS
-                // ToInteger semantics on call boundaries.
-                let src =
-                    materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-                write_u32(bytes, fcvtzs_x_d(arg_reg, src));
+            let src = if actual_is_f64 {
+                let f = materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, fcvtzs_x_d(OP_SCRATCH_LHS, f));
+                OP_SCRATCH_LHS
             } else {
-                let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
-                if src != arg_reg {
-                    write_u32(bytes, mov_x_reg(arg_reg, src));
+                materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc)
+            };
+            write_u32(bytes, str_x_imm12(src, Gpr::SP, j * 8));
+        }
+    }
+    for (arg, lane) in args.iter().zip(&lanes) {
+        let ArgLane::Reg(reg) = lane else { continue };
+        let actual_is_f64 = operand_is_f64(arg, alloc);
+        match reg {
+            Reg::Fpr(arg_reg) => {
+                if actual_is_f64 {
+                    let src =
+                        materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                    if src != *arg_reg {
+                        write_u32(bytes, fmov_d_to_d(*arg_reg, src));
+                    }
+                } else {
+                    // i64-shaped operand into an f64 param: SCVTF the int
+                    // value into the FP arg lane.
+                    let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
+                    write_u32(bytes, scvtf_d_x(*arg_reg, src));
                 }
             }
-            int_idx += 1;
+            Reg::Gpr(arg_reg) => {
+                if actual_is_f64 {
+                    // f64 operand into an i64-shaped param: FCVTZS
+                    // (truncate toward zero) from the FP src register
+                    // straight into the int arg lane. Mirrors JS
+                    // ToInteger semantics on call boundaries.
+                    let src =
+                        materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                    write_u32(bytes, fcvtzs_x_d(*arg_reg, src));
+                } else {
+                    let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
+                    if src != *arg_reg {
+                        write_u32(bytes, mov_x_reg(*arg_reg, src));
+                    }
+                }
+            }
+            other => unreachable!("classify_lanes returned a non-arg register: {other:?}"),
         }
     }
 }

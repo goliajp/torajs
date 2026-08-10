@@ -55,13 +55,14 @@
 //! covers every fixture the trivial allocator does plus the 245
 //! that currently hit `index out of bounds: len 11`.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
-use torajs_core::ssa::{Function, Type};
+use torajs_core::ssa::{Function, InstKind, Type};
 
-use crate::linear_scan_lanes::{param_arg_regs, ret_lane_free};
+use crate::linear_scan_lanes::{param_lanes, ret_lane_free};
+use crate::linear_scan_sweep::Sweep;
 use crate::liveness::{Interval, compute_intervals};
-use crate::reg::{Fpr, Gpr, Reg, aapcs64};
+use crate::reg::{Reg, aapcs64};
 use crate::regalloc::{Assignment, alloca_slot_size, collect_ret_value_ids, inst_emits_bl};
 use crate::spill_weight::compute_spill_weights;
 
@@ -77,221 +78,23 @@ fn crosses_call(interval: Interval, call_sites: &[u32]) -> bool {
         .any(|&p| interval.start < p && p < interval.end)
 }
 
-/// Mutable Linear-Scan sweep state. The free pool is split four ways
-/// (caller / callee × GPR / FPR) so a call-crossing value can be
-/// restricted to callee-saved registers — the ones AAPCS64 §6.1.1
-/// guarantees survive a `BL`. Caller-saved registers are handed only
-/// to values that never outlive a call.
-struct Sweep {
-    /// Final ValueId → register map being built.
-    by_value: HashMap<u32, Reg>,
-    /// (ValueId, interval, reg) of every pool-backed live value.
-    /// Vec — N ≤ pool size, linear scan beats tree maintenance.
-    active: Vec<(u32, Interval, Reg)>,
-    free_caller_gpr: VecDeque<Gpr>,
-    free_callee_gpr: VecDeque<Gpr>,
-    free_caller_fpr: VecDeque<Fpr>,
-    free_callee_fpr: VecDeque<Fpr>,
-    /// sp-relative offset of the next spill slot (grows by 8; all
-    /// spilled values are 64-bit GPR or D-form FPR).
-    next_spill_offset: u32,
-    /// `Gpr::idx` / `Fpr::idx` bitmasks of the callee-saved registers
-    /// actually handed out — the frame saves/restores exactly these.
-    used_callee_gpr_mask: u32,
-    used_callee_fpr_mask: u32,
-    /// Round 5 popcount attack #1 — loop-aware spill weights
-    /// (`spill_weight::compute_spill_weights`). The victim scan
-    /// prefers the LOWEST weight so a loop-carried hot value never
-    /// loses its register to a cold prelude ref with a merely-longer
-    /// interval.
-    weights: HashMap<u32, u32>,
-}
-
-impl Sweep {
-    fn new(spill_base: u32, weights: HashMap<u32, u32>) -> Self {
-        Sweep {
-            by_value: HashMap::new(),
-            active: Vec::new(),
-            free_caller_gpr: aapcs64::CALLER_SAVED_SCRATCH.iter().copied().collect(),
-            free_callee_gpr: aapcs64::CALLEE_SAVED_SCRATCH.iter().copied().collect(),
-            free_caller_fpr: aapcs64::FP_CALLER_SAVED_SCRATCH.iter().copied().collect(),
-            free_callee_fpr: aapcs64::FP_CALLEE_SAVED_SCRATCH.iter().copied().collect(),
-            next_spill_offset: spill_base,
-            used_callee_gpr_mask: 0,
-            used_callee_fpr_mask: 0,
-            weights,
-        }
-    }
-
-    /// Release every active interval whose end is strictly before
-    /// `cur_start`; its register returns to the pool it came from.
-    fn expire(&mut self, cur_start: u32) {
-        let mut i = 0;
-        while i < self.active.len() {
-            if self.active[i].1.end < cur_start {
-                let reg = self.active[i].2;
-                self.release(reg);
-                self.active.swap_remove(i);
-            } else {
-                i += 1;
+/// Outgoing stack-arg area size — when any call site passes more than
+/// 8 args of a register class, the overflow goes to stack slots based
+/// at the call-moment SP. The area lives at the BOTTOM of the frame
+/// (sp+0), so every alloca / spill offset is biased past it;
+/// `args.len() - 8` upper-bounds the per-class overflow count (int +
+/// fp lanes together absorb at least 8 args), trading at most a few
+/// slack slots for not needing callee sigs here.
+fn outgoing_arg_bytes(func: &Function) -> u32 {
+    let mut outgoing_slots: u32 = 0;
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if let InstKind::Call(_, args) | InstKind::CallIndirect(_, _, args) = &inst.kind {
+                outgoing_slots = outgoing_slots.max(args.len().saturating_sub(8) as u32);
             }
         }
     }
-
-    /// Return a freed register to its originating pool (LIFO — keeps
-    /// register pressure tight). Spilled slots release nothing (their
-    /// stack offset is owned for the whole function lifetime).
-    fn release(&mut self, reg: Reg) {
-        match reg {
-            Reg::Gpr(g) => {
-                if aapcs64::CALLER_SAVED_SCRATCH.contains(&g) {
-                    self.free_caller_gpr.push_front(g);
-                } else if aapcs64::CALLEE_SAVED_SCRATCH.contains(&g) {
-                    self.free_callee_gpr.push_front(g);
-                }
-            }
-            Reg::Fpr(f) => {
-                if aapcs64::FP_CALLER_SAVED_SCRATCH.contains(&f) {
-                    self.free_caller_fpr.push_front(f);
-                } else if aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&f) {
-                    self.free_callee_fpr.push_front(f);
-                }
-            }
-            Reg::SpillGpr(_) | Reg::SpillFpr(_) => {}
-        }
-    }
-
-    /// Pop a callee-saved GPR and record it in the used-mask.
-    fn take_callee_gpr(&mut self) -> Option<Gpr> {
-        let g = self.free_callee_gpr.pop_front()?;
-        self.used_callee_gpr_mask |= 1 << g.idx();
-        Some(g)
-    }
-
-    /// Pop a callee-saved FPR and record it in the used-mask.
-    fn take_callee_fpr(&mut self) -> Option<Fpr> {
-        let f = self.free_callee_fpr.pop_front()?;
-        self.used_callee_fpr_mask |= 1 << f.idx();
-        Some(f)
-    }
-
-    fn alloc_spill_slot(&mut self) -> u32 {
-        let off = self.next_spill_offset;
-        self.next_spill_offset += 8;
-        off
-    }
-
-    /// Allocate for a value whose interval crosses a call: callee-
-    /// saved only (caller-saved would be clobbered by the BL). Spills
-    /// when the callee pool is exhausted.
-    fn alloc_crossing(&mut self, vid: u32, interval: Interval, is_fp: bool) -> Reg {
-        let reg = if is_fp {
-            self.take_callee_fpr().map(Reg::Fpr)
-        } else {
-            self.take_callee_gpr().map(Reg::Gpr)
-        };
-        reg.unwrap_or_else(|| {
-            self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
-        })
-    }
-
-    /// Allocate for a value that never crosses a call: prefer caller-
-    /// saved (free to clobber), fall back to callee-saved (then it
-    /// must be saved/restored), spill last.
-    fn alloc_noncrossing(&mut self, vid: u32, interval: Interval, is_fp: bool) -> Reg {
-        if is_fp {
-            if let Some(f) = self.free_caller_fpr.pop_front() {
-                return Reg::Fpr(f);
-            }
-            if let Some(f) = self.take_callee_fpr() {
-                return Reg::Fpr(f);
-            }
-        } else {
-            if let Some(g) = self.free_caller_gpr.pop_front() {
-                return Reg::Gpr(g);
-            }
-            if let Some(g) = self.take_callee_gpr() {
-                return Reg::Gpr(g);
-            }
-        }
-        self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ false)
-    }
-
-    /// Poletto & Sarkar 1999 "spill at active" with pool-class
-    /// awareness: pick the furthest-end active value of the matching
-    /// class (restricted to callee-saved holders when `callee_only`,
-    /// i.e. the new arrival crosses a call) and spill whichever of
-    /// {victim, new} lives longer — the longest remaining range
-    /// maximizes the freed-register window.
-    ///
-    /// Returns the reg to assign to the new arrival; if a victim was
-    /// chosen, its `by_value` + `active` entry are rewritten to the
-    /// spill slot in place and the new arrival inherits its register
-    /// (already in the used-mask if it was callee-saved).
-    fn spill_at_active(
-        &mut self,
-        new_vid: u32,
-        new_interval: Interval,
-        is_fp: bool,
-        callee_only: bool,
-    ) -> Reg {
-        // Round 5 popcount attack #1 — victim ranking is (lowest
-        // spill weight, then furthest end). Weight-flat functions
-        // degrade to the original Poletto & Sarkar furthest-end
-        // choice; a loop-carried accumulator (weight ≫ cold refs)
-        // keeps its register even when its interval end reaches
-        // function exit.
-        let weight_of = |w: &HashMap<u32, u32>, v: u32| w.get(&v).copied().unwrap_or(0);
-        let mut victim_idx: Option<usize> = None;
-        let mut victim_key: (u32, i64) = (u32::MAX, -1); // (weight asc, end desc)
-        for (i, e) in self.active.iter().enumerate() {
-            let (is_callee_reg, class_ok) = match e.2 {
-                Reg::Gpr(g) => (aapcs64::CALLEE_SAVED_SCRATCH.contains(&g), !is_fp),
-                Reg::Fpr(f) => (aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&f), is_fp),
-                // Already-spilled actives can't free a register.
-                Reg::SpillGpr(_) | Reg::SpillFpr(_) => continue,
-            };
-            if !class_ok || (callee_only && !is_callee_reg) {
-                continue;
-            }
-            let key = (weight_of(&self.weights, e.0), e.1.end as i64);
-            let better = key.0 < victim_key.0 || (key.0 == victim_key.0 && key.1 > victim_key.1);
-            if better {
-                victim_key = key;
-                victim_idx = Some(i);
-            }
-        }
-
-        // Spill the victim only when the new arrival outranks it:
-        // strictly heavier, or equal weight with the shorter
-        // remaining range (the original furthest-end rule).
-        let new_weight = weight_of(&self.weights, new_vid);
-        let spill_off = self.alloc_spill_slot();
-        match victim_idx {
-            Some(i)
-                if victim_key.0 < new_weight
-                    || (victim_key.0 == new_weight
-                        && (self.active[i].1.end as i64) > new_interval.end as i64) =>
-            {
-                let (victim_vid, _vi, victim_reg) = self.active[i];
-                let spilled = if is_fp {
-                    Reg::SpillFpr(spill_off)
-                } else {
-                    Reg::SpillGpr(spill_off)
-                };
-                self.by_value.insert(victim_vid, spilled);
-                self.active[i].2 = spilled;
-                victim_reg
-            }
-            _ => {
-                if is_fp {
-                    Reg::SpillFpr(spill_off)
-                } else {
-                    Reg::SpillGpr(spill_off)
-                }
-            }
-        }
-    }
+    (outgoing_slots * 8 + 15) & !15
 }
 
 /// Linear-Scan register allocator with call-crossing awareness and
@@ -305,8 +108,10 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     // `compute_intervals` (each block contributes one index per inst
     // plus one for its terminator) so a call site `p` compares
     // directly against interval `[start, end]` bounds.
+    let outgoing_bytes = outgoing_arg_bytes(func);
+
     let mut alloca_offsets: HashMap<u32, u32> = HashMap::new();
-    let mut next_alloca_offset: u32 = 0;
+    let mut next_alloca_offset: u32 = outgoing_bytes;
     let mut has_calls = false;
     let mut call_sites: Vec<u32> = Vec::new();
     let mut idx: u32 = 0;
@@ -326,7 +131,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         idx += 1; // terminator slot
     }
 
-    let param_arg_reg = param_arg_regs(func);
+    let (param_arg_reg, stack_params) = param_lanes(func);
 
     let mut sweep = Sweep::new(next_alloca_offset, compute_spill_weights(func));
 
@@ -352,13 +157,28 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         // param it silently hands out a clobbered arg reg (post-
         // inline/slot-forward SSA exposed this: a param consumed
         // after a leading call read garbage from x1).
-        let crossing = if param_arg_reg.contains_key(&vid) {
+        let crossing = if param_arg_reg.contains_key(&vid) || stack_params.contains_key(&vid) {
             call_sites
                 .iter()
                 .any(|&p| interval.start <= p && p < interval.end)
         } else {
             crosses_call(interval, &call_sites)
         };
+
+        // Stack params (9th+ of a register class) arrive in the
+        // caller's outgoing area; the prologue tail copies each into
+        // whatever home the sweep picks here (`stack_param_entry_loads`
+        // below), so the body treats them like any other value.
+        if stack_params.contains_key(&vid) {
+            let dst = if crossing {
+                sweep.alloc_crossing(vid, interval, is_fp)
+            } else {
+                sweep.alloc_noncrossing(vid, interval, is_fp)
+            };
+            sweep.by_value.insert(vid, dst);
+            sweep.active.push((vid, interval, dst));
+            continue;
+        }
 
         // Params first (they own a fixed AAPCS64 arg register on
         // entry, even when also the ret value — matching the prior
@@ -432,19 +252,27 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     // never-written spill slot. Walking final state gives the correct
     // `(arg_reg → callee_reg | SpillGpr)` shape regardless of victim.
     let mut param_entry_moves: Vec<(Reg, Reg)> = Vec::new();
+    let mut stack_param_entry_loads: Vec<(u32, Reg)> = Vec::new();
     for &param in &func.params {
         let vid = param.0;
-        let arg_reg = *param_arg_reg
-            .get(&vid)
-            .expect("param must have an AAPCS64 arg register");
         let final_reg = *sweep
             .by_value
             .get(&vid)
             .expect("param must have a final assignment after sweep");
+        if let Some(&slot) = stack_params.get(&vid) {
+            stack_param_entry_loads.push((slot, final_reg));
+            continue;
+        }
+        let arg_reg = *param_arg_reg
+            .get(&vid)
+            .expect("param must have an AAPCS64 arg register");
         if final_reg != arg_reg {
             param_entry_moves.push((arg_reg, final_reg));
         }
     }
+    // Deterministic emit order (walked off func.params, but keep the
+    // slot order explicit for the reader + any future map-driven walk).
+    stack_param_entry_loads.sort_by_key(|&(slot, _)| slot);
 
     let mut assignment = Assignment::from_parts(
         sweep.by_value,
@@ -456,12 +284,14 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     assignment.used_callee_gpr_mask = used_callee_gpr_mask;
     assignment.used_callee_fpr_mask = used_callee_fpr_mask;
     assignment.param_entry_moves = param_entry_moves;
+    assignment.stack_param_entry_loads = stack_param_entry_loads;
     assignment
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reg::{Fpr, Gpr};
     use torajs_core::ssa::{
         BinOp, Block, BlockId, FuncId, Function, Inst, InstKind, Operand, Terminator, Type,
         ValueId, ValueInfo,
@@ -493,6 +323,70 @@ mod tests {
         };
         let alloc = allocate_linear_scan(&func);
         assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X0));
+    }
+
+    /// Stack params: `fn nine(a..i) -> i64 { i }` — the 9th int param
+    /// has no ARG_RET lane; the allocator hands it a home and records
+    /// an entry load from incoming slot 0.
+    #[test]
+    fn ls_ninth_param_gets_stack_entry_load() {
+        let vals: Vec<ValueInfo> = (0..9)
+            .map(|i| ValueInfo {
+                ty: Type::I64,
+                name: Some(format!("p{i}")),
+            })
+            .collect();
+        let params: Vec<ValueId> = (0..9).map(ValueId).collect();
+        let func = Function {
+            name: "nine".into(),
+            params,
+            ret: Type::I64,
+            values: vals,
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: Vec::new(),
+                term: Terminator::Ret(Some(Operand::Value(ValueId(8)))),
+            }],
+            current_origin: None,
+        };
+        let alloc = allocate_linear_scan(&func);
+        assert_eq!(alloc.stack_param_entry_loads.len(), 1);
+        let (slot, dst) = alloc.stack_param_entry_loads[0];
+        assert_eq!(slot, 0);
+        assert_eq!(alloc.of(ValueId(8)), dst);
+        // first 8 params keep their AAPCS64 lanes
+        assert_eq!(alloc.of(ValueId(0)), Reg::Gpr(Gpr::X0));
+        assert_eq!(alloc.of(ValueId(7)), Reg::Gpr(Gpr::X7));
+    }
+
+    /// Outgoing area: a call passing 9 args biases the alloca/spill
+    /// region past one 16-byte-aligned outgoing slot chunk.
+    #[test]
+    fn ls_nine_arg_call_reserves_outgoing_area() {
+        let args: Vec<Operand> = (1..=9).map(Operand::ConstI64).collect();
+        let func = Function {
+            name: "caller".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![ValueInfo {
+                ty: Type::I64,
+                name: Some("r".into()),
+            }],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![Inst {
+                    result: Some(ValueId(0)),
+                    kind: InstKind::Call(FuncId(0), args),
+                    origin: None,
+                }],
+                term: Terminator::Ret(Some(Operand::Value(ValueId(0)))),
+            }],
+            current_origin: None,
+        };
+        let alloc = allocate_linear_scan(&func);
+        // one overflow slot, 16-aligned → 16 bytes of outgoing area
+        // baked into the frame below every alloca/spill offset.
+        assert!(alloc.raw_alloca_bytes >= 16);
     }
 
     /// Param matches AAPCS64: `fn id(x: i64) -> i64 { x }` — x in X0.

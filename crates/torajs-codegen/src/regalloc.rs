@@ -62,6 +62,13 @@ pub struct Assignment {
     /// (or a spill slot) and records `(arg_reg, dst)` here. The
     /// compiler emits these right after the prologue, before the body.
     pub param_entry_moves: Vec<(Reg, Reg)>,
+    /// Entry loads for stack params (the 9th+ argument of a register
+    /// class arrives in the caller's outgoing area, not a register):
+    /// `(incoming slot j, dst)` — the compiler emits an
+    /// `LDR [sp, #frame_size (+16 FP/LR) + j*8]` into `dst` right
+    /// after `param_entry_moves`, so the body never touches the
+    /// caller's frame again.
+    pub stack_param_entry_loads: Vec<(u32, Reg)>,
 }
 
 impl Assignment {
@@ -88,6 +95,7 @@ impl Assignment {
             used_callee_gpr_mask: 0,
             used_callee_fpr_mask: 0,
             param_entry_moves: Vec::new(),
+            stack_param_entry_loads: Vec::new(),
         }
     }
 
@@ -289,6 +297,7 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
         used_callee_gpr_mask: 0,
         used_callee_fpr_mask: 0,
         param_entry_moves: Vec::new(),
+        stack_param_entry_loads: Vec::new(),
     }
 }
 

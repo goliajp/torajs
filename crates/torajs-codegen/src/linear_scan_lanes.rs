@@ -9,31 +9,75 @@ use torajs_core::ssa::{Function, Type};
 use crate::liveness::Interval;
 use crate::reg::{Reg, aapcs64};
 
-/// AAPCS64 §5.4.2 param lanes — each param's entry register. Integer
-/// and pointer params consume `ARG_RET` in order, floats `FP_ARG_RET`.
-pub(crate) fn param_arg_regs(func: &Function) -> HashMap<u32, Reg> {
-    let mut param_arg_reg: HashMap<u32, Reg> = HashMap::new();
-    let mut gpr_arg_idx = 0usize;
-    let mut fpr_arg_idx = 0usize;
-    for &param in &func.params {
+/// One value's AAPCS64 §5.4.2 lane: an argument register, or a stack
+/// slot when its register class is exhausted. Stack slots number in
+/// declaration order at 8 bytes each, based at the call-moment SP —
+/// both sides classify the same sequence with [`classify_lanes`], so
+/// caller stores and callee loads agree by construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArgLane {
+    Reg(Reg),
+    /// Stack slot index `j` → byte offset `j * 8` from the call SP.
+    Stack(u32),
+}
+
+/// Classify a parameter / argument sequence into AAPCS64 lanes:
+/// ints/ptrs consume `ARG_RET` in order, floats `FP_ARG_RET`; each
+/// value past its class's 8 registers takes the next stack slot
+/// (stages C.14/C.17 — every stack arg is 8-byte-sized here, so the
+/// two collapse to one slot counter).
+pub(crate) fn classify_lanes(is_fp_seq: impl Iterator<Item = bool>) -> Vec<ArgLane> {
+    let mut gpr_idx = 0usize;
+    let mut fpr_idx = 0usize;
+    let mut stack_slot = 0u32;
+    is_fp_seq
+        .map(|is_fp| {
+            let (idx, exhausted) = if is_fp {
+                (&mut fpr_idx, aapcs64::FP_ARG_RET.len())
+            } else {
+                (&mut gpr_idx, aapcs64::ARG_RET.len())
+            };
+            if *idx >= exhausted {
+                let j = stack_slot;
+                stack_slot += 1;
+                return ArgLane::Stack(j);
+            }
+            let lane = if is_fp {
+                ArgLane::Reg(Reg::Fpr(aapcs64::FP_ARG_RET[*idx]))
+            } else {
+                ArgLane::Reg(Reg::Gpr(aapcs64::ARG_RET[*idx]))
+            };
+            *idx += 1;
+            lane
+        })
+        .collect()
+}
+
+/// AAPCS64 param lanes for the sweep — register params as
+/// `vid → Reg`, stack params (past the 8-per-class registers) as
+/// `vid → stack slot index`.
+pub(crate) fn param_lanes(func: &Function) -> (HashMap<u32, Reg>, HashMap<u32, u32>) {
+    let is_fp_seq = func.params.iter().map(|p| {
         let ty = func
             .values
-            .get(param.0 as usize)
+            .get(p.0 as usize)
             .map(|vi| &vi.ty)
             .expect("ValueId(param) out of bounds");
-        let is_fp = matches!(ty, Type::F64);
-        let reg = if is_fp {
-            let v = aapcs64::FP_ARG_RET[fpr_arg_idx];
-            fpr_arg_idx += 1;
-            Reg::Fpr(v)
-        } else {
-            let x = aapcs64::ARG_RET[gpr_arg_idx];
-            gpr_arg_idx += 1;
-            Reg::Gpr(x)
-        };
-        param_arg_reg.insert(param.0, reg);
+        matches!(ty, Type::F64)
+    });
+    let mut regs: HashMap<u32, Reg> = HashMap::new();
+    let mut stack: HashMap<u32, u32> = HashMap::new();
+    for (lane, &param) in classify_lanes(is_fp_seq).into_iter().zip(&func.params) {
+        match lane {
+            ArgLane::Reg(r) => {
+                regs.insert(param.0, r);
+            }
+            ArgLane::Stack(j) => {
+                stack.insert(param.0, j);
+            }
+        }
     }
-    param_arg_reg
+    (regs, stack)
 }
 
 /// Whether the return value may be parked directly in `reg` — X0 or

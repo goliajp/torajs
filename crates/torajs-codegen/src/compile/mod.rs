@@ -49,7 +49,7 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Type};
 
-use crate::enc::{fmov_d_to_d, mov_x_reg, str_d_imm12, str_x_imm12};
+use crate::enc::{fmov_d_to_d, ldr_d_imm12, ldr_x_imm12, mov_x_reg, str_d_imm12, str_x_imm12};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -163,6 +163,7 @@ pub fn compile_function_with(
     // registers into the callee-saved registers the allocator picked,
     // now that the prologue has saved those registers' prior contents.
     emit_param_entry_moves(&mut bytes, &alloc);
+    emit_stack_param_loads(&mut bytes, &alloc, &frame);
 
     // Block-tail single-use ICmp + CondBr pairs fuse into cmp+b.cond
     // (or cbz/cbnz) — the inst loop skips the compare, the terminator
@@ -322,6 +323,39 @@ pub(crate) fn write_def_spill_gpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, s
 pub(crate) fn write_def_spill_fpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, scratch: Fpr) {
     if let Some(off) = spill_off {
         write_u32(bytes, crate::enc::str_d_imm12(scratch, Gpr::SP, off));
+    }
+}
+
+/// Copy each stack param (9th+ argument of a register class) from the
+/// caller's outgoing area into the home the allocator picked. The
+/// incoming slots sit just above this frame: past the SP carve
+/// (`frame_size`) and the FP/LR pair the prologue pushed — or at
+/// `sp + j*8` directly when the frame is trivial (no prologue at
+/// all). This is the only place the body ever touches the caller's
+/// frame; everything downstream reads the copied home.
+fn emit_stack_param_loads(bytes: &mut Vec<u8>, alloc: &Assignment, frame: &FrameLayout) {
+    if alloc.stack_param_entry_loads.is_empty() {
+        return;
+    }
+    let base = if frame.is_trivial() {
+        0
+    } else {
+        frame.frame_size() + 16
+    };
+    for &(slot, dst) in &alloc.stack_param_entry_loads {
+        let off = base + slot * 8;
+        match dst {
+            Reg::Gpr(d) => write_u32(bytes, ldr_x_imm12(d, Gpr::SP, off)),
+            Reg::Fpr(d) => write_u32(bytes, ldr_d_imm12(d, Gpr::SP, off)),
+            Reg::SpillGpr(soff) => {
+                write_u32(bytes, ldr_x_imm12(OP_SCRATCH_LHS, Gpr::SP, off));
+                write_u32(bytes, str_x_imm12(OP_SCRATCH_LHS, Gpr::SP, soff));
+            }
+            Reg::SpillFpr(soff) => {
+                write_u32(bytes, ldr_d_imm12(FP_SCRATCH_LHS, Gpr::SP, off));
+                write_u32(bytes, str_d_imm12(FP_SCRATCH_LHS, Gpr::SP, soff));
+            }
+        }
     }
 }
 
