@@ -15,7 +15,7 @@ use super::{Ast, Expr, ExprId};
 /// actual on the Real / FoldArity paths).
 fn spread_take(params: &[String], argc_mode: ArgcMode) -> usize {
     match argc_mode {
-        ArgcMode::FoldTo(n) => n.min(params.len()),
+        ArgcMode::FoldTo(n) | ArgcMode::Mapped(n) => n.min(params.len()),
         _ => params.len(),
     }
 }

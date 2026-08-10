@@ -150,7 +150,7 @@ pub(super) fn rewrite_arguments_in_expr(
                     // the injected extras otherwise). The unmapped
                     // face folds the same count — only element
                     // aliasing differs (see the Index arm).
-                    ArgcMode::FoldTo(n) | ArgcMode::Unmapped(n) => {
+                    ArgcMode::FoldTo(n) | ArgcMode::Unmapped(n) | ArgcMode::Mapped(n) => {
                         return ast.add_expr(Expr::Number(n as f64));
                     }
                     // Length-write knife — reads AND writes ride the

@@ -78,6 +78,19 @@ pub(super) enum ArgcMode {
     /// writes both ride the materialized `__torajs_arguments` array
     /// instead; `arguments.length` still folds to the static argc.
     Unmapped(usize),
+    /// RFC 20260810-sloppy-goal-arguments S3 — the sloppy goal's
+    /// simple-param static-face mode: the SAME literal-index param
+    /// substitution as FoldTo, mutations included, because the
+    /// substitution's two-way aliasing (`arguments[0] = 2` writes
+    /// through to `a`; `a = 99` shows in a later `arguments[0]`
+    /// read) IS §10.4.4 CreateMappedArgumentsObject's semantics —
+    /// the exact divergence that exiled mutating bodies from FoldTo
+    /// under the strict goal. Admission requires
+    /// `body_has_mapped_blockers` to answer false: an escape, a
+    /// non-length member touch, an element delete, or a dynamic /
+    /// out-of-range index all need the materialized array, and a
+    /// mapped body must never mix the two views.
+    Mapped(usize),
     /// Leave the node alone so the checker rejects it loudly — a
     /// closure VALUE's real argc needs the ABI face (recorded);
     /// folding the declared arity would be silent-wrong.
@@ -254,17 +267,32 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 // live `.length` (see ArgcMode::LiveLength);
                 // everything else on the face is Unmapped — strict
                 // (module) code never maps arguments to params.
+                let non_simple = decl_params.iter().any(|p| {
+                    p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_")
+                });
                 if body_has_arguments_length_write(ast, body) {
                     ArgcMode::LiveLength(n)
-                } else if decl_params.iter().any(|p| {
-                    p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_")
-                }) || super::arguments_object_mutation::body_mutates_args_view(
-                    ast, body, &params,
-                ) {
-                    // Non-simple params misalign position ↔ param;
-                    // a mutation / escape makes the snapshot
-                    // distinguishable (see ArgcMode::FoldTo doc).
-                    ArgcMode::Unmapped(n)
+                } else if non_simple
+                    || super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
+                {
+                    // S3 — the sloppy goal's simple-param face keeps
+                    // the substitution WITH its aliasing (that IS
+                    // the mapped semantics) when nothing needs the
+                    // materialized array (see ArgcMode::Mapped).
+                    if ast.sloppy_script_goal
+                        && !non_simple
+                        && !super::arguments_object_mutation::body_has_mapped_blockers(
+                            ast, body, &params,
+                        )
+                    {
+                        ArgcMode::Mapped(n)
+                    } else {
+                        // Non-simple params misalign position ↔
+                        // param; a mutation / escape makes the
+                        // snapshot distinguishable under the strict
+                        // goal (see ArgcMode::FoldTo doc).
+                        ArgcMode::Unmapped(n)
+                    }
                 } else {
                     ArgcMode::FoldTo(n)
                 }
