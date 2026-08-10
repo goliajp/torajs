@@ -5,8 +5,9 @@
 //! 20260810-sloppy-goal-arguments) pushed the main pass past the
 //! 500-line file limit (verbatim move).
 
+use super::arguments_object::ArgcMode;
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_non_length_arguments_touch,
+    body_has_arguments_length, body_has_arguments_length_write, body_has_non_length_arguments_touch,
 };
 use super::{Ast, Expr, Stmt};
 
@@ -132,4 +133,100 @@ pub(super) fn collect_iife_real_argc(
         }
     }
     iife_real_argc
+}
+
+/// The per-fn tier sets `classify_argc_mode` reads — one struct so
+/// the classifier keeps a readable signature (every field is a
+/// borrow of the driver's collections).
+pub(super) struct ArgcTiers<'a> {
+    pub(super) iife_static_argv: &'a std::collections::HashMap<String, usize>,
+    pub(super) uses_real_argc: &'a std::collections::HashSet<String>,
+    pub(super) method_argv_fns: &'a std::collections::HashSet<String>,
+    pub(super) iife_real_argc: &'a std::collections::HashSet<String>,
+    pub(super) value_real_argc: &'a std::collections::HashSet<String>,
+    pub(super) value_argv_fns: &'a std::collections::HashSet<String>,
+    pub(super) env_fns: &'a std::collections::HashSet<String>,
+}
+
+/// Pick a fn body's [`ArgcMode`] from its tier membership + body
+/// shape. Moved verbatim out of the driver (S3.2 fix-up file-size
+/// line); the arm rationale comments travel with their arms.
+pub(super) fn classify_argc_mode(
+    ast: &Ast,
+    body: &[Stmt],
+    name: &str,
+    decl_params: &[super::Param],
+    params: &[String],
+    tiers: ArgcTiers<'_>,
+) -> ArgcMode {
+    if let Some(&n) = tiers.iife_static_argv.get(name) {
+        // Length-write bodies additionally ride the array's
+        // live `.length` (see ArgcMode::LiveLength);
+        // everything else on the face is Unmapped — strict
+        // (module) code never maps arguments to params.
+        let non_simple = decl_params
+            .iter()
+            .any(|p| p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_"));
+        if body_has_arguments_length_write(ast, body) {
+            ArgcMode::LiveLength(n)
+        } else if non_simple
+            || super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
+        {
+            // S3 — the sloppy goal's simple-param face keeps
+            // the substitution WITH its aliasing (that IS
+            // the mapped semantics) when nothing needs the
+            // materialized array (see ArgcMode::Mapped).
+            if ast.sloppy_script_goal
+                && !non_simple
+                && !super::arguments_object_mutation::body_has_mapped_blockers(ast, body, &params)
+            {
+                ArgcMode::Mapped(n)
+            } else {
+                // Non-simple params misalign position ↔
+                // param; a mutation / escape makes the
+                // snapshot distinguishable under the strict
+                // goal (see ArgcMode::FoldTo doc).
+                ArgcMode::Unmapped(n)
+            }
+        } else {
+            ArgcMode::FoldTo(n)
+        }
+    } else if tiers.uses_real_argc.contains(name) || tiers.method_argv_fns.contains(name) {
+        // Head-less top-level fns and `__cm_` this-first
+        // method bodies have no S1 hidden argc — they keep
+        // reading the injected `__torajs_real_argc` until the
+        // S1-extension ABI blade covers those entry families.
+        ArgcMode::Real { env_first: false }
+    } else if tiers.iife_real_argc.contains(name)
+        || tiers.value_real_argc.contains(name)
+        || tiers.value_argv_fns.contains(name)
+    {
+        // S3.2 — env-first faces read the S1 hidden argc. A
+        // body that WRITES `arguments.length` needs a mutable
+        // home (the hidden param is an SSA value): it rides a
+        // synthesized `__torajs_argc_len` local seeded from
+        // the hidden argc — the exact semantics the injected
+        // (writable) `__torajs_real_argc` param used to give.
+        if body_has_arguments_length_write(ast, body) {
+            ArgcMode::RealLocal
+        } else {
+            ArgcMode::Real { env_first: true }
+        }
+    } else if tiers.env_fns.contains(name)
+        && (body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body))
+    {
+        ArgcMode::KeepLoud
+    } else if super::arguments_object_mutation::body_mutates_args_view(ast, body, &params) {
+        // FoldArity tier (no static argc), mutating body —
+        // the literal-index substitution wrote through
+        // (`arguments[0] = 5` mutated `a`; module code is
+        // strict, so nothing ever maps). Ride the
+        // materialized array under the tier's existing
+        // declared-==-actual assumption: length folds and
+        // beyond-declared reads stay wrong-at-parity with
+        // the FoldArity baseline, but writes are isolated.
+        ArgcMode::Unmapped(params.len())
+    } else {
+        ArgcMode::FoldArity
+    }
 }

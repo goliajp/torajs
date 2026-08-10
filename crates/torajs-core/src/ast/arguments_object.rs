@@ -26,8 +26,7 @@ use super::arguments_object_static_argv::{
 };
 use super::arguments_object_synth::{synth_arguments_local_argv, synth_materialized_arguments};
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_arguments_length_write, body_has_callee_touch,
-    body_has_callee_write, body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
+    body_has_callee_touch, body_has_callee_write, stmt_uses_dynamic_arguments,
 };
 use super::{Ast, Stmt};
 
@@ -43,6 +42,12 @@ pub(super) enum ArgcMode {
     /// `__torajs_real_argc` (no hidden param exists there until the
     /// S1-extension ABI blade lands).
     Real { env_first: bool },
+    /// Env-first face whose body WRITES `arguments.length`: reads and
+    /// writes ride a synthesized mutable `__torajs_argc_len` local
+    /// seeded from the S1 hidden argc (the hidden param itself is an
+    /// unwritable SSA value) — the exact semantics the injected
+    /// writable `__torajs_real_argc` param used to provide.
+    RealLocal,
     /// Fold to the declared arity (legacy fallback; still serves
     /// class methods, whose ABI is untouched — recorded face).
     FoldArity,
@@ -269,63 +274,22 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // into a declared-params-only array, silently answering
             // undefined for beyond-declared values reached through
             // any-call / container dispatch (probe ac6/ac7).
-            let argc_mode = if let Some(&n) = iife_static_argv.get(name) {
-                // Length-write bodies additionally ride the array's
-                // live `.length` (see ArgcMode::LiveLength);
-                // everything else on the face is Unmapped — strict
-                // (module) code never maps arguments to params.
-                let non_simple = decl_params.iter().any(|p| {
-                    p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_")
-                });
-                if body_has_arguments_length_write(ast, body) {
-                    ArgcMode::LiveLength(n)
-                } else if non_simple
-                    || super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
-                {
-                    // S3 — the sloppy goal's simple-param face keeps
-                    // the substitution WITH its aliasing (that IS
-                    // the mapped semantics) when nothing needs the
-                    // materialized array (see ArgcMode::Mapped).
-                    if ast.sloppy_script_goal
-                        && !non_simple
-                        && !super::arguments_object_mutation::body_has_mapped_blockers(
-                            ast, body, &params,
-                        )
-                    {
-                        ArgcMode::Mapped(n)
-                    } else {
-                        // Non-simple params misalign position ↔
-                        // param; a mutation / escape makes the
-                        // snapshot distinguishable under the strict
-                        // goal (see ArgcMode::FoldTo doc).
-                        ArgcMode::Unmapped(n)
-                    }
-                } else {
-                    ArgcMode::FoldTo(n)
-                }
-            } else if uses_real_argc.contains(name) {
-                ArgcMode::Real { env_first: false }
-            } else if iife_real_argc.contains(name) || value_real_argc.contains(name) || is_argv_fn
-            {
-                ArgcMode::Real { env_first: true }
-            } else if env_fns.contains(name)
-                && (body_has_arguments_length(ast, body)
-                    || body_has_non_length_arguments_touch(ast, body))
-            {
-                ArgcMode::KeepLoud
-            } else if super::arguments_object_mutation::body_mutates_args_view(ast, body, &params) {
-                // FoldArity tier (no static argc), mutating body —
-                // the literal-index substitution wrote through
-                // (`arguments[0] = 5` mutated `a`; module code is
-                // strict, so nothing ever maps). Ride the
-                // materialized array under the tier's existing
-                // declared-==-actual assumption: length folds and
-                // beyond-declared reads stay wrong-at-parity with
-                // the FoldArity baseline, but writes are isolated.
-                ArgcMode::Unmapped(params.len())
-            } else {
-                ArgcMode::FoldArity
-            };
+            let argc_mode = super::arguments_object_stages::classify_argc_mode(
+                ast,
+                body,
+                name,
+                decl_params,
+                &params,
+                super::arguments_object_stages::ArgcTiers {
+                    iife_static_argv: &iife_static_argv,
+                    uses_real_argc: &uses_real_argc,
+                    method_argv_fns: &method_argv_fns,
+                    iife_real_argc: &iife_real_argc,
+                    value_real_argc: &value_real_argc,
+                    value_argv_fns: &value_argv_fns,
+                    env_fns: &env_fns,
+                },
+            );
             // T-11 — pre-pass: detect any dynamic `arguments[<non-
             // literal>]` use. If found, prepend a synthesized
             // `let __torajs_arguments: any[] = [p0, p1, ...]` before
@@ -404,6 +368,8 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 .collect();
             // Synthesize the local OUTSIDE the &mut ast.stmts borrow
             // (synth_arguments_local also takes &mut ast for add_expr).
+            let argc_len_opt = (argc_mode == ArgcMode::RealLocal)
+                .then(|| super::arguments_object_synth::synth_argc_len_local(ast));
             let synth_opt = if is_argv_fn {
                 Some(synth_arguments_local_argv(ast))
             } else if needs_materialize && argc_mode != ArgcMode::KeepLoud {
@@ -435,9 +401,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 _ => None,
             };
             if let Stmt::FnDecl { body: b, .. } = &mut ast.stmts[idx] {
-                if let Some(synth) = synth_opt {
-                    let mut full = Vec::with_capacity(new_body.len() + 3);
-                    full.push(synth);
+                if argc_len_opt.is_some() || synth_opt.is_some() {
+                    let mut full = Vec::with_capacity(new_body.len() + 4);
+                    full.extend(argc_len_opt);
+                    full.extend(synth_opt);
                     if let Some(mark) = mark_opt {
                         full.push(mark);
                     }

@@ -76,6 +76,23 @@ pub(super) fn synth_arguments_local_argv(ast: &mut Ast) -> Stmt {
     }
 }
 
+/// S3.2 write face — synthesize
+/// `let __torajs_argc_len: number = __torajs_argc;` for an env-first
+/// body that writes `arguments.length`: the S1 hidden argc is an
+/// unwritable SSA param, so reads AND writes ride this mutable local
+/// instead (the semantics the injected writable `__torajs_real_argc`
+/// used to provide).
+pub(super) fn synth_argc_len_local(ast: &mut Ast) -> Stmt {
+    let init = ast.add_expr(Expr::Ident("__torajs_argc".into()));
+    Stmt::LetDecl {
+        mutable: true,
+        name: "__torajs_argc_len".into(),
+        type_ann: Some("number".into()),
+        init,
+        is_var: false,
+    }
+}
+
 /// The `FLAG_ARR_ARGUMENTS` stamp statement —
 /// `__torajs_arguments_mark(__torajs_arguments);` — inserted right
 /// after the mint by [`super::arguments_object`]. The checker

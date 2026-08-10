@@ -283,6 +283,9 @@ fn rewrite_length_read(
             };
             ast.add_expr(Expr::Ident(argc.into()))
         }
+        // Write-shaped env-first face — both positions (read and
+        // Assign / PostIncr target) land on the synthesized local.
+        ArgcMode::RealLocal => ast.add_expr(Expr::Ident("__torajs_argc_len".into())),
         ArgcMode::FoldArity => ast.add_expr(Expr::Number(params.len() as f64)),
         // RFC 20260801 — IIFE static-argv face: the call site's exact
         // arg count (NOT params.len(), which over-counts on an
