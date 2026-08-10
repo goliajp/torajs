@@ -389,9 +389,18 @@ fn collect_boxed_targets(
         // starts one slot in (the receiver is not an argument,
         // §10.4.4). Pre-fix the materialized `arguments` counted the
         // bound this: length answered n+1 and arguments[0] read the
-        // receiver.
-        let recv_slot =
-            (has_real_argc || has_argv) && params.get(ast_skip).is_some_and(|p| p.name == "__this");
+        // receiver. S3.7 — the `has_real_argc ||` half retired: a
+        // promoted `__this` rides fn-expr faces (env-first, so never
+        // real_argc-injected since S3.4), and the argc-carrying
+        // faces put `__this` FIRST (`__cm_`) or have none
+        // (head-less); the assert is the machine proof.
+        debug_assert!(
+            !(has_real_argc
+                && !has_argv
+                && params.get(ast_skip).is_some_and(|p| p.name == "__this")),
+            "argc-only body {name} grew a post-slot __this"
+        );
+        let recv_slot = has_argv && params.get(ast_skip).is_some_and(|p| p.name == "__this");
         targets.push(BoxedEntryTarget {
             name: name.clone(),
             fid,
