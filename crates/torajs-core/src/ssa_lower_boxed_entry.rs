@@ -382,25 +382,23 @@ fn collect_boxed_targets(
                 _ => None,
             })
             .collect();
-        // RFC 20260808 knife 2 — a `__this` param sitting AFTER the
-        // argc/argv slots is an argv-face body's receiver channel:
-        // every dispatch to a recv-first cell prepends the receiver
-        // in argv[0], so the arguments window those slots describe
-        // starts one slot in (the receiver is not an argument,
-        // §10.4.4). Pre-fix the materialized `arguments` counted the
-        // bound this: length answered n+1 and arguments[0] read the
-        // receiver. S3.7 — the `has_real_argc ||` half retired: a
-        // promoted `__this` rides fn-expr faces (env-first, so never
-        // real_argc-injected since S3.4), and the argc-carrying
-        // faces put `__this` FIRST (`__cm_`) or have none
-        // (head-less); the assert is the machine proof.
-        debug_assert!(
-            !(has_real_argc
-                && !has_argv
-                && params.get(ast_skip).is_some_and(|p| p.name == "__this")),
-            "argc-only body {name} grew a post-slot __this"
-        );
-        let recv_slot = has_argv && params.get(ast_skip).is_some_and(|p| p.name == "__this");
+        // RFC 20260808 knife 2 — a promoted `__this` param sitting
+        // AFTER the (possibly empty) argc/argv slot run is a
+        // recv-first body's receiver channel: every dispatch to a
+        // recv-first cell prepends the receiver in argv[0], so the
+        // count those slots describe drops by one (the receiver is
+        // not an argument, §10.4.4). Pre-fix the materialized
+        // `arguments` counted the bound this: length answered n+1
+        // and arguments[0] read the receiver. S3.7 — the predicate
+        // keys on the `__this` shape itself, not on the injected
+        // slots: since S3.4 an env-first body carries NO injected
+        // argc slot, but its S1 hidden argc still needs the same
+        // receiver correction (test262 bind/15.3.4.5.1-4-6 answered
+        // arguments.length === 1 when the slot-keyed predicate went
+        // false). A `__cm_` this-first head never reaches ast_skip
+        // (env_count consumes it) and twins are not env-first.
+        let recv_slot =
+            first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
         targets.push(BoxedEntryTarget {
             name: name.clone(),
             fid,
