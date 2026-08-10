@@ -84,7 +84,17 @@ fn try_generator_factory_prototype(ctx: &mut LowerCtx<'_>, fn_name_ref: &str) ->
 pub(crate) fn expected_argument_count(params: &[crate::ast::Param]) -> usize {
     params
         .iter()
-        .filter(|p| p.name != "__env" && p.name != "__this" && p.name != "__torajs_real_argc")
+        .filter(|p| {
+            p.name != "__env"
+                && p.name != "__this"
+                && p.name != "__torajs_real_argc"
+                // S3.7 — the argv-face pointer slot never counts
+                // either. Unreachable-by-construction today (a
+                // compile-time `.length` read kills the argv-face
+                // binding chain, and the killed body goes loud), but
+                // the fold must not depend on that kill staying true.
+                && p.name != "__torajs_argv"
+        })
         .take_while(|p| p.default.is_none() && !p.is_rest)
         .count()
 }
