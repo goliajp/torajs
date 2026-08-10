@@ -127,7 +127,7 @@ struct AllElemArg {
 
 /// Release one job's hold on the block; free it (and anything it still
 /// owns) when the last one lets go.
-unsafe fn release_block(b: *mut AllBlock) {
+pub(crate) unsafe fn release_block(b: *mut AllBlock) {
     unsafe {
         (*b).jobs -= 1;
         if (*b).jobs != 0 {
@@ -285,17 +285,12 @@ pub(crate) unsafe fn fan_in(
                 (*b).remaining -= 1;
                 continue;
             }
-            let a = malloc(core::mem::size_of::<AllElemArg>()) as *mut AllElemArg;
-            (*a).block = b;
-            (*a).elem = pp as *mut c_void;
-            (*a).index = i;
-            (*b).jobs += 1;
             // An element borrowed from the input array takes an inc to
             // pay for the stake its job consumes.
             if !minted {
                 __torajs_rc_inc(pp as *mut c_void);
             }
-            __torajs_promise_attach_then(pp as *mut c_void, Some(all_elem_dispatch), a as i64);
+            attach_elem_job(b, pp, i);
         }
         // An all-NULL (or empty) input owes nothing — §27.2.4.1 / .3
         // resolve with the empty array rather than waiting forever,
@@ -312,6 +307,22 @@ pub(crate) unsafe fn fan_in(
         }
         release_block(b);
         result
+    }
+}
+
+/// One element's job: take a block hold, park the (already-paid)
+/// element stake in the arg, and attach the dispatcher — settled or
+/// not, `attach_then` enqueues immediately for a settled source, so
+/// one path covers both. Shared with the iterator-interleaved lane,
+/// whose elements arrive one at a time rather than off an array.
+pub(crate) unsafe fn attach_elem_job(b: *mut AllBlock, pp: *mut Promise, index: u64) {
+    unsafe {
+        let a = malloc(core::mem::size_of::<AllElemArg>()) as *mut AllElemArg;
+        (*a).block = b;
+        (*a).elem = pp as *mut c_void;
+        (*a).index = index;
+        (*b).jobs += 1;
+        __torajs_promise_attach_then(pp as *mut c_void, Some(all_elem_dispatch), a as i64);
     }
 }
 

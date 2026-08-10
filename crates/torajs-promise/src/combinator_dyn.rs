@@ -101,6 +101,15 @@ pub(crate) unsafe fn collect_items(v: u64, step: IterStepFn) -> Result<Vec<u64>,
 unsafe fn collect_iterable(v: u64) -> Result<*mut c_void, *mut c_void> {
     unsafe {
         let items = collect_items(v, __torajs_any_iter_next)?;
+        Ok(items_to_any_arr(items))
+    }
+}
+
+/// Owned-slot transfer of a collected element list into the
+/// any-shape array the `*_sync` kernels consume. Shared with the
+/// iterator-interleaved lane's never-activated fall-through.
+pub(crate) unsafe fn items_to_any_arr(items: Vec<u64>) -> *mut c_void {
+    unsafe {
         let out = __torajs_arr_alloc_any_filled(items.len() as u64);
         let head = *(out.add(ARR_HEAD_OFF) as *const u32) as u64;
         let data = *(out.add(ARR_DATA_PTR_OFF) as *const *mut u8);
@@ -109,7 +118,7 @@ unsafe fn collect_iterable(v: u64) -> Result<*mut c_void, *mut c_void> {
             // immediate, overwriting it leaks nothing.
             *(data.add((head as usize + i) * 8) as *mut u64) = bits;
         }
-        Ok(out as *mut c_void)
+        out as *mut c_void
     }
 }
 
@@ -144,9 +153,13 @@ pub(crate) unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_
 /// # Safety
 /// `v` is a live any-boxed value the caller owns for the duration
 /// of the call.
+///
+/// `all` takes the iterator-interleaved lane (RFC 20260810 I1+I2):
+/// per-element `then` observation inside the loop, with the
+/// never-activated exit delegating right back here.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_all_dyn(v: u64) -> *mut c_void {
-    unsafe { dyn_combinator(v, all_sync_untargeted) }
+    unsafe { crate::combinator_iter::all_dyn_iter(v, __torajs_any_iter_next) }
 }
 
 /// # Safety

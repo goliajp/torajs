@@ -40,6 +40,7 @@ pub mod combinator_allsettled;
 pub(crate) mod combinator_any;
 pub mod combinator_dyn;
 pub(crate) mod combinator_fanin_slot;
+pub(crate) mod combinator_iter;
 pub mod combinator_keyed;
 pub(crate) mod combinator_sparse;
 pub mod from_async;
