@@ -54,7 +54,15 @@ pub(super) fn apply_closure_ann_updates(
                         p.type_ann = Some(ann.clone());
                     }
                 }
-                if return_type.is_none() && body_returns_value(body) {
+                // S2 (RFC 20260810-indirect-argc-abi) — a "void"
+                // hint never seeds onto a value-returning body: TS's
+                // void-return exception says the face IGNORES the
+                // value, it doesn't forbid it. Seeding made the
+                // body's own `return 7` a return-type mismatch; left
+                // unseeded, the body infers its natural ret and the
+                // call-site subtype admit (callback_subtype's Void
+                // formal arm) accepts the pairing.
+                if return_type.is_none() && body_returns_value(body) && new_ret_ann != "void" {
                     // rotation 285 — the predicate-family "boolean"
                     // seed is a FALLBACK, not a pin: ES ToBoolean
                     // folds any predicate ret, and the hetero-ret

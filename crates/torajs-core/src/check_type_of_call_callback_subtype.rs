@@ -130,9 +130,17 @@ pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
                 || actual_ps[formal_ps.len()..]
                     .iter()
                     .all(|a| matches!(a, Type::Any));
+            // S2 also adds the TS void-return exception: a
+            // `() => void` face accepts a value-returning callback —
+            // the call site lowers through the formal sig and
+            // discards the result, exactly what the Any-actual-ret
+            // arm below has always done (`assert.throws(SyntaxError,
+            // genFn)`: the generator factory's return is ignored).
+            // Undefined is Void's checker alias (general.rs retypes
+            // Void calls Undefined), so both spellings admit.
             arity_ok
                 && (formal_ret.as_ref() == actual_ret.as_ref()
-                    || matches!(formal_ret.as_ref(), Type::Any)
+                    || matches!(formal_ret.as_ref(), Type::Any | Type::Void | Type::Undefined)
                     || matches!(actual_ret.as_ref(), Type::Any))
                 && actual_ps
                     .iter()
