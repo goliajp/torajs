@@ -10,179 +10,41 @@
 //! and the pub(super) markers below.
 
 use super::arguments_object::ArgcMode;
+use super::arguments_object_rewrite_recurse::rewrite_recurse_arm;
 use super::arguments_object_rewrite_spread::{rewrite_array_arm, rewrite_call_arm};
-use super::{Ast, Expr, ExprId, Stmt};
+pub(super) use super::arguments_object_rewrite_stmt::rewrite_arguments_in_stmt;
+use super::{Ast, Expr, ExprId};
 
-pub(super) fn rewrite_arguments_in_stmt(
-    ast: &mut Ast,
-    s: &Stmt,
-    params: &[String],
-    argc_mode: ArgcMode,
-    is_argv_fn: bool,
-) -> Stmt {
-    match s {
-        Stmt::Expr(eid) => Stmt::Expr(rewrite_arguments_in_expr(
-            ast, *eid, params, argc_mode, is_argv_fn,
-        )),
-        Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(
-            ast, *eid, params, argc_mode, is_argv_fn,
-        )),
-        Stmt::Return(Some(eid)) => Stmt::Return(Some(rewrite_arguments_in_expr(
-            ast, *eid, params, argc_mode, is_argv_fn,
-        ))),
-        Stmt::Return(None) => Stmt::Return(None),
-        Stmt::LetDecl {
-            mutable,
-            name,
-            type_ann,
-            init,
-            is_var,
-        } => Stmt::LetDecl {
-            mutable: *mutable,
-            name: name.clone(),
-            type_ann: type_ann.clone(),
-            init: rewrite_arguments_in_expr(ast, *init, params, argc_mode, is_argv_fn),
-            // preserve `var` flag (hardcoded false dropped var-hoist
-            // semantics on rewritten `var` decls; zero-warn surfaced it).
-            is_var: *is_var,
-        },
-        Stmt::Block(stmts) => Stmt::Block(
-            stmts
-                .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
-                .collect(),
-        ),
-        Stmt::Multi(stmts) => Stmt::Multi(
-            stmts
-                .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
-                .collect(),
-        ),
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => Stmt::If {
-            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode, is_argv_fn),
-            then_branch: Box::new(rewrite_arguments_in_stmt(
-                ast,
-                then_branch,
-                params,
-                argc_mode,
-                is_argv_fn,
-            )),
-            else_branch: else_branch.as_ref().map(|eb| {
-                Box::new(rewrite_arguments_in_stmt(
-                    ast, eb, params, argc_mode, is_argv_fn,
-                ))
-            }),
-        },
-        Stmt::Labeled { label, body } => Stmt::Labeled {
-            label: label.clone(),
-            body: Box::new(rewrite_arguments_in_stmt(
-                ast, body, params, argc_mode, is_argv_fn,
-            )),
-        },
-        Stmt::While { cond, body } => Stmt::While {
-            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode, is_argv_fn),
-            body: Box::new(rewrite_arguments_in_stmt(
-                ast, body, params, argc_mode, is_argv_fn,
-            )),
-        },
-        Stmt::DoWhile { cond, body } => Stmt::DoWhile {
-            cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode, is_argv_fn),
-            body: Box::new(rewrite_arguments_in_stmt(
-                ast, body, params, argc_mode, is_argv_fn,
-            )),
-        },
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => Stmt::For {
-            init: init.as_ref().map(|i| {
-                Box::new(rewrite_arguments_in_stmt(
-                    ast, i, params, argc_mode, is_argv_fn,
-                ))
-            }),
-            cond: cond.map(|c| rewrite_arguments_in_expr(ast, c, params, argc_mode, is_argv_fn)),
-            step: step.map(|u| rewrite_arguments_in_expr(ast, u, params, argc_mode, is_argv_fn)),
-            body: Box::new(rewrite_arguments_in_stmt(
-                ast, body, params, argc_mode, is_argv_fn,
-            )),
-        },
-        Stmt::Try {
-            body,
-            had_catch,
-            catch_param,
-            catch_type,
-            catch_body,
-            finally_body,
-        } => Stmt::Try {
-            body: body
-                .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
-                .collect(),
-            had_catch: *had_catch,
-            catch_param: catch_param.clone(),
-            catch_type: catch_type.clone(),
-            catch_body: catch_body
-                .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
-                .collect(),
-            finally_body: finally_body.as_ref().map(|fb| {
-                fb.iter()
-                    .map(|s| rewrite_arguments_in_stmt(ast, s, params, argc_mode, is_argv_fn))
-                    .collect()
-            }),
-        },
-        // RFC 20260801 — for-of bodies were previously cloned opaque
-        // (the `other` arm below), leaving `arguments` touches inside
-        // the loop unrewritten → checker unknown-identifier. The
-        // source itself is a parser-hoisted LetDecl (its init rides
-        // the LetDecl arm above); only elem_expr + body need walking.
-        Stmt::ForOf {
-            var_name,
-            var_type_ann,
-            src_ident,
-            i_ident,
-            elem_expr,
-            body,
-            forin_obj,
-            is_await,
-        } => Stmt::ForOf {
-            var_name: var_name.clone(),
-            var_type_ann: var_type_ann.clone(),
-            src_ident: src_ident.clone(),
-            i_ident: i_ident.clone(),
-            elem_expr: rewrite_arguments_in_expr(ast, *elem_expr, params, argc_mode, is_argv_fn),
-            body: Box::new(rewrite_arguments_in_stmt(
-                ast, body, params, argc_mode, is_argv_fn,
-            )),
-            forin_obj: *forin_obj,
-            is_await: *is_await,
-        },
-        Stmt::ForOfSplitIter {
-            var_name,
-            parent,
-            sep,
-            body,
-        } => Stmt::ForOfSplitIter {
-            var_name: var_name.clone(),
-            parent: rewrite_arguments_in_expr(ast, *parent, params, argc_mode, is_argv_fn),
-            sep: rewrite_arguments_in_expr(ast, *sep, params, argc_mode, is_argv_fn),
-            body: Box::new(rewrite_arguments_in_stmt(
-                ast, body, params, argc_mode, is_argv_fn,
-            )),
-        },
-        // Nested FnDecl owns its own arguments scope — leave it for
-        // the outer pass to handle independently when it iterates
-        // ast.stmts (lift_arrow_fns has already hoisted closures to
-        // top-level FnDecls, so nested-FnDecl-in-body is rare in
-        // practice).
-        other => other.clone(),
-    }
+/// RFC 20260810-sloppy-goal-arguments S2 — how `arguments.callee`
+/// spells inside this fn body. Strict (the module goal) keeps the
+/// %ThrowTypeError% thrower call; the sloppy goal answers the fn
+/// value instead (§10.4.4 CreateMappedArgumentsObject step 21's
+/// ordinary data property).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SloppyCallee<'a> {
+    /// Strict goal — every callee touch rides the thrower.
+    Strict,
+    /// Sloppy, un-materialized body (pure reads, no escape): the
+    /// callee IS the enclosing fn and nothing can have deleted or
+    /// redefined it — rewrite to `Closure { <shim>, [] }`, the fn's
+    /// `__forward_` closure shim (a bare fn Ident in value position
+    /// is not a closure-shaped value this late in the pipeline;
+    /// typeof answered "object"). Each read mints a fresh cell —
+    /// callee-identity comparisons are a recorded window (L3b).
+    Closure(&'a str),
+    /// Same position, but the fn is itself closure-shaped (a lifted
+    /// zero-capture fn expression): rewrite to a CALL of the
+    /// `__calleeval_` wrapper that returns `Closure { fn, [] }`.
+    /// The indirection is load-bearing — a self-referential Closure
+    /// literal inside the fn's own body sends the checker's closure
+    /// walk into unbounded recursion; the wrapper hop breaks the
+    /// literal chain the same way the `__forward_` shim does for
+    /// plain fns.
+    EvalCall(&'a str),
+    /// Sloppy, materialized body: the mint defined `callee` into the
+    /// array's expando bag, so keyed reads observe later deletes /
+    /// redefines — rewrite to `__torajs_arguments["callee"]`.
+    Keyed,
 }
 
 pub(super) fn rewrite_arguments_in_expr(
@@ -191,6 +53,7 @@ pub(super) fn rewrite_arguments_in_expr(
     params: &[String],
     argc_mode: ArgcMode,
     is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     let e = ast.get_expr(eid).clone();
     match e {
@@ -202,17 +65,63 @@ pub(super) fn rewrite_arguments_in_expr(
         // TypeError) — the 10.6-13-c strict family's direct-read
         // spelling; the escaped keyed read rides the gOPD /
         // member-get arguments arms instead.
+        // S2 — the composite `arguments.callee.caller` spelling: tr
+        // implements no caller extension (the §10.2.4 poisoned
+        // accessor on %Function.prototype% serves the strict
+        // semantics), so the sloppy read answers undefined — the
+        // "extension not supported" leg 10.6-13-a-2/3 accept. The
+        // escaped spelling (`var c = arguments.callee; c.caller`)
+        // still rides the poisoned proto walk (recorded window,
+        // plan-state L3b).
+        Expr::Member { obj, name }
+            if name == "caller"
+                && sloppy_callee != SloppyCallee::Strict
+                && matches!(ast.get_expr(obj), Expr::Member { obj: o2, name: n2 }
+                    if n2 == "callee"
+                        && matches!(ast.get_expr(*o2), Expr::Ident(n3) if n3 == "arguments")) =>
+        {
+            // `as any` so a call position (`arguments.callee.caller
+            // (true)` behind the extension probe) compiles — the
+            // checker rejects a bare-undefined callee outright, but
+            // the guarded branch never runs.
+            let u = ast.add_expr(Expr::Ident("undefined".into()));
+            ast.add_expr(Expr::As {
+                expr: u,
+                ty_ann: "any".into(),
+            })
+        }
         Expr::Member { obj, name } if name == "callee" => {
             if let Expr::Ident(n) = ast.get_expr(obj)
                 && n == "arguments"
             {
+                // S2 sloppy read — the fn value (§10.4.4 step 21's
+                // ordinary data property), spelled per the body's
+                // materialization state (see SloppyCallee).
+                match sloppy_callee {
+                    SloppyCallee::Closure(fwd_name) => {
+                        return ast.add_expr(Expr::Closure {
+                            fn_name: fwd_name.to_string(),
+                            captures: Vec::new(),
+                        });
+                    }
+                    SloppyCallee::EvalCall(wrapper) => {
+                        let callee = ast.add_expr(Expr::Ident(wrapper.to_string()));
+                        return ast.add_expr(Expr::Call {
+                            callee,
+                            args: Vec::new(),
+                        });
+                    }
+                    SloppyCallee::Keyed => return keyed_callee_ref(ast),
+                    SloppyCallee::Strict => {}
+                }
                 let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
                 return ast.add_expr(Expr::Call {
                     callee,
                     args: Vec::new(),
                 });
             }
-            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
+            let o =
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
             if o == obj {
                 return eid;
             }
@@ -266,7 +175,8 @@ pub(super) fn rewrite_arguments_in_expr(
             // unchanged child keeps the original node — ExprId-keyed
             // side tables (speculative_cm_rewrites & co.) stay valid
             // for every subtree this pass didn't actually rewrite.
-            let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
+            let new_obj =
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
             if new_obj == obj {
                 return eid;
             }
@@ -308,16 +218,24 @@ pub(super) fn rewrite_arguments_in_expr(
                 }
                 // Dynamic index (or out-of-range literal): route to
                 // the materialized Array<Any> via __torajs_arguments.
-                let new_index =
-                    rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn);
+                let new_index = rewrite_arguments_in_expr(
+                    ast,
+                    index,
+                    params,
+                    argc_mode,
+                    is_argv_fn,
+                    sloppy_callee,
+                );
                 let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 return ast.add_expr(Expr::Index {
                     obj: synth_obj,
                     index: new_index,
                 });
             }
-            let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
-            let new_index = rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn);
+            let new_obj =
+                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+            let new_index =
+                rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn, sloppy_callee);
             if new_obj == obj && new_index == index {
                 return eid;
             }
@@ -326,10 +244,25 @@ pub(super) fn rewrite_arguments_in_expr(
                 index: new_index,
             })
         }
-        Expr::Call { callee, args } => {
-            rewrite_call_arm(ast, eid, callee, args, params, argc_mode, is_argv_fn)
-        }
-        Expr::Array(elems) => rewrite_array_arm(ast, eid, elems, params, argc_mode, is_argv_fn),
+        Expr::Call { callee, args } => rewrite_call_arm(
+            ast,
+            eid,
+            callee,
+            args,
+            params,
+            argc_mode,
+            is_argv_fn,
+            sloppy_callee,
+        ),
+        Expr::Array(elems) => rewrite_array_arm(
+            ast,
+            eid,
+            elems,
+            params,
+            argc_mode,
+            is_argv_fn,
+            sloppy_callee,
+        ),
         // RFC 20260801-arguments-escape-face — bare `arguments`
         // escape (return / assign value / call arg / for-of source
         // hoist init): under a materializing mode it becomes the
@@ -347,7 +280,15 @@ pub(super) fn rewrite_arguments_in_expr(
             }
             eid
         }
-        other => rewrite_recurse_arm(ast, eid, other, params, argc_mode, is_argv_fn),
+        other => rewrite_recurse_arm(
+            ast,
+            eid,
+            other,
+            params,
+            argc_mode,
+            is_argv_fn,
+            sloppy_callee,
+        ),
     }
 }
 
@@ -361,216 +302,22 @@ pub(super) fn rewrite_arguments_in_expr(
 /// write knife pushed the match past the 200-line fn limit); the
 /// `arguments`-special arms (Member-length / Index / Call / Array /
 /// bare Ident) stay in the main fn, everything below only recurses.
-fn rewrite_recurse_arm(
-    ast: &mut Ast,
-    eid: ExprId,
-    e: Expr,
-    params: &[String],
-    argc_mode: ArgcMode,
-    is_argv_fn: bool,
-) -> ExprId {
-    match e {
-        Expr::BinOp { op, left, right } => {
-            let l = rewrite_arguments_in_expr(ast, left, params, argc_mode, is_argv_fn);
-            let r = rewrite_arguments_in_expr(ast, right, params, argc_mode, is_argv_fn);
-            if l == left && r == right {
-                return eid;
-            }
-            ast.add_expr(Expr::BinOp {
-                op,
-                left: l,
-                right: r,
-            })
-        }
-        Expr::Unary { op, expr } => {
-            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
-            if e2 == expr {
-                return eid;
-            }
-            ast.add_expr(Expr::Unary { op, expr: e2 })
-        }
-        Expr::TypeOf { expr } => {
-            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
-            if e2 == expr {
-                return eid;
-            }
-            ast.add_expr(Expr::TypeOf { expr: e2 })
-        }
-        // `delete arguments[i]` — §10.4.4.6 unmapped elements are
-        // plain data properties, so the delete rides the
-        // materialized array's index-delete (hole shadow entry). The
-        // missing recursion left the raw `arguments` ident inside
-        // the Delete node (10.5-7-b-4-s's ReferenceError).
-        // `delete arguments.callee` — §13.5.1.2 step 3.a: deleting a
-        // non-configurable own property in strict code throws; the
-        // thrower call carries exactly that TypeError (the plain
-        // recursion would mint a Call operand — not a property
-        // reference — and refuse at compile time).
-        Expr::Delete { expr } => {
-            if matches!(ast.get_expr(expr), Expr::Member { obj, name }
-                if name == "callee"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
-            {
-                let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
-                return ast.add_expr(Expr::Call {
-                    callee,
-                    args: Vec::new(),
-                });
-            }
-            // `delete arguments.length` — the length arm's read
-            // rewrite would fold the operand to a number ("must be
-            // a property reference"); route it as a keyed delete on
-            // the materialized array instead, where the
-            // arguments-length tombstone kernel answers §10.4.4's
-            // configurable delete (S10.6_A5_T3).
-            if matches!(ast.get_expr(expr), Expr::Member { obj, name }
-                if name == "length"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
-            {
-                let arr = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-                let key = ast.add_expr(Expr::String("length".into()));
-                let idx = ast.add_expr(Expr::Index {
-                    obj: arr,
-                    index: key,
-                });
-                return ast.add_expr(Expr::Delete { expr: idx });
-            }
-            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
-            if e2 == expr {
-                return eid;
-            }
-            ast.add_expr(Expr::Delete { expr: e2 })
-        }
-        // Length-write knife — `arguments.length--` (walker-mirror:
-        // the scans reach PostIncr targets; without this arm the
-        // stale Member leaked to the lowering as "post-incr field on
-        // non-obj Ptr"). Real mode lands on `__torajs_real_argc--`,
-        // LiveLength on `__torajs_arguments.length--`.
-        Expr::PostIncr { target, is_inc } => {
-            let t = rewrite_arguments_in_expr(ast, target, params, argc_mode, is_argv_fn);
-            if t == target {
-                return eid;
-            }
-            ast.add_expr(Expr::PostIncr { target: t, is_inc })
-        }
-        Expr::Spread { expr } => {
-            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
-            if e2 == expr {
-                return eid;
-            }
-            ast.add_expr(Expr::Spread { expr: e2 })
-        }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            let c = rewrite_arguments_in_expr(ast, cond, params, argc_mode, is_argv_fn);
-            let t = rewrite_arguments_in_expr(ast, then_branch, params, argc_mode, is_argv_fn);
-            let e2 = rewrite_arguments_in_expr(ast, else_branch, params, argc_mode, is_argv_fn);
-            if c == cond && t == then_branch && e2 == else_branch {
-                return eid;
-            }
-            ast.add_expr(Expr::Ternary {
-                cond: c,
-                then_branch: t,
-                else_branch: e2,
-            })
-        }
-        Expr::Nullish { lhs, rhs } => {
-            let l = rewrite_arguments_in_expr(ast, lhs, params, argc_mode, is_argv_fn);
-            let r = rewrite_arguments_in_expr(ast, rhs, params, argc_mode, is_argv_fn);
-            if l == lhs && r == rhs {
-                return eid;
-            }
-            ast.add_expr(Expr::Nullish { lhs: l, rhs: r })
-        }
-        Expr::OptChain { obj, name } => {
-            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
-            if o == obj {
-                return eid;
-            }
-            ast.add_expr(Expr::OptChain { obj: o, name })
-        }
-        Expr::OptIndex { obj, index } => {
-            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
-            let ix = rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn);
-            if o == obj && ix == index {
-                return eid;
-            }
-            ast.add_expr(Expr::OptIndex { obj: o, index: ix })
-        }
-        Expr::OptCall { callee, args } => {
-            let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, is_argv_fn);
-            let new_args: Vec<ExprId> = args
-                .iter()
-                .map(|a| rewrite_arguments_in_expr(ast, *a, params, argc_mode, is_argv_fn))
-                .collect();
-            if c == callee && new_args == args {
-                return eid;
-            }
-            ast.add_expr(Expr::OptCall {
-                callee: c,
-                args: new_args,
-            })
-        }
-        Expr::Member { obj, name } => {
-            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
-            if o == obj {
-                return eid;
-            }
-            ast.add_expr(Expr::Member { obj: o, name })
-        }
-        Expr::Assign { target, value } => {
-            // `arguments.callee = v` — §13.15.2 PutValue on the
-            // %ThrowTypeError% accessor throws; the read-position
-            // callee rewrite would have minted a Call in target
-            // position ("invalid assignment target", the S10.6_A3
-            // regression). RHS still evaluates first (spec order),
-            // then the thrower call raises.
-            if matches!(ast.get_expr(target), Expr::Member { obj, name }
-                if name == "callee"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
-            {
-                let v = rewrite_arguments_in_expr(ast, value, params, argc_mode, is_argv_fn);
-                let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
-                let throw_call = ast.add_expr(Expr::Call {
-                    callee,
-                    args: Vec::new(),
-                });
-                return ast.add_expr(Expr::Sequence {
-                    left: v,
-                    right: throw_call,
-                });
-            }
-            let t = rewrite_arguments_in_expr(ast, target, params, argc_mode, is_argv_fn);
-            let v = rewrite_arguments_in_expr(ast, value, params, argc_mode, is_argv_fn);
-            if t == target && v == value {
-                return eid;
-            }
-            ast.add_expr(Expr::Assign {
-                target: t,
-                value: v,
-            })
-        }
-        Expr::ObjectLit { fields } => {
-            let new_fields: Vec<(String, ExprId)> = fields
-                .iter()
-                .map(|(n, e)| {
-                    (
-                        n.clone(),
-                        rewrite_arguments_in_expr(ast, *e, params, argc_mode, is_argv_fn),
-                    )
-                })
-                .collect();
-            if new_fields == fields {
-                return eid;
-            }
-            ast.add_expr(Expr::ObjectLit { fields: new_fields })
-        }
-        // Leaf / opaque shapes — no children to recurse through here.
-        // Intentionally returns the original `eid` so we don't bloat
-        // the arena with no-op clones.
-        _ => eid,
-    }
+/// `(__torajs_arguments as any).callee` — the keyed spelling every
+/// callee touch in a materialized sloppy body rides. The mint's
+/// synthesized defineProperty seeded the bag entry, so keyed reads
+/// observe later deletes / redefines. The `as any` hop routes the
+/// member through the any-lane keyed machinery (read / write /
+/// delete all live there); the checker rejects an unknown member on
+/// the `any[]`-typed local itself, and the lowering has no
+/// String-index assign lane on it either.
+pub(super) fn keyed_callee_ref(ast: &mut Ast) -> ExprId {
+    let arr = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+    let arr_any = ast.add_expr(Expr::As {
+        expr: arr,
+        ty_ann: "any".into(),
+    });
+    ast.add_expr(Expr::Member {
+        obj: arr_any,
+        name: "callee".into(),
+    })
 }

@@ -95,6 +95,65 @@ pub(super) fn synth_arguments_mark(ast: &mut Ast) -> Stmt {
     Stmt::Expr(call)
 }
 
+/// RFC 20260810-sloppy-goal-arguments S2 — the sloppy goal's callee
+/// seed, appended right after the mark on a materializing body:
+///
+/// ```text
+/// Object.defineProperty(__torajs_arguments, "callee",
+///   { value: <fn>, writable: true, enumerable: false,
+///     configurable: true });
+/// ```
+///
+/// §10.4.4 CreateMappedArgumentsObject step 21's ordinary data
+/// property, landed through the ordinary defineProperty pipeline so
+/// the expando-bag machinery (keyed read / write / delete / gOPD /
+/// for-in filter) serves every later touch with zero new kernels.
+/// The value expression follows the fn's [`CalleeSpelling`] — a
+/// `Closure` literal of the `__forward_` shim, or a call of the
+/// `__calleeval_` wrapper (the self-referential literal in the fn's
+/// own body recursed the checker's walk).
+pub(super) fn synth_sloppy_callee_define(
+    ast: &mut Ast,
+    spelling: &super::arguments_object_sloppy::CalleeSpelling,
+) -> Stmt {
+    let obj_ident = ast.add_expr(Expr::Ident("Object".into()));
+    let dp = ast.add_expr(Expr::Member {
+        obj: obj_ident,
+        name: "defineProperty".into(),
+    });
+    let arr = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+    let key = ast.add_expr(Expr::String("callee".into()));
+    let value = match spelling {
+        super::arguments_object_sloppy::CalleeSpelling::Shim(fwd) => ast.add_expr(Expr::Closure {
+            fn_name: fwd.clone(),
+            captures: Vec::new(),
+        }),
+        super::arguments_object_sloppy::CalleeSpelling::EvalCall(wrapper) => {
+            let callee = ast.add_expr(Expr::Ident(wrapper.clone()));
+            ast.add_expr(Expr::Call {
+                callee,
+                args: Vec::new(),
+            })
+        }
+    };
+    let t = ast.add_expr(Expr::Bool(true));
+    let f = ast.add_expr(Expr::Bool(false));
+    let t2 = ast.add_expr(Expr::Bool(true));
+    let desc = ast.add_expr(Expr::ObjectLit {
+        fields: vec![
+            ("value".into(), value),
+            ("writable".into(), t),
+            ("enumerable".into(), f),
+            ("configurable".into(), t2),
+        ],
+    });
+    let call = ast.add_expr(Expr::Call {
+        callee: dp,
+        args: vec![arr, key, desc],
+    });
+    Stmt::Expr(call)
+}
+
 /// Build the materialized `__torajs_arguments` local for a fn under
 /// a materializing mode. A rest-tailed fn spreads the rest array
 /// (over-arity values live there — no extras were injected, see

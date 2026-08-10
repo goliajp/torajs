@@ -49,6 +49,8 @@ unsafe extern "C" {
     /// torajs-arr — arguments-materialization length delete (hole
     /// tombstone); 0 = plain array, caller keeps the refusal.
     fn __torajs_arr_arguments_length_delete(arr: *mut c_void, key: *mut c_void) -> i64;
+    /// torajs-arr — sloppy callee tombstone (S2); -1 = not applicable.
+    fn __torajs_arr_arguments_callee_delete(arr: *mut c_void, key: *mut c_void) -> i64;
     /// torajs-arr — canonical-index delete (§10.4.2 [[Delete]], RFC
     /// 20260713 chunk C): 1 = deleted / absent, 0 = refused
     /// (non-configurable).
@@ -159,6 +161,17 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
                     return 1;
                 }
                 return unsafe { refuse(throw_on_refusal) };
+            }
+            // RFC 20260810-sloppy-goal-arguments S2 — a sloppy
+            // arguments materialization's `callee` is configurable:
+            // the kernel tombstones the live bag entry (so the keyed
+            // readers can tell "deleted" from "strict mint") and
+            // answers 1. -1 = not applicable — strict mint / plain
+            // array keep the ordinary expando path below.
+            if unsafe { crate::prop_has::key_is(key, b"callee") }
+                && unsafe { __torajs_arr_arguments_callee_delete(ptr, key as *mut c_void) } == 1
+            {
+                return 1;
             }
             let props = unsafe { arr_props(ptr) };
             if !props.is_null() && unsafe { refuse_non_configurable(props, key, throw_on_refusal) }

@@ -16,10 +16,15 @@ mod arguments_object_inject;
 mod arguments_object_method_argv;
 mod arguments_object_mutation;
 mod arguments_object_rewrite;
+mod arguments_object_rewrite_recurse;
 mod arguments_object_rewrite_spread;
+mod arguments_object_rewrite_stmt;
+mod arguments_object_sloppy;
+mod arguments_object_stages;
 mod arguments_object_static_argv;
 mod arguments_object_synth;
 mod arguments_object_walkers;
+mod arguments_object_walkers_return;
 pub(crate) use arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };

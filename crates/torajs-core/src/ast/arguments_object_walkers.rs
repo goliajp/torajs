@@ -11,6 +11,8 @@
 
 use super::{Ast, Expr, ExprId, Stmt};
 
+pub(super) use super::arguments_object_walkers_return::body_has_unsafe_return_arguments;
+
 /// What the shared scan walker below is looking for.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScanFor {
@@ -39,6 +41,21 @@ enum ScanFor {
     /// (`arguments = v` / `arguments++`). See
     /// [`body_has_bare_arguments_assign`].
     BareAssign,
+    /// RFC 20260810-sloppy-goal-arguments S2 — `arguments.callee` in
+    /// a WRITE or DELETE position (`arguments.callee = v` / `delete
+    /// arguments.callee`). A hit forces materialization under the
+    /// sloppy goal so the keyed rewrite always has the bag entry to
+    /// land on (S10.6_A3_T3/T4). Strict-goal callers never scan for
+    /// this (the thrower arms cover both spellings there).
+    CalleeWrite,
+    /// S2 — `arguments.callee` in ANY position (read, write, or
+    /// delete). A sloppy-goal hit is what makes the pass synthesize
+    /// the fn's `__forward_` closure shim: both the Ident-position
+    /// rewrite and the mint's defineProperty express the callee
+    /// value as `Closure { __forward_<fn>, [] }` (a bare fn Ident in
+    /// value position is not a closure-shaped value this late in the
+    /// pipeline — typeof answered "object").
+    CalleeTouch,
 }
 
 /// `Ident("arguments")` — the bare-binding shape the BareAssign
@@ -53,6 +70,28 @@ fn is_arguments_length(ast: &Ast, eid: ExprId) -> bool {
     matches!(ast.get_expr(eid), Expr::Member { obj, name }
         if name == "length"
             && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+}
+
+/// `Member { obj: Ident("arguments"), name: "callee" }` — the node
+/// shape the CalleeWrite write/delete-position scan keys on.
+fn is_arguments_callee(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Member { obj, name }
+        if name == "callee"
+            && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+}
+
+/// True if the body writes or deletes `arguments.callee` anywhere —
+/// the sloppy goal's materialization trigger (see
+/// [`ScanFor::CalleeWrite`]).
+pub(super) fn body_has_callee_write(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_scan(ast, s, ScanFor::CalleeWrite))
+}
+
+/// True if the body touches `arguments.callee` in any position —
+/// the sloppy goal's forwarder-synthesis trigger (see
+/// [`ScanFor::CalleeTouch`]).
+pub(super) fn body_has_callee_touch(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_scan(ast, s, ScanFor::CalleeTouch))
 }
 
 /// True if the body WRITES `arguments.length` anywhere (assignment
@@ -100,81 +139,6 @@ pub(super) fn collect_face_excluded_fns(
 pub(crate) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter()
         .any(|s| stmt_scan(ast, s, ScanFor::NonLengthTouch))
-}
-
-/// RFC 20260708-closure-argv-face — true if any `return` in the
-/// body could hand back an `arguments[i]` elem box through a
-/// pass-through chain (ternary arm / nullish side / sequence tail /
-/// as / assign value) WITHOUT a consuming node in between: the
-/// return-root retain can't see through those, so the box would
-/// leave borrowing the materialized array's stake (UAF once the
-/// array scope-drops). Such bodies stay KeepLoud. A root
-/// `arguments[i]` return is fine (the return lowering retains) and
-/// any read under a consuming node (BinOp / call arg / literal /
-/// member / index position) produces a fresh result.
-pub(super) fn body_has_unsafe_return_arguments(ast: &Ast, body: &[Stmt]) -> bool {
-    fn stmt_walk(ast: &Ast, s: &Stmt) -> bool {
-        match s {
-            Stmt::Return(Some(e)) => {
-                // root arguments-index — retained by the return
-                // lowering, safe.
-                if matches!(ast.get_expr(*e), Expr::Index { obj, .. }
-                    if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
-                {
-                    return false;
-                }
-                passthrough_aliases(ast, *e)
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                stmt_walk(ast, then_branch)
-                    || else_branch.as_ref().is_some_and(|e| stmt_walk(ast, e))
-            }
-            Stmt::While { body, .. }
-            | Stmt::DoWhile { body, .. }
-            | Stmt::For { body, .. }
-            | Stmt::Labeled { body, .. } => stmt_walk(ast, body),
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(|s| stmt_walk(ast, s)),
-            Stmt::Try {
-                body, catch_body, ..
-            } => {
-                body.iter().any(|s| stmt_walk(ast, s))
-                    || catch_body.iter().any(|s| stmt_walk(ast, s))
-            }
-            Stmt::Switch { cases, default, .. } => {
-                cases
-                    .iter()
-                    .any(|c| c.body.iter().any(|s| stmt_walk(ast, s)))
-                    || default
-                        .as_ref()
-                        .is_some_and(|d| d.iter().any(|s| stmt_walk(ast, s)))
-            }
-            _ => false,
-        }
-    }
-    fn passthrough_aliases(ast: &Ast, e: ExprId) -> bool {
-        match ast.get_expr(e) {
-            Expr::Index { obj, .. } if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") => {
-                true
-            }
-            Expr::Ternary {
-                then_branch,
-                else_branch,
-                ..
-            } => passthrough_aliases(ast, *then_branch) || passthrough_aliases(ast, *else_branch),
-            Expr::Nullish { lhs, rhs } => {
-                passthrough_aliases(ast, *lhs) || passthrough_aliases(ast, *rhs)
-            }
-            Expr::Sequence { right, .. } => passthrough_aliases(ast, *right),
-            Expr::As { expr, .. } => passthrough_aliases(ast, *expr),
-            Expr::Assign { value, .. } => passthrough_aliases(ast, *value),
-            _ => false,
-        }
-    }
-    body.iter().any(|s| stmt_walk(ast, s))
 }
 
 pub(super) fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
@@ -432,6 +396,11 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
             }
             expr_scan(ast, *obj, what)
         }
+        Expr::Member { obj, name }
+            if what == ScanFor::CalleeTouch && name == "callee" && is_bare_arguments(ast, *obj) =>
+        {
+            true
+        }
         Expr::Member { obj, .. } => expr_scan(ast, *obj, what),
         Expr::Index { obj, index } => expr_scan(ast, *obj, what) || expr_scan(ast, *index, what),
         Expr::BinOp { left, right, .. } => {
@@ -454,7 +423,18 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
             if what == ScanFor::BareAssign && is_bare_arguments(ast, *target) {
                 return true;
             }
+            if what == ScanFor::CalleeWrite && is_arguments_callee(ast, *target) {
+                return true;
+            }
             expr_scan(ast, *target, what) || expr_scan(ast, *value, what)
+        }
+        // Delete stays invisible to every other scan (the catch-all
+        // answered false before this arm existed, and widening it
+        // would silently change face admissions keyed on those
+        // scans); only the two callee probes look inside.
+        Expr::Delete { expr } => {
+            matches!(what, ScanFor::CalleeWrite | ScanFor::CalleeTouch)
+                && (is_arguments_callee(ast, *expr) || expr_scan(ast, *expr, what))
         }
         Expr::Call { callee, args } => {
             expr_scan(ast, *callee, what) || args.iter().any(|a| expr_scan(ast, *a, what))

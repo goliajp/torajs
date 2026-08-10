@@ -15,16 +15,21 @@
 
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
 use super::arguments_object_inject::{inject_argc_params, prepend_static_argc};
+use super::arguments_object_rewrite::SloppyCallee;
+use super::arguments_object_sloppy::{CalleeSpelling, PendingFwds, callee_value_fn};
+use super::arguments_object_stages::{
+    collect_arguments_shadowed_fns, collect_iife_real_argc, snapshot_fn_params,
+};
 use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_method_static_argv, collect_named_static_argv,
     collect_objlit_method_static_argv, inject_iife_static_params,
 };
 use super::arguments_object_synth::{synth_arguments_local_argv, synth_materialized_arguments};
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_arguments_length_write,
-    body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
+    body_has_arguments_length, body_has_arguments_length_write, body_has_callee_touch,
+    body_has_callee_write, body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
 };
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Stmt};
 
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -204,6 +209,18 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         &method_argv_fns,
     );
 
+    // S2 — the sloppy goal's callee-value shims, appended to the
+    // module after the loop (appending mid-loop is safe for the
+    // idx-addressed writebacks, but batching keeps the shim decls
+    // off this pass's own iteration).
+    let (fwd_sigs, existing_fwds, _fwd_type_params) =
+        super::forwarders_object::snapshot_fn_sigs(ast);
+    let mut pending_fwds = PendingFwds {
+        decls: Vec::new(),
+        known: existing_fwds,
+        sigs: fwd_sigs,
+        zero_env: super::arguments_object_sloppy::collect_zero_env_closures(ast),
+    };
     let stmts_clone: Vec<Stmt> = ast.stmts.clone();
     for (idx, stmt) in stmts_clone.iter().enumerate() {
         if let Stmt::FnDecl {
@@ -295,11 +312,52 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                     }
                 }
             }
+            // RFC 20260810-sloppy-goal-arguments S2 — a sloppy body
+            // that writes or deletes `arguments.callee` must
+            // materialize: the keyed rewrite lands on the bag entry
+            // the mint's defineProperty seeded (S10.6_A3_T3/T4).
+            if !needs_materialize && ast.sloppy_script_goal && body_has_callee_write(ast, body) {
+                needs_materialize = true;
+            }
+            // S2 — a sloppy body that touches callee (any position)
+            // or materializes needs the fn's closure-shaped value:
+            // ensure the `__forward_<name>` shim exists (reusing the
+            // fn-to-closure pass's synthesizer — a bare fn Ident is
+            // not a closure-shaped value this late in the pipeline).
+            // KeepLoud keeps the strict thrower even under the
+            // sloppy goal: an env closure has no plain-call shim to
+            // forward to (recorded sloppy-goal face, plan-state L3b).
+            let wants_callee_value = ast.sloppy_script_goal
+                && argc_mode != ArgcMode::KeepLoud
+                && (needs_materialize || body_has_callee_touch(ast, body));
+            let spelling_opt = if wants_callee_value {
+                callee_value_fn(ast, name, &mut pending_fwds)
+            } else {
+                None
+            };
+            // How `arguments.callee` spells in this body (see
+            // SloppyCallee).
+            let sloppy_callee = if !ast.sloppy_script_goal || argc_mode == ArgcMode::KeepLoud {
+                SloppyCallee::Strict
+            } else if needs_materialize {
+                SloppyCallee::Keyed
+            } else {
+                match &spelling_opt {
+                    Some(CalleeSpelling::Shim(f)) => SloppyCallee::Closure(f),
+                    Some(CalleeSpelling::EvalCall(w)) => SloppyCallee::EvalCall(w),
+                    None => SloppyCallee::Strict,
+                }
+            };
             let new_body: Vec<Stmt> = body
                 .iter()
                 .map(|s| {
                     crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt(
-                        ast, s, &params, argc_mode, is_argv_fn,
+                        ast,
+                        s,
+                        &params,
+                        argc_mode,
+                        is_argv_fn,
+                        sloppy_callee,
                     )
                 })
                 .collect();
@@ -324,12 +382,26 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             let mark_opt = synth_opt
                 .is_some()
                 .then(|| super::arguments_object_synth::synth_arguments_mark(ast));
+            // S2 — the sloppy goal seeds `callee` into the bag right
+            // after the mark, through the ordinary defineProperty
+            // pipeline (keyed reads / writes / deletes / gOPD all
+            // ride the existing expando machinery). The value is the
+            // `__forward_` closure shim ensured above.
+            let sloppy_define_opt = match (&synth_opt, &spelling_opt) {
+                (Some(_), Some(spelling)) => Some(
+                    super::arguments_object_synth::synth_sloppy_callee_define(ast, spelling),
+                ),
+                _ => None,
+            };
             if let Stmt::FnDecl { body: b, .. } = &mut ast.stmts[idx] {
                 if let Some(synth) = synth_opt {
-                    let mut full = Vec::with_capacity(new_body.len() + 2);
+                    let mut full = Vec::with_capacity(new_body.len() + 3);
                     full.push(synth);
                     if let Some(mark) = mark_opt {
                         full.push(mark);
+                    }
+                    if let Some(dp) = sloppy_define_opt {
+                        full.push(dp);
                     }
                     full.extend(new_body);
                     *b = full;
@@ -340,131 +412,8 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         }
     }
 
+    // S2 — land the sloppy callee-value shims synthesized above.
+    ast.stmts.extend(pending_fwds.decls);
+
     prepend_static_argc(ast, &uses_real_argc, iife_call_sites);
-}
-
-/// Sloppy-mode shadow guard (rotation 270, test262 10.6-6-3/4) — a
-/// fn whose param list or body declares a binding named `arguments`
-/// (`var arguments = ...`): every `arguments` ident inside refers to
-/// that local, so the fn must leave EVERY argc/argv tier and stay
-/// unrewritten (the pre-face behavior). Without this, the named
-/// static-argv face admitted such fns and the bare-escape swap
-/// turned `arguments = undefined` into an assignment to the const
-/// synth local. `collect_local_binding_names` recurses into nested
-/// FnDecls, so a nested declaration over-excludes the outer fn —
-/// conservative (loses an admit, never wrong).
-fn collect_arguments_shadowed_fns(ast: &Ast) -> std::collections::HashSet<String> {
-    let mut out = std::collections::HashSet::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl {
-            name, params, body, ..
-        } = s
-        {
-            let mut names = std::collections::HashSet::new();
-            crate::ast_collect_bindings::collect_local_binding_names(body, &mut names);
-            if params.iter().any(|p| p.name == "arguments") || names.contains("arguments") {
-                out.insert(name.clone());
-            }
-        }
-    }
-    out
-}
-
-/// Snapshot per-fn user-param names, indexed by FnDecl name (the
-/// rewrite walk mutates expression nodes in place using these).
-/// Also answers:
-///
-/// - T-31 `uses_real_argc` — fns where `arguments.length` is
-///   referenced, restricted to free top-level FnDecls (user_start
-///   == 0; closures with `__env` and class methods with `__this`
-///   keep the old declared-arity fold to avoid disturbing their
-///   dispatch ABI). Each such fn gets a synthetic first param
-///   `__torajs_real_argc: number`, and every direct-Ident-callee
-///   Call to it gets `Number(args.len())` prepended.
-/// - Chunk 613 `env_fns` — lifted closures (hidden `__env` first
-///   param); their `arguments.length` is only foldable through the
-///   IIFE static-argc path, otherwise ArgcMode::KeepLoud.
-#[allow(clippy::type_complexity)]
-fn snapshot_fn_params(
-    ast: &Ast,
-) -> (
-    std::collections::HashMap<String, Vec<String>>,
-    std::collections::HashSet<String>,
-    std::collections::HashSet<String>,
-) {
-    use std::collections::{HashMap, HashSet};
-    let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
-    let mut uses_real_argc: HashSet<String> = HashSet::new();
-    let mut env_fns: HashSet<String> = HashSet::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl {
-            name, params, body, ..
-        } = s
-        {
-            // Skip the synthetic `__env` (closure capture vector) and
-            // `__this` (receiver) prefix params — they're not
-            // user-visible "arguments". A lifted ctor fn-expr carries
-            // BOTH (`__closure_N(__env, __this, …user)` — the ctor-this
-            // promotion runs before the lift), so the skip is a chain,
-            // not an either/or. Everything after is the user's
-            // declared param list.
-            let mut user_start = usize::from(params.first().is_some_and(|p| p.name == "__env"));
-            if params.get(user_start).is_some_and(|p| p.name == "__this") {
-                user_start += 1;
-            }
-            let names: Vec<String> = params[user_start..]
-                .iter()
-                .map(|p| p.name.clone())
-                .collect();
-            fn_params.insert(name.clone(), names);
-            if params.first().is_some_and(|p| p.name == "__env") {
-                env_fns.insert(name.clone());
-            }
-            if user_start == 0 && body_has_arguments_length(ast, body) {
-                uses_real_argc.insert(name.clone());
-            }
-        }
-    }
-    (fn_params, uses_real_argc, env_fns)
-}
-
-/// Chunk 613 — IIFE closure form: `(function (a, b) { ...
-/// arguments.length ... })(1)` lifts to a `__closure_N` FnDecl
-/// (with the hidden `__env` param) whose ONLY call site is the
-/// Call wrapping the Closure placeholder — so the real argc is
-/// statically that call's arg count. Same T-31 shape: inject
-/// `__torajs_real_argc: number` as the first USER param (after
-/// `__env`) and prepend the static count at the call site.
-fn collect_iife_real_argc(
-    ast: &Ast,
-    shadowed: &std::collections::HashSet<String>,
-) -> (std::collections::HashSet<String>, Vec<usize>) {
-    let mut iife_real_argc = std::collections::HashSet::new();
-    let mut iife_call_sites: Vec<usize> = Vec::new();
-    for i in 0..ast.exprs.len() {
-        let Expr::Call { callee, .. } = &ast.exprs[i] else {
-            continue;
-        };
-        let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
-            continue;
-        };
-        if shadowed.contains(fn_name) {
-            continue;
-        }
-        let fn_name = fn_name.clone();
-        // RFC 20260801 knife 1 narrowed this tier to length-ONLY
-        // bodies: any non-length touch (index / spread / escape)
-        // routes to the static-argv face instead, which serves
-        // length AND values fully statically.
-        let has_len = ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::FnDecl { name, body, .. }
-                if *name == fn_name && body_has_arguments_length(ast, body)
-                    && !body_has_non_length_arguments_touch(ast, body))
-        });
-        if has_len {
-            iife_real_argc.insert(fn_name);
-            iife_call_sites.push(i);
-        }
-    }
-    (iife_real_argc, iife_call_sites)
 }

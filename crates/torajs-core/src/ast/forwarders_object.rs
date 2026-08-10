@@ -92,7 +92,7 @@ pub fn tag_struct_field_closure_types(ast: &mut Ast) {
 /// forwarders themselves (`__forward_*`) and closure-shaped fns
 /// (first param `__env`).
 #[allow(clippy::type_complexity)]
-fn snapshot_fn_sigs(
+pub(super) fn snapshot_fn_sigs(
     ast: &Ast,
 ) -> (
     std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
@@ -398,7 +398,7 @@ fn collect_let_init_axis_rewrites(
 /// the decls plus the target → forwarder-name rename map (chunk 783
 /// extraction — the member-assign axis pushed the caller past the
 /// 200-line fn limit).
-fn synthesize_forwarder_decls(
+pub(super) fn synthesize_forwarder_decls(
     ast: &mut Ast,
     targets: &std::collections::HashSet<String>,
     fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,

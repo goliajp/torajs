@@ -322,7 +322,11 @@ fn collect_cases(dir: &Path) -> Vec<Case> {
             });
             continue;
         }
-        if p.extension().is_none_or(|e| e != "ts") {
+        // `.cts` fixtures ride the sloppy script goal (RFC
+        // 20260810-sloppy-goal-arguments S1) — tr and bun both map
+        // the extension to CommonJS sloppy, so one file drives the
+        // same goal on both sides of the parity check.
+        if p.extension().is_none_or(|e| e != "ts" && e != "cts") {
             continue;
         }
         let stem = p

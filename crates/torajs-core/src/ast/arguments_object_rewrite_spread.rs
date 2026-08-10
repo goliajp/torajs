@@ -6,7 +6,7 @@
 //! back into `rewrite_arguments_in_expr` for every other child.
 
 use super::arguments_object::ArgcMode;
-use super::arguments_object_rewrite::rewrite_arguments_in_expr;
+use super::arguments_object_rewrite::{SloppyCallee, rewrite_arguments_in_expr};
 use super::{Ast, Expr, ExprId};
 
 /// How many leading params an inline `...arguments` expansion
@@ -50,8 +50,9 @@ pub(super) fn rewrite_call_arm(
     params: &[String],
     argc_mode: ArgcMode,
     is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
-    let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, is_argv_fn);
+    let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, is_argv_fn, sloppy_callee);
     let mut new_args: Vec<ExprId> = Vec::with_capacity(args.len());
     for a in &args {
         if let Expr::Spread { expr } = ast.get_expr(*a)
@@ -69,7 +70,12 @@ pub(super) fn rewrite_call_arm(
             continue;
         }
         new_args.push(rewrite_arguments_in_expr(
-            ast, *a, params, argc_mode, is_argv_fn,
+            ast,
+            *a,
+            params,
+            argc_mode,
+            is_argv_fn,
+            sloppy_callee,
         ));
     }
     if c == callee && new_args == args {
@@ -100,6 +106,7 @@ pub(super) fn rewrite_array_arm(
     params: &[String],
     argc_mode: ArgcMode,
     is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     let mut new_elems: Vec<ExprId> = Vec::with_capacity(elems.len());
     for e in &elems {
@@ -118,7 +125,12 @@ pub(super) fn rewrite_array_arm(
             continue;
         }
         new_elems.push(rewrite_arguments_in_expr(
-            ast, *e, params, argc_mode, is_argv_fn,
+            ast,
+            *e,
+            params,
+            argc_mode,
+            is_argv_fn,
+            sloppy_callee,
         ));
     }
     if new_elems == elems {

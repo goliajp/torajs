@@ -55,6 +55,12 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
     }
     let ent = unsafe { entries(obj) };
     let v = unsafe { (*ent.add(p.entry as usize)).value_anyv };
+    // A hole tombstone (deleted shadow-domain key — arguments
+    // length / callee) is ABSENT to a get: the sentinel must never
+    // surface as a value.
+    if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
+        return ANY_UNDEF;
+    }
     let tag = unsafe { __torajs_anyv_unbox_tag(v) } as u64;
     // Accessor entries store an `AccessorPair` cell — surface the
     // synthetic ANY_ACCESSOR sentinel so the SSA GET path dispatches
@@ -89,6 +95,10 @@ pub unsafe extern "C" fn __torajs_dynobj_get_value(obj: *const c_void, key: *con
     }
     let ent = unsafe { entries(obj) };
     let v = unsafe { (*ent.add(p.entry as usize)).value_anyv };
+    // Hole tombstone — absent (see the tag twin above).
+    if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
+        return 0;
+    }
     unsafe { __torajs_anyv_unbox_value(v) as u64 }
 }
 

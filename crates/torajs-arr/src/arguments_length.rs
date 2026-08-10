@@ -107,6 +107,63 @@ pub unsafe extern "C" fn __torajs_arr_arguments_length_state(
     }
 }
 
+/// RFC 20260810-sloppy-goal-arguments S2 — the `"callee"` face state
+/// of an arguments materialization: 0 = no bag entry (a strict mint —
+/// the poisoned accessor / non-configurable own; also any plain
+/// array), 1 = live sloppy entry (the mint's defineProperty seed,
+/// possibly rewritten), 2 = deleted (hole tombstone).
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer; `key` is the caller's
+/// live `"callee"` Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_arguments_callee_state(
+    arr: *const c_void,
+    key: *const c_void,
+) -> i64 {
+    unsafe {
+        if header_flags(arr) & FLAG_ARR_ARGUMENTS == 0 {
+            return 0;
+        }
+        let props = *props_slot(arr as *mut c_void);
+        if props.is_null() || __torajs_dynobj_has(props, key) == 0 {
+            return 0;
+        }
+        if __torajs_dynobj_entry_is_hole(props, key) != 0 {
+            return 2;
+        }
+        1
+    }
+}
+
+/// `delete args.callee` under the sloppy goal — a configurable data
+/// property deletes, leaving the hole tombstone so the keyed readers
+/// (has / gOPD / member-get) can tell "deleted" from "strict mint".
+/// Answers 1 when handled (deleted now, or already a tombstone);
+/// -1 when not applicable — a strict mint or plain array, where the
+/// caller keeps its existing path.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer; `key` is a live
+/// `"callee"` Str cell (borrowed — the hole upsert takes its own
+/// stake through the dynobj entry mint).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_arguments_callee_delete(
+    arr: *mut c_void,
+    key: *mut c_void,
+) -> i64 {
+    unsafe {
+        match __torajs_arr_arguments_callee_state(arr as *const c_void, key as *const c_void) {
+            1 => {
+                __torajs_dynobj_set_entry_hole(props_slot(arr), key);
+                1
+            }
+            2 => 1,
+            _ => -1,
+        }
+    }
+}
+
 /// `delete args.length` — a configurable data property deletes
 /// (§10.4.4 has no length special-case), leaving the hole tombstone.
 /// Answers 1 when the cell is an arguments materialization; 0 for a

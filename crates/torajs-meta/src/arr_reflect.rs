@@ -39,6 +39,9 @@ unsafe extern "C" {
     fn __torajs_arr_arguments_length_state(arr: *const c_void, key: *const c_void) -> i64;
     /// torajs-arr — bare FLAG_ARR_ARGUMENTS probe (the callee arm).
     fn __torajs_arr_is_arguments(arr: *const c_void) -> i64;
+    /// torajs-arr — the `"callee"` face state (S2): 0 = strict mint,
+    /// 1 = live sloppy entry, 2 = deleted (hole tombstone).
+    fn __torajs_arr_arguments_callee_state(arr: *const c_void, key: *const c_void) -> i64;
     /// torajs-rc — the interned §10.2.4 %ThrowTypeError% method cell.
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-arr — the index's AccessorPair, NULL when not an
@@ -128,15 +131,34 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
         return unsafe { build_data_descriptor(2, len, writable, 0, configurable) };
     }
     if bytes == b"callee" && unsafe { __torajs_arr_is_arguments(arr) } != 0 {
-        // §10.4.4.6 CreateUnmappedArgumentsObject step 21 — `callee`
-        // is the %ThrowTypeError% accessor pair, enumerable false,
-        // configurable false (tr's module goal is always strict /
-        // unmapped). The interned thrower cell is immortal — the
-        // descriptor's stake no-ops.
-        let thrower = unsafe { __torajs_builtin_method_cell(ANY_METHOD_THROW_TYPE_ERROR_MID) };
-        return unsafe {
-            crate::reflect::build_accessor_descriptor(4, thrower as u64, 4, thrower as u64, 0, 0)
-        };
+        // RFC 20260810-sloppy-goal-arguments S2 — the callee face
+        // state: a live sloppy bag entry (the mint's defineProperty
+        // seed) falls through to the expando delegate below (data
+        // descriptor, deletes / redefines visible); a tombstoned one
+        // is absent; a strict mint keeps the poisoned accessor.
+        match unsafe { __torajs_arr_arguments_callee_state(arr, key) } {
+            1 => {}
+            2 => return VALUE_UNDEFINED_IMM,
+            _ => {
+                // §10.4.4.6 CreateUnmappedArgumentsObject step 21 —
+                // `callee` is the %ThrowTypeError% accessor pair,
+                // enumerable false, configurable false (the module
+                // goal is strict / unmapped). The interned thrower
+                // cell is immortal — the descriptor's stake no-ops.
+                let thrower =
+                    unsafe { __torajs_builtin_method_cell(ANY_METHOD_THROW_TYPE_ERROR_MID) };
+                return unsafe {
+                    crate::reflect::build_accessor_descriptor(
+                        4,
+                        thrower as u64,
+                        4,
+                        thrower as u64,
+                        0,
+                        0,
+                    )
+                };
+            }
+        }
     }
     if let Some(idx) = canonical_index(bytes) {
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
