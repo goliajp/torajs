@@ -401,7 +401,22 @@ fn rewrite_recurse_arm(
         // materialized array's index-delete (hole shadow entry). The
         // missing recursion left the raw `arguments` ident inside
         // the Delete node (10.5-7-b-4-s's ReferenceError).
+        // `delete arguments.callee` — §13.5.1.2 step 3.a: deleting a
+        // non-configurable own property in strict code throws; the
+        // thrower call carries exactly that TypeError (the plain
+        // recursion would mint a Call operand — not a property
+        // reference — and refuse at compile time).
         Expr::Delete { expr } => {
+            if matches!(ast.get_expr(expr), Expr::Member { obj, name }
+                if name == "callee"
+                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+            {
+                let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
+                return ast.add_expr(Expr::Call {
+                    callee,
+                    args: Vec::new(),
+                });
+            }
             let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
             if e2 == expr {
                 return eid;
@@ -489,6 +504,27 @@ fn rewrite_recurse_arm(
             ast.add_expr(Expr::Member { obj: o, name })
         }
         Expr::Assign { target, value } => {
+            // `arguments.callee = v` — §13.15.2 PutValue on the
+            // %ThrowTypeError% accessor throws; the read-position
+            // callee rewrite would have minted a Call in target
+            // position ("invalid assignment target", the S10.6_A3
+            // regression). RHS still evaluates first (spec order),
+            // then the thrower call raises.
+            if matches!(ast.get_expr(target), Expr::Member { obj, name }
+                if name == "callee"
+                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+            {
+                let v = rewrite_arguments_in_expr(ast, value, params, argc_mode, is_argv_fn);
+                let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
+                let throw_call = ast.add_expr(Expr::Call {
+                    callee,
+                    args: Vec::new(),
+                });
+                return ast.add_expr(Expr::Sequence {
+                    left: v,
+                    right: throw_call,
+                });
+            }
             let t = rewrite_arguments_in_expr(ast, target, params, argc_mode, is_argv_fn);
             let v = rewrite_arguments_in_expr(ast, value, params, argc_mode, is_argv_fn);
             if t == target && v == value {

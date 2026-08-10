@@ -71,6 +71,16 @@ pub(crate) fn scan_call(
             if name == "__torajs_ctor_no_super_throw" {
                 *direct = true;
             }
+            // §10.4.4.6 step 21 — the strict `arguments.callee`
+            // thrower the arguments desugar mints (read / write /
+            // delete positions) ALWAYS records a TypeError; without
+            // this bit a fn whose only throw source is a callee
+            // touch is judged never-throwing, the caller prunes its
+            // check, and the pending throw strands into the next
+            // read (the S10.6_A3_T4 SIGSEGV).
+            if name == "__torajs_arguments_callee" {
+                *direct = true;
+            }
             // Rotation 297 — the parser's synthetic relational calls
             // throw: `in` records a §13.10.1 step-5 TypeError on a
             // non-Object rhs, and the `#x in o` brand check does the
