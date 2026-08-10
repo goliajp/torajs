@@ -5,7 +5,7 @@
 //! and at every C-side caller (e.g. ssa_lower's emitted dispatcher
 //! functions read `pp->state` / `pp->value` directly).
 //!
-//! ## Promise struct (32 bytes)
+//! ## Promise struct (40 bytes)
 //!
 //! ```text
 //!   +0..7   : universal heap header (refcount u32 + type_tag u16 + flags u16)
@@ -17,6 +17,10 @@
 //!   +11..15 : _pad[5] (alignment)
 //!   +16..23 : i64 value (primitive bits or heap-ptr cast)
 //!   +24..31 : *mut callback list (NULL when no .then attached)
+//!   +32..39 : *mut props expando dynobj (NULL until the first
+//!             `Object.defineProperty(promise, …)` — the Closure /
+//!             class-instance lazy-expando shape; §27.2.4.1.3's
+//!             per-element `then` GET/INVOKE observation reads it)
 //! ```
 //!
 //! ## Callback chain (PromiseCb)
@@ -48,8 +52,8 @@ pub const STATE_PENDING: u8 = 0;
 pub const STATE_FULFILLED: u8 = 1;
 pub const STATE_REJECTED: u8 = 2;
 
-/// `sizeof(Promise)` — 32 bytes. Matches `__TORAJS_PROMISE_SIZE`.
-pub const PROMISE_SIZE: usize = 32;
+/// `sizeof(Promise)` — 40 bytes (32 + the props expando slot).
+pub const PROMISE_SIZE: usize = 40;
 
 /// `value_repr` codes (RFC 20260720-anylane-promise-methods knife 1)
 /// — the storage form the typed tier put (or will put, for a pending
@@ -148,6 +152,13 @@ pub struct Promise {
     pub _pad: [u8; 4],
     pub value: i64,
     pub callbacks: *mut PromiseCb,
+    /// Lazy own-property expando dynobj — NULL until the first
+    /// `Object.defineProperty(promise, …)` lands (the dynobj
+    /// `define_apply` Promise arm allocates it, the Closure-arm
+    /// shape). A user `then` override stored here is what the
+    /// combinators' per-element §27.2.4.1.3 step 6.q-s observation
+    /// and the any-lane method dispatch consult before the builtin.
+    pub props: *mut c_void,
 }
 
 /// Promise callback record. `invoke` is a codegen-emitted dispatcher
@@ -192,6 +203,7 @@ mod tests {
         assert_eq!(core::mem::offset_of!(Promise, _pad), 12);
         assert_eq!(core::mem::offset_of!(Promise, value), 16);
         assert_eq!(core::mem::offset_of!(Promise, callbacks), 24);
+        assert_eq!(core::mem::offset_of!(Promise, props), 32);
     }
 
     #[test]

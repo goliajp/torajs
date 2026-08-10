@@ -110,6 +110,9 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
         (*p)._pad = [0; 4];
         (*p).value = value;
         (*p).callbacks = ptr::null_mut();
+        // Lazy expando — drop cleared the previous tenant's before
+        // release, but a fresh malloc block needs the NULL too.
+        (*p).props = ptr::null_mut();
     }
     p
 }
@@ -125,7 +128,7 @@ unsafe fn promise_release_(p: *mut Promise) {
         POOL_HEAD.store(p, Ordering::Relaxed);
         POOL_COUNT.fetch_add(1, Ordering::Relaxed);
     } else {
-        // Layer 1 sized free: Promise struct is PROMISE_SIZE (32 B)
+        // Layer 1 sized free: Promise struct is PROMISE_SIZE (40 B)
         // — see promise/layout.rs (Step 4d).
         unsafe { free(p as *mut c_void, crate::layout::PROMISE_SIZE) };
     }
@@ -288,6 +291,13 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         }
         if (*pp).header.flags & FLAG_SUBCLASSED != 0 {
             __torajs_subclass_drop_entry(p);
+        }
+        // Expando props dynobj (defineProperty landings) — the
+        // universal dispatcher routes it to the dynobj drop; NULLed
+        // so a pool re-issue starts clean.
+        if !(*pp).props.is_null() {
+            __torajs_value_drop_heap((*pp).props);
+            (*pp).props = ptr::null_mut();
         }
         promise_release_(pp);
     }

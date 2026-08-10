@@ -129,6 +129,15 @@ pub const TAG_OBJ: u16 = 1;
 /// `ARR_PROPS_OFF` / torajs-core `CLOSURE_PROPS_OFF` mirror).
 pub const CELL_PROPS_OFF: usize = 24;
 
+/// `type_tag` mirror for Promise heap cells (torajs-promise
+/// `layout.rs::TAG_PROMISE` = 8). Its lazy expando props dynobj
+/// lives at +32 ([`PROMISE_PROPS_OFF`]) — +24 is the callback list.
+pub const TAG_PROMISE_HDR: u16 = 8;
+
+/// Promise expando props-dynobj slot offset (torajs-promise
+/// `layout.rs::Promise::props` mirror, lockstep).
+pub const PROMISE_PROPS_OFF: usize = 32;
+
 /// HOLE sentinel bit pattern for a shadow entry's dead value slot
 /// (RFC 20260713 chunk C — `delete arr[i]`). Deliberately NOT a
 /// NaN-box encoder product: `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED

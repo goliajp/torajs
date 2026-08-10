@@ -216,6 +216,35 @@ pub(crate) unsafe fn drop_rejected_value(tag: u64, value: u64) {
     }
 }
 
+/// Lazy-expando receiver arm (Closure / Promise) — the cell's own
+/// defines land in the props dynobj at `props_off`, allocated on
+/// first touch; recursing with that slot runs the full §10.1.6.3
+/// validate/apply against the entry table. `seed_virtual` is the
+/// Closure receiver's reflected own `name`/`length` seeding — a
+/// Promise cell has none.
+#[allow(clippy::too_many_arguments)]
+unsafe fn define_into_expando(
+    obj: *mut c_void,
+    props_off: usize,
+    seed_virtual: bool,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    let props_slot = unsafe { obj.cast::<u8>().add(props_off) } as *mut *mut c_void;
+    unsafe {
+        if (*props_slot).is_null() {
+            *props_slot = crate::alloc::__torajs_dynobj_alloc();
+        }
+        if seed_virtual {
+            seed_virtual_fn_prop(obj, props_slot, key);
+        }
+        define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal)
+    }
+}
+
 /// Spec §10.1.6.3 ValidateAndApplyPropertyDescriptor — data-property
 /// subset. Shared core for both the literal
 /// ([`__torajs_dynobj_define`]) and runtime-descriptor
@@ -280,15 +309,40 @@ pub(crate) unsafe fn define_apply(
     // dynobj header (fn_addr read as count/cap) — SIGSEGV on the
     // first defineProperty against an any-typed function.
     if htag == crate::layout::TAG_CLOSURE_HDR {
-        let props_slot =
-            unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
-        unsafe {
-            if (*props_slot).is_null() {
-                *props_slot = crate::alloc::__torajs_dynobj_alloc();
-            }
-            seed_virtual_fn_prop(obj, props_slot, key);
-            return define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal);
-        }
+        return unsafe {
+            define_into_expando(
+                obj,
+                crate::layout::CELL_PROPS_OFF,
+                true,
+                key,
+                tag,
+                value,
+                flags_byte,
+                throw_on_refusal,
+            )
+        };
+    }
+    // Promise receiver — §27.2 promise instances are ordinary objects
+    // whose own defines land in a lazy expando (torajs-promise
+    // `Promise::props` @ +32; +24 is the callback list). Same
+    // recursion as the Closure arm, minus the virtual-prop seeding —
+    // a promise cell has no reflected own `name`/`length`. A user
+    // `then` override stored here is the §27.2.4.1.3 step 6.q-s
+    // observation surface the combinators and the any-lane method
+    // dispatch consult.
+    if htag == crate::layout::TAG_PROMISE_HDR {
+        return unsafe {
+            define_into_expando(
+                obj,
+                crate::layout::PROMISE_PROPS_OFF,
+                false,
+                key,
+                tag,
+                value,
+                flags_byte,
+                throw_on_refusal,
+            )
+        };
     }
     // Class-instance receiver — an `any`-typed variable holding one
     // reaches here rather than through the lowering's typed arm, and
@@ -352,11 +406,6 @@ pub(crate) unsafe fn define_apply(
     let pr = unsafe { probe(obj, key as *const c_void) };
     let ent = unsafe { entries(obj) };
 
-    let has_value = flags_byte & DEFINE_PRESENT_VALUE != 0;
-    let desc_writable = flags_byte & DEFINE_FLAG_WRITABLE != 0;
-    let desc_enumerable = flags_byte & DEFINE_FLAG_ENUMERABLE != 0;
-    let desc_configurable = flags_byte & DEFINE_FLAG_CONFIGURABLE != 0;
-
     if pr.found {
         // Existing entry — §10.1.6.3 validate + apply, split out to
         // keep this dispatcher under the 200-line fn hard limit.
@@ -370,53 +419,71 @@ pub(crate) unsafe fn define_apply(
             )
         }
     } else {
-        // RFC C5b-4 — Object.defineProperty(O, "newKey", desc) on a
-        // sealed / non-extensible dict must throw TypeError (wording
-        // matches bun for cross-runtime parity). Existing-key redefine
-        // is gated by the `cur_configurable` branch above; this
-        // catches the "add a new own property" path.
-        let header_flags = unsafe { *(obj.cast::<u8>().add(6) as *const u16) };
-        if header_flags & DYNOBJ_HDR_FLAG_NON_EXTENSIBLE != 0 {
-            return unsafe {
-                refuse(
-                    throw_on_refusal,
-                    c"Attempting to define property on object that is not extensible.".as_ptr()
-                        as *const u8,
-                    has_value,
-                    tag,
-                    value,
-                )
-            };
-        }
-        // Fresh define: append to the dense array (insertion order).
-        // Absent flags default to false (spec §10.1.6.2).
-        let mut new_flags: u64 = 0;
-        if desc_writable {
-            new_flags |= BUCKET_FLAG_WRITABLE;
-        }
-        if desc_enumerable {
-            new_flags |= BUCKET_FLAG_ENUMERABLE;
-        }
-        if desc_configurable {
-            new_flags |= BUCKET_FLAG_CONFIGURABLE;
-        }
-        let (init_tag, init_value) = if has_value {
-            (tag & BUCKET_TAG_MASK, value)
-        } else {
-            // No .value present — default [[Value]] to undefined.
-            (ANY_UNDEF, 0)
-        };
-        let e_idx = unsafe { entries_len(obj) };
-        unsafe {
-            __torajs_rc_inc(key);
-            *ent.add(e_idx as usize) = Entry {
-                key_ptr_tagged: bucket_make_key_tagged(key, new_flags),
-                value_anyv: __torajs_anyv_box_from_pair(init_tag as i64, init_value as i64),
-            };
-            *index_ptr(obj).add(pr.slot as usize) = e_idx;
-            set_entries_len(obj, e_idx + 1);
-            set_count(obj, count(obj) + 1);
-        }
-        1
+        unsafe { define_fresh_entry(obj, key, pr.slot, tag, value, flags_byte, throw_on_refusal) }
     }
+}
+
+/// The absent-key half of [`define_apply`]'s dynobj tail — the
+/// non-extensible refusal + fresh append (insertion order, absent
+/// flags defaulting false per §10.1.6.2). Split out at the 200-line
+/// fn cap; body verbatim.
+unsafe fn define_fresh_entry(
+    obj: *mut c_void,
+    key: *mut c_void,
+    slot: u32,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    let has_value = flags_byte & DEFINE_PRESENT_VALUE != 0;
+    // RFC C5b-4 — Object.defineProperty(O, "newKey", desc) on a
+    // sealed / non-extensible dict must throw TypeError (wording
+    // matches bun for cross-runtime parity). Existing-key redefine
+    // is gated by the `cur_configurable` branch above; this
+    // catches the "add a new own property" path.
+    let header_flags = unsafe { *(obj.cast::<u8>().add(6) as *const u16) };
+    if header_flags & DYNOBJ_HDR_FLAG_NON_EXTENSIBLE != 0 {
+        return unsafe {
+            refuse(
+                throw_on_refusal,
+                c"Attempting to define property on object that is not extensible.".as_ptr()
+                    as *const u8,
+                has_value,
+                tag,
+                value,
+            )
+        };
+    }
+    // Fresh define: append to the dense array (insertion order).
+    // Absent flags default to false (spec §10.1.6.2).
+    let mut new_flags: u64 = 0;
+    if flags_byte & DEFINE_FLAG_WRITABLE != 0 {
+        new_flags |= BUCKET_FLAG_WRITABLE;
+    }
+    if flags_byte & DEFINE_FLAG_ENUMERABLE != 0 {
+        new_flags |= BUCKET_FLAG_ENUMERABLE;
+    }
+    if flags_byte & DEFINE_FLAG_CONFIGURABLE != 0 {
+        new_flags |= BUCKET_FLAG_CONFIGURABLE;
+    }
+    let (init_tag, init_value) = if has_value {
+        (tag & BUCKET_TAG_MASK, value)
+    } else {
+        // No .value present — default [[Value]] to undefined.
+        (ANY_UNDEF, 0)
+    };
+    unsafe {
+        let ent = entries(obj);
+        let e_idx = entries_len(obj);
+        __torajs_rc_inc(key);
+        *ent.add(e_idx as usize) = Entry {
+            key_ptr_tagged: bucket_make_key_tagged(key, new_flags),
+            value_anyv: __torajs_anyv_box_from_pair(init_tag as i64, init_value as i64),
+        };
+        *index_ptr(obj).add(slot as usize) = e_idx;
+        set_entries_len(obj, e_idx + 1);
+        set_count(obj, count(obj) + 1);
+    }
+    1
 }

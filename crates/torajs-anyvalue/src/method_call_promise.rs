@@ -36,6 +36,9 @@ const P_STATE_OFF: usize = 8;
 const P_IS_HEAP_OFF: usize = 9;
 const P_REPR_OFF: usize = 11;
 const P_VALUE_OFF: usize = 16;
+/// Lazy expando props dynobj slot (`Promise::props`) — where a
+/// `defineProperty(promise, "then", …)` landing lives.
+const P_PROPS_OFF: usize = 32;
 const STATE_FULFILLED: u8 = 1;
 const STATE_REJECTED: u8 = 2;
 const REPR_UNSTAMPED: u8 = 0;
@@ -106,6 +109,27 @@ pub(crate) unsafe fn promise_method(
         return None;
     }
     unsafe {
+        // A user `then` override (a `defineProperty(promise, "then",
+        // …)` landing in the expando bag) replaces the builtin for
+        // this call — the invoke's own return value IS the call's
+        // value, no result promise is minted (§27.2's ordinary-object
+        // reading: `then` is just a property). `catch` / `finally`
+        // still reach the builtin below — their spec bodies Invoke
+        // `this.then`, an indirection recorded in plan-state L3b
+        // rather than wired here.
+        if mid == ANY_METHOD_THEN
+            && let Some(user_then) = own_then_override(ptr)
+        {
+            let out = match closure_boxed_entry(user_then) {
+                Some((env, entry)) => invoke_boxed(env, entry, argv, argc),
+                None => crate::method_call::not_callable(),
+            };
+            if __torajs_throw_check() != 0 {
+                // `out` is an aborted body's sentinel — not a value.
+                return Some(VALUE_UNDEFINED);
+            }
+            return Some(out);
+        }
         // Loud gate FIRST — an unstamped cell means its mint family
         // has no repr wiring yet; refuse at attach time instead of
         // mis-boxing at dispatch time.
@@ -210,6 +234,44 @@ pub unsafe extern "C" fn __torajs_anyv_await(av: AnyValue) -> AnyValue {
         let out = box_settled(repr, value);
         crate::nanbox_ffi::__torajs_anyv_rc_inc(out);
         out
+    }
+}
+
+/// Own `then` override in the promise's expando props bag — a
+/// `defineProperty(promise, "then", …)` landing (the dynobj
+/// `define_apply` Promise arm stores it at `Promise::props`).
+/// Borrow-shaped: the answered box carries no fresh stake, the bag
+/// keeps its own. `None` = no bag or no data entry; an accessor
+/// entry (`{get then() {…}}`) is the combinators' §27.2.4.1.3
+/// then-GET observation, wired with the interleave knife — until
+/// then it reads as absent here.
+pub(crate) unsafe fn own_then_override(ptr: *mut c_void) -> Option<AnyValue> {
+    unsafe extern "C" {
+        fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+        fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+        fn __torajs_str_drop(s: *mut c_void);
+    }
+    /// dynobj absent / accessor sentinels (torajs-dynobj layout mirror).
+    const ANY_UNDEF: u64 = 5;
+    const ANY_ACCESSOR: u64 = 6;
+    unsafe {
+        let props = *(ptr.cast::<u8>().add(P_PROPS_OFF) as *const *mut c_void);
+        if props.is_null() {
+            return None;
+        }
+        let key = {
+            let bytes = b"then";
+            let s = crate::__torajs_str_alloc_pooled(bytes.len() as u64);
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), s.add(16), bytes.len());
+            s as *mut c_void
+        };
+        let tag = __torajs_dynobj_get_tag(props, key);
+        let value = __torajs_dynobj_get_value(props, key);
+        __torajs_str_drop(key);
+        if tag == ANY_UNDEF || tag == ANY_ACCESSOR {
+            return None;
+        }
+        Some(__torajs_anyv_box_from_pair(tag as i64, value as i64))
     }
 }
 
