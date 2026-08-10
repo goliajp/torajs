@@ -67,6 +67,12 @@ pub(crate) const MODE_ALLSETTLED: u8 = 1;
 /// count that has to reach zero is of REJECTIONS. The indexed slots
 /// hold the `errors` list §27.2.4.2's AggregateError carries.
 pub(crate) const MODE_ANY: u8 = 2;
+/// `Promise.race` — the iterator-interleaved lane only (§27.2.4.5;
+/// this fan-in never runs it). Nothing is collected and nothing
+/// finishes: the first settlement wins, an empty iterable stays
+/// pending, and the block exists to carry the outer promise the
+/// minted resolver pair settles.
+pub(crate) const MODE_RACE: u8 = 3;
 
 /// State every element job of one fan-in shares.
 #[repr(C)]
@@ -336,7 +342,7 @@ pub(crate) unsafe fn attach_elem_job(b: *mut AllBlock, pp: *mut Promise, index: 
 /// observable: settling it during setup put the reaction a microtask
 /// ahead of bun, since `.then` was attaching to an already-resolved
 /// cell.
-unsafe fn wrap_plain(bits: u64) -> *mut Promise {
+pub(crate) unsafe fn wrap_plain(bits: u64) -> *mut Promise {
     unsafe {
         // The wrapper owns what it carries; the input array keeps its
         // own stake.

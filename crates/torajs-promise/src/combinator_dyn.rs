@@ -96,15 +96,6 @@ pub(crate) unsafe fn collect_items(v: u64, step: IterStepFn) -> Result<Vec<u64>,
     }
 }
 
-/// Collect via the strict-iterable step, then build the any-shape
-/// array the `*_sync` kernels consume (owned slot transfer).
-unsafe fn collect_iterable(v: u64) -> Result<*mut c_void, *mut c_void> {
-    unsafe {
-        let items = collect_items(v, __torajs_any_iter_next)?;
-        Ok(items_to_any_arr(items))
-    }
-}
-
 /// Owned-slot transfer of a collected element list into the
 /// any-shape array the `*_sync` kernels consume. Shared with the
 /// iterator-interleaved lane's never-activated fall-through.
@@ -122,25 +113,6 @@ pub(crate) unsafe fn items_to_any_arr(items: Vec<u64>) -> *mut c_void {
     }
 }
 
-/// Collect, delegate to the sync kernel (its entry routes the
-/// any-shape array to the any-lane sibling), then drop the temp
-/// array — the kernel borrows it and incs what it keeps.
-unsafe fn dyn_combinator(
-    v: u64,
-    sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
-) -> *mut c_void {
-    unsafe {
-        match collect_iterable(v) {
-            Err(rejected) => rejected,
-            Ok(arr) => {
-                let out = sync(arr);
-                __torajs_value_drop_heap(arr);
-                out
-            }
-        }
-    }
-}
-
 /// `all_sync` takes the result array's target element form from its
 /// call site; the dyn entry has none to give. Everything it collects is
 /// an any-shape array, which `all_sync` hands to its any-lane sibling
@@ -154,26 +126,48 @@ pub(crate) unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_
 /// `v` is a live any-boxed value the caller owns for the duration
 /// of the call.
 ///
-/// `all` takes the iterator-interleaved lane (RFC 20260810 I1+I2):
-/// per-element `then` observation inside the loop, with the
-/// never-activated exit delegating right back here.
+/// All four dyn entries take the iterator-interleaved lane (RFC
+/// 20260810 I1-I3): per-element `then` observation inside the loop,
+/// with the never-activated exit delegating right back to the sync
+/// kernel named here.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_all_dyn(v: u64) -> *mut c_void {
-    unsafe { crate::combinator_iter::all_dyn_iter(v, __torajs_any_iter_next) }
+    unsafe {
+        crate::combinator_iter::dyn_iter(
+            v,
+            __torajs_any_iter_next,
+            crate::combinator_all_fanin::MODE_ALL,
+            all_sync_untargeted,
+        )
+    }
 }
 
 /// # Safety
 /// See [`__torajs_promise_all_dyn`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_race_dyn(v: u64) -> *mut c_void {
-    unsafe { dyn_combinator(v, crate::combinator::__torajs_promise_race_sync) }
+    unsafe {
+        crate::combinator_iter::dyn_iter(
+            v,
+            __torajs_any_iter_next,
+            crate::combinator_all_fanin::MODE_RACE,
+            crate::combinator::__torajs_promise_race_sync,
+        )
+    }
 }
 
 /// # Safety
 /// See [`__torajs_promise_all_dyn`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_any_dyn(v: u64) -> *mut c_void {
-    unsafe { dyn_combinator(v, crate::combinator::__torajs_promise_any_sync) }
+    unsafe {
+        crate::combinator_iter::dyn_iter(
+            v,
+            __torajs_any_iter_next,
+            crate::combinator_all_fanin::MODE_ANY,
+            crate::combinator::__torajs_promise_any_sync,
+        )
+    }
 }
 
 /// Same shape as [`all_sync_untargeted`]: `allsettled_sync` takes the
@@ -189,5 +183,12 @@ pub(crate) unsafe extern "C" fn allsettled_sync_untagged(arr: *mut c_void) -> *m
 /// See [`__torajs_promise_all_dyn`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_allsettled_dyn(v: u64) -> *mut c_void {
-    unsafe { dyn_combinator(v, allsettled_sync_untagged) }
+    unsafe {
+        crate::combinator_iter::dyn_iter(
+            v,
+            __torajs_any_iter_next,
+            crate::combinator_all_fanin::MODE_ALLSETTLED,
+            allsettled_sync_untagged,
+        )
+    }
 }
