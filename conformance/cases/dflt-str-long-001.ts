@@ -1,12 +1,14 @@
-// S3.8 Str extension (knife B1): a runtime-undefined actual binds a
-// typed param's long-string (>5-byte) literal default on the
-// direct-call lane — interned static Str global through the
-// or_default kernel's Heap tag (rc no-op via FLAG_STATIC_LITERAL).
-// The boxed any-lane's long-string default is an open L3b (its
-// synthesize stage has no string-pool channel).
+// S3.8 Str extension (knives B1+B2): a runtime-undefined actual
+// binds a typed param's long-string (>5-byte) literal default on
+// both the direct-call lane and the boxed any-lane — interned
+// static Str global through the or_default kernel's Heap tag
+// (rc no-op via FLAG_STATIC_LITERAL).
 function h(a: number, d: string = "longdefault"): string { return a + ":" + d }
 let u: any = undefined
 console.log(h(1, u))          // direct lane, runtime undefined
+const h2: any = h
+console.log(h2(9, u))         // any-lane, runtime undefined
+console.log(h2(10))           // any-lane, missing arg
 console.log(h(2))             // missing arg (call-site pad lane)
 console.log(h(3, "explicit")) // explicit value stays
 let us: any = "real"

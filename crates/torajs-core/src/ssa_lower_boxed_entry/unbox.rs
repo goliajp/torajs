@@ -28,6 +28,7 @@ pub(super) struct BoxedCoerceIntrinsics<'a> {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn unbox_args(
     f: &mut ssa::Function,
+    module: &mut ssa::Module,
     entry: ssa::BlockId,
     argv: ssa::ValueId,
     user_tys: &[Type],
@@ -55,11 +56,30 @@ pub(super) fn unbox_args(
         // (a branchless kernel call — lower-time SSA has no Select;
         // that inst is egraph-internal), so every per-type unbox arm
         // below stays untouched.
-        if let Some(Some((box_tag, box_bits))) = dflt_lits
-            .get(i)
-            .and_then(|l| l.as_ref())
-            .map(|lit| lit.box_encoding())
-        {
+        if let Some(lit) = dflt_lits.get(i).and_then(|l| l.as_ref()) {
+            // A long-string literal has no compile-time box — mint a
+            // static `.rodata` Str global (rc no-op) and pass its
+            // pointer bits under the pair protocol's Heap tag, the
+            // direct-call terminal's exact shape. Synthesis runs
+            // BEFORE any per-fn body lower, so `module.strings.len()`
+            // is the final StringId here — no base/offset deferral.
+            let (box_tag, box_bits) = match lit {
+                super::DfltLit::StrLong(s) => {
+                    let sid = ssa::StringId(module.strings.len() as u32);
+                    module.strings.push(ssa::StringLiteral::encode_from_str(s));
+                    let ptr = f.append_inst(entry, InstKind::StaticStrRef(sid), Type::Str, None);
+                    let p = f.append_inst(
+                        entry,
+                        InstKind::PtrToInt(Operand::Value(ptr)),
+                        Type::I64,
+                        None,
+                    );
+                    (4i64, Operand::Value(p))
+                }
+                lit => lit
+                    .box_encoding()
+                    .expect("non-StrLong DfltLit always has a compile-time box"),
+            };
             av = Operand::Value(f.append_inst(
                 entry,
                 InstKind::Call(

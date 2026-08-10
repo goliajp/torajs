@@ -20,11 +20,12 @@ pub(crate) enum DfltLit {
     /// nanbox bit pattern.
     Str(u64),
     /// A string literal default past the ShortStr cap. No compile-time
-    /// constant box exists — the substitution needs an interned
-    /// `.rodata` global (rc no-op via FLAG_STATIC_LITERAL), which only
-    /// the direct-call terminal's LowerCtx can mint. The boxed
-    /// adapter's synthesize stage has no string-pool channel, so it
-    /// skips these (any-lane long-string default is an open L3b).
+    /// constant box exists — the substitution mints an interned
+    /// `.rodata` global (rc no-op via FLAG_STATIC_LITERAL) and passes
+    /// its pointer bits under the kernel's Heap tag. The terminal
+    /// interns through LowerCtx; the adapter's unbox pushes
+    /// `module.strings` directly (synthesis precedes every per-fn
+    /// body lower, so the StringId is final at mint time).
     StrLong(String),
 }
 

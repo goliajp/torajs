@@ -119,6 +119,7 @@ pub(super) fn build_boxed_entry(
     };
     unbox_args(
         &mut f,
+        module,
         entry,
         argv,
         &user_tys[..n_fixed],
