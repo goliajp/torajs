@@ -353,7 +353,22 @@ fn lower_regular_field(
             // as the As shape above; a static cell's inc is
             // FLAG-gated to a no-op, so the `true` arm is safe for
             // interned singletons).
-            Expr::Ident(name) => ctx.locals.get(name).map(|info| !info.moved).unwrap_or(true),
+            //
+            // A BORROWED binding has no stake to transfer, whatever
+            // its `moved` flag says: the closure-capture preamble
+            // registers its bindings `moved: true` AT BIRTH (so the
+            // fn-exit drop walk skips them — the env owns the stake),
+            // and reading that as "already transferred into this
+            // field" bare-stored the env's reference for the struct
+            // drop walk to release. `return {value: captured}` from a
+            // nested fn freed the captured promise on the first call
+            // (the interleave knife's then-override probe read a
+            // scrubbed props slot on the second element).
+            Expr::Ident(name) => ctx
+                .locals
+                .get(name)
+                .map(|info| info.borrowed || !info.moved)
+                .unwrap_or(true),
             Expr::Member { .. } | Expr::Index { .. } => true,
             // Hoisted regex-literal singleton (fn-scope LICM) — the
             // field takes a share; see apply_borrow_rc_inc mirror.
