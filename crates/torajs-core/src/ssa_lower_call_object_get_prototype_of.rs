@@ -140,6 +140,22 @@ pub(crate) fn try_lower(
     }
     let arg_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
     let proto = match v_ty {
+        // An EMPTY struct layout is a dynobj at runtime (`{}` has no
+        // struct surface — the dynobj-certain shape), so the
+        // class-tag load below would read a dynobj header field as a
+        // tag. Route it through the runtime classifier instead — the
+        // TAG_DYNOBJ arm answers %Object.prototype% (the inline
+        // `Object.getPrototypeOf({})` spelling; a bound `{}` already
+        // arrived Any-typed and never hit this arm).
+        Type::Obj(sid) if ctx.struct_layouts[sid.0 as usize].is_empty() => {
+            let boxed = ctx.box_to_any(v.clone());
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![boxed]),
+                Type::Any,
+                None,
+            )
+        }
         Type::Obj(_) => {
             let tag = ctx.f.append_inst(
                 ctx.cur_block,
