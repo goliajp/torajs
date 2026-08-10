@@ -56,46 +56,11 @@ pub(crate) fn initial_let_ty(
         // inits never reach here (fn_addr_let claims them above —
         // direct dispatch preserved). Variadic anns parse to Closure
         // already and never take this arm.
-        // Rotation 358 (S3.5 recon find) — an IDENT init whose local
-        // binding already holds the cell repr (`const f = (x) => x;
-        // const g: (x: number) => number = f`) re-reprs too: the
-        // stored value IS an env cell, and a FnSig slot would
-        // call_indirect the cell header (EXIT=138, same family as the
-        // as-any hole below). Keyed on the binding's SSA repr, not the
-        // checked Function type: a FnSig-repr source (forwarder-
-        // wrapped struct-field read bound earlier) is a real code
-        // address and must keep direct dispatch.
-        let ident_cell_init = || {
-            matches!(ctx.ast.get_expr(init), Expr::Ident(n)
-                if matches!(ctx.locals.get(n), Some(li) if matches!(li.ty, Type::Closure(_))))
-        };
-        // …and a MEMBER init reading a struct's fn-typed field: the
-        // field slot is Closure-typed by construction
-        // (`tag_struct_field_closure_types` retags every struct-field
-        // fn annotation `__cls(` — even a forwarder-wrapped named fn
-        // is stored as a cell), so the read hands back a cell too.
-        let member_cell_init = || {
-            let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
-                return false;
-            };
-            let Some(crate::check::Type::Struct(fields)) = ctx.expr_types.get(obj) else {
-                return false;
-            };
-            fields.iter().any(|(n, t)| {
-                let t = match t {
-                    crate::check::Type::Nullable(inner) => inner.as_ref(),
-                    other => other,
-                };
-                n == name && matches!(t, crate::check::Type::Function(..))
-            })
-        };
         let parsed = match parsed {
             Type::FnSig(sig)
                 if mutable
-                    || matches!(ctx.ast.get_expr(init), Expr::Closure { .. })
                     || matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any))
-                    || ident_cell_init()
-                    || member_cell_init() =>
+                    || init_yields_closure_cell(ctx, init) =>
             {
                 Type::Closure(sig)
             }
@@ -126,6 +91,66 @@ pub(crate) fn initial_let_ty(
         Type::Arr(arr_id)
     } else {
         Type::Void
+    }
+}
+
+/// Rotations 358/359 — does this init expression hand back the CELL
+/// repr of a callable? A FnSig-annotated slot fed a cell would
+/// `call_indirect` the cell header (EXIT=138, the as-any hole's
+/// family), so `initial_let_ty` re-reprs the slot to Closure when
+/// this answers true. Keyed on SSA repr, never on the checked
+/// Function type: a FnSig-repr source (forwarder-wrapped read bound
+/// earlier) is a real code address and must keep direct dispatch.
+///
+/// - closure literal — every arrow lifts to `Expr::Closure` and
+///   mints an env cell (chunk 734).
+/// - ident — the source binding's recorded repr is Closure (r358).
+/// - struct fn-field member read — the field slot is Closure-typed
+///   by construction (`tag_struct_field_closure_types` retags every
+///   struct-field fn annotation `__cls(`), so the read hands back a
+///   cell (r358).
+/// - call — the callee's ret repr is Closure (`effective_ret_ty`
+///   upgrades a fn-sig-annotated ret whose body returns closures;
+///   the value arriving here IS that cell) (r359).
+/// - ternary / nullish — both arms yield cells (r359; a mixed
+///   cell/code-address pair keeps the FnSig repr and the pre-existing
+///   behavior — re-repring the slot would just move which arm jumps
+///   wrong).
+fn init_yields_closure_cell(ctx: &LowerCtx, init: ExprId) -> bool {
+    match ctx.ast.get_expr(init) {
+        Expr::Closure { .. } => true,
+        Expr::Ident(n) => {
+            matches!(ctx.locals.get(n), Some(li) if matches!(li.ty, Type::Closure(_)))
+        }
+        Expr::Member { obj, name } => {
+            let Some(crate::check::Type::Struct(fields)) = ctx.expr_types.get(obj) else {
+                return false;
+            };
+            fields.iter().any(|(n, t)| {
+                let t = match t {
+                    crate::check::Type::Nullable(inner) => inner.as_ref(),
+                    other => other,
+                };
+                n == name && matches!(t, crate::check::Type::Function(..))
+            })
+        }
+        Expr::Call { callee, .. } => {
+            matches!(ctx.ast.get_expr(*callee), Expr::Ident(n)
+                if ctx.fn_table.get(n).is_some_and(
+                    |fid| matches!(ctx.signatures.get(fid), Some(Type::Closure(_)))))
+        }
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            init_yields_closure_cell(ctx, *then_branch)
+                && init_yields_closure_cell(ctx, *else_branch)
+        }
+        Expr::Nullish { lhs, rhs } => {
+            init_yields_closure_cell(ctx, *lhs) && init_yields_closure_cell(ctx, *rhs)
+        }
+        _ => false,
     }
 }
 
