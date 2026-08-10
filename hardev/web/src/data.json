@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T12:17:45.931Z",
+  "generatedAt": "2026-08-10T14:07:44.336Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T12:15:53Z",
-    "headSha": "392db22c",
-    "elapsedSec": 317.52,
+    "ranAt": "2026-08-10T13:56:38Z",
+    "headSha": "f8146176",
+    "elapsedSec": 319.4,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24111,
+    "pass": 24135,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28857,
-    "bug": 12784,
-    "incompatible": 11533,
+    "passTotal": 28881,
+    "bug": 12770,
+    "incompatible": 11523,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41641,
-    "passRateInScope": 54.27,
-    "passRateTrAccepted": 69.3
+    "trAccepted": 41651,
+    "passRateInScope": 54.31,
+    "passRateTrAccepted": 69.34
   },
   "torajs": {
-    "commit": "392db22c",
-    "commitSubject": "fix: scope the s2 subtype relaxations to the call face (rfc 20260810-indirect-argc-abi)",
+    "commit": "13759663",
+    "commitSubject": "refactor: collapse the namespace-object ident arms into a lookup table",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "13759663",
+      "subject": "refactor: collapse the namespace-object ident arms into a lookup table"
+    },
+    {
+      "hash": "f8146176",
+      "subject": "fix: writable local for length-writing env-first faces; method face keeps real_argc (rfc 20260810-indirect-argc-abi s3.2)"
+    },
+    {
+      "hash": "3e33b97e",
+      "subject": "feat: env-first arguments.length reads the s1 hidden argc; retire the iife injection (rfc 20260810-indirect-argc-abi s3.2)"
+    },
+    {
+      "hash": "7d3a1645",
+      "subject": "feat: admit __torajs_argc in the checker ident cascade (rfc 20260810-indirect-argc-abi s3.1)"
+    },
+    {
+      "hash": "721f10c7",
+      "subject": "feat: aapcs64 stack args - 9th+ register-class argument goes through the stack"
+    },
+    {
+      "hash": "39d7934d",
+      "subject": "feat: self-tail-call elimination pass (rfc 20260810-self-tail-call)"
+    },
+    {
+      "hash": "e67f498e",
+      "subject": "docs: rotation 355 close - indirect-argc-abi s1+s2+s2b land, declare-arguments checker face unlocked, s3 phase a decomposed, dashboard refresh"
+    },
+    {
       "hash": "392db22c",
       "subject": "fix: scope the s2 subtype relaxations to the call face (rfc 20260810-indirect-argc-abi)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "eacf265e",
       "subject": "feat: closure call abi carries hidden argc slot (rfc 20260810-indirect-argc-abi s1)"
-    },
-    {
-      "hash": "8879aec0",
-      "subject": "docs: rotation 354 sweep artifacts into hardev (missed by a bad add path in the close commit)"
-    },
-    {
-      "hash": "c1b48e5f",
-      "subject": "docs: rotation 354 close - eval declare-arguments knife b lands 48, promise bag grows the full property face, indirect-argc-abi rfc decaled, dashboard refresh"
-    },
-    {
-      "hash": "3ad5bce1",
-      "subject": "feat: promise bag holds symbol-keyed properties"
-    },
-    {
-      "hash": "98bf1953",
-      "subject": "feat: promise bag enumerates through keys, values, entries and for-in"
-    },
-    {
-      "hash": "d0a9a5cd",
-      "subject": "feat: promise bag answers has, delete and getOwnPropertyDescriptor"
-    },
-    {
-      "hash": "5c99588e",
-      "subject": "feat: promise expando plain-assign and typed-receiver member channels"
-    },
-    {
-      "hash": "61817d4d",
-      "subject": "feat: param-default direct eval declaring arguments throws syntaxerror at call time"
     }
   ],
-  "headSha": "392db22c",
+  "headSha": "13759663",
   "autorun": {
-    "total": 658,
+    "total": 659,
     "baselineTarget": 10,
-    "bySelf": 653,
+    "bySelf": 654,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786358492-63a1",
-      "at": "2026-08-10T10:41:32Z",
-      "ts": 1786358492,
+      "rotationId": "r-1786364353-2f7c",
+      "at": "2026-08-10T12:19:13Z",
+      "ts": 1786364353,
       "trigger": "self",
-      "prevHead": "8879aec0",
-      "handoffSha": "sha256:be29555988ac2e4035455996033ae85809cc3436da398fdab0ea04cb178ba0f5",
-      "handoffAgeSec": 1,
+      "prevHead": "e67f498e",
+      "handoffSha": "sha256:b9e80b9c3623b4ab528d6eb1ef383fc33b32ea2181d89e6c31b994a6f9cc49d4",
+      "handoffAgeSec": 31,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786364353-2f7c",
+        "at": "2026-08-10T12:19:13Z",
+        "ts": 1786364353,
+        "trigger": "self",
+        "prevHead": "e67f498e",
+        "handoffSha": "sha256:b9e80b9c3623b4ab528d6eb1ef383fc33b32ea2181d89e6c31b994a6f9cc49d4",
+        "handoffAgeSec": 31,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786358492-63a1",
         "at": "2026-08-10T10:41:32Z",
@@ -876,17 +887,6 @@
         "prevHead": "8ff9a184",
         "handoffSha": "sha256:897a7886e684589fbd88147d8c3225348068f3e82c06efa1431644632a445d0c",
         "handoffAgeSec": 1,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786261773-2b63",
-        "at": "2026-08-09T07:49:33Z",
-        "ts": 1786261773,
-        "trigger": "self",
-        "prevHead": "0efb5440",
-        "handoffSha": "sha256:22adf293c3cc348ebc556f4881ec1c9502a70af19d88c11bad3cff2cbc439aa1",
-        "handoffAgeSec": 27,
         "conformanceBefore": null,
         "commitsInSession": null
       }

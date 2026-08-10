@@ -1530,7 +1530,40 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `380172de`** (2026-08-10, rotation 352 — the promise
+**Latest @ `f8146176`** (2026-08-10, rotation 356 — the two orthodox
+blades from r355's regression triage landed, plus the S3 opening.
+Self-tail-call elimination (egraph SELF_TAIL_CALL, RFC
+20260810-self-tail-call): `return f(args)` self-recursion through a
+named-fn-expr's self slot rewrites to a parameter-rebind loop behind
+a runtime cell==env guard — O(1) stack at 10M depth, rc protocol
+loop-carries the params (pre-block retain / per-ret release /
+inc-new-dec-old handoff through parallel-move temps), and the
+"ok-block decs are exactly call args" match doubles as the
+scope-drop exclusion. AAPCS64 stack args: the 9th+ register-class
+argument travels through an outgoing area carved into the caller's
+frame bottom, with a shared classify_lanes on both sides and a
+prologue copy-in on the callee side — the old 8-GPR ARG_RET OOB
+panic face is gone. S3.1+S3.2 (indirect-argc-abi): env-first faces'
+`arguments.length` now reads the S1 hidden argc; the iife tier's
+param injection + call-site prepend retired in the same cut (the
+A-station counts every user-position argument, so the prepended
+literal inflated the hidden argc by one — the Phase A step plan was
+wrong about these being separable), length-WRITING bodies ride a
+synthesized writable `__torajs_argc_len` local, and the this-first
+method face stays on the injected param. Sweep: passTotal 28857 →
+**28881 (+24)**, bug −14, trAccepted +10, incompatible −10,
+conservation exact (+10 = +24 − 14). Forward 24: tco-* ×16 (the 14
+r355 regressions all recovered + 2 pre-existing), for-of arguments
+×2, gen/async-gen-method dflt-params ×6 (≥9-param cap unlock). True
+pass regressions **0**. Remaining tco exit-139: 9 (switch /
+conditional / call-args / for-lhs / for-var / try-catch SSA
+variants the v1 shape match skips — L3b). Gate predicate **296
+clusters (−1) / 4825 cases / residue 757 / 984 flat / core 5809
+(−10)**. Build determinism 44/44 (N=12). Conformance gate 2695 →
+**2698/0/4** (+3 fixtures; one 2-fail link — the length-write and
+method-argv faces — fixed same rotation).)
+
+**Previous @ `380172de`** (2026-08-10, rotation 352 — the promise
 iterator-interleave RFC landed whole, I1-I4 in six substrate commits
 plus a file-cap refactor. Promise cells grew a lazy expando props
 bag (layout 32 → 40; defineProperty on a promise receiver was a
