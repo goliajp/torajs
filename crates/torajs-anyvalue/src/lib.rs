@@ -503,6 +503,10 @@ mod tests {
     ) -> i64 {
         0
     }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_is_arguments(_arr: *const core::ffi::c_void) -> i64 {
+        0
+    }
     // The JsonParse / JsonStringify DISPATCH arms make the json
     // kernels test-reachable, pulling in their torajs-num /
     // torajs-date externs (shipped binary resolves the staticlibs);
