@@ -140,7 +140,10 @@ pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
             // Void calls Undefined), so both spellings admit.
             arity_ok
                 && (formal_ret.as_ref() == actual_ret.as_ref()
-                    || matches!(formal_ret.as_ref(), Type::Any | Type::Void | Type::Undefined)
+                    || matches!(
+                        formal_ret.as_ref(),
+                        Type::Any | Type::Void | Type::Undefined
+                    )
                     || matches!(actual_ret.as_ref(), Type::Any))
                 && actual_ps
                     .iter()
