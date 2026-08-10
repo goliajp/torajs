@@ -52,6 +52,15 @@ pub(crate) fn nominal_alias_names(ast: &Ast) -> HashSet<String> {
             out.insert(name.clone());
         }
     }
+    // A method-bearing object literal's synthetic `__ObjLit_<n>`
+    // TypeDecl (ast/objlit_nominal.rs) has a single producer — the
+    // literal itself — so the nominal join loses no precision, same
+    // rationale as `__step_`. Without the join the TypeDecl parse
+    // keeps static widths while the literal's layout takes the method
+    // fns' analyzed widths, splitting one logical type into twin sids:
+    // `is_objlit_method_slot` then misses (receiver never pushed), and
+    // a sibling `this.m()` reads the ret off the wrong register lane.
+    out.extend(ast.objlit_method_fields.keys().cloned());
     out
 }
 

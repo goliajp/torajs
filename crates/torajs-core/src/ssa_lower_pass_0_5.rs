@@ -147,6 +147,21 @@ pub(crate) fn run(
                             num_f64_slots,
                             &mut arr_layouts,
                         ),
+                        // F5 mirror of `widen_struct_fields` — an
+                        // fn-typed field's sig widens by its own field
+                        // key: the objlit constructor glue joins the
+                        // literal's F5 `__ret`/`__p{i}` projections
+                        // onto this Class field, so the `__mth(` parse
+                        // width agrees with the resident method fn's
+                        // analyzed ABI (twin-sid split otherwise).
+                        Type::FnSig(_) | Type::Closure(_) => {
+                            crate::ssa_lower_container_width::widen_fn_sig_by_key(
+                                ty,
+                                &fkey,
+                                num_f64_slots,
+                                &mut fn_sigs,
+                            )
+                        }
                         other => other,
                     };
                 }

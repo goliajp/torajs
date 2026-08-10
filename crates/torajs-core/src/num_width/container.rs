@@ -223,6 +223,57 @@ pub(super) fn nominal_unions(a: &mut Analysis) {
     }
 }
 
+/// Objlit-nominal constructor hookup: a method-bearing object literal
+/// IS the single constructor of its synthetic `__ObjLit_<n>` type
+/// (ast/objlit_nominal.rs), so its literal-origin Anon key joins the
+/// Class key exactly the way `__new_C`'s ret joins `Class(C)` above.
+/// The methods' `__this: __ObjLit_<n>` params join through the
+/// annotation hookups (`alias_ann_union`) once the name is in the
+/// nominal set; this glue is the missing constructor edge — without
+/// it the F5 field→fn sig projections live on the Anon key only,
+/// while the TypeDecl fill site (pass 0.5) queries the Class key.
+pub(super) fn objlit_ctor_unions(a: &mut Analysis) {
+    if a.ast.objlit_method_fields.is_empty() {
+        return;
+    }
+    // fn name → objlit type, read off the `__this` ann the
+    // objlit_nominal patch pinned on each lifted method FnDecl.
+    let mut fn_owner: HashMap<String, String> = HashMap::new();
+    for stmt in &a.ast.stmts {
+        if let crate::ast::Stmt::FnDecl { name, params, .. } = stmt
+            && let Some(p) = params.iter().find(|p| p.name == "__this")
+            && let Some(ann) = &p.type_ann
+            && a.ast.objlit_method_fields.contains_key(ann)
+        {
+            fn_owner.insert(name.clone(), ann.clone());
+        }
+    }
+    if fn_owner.is_empty() {
+        return;
+    }
+    let mut unions: Vec<(SlotKey, SlotKey)> = Vec::new();
+    for (i, e) in a.ast.exprs.iter().enumerate() {
+        let crate::ast::Expr::ObjectLit { fields } = e else {
+            continue;
+        };
+        // A stale arena copy (rewrite passes re-add composites) shares
+        // the live literal's method ExprIds, so it resolves to the same
+        // class — joining it is harmless.
+        let owner = fields.iter().find_map(|(_, fe)| match a.ast.get_expr(*fe) {
+            crate::ast::Expr::Closure { fn_name, .. } => fn_owner.get(fn_name),
+            _ => None,
+        });
+        if let Some(ty) = owner {
+            unions.push((SlotKey::Class(ty.clone()), SlotKey::Anon(i as u32)));
+        }
+    }
+    for (x, y) in unions {
+        a.mark_containerish(&x);
+        a.mark_containerish(&y);
+        a.uf.union(&x, &y);
+    }
+}
+
 /// F5 — vtable-slot ABI hookups: the synthetic `__dispatch_<M>` fn is
 /// lowered as a tag-switch over every owner's `__cm_<C>__<M>`, so the
 /// dispatcher and ALL owners must share one signature width (one

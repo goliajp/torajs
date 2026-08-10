@@ -371,6 +371,7 @@ pub(crate) fn analyze(
     // representative. The fixpoint runs per alias class; queries
     // canonicalize through the frozen union-find.
     container::nominal_unions(&mut a);
+    container::objlit_ctor_unions(&mut a);
     container::dispatch_unions(&mut a);
     a.alias_nominal_unions();
     a.fnsig_nominal_unions();
