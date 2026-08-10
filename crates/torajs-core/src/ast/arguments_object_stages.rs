@@ -213,6 +213,25 @@ pub(super) fn classify_argc_mode(
             ArgcMode::Real { env_first: true }
         }
     } else if tiers.env_fns.contains(name)
+        && body_has_arguments_length(ast, body)
+        && !body_has_non_length_arguments_touch(ast, body)
+    {
+        // S3.4 aftermath (RFC 20260810-indirect-argc-abi L3b ②) — a
+        // length-only env-first body needs NO binding-chain admission:
+        // every env-first call path (direct, indirect, dispatch,
+        // boxed adapter) feeds the S1 hidden argc, so the value
+        // tiers' escape analysis — which existed to prove the
+        // injected-param call sites reachable — has nothing left to
+        // prove. Container-stored / returned / passed-along closures
+        // (the killed shapes) read the true count like any admitted
+        // one. Non-length touches still fall through to KeepLoud
+        // below (values need the argv face).
+        if body_has_arguments_length_write(ast, body) {
+            ArgcMode::RealLocal
+        } else {
+            ArgcMode::Real { env_first: true }
+        }
+    } else if tiers.env_fns.contains(name)
         && (body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body))
     {
         ArgcMode::KeepLoud
