@@ -128,6 +128,8 @@ fn expr_walk(ast: &Ast, eid: ExprId, params: &[String]) -> bool {
         Expr::Delete { expr } => {
             matches!(ast.get_expr(*expr), Expr::Index { obj, .. }
                 if is_arguments_ident(ast, *obj))
+                || matches!(ast.get_expr(*expr), Expr::Member { obj, name }
+                    if name == "length" && is_arguments_ident(ast, *obj))
                 || expr_walk(ast, *expr, params)
         }
         // `arguments[i]` read — absorbed (obj not recursed): the

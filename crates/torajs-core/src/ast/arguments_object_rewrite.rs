@@ -417,6 +417,24 @@ fn rewrite_recurse_arm(
                     args: Vec::new(),
                 });
             }
+            // `delete arguments.length` — the length arm's read
+            // rewrite would fold the operand to a number ("must be
+            // a property reference"); route it as a keyed delete on
+            // the materialized array instead, where the
+            // arguments-length tombstone kernel answers §10.4.4's
+            // configurable delete (S10.6_A5_T3).
+            if matches!(ast.get_expr(expr), Expr::Member { obj, name }
+                if name == "length"
+                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+            {
+                let arr = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+                let key = ast.add_expr(Expr::String("length".into()));
+                let idx = ast.add_expr(Expr::Index {
+                    obj: arr,
+                    index: key,
+                });
+                return ast.add_expr(Expr::Delete { expr: idx });
+            }
             let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
             if e2 == expr {
                 return eid;
