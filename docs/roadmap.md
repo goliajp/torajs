@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `f8146176`** (2026-08-10, rotation 356 — the two orthodox
+**Latest @ `1e1c6083`** (2026-08-11, rotation 358 — five blades on the
+argc/repr seam. Objlit-this receiver fix: a method body reading both
+`this` and a user param split its literal into a width-twin sid (the
+method fn's analyzed F64 ret vs the `__ObjLit_<n>` TypeDecl's static
+I64 parse), so `is_objlit_method_slot`'s alias-sid equality missed and
+the callee read `k` as the receiver (SIGSEGV) — fixed by joining the
+literal onto its nominal class (constructor glue mirroring `__new_C`,
+`nominal_alias_names` now includes `__ObjLit_*`, and pass 0.5's
+TypeDecl fill widens fn-sig faces by field key), which also fixes the
+sibling `this.other()` wrong-register-lane read. S3.5: universal
+beyond-arity admit per ES §13.3.6.1 — the checker's general arity
+gate now evaluates extras for type errors then truncates, retiring
+the name-keyed length-only closure wedge; struct-method dispatch
+emitters skip extras past the declared list (evaluated, released,
+never in argv — the S1 argc slot already carries the real count).
+Two sibling repr holes: a fn-sig-annotated binding initialized from a
+closure-repr IDENT or from a struct's fn-typed FIELD read now keeps
+the cell repr (both used to call_indirect the cell header, EXIT=138).
+Escaped-closure forward face: length-only env-first bodies read the
+S1 hidden argc with NO binding-chain admission — container-stored /
+returned / passed-along closures (previously loud-rejected) now
+answer the true count. Sweep: passTotal 28881 → **28901 (+20)**, bug
++10, trAccepted +30, incompatible **−30**, conservation exact (+30 =
++20 + 10). Verdict moves all forward: incompat→pass 8, incompat→bug
+22 (newly reachable cases exposing their true holes), bug→pass 12;
+true pass regressions **0**; crash/timeout counts flat (138=64,
+139=39, timeout=67). Gate predicate **296 clusters flat / 4813 cases
+(−13) / residue 756 / 982 (−1/−2) / core 5795 (−15)**. Build
+determinism 44/44 (N=12). Conformance gate 2701 → **2705/0/4** (+4
+fixtures + 1 fixture extension, chain zero-red).)
+
+**Previous @ `f8146176`** (2026-08-10, rotation 356 — the two orthodox
 blades from r355's regression triage landed, plus the S3 opening.
 Self-tail-call elimination (egraph SELF_TAIL_CALL, RFC
 20260810-self-tail-call): `return f(args)` self-recursion through a
