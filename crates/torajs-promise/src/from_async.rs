@@ -245,12 +245,35 @@ unsafe fn settle_slot(bits: u64) -> Result<(u64, bool), *mut c_void> {
     }
 }
 
-/// `Array.fromAsync(items, mapfn)` — the mapped form. Single-phase
-/// per element, matching the spec's interleaving: element k awaits
-/// (settled unwrap), `mapfn(value, k)` runs, its result awaits —
-/// so mapfn HAS run for elements before a later rejection and has
-/// NOT run past it. A mapfn throw or a rejected element releases
-/// everything collected and answers the rejection.
+/// §7.4.9 IteratorClose driven by an abrupt completion that is
+/// already a REJECTED verdict promise rather than a pending throw —
+/// the iterator's `return()` runs and anything IT throws is
+/// swallowed (step 6: the original completion wins).
+unsafe fn close_swallow(iter_slot: u64) {
+    unsafe extern "C" {
+        fn __torajs_iter_close_value(iter: u64);
+        fn __torajs_throw_take() -> i64;
+        fn __torajs_throw_take_tag() -> i64;
+    }
+    unsafe {
+        __torajs_iter_close_value(iter_slot);
+        if __torajs_throw_check() != 0 {
+            let tag = __torajs_throw_take_tag();
+            let val = __torajs_throw_take();
+            __torajs_anyv_rc_dec(__torajs_anyv_box_from_pair(tag, val));
+        }
+    }
+}
+
+/// `Array.fromAsync(items, mapfn)` — the mapped form, iterating the
+/// spec's way (proposal §2.1.1 step 3.j): ONE loop in which element
+/// k awaits (settled unwrap), `mapfn(value, k)` runs, and its result
+/// awaits — so an infinite iterable is aborted by the first abrupt
+/// element rather than collected forever. A mapfn throw
+/// (3.j.ii.6.b IfAbruptCloseAsyncIterator), a rejected element
+/// (3.j.ii.5) or a rejected mapped value CLOSES the iterator —
+/// `return()` runs once, its own throw swallowed — and answers the
+/// rejection.
 ///
 /// # Safety
 /// `v` and `cb` are live any-boxed values the caller owns for the
@@ -258,37 +281,58 @@ unsafe fn settle_slot(bits: u64) -> Result<(u64, bool), *mut c_void> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(v: u64, cb: u64) -> *mut c_void {
     unsafe {
+        unsafe extern "C" {
+            fn __torajs_iter_close_abrupt(iter: u64);
+        }
         // §2.1.1 step 2 — IsCallable precedes iteration.
         if !callback_shaped(cb) {
             __torajs_throw_type_error(c"mapfn is not a function".as_ptr());
             return crate::combinator_dyn::reject_with_pending_throw();
         }
-        let items = match collect_items(v, __torajs_any_iter_next_array_like) {
-            Err(rejected) => return rejected,
-            Ok(items) => items,
-        };
-        let mut mapped: Vec<u64> = Vec::with_capacity(items.len());
+        let undef = __torajs_anyv_box_from_pair(5, 0);
+        let mut idx: i64 = 0;
+        let mut iter_slot: u64 = undef;
+        let mut out_v: u64 = undef;
+        let mut mapped: Vec<u64> = Vec::new();
         let mut verdict: Option<*mut c_void> = None;
-        for (i, &bits) in items.iter().enumerate() {
+        let mut i: usize = 0;
+        loop {
+            let has = __torajs_any_iter_next_array_like(v, &mut idx, &mut iter_slot, &mut out_v);
+            if __torajs_throw_check() != 0 {
+                // The step's own abrupt — [[Done]] is true, no close.
+                verdict = Some(crate::combinator_dyn::reject_with_pending_throw());
+                break;
+            }
+            if has == 0 {
+                break;
+            }
+            let bits = out_v;
             let (elem, elem_owned) = match settle_slot(bits) {
                 Ok(pair) => pair,
                 Err(rejected) => {
+                    // 3.j.ii.5 — the element await's abrupt closes.
+                    __torajs_anyv_rc_dec(bits);
+                    close_swallow(iter_slot);
                     verdict = Some(rejected);
                     break;
                 }
             };
             // argv slots are borrows; the index is an immediate.
             let argv = [elem, __torajs_anyv_box_from_pair(2, i as i64)];
+            i += 1;
             let ret = __torajs_any_call(cb, argv.as_ptr(), 2);
             if elem_owned {
                 __torajs_anyv_rc_dec(elem);
             }
+            __torajs_anyv_rc_dec(bits);
             if __torajs_throw_check() != 0 {
-                __torajs_anyv_rc_dec(ret);
+                // 3.j.ii.6.b — the mapfn's abrupt closes, original
+                // completion first (stash-close-restore).
+                __torajs_iter_close_abrupt(iter_slot);
                 verdict = Some(crate::combinator_dyn::reject_with_pending_throw());
                 break;
             }
-            // step 5.j — the mapped value awaits too.
+            // step 3.j.ii.7 — the mapped value awaits too.
             match settle_slot(ret) {
                 Ok((mv, owned)) => {
                     if owned {
@@ -304,14 +348,13 @@ pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(v: u64, cb: u64) -> *
                 }
                 Err(rejected) => {
                     __torajs_anyv_rc_dec(ret);
+                    close_swallow(iter_slot);
                     verdict = Some(rejected);
                     break;
                 }
             }
         }
-        for it in items {
-            __torajs_anyv_rc_dec(it);
-        }
+        __torajs_anyv_rc_dec(iter_slot);
         if let Some(rejected) = verdict {
             for m in mapped {
                 __torajs_anyv_rc_dec(m);
