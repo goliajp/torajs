@@ -25,9 +25,10 @@ use crate::reflect::{
     __torajs_dynobj_get_flags, __torajs_dynobj_get_tag, __torajs_dynobj_get_value,
     __torajs_dynobj_has, __torajs_dynobj_set, __torajs_rc_inc, __torajs_regex_get_last_index,
     __torajs_regex_last_index_raw, __torajs_str_drop, __torajs_throw_type_error, ANY_ACCESSOR,
-    ANY_BOOL, ANY_HEAP, ANY_UNDEF, TAG_ARR, TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, TAG_REGEXP,
-    TAG_STRING_WRAPPER, VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, WRAPPER_PROPS_OFF, alloc_str_key,
-    build_accessor_descriptor, build_data_descriptor, heap_type_tag, is_cell_imm, is_wrapper_tag,
+    ANY_BOOL, ANY_HEAP, ANY_UNDEF, TAG_ARR, TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, TAG_PROMISE,
+    TAG_REGEXP, TAG_STRING_WRAPPER, VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, WRAPPER_PROPS_OFF,
+    alloc_str_key, build_accessor_descriptor, build_data_descriptor, heap_type_tag, is_cell_imm,
+    is_wrapper_tag,
 };
 
 unsafe extern "C" {
@@ -60,6 +61,10 @@ const STR_DATA_OFF: usize = 16;
 /// struct cell's dict sits at the same offset — `torajs-core
 /// ssa_lower::OBJ_PROPS_OFF`).
 const CELL_PROPS_OFF: usize = 24;
+
+/// Promise-cell lazy expando slot (`torajs_dynobj::layout::
+/// PROMISE_PROPS_OFF` mirror — +24 is the callback list).
+const PROMISE_PROPS_OFF: usize = 32;
 
 /// True when the property-key cell is a Symbol rather than a Str.
 ///
@@ -226,6 +231,23 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // `dynobj` is a live Tag::Closure cell; `key` non-NULL (above).
     if htag == TAG_CLOSURE {
         return unsafe { crate::closure_reflect::closure_cell_descriptor(dynobj, key) };
+    }
+    // Rotation 354 — promise cell probes the +32 expando bag and
+    // delegates a hit to the DynObj descriptor path (closure_reflect
+    // step-1 mirror); no virtual own pair — `then` / `catch` are
+    // prototype surface, absent as own.
+    if htag == TAG_PROMISE {
+        let props = unsafe {
+            dynobj
+                .cast::<u8>()
+                .add(PROMISE_PROPS_OFF)
+                .cast::<*const c_void>()
+                .read()
+        };
+        if !props.is_null() && unsafe { __torajs_dynobj_has(props, key as *const u8) } {
+            return unsafe { __torajs_anyv_get_property_descriptor(props as u64, key) };
+        }
+        return VALUE_UNDEFINED_IMM;
     }
     // RFC 20260722 刀 4 — a RegExp instance owns exactly its
     // `lastIndex` (§22.2.4.1 RegExpAlloc: {writable: true,

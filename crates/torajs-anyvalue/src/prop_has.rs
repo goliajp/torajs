@@ -316,6 +316,13 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             // agree.
             (unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }.is_some()) as i64
         }
+        // Rotation 354 — promise bag own probe (the +32 expando the
+        // defineProperty / plain-assign arms write; `then` / `catch`
+        // stay prototype surface, absent as own).
+        Some((ptr, t)) if t == Tag::Promise as u16 => {
+            let props = unsafe { crate::member_get::promise_props(ptr) };
+            (!props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0) as i64
+        }
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
         Some((ptr, t)) if t == Tag::Str as u16 => {
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;

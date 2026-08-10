@@ -228,6 +228,21 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
             }
             1
         }
+        // Rotation 354 — promise bag delete (the +32 expando the
+        // defineProperty / plain-assign arms write): configurability
+        // gate, then the entry drop. No virtual pair and no ctor
+        // statics on an instance cell; a NULL bag answers 1
+        // idempotently (spec success on a nonexistent key).
+        Some((ptr, t)) if t == Tag::Promise as u16 => {
+            let props = unsafe { crate::member_get::promise_props(ptr) };
+            if !props.is_null() {
+                if unsafe { refuse_non_configurable(props as *mut c_void, key, throw_on_refusal) } {
+                    return 0;
+                }
+                unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+            }
+            1
+        }
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             struct_delete(ptr, key, throw_on_refusal)
         },
