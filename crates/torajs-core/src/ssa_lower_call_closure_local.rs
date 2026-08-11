@@ -65,7 +65,7 @@ pub(crate) fn try_lower_with_this(
     // call boxes its args and routes through the boxed dual entry —
     // which has no `__this` slot, so an explicit-this replay stays
     // loud instead of dropping the receiver.
-    if ctx.variadic_locals.contains(callee_name) {
+    if ctx.variadic_locals.contains(callee_name) || global_argv_face_binding(ctx, callee_name) {
         if this_arg.is_some() {
             return None;
         }
@@ -245,9 +245,21 @@ pub(crate) fn try_lower_with_this(
 /// closure binding (`const add = (a, b) => a + b` read from a
 /// named-fn body) materialized from the global ref; the rest of the
 /// lane (env load / argc / arg boxing / CallIndirect) is
-/// shape-identical for both. Variadic globals never promote
-/// (collect gate), so the caller's variadic_locals check stays
-/// local-only by construction.
+/// shape-identical for both.
+/// Rotation 365 — a TOP-LEVEL argv-face binding resolves through the
+/// globals fallback, not `ctx.locals`, so the let-decl lane that
+/// fills `variadic_locals` never saw it (a promoted binding has no
+/// LetDecl lowering in the calling fn). `closure_argv_locals` is the
+/// argv chain's own binding-name record and names exactly the
+/// bindings whose lifted body grew the argc/argv slots — a raw
+/// declared-sig dispatch on one of those reads its argv param off an
+/// arg value (the knife-7 SIGSEGV shape). The locals miss is what
+/// scopes the name key: a fn-local binding of the same name shadows
+/// the global and keeps its own route.
+fn global_argv_face_binding(ctx: &LowerCtx<'_>, callee_name: &str) -> bool {
+    !ctx.locals.contains_key(callee_name) && ctx.ast.closure_argv_locals.contains(callee_name)
+}
+
 pub(crate) fn resolve_closure_binding(
     ctx: &mut LowerCtx<'_>,
     callee_name: &str,

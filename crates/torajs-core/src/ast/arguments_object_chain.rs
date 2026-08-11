@@ -255,30 +255,24 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
     // shadowing body is a real reference the walk can't see through —
     // that still kills the chain.
     //
-    // Knife 7 — the exemption arms ONLY for a binding that stands in
-    // `.bind`-receiver position somewhere: those calls reach the
-    // body through the bind kernel's boxed entry (real argc/argv),
-    // the verified face. A shadow-colliding binding whose only uses
-    // are DIRECT calls stays on the old kill: admitting it routes
-    // the calls down the fn-indirect lane on the DECLARED signature
-    // while the body grows the argc/argv slots — a 5-param body
-    // entered through a 2-param sig read its argv param off garbage
-    // (the 27 new SIGSEGVs of the every/filter/map `-c-i-25` t262
-    // family). Real fix = the var-hoisted binding's rest-tail mint
-    // (L3b); until then the un-exempted shape keeps its loud reject.
+    // Knife 7 originally armed the exemption ONLY for `.bind`-receiver
+    // bindings: at the time an admitted binding's DIRECT calls still
+    // rode the fn-indirect lane on the DECLARED signature while the
+    // body grew argc/argv slots — a 5-param body entered through a
+    // 2-param sig read its argv param off garbage (27 SIGSEGVs across
+    // the every/filter/map `-c-i-25` t262 family). Rotation 365 lifts
+    // the gate: the rest-tail mint that fix required now exists —
+    // `check_type_of_fn` publishes every `closure_argv_fns` member as
+    // `(...args: any[]) => R`, so ALL calls (direct included) ride the
+    // boxed dual entry with real argc/argv, the exact lane the
+    // non-colliding spelling of this shape already takes.
     let shadow_owned: std::collections::HashMap<String, Vec<bool>> = candidates
         .keys()
         .map(|b| {
-            let has_bind_receiver_use = ast.exprs.iter().any(|e| {
-                matches!(e, Expr::Member { obj, name } if name == "bind"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == b))
-            });
-            let owned = if has_bind_receiver_use {
-                super::fnexpr_bind_this::shadowed_use_eids(ast, b)
-            } else {
-                vec![false; ast.exprs.len()]
-            };
-            (b.clone(), owned)
+            (
+                b.clone(),
+                super::fnexpr_bind_this::shadowed_use_eids(ast, b),
+            )
         })
         .collect();
     // RFC 20260808 escape-store profile — the face-position roots
