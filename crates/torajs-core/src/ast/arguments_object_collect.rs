@@ -30,7 +30,7 @@ pub(super) fn collect_value_argc(
     std::collections::HashSet<String>,
     std::collections::HashSet<String>,
 ) {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form: a
     // lifted closure that reads `arguments.length` and is NOT an IIFE
     // has no static call site, so the real argc travels at runtime
@@ -54,7 +54,7 @@ pub(super) fn collect_value_argc(
     let mut value_real_argc: HashSet<String> = HashSet::new();
     // binding name → source lifted-closure fn name (aliases share
     // the source fn).
-    let argc_candidates: HashMap<String, String>;
+    let argc_candidates: Vec<(String, String)>;
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, body, .. } = s {
             if env_fns.contains(name)
@@ -146,9 +146,9 @@ pub(super) fn collect_value_argc(
     // container, returned, etc. must NOT be reshaped: its call
     // sites don't know about the argc slot and would feed the body
     // garbage.
-    let mut injected: HashSet<String> = argc_candidates.values().cloned().collect();
+    let mut injected: HashSet<String> = argc_candidates.iter().map(|(_, f)| f.clone()).collect();
     injected.extend(hof_arg_fns);
-    let argc_locals: HashSet<String> = argc_candidates.keys().cloned().collect();
+    let argc_locals: HashSet<String> = argc_candidates.iter().map(|(b, _)| b.clone()).collect();
     (injected, argc_locals)
 }
 
@@ -194,8 +194,8 @@ pub(super) fn collect_value_argv(
     }
     let candidates =
         super::arguments_object_chain::safe_binding_chain(ast, |fn_name| full.contains(fn_name));
-    let injected: HashSet<String> = candidates.values().cloned().collect();
-    let locals: HashSet<String> = candidates.keys().cloned().collect();
+    let injected: HashSet<String> = candidates.iter().map(|(_, f)| f.clone()).collect();
+    let locals: HashSet<String> = candidates.iter().map(|(b, _)| b.clone()).collect();
     (injected, locals)
 }
 

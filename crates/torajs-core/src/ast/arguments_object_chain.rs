@@ -7,13 +7,15 @@
 
 use super::{Ast, Expr, ExprId, Stmt};
 
+mod dup;
+
 /// Rotation 362 nested tier — every `LetDecl` (name, init) in a
 /// statement subtree, fn-nested bodies and all statement containers
 /// included. The chain's direct/alias seeds walk this instead of the
 /// top-level-only loop, which was the ONLY thing keeping fn-nested
 /// `const f = function () { …arguments… }` bodies loud (the lifted
 /// closure itself is already a top-level FnDecl the tier seeds see).
-fn collect_letdecls_recursive<'a>(body: &'a [Stmt], out: &mut Vec<(&'a str, ExprId)>) {
+pub(super) fn collect_letdecls_recursive<'a>(body: &'a [Stmt], out: &mut Vec<(&'a str, ExprId)>) {
     for s in body {
         match s {
             Stmt::LetDecl { name, init, .. } => out.push((name.as_str(), *init)),
@@ -80,10 +82,7 @@ fn collect_letdecls_recursive<'a>(body: &'a [Stmt], out: &mut Vec<(&'a str, Expr
 /// different scopes) is dropped up front: the two chains would blur
 /// into one — the conservative skip loses the optimization, never
 /// admits wrongly.
-pub(super) fn safe_binding_chain(
-    ast: &Ast,
-    seed: impl Fn(&str) -> bool,
-) -> std::collections::HashMap<String, String> {
+pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<(String, String)> {
     use std::collections::{HashMap, HashSet};
     let mut all_lets: Vec<(&str, ExprId)> = Vec::new();
     collect_letdecls_recursive(&ast.stmts, &mut all_lets);
@@ -288,7 +287,16 @@ pub(super) fn safe_binding_chain(
             .collect();
         candidates.retain(|_, f| !killed_fns.contains(f));
     }
-    candidates
+    let mut pairs: Vec<(String, String)> = candidates.into_iter().collect();
+    pairs.extend(dup::admit_dup_groups(
+        ast,
+        &dup,
+        &seed,
+        &assign_legal,
+        &boxed_face_store,
+        &boxed_arg_sites,
+    ));
+    pairs
 }
 
 /// The kill walk's legal-use set for one candidate binding — every
@@ -322,7 +330,7 @@ pub(super) fn safe_binding_chain(
 ///   TypeError/SIGSEGV pair, gate 8692ca1a').
 ///
 /// Any other use shape kills.
-fn collect_legal_uses(
+pub(super) fn collect_legal_uses(
     ast: &Ast,
     candidates: &std::collections::HashMap<String, String>,
     b_eids: &std::collections::HashSet<u32>,
