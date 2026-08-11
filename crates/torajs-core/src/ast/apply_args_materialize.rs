@@ -41,16 +41,17 @@
 //!
 //! Guarded faces:
 //! - On a top-level FnDecl only `any` / unannotated params convert
-//!   freely. A scalar-typed default converts through the TypedNarrow
-//!   lane ONLY when it references a prior param (`h(k: number,
-//!   m: number = k + 1)`): the call-site pad pasted `k + 1` into the
-//!   CALLER's scope — `unknown identifier k` + runtime
-//!   ReferenceError where §9.2 wants the callee's params
-//!   environment. Any other typed default keeps today's pad /
-//!   `FnDfltLits` channel (the callee is static; zero behavior
-//!   movement).
-//! - On an ArrowFn VALUE (closure / function expression) a
-//!   scalar-typed default (`x: number = 5`) converts through the
+//!   freely. A scalar-typed or fn-shaped default converts through
+//!   the TypedNarrow lane ONLY when it references a prior param —
+//!   directly (`h(k: number, m: number = k + 1)`) or as an arrow's
+//!   capture (`h2(k: number, cb: (x) => x = (x) => x + k)`): the
+//!   call-site pad pasted the expression into the CALLER's scope —
+//!   `unknown identifier k` + runtime ReferenceError where §9.2
+//!   wants the callee's params environment. Any other typed default
+//!   keeps today's pad / `FnDfltLits` channel (the callee is
+//!   static; zero behavior movement).
+//! - On an ArrowFn VALUE (closure / function expression) EVERY
+//!   scalar-typed or fn-shaped default converts through the
 //!   TypedNarrow lane: the closure direct call is a CallIndirect
 //!   with no static callee, so the pad table cannot fire and a
 //!   runtime-undefined `any` argument used to flow through the
@@ -59,7 +60,8 @@
 //!   to a `__dflt_<name>` carrier, its slot widened to `any` (so the
 //!   entry can SEE the undefined box), and the body head gets the
 //!   guard plus `let <name>: <T> = __dflt_<name>` narrowing back to
-//!   the declared scalar — body reads stay typed.
+//!   the declared type — body reads stay typed (the fn-shaped
+//!   narrow is the plain any→closure `let` channel).
 //! - Literal defaults (`b = 5`) on unannotated params ALSO convert:
 //!   §10.2.1.4 fires a default on an explicit `undefined` argument,
 //!   which only a callee-side guard can observe (the pad fills
@@ -72,54 +74,69 @@
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
 /// Whether the default is safe to evaluate inside the callee body —
-/// a recursive WHITELIST over expression shapes. A CAPTURING
-/// function literal (the IIFE shape `_ = (() => { cc++; })()`)
-/// stays on the call-site pad: a closure minted inside a fn body
-/// cannot capture a top-level `let` today (pre-existing "closure
-/// capture not in scope", gate-caught on the first cut of this
-/// pass), while the padded copy sits at the top-level call site
-/// where the capture works. A CLOSED function literal (free-var
-/// set empty after the top-level-FnDecl / builtin filter — the
-/// t262 abrupt template `(function() { throw new Test262Error();
-/// }())`) has no capture to go wrong and converts, which is what
-/// lets an async fn's throwing default reject instead of throwing
-/// synchronously (see [`splice_guards`]). Unknown shapes answer
-/// false — keeping today's behavior is always safe.
-fn body_safe_default(ast: &Ast, e: ExprId, global_fns: &[String]) -> bool {
+/// a recursive WHITELIST over expression shapes. A function literal
+/// converts when its free vars are all PRIOR PARAMS of the owning fn
+/// (`h2(k, cb = (x) => x + k)` — moved into the body, the arrow
+/// captures the param like any body closure, and the params are
+/// bound before the guard runs) or when it is CLOSED (free-var set
+/// empty after the top-level-FnDecl / builtin filter — the t262
+/// abrupt template `(function() { throw new Test262Error(); }())`),
+/// which is what lets an async fn's throwing default reject instead
+/// of throwing synchronously (see [`splice_guards`]). Any OTHER
+/// capture (the IIFE shape `_ = (() => { cc++; })()` reading a
+/// top-level `let`) stays on the call-site pad: a closure minted
+/// inside a fn body cannot capture a top-level `let` today
+/// (pre-existing "closure capture not in scope", gate-caught on the
+/// first cut of this pass), while the padded copy sits at the
+/// top-level call site where the capture works. A LATER-param
+/// capture also stays on the pad — its param may itself convert to a
+/// body `let` declared after this guard, and the capture passes owe
+/// no forward-reference story. Unknown shapes answer false — keeping
+/// today's behavior is always safe.
+fn body_safe_default(ast: &Ast, e: ExprId, global_fns: &[String], prior: &[String]) -> bool {
     match ast.get_expr(e) {
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Ident(_) => true,
         Expr::BinOp { left, right, .. } => {
-            body_safe_default(ast, *left, global_fns) && body_safe_default(ast, *right, global_fns)
+            body_safe_default(ast, *left, global_fns, prior)
+                && body_safe_default(ast, *right, global_fns, prior)
         }
         Expr::Unary { expr, .. } | Expr::As { expr, .. } => {
-            body_safe_default(ast, *expr, global_fns)
+            body_safe_default(ast, *expr, global_fns, prior)
         }
-        Expr::Member { obj, .. } => body_safe_default(ast, *obj, global_fns),
+        Expr::Member { obj, .. } => body_safe_default(ast, *obj, global_fns, prior),
         Expr::Index { obj, index } => {
-            body_safe_default(ast, *obj, global_fns) && body_safe_default(ast, *index, global_fns)
+            body_safe_default(ast, *obj, global_fns, prior)
+                && body_safe_default(ast, *index, global_fns, prior)
         }
         Expr::Ternary {
             cond,
             then_branch,
             else_branch,
         } => {
-            body_safe_default(ast, *cond, global_fns)
-                && body_safe_default(ast, *then_branch, global_fns)
-                && body_safe_default(ast, *else_branch, global_fns)
+            body_safe_default(ast, *cond, global_fns, prior)
+                && body_safe_default(ast, *then_branch, global_fns, prior)
+                && body_safe_default(ast, *else_branch, global_fns, prior)
         }
         Expr::Sequence { left, right } => {
-            body_safe_default(ast, *left, global_fns) && body_safe_default(ast, *right, global_fns)
+            body_safe_default(ast, *left, global_fns, prior)
+                && body_safe_default(ast, *right, global_fns, prior)
         }
         Expr::Call { callee, args } => {
-            body_safe_default(ast, *callee, global_fns)
-                && args.iter().all(|a| body_safe_default(ast, *a, global_fns))
+            body_safe_default(ast, *callee, global_fns, prior)
+                && args
+                    .iter()
+                    .all(|a| body_safe_default(ast, *a, global_fns, prior))
         }
-        Expr::Array(elems) => elems.iter().all(|a| body_safe_default(ast, *a, global_fns)),
+        Expr::Array(elems) => elems
+            .iter()
+            .all(|a| body_safe_default(ast, *a, global_fns, prior)),
         Expr::ObjectLit { fields } => fields
             .iter()
-            .all(|(_, v)| body_safe_default(ast, *v, global_fns)),
+            .all(|(_, v)| body_safe_default(ast, *v, global_fns, prior)),
         Expr::ArrowFn { params, body, .. } => {
-            super::free_vars::free_vars_of_arrow(ast, params, body, global_fns, None).is_empty()
+            super::free_vars::free_vars_of_arrow(ast, params, body, global_fns, None)
+                .iter()
+                .all(|v| prior.contains(v))
         }
         _ => false,
     }
@@ -157,8 +174,13 @@ fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
 ///   wrong, the rotation-275 ref-prior failure shape).
 /// - the `undefined` literal: it is this pass's own pad value — a
 ///   guard assigning `undefined` on undefined is a no-op.
-fn converting_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Option<ExprId> {
-    let d = guardable_default(ast, p, global_fns)?;
+fn converting_default(
+    ast: &Ast,
+    p: &super::Param,
+    global_fns: &[String],
+    prior: &[String],
+) -> Option<ExprId> {
+    let d = guardable_default(ast, p, global_fns, prior)?;
     let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
     if !ann_ok {
         return None;
@@ -168,7 +190,12 @@ fn converting_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Opt
 
 /// The channel-independent half of the conversion gate: a body-safe
 /// default, minus the two exclusions [`converting_default`] documents.
-fn guardable_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Option<ExprId> {
+fn guardable_default(
+    ast: &Ast,
+    p: &super::Param,
+    global_fns: &[String],
+    prior: &[String],
+) -> Option<ExprId> {
     let d = p.default?;
     if p.name == "__yield_arg" {
         return None;
@@ -176,25 +203,33 @@ fn guardable_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Opti
     if matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined") {
         return None;
     }
-    if !body_safe_default(ast, d, global_fns) {
+    if !body_safe_default(ast, d, global_fns, prior) {
         return None;
     }
     Some(d)
 }
 
 /// TypedNarrow gate (module doc "Guarded faces"): a body-safe
-/// default on a scalar-typed param. Answers the declared annotation
-/// so the mutate phase can rebuild the typed local. Every ArrowFn
+/// default on a scalar-typed or fn-shaped param. Answers the
+/// declared annotation so the mutate phase can rebuild the typed
+/// local (the any→closure `let` narrow is the same channel a plain
+/// `let cb: (x: number) => number = someAny` takes). Every ArrowFn
 /// takes this lane; a FnDecl takes it only when the default
 /// references a prior param (see [`refs_prior_param`]).
 fn converting_typed_default(
     ast: &Ast,
     p: &super::Param,
     global_fns: &[String],
+    prior: &[String],
 ) -> Option<(ExprId, String)> {
-    let d = guardable_default(ast, p, global_fns)?;
+    let d = guardable_default(ast, p, global_fns, prior)?;
     let ann = p.type_ann.as_deref()?.trim();
-    if !matches!(ann, "number" | "string" | "boolean") {
+    // Fn-shaped test mirrors `lift_arrow_fns`'s `is_fn_type_ann`.
+    let fn_shaped = ann.starts_with("__cls(")
+        || ann.starts_with("__fn(")
+        || ann.contains("=>")
+        || ann.starts_with('(');
+    if !matches!(ann, "number" | "string" | "boolean") && !fn_shaped {
         return None;
     }
     Some((d, ann.to_string()))
@@ -210,42 +245,40 @@ fn converting_typed_default(
 /// on the pad); compound self/later reads are NOT prior refs and stay
 /// out too — converting one would put the read ahead of its own
 /// `let`, trading a runtime TDZ for a checker reject. Only walks the
-/// shapes [`body_safe_default`] admits; a closed ArrowFn cannot
-/// reference a param (that would be a free var), so it doesn't
-/// descend.
-fn refs_prior_param(ast: &Ast, params: &[super::Param], pi: usize, d: ExprId) -> bool {
+/// shapes [`body_safe_default`] admits; an ArrowFn references a
+/// prior param through its FREE-VAR set (the capture, not a direct
+/// read).
+fn refs_prior_param(
+    ast: &Ast,
+    params: &[super::Param],
+    pi: usize,
+    d: ExprId,
+    global_fns: &[String],
+) -> bool {
+    let rec = |a| refs_prior_param(ast, params, pi, a, global_fns);
     match ast.get_expr(d) {
         Expr::Ident(n) => params[..pi].iter().any(|p| p.name == *n),
-        Expr::BinOp { left, right, .. } => {
-            refs_prior_param(ast, params, pi, *left) || refs_prior_param(ast, params, pi, *right)
+        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
+            rec(*left) || rec(*right)
         }
-        Expr::Unary { expr, .. } | Expr::As { expr, .. } => {
-            refs_prior_param(ast, params, pi, *expr)
-        }
-        Expr::Member { obj, .. } => refs_prior_param(ast, params, pi, *obj),
-        Expr::Index { obj, index } => {
-            refs_prior_param(ast, params, pi, *obj) || refs_prior_param(ast, params, pi, *index)
-        }
+        Expr::Unary { expr, .. } | Expr::As { expr, .. } => rec(*expr),
+        Expr::Member { obj, .. } => rec(*obj),
+        Expr::Index { obj, index } => rec(*obj) || rec(*index),
         Expr::Ternary {
             cond,
             then_branch,
             else_branch,
-        } => {
-            refs_prior_param(ast, params, pi, *cond)
-                || refs_prior_param(ast, params, pi, *then_branch)
-                || refs_prior_param(ast, params, pi, *else_branch)
-        }
-        Expr::Sequence { left, right } => {
-            refs_prior_param(ast, params, pi, *left) || refs_prior_param(ast, params, pi, *right)
-        }
-        Expr::Call { callee, args } => {
-            refs_prior_param(ast, params, pi, *callee)
-                || args.iter().any(|a| refs_prior_param(ast, params, pi, *a))
-        }
-        Expr::Array(elems) => elems.iter().any(|a| refs_prior_param(ast, params, pi, *a)),
-        Expr::ObjectLit { fields } => fields
+        } => rec(*cond) || rec(*then_branch) || rec(*else_branch),
+        Expr::Call { callee, args } => rec(*callee) || args.iter().any(|a| rec(*a)),
+        Expr::Array(elems) => elems.iter().any(|a| rec(*a)),
+        Expr::ObjectLit { fields } => fields.iter().any(|(_, v)| rec(*v)),
+        Expr::ArrowFn {
+            params: aparams,
+            body,
+            ..
+        } => super::free_vars::free_vars_of_arrow(ast, aparams, body, global_fns, None)
             .iter()
-            .any(|(_, v)| refs_prior_param(ast, params, pi, *v)),
+            .any(|v| params[..pi].iter().any(|p| p.name == *v)),
         _ => false,
     }
 }
@@ -382,10 +415,11 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             continue;
         };
         for (pi, p) in params.iter().enumerate() {
-            if let Some(d) = converting_default(ast, p, &global_fns) {
+            let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
+            if let Some(d) = converting_default(ast, p, &global_fns, &prior) {
                 sites.push((si, pi, p.name.clone(), Conv::Any(d)));
-            } else if let Some((d, ann)) = converting_typed_default(ast, p, &global_fns)
-                && refs_prior_param(ast, params, pi, d)
+            } else if let Some((d, ann)) = converting_typed_default(ast, p, &global_fns, &prior)
+                && refs_prior_param(ast, params, pi, d, &global_fns)
             {
                 sites.push((si, pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
             }
@@ -397,9 +431,10 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             continue;
         };
         for (pi, p) in params.iter().enumerate() {
-            if let Some(d) = converting_default(ast, p, &global_fns) {
+            let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
+            if let Some(d) = converting_default(ast, p, &global_fns, &prior) {
                 arrow_sites.push((ei, pi, p.name.clone(), Conv::Any(d)));
-            } else if let Some((d, ann)) = converting_typed_default(ast, p, &global_fns) {
+            } else if let Some((d, ann)) = converting_typed_default(ast, p, &global_fns, &prior) {
                 arrow_sites.push((ei, pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
             }
         }
