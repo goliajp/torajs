@@ -95,19 +95,41 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                     i += 1;
                     continue;
                 }
-                // A body that touches `this` cannot be synthesized
-                // honestly: a dynamic function's sloppy `this` is the
-                // global OBJECT (`Function("return this")()` hands it
-                // back), and tr has no such object — its top level is
-                // its global. The parse appended the body's
-                // expressions after `arena_before`, so scanning that
-                // tail sees every `this` at any depth. Harness
-                // `fnGlobalObject.js` is exactly this shape; it keeps
-                // the loud reject.
+                // A body that touches `this`: a dynamic function is
+                // sloppy (absent a 'use strict' prologue), and a
+                // sloppy function called with an undefined thisArg
+                // binds `this` to the GLOBAL OBJECT (§10.2.1.2
+                // OrdinaryCallBindThis step 5.a.ii) — which tr mints
+                // (the G2 globalThis singleton), so the read rewrites
+                // to the `globalThis` ident and answers the same
+                // object. Harness `fnGlobalObject.js`'s
+                // `Function("return this;")()` is exactly this shape.
+                //
+                // The rewrite is only sound while every `this` in the
+                // tail belongs to the synthesized function itself: a
+                // nested `function` (declaration or expression) owns
+                // its own `this`, and the arena scan is flat — it
+                // cannot tell whose `this` it is looking at. The
+                // nesting judgement is a token scan of the body text
+                // (the `body_lexes_bare_with` precedent): any
+                // `function` keyword keeps the loud reject — a true
+                // arrow (`=>`) pierces `this` to the synthesized
+                // function per §8.3.4, so arrows do not disqualify.
+                // A strict-prologue body keeps the reject too (strict
+                // `this` is undefined, a different rewrite — recorded
+                // follow-up, no test262 demand measured yet).
                 let touches_this = ast.exprs[arena_before..]
                     .iter()
                     .any(|e| matches!(e, Expr::This));
-                if is_the_decl && !touches_this {
+                let this_rewritable = touches_this && !strict_body && !body_lexes_fn_keyword(&body);
+                if this_rewritable {
+                    for e in ast.exprs[arena_before..].iter_mut() {
+                        if matches!(e, Expr::This) {
+                            *e = Expr::Ident("globalThis".into());
+                        }
+                    }
+                }
+                if is_the_decl && (!touches_this || this_rewritable) {
                     let mut decl = parsed.pop().unwrap();
                     // The parse assigned spans relative to the
                     // ASSEMBLED text, but the fn-source registry
@@ -198,6 +220,18 @@ fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option
 /// (`{ with: 1 }`), the two positions where strict mode still allows
 /// the word. A "with" inside a string or comment never lexes as an
 /// Ident, so no textual false positives.
+/// Whether the body text contains a `function` keyword — the
+/// this-rewrite disqualifier (a nested function owns its own `this`).
+/// Token-level like the `with` scan below, so a "function" inside a
+/// string literal does not disqualify; an unlexable body answers
+/// false and the parse-failure arm keeps it loud anyway.
+fn body_lexes_fn_keyword(body: &str) -> bool {
+    let Ok(ts) = lexer::tokenize(body) else {
+        return false;
+    };
+    ts.iter().any(|s| matches!(&s.token, Token::Function))
+}
+
 fn body_lexes_bare_with(body: &str) -> bool {
     let Ok(ts) = lexer::tokenize(body) else {
         return false;
