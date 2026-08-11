@@ -176,11 +176,35 @@ pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
     if ptr.is_null() {
         return false;
     }
-    // SAFETY: a cell-encoded AnyValue points at a live heap block,
-    // whose header is the first `HeapHeader` bytes.
+    unsafe { is_constructor_cell(ptr) }
+}
+
+/// Cell-level half of [`is_constructor`] — recursion point for bound
+/// functions, whose [[Construct]] existence is exactly their target's
+/// (§10.4.1.2: BoundFunctionCreate copies the slot iff the target has
+/// one). A kind-0 bound target is a builtin prototype method — no
+/// [[Construct]] — and a bound-over-bound chain recurses to whatever
+/// sits at the bottom.
+///
+/// # Safety
+/// `ptr` is a live heap cell.
+unsafe fn is_constructor_cell(ptr: *mut c_void) -> bool {
+    // SAFETY: caller guarantees a live heap block, whose header is
+    // the first `HeapHeader` bytes.
     let hdr = unsafe { &*(ptr as *const HeapHeader) };
-    (hdr.type_tag == Tag::DynObj as u16 && hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0)
-        || (hdr.type_tag == Tag::Closure as u16 && hdr.flags & FLAG_FN_PROTO != 0)
+    if hdr.type_tag == Tag::DynObj as u16 && hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0 {
+        return true;
+    }
+    if hdr.type_tag != Tag::Closure as u16 {
+        return false;
+    }
+    if hdr.flags & FLAG_FN_PROTO != 0 {
+        return true;
+    }
+    match unsafe { crate::method_bind::bound_cell_meta(ptr) } {
+        Some((1, target, _)) => unsafe { is_constructor_cell(target as *mut c_void) },
+        _ => false,
+    }
 }
 
 /// ES §7.2.4 IsConstructor as a value-level predicate.
@@ -224,6 +248,28 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
     // SAFETY: is_constructor above proved a live cell header.
     let hdr = unsafe { &*(cell as *const HeapHeader) };
     if hdr.type_tag == Tag::Closure as u16 {
+        // §10.4.1.2 — a bound function constructs its TARGET with
+        // boundArgs ++ args; the bound this plays no part, and for the
+        // unreflected `new BD()` the spec itself swaps newTarget for
+        // the target (step 5), so recursing on the target — which
+        // unwinds bound-over-bound chains outside-in — is exact,
+        // prototype included. The is_constructor gate above already
+        // proved the chain bottoms out at a real constructor.
+        if let Some((1, target, bn)) = unsafe { crate::method_bind::bound_cell_meta(cell) } {
+            let bp = unsafe { crate::method_bind::bound_args_ptr(cell) };
+            let cn = argc.max(0) as usize;
+            let mut merged = vec![VALUE_UNDEFINED; bn + cn];
+            for (i, slot) in merged.iter_mut().enumerate().take(bn) {
+                *slot = unsafe { *bp.add(i) };
+            }
+            for i in 0..cn {
+                merged[bn + i] = unsafe { *argv.add(i) };
+            }
+            let target_av = unsafe { __torajs_anyv_box_pointer(target as *mut c_void) };
+            return unsafe {
+                __torajs_anyv_construct(target_av, merged.as_ptr(), (bn + cn) as i64)
+            };
+        }
         return unsafe { construct_plain_fn(cell, argv, argc) };
     }
     let entry = ctor_entry(as_void_ptr(callee) as u64);

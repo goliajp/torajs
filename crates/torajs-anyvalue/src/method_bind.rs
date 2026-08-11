@@ -157,6 +157,16 @@ pub(crate) unsafe fn bound_cell_meta(ptr: *mut c_void) -> Option<(u64, u64, usiz
     }
 }
 
+/// Raw view of a bound cell's partial-argument block — the construct
+/// kernel's §10.4.1.2 concatenation reads the slots in place (they
+/// stay the cell's own BORROWED references).
+///
+/// # Safety
+/// `ptr` is a live bound cell (`bound_cell_meta` answered `Some`).
+pub(crate) unsafe fn bound_args_ptr(ptr: *mut c_void) -> *const u64 {
+    unsafe { (ptr as *const u8).add(BOUND_ARGS_OFF) as *const u64 }
+}
+
 /// Boxed dual entry of a bound cell — concatenate the partial
 /// arguments with the call's own and dispatch the target.
 unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
