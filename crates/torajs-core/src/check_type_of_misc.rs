@@ -98,6 +98,13 @@ fn receiver_admits_delete(obj_ty: &Type) -> bool {
     match obj_ty {
         Type::Any => true,
         Type::Array(elem) => **elem == Type::Any,
+        // §13.5.1.2 ToObject over a string primitive — the "can the
+        // storage say no-longer-here" question never arises: §10.4.3
+        // makes the wrapper's own face (in-range indices, `length`)
+        // non-configurable, so every delete is either the strict
+        // refusal throw or an absent-key true. The kernel's Str arm
+        // expresses both; nothing is ever removed.
+        Type::String => true,
         _ => false,
     }
 }

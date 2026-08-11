@@ -131,6 +131,20 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
         unsafe { __torajs_dynobj_delete(dict as *mut c_void, key) };
         return 1;
     }
+    // §13.5.1.2 step 5.b ToObject over a STRING primitive — §10.4.3
+    // gives the fresh wrapper an inherent own face (every in-range
+    // canonical index, plus `length`) that is {configurable: false},
+    // so the module-strict delete throws; any other key owns nothing
+    // on a fresh wrapper and the delete answers true. Same judgement
+    // the StringWrapper arm below makes through its inner view.
+    if crate::nanbox::is_short_str(recv)
+        || matches!(recv_cell(recv), Some((_, t)) if t == Tag::Str as u16)
+    {
+        if unsafe { crate::member_get_str::str_own_pair(recv, key) }.is_some() {
+            return unsafe { refuse(throw_on_refusal) };
+        }
+        return 1;
+    }
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => {
             if unsafe { refuse_non_configurable(ptr, key, throw_on_refusal) } {

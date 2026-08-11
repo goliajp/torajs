@@ -19,6 +19,13 @@ impl Parser<'_> {
     /// routes it to the delete node, an early error, or the
     /// non-reference true-lane.
     pub(super) fn parse_delete_operand(&mut self) -> Result<crate::ast::ExprId, String> {
+        // `void <literal>` folds to the plain `undefined` Ident in the
+        // arena (expr_prec), so `delete void 0` and the user-written
+        // `delete undefined` arrive here IDENTICAL. The §13.5.1.1
+        // early error is a SYNTAX judgement, so the source form
+        // decides: an operand that opens with `void` was never an
+        // IdentifierReference, whatever it folded to.
+        let opens_with_void = matches!(self.peek(), crate::lexer::Token::Void);
         let inner = self.parse_unary()?;
         // §13.5.1.1 early error — the operand must not be a private
         // reference (`delete o.#m`), however the receiver is shaped.
@@ -38,6 +45,11 @@ impl Parser<'_> {
         match self.ast.get_expr(inner) {
             Expr::Member { .. } | Expr::Index { .. } => {
                 Ok(self.ast.add_expr(Expr::Delete { expr: inner }))
+            }
+            // The folded `void <literal>` — not a Reference, answers
+            // true (§13.5.1.2 step 2; the literal had no effects).
+            Expr::Ident(n) if n == "undefined" && opens_with_void => {
+                Ok(self.ast.add_expr(Expr::Bool(true)))
             }
             // §13.5.1.1 — `delete x` on an unqualified name is the
             // strict-mode early error. The sloppy-only semantics
