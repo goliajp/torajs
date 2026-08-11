@@ -289,7 +289,7 @@ fn cb_args(
 /// params. `box_to_any` is rc-neutral on every arm and an Any elem
 /// is already a box, so the pack is pure encoding; the adapter's
 /// materialize incs what it stores.
-fn emit_argv_face_call(
+pub(crate) fn emit_argv_face_call(
     ctx: &mut LowerCtx<'_>,
     fn_val: &Operand,
     fn_ty: Type,

@@ -407,18 +407,39 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     let vv_v = load_i64(ctx, vv_slot);
     let k_box = box_pair(ctx, kt_v, kv_v);
     let v_box = box_pair(ctx, vt_v, vv_v);
-    // The Map receiver is passed as the 3rd callback arg per spec.
-    // rc_inc since each iteration transfers a fresh ref into the closure.
-    ctx.emit_rc_inc(recv_op);
-    let mut cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
-    if let Some(t) = &this_arg {
-        cb_args.insert(0, t.clone());
+    // Rotation 363 — an argv-face callback (collector's HOF-anon
+    // arm admits `forEach` on ANY receiver spelling, this channel
+    // included) must not take the direct / devirt call: its
+    // reshaped sig leads with the synthetic argv pointer, and the
+    // positional (value, key, map) would land in it (probe x1:
+    // silent no-op loop). Route through the boxed variadic pack —
+    // borrows only, the adapter's materialize incs what it stores,
+    // so the direct lane's per-iteration transfer inc is skipped.
+    let argv_face = matches!(ctx.ast.get_expr(args[0]),
+        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name));
+    if argv_face {
+        let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
+            ctx,
+            &fn_val,
+            fn_ty,
+            vec![Operand::Value(v_box), Operand::Value(k_box), recv_op],
+            3,
+        );
+    } else {
+        // The Map receiver is passed as the 3rd callback arg per
+        // spec. rc_inc since each iteration transfers a fresh ref
+        // into the closure.
+        ctx.emit_rc_inc(recv_op);
+        let mut cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
+        if let Some(t) = &this_arg {
+            cb_args.insert(0, t.clone());
+        }
+        let sig_skip = usize::from(this_arg.is_some());
+        let _ = match known_fid {
+            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, sig_skip, 3),
+            None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
+        };
     }
-    let sig_skip = usize::from(this_arg.is_some());
-    let _ = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, sig_skip, 3),
-        None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
-    };
     // §24.1.3.9 / §24.2.3.6 step 8.a.iii ReturnIfAbrupt — a throwing
     // callback ends the walk (previously the loop swallowed it).
     ctx.emit_throw_check(known_fid);
