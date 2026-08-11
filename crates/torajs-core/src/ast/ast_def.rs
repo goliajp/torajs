@@ -460,12 +460,23 @@ pub struct Ast {
     /// RFC 20260801-arguments-method-face knife 4a — `__cm_` method
     /// bodies admitted to the runtime argv face: reached only through
     /// member-value reads (zero arena Ident references), so every
-    /// call rides the boxed adapter, which forwards true argc/argv
-    /// into the injected `__torajs_real_argc` / `__torajs_argv`
-    /// params. The checker reads this to strip THREE leading params
-    /// (`__this` + the two synthetics) when answering the method's
-    /// value type, instead of the usual one.
+    /// call rides the boxed adapter, which forwards the true argc
+    /// into the S1 hidden sig slot (S1-T1/T2) and the argv pointer
+    /// into the injected `__torajs_argv` param. The checker reads
+    /// this to strip TWO leading params (`__this` + argv) when
+    /// answering the method's value type, instead of the usual one.
     pub method_argv_fns: std::collections::HashSet<String>,
+    /// RFC 20260810-indirect-argc-abi H1 — head-less top-level fns
+    /// on the T-31 real-argc tier (`arguments.length` readers with
+    /// no `__env`/`__this` head). Their SSA sig carries the hidden
+    /// I64 `__torajs_argc` at position 0 (no head to sit behind);
+    /// the direct-call terminal consults this set to shift its
+    /// param-type reads past the slot and prepend the argc operand.
+    /// Head-less bodies have no self-describing param marker (the
+    /// injected `__torajs_real_argc` retires with the H blades), so
+    /// the family needs this side table where the env/this tiers key
+    /// on param names.
+    pub headless_argc_fns: std::collections::HashSet<String>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a

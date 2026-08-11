@@ -44,6 +44,13 @@ pub(crate) fn emit(
     args: &[ExprId],
 ) -> Operand {
     let mut target = resolve_target(ctx, eid, callee);
+    // RFC 20260810-indirect-argc-abi H1 — a head-less T-31 callee's
+    // sig carries the hidden I64 `__torajs_argc` at position 0. The
+    // AST face (and so `args`) never sees it: every param-type read
+    // below shifts past the slot, and the argc operand is prepended
+    // only at the very end, right before the `Call` emit — inserting
+    // earlier would shift the pad/coerce/dflt-lit zips off by one.
+    let hidden_off = headless_hidden_off(ctx, eid, callee);
     // Chunk 641 — an empty `[]` arg allocs with the PARAM's layout
     // (checker admit `empty_lit_into_arr` pairs here); every other
     // arg lowers plain.
@@ -55,7 +62,7 @@ pub(crate) fn emit(
         .iter()
         .enumerate()
         .map(|(i, a)| {
-            let expected = param_tys.as_ref().and_then(|ps| ps.get(i));
+            let expected = param_tys.as_ref().and_then(|ps| ps.get(i + hidden_off));
             if let Some(op) = ctx.try_lower_empty_array_arg(*a, expected) {
                 return op;
             }
@@ -127,13 +134,22 @@ pub(crate) fn emit(
     // signature. Owned-shape extras were snapshotted with the rest
     // and release after the call.
     if let Some(ps) = &param_tys
-        && argv.len() > ps.len()
+        && argv.len() > ps.len() - hidden_off
     {
-        argv.truncate(ps.len());
+        argv.truncate(ps.len() - hidden_off);
     }
     target = maybe_swap_math_sum_precise(ctx, target, &argv);
     pad_trailing_undef(ctx, eid, &mut argv);
-    let coerce_owned = coerce_args(ctx, target, args, &mut argv);
+    let coerce_owned = coerce_args(ctx, target, hidden_off, args, &mut argv);
+    // H1 — prepend the argc operand LAST, after every positional zip
+    // above has run against the user-aligned argv. The count is the
+    // call's argument-expression count (during the H1 double-feed
+    // the AST-prepended argc arg rides in it — the slot has no
+    // readers until H2 retires that prepend, which also removes the
+    // extra arg and makes this count the true user argc).
+    if hidden_off == 1 {
+        argv.insert(0, Operand::ConstI64(args.len() as i64));
+    }
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
     // Chunk 806 — a void callee has no return value; consuming the
@@ -164,6 +180,23 @@ pub(crate) fn emit(
         ctx.emit_drop_value(op, ty);
     }
     result
+}
+
+/// H1 — 1 when the callee is a head-less T-31 body (hidden argc at
+/// sig position 0), 0 otherwise. Keyed by name — the mono retarget
+/// name when the checker recorded one (clones are mirrored into the
+/// side table), the direct Ident otherwise. Non-Ident callees can't
+/// reach a head-less body (value escapes ride the `__forward_` relay,
+/// itself an env-first closure).
+fn headless_hidden_off(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) -> usize {
+    let name = if let Some(n) = ctx.call_retargets.get(&eid) {
+        n.as_str()
+    } else if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(callee) {
+        n.as_str()
+    } else {
+        return 0;
+    };
+    usize::from(ctx.ast.headless_argc_fns.contains(name))
 }
 
 fn resolve_target(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) -> FuncId {
@@ -233,6 +266,7 @@ pub(crate) fn pad_undef_n(ctx: &mut LowerCtx<'_>, n: usize, argv: &mut Vec<Opera
 fn coerce_args(
     ctx: &mut LowerCtx<'_>,
     target: FuncId,
+    hidden_off: usize,
     args: &[ExprId],
     argv: &mut [Operand],
 ) -> Vec<(Operand, Type)> {
@@ -251,8 +285,12 @@ fn coerce_args(
     let Some(sig_id) = ctx.fn_sig_ids.get(&target).copied() else {
         return Vec::new();
     };
-    let param_tys = ctx.fn_sigs[sig_id.0 as usize].0.clone();
-    apply_runtime_dflt_lits(ctx, target, &param_tys, argv);
+    // H1 — cut the head-less hidden slot off both sig-aligned lists
+    // (param types here, dflt lits inside apply_runtime_dflt_lits)
+    // so every zip below stays user-aligned; the argc operand is
+    // prepended after coercion, in `emit`.
+    let param_tys = ctx.fn_sigs[sig_id.0 as usize].0[hidden_off..].to_vec();
+    apply_runtime_dflt_lits(ctx, target, hidden_off, &param_tys, argv);
     coerce_args_by_param_tys(ctx, &param_tys, args, argv)
 }
 
@@ -269,13 +307,17 @@ fn coerce_args(
 fn apply_runtime_dflt_lits(
     ctx: &mut LowerCtx<'_>,
     target: FuncId,
+    hidden_off: usize,
     param_tys: &[Type],
     argv: &mut [Operand],
 ) {
     let Some(lits) = ctx.fn_dflt_lits.get(&target) else {
         return;
     };
-    let lits = lits.clone();
+    // The lits table is sig-aligned; `param_tys` arrives with the
+    // head-less hidden slot already cut, so cut the same prefix here
+    // to keep the zip user-aligned (H1).
+    let lits = lits[hidden_off.min(lits.len())..].to_vec();
     for (i, expected) in param_tys.iter().enumerate() {
         if i >= argv.len() {
             break;

@@ -50,6 +50,7 @@ pub(crate) fn this_first_hidden_argc(params: &[crate::ast::Param]) -> bool {
 /// least one qualifying literal enter the map.
 fn dflt_lits_of_params(
     ast: &Ast,
+    name: &str,
     params: &[crate::ast::Param],
 ) -> Option<Vec<Option<crate::ssa_lower_boxed_entry::DfltLit>>> {
     use crate::ssa_lower_boxed_entry::DfltLit;
@@ -65,6 +66,8 @@ fn dflt_lits_of_params(
     }
     if params.first().is_some_and(|p| p.name == "__env") || this_first_hidden_argc(params) {
         lits.insert(1, None);
+    } else if ast.headless_argc_fns.contains(name) {
+        lits.insert(0, None);
     }
     Some(lits)
 }
@@ -188,6 +191,12 @@ pub(crate) fn run(
             // note above).
             if params.first().is_some_and(|p| p.name == "__env") || this_first_hidden_argc(params) {
                 param_tys.insert(1, Type::I64);
+            } else if ast.headless_argc_fns.contains(name) {
+                // H1 — the head-less tier has no head param, so
+                // "right after the head" degenerates to sig position
+                // 0. Same def-side twin in `setup_fn_params`; the
+                // direct-call terminal prepends the argc operand.
+                param_tys.insert(0, Type::I64);
             }
             let mut ret_ty = effective_ret_ty(
                 parse_type(
@@ -228,7 +237,7 @@ pub(crate) fn run(
             // FnAddr's result type. M2 Phase B Stage 4.
             let sig_id = intern_fn_sig(fn_sigs, param_tys, ret_ty);
             fn_sig_ids.insert(fid, sig_id);
-            if let Some(lits) = dflt_lits_of_params(ast, params) {
+            if let Some(lits) = dflt_lits_of_params(ast, name, params) {
                 fn_dflt_lits.insert(fid, lits);
             }
             module.funcs.push(ssa::Function::new(name.clone(), ret_ty));

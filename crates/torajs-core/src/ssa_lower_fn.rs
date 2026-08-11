@@ -100,6 +100,7 @@ pub(crate) fn lower_fn(
         &mut f,
         name,
         params,
+        ast.headless_argc_fns.contains(name),
         aliases,
         arr_layouts,
         fn_sigs,
@@ -239,6 +240,7 @@ fn setup_fn_params(
     f: &mut ssa::Function,
     name: &str,
     params: &[ast::Param],
+    headless_hidden: bool,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -252,6 +254,13 @@ fn setup_fn_params(
 ) {
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     let mut variadic_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // RFC 20260810-indirect-argc-abi H1 — a head-less T-31 body's
+    // hidden argc sits at sig position 0 (no head to follow), so the
+    // def-side twin binds before the param loop.
+    if headless_hidden {
+        let apid = f.add_param(Type::I64, "__torajs_argc");
+        param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
+    }
     for p in params {
         if p.type_ann.as_deref().is_some_and(|a| a.contains("__rest(")) {
             variadic_locals.insert(p.name.clone());

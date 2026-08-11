@@ -224,6 +224,11 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     let method_argv_fns =
         super::arguments_object_method_argv::collect_method_argv(ast, &excluded, &iife_static_argv);
     ast.method_argv_fns = method_argv_fns.clone();
+    // RFC 20260810-indirect-argc-abi H1 — record the final head-less
+    // tier membership: the SSA sig side (pass 1 / setup_fn_params /
+    // direct-call terminal) keys the hidden-argc slot on this set,
+    // and the mono pass mirrors clones into it.
+    ast.headless_argc_fns = uses_real_argc.clone();
 
     inject_argc_params(ast, &uses_real_argc, &value_argv_fns, &method_argv_fns);
 
