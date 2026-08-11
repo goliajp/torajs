@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T06:14:14.201Z",
+  "generatedAt": "2026-08-11T08:32:07.481Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T06:07:29Z",
-    "headSha": "d78edd54",
-    "elapsedSec": 320.33,
+    "ranAt": "2026-08-11T08:27:23Z",
+    "headSha": "81175cd5",
+    "elapsedSec": 318.96,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.37
   },
   "torajs": {
-    "commit": "5776b036",
-    "commitSubject": "refactor: split seed_objlit_aliases out of safe_binding_chain (rotation-362 close audit - the dup-group wiring pushed the fn to 215 lines past the 200 hard limit; the knife-4c objlit-field + var-hoisted alias seeding moves verbatim to a free fn returning the assign_legal whitelist, safe_binding_chain back to 163)",
+    "commit": "81175cd5",
+    "commitSubject": "feat: reduce/reduceRight join the argv-face HOF channels (the reducer's argv_face branch packs the whole §23.1.3.24 «previousValue, currentValue, currentIndex, O» through the boxed variadic dispatch - reduce_args grows the index/source slots under argv_face regardless of declared arity; the collector and chain whitelists take the two method names, and the checker's sister route mirrors the lane's resolve_acc_ty: callback ret widened to Any when the seed or the 1-arg first element doesn't share it, so the checker's answer and the acc slot's SSA type always agree; probe r1 six shapes tr==bun including reduceRight, a binding reducer and a string seed)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "81175cd5",
+      "subject": "feat: reduce/reduceRight join the argv-face HOF channels (the reducer's argv_face branch packs the whole §23.1.3.24 «previousValue, currentValue, currentIndex, O» through the boxed variadic dispatch - reduce_args grows the index/source slots under argv_face regardless of declared arity; the collector and chain whitelists take the two method names, and the checker's sister route mirrors the lane's resolve_acc_ty: callback ret widened to Any when the seed or the 1-arg first element doesn't share it, so the checker's answer and the acc slot's SSA type always agree; probe r1 six shapes tr==bun including reduceRight, a binding reducer and a string seed)"
+    },
+    {
+      "hash": "c0a8a584",
+      "subject": "feat: bindings at the HOF callback slot join the argv face (the safe-chain walk killed const f = function(){arguments[0]}; xs.map(f) at the map arg position; the slot is boxed-only consumption on every downgraded channel - array inline loops, Map/Set forEach, any-lane and struct-method receivers all route argv-face callees through the boxed variadic pack - so the chain's boxed_arg_sites now whitelists map/filter/forEach callback slots, the three lanes' argv_face predicate grows the Ident-resolving-to-argv-local arm, and the checker's sister route accepts the binding spelling; a mis-hit on a shadowed same-named non-argv binding only costs the devirt, not correctness, because the boxed dual entry is every closure's universal protocol; one binding may serve several slots, each use legal independently - probe k3)"
+    },
+    {
+      "hash": "f3cc747e",
+      "subject": "fix: Map/Set forEach routes argv-face callbacks through the boxed variadic pack (the collector's HOF-anon arm keys on the method NAME, so forEach admits on any receiver spelling - but only the array inline loops had the downgrade; the map/set dispatch loops still direct-called, landing the positional (value, key, map) in the reshaped sig's argv-pointer slot and running the walk as a silent no-op, probe x1 printed nothing where bun prints 3 a / 7; emit_argv_face_call goes pub(crate) and both dispatch loops branch to it, skipping the direct lane's per-iteration transfer inc since the pack borrows and the adapter's materialize incs what it stores; TypedArray globals are unimplemented so no third channel exists)"
+    },
+    {
+      "hash": "04f66c62",
+      "subject": "feat: anonymous HOF callbacks reading arguments values join the argv face on map/filter/forEach (the inline fn-expr has no binding for the safe-chain walk, but the shape needs no proof - its only consumer is the one callback slot, so a new collector arm admits it when the closure name has exactly one arena reference and no this promotion; the checker grows a sister route answering Array<R>/Array<T>/Void for the variadic public type the face mints, and the inline loop routes argv-face callees through the boxed variadic dispatch - emit_argv_face_call packs the full «kValue, k, O» into a stack argv via the extracted emit_variadic_call_conv half, cb_arity forced to 3 so the declared-arity truncation never starves the pack; reduce family and the binding-chain HOF-arg form stay loud, recorded next knives; probe m4 eight shapes tr==bun including spread and out-of-range)"
+    },
+    {
+      "hash": "c7a205fe",
+      "subject": "fix: HOF inline-loop lanes state the spec argument count in the hidden argc (the call_fn_value family derived argc from the physical arg list, but the lanes only materialize the slots the callback sig can receive - [10,20].map(function(){return arguments.length}) answered 1 where §23.1.3.18 passes «kValue, k, O» = 3, same understatement across filter/forEach/predicate/flatMap (3), reduce family (4, §23.1.3.24), Array.from mapFn (2, §23.1.2.1), Map/Set forEach (3) and the sort comparator (2, already physically full); every call_fn_value/call_fn_value_devirt caller is a builtin HO lane, so spec_argc becomes a required parameter each lane states explicitly and the physical list stays an unobservable transport optimization; safe because the argc consumers are the arguments faces - the argv face cannot reach these lanes (still loud) and rest packing is a call-site desugar; surfaced by the r362 HOF-callback probe family)"
+    },
+    {
+      "hash": "5e9ff442",
+      "subject": "docs: rotation 362 close - arguments value-read triple (container-store/nested/dup-name argv-face via shared chain walk), ternary typed:null and any-nullish join silent-wrong fixes, sweep +10 conserved all-forward zero regressions, dashboard refresh"
+    },
+    {
       "hash": "5776b036",
       "subject": "refactor: split seed_objlit_aliases out of safe_binding_chain (rotation-362 close audit - the dup-group wiring pushed the fn to 215 lines past the 200 hard limit; the knife-4c objlit-field + var-hoisted alias seeding moves verbatim to a free fn returning the assign_legal whitelist, safe_binding_chain back to 163)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "4515c171",
       "subject": "feat: container-stored fn-exprs join the arguments argv face (l3b - array-literal element positions are boxed-only consumption so the binding-chain kill walk admits them alongside the escape-store/arg-position profiles; a rest-tail closure value callee like box[0](...) routes through the boxed dual entry via emit_variadic_boxed_call mirroring the struct-field variadic arm, instead of the declared-sig env-first callindirect that fed the injected argv params garbage; safe_binding_chain + collect_legal_uses split to arguments_object_chain sibling under the 500-line rule)"
-    },
-    {
-      "hash": "f13e48f7",
-      "subject": "docs: rotation 361 close - l3b parallel-face four-clear (closure/fndecl typed+fnsig defaults via typednarrow lane, generic fn value escape via anywv clone), ternary widen orphaned-block fix, sweep +1 conserved zero regressions, dashboard refresh"
-    },
-    {
-      "hash": "e6703f30",
-      "subject": "feat: implicit-generic fn values escape through an all-any clone (l3b-3 - a let-bound generic fn's typevar face rejected every callindirect argument; the let-decl check widens the binding face and records the site, check_monomorph_any_widen drains it through a parameterized emit_widened_spec into a $$anywv spec, and the ident lowering takes the clone's address via the existing call_retargets channel)"
-    },
-    {
-      "hash": "125c8044",
-      "subject": "feat: fn-shaped defaults capturing a prior param evaluate in the callee (l3b-4 fn-sig shape - typednarrow ann gate admits fn-shaped anns riding the any-to-closure let narrow, body_safe_default relaxes the arrow arm from closed-only to free-vars-within-prior-params, refs_prior_param reads an arrow's capture set; unannotated params with the same capturing default ride the relaxation on the any lane)"
-    },
-    {
-      "hash": "d5522261",
-      "subject": "feat: fndecl scalar-typed defaults that read a prior param evaluate in the callee (l3b-4 scalar shape - typednarrow lane extends to fndecls gated on refs_prior_param, so the pad no longer pastes the expression into the caller's scope; guard/pad construction shared between the fndecl and arrowfn walks; plain typed literal defaults keep the pad channel untouched)"
-    },
-    {
-      "hash": "204d1afd",
-      "subject": "fix: ternary widen tracks blocks the box lanes open (widen_branches ends are now in-out - box_f64_or_undef splits into undef/num/merge for a possibly-sentinel f64, and the join's store/br used to land on the stale branch end, overwriting the box's condbr and orphaning its merge block: regalloc valueid-not-allocated, sigsegv with egraph off; latent for every 'cond ? typedArr[i] : undefined' join since the oob-read rfc, exposed by the l3b-1 typednarrow lane feeding undefined defaults into the spread ternary expansion)"
-    },
-    {
-      "hash": "e0c29231",
-      "subject": "feat: closure scalar-typed defaults fire on runtime undefined (l3b-1 route a - arrowfn typednarrow lane renames the param to a __dflt any carrier, body-head guard + let narrow back to the declared scalar; plus the pre-existing any-to-boolean let-narrow hole - bool row was missing from the binding-boundary kind table so a false box read as true)"
     }
   ],
-  "headSha": "5776b036",
+  "headSha": "81175cd5",
   "autorun": {
-    "total": 665,
+    "total": 666,
     "baselineTarget": 10,
-    "bySelf": 660,
+    "bySelf": 661,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786416953-3012",
-      "at": "2026-08-11T02:55:53Z",
-      "ts": 1786416953,
+      "rotationId": "r-1786428897-3a24",
+      "at": "2026-08-11T06:14:57Z",
+      "ts": 1786428897,
       "trigger": "self",
-      "prevHead": "f13e48f7",
-      "handoffSha": "sha256:2097f696bb41e5027a56fca8567238accbfb429e78f0d885ff26328505bc9a11",
-      "handoffAgeSec": 538,
+      "prevHead": "5e9ff442",
+      "handoffSha": "sha256:4ecafed5907d11ff99ec950bb83658354511b1885a57ec0c431f279f88f74eed",
+      "handoffAgeSec": 16,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786428897-3a24",
+        "at": "2026-08-11T06:14:57Z",
+        "ts": 1786428897,
+        "trigger": "self",
+        "prevHead": "5e9ff442",
+        "handoffSha": "sha256:4ecafed5907d11ff99ec950bb83658354511b1885a57ec0c431f279f88f74eed",
+        "handoffAgeSec": 16,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786416953-3012",
         "at": "2026-08-11T02:55:53Z",
@@ -876,17 +887,6 @@
         "prevHead": "22e3103b",
         "handoffSha": "sha256:c63750aa89b213a0084846b5f1cd31ff5617ecd0f66b36d5847d0e4aa3045dc8",
         "handoffAgeSec": 25,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786340869-35a7",
-        "at": "2026-08-10T05:47:49Z",
-        "ts": 1786340869,
-        "trigger": "self",
-        "prevHead": "d2d2094e",
-        "handoffSha": "sha256:18837f8fca745c5acdf8feabbefe0d032a74fbc0bc9703d011c0c72b39d63201",
-        "handoffAgeSec": 33,
         "conformanceBefore": null,
         "commitsInSession": null
       }
