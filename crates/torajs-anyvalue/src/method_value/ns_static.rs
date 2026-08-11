@@ -127,29 +127,8 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 putc_stdout(b'\n');
                 VALUE_UNDEFINED
             }
-            Disp::ParseInt => {
-                let v = arg_at(argv, argc, 0);
-                let s = crate::nanbox_ffi::__torajs_anyv_to_str(v);
-                if __torajs_throw_check() != 0 {
-                    return VALUE_UNDEFINED;
-                }
-                let Ok(radix) = arg_num(argv, argc, 1) else {
-                    __torajs_str_drop(s);
-                    return VALUE_UNDEFINED;
-                };
-                let n = __torajs_num_parse_int(s as *const u8, to_i64_mod32(radix));
-                __torajs_str_drop(s);
-                box_double(n)
-            }
-            Disp::ParseFloat => {
-                let s = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 0));
-                if __torajs_throw_check() != 0 {
-                    return VALUE_UNDEFINED;
-                }
-                let n = __torajs_num_parse_float(s as *const u8);
-                __torajs_str_drop(s);
-                box_double(n)
-            }
+            Disp::ParseInt => parse_int_value(argv, argc),
+            Disp::ParseFloat => parse_float_value(argv, argc),
             Disp::NumPredicate(p) => box_bool(num_predicate(p, arg_at(argv, argc, 0))),
             Disp::ArrayIsArray => {
                 let v = arg_at(argv, argc, 0);
@@ -268,7 +247,53 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 );
                 VALUE_UNDEFINED
             }
+            Disp::GlobalNumTest { finite } => global_num_test(*finite, argv, argc),
         }
+    }
+}
+
+/// §19.2.5 parseInt arm — ToString the input (may throw), ToInt32
+/// the radix, then the typed-tier parse kernel.
+unsafe fn parse_int_value(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let s = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let Ok(radix) = arg_num(argv, argc, 1) else {
+            __torajs_str_drop(s);
+            return VALUE_UNDEFINED;
+        };
+        let n = __torajs_num_parse_int(s as *const u8, to_i64_mod32(radix));
+        __torajs_str_drop(s);
+        box_double(n)
+    }
+}
+
+/// §19.2.4 parseFloat arm — ToString the input (may throw), then
+/// the typed-tier parse kernel.
+unsafe fn parse_float_value(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let s = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let n = __torajs_num_parse_float(s as *const u8);
+        __torajs_str_drop(s);
+        box_double(n)
+    }
+}
+
+/// §19.2.2/.3 global isFinite / isNaN arm — ToNumber first (unlike
+/// the Number.* predicates), so a Symbol / BigInt argument throws
+/// and the 0-arg call tests ToNumber(undefined) = NaN.
+unsafe fn global_num_test(finite: bool, argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let n = crate::nanbox_ffi::__torajs_anyv_to_number(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        box_bool(if finite { n.is_finite() } else { n.is_nan() })
     }
 }
 

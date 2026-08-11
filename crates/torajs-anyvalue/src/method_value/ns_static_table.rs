@@ -355,6 +355,12 @@ pub(super) enum Disp {
     /// the cell exists for identity / typeof / the reflection
     /// surfaces).
     EvalDyn,
+    /// §19.2.2/.3 the global `isFinite` / `isNaN` — ToNumber
+    /// coercion first (may throw on Symbol / BigInt), then the
+    /// float test. The Number.* `NumPredicate` arms never coerce.
+    GlobalNumTest {
+        finite: bool,
+    },
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -484,4 +490,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectOwnKeys,
     Disp::ReflectConstructDyn,
     Disp::EvalDyn,
+    Disp::GlobalNumTest { finite: true },
+    Disp::GlobalNumTest { finite: false },
 ];

@@ -260,6 +260,13 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // TypeError. Keyed under `globalThis` (its owning object).
     // Length 1 per spec.
     row("globalThis", "eval", 1),
+    // §19.2.2 / §19.2.3 the global `isFinite` / `isNaN` as VALUES —
+    // NOT the Number.* predicates (§21.1.2.2/.4 never coerce; the
+    // globals apply ToNumber first, which may throw on Symbol /
+    // BigInt — bun agrees `isNaN !== Number.isNaN`). Keyed under
+    // `globalThis` (their owning object). Lengths 1 per spec.
+    row("globalThis", "isFinite", 1),
+    row("globalThis", "isNaN", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
