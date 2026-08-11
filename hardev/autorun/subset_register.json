@@ -1,0 +1,15 @@
+{
+  "_doc": "Subset-decision register (roadmap P-SURF S7.2). Each entry attributes test262 core-incompatible cases to a recorded decision instead of an implementation. cluster_incompat.py applies each entry's predicate mechanically and reports attributed mass beside the gate numbers. Sign-off is delegated per takagi 2026-08-11 (decide-by-principles); entries remain takagi-vetoable.",
+  "entries": [
+    {
+      "id": "SR-1",
+      "title": "sloppy-only surface (noStrict-flagged cases)",
+      "predicate": { "kind": "test262-flag", "flag": "noStrict" },
+      "decided": "2026-08-11",
+      "head_at_decision": "c025fd3f",
+      "count_at_decision": 752,
+      "signoff": "agent, per takagi delegation 2026-08-11; takagi retains veto",
+      "rationale": "tr's language surface is TypeScript modules; module code is always strict (ES §16.2). The reference baseline bun runs .ts as ESM — the same always-strict surface. A noStrict-flagged case requires sloppy semantics for its assertions to hold and is not expressible as a TS module on either runtime: a language-definition boundary, not a missing feature. A sloppy/script mode would be a product-surface expansion foreign to TS; if ever authorized it becomes a post-v1.0 roadmap phase and this entry retires. Does NOT cover strict-semantics gaps where tr still leaks sloppy behaviour (e.g. the B.3.3 block-fn leak) — those stay implementation debt."
+    }
+  ]
+}

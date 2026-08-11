@@ -34,6 +34,7 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 
 # Replace the parts of a message that vary per case with placeholders,
 # so the remaining skeleton is the signature. Order matters: quoted
@@ -124,6 +125,55 @@ def feature_dir(path: str, depth: int = 3) -> str:
     return "/".join(path.split("/")[:depth])
 
 
+FLAGS_RE = re.compile(r"flags:\s*\[([^\]]*)\]")
+FRONTMATTER_RE = re.compile(r"/\*---(.*?)---\*/", re.S)
+
+
+def load_register():
+    """Load the subset-decision register (roadmap S7.2) next to this
+    script. Missing file = empty register, never an error — the census
+    must stay runnable on a bare checkout."""
+    reg_path = Path(__file__).with_name("subset_register.json")
+    if not reg_path.exists():
+        return []
+    return json.loads(reg_path.read_text())["entries"]
+
+
+def attributed_paths(entries, paths):
+    """Map register entries to the subset of `paths` each predicate
+    attributes. Predicates are mechanical — anything that needs
+    eyeballing does not belong in the register. The test262 corpus is
+    resolved relative to the repo root (two levels up from this
+    script); if it is absent the predicate CANNOT run, and the honest
+    answer is to attribute nothing and say so, not to guess."""
+    corpus = Path(__file__).resolve().parents[2] / "vendor" / "test262"
+    out = {}
+    for e in entries:
+        pred = e["predicate"]
+        if pred["kind"] == "test262-flag":
+            if not corpus.is_dir():
+                print(f"  !! register {e['id']}: corpus not found at {corpus}, predicate skipped")
+                out[e["id"]] = set()
+                continue
+            hit = set()
+            for p in paths:
+                try:
+                    src = (corpus / p).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                m = FRONTMATTER_RE.search(src)
+                if not m:
+                    continue
+                fl = FLAGS_RE.search(m.group(1))
+                if fl and pred["flag"] in fl.group(1):
+                    hit.add(p)
+            out[e["id"]] = hit
+        else:
+            print(f"  !! register {e['id']}: unknown predicate kind {pred['kind']!r}, skipped")
+            out[e["id"]] = set()
+    return out
+
+
 def main() -> None:
     src = sys.argv[1] if len(sys.argv) > 1 else "incompat.ndjson"
     top = int(sys.argv[2]) if len(sys.argv) > 2 else 40
@@ -172,16 +222,33 @@ def main() -> None:
 
     # The gate predicate. Keep this block last and keep its shape stable:
     # the rotation-close report quotes these four numbers verbatim, and
-    # a moved line is a broken report.
-    big = [(s, p) for s, p in ranked if len(p) >= 4]
-    small = [(s, p) for s, p in ranked if len(p) <= 3]
+    # a moved line is a broken report. Since 2026-08-11 the four numbers
+    # are register-aware: the predicate counts *unattributed* clusters
+    # (roadmap S7.2 — "resolved, or attributed"), so register-attributed
+    # cases are removed before clustering and reported beside the gate.
+    print("\n=== gate predicate (roadmap P-SURF S7.2) ===")
+    entries = load_register()
+    attr = attributed_paths(entries, [r["path"] for r in core])
+    attr_all = set().union(*attr.values()) if attr else set()
+    for e in entries:
+        print(f"  register {e['id']} ({e['title']}): {len(attr[e['id']])} cases attributed")
+    if entries:
+        print(f"  register total      : {len(entries)} entries, {len(attr_all)} of {n_core} core cases attributed")
+
+    un_clusters = defaultdict(list)
+    for r in core:
+        if r["path"] not in attr_all:
+            un_clusters[signature(r["msg"])].append(r["path"])
+    un_ranked = sorted(un_clusters.items(), key=lambda kv: -len(kv[1]))
+    big = [(s, p) for s, p in un_ranked if len(p) >= 4]
+    small = [(s, p) for s, p in un_ranked if len(p) <= 3]
     big_cases = sum(len(p) for _, p in big)
     small_cases = sum(len(p) for _, p in small)
-    print("\n=== gate predicate (roadmap P-SURF S7.2) ===")
-    print(f"  clusters >= 4 cases : {len(big)}      <- drives to 0 for v1.0")
+    n_un = n_core - len(attr_all)
+    print(f"  clusters >= 4 cases : {len(big)}      <- drives to 0 for v1.0 (unattributed)")
     print(f"  cases in them       : {big_cases}")
     print(f"  clusters <= 3 cases : {len(small)} ({small_cases} cases, {small_cases * 100 / n_core:.1f}% — acceptable residue)")
-    print(f"  core total          : {n_core}")
+    print(f"  core total          : {n_core} ({n_un} unattributed)")
 
 
 if __name__ == "__main__":

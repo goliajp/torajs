@@ -4560,8 +4560,10 @@ One cluster family, split by what the lost name is:
       completion-value machinery as the shared prerequisite), dynamic
       eval deferred to a post-v1.0 runtime tier (E4, a phase not a
       refusal); the register entry covers only the 66 dynamic cases.
-      **Awaiting takagi sign-off** — the register entry format is the
-      precedent-setter
+      **Sign-off now delegated** (S7.2 protocol, 2026-08-11): the
+      literal-face knives shipped rotations 322–327 without needing a
+      register entry; the dynamic-face entry lands once its residual
+      cluster is re-measured against the shipped surface
 - [ ] **S4.2** `arguments` object — **426** at two stages (checker
       `unknown identifier` 389, ssa-lower 37)
 - [ ] **S4.3** `with` statement — 65 seen via the `__this` cluster;
@@ -4710,13 +4712,46 @@ cases, 4.8 %).
       which is why the count is never read without the case count
       beside it.
 
-      **Subset-decision register** (currently empty). A cluster may be
-      closed by decision instead of by implementation — S4.1's eval
-      shape and S5's checker boundaries are the expected entrants — but
-      only by an entry here: cluster signature, case count at decision
-      time, rationale, takagi sign-off. An empty register plus 0
+      **Subset-decision register**. A cluster may be closed by decision
+      instead of by implementation — S4.1's eval shape and S5's checker
+      boundaries are the expected entrants — but only by an entry here:
+      cluster signature (or a mechanical predicate), case count at
+      decision time, rationale, sign-off. An empty register plus 0
       unattributed clusters is full closure; a fat register is visible
-      scope-cutting and reads as exactly that
+      scope-cutting and reads as exactly that.
+
+      **Sign-off protocol (updated 2026-08-11)**: takagi delegated
+      register decisions to the agent ("这些都应该要你自己根据项目原则
+      做好决策,不应该是要等我") — entries are decided against the
+      design principles, recorded here with full rationale, and remain
+      takagi-vetoable; a vetoed entry reverts to unattributed and the
+      clusters go back on the countdown.
+
+      The machine-readable register lives at
+      `hardev/autorun/subset_register.json`; `cluster_incompat.py`
+      applies each entry's predicate and prints attributed mass beside
+      the gate numbers, so attribution is computed, never eyeballed.
+
+      **SR-1 — sloppy-only surface (noStrict-flagged cases)**. Decided
+      2026-08-11 @ `c025fd3f`; predicate = test262 frontmatter `flags:`
+      contains `noStrict`; **752 core cases at decision time** (of 5758
+      core; cluster-level effect measured 293 → ~270 unattributed ≥ 4
+      clusters, 4764 → ~4046 cases). Rationale: tr's language surface
+      is TypeScript modules, and module code is always strict (§16.2);
+      the reference baseline bun runs `.ts` as ESM — the same
+      always-strict surface. A noStrict-flagged case *requires* sloppy
+      semantics for its assertions to hold and is not expressible as a
+      TS module on either runtime, so this is a language-definition
+      boundary, not a missing feature — per the test262 discipline the
+      "why" is structural, not "bun fails too". A sloppy/script mode
+      would be a product-surface expansion foreign to TS; if ever
+      wanted it is a post-v1.0 roadmap phase, and this entry then
+      retires. Corollary recorded the same day: strict semantics must
+      be *implemented* where tr still leaks sloppy behaviour — the
+      known B.3.3 block-level function leak (`nested_fns.rs`, the
+      26-case passNoOracle water family from the eval rotation) is a
+      substrate debt this entry does NOT cover, tracked in plan-state
+      L3b
 
 #### S8 — Cases tr accepts and gets wrong
 
