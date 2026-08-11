@@ -48,20 +48,44 @@ pub(crate) fn try_dispatch(
             // literal so the helper sees a valid Str pointer
             // — same idiom S207/S211 use for replace/locale-
             // Compare.
+            let mut other_fresh = false;
             let other = if matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Undefined)) {
                 let u = ctx.intern_string_literal("undefined");
                 Operand::Value(u)
             } else {
-                ctx.lower_expr(a)
+                let v = ctx.lower_expr(a);
+                // §22.1.3.5 step 3.b — ToString each argument. An
+                // Any actual (the checker's any→Str admit: a String
+                // wrapper object, a boxed primitive) carries a
+                // NaN-box the raw str_concat kernel would deref as a
+                // Str pointer (SIGSEGV on `'a'.concat(Object('b'))`)
+                // — route it through the ToString kernel, which
+                // answers an owned Str (html-wrap lane idiom).
+                if ctx.operand_ty(&v) == Type::Any {
+                    let s = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.any_to_str_box, vec![v]),
+                        Type::Str,
+                        None,
+                    );
+                    ctx.emit_throw_check(None);
+                    other_fresh = true;
+                    Operand::Value(s)
+                } else {
+                    v
+                }
             };
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_concat, vec![acc.clone(), other]),
+                InstKind::Call(ctx.intrinsics.str_concat, vec![acc.clone(), other.clone()]),
                 Type::Str,
                 None,
             );
             if acc_fresh {
                 ctx.emit_drop_value(acc, Type::Str);
+            }
+            if other_fresh {
+                ctx.emit_drop_value(other, Type::Str);
             }
             acc = Operand::Value(v);
             acc_fresh = true;
