@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T09:40:09.848Z",
+  "generatedAt": "2026-08-11T10:00:01.319Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T09:38:43Z",
-    "headSha": "a9ec95d8",
-    "elapsedSec": 317.6,
+    "ranAt": "2026-08-11T09:58:50Z",
+    "headSha": "b12a975e",
+    "elapsedSec": 355.27,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.38
   },
   "torajs": {
-    "commit": "a9ec95d8",
-    "commitSubject": "refactor: close-audit knife discharge - the rotation's two self-made function-face breaches extracted verbatim (safe_binding_chain's boxed-consumption site collection to collect_boxed_arg_sites, 204 -> ~145; emit_map_loop's promoted-this and dst-alloc blocks to lower_promoted_this / alloc_from_dst free fns, 246 -> 180 - the array_from_loop:25 entry was a registered 223 debt the argv-face knife pushed UP, violating shrink-only, so this clears past the registration and delists it); four argv-face fixtures re-verified EQ before and after",
+    "commit": "b12a975e",
+    "commitSubject": "feat: mixed-tier dup-named binding groups admit per instance (a group whose instances split across the argc and argv tiers no longer rejects whole - every init must still be a closure literal and mask/stray/owner checks stay group-wide, but only THIS tier's seeded instances return; the cross-tier name collision is safe on four audited fronts: the checker argv wedge re-gates on the fn's public variadic type, S3.5 admits beyond-arity universally, an SSA argv_face mis-hit only downgrades to the boxed dual entry which is behaviorally equivalent, and fnexpr_this_routed's consumption is a conservative exclusion arm - full audit in the task doc; probe b1 and fixture arguments-dup-group-mixed-tier-001 cover the 2-instance and 3-instance mixed shapes, tr==bun)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "b12a975e",
+      "subject": "feat: mixed-tier dup-named binding groups admit per instance (a group whose instances split across the argc and argv tiers no longer rejects whole - every init must still be a closure literal and mask/stray/owner checks stay group-wide, but only THIS tier's seeded instances return; the cross-tier name collision is safe on four audited fronts: the checker argv wedge re-gates on the fn's public variadic type, S3.5 admits beyond-arity universally, an SSA argv_face mis-hit only downgrades to the boxed dual entry which is behaviorally equivalent, and fnexpr_this_routed's consumption is a conservative exclusion arm - full audit in the task doc; probe b1 and fixture arguments-dup-group-mixed-tier-001 cover the 2-instance and 3-instance mixed shapes, tr==bun)"
+    },
+    {
+      "hash": "c9054065",
+      "subject": "docs: rotation 364 close - hof argv-face remaining channels four knives (predicate family six names / flatMap / Array.from / sort-toSorted all through the boxed variadic pack, admit trio atomic per channel) plus close-audit double breach refactor discharge; sweep conserved +5 pass / -5 bug all direct-hit (predicate-call-parameters x4 + from/iter-map-fn-args), zero regressions, crash counts flat, build determinism 44/44 N=12; dashboard refresh"
+    },
+    {
       "hash": "a9ec95d8",
       "subject": "refactor: close-audit knife discharge - the rotation's two self-made function-face breaches extracted verbatim (safe_binding_chain's boxed-consumption site collection to collect_boxed_arg_sites, 204 -> ~145; emit_map_loop's promoted-this and dst-alloc blocks to lower_promoted_this / alloc_from_dst free fns, 246 -> 180 - the array_from_loop:25 entry was a registered 223 debt the argv-face knife pushed UP, violating shrink-only, so this clears past the registration and delists it); four argv-face fixtures re-verified EQ before and after"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "04f66c62",
       "subject": "feat: anonymous HOF callbacks reading arguments values join the argv face on map/filter/forEach (the inline fn-expr has no binding for the safe-chain walk, but the shape needs no proof - its only consumer is the one callback slot, so a new collector arm admits it when the closure name has exactly one arena reference and no this promotion; the checker grows a sister route answering Array<R>/Array<T>/Void for the variadic public type the face mints, and the inline loop routes argv-face callees through the boxed variadic dispatch - emit_argv_face_call packs the full «kValue, k, O» into a stack argv via the extracted emit_variadic_call_conv half, cb_arity forced to 3 so the declared-arity truncation never starves the pack; reduce family and the binding-chain HOF-arg form stay loud, recorded next knives; probe m4 eight shapes tr==bun including spread and out-of-range)"
-    },
-    {
-      "hash": "c7a205fe",
-      "subject": "fix: HOF inline-loop lanes state the spec argument count in the hidden argc (the call_fn_value family derived argc from the physical arg list, but the lanes only materialize the slots the callback sig can receive - [10,20].map(function(){return arguments.length}) answered 1 where §23.1.3.18 passes «kValue, k, O» = 3, same understatement across filter/forEach/predicate/flatMap (3), reduce family (4, §23.1.3.24), Array.from mapFn (2, §23.1.2.1), Map/Set forEach (3) and the sort comparator (2, already physically full); every call_fn_value/call_fn_value_devirt caller is a builtin HO lane, so spec_argc becomes a required parameter each lane states explicitly and the physical list stays an unobservable transport optimization; safe because the argc consumers are the arguments faces - the argv face cannot reach these lanes (still loud) and rest packing is a call-site desugar; surfaced by the r362 HOF-callback probe family)"
-    },
-    {
-      "hash": "5e9ff442",
-      "subject": "docs: rotation 362 close - arguments value-read triple (container-store/nested/dup-name argv-face via shared chain walk), ternary typed:null and any-nullish join silent-wrong fixes, sweep +10 conserved all-forward zero regressions, dashboard refresh"
     }
   ],
-  "headSha": "a9ec95d8",
+  "headSha": "b12a975e",
   "autorun": {
     "total": 667,
     "baselineTarget": 10,
