@@ -47,7 +47,7 @@ unsafe extern "C" {
     /// Cross-staticlib extern — resolved at `tr build` link time.
     /// Takes the raw 8 bytes of an `AnyValue` slot as `u64` plus the
     /// composite's own indent column and writes its bun-form
-    /// rendering through `__torajs_io_putc_stdout` with no trailing
+    /// rendering through `__torajs_io_putc_out` with no trailing
     /// newline.
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
     /// Line-width estimate primitives (inspect wrap trunk) — mirror

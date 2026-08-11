@@ -233,13 +233,13 @@ pub unsafe extern "C" fn __torajs_bigint_to_string_radix(a_: *const c_void, radi
     unsafe { to_string_radix(a_, radix as u32) }
 }
 
-// `__torajs_io_write_stdout` / `_putc_stdout` are provided by
+// `__torajs_io_write_out` / `_putc_out` are provided by
 // `libtorajs_io.a` at `tr build` link time; `__torajs_rc_dec` is
 // declared in `crate::lib` (with a #[cfg(test)] stub).
 #[cfg(not(test))]
 unsafe extern "C" {
-    fn __torajs_io_write_stdout(buf: *const u8, len: u64);
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_write_out(buf: *const u8, len: u64);
+    fn __torajs_io_putc_out(c: i32) -> i32;
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     // torajs-throw — record a pending catchable RangeError (§6.1.6.2.13
     // radix gate). NUL-terminated message.
@@ -255,12 +255,12 @@ unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 // inline-print extern is unreachable from the existing unit tests
 // (their NULL-path guards short-circuit before we'd call into io).
 #[cfg(test)]
-unsafe extern "C" fn __torajs_io_write_stdout(_buf: *const u8, _len: u64) {
-    panic!("torajs-bigint unit-test stub: __torajs_io_write_stdout should not be called");
+unsafe extern "C" fn __torajs_io_write_out(_buf: *const u8, _len: u64) {
+    panic!("torajs-bigint unit-test stub: __torajs_io_write_out should not be called");
 }
 #[cfg(test)]
-unsafe extern "C" fn __torajs_io_putc_stdout(_c: i32) -> i32 {
-    panic!("torajs-bigint unit-test stub: __torajs_io_putc_stdout should not be called");
+unsafe extern "C" fn __torajs_io_putc_out(_c: i32) -> i32 {
+    panic!("torajs-bigint unit-test stub: __torajs_io_putc_out should not be called");
 }
 #[cfg(test)]
 unsafe extern "C" fn __torajs_rc_dec(_p: *mut c_void) -> i32 {
@@ -280,7 +280,7 @@ unsafe extern "C" fn __torajs_rc_dec(_p: *mut c_void) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_print_inline(a_: *const c_void) {
     if a_.is_null() {
-        unsafe { __torajs_io_write_stdout(b"undefined".as_ptr(), 9) };
+        unsafe { __torajs_io_write_out(b"undefined".as_ptr(), 9) };
         return;
     }
     let s = unsafe { __torajs_bigint_to_string(a_) };
@@ -288,10 +288,10 @@ pub unsafe extern "C" fn __torajs_bigint_print_inline(a_: *const c_void) {
         // Str layout: `{ HeapHeader(8) + len@+8 (u64) + data@+16 }`.
         let len = unsafe { *((s as *const u8).add(8) as *const u64) };
         if len > 0 {
-            unsafe { __torajs_io_write_stdout((s as *const u8).add(16), len) };
+            unsafe { __torajs_io_write_out((s as *const u8).add(16), len) };
         }
         unsafe { __torajs_rc_dec(s as *mut c_void) };
     }
     // BigInt literal suffix.
-    unsafe { __torajs_io_putc_stdout(b'n' as i32) };
+    unsafe { __torajs_io_putc_out(b'n' as i32) };
 }

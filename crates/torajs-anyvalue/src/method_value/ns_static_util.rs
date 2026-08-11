@@ -10,8 +10,8 @@ use crate::nanbox::VALUE_UNDEFINED;
 /// the Rust-path call (torajs-io is a real Cargo dep) keeps the
 /// symbol linked in test binaries, where an extern-only reference
 /// leaves the rlib member dead-stripped.
-pub(super) fn putc_stdout(c: u8) {
-    torajs_io::__torajs_io_putc_stdout(i32::from(c));
+pub(super) fn putc_out(c: u8) {
+    torajs_io::__torajs_io_putc_out(i32::from(c));
 }
 
 /// ToNumber(argv[i]) with the spec's abrupt-completion contract: a

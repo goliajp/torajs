@@ -115,7 +115,7 @@ unsafe extern "C" {
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
 
     // torajs-io — per-byte stdout writer.
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
 
     // torajs-anyvalue::inspect — line-width estimate primitives
     // (inspect wrap trunk), bun `estimated_line_length` mirror.
@@ -155,7 +155,7 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 
 #[inline]
 unsafe fn put_byte(b: u8) {
-    unsafe { __torajs_io_putc_stdout(b as i32) };
+    unsafe { __torajs_io_putc_out(b as i32) };
 }
 
 #[inline]
@@ -181,7 +181,7 @@ unsafe fn put_bytes_from_raw(ptr: *const u8, len: usize) {
 /// this fn assumes a live Tag::Obj cell.
 ///
 /// Returns nothing — emits the rendered bytes via
-/// `__torajs_io_putc_stdout`. No trailing '\n'; the caller appends
+/// `__torajs_io_putc_out`. No trailing '\n'; the caller appends
 /// '\n' at the top-level console.log boundary.
 ///
 /// # Safety

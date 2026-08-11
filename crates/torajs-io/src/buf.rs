@@ -142,6 +142,14 @@ impl LineBuf {
 /// (const init); first push lazy-fills.
 pub static STDOUT: LineBuf = LineBuf::new(1);
 
+/// Process-global stderr buffer — the `console.error` /
+/// `console.warn` sink behind [`crate::sink`]'s current-sink
+/// switch. Line-buffered like STDOUT; the sink-switch primitives
+/// drain both buffers at every crossing so `2>&1` redirection
+/// preserves caller-order interleaving (the generalization of the
+/// legacy "flush stdout before a raw stderr write(2)" convention).
+pub static STDERR: LineBuf = LineBuf::new(2);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -57,7 +57,7 @@ unsafe extern "C" {
     fn __torajs_inspect_line_add(n: u32);
     /// Per-byte stdout writer (`libtorajs_io.a`). Same buffer
     /// shared with IR-emitted `print_*` and Str / Arr printers.
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
     /// Emit a Str / Substr cell as an object key — bare when the
     /// key is an ASCII identifier, JSON-quoted otherwise
     /// (`{ a: 1 }` but `{ "a-b": 1 }`, bun `isLatin1Identifier`
@@ -68,7 +68,7 @@ unsafe extern "C" {
 
 #[inline]
 unsafe fn put_byte(b: u8) {
-    unsafe { __torajs_io_putc_stdout(b as i32) };
+    unsafe { __torajs_io_putc_out(b as i32) };
 }
 
 #[inline]

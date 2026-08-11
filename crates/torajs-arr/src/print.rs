@@ -18,7 +18,7 @@
 //!
 //! ## Buffer-sharing constraint
 //!
-//! Uses `torajs_io::__torajs_io_putc_stdout` per-byte (v0.7-A3 Step 14-b cutover from libc `putchar`) to share the
+//! Uses `torajs_io::__torajs_io_putc_out` per-byte (v0.7-A3 Step 14-b cutover from libc `putchar`) to share the
 //! stdio stdout buffer with still-IR-emitted `print_i64` / `print_f64`
 //! / `print_bool` (scalar variants). Same rationale + constraint as
 //! `torajs-str::print::__torajs_str_print`.
@@ -102,7 +102,7 @@ pub(crate) unsafe fn put_str_payload(payload: &[u8], is_latin1: bool) {
 }
 
 unsafe extern "C" {
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
     // v0.7-A4 Step 15-d: 0-libc i64 + f64 → decimal via
     // torajs-fmt. Replaces libc snprintf "%lld" / "%g" for the
     // arr_print_* element format paths.
@@ -120,7 +120,7 @@ unsafe extern "C" {
 #[inline]
 pub(crate) unsafe fn put_byte(b: u8) {
     unsafe {
-        __torajs_io_putc_stdout(b as i32);
+        __torajs_io_putc_out(b as i32);
     }
 }
 
@@ -138,7 +138,7 @@ pub(crate) unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
 
 /// v0.7-A4 Step 15-d: format `v` via `__torajs_fmt_itoa`
 /// (0-libc) into a stack buffer + emit bytes via
-/// `__torajs_io_putc_stdout`. Replaces libc snprintf("%lld").
+/// `__torajs_io_putc_out`. Replaces libc snprintf("%lld").
 pub(crate) unsafe fn put_snprintf_i64(v: i64) {
     let mut buf = [0u8; 64];
     let n = unsafe { __torajs_fmt_itoa(v, buf.as_mut_ptr(), 64) };

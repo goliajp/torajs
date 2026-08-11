@@ -11,7 +11,7 @@
 //! - `__torajs_fmt_itoa` / `__torajs_fmt_dtoa` —
 //!   `libtorajs_fmt.a` (0-libc int/float → decimal; same path
 //!   `torajs-arr::print` uses).
-//! - `__torajs_io_putc_stdout` — `libtorajs_io.a` (per-byte
+//! - `__torajs_io_putc_out` — `libtorajs_io.a` (per-byte
 //!   stdout writer; shares the same stdio buffer as the IR-emitted
 //!   `print_*` family).
 
@@ -58,7 +58,7 @@ unsafe extern "C" {
     pub(super) fn print_i64(n: i64);
     pub(super) fn print_f64(d: f64);
     pub(super) fn print_bool(b: bool);
-    pub(super) fn __torajs_io_putc_stdout(c: i32) -> i32;
+    pub(super) fn __torajs_io_putc_out(c: i32) -> i32;
     // 0-libc decimal — `torajs-fmt`. Mirrors the extern declaration
     // shape `torajs-arr::print` uses (same staticlib provider).
     pub(super) fn __torajs_fmt_itoa(n: i64, out_buf: *mut u8, out_cap: usize) -> i32;
@@ -246,7 +246,7 @@ pub(super) fn alloc_literal(s: &[u8]) -> *mut u8 {
 #[inline]
 pub(super) fn write_line(s: &[u8]) {
     for &b in s {
-        unsafe { __torajs_io_putc_stdout(b as i32) };
+        unsafe { __torajs_io_putc_out(b as i32) };
     }
 }
 
@@ -257,7 +257,7 @@ pub(super) fn write_line(s: &[u8]) {
 
 #[inline]
 pub(crate) unsafe fn put_byte(b: u8) {
-    unsafe { __torajs_io_putc_stdout(b as i32) };
+    unsafe { __torajs_io_putc_out(b as i32) };
 }
 
 #[inline]

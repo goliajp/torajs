@@ -591,7 +591,7 @@ pub(crate) struct Intrinsics {
     pub(crate) is_constructor: FuncId,
     pub(crate) print_any: FuncId,
     pub(crate) print_any_inline_top: FuncId,
-    pub(crate) io_putc_stdout: FuncId,
+    pub(crate) io_putc_out: FuncId,
     pub(crate) arr_print_i64_inline: FuncId,
     pub(crate) arr_print_f64_inline: FuncId,
     pub(crate) arr_print_bool_inline: FuncId,

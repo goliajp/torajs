@@ -29,7 +29,7 @@ use crate::layout::{MapEntry, as_map};
 
 unsafe extern "C" {
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
     fn __torajs_fmt_itoa(n: i64, out_buf: *mut u8, out_cap: usize) -> i32;
     // Line-width estimate primitives (inspect wrap trunk) — hosted
     // in torajs-anyvalue::inspect::formatters.
@@ -39,7 +39,7 @@ unsafe extern "C" {
 
 #[inline]
 unsafe fn put_byte(b: u8) {
-    unsafe { __torajs_io_putc_stdout(b as i32) };
+    unsafe { __torajs_io_putc_out(b as i32) };
 }
 
 #[inline]
@@ -157,7 +157,7 @@ pub unsafe extern "C" fn __torajs_map_print_outer(m_ptr: *const c_void) {
     unsafe {
         __torajs_inspect_line_reset(0);
         __torajs_map_print(m_ptr);
-        __torajs_io_putc_stdout(b'\n' as i32);
+        __torajs_io_putc_out(b'\n' as i32);
     }
 }
 
@@ -195,6 +195,6 @@ pub unsafe extern "C" fn __torajs_set_print_outer(s_ptr: *const c_void) {
     unsafe {
         __torajs_inspect_line_reset(0);
         __torajs_set_print(s_ptr);
-        __torajs_io_putc_stdout(b'\n' as i32);
+        __torajs_io_putc_out(b'\n' as i32);
     }
 }

@@ -28,7 +28,7 @@ unsafe extern "C" {
     // 0-libc buffered writer. Shared process-global line buffer with
     // __torajs_str_print / __torajs_substr_print / arr_print /
     // inspect / IR-emitted print_i64 / print_bool / print_f64.
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
     // v0.7-A4 Step 15-d: 0-libc shortest-roundtrip f64 → decimal
     // string. Replaces the libc `snprintf` %.*g try-precisions loop
     // + `strtod` round-trip verifier with a single call (Rust
@@ -135,26 +135,26 @@ pub unsafe extern "C" fn __torajs_bool_to_str(b: i32) -> *mut u8 {
 
 /// `console.log(d)` for f64 — writes JS-spec shortest-roundtrip
 /// representation + newline directly to stdout via
-/// `__torajs_io_putc_stdout` (shared 0-libc buffered writer with
+/// `__torajs_io_putc_out` (shared 0-libc buffered writer with
 /// `print_i64` / `print_bool` / `str_print` and IR-emitted print
 /// family). NaN / ±Infinity special-cased.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
     if d.is_nan() {
         for &b in b"NaN\n" {
-            unsafe { __torajs_io_putc_stdout(b as i32) };
+            unsafe { __torajs_io_putc_out(b as i32) };
         }
         return;
     }
     if d == f64::INFINITY {
         for &b in b"Infinity\n" {
-            unsafe { __torajs_io_putc_stdout(b as i32) };
+            unsafe { __torajs_io_putc_out(b as i32) };
         }
         return;
     }
     if d == f64::NEG_INFINITY {
         for &b in b"-Infinity\n" {
-            unsafe { __torajs_io_putc_stdout(b as i32) };
+            unsafe { __torajs_io_putc_out(b as i32) };
         }
         return;
     }
@@ -163,8 +163,8 @@ pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
     let n = if n < 0 { 0 } else { n as usize };
     if n > 0 {
         for &b in &buf[..n] {
-            unsafe { __torajs_io_putc_stdout(b as i32) };
+            unsafe { __torajs_io_putc_out(b as i32) };
         }
     }
-    unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+    unsafe { __torajs_io_putc_out(b'\n' as i32) };
 }

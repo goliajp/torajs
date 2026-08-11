@@ -17,12 +17,12 @@ use crate::parser::{
 use super::as_regex;
 
 unsafe extern "C" {
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
 }
 
 #[inline]
 unsafe fn put_byte(b: u8) {
-    unsafe { __torajs_io_putc_stdout(b as i32) };
+    unsafe { __torajs_io_putc_out(b as i32) };
 }
 
 /// `console.log(re)` walker — emits `/source/flags` with no trailing

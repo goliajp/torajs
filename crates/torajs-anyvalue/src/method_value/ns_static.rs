@@ -45,7 +45,7 @@ use super::{
 /// [`super::ns_static_util`] (rotation 268 mechanical move);
 /// re-exported so sibling arms keep their `super::ns_static::` path.
 pub(super) use super::ns_static_util::{arg_at, arg_num, own, to_i64_mod32};
-use super::ns_static_util::{box_bool, num_predicate, putc_stdout};
+use super::ns_static_util::{box_bool, num_predicate, putc_out};
 
 /// Per-id interned cells + `.name` Str cells — same immortal
 /// atomic-static shape as `METHOD_CELLS` (headroom bound shared with
@@ -119,11 +119,11 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ConsoleLog => {
                 for i in 0..argc {
                     if i > 0 {
-                        putc_stdout(b' ');
+                        putc_out(b' ');
                     }
                     crate::inspect::any::__torajs_print_anyv_inline_top(*argv.add(i as usize));
                 }
-                putc_stdout(b'\n');
+                putc_out(b'\n');
                 VALUE_UNDEFINED
             }
             Disp::ParseInt => super::ns_static_coerce::parse_int_value(argv, argc),

@@ -5,7 +5,7 @@
 //! here as of P3.1-g.2 (2026-05-23).
 //!
 //! **Buffer-sharing constraint**: `__torajs_str_print` (stdout)
-//! uses `torajs_io::__torajs_io_putc_stdout` per-byte (v0.7-A3
+//! uses `torajs_io::__torajs_io_putc_out` per-byte (v0.7-A3
 //! Step 14-b cutover from libc `putchar`). torajs-print's
 //! `print_i64` / `print_f64` / `print_bool` also route through
 //! the same symbol (Step 14-c cutover), so all stdout writers
@@ -216,7 +216,7 @@ pub fn format_write_err(payload: Option<(&[u8], bool)>) -> Vec<u8> {
 // ============================================================
 
 unsafe extern "C" {
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
 }
 
 /// Write a single byte to the shared stdout buffer. Thin wrapper
@@ -224,7 +224,7 @@ unsafe extern "C" {
 #[inline]
 fn putc(b: u8) {
     unsafe {
-        __torajs_io_putc_stdout(b as i32);
+        __torajs_io_putc_out(b as i32);
     }
 }
 

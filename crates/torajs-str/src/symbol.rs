@@ -49,8 +49,8 @@ unsafe extern "C" {
     // global line buffer with str_print / substr_print / arr_print
     // / inspect / IR-emitted print_i64/_f64/_bool — no cross-buffer
     // reordering risk.
-    fn __torajs_io_write_stdout(buf: *const u8, len: u64);
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_write_out(buf: *const u8, len: u64);
+    fn __torajs_io_putc_out(c: i32) -> i32;
 }
 
 #[repr(C)]
@@ -203,20 +203,20 @@ pub unsafe extern "C" fn __torajs_symbol_description(p: *const c_void) -> *mut c
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_print_inline(p: *const c_void) {
     if p.is_null() {
-        unsafe { __torajs_io_write_stdout(b"undefined".as_ptr(), 9) };
+        unsafe { __torajs_io_write_out(b"undefined".as_ptr(), 9) };
         return;
     }
     let desc = unsafe { symbol_desc(p) };
-    unsafe { __torajs_io_write_stdout(b"Symbol(".as_ptr(), 7) };
+    unsafe { __torajs_io_write_out(b"Symbol(".as_ptr(), 7) };
     if !desc.is_null() {
         let len = unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u64) };
         if len > 0 {
             unsafe {
-                __torajs_io_write_stdout((desc as *const u8).add(STR_HDR_SIZE), len);
+                __torajs_io_write_out((desc as *const u8).add(STR_HDR_SIZE), len);
             }
         }
     }
-    unsafe { __torajs_io_putc_stdout(b')' as i32) };
+    unsafe { __torajs_io_putc_out(b')' as i32) };
 }
 
 /// `console.log(sym)` dispatch → `"Symbol(<desc>)\n"` /
@@ -229,7 +229,7 @@ pub unsafe extern "C" fn __torajs_symbol_print_inline(p: *const c_void) {
 pub unsafe extern "C" fn __torajs_symbol_print(p: *const c_void) {
     unsafe {
         __torajs_symbol_print_inline(p);
-        __torajs_io_putc_stdout(b'\n' as i32);
+        __torajs_io_putc_out(b'\n' as i32);
     }
 }
 

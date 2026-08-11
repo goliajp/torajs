@@ -8,7 +8,7 @@
 //! Cannot reuse the IR-emitted `print_i64 / f64 / bool` or
 //! `__torajs_str_print` — those all emit their own '\n'. Drops to
 //! 0-libc `__torajs_fmt_itoa` / `__torajs_fmt_dtoa` +
-//! `__torajs_io_putc_stdout` byte writers instead.
+//! `__torajs_io_putc_out` byte writers instead.
 
 use core::ffi::c_void;
 

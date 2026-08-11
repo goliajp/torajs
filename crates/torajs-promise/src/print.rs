@@ -18,14 +18,14 @@ use core::ffi::c_void;
 use crate::layout::{STATE_FULFILLED, STATE_PENDING, STATE_REJECTED};
 
 unsafe extern "C" {
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
 }
 
 const PROMISE_STATE_OFF: usize = 8;
 
 #[inline]
 unsafe fn put_byte(b: u8) {
-    unsafe { __torajs_io_putc_stdout(b as i32) };
+    unsafe { __torajs_io_putc_out(b as i32) };
 }
 
 #[inline]

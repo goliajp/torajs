@@ -12,7 +12,7 @@
 //! - **print_anyv core**: `__torajs_print_anyv` (single-arg with
 //!   trailing \n); `__torajs_print_anyv_inline_top` (multi-arg
 //!   joiner — no trailing \n, lowerer emits `' '` between args +
-//!   `'\n'` after last); `__torajs_io_putc_stdout` (`int putc(int)`
+//!   `'\n'` after last); `__torajs_io_putc_out` (`int putc(int)`
 //!   — the separator + final \n emitter).
 //! - **typed Arr<T> inline walkers** (torajs-arr::print_inline) —
 //!   bun-form `[ a, b, c ]` no-\n print of typed Arr args in the
@@ -47,7 +47,7 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct PrintFreezeIds {
     pub print_any: FuncId,
     pub print_any_inline_top: FuncId,
-    pub io_putc_stdout: FuncId,
+    pub io_putc_out: FuncId,
     pub arr_print_i64_inline: FuncId,
     pub arr_print_f64_inline: FuncId,
     pub arr_print_bool_inline: FuncId,
@@ -111,10 +111,10 @@ pub(crate) fn declare(
             &[Type::Any],
             Type::Void,
         ),
-        io_putc_stdout: declare_intrinsic(
+        io_putc_out: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_io_putc_stdout",
+            "__torajs_io_putc_out",
             &[Type::I64],
             Type::I64,
         ),

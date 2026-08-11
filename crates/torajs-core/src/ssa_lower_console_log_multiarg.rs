@@ -30,7 +30,7 @@
 //!   through unchanged) and call `__torajs_print_anyv_inline_top`
 //!   (Str unquoted, no `\n`).
 //!
-//! Between args we emit a single `' '` via `__torajs_io_putc_stdout`,
+//! Between args we emit a single `' '` via `__torajs_io_putc_out`,
 //! and after the last arg we emit `'\n'` the same way.
 //!
 //! `console.error` / `console.warn` keep the legacy Str-coerce +
@@ -149,7 +149,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         if i > 0 {
             ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.io_putc_stdout, vec![space_op.clone()]),
+                InstKind::Call(ctx.intrinsics.io_putc_out, vec![space_op.clone()]),
                 Type::I64,
                 None,
             );
@@ -158,7 +158,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
     }
     ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.io_putc_stdout, vec![newline_op]),
+        InstKind::Call(ctx.intrinsics.io_putc_out, vec![newline_op]),
         Type::I64,
         None,
     );

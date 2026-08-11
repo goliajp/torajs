@@ -52,10 +52,12 @@ pub unsafe extern "C" fn __torajs_io_write_stdout(buf: *const u8, len: u64) {
     unsafe { STDOUT.write(s) };
 }
 
-/// Drain any buffered stdout bytes via a single
-/// `torajs_syscall::write(fd=1, &buf[0..len])`. Emit at process
-/// exit hook to ensure no trailing-without-newline output is
-/// lost.
+/// Drain all buffered io bytes — stdout then stderr — each via a
+/// single `torajs_syscall::write(fd, &buf[0..len])`. Emit at
+/// process exit hook to ensure no trailing-without-newline output
+/// is lost on either stream. (Since RFC 20260812-console-sink the
+/// stderr stream is line-buffered too; the exit hook's "drain
+/// everything" semantics now covers both.)
 ///
 /// # Safety
 ///
@@ -64,4 +66,5 @@ pub unsafe extern "C" fn __torajs_io_write_stdout(buf: *const u8, len: u64) {
 pub extern "C" fn __torajs_io_flush() {
     // SAFETY: see __torajs_io_putc_stdout.
     unsafe { STDOUT.flush() };
+    unsafe { crate::buf::STDERR.flush() };
 }

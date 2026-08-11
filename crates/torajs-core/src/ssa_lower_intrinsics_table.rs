@@ -506,7 +506,7 @@ pub(crate) fn build(
         is_constructor: init_c.any_substrate.is_constructor,
         print_any: init_c.print_freeze.print_any,
         print_any_inline_top: init_c.print_freeze.print_any_inline_top,
-        io_putc_stdout: init_c.print_freeze.io_putc_stdout,
+        io_putc_out: init_c.print_freeze.io_putc_out,
         arr_print_i64_inline: init_c.print_freeze.arr_print_i64_inline,
         arr_print_f64_inline: init_c.print_freeze.arr_print_f64_inline,
         arr_print_bool_inline: init_c.print_freeze.arr_print_bool_inline,

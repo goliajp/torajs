@@ -9,7 +9,7 @@ use core::ffi::c_void;
 
 use super::formatters::{
     __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_bigint_print_inline,
-    __torajs_fn_print_inline, __torajs_inspect_line_reset, __torajs_io_putc_stdout,
+    __torajs_fn_print_inline, __torajs_inspect_line_reset, __torajs_io_putc_out,
     __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
     __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print, __torajs_substr_print,
     __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal, heap_flags, heap_type_tag,
@@ -38,7 +38,7 @@ use torajs_rc::Tag;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fn_print_outer(fn_addr: u64) {
     unsafe { __torajs_fn_print_inline(fn_addr) };
-    unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+    unsafe { __torajs_io_putc_out(b'\n' as i32) };
 }
 
 /// `typeof v` per ES §13.5.3 — NaN-box [`AnyValue`] entry point.
@@ -149,10 +149,10 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
         let len = short_str_len(v) as usize;
         let bytes = short_str_bytes(v);
         for &b in &bytes[..len] {
-            // SAFETY: __torajs_io_putc_stdout takes any i32 byte value.
-            unsafe { __torajs_io_putc_stdout(b as i32) };
+            // SAFETY: __torajs_io_putc_out takes any i32 byte value.
+            unsafe { __torajs_io_putc_out(b as i32) };
         }
-        unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        unsafe { __torajs_io_putc_out(b'\n' as i32) };
         return;
     }
     if is_cell(v) {
@@ -185,7 +185,7 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // `Any-print arr fallback` wedge (`const a:any = [1,2,3]`).
             // SAFETY: Arr heap layout per torajs-arr::layout.
             unsafe { __torajs_arr_print_any(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::DynObj as u16 {
             // Nested-print substrate trunk Commit 4 — Tag::DynObj
             // (object literal / Object.entries row) renders as
@@ -197,7 +197,7 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // metadata and is a separate substrate trunk (W-J).
             // SAFETY: dynobj layout per torajs-dynobj::layout.
             unsafe { __torajs_obj_print_any(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::Date as u16 {
             // Commit 5 — Date wire. `put_date_inline` prints the
             // ISO-8601 form unquoted (bun: `1970-01-01T00:00:00.000Z`
@@ -205,14 +205,14 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // sentinel.
             // SAFETY: Date layout per torajs-date::layout.
             unsafe { put_date_inline(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::RegExp as u16 {
             // Commit 6 — RegExp wire. Bun prints RegExp values as
             // `/source/flags` (unquoted, both top-level and nested,
             // unlike Str which gains `"..."` inside arr / obj).
             // SAFETY: RegExp layout per torajs-regex::regex.
             unsafe { __torajs_regex_print_inline(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::Promise as u16 {
             // Commit 8 — Promise wire. Emits the bun minimal form
             // `Promise { <pending|resolved|rejected> }` — bun
@@ -220,25 +220,25 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // default console.log inspect.
             // SAFETY: Promise layout per torajs-promise::layout.
             unsafe { __torajs_promise_print(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::Map as u16 {
             // Runtime Tag::Set substrate — Type::Any `console.log(m)`
             // routes here once Tag::Set (=19) split Set from Map.
             // SAFETY: Map layout per torajs-collections::layout.
             unsafe { __torajs_map_print(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::Set as u16 {
             // SAFETY: Set shares the Map layout (same struct, just
             // TAG_SET stamped on the heap header by __torajs_set_create).
             unsafe { __torajs_set_print(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::Closure as u16 {
             // Phase 2 wire (fn-name registry Step 5) — top-level
             // closure print: fn-addr registry lookup, or the
             // interned method name for a reified method cell
             // (chunk 715), + '\n'.
             unsafe { put_closure_fn_name(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::Obj as u16 {
             // W-J Phase D — Tag::Obj struct-cell pretty print. The
             // walker reads class_tag@+8, looks up the link-emitted
@@ -249,7 +249,7 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // the no-prefix `{…}` form so empty layouts degrade
             // cleanly instead of stalling on `[object]`.
             unsafe { __torajs_anyv_struct_print_inline(v as u64) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::WeakMap as u16 {
             // WeakMap / WeakSet are non-enumerable per spec
             // (§24.4 / §24.5 — no `forEach`, no iterators), so
@@ -264,22 +264,22 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // the trailing '\n' (which this top-level dispatcher
             // appends).
             unsafe { __torajs_symbol_print_inline(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::BigInt as u16 {
             // BigInt cell via Any — bun prints `<decimal>n`. The
             // inline helper allocates a temporary decimal Str via
             // `__torajs_bigint_to_string`, writes its bytes,
             // appends `n` and rc_decs the Str.
             unsafe { __torajs_bigint_print_inline(child) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::SymbolWrapper as u16 {
             // Object(sym) — fixed multi-line block + '\n'
             // (rotation 184).
             unsafe { crate::inspect::wrapper_block::put_symbol_wrapper_at(child, 0) };
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if unsafe { crate::inspect::formatters::put_wrapper_inline(child, tag) } {
             // Primitive wrapper — `[String: "…"]` form + '\n'.
-            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");
         }
@@ -333,7 +333,7 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
         let len = short_str_len(v) as usize;
         let bytes = short_str_bytes(v);
         for &b in &bytes[..len] {
-            unsafe { __torajs_io_putc_stdout(b as i32) };
+            unsafe { __torajs_io_putc_out(b as i32) };
         }
         return;
     }
@@ -446,13 +446,13 @@ pub unsafe extern "C" fn __torajs_print_str_cell_quoted(cell: *const c_void) {
         if heap_type_tag(cell) != Tag::Str as u16 {
             return;
         }
-        __torajs_io_putc_stdout(b'"' as i32);
+        __torajs_io_putc_out(b'"' as i32);
         if heap_flags(cell) & SUBSTR_VIEW_FLAG != 0 {
             put_substr_cell_inline_esc(cell, true);
         } else {
             put_str_cell_inline_esc(cell, true);
         }
-        __torajs_io_putc_stdout(b'"' as i32);
+        __torajs_io_putc_out(b'"' as i32);
     }
 }
 

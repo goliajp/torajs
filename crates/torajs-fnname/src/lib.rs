@@ -28,7 +28,7 @@
 //! ## Symbol ABI
 //!
 //! Externs the runtime imports at staticlib link time:
-//! - `__torajs_io_putc_stdout(c: i32) -> i32` from `torajs-io`
+//! - `__torajs_io_putc_out(c: i32) -> i32` from `torajs-io`
 //! - `__torajs_fn_name_table` / `__torajs_fn_name_table_count`
 //!   from torajs-link's emit pass (registered via
 //!   `apply_fn_name_table_overrides`).
@@ -94,7 +94,7 @@ unsafe extern "C" {
     static __torajs_fn_name_table: FnNameTableEntry;
     /// `u64` entry count placed immediately after the entries.
     static __torajs_fn_name_table_count: u64;
-    fn __torajs_io_putc_stdout(c: i32) -> i32;
+    fn __torajs_io_putc_out(c: i32) -> i32;
     // torajs-str — RFC 20260710 C2a: a Nullable fn-typed slot holds
     // NULL (JS null) or the immortal undefined sentinel alongside
     // real fn addresses; print/ToString must not render those as
@@ -433,10 +433,10 @@ unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
 
 #[inline(always)]
 fn emit_byte(b: u8) {
-    // Safety: `__torajs_io_putc_stdout` is a no-libc helper from
+    // Safety: `__torajs_io_putc_out` is a no-libc helper from
     // torajs-io with putchar-compatible signature.
     unsafe {
-        __torajs_io_putc_stdout(b as i32);
+        __torajs_io_putc_out(b as i32);
     }
 }
 

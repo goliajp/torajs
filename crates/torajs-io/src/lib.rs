@@ -14,8 +14,12 @@
 //! - `stdout` module: 3 `#[unsafe(no_mangle)] pub extern "C"`
 //!   entry points (`putc_stdout` / `write_stdout` / `flush`).
 //!   Same calling convention as libc's `putchar` (1:1 drop-in).
-//! - `stderr` module: stubbed for v0.7 (A5 final libc verify
-//!   handles the stderr path; A3 scope is stdout-only).
+//! - `sink` module: current-sink indirection (`putc_out` /
+//!   `write_out` + the stderr/stdout switch pair) — the
+//!   RFC 20260812-console-sink layer the print/inspect family
+//!   streams through so `console.error` / `console.warn` can
+//!   redirect a whole walk to STDERR without per-type `_err`
+//!   symbol duplication.
 //!
 //! ## Why
 //!
@@ -27,6 +31,11 @@
 #![no_std]
 
 pub mod buf;
+pub mod sink;
 pub mod stdout;
 
+pub use sink::{
+    __torajs_io_putc_out, __torajs_io_sink_to_stderr, __torajs_io_sink_to_stdout,
+    __torajs_io_write_out,
+};
 pub use stdout::{__torajs_io_flush, __torajs_io_putc_stdout, __torajs_io_write_stdout};
