@@ -127,12 +127,11 @@ pub(super) fn rewrite_arguments_in_expr(
             }
             return ast.add_expr(Expr::Member { obj: o, name });
         }
-        // `arguments.length` — T-31: when this fn uses real argc,
-        // route to `Ident("__torajs_real_argc")` (the synthetic param
-        // injected by `desugar_arguments_object`). Otherwise fall back
-        // to the declared-arity fold (`Number(<arity>)`) — that path
-        // still serves closures and class methods that don't qualify
-        // for the T-31 ABI change.
+        // `arguments.length` — T-31: when this fn carries a real
+        // argc, route to the S1 hidden `__torajs_argc`. Otherwise
+        // fall back to the declared-arity fold (`Number(<arity>)`)
+        // — that path still serves closures and class methods that
+        // don't qualify for the T-31 ABI change.
         Expr::Member { obj, name } if name == "length" => {
             if let Expr::Ident(n) = ast.get_expr(obj)
                 && n == "arguments"
@@ -272,17 +271,9 @@ fn rewrite_length_read(
     eid: ExprId,
 ) -> ExprId {
     match argc_mode {
-        // S3.2 — a hidden-slot face (env-first; this-first since
-        // S1-T2) reads the S1 hidden ABI argc; the head-less face
-        // keeps the injected param until the H blades cover it.
-        ArgcMode::Real { hidden } => {
-            let argc = if hidden {
-                "__torajs_argc"
-            } else {
-                "__torajs_real_argc"
-            };
-            ast.add_expr(Expr::Ident(argc.into()))
-        }
+        // S3.2 — every real-argc face reads the S1 hidden ABI argc
+        // (env-first S3.2, this-first S1-T2, head-less S1-H2).
+        ArgcMode::Real => ast.add_expr(Expr::Ident("__torajs_argc".into())),
         // Write-shaped env-first face — both positions (read and
         // Assign / PostIncr target) land on the synthesized local.
         ArgcMode::RealLocal => ast.add_expr(Expr::Ident("__torajs_argc_len".into())),

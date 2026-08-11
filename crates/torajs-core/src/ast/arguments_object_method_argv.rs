@@ -6,7 +6,7 @@
 //! already delivers the true argc/argv to the `__boxed___cm_*`
 //! adapter — where both are dropped today because the body declares
 //! no slot for them. Admitting the body here injects the
-//! `__torajs_real_argc` / `__torajs_argv` synthetic params (after
+//! `__torajs_argv` synthetic param (after
 //! `__this`), and `build_boxed_entry` forwards the adapter's values
 //! into them with no further change; the body then rides the
 //! existing argv-face rewrite (materialize + Real-mode length).

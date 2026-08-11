@@ -1,6 +1,6 @@
 //! T-31 argv injection — split from arguments_object.rs when the
 //! unmapped-arguments knife pushed it past the 500-line limit
-//! (rotation 271). The `__torajs_real_argc` half (param injection +
+//! (rotation 271). The `injected-argc` half (param injection +
 //! `prepend_static_argc` call-site prepend) retired with the RFC
 //! 20260810-indirect-argc-abi H2 blade: every argc tier now reads
 //! the S1 hidden sig slot.

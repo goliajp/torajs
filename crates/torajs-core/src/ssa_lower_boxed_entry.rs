@@ -137,7 +137,7 @@ fn program_constructs_from_value(ast: &Ast) -> bool {
 /// channel (the env ptr's raw bits are not a nanbox) — it maps as an
 /// ordinary user param instead, and the guard-fail path calls the
 /// adapter recv-first (receiver prepended in argv[0], any→any
-/// pass-through). An argv-face twin (synthetic `__torajs_real_argc`
+/// pass-through). An argv-face twin (synthetic `__torajs_argv`
 /// head) would mis-map that slot, so it synthesizes nothing (twin
 /// stays 0 in the face; recorded RFC residue).
 fn head_shape(name: &str, params: &[crate::ast::Param]) -> (bool, bool, bool) {
@@ -150,9 +150,7 @@ fn head_shape(name: &str, params: &[crate::ast::Param]) -> (bool, bool, bool) {
             // twin `__smany_` has the same any-typed `__this` head
             // and the same recv-first adapter shape.
             && (name.starts_with("__cmany_") || name.starts_with("__smany_"))
-            && !params
-                .iter()
-                .any(|p| p.name == "__torajs_real_argc" || p.name == "__torajs_argv"),
+            && !params.iter().any(|p| p.name == "__torajs_argv"),
     )
 }
 
@@ -248,7 +246,6 @@ pub(crate) fn synthesize_boxed_entries(
             t.fid,
             &t.user_tys,
             t.ret_ty,
-            t.has_real_argc,
             t.has_argv,
             t.recv_slot,
             t.feeds_env,
@@ -309,34 +306,16 @@ fn collect_boxed_targets(
         };
         let (param_tys, ret_ty) = fn_sigs[sig_id.0 as usize].clone();
         let env_count = usize::from(feeds_env);
-        // RFC 20260708-variadic — a body carrying the synthetic
-        // `__torajs_real_argc` param (661/663 injection) takes the
-        // adapter's argc VALUE in that slot; argv slots map to the
-        // params after it. Pre-fix the adapter unboxed argv[0] into
-        // the argc slot (latent mis-bind, unreachable while the 661
-        // kill rules kept argc closures out of any-world).
-        let has_real_argc = params
-            .get(env_count)
-            .is_some_and(|p| p.name == "__torajs_real_argc");
-        // RFC 20260810-indirect-argc-abi S3.4 — env-first faces are
-        // off the real_argc injection (readers ride the S1 hidden
-        // slot); only the head-less / `__cm_` this-first families
-        // still carry the injected param. Machine proof of the
-        // retirement boundary:
-        debug_assert!(
-            !(has_real_argc && first_is_env),
-            "env-first body {name} still carries __torajs_real_argc"
-        );
         // RFC 20260708-closure-argv-face — a full-arguments body
-        // also carries the raw argv pointer: right after the argc
-        // slot on the this-first face, directly at the first user
-        // slot on the env-first face (S3.4 dropped its argc).
+        // carries the raw argv pointer right after its head param
+        // (the argc channel is the S1 hidden sig slot on every tier
+        // since the T/H blades — no injected argc param remains).
         let has_argv = params
-            .get(env_count + usize::from(has_real_argc))
+            .get(env_count)
             .is_some_and(|p| p.name == "__torajs_argv");
         // param 0 is the env Ptr (when the body carries one); the
-        // boxed surface covers the rest (minus the argc/argv slots,
-        // which never consume argv positions). Two skip counts since
+        // boxed surface covers the rest (minus the argv slot, which
+        // never consumes argv positions). Two skip counts since
         // RFC 20260810-indirect-argc-abi S1: the AST param list has
         // no hidden slot, the SSA sig of an `__env`-first body has
         // the injected I64 `__torajs_argc` at position 1 — cutting
@@ -345,7 +324,7 @@ fn collect_boxed_targets(
         // method_argv family carries the same sig-only slot (shared
         // predicate: pass 1 / setup_fn_params / here).
         let this_hidden = crate::ssa_lower_pass_1::this_first_hidden_argc(params);
-        let ast_skip = env_count + usize::from(has_real_argc) + usize::from(has_argv);
+        let ast_skip = env_count + usize::from(has_argv);
         let sig_skip = ast_skip + usize::from(first_is_env) + usize::from(this_hidden);
         let user_tys = param_tys[sig_skip..].to_vec();
         if user_tys.len() > MAX_BOXED_PARAMS {
@@ -403,7 +382,6 @@ fn collect_boxed_targets(
             fid,
             user_tys,
             ret_ty,
-            has_real_argc,
             has_argv,
             recv_slot,
             feeds_env,
@@ -425,7 +403,6 @@ struct BoxedEntryTarget {
     fid: FuncId,
     user_tys: Vec<Type>,
     ret_ty: Type,
-    has_real_argc: bool,
     has_argv: bool,
     recv_slot: bool,
     feeds_env: bool,

@@ -20,7 +20,6 @@
 //! Synthetic-param filtering for `.length`:
 //! - `__env` (lifted closure env ptr)
 //! - `__this` (class method receiver)
-//! - `__torajs_real_argc` (T-31 hidden arg-count prefix)
 //! - rest-params (`...args`) per ES spec `function.length`
 //!
 //! Synthetic-name filtering for `.name`:
@@ -87,7 +86,6 @@ pub(crate) fn expected_argument_count(params: &[crate::ast::Param]) -> usize {
         .filter(|p| {
             p.name != "__env"
                 && p.name != "__this"
-                && p.name != "__torajs_real_argc"
                 // S3.7 — the argv-face pointer slot never counts
                 // either. Unreachable-by-construction today (a
                 // compile-time `.length` read kills the argv-face

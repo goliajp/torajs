@@ -159,7 +159,7 @@ pub(crate) fn try_lower_with_this(
         }
     }
     // RFC 20260810-indirect-argc-abi S3.4 — the length-only tier's
-    // second argc push (into an injected `__torajs_real_argc` user
+    // second argc push (into an injected injected argc user
     // slot) retired with the injection: every env-first reader now
     // rides the S1 hidden argc pushed above. Args beyond the declared
     // list still lower (ES §13.3.6.1 ArgumentListEvaluation side

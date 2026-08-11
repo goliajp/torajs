@@ -47,7 +47,7 @@ pub(super) fn collect_arguments_shadowed_fns(ast: &Ast) -> std::collections::Has
 ///   == 0; closures with `__env` and class methods with `__this`
 ///   keep the old declared-arity fold to avoid disturbing their
 ///   dispatch ABI). Each such fn gets a synthetic first param
-///   `__torajs_real_argc: number`, and every direct-Ident-callee
+///   `injected argc: number`, and every direct-Ident-callee
 ///   Call to it gets `Number(args.len())` prepended.
 /// - Chunk 613 `env_fns` — lifted closures (hidden `__env` first
 ///   param); their `arguments.length` is only foldable through the
@@ -101,7 +101,7 @@ pub(super) fn snapshot_fn_params(
 /// (with the hidden `__env` param) whose ONLY call site is the
 /// Call wrapping the Closure placeholder — so the real argc is
 /// statically that call's arg count. Same T-31 shape: inject
-/// `__torajs_real_argc: number` as the first USER param (after
+/// `injected argc: number` as the first USER param (after
 /// `__env`) and prepend the static count at the call site.
 pub(super) fn collect_iife_real_argc(
     ast: &Ast,
@@ -204,11 +204,11 @@ pub(super) fn classify_argc_mode(
         // mutable home (the hidden param is an SSA value): it
         // rides a synthesized `__torajs_argc_len` local seeded
         // from the hidden argc — the exact semantics the injected
-        // (writable) `__torajs_real_argc` param used to give.
+        // (writable) `injected argc` param used to give.
         if body_has_arguments_length_write(ast, body) {
             ArgcMode::RealLocal
         } else {
-            ArgcMode::Real { hidden: true }
+            ArgcMode::Real
         }
     } else if tiers.env_fns.contains(name)
         && body_has_arguments_length(ast, body)
@@ -227,7 +227,7 @@ pub(super) fn classify_argc_mode(
         if body_has_arguments_length_write(ast, body) {
             ArgcMode::RealLocal
         } else {
-            ArgcMode::Real { hidden: true }
+            ArgcMode::Real
         }
     } else if tiers.env_fns.contains(name)
         && (body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body))

@@ -33,20 +33,16 @@ use super::{Ast, Stmt};
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ArgcMode {
-    /// Fn carries a real argc to read. `hidden: true` = the entry
-    /// family owns the S1 hidden-ABI `__torajs_argc` sig slot and
-    /// reads route to it: `__env`-first closures (RFC
-    /// 20260810-indirect-argc-abi S3.2) and, since S1-T2, the
-    /// `__cm_` this-first method_argv family. `hidden: false` =
-    /// head-less top-level fn: still reads the injected
-    /// `__torajs_real_argc` (no hidden slot exists there until the
-    /// H blades land).
-    Real { hidden: bool },
+    /// Fn carries a real argc to read: every admitted tier owns the
+    /// S1 hidden-ABI `__torajs_argc` sig slot and reads route to it
+    /// (`__env`-first closures S3.2, `__cm_` this-first S1-T2,
+    /// head-less S1-H2 — the injected argc param is fully retired).
+    Real,
     /// Hidden-slot face whose body WRITES `arguments.length`: reads
     /// and writes ride a synthesized mutable `__torajs_argc_len`
     /// local seeded from the S1 hidden argc (the hidden param itself
     /// is an unwritable SSA value) — the exact semantics the injected
-    /// writable `__torajs_real_argc` param used to provide.
+    /// writable `injected argc param` param used to provide.
     RealLocal,
     /// Fold to the declared arity (legacy fallback; still serves
     /// class methods, whose ABI is untouched — recorded face).

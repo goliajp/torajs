@@ -8,7 +8,7 @@
 //!
 //! 1. **T-27.c** built-in `f.length` / `f.name` for top-level FnDecl
 //!    or closure local-binding (synthetic `__env` / `__this` /
-//!    `__torajs_real_argc` / rest params filtered; `__closure_N`
+//!    synthetic argc/argv / rest params filtered; `__closure_N`
 //!    emitted as `""` per JS spec).
 //! 2. **T-15.g.2 + P10.4** `await p` (= `p.value`) on built-in
 //!    `Type::Promise(T)` + primitive identity fast-path

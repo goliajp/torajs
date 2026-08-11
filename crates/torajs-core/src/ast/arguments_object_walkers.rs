@@ -318,7 +318,7 @@ pub(super) fn count_user_params(_ast: &Ast, _eid: ExprId) -> usize {
 /// T-31 — returns true if the fn body references `arguments.length`
 /// (i.e. an `Expr::Member { obj: Ident("arguments"), name: "length" }`)
 /// anywhere. Used by `desugar_arguments_object` to decide whether to
-/// inject the `__torajs_real_argc` synthetic param, and by the bind
+/// inject the `argv-face` synthetic param, and by the bind
 /// desugar's kernel-lane routing (RFC 20260808 knife 2).
 pub(crate) fn body_has_arguments_length(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::Length))

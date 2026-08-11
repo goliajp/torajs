@@ -25,7 +25,6 @@ pub(super) fn build_boxed_entry(
     body_fid: FuncId,
     user_tys: &[Type],
     ret_ty: Type,
-    has_real_argc: bool,
     has_argv: bool,
     recv_slot: bool,
     feeds_env: bool,
@@ -79,12 +78,6 @@ pub(super) fn build_boxed_entry(
     // true-argc channel for free). Sits BEFORE the injected
     // real_argc/argv slots — same order as the sig.
     if hidden_argc {
-        args.push(user_argc);
-    }
-    // Feed the real argc into the injected `__torajs_real_argc`
-    // slot (head-less / this-first faces only since S3.4 —
-    // env-first bodies read the hidden slot fed above).
-    if has_real_argc {
         args.push(user_argc);
     }
     if has_argv {

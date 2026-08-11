@@ -473,7 +473,7 @@ pub struct Ast {
     /// the direct-call terminal consults this set to shift its
     /// param-type reads past the slot and prepend the argc operand.
     /// Head-less bodies have no self-describing param marker (the
-    /// injected `__torajs_real_argc` retires with the H blades), so
+    /// injected `injected argc param` retires with the H blades), so
     /// the family needs this side table where the env/this tiers key
     /// on param names.
     pub headless_argc_fns: std::collections::HashSet<String>,

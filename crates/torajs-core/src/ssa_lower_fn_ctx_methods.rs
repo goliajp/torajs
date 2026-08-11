@@ -11,11 +11,10 @@ use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, LocalInfo, LowerCtx, decode_env_ann
 /// The lifter's synthetic param names — never user ARGUMENTS, so the
 /// S2 missing-argument normalization below skips them and they don't
 /// advance the user-argument index the argc compare counts against.
-const SYNTHETIC_PARAMS: [&str; 6] = [
+const SYNTHETIC_PARAMS: [&str; 5] = [
     "__env",
     "__torajs_argc",
     "__this",
-    "__torajs_real_argc",
     "__torajs_argv",
     "__yield_arg",
 ];

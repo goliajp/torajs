@@ -219,11 +219,9 @@ pub(crate) fn check(
         )),
         "gc" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
         // RFC 20260810-indirect-argc-abi S3.1 — the S1 hidden-argc
-        // param by its synthetic name. `arguments.length` rewrites to
-        // this ident once S3.2 switches the env-first face off
-        // `__torajs_real_argc`; the `__`-prefix hard-error carve-out
-        // below would otherwise reject it. Pure widening: nothing
-        // emits the name before S3.2 lands.
+        // param by its synthetic name. `arguments.length` rewrites
+        // to this ident on every real-argc face; the `__`-prefix
+        // hard-error carve-out below would otherwise reject it.
         "__torajs_argc" => Ok(Type::Number),
         "undefined" => Ok(Type::Undefined),
         "NaN" | "Infinity" => Ok(Type::Number),
