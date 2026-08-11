@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T23:54:05.165Z",
+  "generatedAt": "2026-08-11T01:16:52.578Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-10T23:50:14Z",
-    "headSha": "9239da40",
-    "elapsedSec": 325.5,
+    "ranAt": "2026-08-11T01:14:03Z",
+    "headSha": "08a5e25f",
+    "elapsedSec": 325.04,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24182,
+    "pass": 24183,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28928,
-    "bug": 12791,
+    "passTotal": 28929,
+    "bug": 12790,
     "incompatible": 11455,
     "bunSkip": 6500,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.34
   },
   "torajs": {
-    "commit": "9239da40",
-    "commitSubject": "feat: the boxed adapter binds a long-string literal default too (mints the static global directly on module.strings — synthesis precedes per-fn lower, stringid final at mint)",
+    "commit": "08a5e25f",
+    "commitSubject": "fix: str concat tostrings an any argument through the kernel (raw str_concat deref'd the nan-box as a str pointer - sigsegv on 'a'.concat(Object('b')), the string-object test262 form)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "08a5e25f",
+      "subject": "fix: str concat tostrings an any argument through the kernel (raw str_concat deref'd the nan-box as a str pointer - sigsegv on 'a'.concat(Object('b')), the string-object test262 form)"
+    },
+    {
+      "hash": "c27a35fd",
+      "subject": "refactor: retire the injected real-argc param end to end (c blade - has_real_argc field chain, synthetic-params entry, length-fold filter, fnexpr face predicate, argcmode real field collapsed to unit; machine proof = zero grep hits workspace-wide)"
+    },
+    {
+      "hash": "c1e47b02",
+      "subject": "feat: the head-less tier reads the s1 hidden argc (h2 reader switch - classify merged into the hidden arm with reallocal write mirror, real_argc injection and prepend_static_argc retired, mono body-clone mirror moved to process_one_generic plus any-widen channel)"
+    },
+    {
+      "hash": "088f3502",
+      "subject": "feat: head-less t-31 fns take the s1 hidden argc at sig position 0 (h1 mechanical abi - headless_argc_fns side table with mono mirror, pass_1/setup twin injection, terminal shifts param reads and prepends argc after coercion)"
+    },
+    {
+      "hash": "543190cb",
+      "subject": "feat: the this-first method_argv family reads the s1 hidden argc (t2 reader switch - inject argv-only, classify hidden arm with length-write reallocal mirror, take-count face param retired, checker/metadata skip 3 to 2)"
+    },
+    {
+      "hash": "a807b6d9",
+      "subject": "feat: the this-first method_argv family takes the s1 hidden argc slot (t1 mechanical abi - shared predicate across pass_1/setup/boxed skip math, adapter forwards user argc, module_metadata dual-skip length gate)"
+    },
+    {
+      "hash": "1ce45a2f",
+      "subject": "docs: rotation 359 close - s3.8 default-binding family complete (four-quadrant str/num/bool x direct/any-lane), method-lane any admit widening, s1-expand phase a recon, sweep +27 zero regressions, dashboard refresh"
+    },
+    {
       "hash": "9239da40",
       "subject": "feat: the boxed adapter binds a long-string literal default too (mints the static global directly on module.strings — synthesis precedes per-fn lower, stringid final at mint)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "10ba2e12",
       "subject": "fix: a fn-typed param with a closure-shaped default gets the cell repr tag (the arg-scan round never sees the call-site pad)"
-    },
-    {
-      "hash": "2500e6c7",
-      "subject": "fix: call-returning-closure, ternary and nullish inits into a fn-sig-annotated binding keep the cell repr (r358 arm family unified into one recursive walk)"
-    },
-    {
-      "hash": "5cd414aa",
-      "subject": "feat: runtime-undefined any actual binds a typed param's literal default on the direct-call lane (es 10.2.11, s3.8 blade 2)"
-    },
-    {
-      "hash": "8fbcb710",
-      "subject": "feat: literal-undefined argument binds the parameter default at the call site (es 10.2.11 step 26, s3.8 blade 1)"
-    },
-    {
-      "hash": "7116e725",
-      "subject": "docs: rotation 358 close - objlit-this nominal width join, universal beyond-arity admit, twin repr holes and escaped-closure argc admission, sweep +20 zero regressions, dashboard refresh"
-    },
-    {
-      "hash": "1e1c6083",
-      "subject": "feat: length-only env-first bodies read the s1 hidden argc without binding-chain admission (rfc 20260810-indirect-argc-abi l3b escaped-closure forward face)"
-    },
-    {
-      "hash": "f7065d7d",
-      "subject": "fix: struct fn-field member read into a fn-sig-annotated binding keeps the cell repr (closure-ident sibling arm)"
-    },
-    {
-      "hash": "626c7e5d",
-      "subject": "fix: closure-ident init into a fn-sig-annotated binding keeps the cell repr (rfc 20260810-indirect-argc-abi l3b, as-any hole sibling)"
     }
   ],
-  "headSha": "9239da40",
+  "headSha": "08a5e25f",
   "autorun": {
-    "total": 662,
+    "total": 663,
     "baselineTarget": 10,
-    "bySelf": 657,
+    "bySelf": 658,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786398950-1980",
-      "at": "2026-08-10T21:55:50Z",
-      "ts": 1786398950,
+      "rotationId": "r-1786406080-193a",
+      "at": "2026-08-10T23:54:40Z",
+      "ts": 1786406080,
       "trigger": "self",
-      "prevHead": "7116e725",
-      "handoffSha": "sha256:f0afdbb63d5a16c5f896a2136b707d3e534f7104bf1020ad5c9461041a65d638",
+      "prevHead": "1ce45a2f",
+      "handoffSha": "sha256:ef0ed872bd6375b7c58b9fc1c502813bec3236bf66c9a73cced42d218ebc4723",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786406080-193a",
+        "at": "2026-08-10T23:54:40Z",
+        "ts": 1786406080,
+        "trigger": "self",
+        "prevHead": "1ce45a2f",
+        "handoffSha": "sha256:ef0ed872bd6375b7c58b9fc1c502813bec3236bf66c9a73cced42d218ebc4723",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786398950-1980",
         "at": "2026-08-10T21:55:50Z",
@@ -876,17 +887,6 @@
         "prevHead": "595fd831",
         "handoffSha": "sha256:e11dbf9e74eabacf2a6e038aec5470a552c93423d50192ed0e42213bf4a9eb60",
         "handoffAgeSec": 24,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786300089-3b4b",
-        "at": "2026-08-09T18:28:09Z",
-        "ts": 1786300089,
-        "trigger": "self",
-        "prevHead": "3fa340d7",
-        "handoffSha": "sha256:995d9a659fac451434c83e1f80ddfd69a2c1c9aaa0b7189de95517a8f4b8c72b",
-        "handoffAgeSec": 18,
         "conformanceBefore": null,
         "commitsInSession": null
       }
