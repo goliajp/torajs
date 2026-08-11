@@ -207,6 +207,7 @@ pub(crate) fn emit_per_method_body(
             ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, i_now2, src_arr, cb_arity,
         ),
         "forEach" => {
+            // §23.1.3.15 step 5.c — Call(cb, thisArg, «kValue, k, O»).
             let _ = emit_do_call(
                 ctx,
                 known_fid,
@@ -214,6 +215,7 @@ pub(crate) fn emit_per_method_body(
                 fn_ty,
                 cb_args(this_arg, elem, i_now2, src_arr, cb_arity),
                 usize::from(this_arg.is_some()),
+                3,
             );
         }
         _ => unreachable!(),
@@ -273,6 +275,7 @@ fn emit_do_call(
     fn_ty: Type,
     args: Vec<Operand>,
     sig_skip: usize,
+    spec_argc: i64,
 ) -> ValueId {
     // `sig_skip` — a promoted receiver-first callback's leading boxed
     // `__this` argv entry is not in the sig (knife 4); positional
@@ -285,8 +288,10 @@ fn emit_do_call(
     // below reaches) did not carry the number lanes. It does now, so
     // converting here would only do the same work twice.
     let r = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args, sig_skip),
-        None => ctx.call_fn_value(fn_val.clone(), fn_ty, args, sig_skip),
+        Some(fid) => {
+            ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args, sig_skip, spec_argc)
+        }
+        None => ctx.call_fn_value(fn_val.clone(), fn_ty, args, sig_skip, spec_argc),
     };
     // §23.1.3.15 step 5.c ReturnIfAbrupt — a throwing callback ends
     // the iteration; without this the loop ran every remaining

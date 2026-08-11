@@ -20,9 +20,10 @@
 //!   materialization: allocate an owned Str via `substr_to_owned`
 //!   when the callee expects `Type::Str` but the operand is
 //!   `Type::Substr`. Returns `(materialized_args, drops)`.
-//! - `call_fn_value_raw(fn_val, fn_ty, args)` — the raw indirect
-//!   dispatch (Closure = load fn_ptr @ +8 + CallIndirect with env
-//!   prepended; FnSig = plain CallIndirect).
+//! - `call_fn_value_raw(fn_val, fn_ty, args, sig_skip, spec_argc)` —
+//!   the raw indirect dispatch (Closure = load fn_ptr @ +8 +
+//!   CallIndirect with env and the S1 spec argc prepended; FnSig =
+//!   plain CallIndirect).
 
 use crate::ssa::{FuncId, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx};
@@ -174,15 +175,26 @@ impl<'a> LowerCtx<'a> {
         (out, drops)
     }
 
+    /// `spec_argc` — the S1 hidden-argc value for this call. Every
+    /// caller of this family is a builtin higher-order lane whose
+    /// spec fixes the callback's argument count (map/filter/forEach
+    /// pass «kValue, k, O» = 3 regardless of what the callback
+    /// declares), while the lane only materializes the slots the
+    /// callback's sig can receive. Deriving argc from the physical
+    /// arg list understated it — `[10,20].map(function(){ return
+    /// arguments.length })` answered 1 where the spec observes 3 —
+    /// so the lane states the spec count and the physical list stays
+    /// an unobservable transport optimization.
     pub(crate) fn call_fn_value(
         &mut self,
         fn_val: Operand,
         fn_ty: Type,
         args: Vec<Operand>,
         sig_skip: usize,
+        spec_argc: i64,
     ) -> ValueId {
         let (args, drops) = self.materialize_call_args(fn_ty, args, sig_skip);
-        let ret = self.call_fn_value_raw(fn_val, fn_ty, args, sig_skip);
+        let ret = self.call_fn_value_raw(fn_val, fn_ty, args, sig_skip, spec_argc);
         for (d, ty) in drops {
             self.emit_drop_value(d, ty);
         }
@@ -208,6 +220,7 @@ impl<'a> LowerCtx<'a> {
         fn_ty: Type,
         args: Vec<Operand>,
         sig_skip: usize,
+        spec_argc: i64,
     ) -> ValueId {
         let (args, drops) = self.materialize_call_args(fn_ty, args, sig_skip);
         let ret_ty = match fn_ty {
@@ -216,11 +229,11 @@ impl<'a> LowerCtx<'a> {
         };
         let mut argv: Vec<Operand> = match fn_ty {
             Type::Closure(_) => {
-                /* Closure ABI: env_ptr, S1 argc, then user args. */
-                let user_argc = (args.len() - sig_skip) as i64;
+                /* Closure ABI: env_ptr, S1 argc (the spec count — see
+                 * call_fn_value's doc), then user args. */
                 let mut a = Vec::with_capacity(args.len() + 2);
                 a.push(fn_val);
-                a.push(Operand::ConstI64(user_argc));
+                a.push(Operand::ConstI64(spec_argc));
                 a.extend(args);
                 a
             }
@@ -246,6 +259,7 @@ impl<'a> LowerCtx<'a> {
         fn_ty: Type,
         args: Vec<Operand>,
         sig_skip: usize,
+        spec_argc: i64,
     ) -> ValueId {
         match fn_ty {
             Type::Closure(user_sig_id) => {
@@ -278,7 +292,7 @@ impl<'a> LowerCtx<'a> {
                 let env_first_sig = intern_fn_sig(self.fn_sigs, env_first, ret_ty);
                 let mut argv = Vec::with_capacity(args.len() + 2);
                 argv.push(Operand::Value(env_ptr));
-                argv.push(Operand::ConstI64((args.len() - sig_skip) as i64));
+                argv.push(Operand::ConstI64(spec_argc));
                 argv.extend(args);
                 self.f.append_inst(
                     self.cur_block,

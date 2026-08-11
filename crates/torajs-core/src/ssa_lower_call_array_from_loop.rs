@@ -193,8 +193,8 @@ pub(crate) fn emit_map_loop(
     }
     let sig_skip = usize::from(this_arg.is_some());
     let mapped = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, sig_skip),
-        None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, sig_skip, 2),
+        None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 2),
     };
     let cur_dst = ctx.f.append_inst(
         ctx.cur_block,

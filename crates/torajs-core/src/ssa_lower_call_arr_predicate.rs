@@ -398,10 +398,10 @@ fn emit_body_and_step(
     }
     let sig_skip = usize::from(this_arg.is_some());
     let pred_op: Operand = if cb_ret_void {
-        let _ = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip);
+        let _ = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip, 3);
         Operand::ConstBool(false)
     } else {
-        let pred_v = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip);
+        let pred_v = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip, 3);
         // rotation 284 — the predicate return folds through ToBoolean
         // (ES §23.1.3.{8-11,30}): a non-Bool cb ret (1/0 counters,
         // strings, boxed values) coerces here; coerce_to_bool is a

@@ -207,7 +207,7 @@ fn emit_user_cmp_pred(
             }
         })
         .collect::<Vec<_>>();
-    let cmp_ret = ctx.call_fn_value(cv.clone(), *ct, args, 0);
+    let cmp_ret = ctx.call_fn_value(cv.clone(), *ct, args, 0, 2);
     let cmp_ret_ty = ctx.f.value_type(cmp_ret);
     match cmp_ret_ty {
         Type::F64 => ctx.f.append_inst(

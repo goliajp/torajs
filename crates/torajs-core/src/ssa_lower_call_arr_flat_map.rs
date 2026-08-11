@@ -162,7 +162,7 @@ pub(crate) fn try_lower(
         call_args.push(Operand::Value(src_arr));
     }
     let sig_skip = usize::from(this_arg.is_some());
-    let cb_ret = ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip);
+    let cb_ret = ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 3);
 
     let final_dst = if scalar_ret && cb_ret_ty == Type::Any {
         // An Any return is only decidable at runtime — ES §23.1.3.11

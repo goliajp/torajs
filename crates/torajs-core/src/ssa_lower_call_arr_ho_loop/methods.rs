@@ -34,6 +34,7 @@ pub(super) fn emit_map(
             fn_ty,
             cb_args(this_arg, elem, i_now, src_arr, cb_arity),
             usize::from(this_arg.is_some()),
+            3,
         );
         Operand::Value(emit_undef_any_box(ctx))
     } else {
@@ -44,6 +45,7 @@ pub(super) fn emit_map(
             fn_ty,
             cb_args(this_arg, elem, i_now, src_arr, cb_arity),
             usize::from(this_arg.is_some()),
+            3,
         );
         // RFC 20260726-array-elem-width knife 1 — the dst elem width is
         // the analysis class's answer, which can be wider than what this
@@ -102,6 +104,7 @@ pub(super) fn emit_filter(
             fn_ty,
             cb_args(this_arg, elem, i_now, src_arr, cb_arity),
             usize::from(this_arg.is_some()),
+            3,
         );
         return;
     }
@@ -112,6 +115,7 @@ pub(super) fn emit_filter(
         fn_ty,
         cb_args(this_arg, elem, i_now, src_arr, cb_arity),
         usize::from(this_arg.is_some()),
+        3,
     );
     // The keep test folds through ToBoolean (ES §23.1.3.7 step
     // 8.c.ii): a non-Bool cb ret (Any box, numbers, strings)
@@ -200,10 +204,10 @@ pub(super) fn emit_reduce(
     // to an Any acc slot).
     let cb_ret = ctx.callback_ret_ty(fn_ty);
     let new_acc = if cb_ret == Some(Type::Void) {
-        let _ = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0);
+        let _ = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0, 4);
         emit_undef_any_box(ctx)
     } else {
-        let v = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0);
+        let v = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0, 4);
         // rotation 285 — the hetero-seed acc lane (dispatch picked an
         // Any slot because the seed's type differs from the cb ret):
         // the typed ret boxes on the way in. box_to_any is rc-neutral

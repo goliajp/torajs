@@ -423,8 +423,8 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     }
     let sig_skip = usize::from(this_arg.is_some());
     let _ = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, sig_skip),
-        None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, sig_skip, 3),
+        None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
     };
     // §24.2.3.6 step 8.a.iii ReturnIfAbrupt — a throwing callback
     // ends the walk (previously the loop swallowed it).
