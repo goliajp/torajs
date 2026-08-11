@@ -91,8 +91,57 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if let Some(op) = try_ns_object_ident(ctx, name) {
             return op;
         }
+        if let Some(op) = try_ns_static_ident(ctx, eid, name) {
+            return op;
+        }
     }
     lower_local_binding(ctx, name)
+}
+
+/// The ns-static table id of a bare global function property
+/// (`parseInt` / `decodeURI` / …) — shared by the ident lane's
+/// mint gate below and the let-init variadic registration
+/// (`ns_static_member_init_id`), so an alias binding routes its
+/// calls through the boxed dual entry instead of the typed-slot
+/// boundary throw.
+pub(crate) fn bare_global_ns_static_id(name: &str) -> Option<i64> {
+    let ns = match name {
+        "parseInt" | "parseFloat" => "Number",
+        "isNaN" | "isFinite" | "encodeURI" | "encodeURIComponent" | "decodeURI"
+        | "decodeURIComponent" => "globalThis",
+        _ => return None,
+    };
+    let id = torajs_rc::ns_static_id(ns, name);
+    (id != torajs_rc::NS_STATIC_UNKNOWN).then_some(id)
+}
+
+/// §19.2.2-6 — a global-object function property read as a bare
+/// VALUE answers its interned ns-static cell (rotation 368; the
+/// `Math.max`-as-a-value lane pointed at the global's own function
+/// properties). The checker typed the read with the concrete fn
+/// type, which fixes the Closure sig; direct calls never get here
+/// (the bare_globals call route fires first).
+fn try_ns_static_ident(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    name: &str,
+) -> Option<Operand> {
+    let id = bare_global_ns_static_id(name)?;
+    let Some(crate::check::Type::Function(ps, ret)) = ctx.expr_types.get(&eid) else {
+        return None;
+    };
+    use crate::ssa_lower_member_builtin_namespace::check_ty_to_ssa;
+    let params: Vec<Type> = ps.iter().map(check_ty_to_ssa).collect();
+    let ret = check_ty_to_ssa(ret.as_ref());
+    let sig = crate::ssa_lower::intern_fn_sig(ctx.fn_sigs, params, ret);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.ns_static_cell, vec![Operand::ConstI64(id)]),
+        Type::Closure(sig),
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 /// RFC 20260801-ns-object-value — `Math` in a value position (thisArg

@@ -111,6 +111,20 @@ pub(crate) fn check(
         // reads never get here — the G1 desugar rewrote them to bare
         // names. `typeof globalThis` keeps its static "object" lane.
         "globalThis" => Ok(Type::Any),
+        // §19.2.2-6 function properties of the global object as bare
+        // VALUES — the ns-static cells shipped (rotation 368), so a
+        // value-position read answers the concrete fn type exactly
+        // like the `Number.parseInt` member read does. Direct calls
+        // never get here (the bare_globals early route fires first).
+        "parseInt" => Ok(Type::Function(
+            vec![Type::String, Type::Number],
+            Box::new(Type::Number),
+        )),
+        "parseFloat" => Ok(Type::Function(vec![Type::String], Box::new(Type::Number))),
+        "isNaN" | "isFinite" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
+        "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" => {
+            Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
+        }
         "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
         "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
         "__torajs_date_from_value" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Date))),

@@ -275,6 +275,18 @@ pub(crate) fn record_binding_flags(
 /// under: table hit + obj typed `Type::Object` (a user binding
 /// shadowing `Math` never matches) + member typed `Function`.
 pub(crate) fn ns_static_member_init_id(ctx: &LowerCtx, init: ExprId) -> Option<i64> {
+    // rotation 368 — a bare global function property (`const p =
+    // parseInt`) is the same cell through the ident lane; the alias
+    // registers variadic so its calls take the boxed dual entry.
+    if let Expr::Ident(gname) = ctx.ast.get_expr(init)
+        && let Some(id) = crate::ssa_lower_ident::bare_global_ns_static_id(gname)
+        && matches!(
+            ctx.expr_types.get(&init),
+            Some(crate::check::Type::Function(..))
+        )
+    {
+        return Some(id);
+    }
     let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
         return None;
     };
