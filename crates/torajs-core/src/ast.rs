@@ -16,6 +16,7 @@ mod arguments_object_devirt;
 mod arguments_object_inject;
 mod arguments_object_method_argv;
 mod arguments_object_mutation;
+mod arguments_object_objlit_argv;
 mod arguments_object_rewrite;
 mod arguments_object_rewrite_recurse;
 mod arguments_object_rewrite_spread;

@@ -105,6 +105,36 @@ pub(super) enum ArgcMode {
     KeepLoud,
 }
 
+/// RFC 20260808 escape-store profile — a fn whose binding is stored
+/// into a boxed-face position leaves the static face: the store
+/// implies a runtime call the AST cannot see (species construct,
+/// builtin callback), and the static fold would materialize the
+/// direct sites' argc — usually zero — where the boxed dual entry
+/// delivers the true one. Rotation 345 added the argument-position
+/// variant of the same profile (boxed-consumption arg sites; doc on
+/// that fn).
+fn retain_escape_stored_off_static(
+    ast: &Ast,
+    static_argv: &mut std::collections::HashMap<String, usize>,
+    value_argv_pre: &std::collections::HashSet<String>,
+    argv_locals: &std::collections::HashSet<String>,
+) {
+    for f in super::arguments_object_escape_store::collect_escape_stored(
+        ast,
+        value_argv_pre,
+        argv_locals,
+    ) {
+        static_argv.remove(&f);
+    }
+    for f in super::arguments_object_escape_store::collect_escape_arg_positions(
+        ast,
+        value_argv_pre,
+        argv_locals,
+    ) {
+        static_argv.remove(&f);
+    }
+}
+
 pub fn desugar_arguments_object(ast: &mut Ast) {
     // Pre-pass — rewrite exclusively-called fn-value aliases into
     // direct calls so the face analyses below see their sites (and
@@ -162,28 +192,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             static_argv.remove(f);
         }
     }
-    // RFC 20260808 escape-store profile — a fn whose binding is
-    // stored into a boxed-face position leaves the static face too:
-    // the store implies a runtime call the AST cannot see (species
-    // construct, builtin callback), and the static fold would
-    // materialize the direct sites' argc — usually zero — where the
-    // boxed dual entry delivers the true one.
-    for f in super::arguments_object_escape_store::collect_escape_stored(
-        ast,
-        &value_argv_pre,
-        &argv_locals,
-    ) {
-        static_argv.remove(&f);
-    }
-    // Rotation 345 — the argument-position variant of the same
-    // profile (boxed-consumption arg sites; doc on the fn).
-    for f in super::arguments_object_escape_store::collect_escape_arg_positions(
-        ast,
-        &value_argv_pre,
-        &argv_locals,
-    ) {
-        static_argv.remove(&f);
-    }
+    retain_escape_stored_off_static(ast, &mut static_argv, &value_argv_pre, &argv_locals);
     let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
     // A named fn admitted to the static face must leave the T-31
@@ -209,6 +218,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // escape-vs-static resolution).
     let mut value_argv_fns = value_argv_pre;
     value_argv_fns.retain(|n| !iife_static_argv.contains_key(n));
+    // Rotation 365 — boxed-only object-literal method argv (module
+    // doc in arguments_object_objlit_argv): a field closure with
+    // zero visible sites joins the argv face, split by `__this`
+    // promotion into the value / method head shapes.
+    let (objlit_value_argv, objlit_method_argv) =
+        super::arguments_object_objlit_argv::collect_objlit_boxed_only_argv(ast, &excluded);
+    value_argv_fns.extend(objlit_value_argv);
     ast.closure_argv_fns = value_argv_fns.clone();
     ast.closure_argv_locals = argv_locals;
 
@@ -217,8 +233,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // / reified cell) take the argv face too: the boxed adapter
     // already delivers true argc/argv and forwards both into the
     // injected params. See the module doc for the admission bounds.
-    let method_argv_fns =
+    let mut method_argv_fns =
         super::arguments_object_method_argv::collect_method_argv(ast, &excluded, &iife_static_argv);
+    method_argv_fns.extend(objlit_method_argv);
     ast.method_argv_fns = method_argv_fns.clone();
     // RFC 20260810-indirect-argc-abi H1 — record the final head-less
     // tier membership: the SSA sig side (pass 1 / setup_fn_params /
