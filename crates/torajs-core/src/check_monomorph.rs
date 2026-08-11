@@ -183,6 +183,15 @@ pub(crate) fn process_one_generic(
             return;
         };
         let mono_name = cache[&(name.clone(), arg_anns.clone())].clone();
+        // RFC 20260810-indirect-argc-abi H1 — a head-less T-31 body's
+        // specialization keeps the hidden-argc ABI: mirror the clone
+        // into the side table the sig/def/terminal sites key on
+        // (`mono_ast` is exactly the AST the lowerer reads). Without
+        // this the clone's rewritten `__torajs_argc` reads have no
+        // param to bind (loud unknown-ident at lower).
+        if owned_ast.headless_argc_fns.contains(&name) {
+            owned_ast.headless_argc_fns.insert(mono_name.clone());
+        }
         // `MakeIterable$$_boolean` → `$$_boolean`; the same suffix
         // names this spec's lifted-closure clones.
         let spec_suffix = mono_name[name.len()..].to_string();

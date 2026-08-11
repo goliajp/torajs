@@ -14,7 +14,7 @@
 //! `crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt`.
 
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
-use super::arguments_object_inject::{inject_argc_params, prepend_static_argc};
+use super::arguments_object_inject::inject_argc_params;
 use super::arguments_object_rewrite::SloppyCallee;
 use super::arguments_object_sloppy::{CalleeSpelling, PendingFwds, callee_value_fn};
 use super::arguments_object_stages::{
@@ -230,7 +230,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // and the mono pass mirrors clones into it.
     ast.headless_argc_fns = uses_real_argc.clone();
 
-    inject_argc_params(ast, &uses_real_argc, &value_argv_fns, &method_argv_fns);
+    inject_argc_params(ast, &value_argv_fns, &method_argv_fns);
 
     // S2 — the sloppy goal's callee-value shims, appended to the
     // module after the loop (appending mid-loop is safe for the
@@ -422,6 +422,4 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
 
     // S2 — land the sloppy callee-value shims synthesized above.
     ast.stmts.extend(pending_fwds.decls);
-
-    prepend_static_argc(ast, &uses_real_argc);
 }

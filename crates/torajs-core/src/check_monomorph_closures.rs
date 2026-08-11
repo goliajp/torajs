@@ -241,9 +241,6 @@ fn mirror_name_keyed_tables(ast: &mut Ast, orig: &str, clone: &str) {
     if ast.closure_argv_fns.contains(orig) {
         ast.closure_argv_fns.insert(clone.to_string());
     }
-    if ast.headless_argc_fns.contains(orig) {
-        ast.headless_argc_fns.insert(clone.to_string());
-    }
     if ast.async_fns.contains(orig) {
         ast.async_fns.insert(clone.to_string());
     }

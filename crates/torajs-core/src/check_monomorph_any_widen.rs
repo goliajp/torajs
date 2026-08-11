@@ -104,6 +104,12 @@ fn widen_one(
             .join("_")
     );
     let mono_name = format!("{fn_name}{suffix}");
+    // H1 — mirror a head-less body's any-widened clone into the
+    // hidden-argc side table (same contract as the generic channel's
+    // mirror in `process_one_generic`).
+    if owned_ast.headless_argc_fns.contains(&fn_name) {
+        owned_ast.headless_argc_fns.insert(mono_name.clone());
+    }
     if !c.globals.contains_key(&mono_name) {
         emit_widened_spec(
             c,

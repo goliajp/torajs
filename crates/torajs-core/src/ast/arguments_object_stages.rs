@@ -191,24 +191,20 @@ pub(super) fn classify_argc_mode(
         } else {
             ArgcMode::FoldTo(n)
         }
-    } else if tiers.uses_real_argc.contains(name) {
-        // Head-less top-level fns have no S1 hidden argc — they
-        // keep reading the injected `__torajs_real_argc` until
-        // the H blades cover that entry family.
-        ArgcMode::Real { hidden: false }
-    } else if tiers.iife_real_argc.contains(name)
+    } else if tiers.uses_real_argc.contains(name)
+        || tiers.iife_real_argc.contains(name)
         || tiers.value_real_argc.contains(name)
         || tiers.value_argv_fns.contains(name)
         || tiers.method_argv_fns.contains(name)
     {
         // S3.2 — env-first faces read the S1 hidden argc; S1-T2
         // moved the `__cm_` this-first method_argv family onto
-        // the same slot (T1 gave it one). A body that WRITES
-        // `arguments.length` needs a mutable home (the hidden
-        // param is an SSA value): it rides a synthesized
-        // `__torajs_argc_len` local seeded from the hidden argc
-        // — the exact semantics the injected (writable)
-        // `__torajs_real_argc` param used to give.
+        // the same slot, and H2 the head-less tier (H1 gave both
+        // theirs). A body that WRITES `arguments.length` needs a
+        // mutable home (the hidden param is an SSA value): it
+        // rides a synthesized `__torajs_argc_len` local seeded
+        // from the hidden argc — the exact semantics the injected
+        // (writable) `__torajs_real_argc` param used to give.
         if body_has_arguments_length_write(ast, body) {
             ArgcMode::RealLocal
         } else {

@@ -105,8 +105,9 @@ pub(super) fn rewrite_recurse_arm(
         // Length-write knife — `arguments.length--` (walker-mirror:
         // the scans reach PostIncr targets; without this arm the
         // stale Member leaked to the lowering as "post-incr field on
-        // non-obj Ptr"). Real mode lands on `__torajs_real_argc--`,
-        // LiveLength on `__torajs_arguments.length--`.
+        // non-obj Ptr"). A length-writing body classifies RealLocal
+        // (`__torajs_argc_len--`), LiveLength lands on
+        // `__torajs_arguments.length--`.
         Expr::PostIncr { target, is_inc } => {
             let t = rewrite_arguments_in_expr(
                 ast,
