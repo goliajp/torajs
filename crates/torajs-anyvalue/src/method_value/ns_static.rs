@@ -116,7 +116,10 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 Err(()) => VALUE_UNDEFINED,
             },
             Disp::Nullary(f) => box_double(f()),
-            Disp::ConsoleLog => {
+            Disp::ConsoleLog { to_stderr } => {
+                if *to_stderr {
+                    torajs_io::__torajs_io_sink_to_stderr();
+                }
                 for i in 0..argc {
                     if i > 0 {
                         putc_out(b' ');
@@ -124,6 +127,9 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                     crate::inspect::any::__torajs_print_anyv_inline_top(*argv.add(i as usize));
                 }
                 putc_out(b'\n');
+                if *to_stderr {
+                    torajs_io::__torajs_io_sink_to_stdout();
+                }
                 VALUE_UNDEFINED
             }
             Disp::ParseInt => super::ns_static_coerce::parse_int_value(argv, argc),

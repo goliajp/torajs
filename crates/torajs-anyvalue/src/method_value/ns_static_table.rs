@@ -31,10 +31,14 @@ pub(super) enum Disp {
     I32One(unsafe extern "C" fn(i64) -> i64),
     /// () → f64 (random).
     Nullary(unsafe extern "C" fn() -> f64),
-    /// WHATWG console stdout logger — per-arg tag-aware inline
-    /// print + `' '` separators + `'\n'` (the chunk-808 multiarg
-    /// phase-2 sequence; args are already evaluated in argv).
-    ConsoleLog,
+    /// WHATWG console logger — per-arg tag-aware inline print +
+    /// `' '` separators + `'\n'` (the chunk-808 multiarg phase-2
+    /// sequence; args are already evaluated in argv). `to_stderr`
+    /// brackets the walk with torajs-io's current-sink switch
+    /// (error / warn, RFC 20260812-console-sink knife 3).
+    ConsoleLog {
+        to_stderr: bool,
+    },
     /// §19.2.5 parseInt — ToString(arg0) + ToInt32(radix) into the
     /// typed tier's parse kernel.
     ParseInt,
@@ -281,9 +285,9 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::I32Pair(__torajs_math_imul),
     Disp::I32One(__torajs_math_clz32),
     Disp::Nullary(__torajs_math_random),
-    Disp::ConsoleLog, // console.log
-    Disp::ConsoleLog, // console.info — same stream per §1.1.2/.4
-    Disp::ConsoleLog, // console.debug
+    Disp::ConsoleLog { to_stderr: false }, // console.log
+    Disp::ConsoleLog { to_stderr: false }, // console.info — same stream per §1.1.2/.4
+    Disp::ConsoleLog { to_stderr: false }, // console.debug
     Disp::ParseInt,
     Disp::ParseFloat,
     Disp::NumPredicate(NumPred::Integer),
@@ -373,4 +377,6 @@ pub(super) static DISPATCH: &[Disp] = &[
         encode: true,
         component: true,
     },
+    Disp::ConsoleLog { to_stderr: true }, // console.error
+    Disp::ConsoleLog { to_stderr: true }, // console.warn
 ];

@@ -65,9 +65,9 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Math", "random", 0),
     // console stdout family (chunk B2) — WHATWG console §1.1: the
     // methods are rest-param shaped, ES length 0 (bun agrees).
-    // error / warn stay OFF the table until an any-print stderr
-    // kernel exists (RFC records the face) — their value reads keep
-    // the loud unknown-ident reject.
+    // error / warn joined at the table END (append-only) once the
+    // io current-sink switch landed — see the RFC
+    // 20260812-console-sink rows behind the URI quartet.
     row("console", "log", 0),
     row("console", "info", 0),
     row("console", "debug", 0),
@@ -275,6 +275,13 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("globalThis", "decodeURIComponent", 1),
     row("globalThis", "encodeURI", 1),
     row("globalThis", "encodeURIComponent", 1),
+    // WHATWG console §1.1 stderr pair (RFC 20260812-console-sink
+    // knife 3) — same rest-param shape / length 0 as the stdout
+    // trio; the dispatch arm brackets the shared inline-print walk
+    // with torajs-io's current-sink switch, so the one streaming
+    // path serves both streams (no `_err` walker duplication).
+    row("console", "error", 0),
+    row("console", "warn", 0),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
