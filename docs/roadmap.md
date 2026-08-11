@@ -1530,7 +1530,34 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `c025fd3f`** (2026-08-11, rotation 365 — five knives on the
+**Latest @ `03200808`** (2026-08-11, rotation 366 — the sign-off
+delegation lands and the subset-decision register goes live: SR-1
+attributes the 752 noStrict-flagged core cases (sloppy-only surface —
+tr's TS-module surface is always strict, same as bun's `.ts` face),
+`cluster_incompat.py` applies register predicates mechanically, and
+the gate predicate re-baselines **293 → 270 unattributed clusters /
+4764 → 4023 cases** with cause and magnitude recorded. Substrate: the
+Function/bind family fell — the bind synth lane's `->any` capture lie
+on unannotated-ret closure bindings (silent garbage tags) routes to
+the runtime kernel; bound functions construct per §10.4.1.2
+(boundArgs ++ args, newTarget→target recursion, bound-over-bound
+unwinds); `arguments` inside constructor arguments joins all three
+walks (Expr::New/NewDynamic arms); `fn as any` joins the forwarder
+wrap axes. One knife REVERTED by the sweep: the forwarder recv-first
+public face lost 128 passes (gen-argv `[...arguments]` swallowed the
+receiver; strict-this lanes misaligned) — bisected, reproduced,
+reverted same rotation; receiver-through-forwarder is registered as
+its own caller-audited knife. Sweep: passTotal 29032 → **29048
+(+16)**, bug **−16**, trAccepted / incompatible flat, conservation
+exact. Forward moves: Function/prototype/bind 14 (the whole probed
+family), DisposableStack newtarget-abrupt 2; true pass regressions
+**0**; one bug-internal move (bind 4-5 exit3→exit1). Crash counts
+flat (139=39, 138=64, timeout=5). Gate predicate **270 unattributed
+clusters / 4023 cases / register 1 entry · 752 attributed / residue
+760 · 983 / core 5758**. Build determinism 44/44 (N=12). Conformance
+gate 2740 → **2744/0/4**.)
+
+**Previous @ `c025fd3f`** (2026-08-11, rotation 365 — five knives on the
 `identifier arguments` bug bucket, all t262-harness-driven shapes. The
 harness shadow poison closed: `__t262_throwsAsync`'s param `func`
 (captured by its own inner closure) killed every same-named top-level
@@ -4685,15 +4712,18 @@ cases, 4.8 %).
       > attributed to an entry in the subset-decision register below.
       > The count of unattributed ≥ 4 clusters drives to 0.**
 
-      Latest @ `98efa861`, 2026-07-27 (previous `b58797fb`, then
-      `7ef9b170`, in parentheses):
+      Latest @ `03200808`, 2026-08-11, rotation 366 — the first
+      register-aware stamp (SR-1 attributes 752 noStrict cases;
+      previous `98efa861` / `b58797fb` in parentheses, pre-register
+      figures):
 
       | | |
       |---|---|
-      | clusters ≥ 4 cases, unattributed | **484** (487, 490) ← drives to 0 |
-      | cases in them | 24438 (24755, 25079) |
-      | clusters ≤ 3 cases | 919 (919, 919) — 1282 cases, 5.0 % residue |
-      | core total | 25720 (26046, 26370) |
+      | clusters ≥ 4 cases, unattributed | **270** (484, 487) ← drives to 0 |
+      | cases in them | 4023 (24438, 24755) |
+      | register | 1 entry, 752 cases attributed (—, —) |
+      | clusters ≤ 3 cases | 760 (919, 919) — 983 cases residue |
+      | core total | 5758 (25720, 26046) |
 
       Both numbers have now fallen two rotations running. Before that,
       for two rotations, the movement had the other predicted shape —
