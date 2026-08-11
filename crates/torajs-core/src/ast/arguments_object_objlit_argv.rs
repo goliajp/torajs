@@ -65,10 +65,8 @@ pub(super) fn collect_objlit_boxed_only_argv(
             }
         }
     }
-    if fields.is_empty() {
-        return (HashSet::new(), HashSet::new());
-    }
-    // Reference discipline over the whole arena.
+    // Reference discipline over the whole arena. (No early return on
+    // an empty field map — the store arm below seeds independently.)
     let mut ident_refs: HashMap<&str, usize> = HashMap::new();
     let mut closure_refs: HashMap<&str, usize> = HashMap::new();
     let mut member_names: HashSet<&str> = HashSet::new();
@@ -85,33 +83,91 @@ pub(super) fn collect_objlit_boxed_only_argv(
     let mut value_fns: HashSet<String> = HashSet::new();
     let mut method_fns: HashSet<String> = HashSet::new();
     for ((_, fname), fn_name) in &fields {
-        if excluded.contains(fn_name)
-            || ident_refs.contains_key(fn_name.as_str())
-            || closure_refs.get(fn_name.as_str()) != Some(&1)
-            || member_names.contains(fname.as_str())
-        {
+        if member_names.contains(fname.as_str()) {
             continue;
         }
-        let Some((params, body)) = ast.stmts.iter().find_map(|s| match s {
-            Stmt::FnDecl {
-                name, params, body, ..
-            } if name == fn_name => Some((params, body)),
-            _ => None,
-        }) else {
+        admit_boxed_only(
+            ast,
+            fn_name,
+            excluded,
+            &ident_refs,
+            &closure_refs,
+            &mut value_fns,
+            &mut method_fns,
+        );
+    }
+    // Rotation 365 store arm — the same boxed-only argument applies
+    // to an ANONYMOUS fn-expr assigned straight into a boxed-face
+    // store position (`spy[Symbol.toPrimitive] = function () { … }`,
+    // the t262 to-primitive spy idiom): the target is any-lane-only
+    // consumption by construction (the escape-store profile's B2
+    // roots), so every call enters the closure cell's boxed adapter.
+    // The reference discipline is the same — the store's value slot
+    // is the ONE Closure reference, and no Ident can name the fn.
+    let props_recvs =
+        super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    for e in &ast.exprs {
+        let Expr::Assign { target, value } = e else {
             continue;
         };
-        if !body_has_non_length_arguments_touch(ast, body) && !body_has_arguments_length(ast, body)
-        {
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*value) else {
+            continue;
+        };
+        if !super::arguments_object_escape_store::boxed_face_store_target(
+            ast,
+            *target,
+            &props_recvs,
+        ) {
             continue;
         }
-        if params.iter().any(|p| p.default.is_some() || p.is_rest) || params.len() > 5 {
-            continue;
-        }
-        if ast.fnexpr_recv_fns.contains(fn_name) {
-            method_fns.insert(fn_name.clone());
-        } else {
-            value_fns.insert(fn_name.clone());
-        }
+        admit_boxed_only(
+            ast,
+            fn_name,
+            excluded,
+            &ident_refs,
+            &closure_refs,
+            &mut value_fns,
+            &mut method_fns,
+        );
     }
     (value_fns, method_fns)
+}
+
+/// The shared per-fn admission gate (module doc): reference
+/// discipline + arguments touch + param budget, then the head-shape
+/// split by `__this` promotion.
+fn admit_boxed_only(
+    ast: &Ast,
+    fn_name: &str,
+    excluded: &std::collections::HashSet<String>,
+    ident_refs: &std::collections::HashMap<&str, usize>,
+    closure_refs: &std::collections::HashMap<&str, usize>,
+    value_fns: &mut std::collections::HashSet<String>,
+    method_fns: &mut std::collections::HashSet<String>,
+) {
+    if excluded.contains(fn_name)
+        || ident_refs.contains_key(fn_name)
+        || closure_refs.get(fn_name) != Some(&1)
+    {
+        return;
+    }
+    let Some((params, body)) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name, params, body, ..
+        } if name == fn_name => Some((params, body)),
+        _ => None,
+    }) else {
+        return;
+    };
+    if !body_has_non_length_arguments_touch(ast, body) && !body_has_arguments_length(ast, body) {
+        return;
+    }
+    if params.iter().any(|p| p.default.is_some() || p.is_rest) || params.len() > 5 {
+        return;
+    }
+    if ast.fnexpr_recv_fns.contains(fn_name) {
+        method_fns.insert(fn_name.to_string());
+    } else {
+        value_fns.insert(fn_name.to_string());
+    }
 }
