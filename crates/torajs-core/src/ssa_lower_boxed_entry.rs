@@ -252,7 +252,7 @@ pub(crate) fn synthesize_boxed_entries(
             t.has_argv,
             t.recv_slot,
             t.feeds_env,
-            t.first_is_env,
+            t.hidden_argc,
             &t.dflt_lits,
             t.rest,
         );
@@ -341,9 +341,12 @@ fn collect_boxed_targets(
         // no hidden slot, the SSA sig of an `__env`-first body has
         // the injected I64 `__torajs_argc` at position 1 — cutting
         // both sides with one count was the exact AST↔sig mis-align
-        // this split exists to prevent.
+        // this split exists to prevent. S1-T1 — the this-first
+        // method_argv family carries the same sig-only slot (shared
+        // predicate: pass 1 / setup_fn_params / here).
+        let this_hidden = crate::ssa_lower_pass_1::this_first_hidden_argc(params);
         let ast_skip = env_count + usize::from(has_real_argc) + usize::from(has_argv);
-        let sig_skip = ast_skip + usize::from(first_is_env);
+        let sig_skip = ast_skip + usize::from(first_is_env) + usize::from(this_hidden);
         let user_tys = param_tys[sig_skip..].to_vec();
         if user_tys.len() > MAX_BOXED_PARAMS {
             continue;
@@ -404,7 +407,7 @@ fn collect_boxed_targets(
             has_argv,
             recv_slot,
             feeds_env,
-            first_is_env,
+            hidden_argc: first_is_env || this_hidden,
             dflt_lits,
             rest,
         });
@@ -426,11 +429,11 @@ struct BoxedEntryTarget {
     has_argv: bool,
     recv_slot: bool,
     feeds_env: bool,
-    /// RFC 20260810-indirect-argc-abi S1 — an `__env`-first body's
-    /// SSA sig carries the hidden I64 `__torajs_argc` at position 1;
-    /// the adapter forwards its own argc there. This-first (`__cm_`)
-    /// bodies have no such slot.
-    first_is_env: bool,
+    /// RFC 20260810-indirect-argc-abi S1 — the body's SSA sig
+    /// carries the hidden I64 `__torajs_argc` at position 1 (every
+    /// `__env`-first body; since S1-T1 also the this-first
+    /// method_argv family); the adapter forwards its own argc there.
+    hidden_argc: bool,
     dflt_lits: Vec<Option<DfltLit>>,
     /// Last user param is an `any[]` rest — the adapter collects
     /// argv[fixed..argc] into a fresh Arr<Any> for that slot.

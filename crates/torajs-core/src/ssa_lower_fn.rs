@@ -277,11 +277,15 @@ fn setup_fn_params(
         param_setup.push((p.name.clone(), pid, pty));
         // RFC 20260810-indirect-argc-abi S1 — def-side twin of the
         // Pass-1 sig injection: an `__env`-first fn takes the hidden
-        // I64 `__torajs_argc` right after the env. Binding it through
-        // param_setup gives S2's default guard / arguments.length a
-        // named local; S1 bodies never read it (egraph DCE clears the
-        // dead slot).
-        if p.name == "__env" && param_setup.len() == 1 {
+        // I64 `__torajs_argc` right after the env, and S1-T1 gives
+        // the this-first method_argv family the same slot after
+        // `__this` (predicate shared via `this_first_hidden_argc`).
+        // Binding it through param_setup gives S2's default guard /
+        // arguments.length a named local; bodies that never read it
+        // leave a dead slot egraph DCE clears.
+        if param_setup.len() == 1
+            && (p.name == "__env" || crate::ssa_lower_pass_1::this_first_hidden_argc(params))
+        {
             let apid = f.add_param(Type::I64, "__torajs_argc");
             param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
         }

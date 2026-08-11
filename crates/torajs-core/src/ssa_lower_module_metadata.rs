@@ -239,16 +239,20 @@ pub(crate) fn populate_class_layouts(
             // (they never consume argv positions), so a bare call
             // can't poison them with an undefined box — the audit
             // skips them; only the real user slots are examined.
-            let skip = if ast.method_argv_fns.contains(f.name.as_str()) {
-                3
+            // Two counts since S1-T1: `f` is the SSA function, whose
+            // sig also carries the hidden I64 `__torajs_argc` at
+            // position 1; `verdicts` aligns with the AST param list,
+            // which never sees that slot.
+            let (ssa_skip, ast_skip) = if ast.method_argv_fns.contains(f.name.as_str()) {
+                (4, 3)
             } else {
-                1
+                (1, 1)
             };
             fn_ignores_receiver(f)
-                && f.params.len() == verdicts.len()
-                && f.params[skip..]
+                && f.params.len() == verdicts.len() + (ssa_skip - ast_skip)
+                && f.params[ssa_skip..]
                     .iter()
-                    .zip(&verdicts[skip..])
+                    .zip(&verdicts[ast_skip..])
                     .all(|(&p, v)| {
                         let ty = &f.values[p.0 as usize].ty;
                         match v {

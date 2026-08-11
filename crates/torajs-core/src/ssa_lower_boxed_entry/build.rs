@@ -29,7 +29,7 @@ pub(super) fn build_boxed_entry(
     has_argv: bool,
     recv_slot: bool,
     feeds_env: bool,
-    first_is_env: bool,
+    hidden_argc: bool,
     dflt_lits: &[Option<DfltLit>],
     rest: bool,
 ) -> (FuncId, ssa::SigId) {
@@ -72,11 +72,13 @@ pub(super) fn build_boxed_entry(
     } else {
         Operand::Value(argc)
     };
-    // RFC 20260810-indirect-argc-abi S1 — an `__env`-first body's
-    // sig carries the hidden I64 `__torajs_argc` at position 1;
-    // forward the adapter's real argc there (any-lane calls thereby
-    // get the true-argc channel for free).
-    if first_is_env {
+    // RFC 20260810-indirect-argc-abi S1 — the body's sig carries the
+    // hidden I64 `__torajs_argc` at position 1 (`__env`-first, and
+    // since S1-T1 the this-first method_argv family too); forward
+    // the adapter's real argc there (any-lane calls thereby get the
+    // true-argc channel for free). Sits BEFORE the injected
+    // real_argc/argv slots — same order as the sig.
+    if hidden_argc {
         args.push(user_argc);
     }
     // Feed the real argc into the injected `__torajs_real_argc`

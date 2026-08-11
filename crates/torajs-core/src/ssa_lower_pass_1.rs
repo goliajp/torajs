@@ -23,6 +23,24 @@ use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower::{effective_ret_ty, intern_fn_sig};
 use crate::ssa_lower_parse_type::parse_type;
 
+/// RFC 20260810-indirect-argc-abi S1-T1 — does this AST param list
+/// mark a this-first method_argv body? Those are the `__cm_` bodies
+/// the arguments pass admitted (zero arena Ident, off the
+/// dispatch/vtable lanes) and gave the synthetic real_argc/argv pair
+/// right after `__this` — the transition form carries
+/// `__torajs_real_argc` at params[1]; after T2 retires the argc
+/// injection the argv alone marks the family. Such a body takes the
+/// same hidden I64 `__torajs_argc` at sig position 1 as an
+/// `__env`-first fn. Sig side (pass 1), def side (`setup_fn_params`)
+/// and the boxed adapter's skip math all key on this one predicate —
+/// keeping it in one place is what stops the three sites drifting.
+pub(crate) fn this_first_hidden_argc(params: &[crate::ast::Param]) -> bool {
+    params.first().is_some_and(|p| p.name == "__this")
+        && params
+            .get(1)
+            .is_some_and(|p| p.name == "__torajs_real_argc" || p.name == "__torajs_argv")
+}
+
 /// S3.8 — a typed param's literal default (Number / Bool / short
 /// string), positionally aligned with the fn's sig `param_tys` (the
 /// `__env`-first hidden argc slot mirrors as a `None`). The
@@ -45,7 +63,7 @@ fn dflt_lits_of_params(
     if !lits.iter().any(Option::is_some) {
         return None;
     }
-    if params.first().is_some_and(|p| p.name == "__env") {
+    if params.first().is_some_and(|p| p.name == "__env") || this_first_hidden_argc(params) {
         lits.insert(1, None);
     }
     Some(lits)
@@ -162,10 +180,13 @@ pub(crate) fn run(
             // fn (lifted closure entry) carries a hidden I64
             // `__torajs_argc` at sig position 1, SSA-only (the AST
             // param list and the checker's Function face never see
-            // it). `setup_fn_params` injects the def-side twin; the
-            // two sites must not drift (same contract as the W1
-            // widen note above).
-            if params.first().is_some_and(|p| p.name == "__env") {
+            // it). S1-T1 extends the slot to the this-first
+            // method_argv family (see [`this_first_hidden_argc`]) —
+            // same position, right after the head param.
+            // `setup_fn_params` injects the def-side twin; the two
+            // sites must not drift (same contract as the W1 widen
+            // note above).
+            if params.first().is_some_and(|p| p.name == "__env") || this_first_hidden_argc(params) {
                 param_tys.insert(1, Type::I64);
             }
             let mut ret_ty = effective_ret_ty(

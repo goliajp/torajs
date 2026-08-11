@@ -130,9 +130,10 @@ impl<'a> LowerCtx<'a> {
         param_setup: Vec<(String, ValueId, Type)>,
         assigned_in_body: &std::collections::HashSet<String>,
     ) {
-        // S2 normalization applies only to `__env`-first fns (they
-        // carry the hidden argc) and only to Any-repr user params —
-        // a typed slot cannot hold the undefined box, and the
+        // S2 normalization applies only to fns carrying the hidden
+        // argc (`__env`-first; since S1-T1 also the this-first
+        // method_argv family) and only to Any-repr user params — a
+        // typed slot cannot hold the undefined box, and the
         // checker's short-call admit is gated to all-Any tails.
         let argc_pid = param_setup
             .iter()
