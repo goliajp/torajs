@@ -126,6 +126,7 @@ def feature_dir(path: str, depth: int = 3) -> str:
 
 
 FLAGS_RE = re.compile(r"flags:\s*\[([^\]]*)\]")
+FEATURES_RE = re.compile(r"features:\s*\[([^\]]*)\]")
 FRONTMATTER_RE = re.compile(r"/\*---(.*?)---\*/", re.S)
 
 
@@ -150,11 +151,15 @@ def attributed_paths(entries, paths):
     out = {}
     for e in entries:
         pred = e["predicate"]
-        if pred["kind"] == "test262-flag":
+        if pred["kind"] in ("test262-flag", "test262-feature"):
             if not corpus.is_dir():
                 print(f"  !! register {e['id']}: corpus not found at {corpus}, predicate skipped")
                 out[e["id"]] = set()
                 continue
+            # Same frontmatter walk for both kinds; only the list
+            # scanned differs (flags: vs features:).
+            list_re = FLAGS_RE if pred["kind"] == "test262-flag" else FEATURES_RE
+            needle = pred["flag"] if pred["kind"] == "test262-flag" else pred["feature"]
             hit = set()
             for p in paths:
                 try:
@@ -164,8 +169,8 @@ def attributed_paths(entries, paths):
                 m = FRONTMATTER_RE.search(src)
                 if not m:
                     continue
-                fl = FLAGS_RE.search(m.group(1))
-                if fl and pred["flag"] in fl.group(1):
+                fl = list_re.search(m.group(1))
+                if fl and needle in fl.group(1):
                     hit.add(p)
             out[e["id"]] = hit
         else:

@@ -4,12 +4,28 @@
     {
       "id": "SR-1",
       "title": "sloppy-only surface (noStrict-flagged cases)",
-      "predicate": { "kind": "test262-flag", "flag": "noStrict" },
+      "predicate": {
+        "kind": "test262-flag",
+        "flag": "noStrict"
+      },
       "decided": "2026-08-11",
       "head_at_decision": "c025fd3f",
       "count_at_decision": 752,
       "signoff": "agent, per takagi delegation 2026-08-11; takagi retains veto",
       "rationale": "tr's language surface is TypeScript modules; module code is always strict (ES §16.2). The reference baseline bun runs .ts as ESM — the same always-strict surface. A noStrict-flagged case requires sloppy semantics for its assertions to hold and is not expressible as a TS module on either runtime: a language-definition boundary, not a missing feature. A sloppy/script mode would be a product-surface expansion foreign to TS; if ever authorized it becomes a post-v1.0 roadmap phase and this entry retires. Does NOT cover strict-semantics gaps where tr still leaks sloppy behaviour (e.g. the B.3.3 block-fn leak) — those stay implementation debt."
+    },
+    {
+      "id": "SR-2",
+      "title": "source-phase imports proposal (ModuleSource / import source)",
+      "predicate": {
+        "kind": "test262-feature",
+        "feature": "source-phase-imports"
+      },
+      "decided": "2026-08-11",
+      "head_at_decision": "dfca9923",
+      "count_at_decision": 93,
+      "signoff": "agent, per takagi delegation 2026-08-11; takagi retains veto",
+      "rationale": "source-phase-imports is a stage-3 proposal (import source / %AbstractModuleSource%), not a ratified ECMA-262 clause. The reference baseline bun (stable 1.3.14) rejects the `import source` syntax at parse, so no oracle exists on the baseline either; per the test262 discipline this entry records WHY rather than skipping silently: the phase semantics presuppose a module-source reification layer that tr's AOT compile-and-link model has no design for yet — a post-v1.0 roadmap phase, not an out-of-scope decision. The entry retires (cases return to the substrate queue) when the proposal is ratified or bun ships it, whichever is first."
     }
   ]
 }

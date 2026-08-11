@@ -4783,6 +4783,23 @@ cases, 4.8 %).
       substrate debt this entry does NOT cover, tracked in plan-state
       L3b
 
+      **SR-2 — source-phase imports proposal (ModuleSource /
+      `import source`)**. Decided 2026-08-11 @ `dfca9923`; predicate =
+      test262 frontmatter `features:` contains `source-phase-imports`
+      (the register's second predicate kind, `test262-feature`, landed
+      with this entry); **93 incompatible cases at decision time**
+      (the ~91-case "ModuleSource is not defined" cluster plus
+      stragglers). Rationale: source-phase imports is a stage-3
+      proposal (`import source` / %AbstractModuleSource%), not a
+      ratified ECMA-262 clause, and bun stable rejects the syntax at
+      parse — but per the test262 discipline the recorded "why" is
+      structural, not "bun fails too": the phase semantics presuppose
+      a module-source reification layer that tr's AOT
+      compile-and-link model has no design for yet, which makes this
+      a post-v1.0 roadmap phase rather than an out-of-scope decision.
+      The entry retires (cases return to the substrate queue) when
+      the proposal is ratified or bun ships it, whichever is first
+
 #### S8 — Cases tr accepts and gets wrong
 
 The bug bucket (**695** @ `9215301c`) is closer to the gate than
