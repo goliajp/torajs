@@ -40,9 +40,23 @@
 //! registered follow-up, not part of this pass).
 //!
 //! Guarded faces:
-//! - Only `any` / unannotated params convert. A TYPED default
-//!   (`y: number = x` or `b: number = 5`) keeps today's behavior —
-//!   its slot cannot carry the undefined box the pad would send.
+//! - On a top-level FnDecl only `any` / unannotated params convert.
+//!   A TYPED default (`y: number = x` or `b: number = 5`) keeps
+//!   today's behavior there — its slot cannot carry the undefined
+//!   box the pad would send, and the FnDecl direct-call lane already
+//!   materializes typed defaults through the pad / `FnDfltLits`
+//!   channel (the callee is static).
+//! - On an ArrowFn VALUE (closure / function expression) a
+//!   scalar-typed default (`x: number = 5`) converts through the
+//!   TypedNarrow lane: the closure direct call is a CallIndirect
+//!   with no static callee, so the pad table cannot fire and a
+//!   runtime-undefined `any` argument used to flow through the
+//!   any→typed coercion instead of the default (`c(u)` answered NaN
+//!   where bun owes 5 — the L3b ① recon shape). The param is renamed
+//!   to a `__dflt_<name>` carrier, its slot widened to `any` (so the
+//!   entry can SEE the undefined box), and the body head gets the
+//!   guard plus `let <name>: <T> = __dflt_<name>` narrowing back to
+//!   the declared scalar — body reads stay typed.
 //! - Literal defaults (`b = 5`) on unannotated params ALSO convert:
 //!   §10.2.1.4 fires a default on an explicit `undefined` argument,
 //!   which only a callee-side guard can observe (the pad fills
@@ -141,6 +155,17 @@ fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
 /// - the `undefined` literal: it is this pass's own pad value — a
 ///   guard assigning `undefined` on undefined is a no-op.
 fn converting_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Option<ExprId> {
+    let d = guardable_default(ast, p, global_fns)?;
+    let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
+    if !ann_ok {
+        return None;
+    }
+    Some(d)
+}
+
+/// The channel-independent half of the conversion gate: a body-safe
+/// default, minus the two exclusions [`converting_default`] documents.
+fn guardable_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Option<ExprId> {
     let d = p.default?;
     if p.name == "__yield_arg" {
         return None;
@@ -151,11 +176,32 @@ fn converting_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Opt
     if !body_safe_default(ast, d, global_fns) {
         return None;
     }
-    let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
-    if !ann_ok {
+    Some(d)
+}
+
+/// ArrowFn-only TypedNarrow gate (module doc "Guarded faces"): a
+/// body-safe default on a scalar-typed param. Answers the declared
+/// annotation so the mutate phase can rebuild the typed local.
+fn converting_typed_default(
+    ast: &Ast,
+    p: &super::Param,
+    global_fns: &[String],
+) -> Option<(ExprId, String)> {
+    let d = guardable_default(ast, p, global_fns)?;
+    let ann = p.type_ann.as_deref()?.trim();
+    if !matches!(ann, "number" | "string" | "boolean") {
         return None;
     }
-    Some(d)
+    Some((d, ann.to_string()))
+}
+
+/// Per-param conversion plan for the ArrowFn walk.
+enum ArrowConv {
+    /// The FnDecl-shared lane: guard only, param keeps its name.
+    Any(ExprId),
+    /// Scalar-typed lane: rename the param to a `__dflt_<name>` `any`
+    /// carrier, guard the carrier, then `let <name>: <ann> = carrier`.
+    TypedNarrow(ExprId, String),
 }
 
 /// Splice the guard block into a function body. §15.8.4
@@ -222,14 +268,16 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             }
         }
     }
-    let mut arrow_sites: Vec<(usize, usize, String, ExprId)> = Vec::new();
+    let mut arrow_sites: Vec<(usize, usize, String, ArrowConv)> = Vec::new();
     for (ei, e) in ast.exprs.iter().enumerate() {
         let Expr::ArrowFn { params, .. } = e else {
             continue;
         };
         for (pi, p) in params.iter().enumerate() {
             if let Some(d) = converting_default(ast, p, &global_fns) {
-                arrow_sites.push((ei, pi, p.name.clone(), d));
+                arrow_sites.push((ei, pi, p.name.clone(), ArrowConv::Any(d)));
+            } else if let Some((d, ann)) = converting_typed_default(ast, p, &global_fns) {
+                arrow_sites.push((ei, pi, p.name.clone(), ArrowConv::TypedNarrow(d, ann)));
             }
         }
     }
@@ -272,27 +320,52 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     }
     // Phase B' — same conversion for arrow-fn / fn-expression values
     // still living in the expr arena (nested arrows included: the
-    // arena walk sees every ArrowFn regardless of depth).
-    let mut by_expr: std::collections::BTreeMap<usize, Vec<(usize, String, ExprId)>> =
+    // arena walk sees every ArrowFn regardless of depth). Guards are
+    // built in PARAM ORDER with each TypedNarrow param's `let`
+    // immediately after its guard, so a later default reading an
+    // earlier param (`(x: number = 1, y: number = x)`) sees the
+    // NARROWED typed local, per §9.2 ordering.
+    let mut by_expr: std::collections::BTreeMap<usize, Vec<(usize, String, ArrowConv)>> =
         std::collections::BTreeMap::new();
-    for (ei, pi, name, d) in arrow_sites {
-        by_expr.entry(ei).or_default().push((pi, name, d));
+    for (ei, pi, name, kind) in arrow_sites {
+        by_expr.entry(ei).or_default().push((pi, name, kind));
     }
     for (ei, mut conv) in by_expr {
         conv.sort_by_key(|(pi, _, _)| *pi);
         let mut guards: Vec<Stmt> = Vec::new();
-        let mut pads: Vec<(usize, ExprId)> = Vec::new();
-        for (pi, name, d) in conv {
-            guards.push(build_default_guard(ast, &name, d));
+        // (param index, pad ExprId, TypedNarrow carrier name)
+        let mut pads: Vec<(usize, ExprId, Option<String>)> = Vec::new();
+        for (pi, name, kind) in conv {
             let pad_undef = ast.add_expr(Expr::Ident("undefined".into()));
-            pads.push((pi, pad_undef));
+            match kind {
+                ArrowConv::Any(d) => {
+                    guards.push(build_default_guard(ast, &name, d));
+                    pads.push((pi, pad_undef, None));
+                }
+                ArrowConv::TypedNarrow(d, ann) => {
+                    let carrier = format!("__dflt_{name}");
+                    guards.push(build_default_guard(ast, &carrier, d));
+                    let init = ast.add_expr(Expr::Ident(carrier.clone()));
+                    guards.push(Stmt::LetDecl {
+                        mutable: true,
+                        name,
+                        type_ann: Some(ann),
+                        init,
+                        is_var: false,
+                    });
+                    pads.push((pi, pad_undef, Some(carrier)));
+                }
+            }
         }
         let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[ei] else {
             unreachable!()
         };
-        for (pi, pad) in pads {
+        for (pi, pad, carrier) in pads {
             params[pi].default = Some(pad);
-            if params[pi].type_ann.is_none() {
+            if let Some(carrier) = carrier {
+                params[pi].name = carrier;
+                params[pi].type_ann = Some("any".to_string());
+            } else if params[pi].type_ann.is_none() {
                 params[pi].type_ann = Some("any".to_string());
             }
         }

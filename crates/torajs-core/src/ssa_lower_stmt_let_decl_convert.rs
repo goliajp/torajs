@@ -4,7 +4,7 @@
 //! their kind table:
 //!
 //! - `maybe_any_to_typed_scalar` — an `any` init under a `number` /
-//!   `string` annotation decodes at the binding boundary.
+//!   `string` / `boolean` annotation decodes at the binding boundary.
 //! - `maybe_arr_any_to_typed` — an `Array<Any>` init under a typed
 //!   `Array<T>` annotation decode-copies into a fresh typed block
 //!   (chunk 698). Also serves the return-boundary caller in
@@ -14,9 +14,10 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-/// An `any` init bound to a `number` or `string` annotation: §7.1.4
-/// ToNumber via `any_to_number` / §7.1.17 ToString via `coerce_to_str`,
-/// so the slot holds what the box carried rather than the box's bits.
+/// An `any` init bound to a `number` / `string` / `boolean`
+/// annotation: §7.1.4 ToNumber via `any_to_number` / §7.1.17 ToString
+/// via `coerce_to_str` / §7.1.2 ToBoolean via `coerce_to_bool`, so
+/// the slot holds what the box carried rather than the box's bits.
 /// Answers `(value, converted)`; a `true` flag joins the chunk-698
 /// `converted` above — either way the binding owns its result outright
 /// and neither aliases nor shares the source.
@@ -53,6 +54,11 @@ pub(crate) fn maybe_any_to_typed_scalar(
     let decoded = match ty {
         Type::I64 | Type::F64 => ctx.coerce_any_to_number(init_val.clone(), ty),
         Type::Str => ctx.coerce_to_str(init_val.clone(), Type::Any),
+        // §7.1.2 ToBoolean via coerce_to_bool's Any arm. Without this
+        // row a `boolean` binding took the box's raw BITS (a `false`
+        // box is a non-zero pattern — every any-held value read as
+        // true, the L3b ① TypedNarrow-lane discovery).
+        Type::Bool => ctx.coerce_to_bool(init_val.clone()),
         _ => return (init_val, false),
     };
     ctx.release_owned_temp(init, &init_val);
