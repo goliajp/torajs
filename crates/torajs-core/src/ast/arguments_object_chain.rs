@@ -7,6 +7,65 @@
 
 use super::{Ast, Expr, ExprId, Stmt};
 
+/// Rotation 362 nested tier — every `LetDecl` (name, init) in a
+/// statement subtree, fn-nested bodies and all statement containers
+/// included. The chain's direct/alias seeds walk this instead of the
+/// top-level-only loop, which was the ONLY thing keeping fn-nested
+/// `const f = function () { …arguments… }` bodies loud (the lifted
+/// closure itself is already a top-level FnDecl the tier seeds see).
+fn collect_letdecls_recursive<'a>(body: &'a [Stmt], out: &mut Vec<(&'a str, ExprId)>) {
+    for s in body {
+        match s {
+            Stmt::LetDecl { name, init, .. } => out.push((name.as_str(), *init)),
+            Stmt::FnDecl { body, .. } => collect_letdecls_recursive(body, out),
+            Stmt::ForOf { body, .. }
+            | Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::Labeled { body, .. } => {
+                collect_letdecls_recursive(core::slice::from_ref(body), out)
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                collect_letdecls_recursive(body, out);
+                collect_letdecls_recursive(catch_body, out);
+                if let Some(fb) = finally_body {
+                    collect_letdecls_recursive(fb, out);
+                }
+            }
+            Stmt::Block(inner) => collect_letdecls_recursive(inner, out),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_letdecls_recursive(core::slice::from_ref(then_branch), out);
+                if let Some(eb) = else_branch {
+                    collect_letdecls_recursive(core::slice::from_ref(eb), out);
+                }
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    collect_letdecls_recursive(core::slice::from_ref(i), out);
+                }
+                collect_letdecls_recursive(core::slice::from_ref(body), out);
+            }
+            Stmt::Switch { cases, default, .. } => {
+                for c in cases {
+                    collect_letdecls_recursive(&c.body, out);
+                }
+                if let Some(d) = default {
+                    collect_letdecls_recursive(d, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Shared binding safety walk (argc + argv tiers): seed direct
 /// bindings (`const f = <closure literal>` whose fn passes `seed`),
 /// grow aliases (`const g = f`) to a fixpoint, then kill every
@@ -14,18 +73,34 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// callee or a still-candidate alias init. A killed chain removes
 /// the whole source fn (its call sites don't know the reshaped
 /// signature).
+///
+/// Rotation 362 — the direct and alias seeds walk fn-nested bodies
+/// too. The kill walk resolves uses BY NAME over the whole arena, so
+/// a name bound more than once anywhere (two same-named bindings in
+/// different scopes) is dropped up front: the two chains would blur
+/// into one — the conservative skip loses the optimization, never
+/// admits wrongly.
 pub(super) fn safe_binding_chain(
     ast: &Ast,
     seed: impl Fn(&str) -> bool,
 ) -> std::collections::HashMap<String, String> {
     use std::collections::{HashMap, HashSet};
+    let mut all_lets: Vec<(&str, ExprId)> = Vec::new();
+    collect_letdecls_recursive(&ast.stmts, &mut all_lets);
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut dup: HashSet<&str> = HashSet::new();
+    for (n, _) in &all_lets {
+        if !seen.insert(n) {
+            dup.insert(n);
+        }
+    }
     let mut candidates: HashMap<String, String> = HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s
+    for (name, init) in &all_lets {
+        if !dup.contains(name)
             && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
             && seed(fn_name)
         {
-            candidates.insert(name.clone(), fn_name.clone());
+            candidates.insert(name.to_string(), fn_name.clone());
         }
     }
     // Knife 4c (RFC 20260801-arguments-method-face) — `var ref =
@@ -81,15 +156,18 @@ pub(super) fn safe_binding_chain(
             }
         }
     }
+    // Objlit / var-hoisted seeds above stay top-level; the dup guard
+    // still applies to whatever they inserted.
+    candidates.retain(|b, _| !dup.contains(b.as_str()));
     loop {
         let mut grew = false;
-        for s in &ast.stmts {
-            if let Stmt::LetDecl { name, init, .. } = s
+        for (name, init) in &all_lets {
+            if !dup.contains(name)
                 && let Expr::Ident(src) = ast.get_expr(*init)
                 && candidates.contains_key(src)
-                && !candidates.contains_key(name)
+                && !candidates.contains_key(*name)
             {
-                candidates.insert(name.clone(), candidates[src].clone());
+                candidates.insert(name.to_string(), candidates[src].clone());
                 grew = true;
             }
         }
@@ -259,11 +337,13 @@ fn collect_legal_uses(
             legal.insert(callee.0);
         }
     }
-    for s in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s
-            && b_eids.contains(&init.0)
-            && candidates.contains_key(name)
-        {
+    // Rotation 362 — the alias-init exemption walks nested bodies
+    // like the seeds do (a fn-nested `const g = f` init is the
+    // binding's definition, not a value use).
+    let mut all_lets: Vec<(&str, ExprId)> = Vec::new();
+    collect_letdecls_recursive(&ast.stmts, &mut all_lets);
+    for (name, init) in &all_lets {
+        if b_eids.contains(&init.0) && candidates.contains_key(*name) {
             legal.insert(init.0);
         }
     }
