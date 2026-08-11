@@ -282,6 +282,14 @@ pub(super) fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
         Expr::ObjectLit { fields } => fields
             .iter()
             .any(|(_, e)| expr_uses_dynamic_arguments(ast, *e)),
+        // No inline-spread rewrite exists for constructor args, so a
+        // `...arguments` here recurses to the bare-ident arm and
+        // conservatively materializes — the safe direction.
+        Expr::New { args, .. } => args.iter().any(|a| expr_uses_dynamic_arguments(ast, *a)),
+        Expr::NewDynamic { callee, args } => {
+            expr_uses_dynamic_arguments(ast, *callee)
+                || args.iter().any(|a| expr_uses_dynamic_arguments(ast, *a))
+        }
         Expr::Spread { expr } => expr_uses_dynamic_arguments(ast, *expr),
         Expr::Ternary {
             cond,
@@ -437,6 +445,15 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
                 && (is_arguments_callee(ast, *expr) || expr_scan(ast, *expr, what))
         }
         Expr::Call { callee, args } => {
+            expr_scan(ast, *callee, what) || args.iter().any(|a| expr_scan(ast, *a, what))
+        }
+        // Constructor arguments are ordinary value positions — the
+        // missing arms left `new Boolean(arguments.length === 0)`
+        // (the t262 bind-construct thunk idiom) invisible to every
+        // scan, so the fn never seeded a face and the raw ident
+        // leaked to the checker.
+        Expr::New { args, .. } => args.iter().any(|a| expr_scan(ast, *a, what)),
+        Expr::NewDynamic { callee, args } => {
             expr_scan(ast, *callee, what) || args.iter().any(|a| expr_scan(ast, *a, what))
         }
         Expr::Array(items) => items.iter().any(|e| expr_scan(ast, *e, what)),

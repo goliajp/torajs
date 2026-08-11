@@ -58,49 +58,46 @@ pub(super) fn rewrite_recurse_arm(
         // recursion would mint a Call operand — not a property
         // reference — and refuse at compile time).
         Expr::Delete { expr } => {
-            if matches!(ast.get_expr(expr), Expr::Member { obj, name }
-                if name == "callee"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
-            {
-                // S2 sloppy delete — callee is configurable
-                // (S10.6_A3_T3 expects `true`): ride the bag entry's
-                // keyed delete. A callee write/delete anywhere in the
-                // body forces materialization (see the main pass), so
-                // `__torajs_arguments` is always bound here.
-                if sloppy_callee != SloppyCallee::Strict {
-                    let idx = keyed_callee_ref(ast);
-                    return ast.add_expr(Expr::Delete { expr: idx });
-                }
-                let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
-                return ast.add_expr(Expr::Call {
-                    callee,
-                    args: Vec::new(),
-                });
-            }
-            // `delete arguments.length` — the length arm's read
-            // rewrite would fold the operand to a number ("must be
-            // a property reference"); route it as a keyed delete on
-            // the materialized array instead, where the
-            // arguments-length tombstone kernel answers §10.4.4's
-            // configurable delete (S10.6_A5_T3).
-            if matches!(ast.get_expr(expr), Expr::Member { obj, name }
-                if name == "length"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
-            {
-                let arr = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-                let key = ast.add_expr(Expr::String("length".into()));
-                let idx = ast.add_expr(Expr::Index {
-                    obj: arr,
-                    index: key,
-                });
-                return ast.add_expr(Expr::Delete { expr: idx });
-            }
-            let e2 =
-                rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
-            if e2 == expr {
+            rewrite_delete_arm(ast, eid, expr, params, argc_mode, is_argv_fn, sloppy_callee)
+        }
+        // Constructor arguments are ordinary value positions — the
+        // missing arms left the rewrite unable to reach an
+        // `arguments` use inside `new Boolean(arguments.length ===
+        // 0)` (the walkers' New arms landed the same knife).
+        Expr::New {
+            class_name,
+            args,
+            type_args,
+        } => {
+            let (new_args, changed) =
+                rewrite_args_vec(ast, &args, params, argc_mode, is_argv_fn, sloppy_callee);
+            if !changed {
                 return eid;
             }
-            ast.add_expr(Expr::Delete { expr: e2 })
+            ast.add_expr(Expr::New {
+                class_name,
+                args: new_args,
+                type_args,
+            })
+        }
+        Expr::NewDynamic { callee, args } => {
+            let c = rewrite_arguments_in_expr(
+                ast,
+                callee,
+                params,
+                argc_mode,
+                is_argv_fn,
+                sloppy_callee,
+            );
+            let (new_args, changed) =
+                rewrite_args_vec(ast, &args, params, argc_mode, is_argv_fn, sloppy_callee);
+            if c == callee && !changed {
+                return eid;
+            }
+            ast.add_expr(Expr::NewDynamic {
+                callee: c,
+                args: new_args,
+            })
         }
         // Length-write knife — `arguments.length--` (walker-mirror:
         // the scans reach PostIncr targets; without this arm the
@@ -305,4 +302,84 @@ pub(super) fn rewrite_recurse_arm(
         // the arena with no-op clones.
         _ => eid,
     }
+}
+
+/// Copy-on-write over an argument vector — shared by the New /
+/// NewDynamic arms. Answers the (possibly rebuilt) vector plus
+/// whether any element moved, so the caller can keep the original
+/// node when nothing did.
+fn rewrite_args_vec(
+    ast: &mut Ast,
+    args: &[ExprId],
+    params: &[String],
+    argc_mode: ArgcMode,
+    is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
+) -> (Vec<ExprId>, bool) {
+    let mut out: Vec<ExprId> = Vec::with_capacity(args.len());
+    let mut changed = false;
+    for a in args {
+        let r = rewrite_arguments_in_expr(ast, *a, params, argc_mode, is_argv_fn, sloppy_callee);
+        changed |= r != *a;
+        out.push(r);
+    }
+    (out, changed)
+}
+
+/// The Delete arm's body, extracted whole when the New / NewDynamic
+/// arms landed (the enclosing match is a registered over-200 debt
+/// item — additions pair with a shrink). Semantics unchanged: the
+/// callee delete rides the bag entry (sloppy) or the thrower
+/// (strict), the length delete rides the materialized array's keyed
+/// delete, everything else recurses.
+fn rewrite_delete_arm(
+    ast: &mut Ast,
+    eid: ExprId,
+    expr: ExprId,
+    params: &[String],
+    argc_mode: ArgcMode,
+    is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
+) -> ExprId {
+    if matches!(ast.get_expr(expr), Expr::Member { obj, name }
+        if name == "callee"
+            && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+    {
+        // S2 sloppy delete — callee is configurable (S10.6_A3_T3
+        // expects `true`): ride the bag entry's keyed delete. A
+        // callee write/delete anywhere in the body forces
+        // materialization (see the main pass), so
+        // `__torajs_arguments` is always bound here.
+        if sloppy_callee != SloppyCallee::Strict {
+            let idx = keyed_callee_ref(ast);
+            return ast.add_expr(Expr::Delete { expr: idx });
+        }
+        let callee = ast.add_expr(Expr::Ident("__torajs_arguments_callee".into()));
+        return ast.add_expr(Expr::Call {
+            callee,
+            args: Vec::new(),
+        });
+    }
+    // `delete arguments.length` — the length arm's read rewrite
+    // would fold the operand to a number ("must be a property
+    // reference"); route it as a keyed delete on the materialized
+    // array instead, where the arguments-length tombstone kernel
+    // answers §10.4.4's configurable delete (S10.6_A5_T3).
+    if matches!(ast.get_expr(expr), Expr::Member { obj, name }
+        if name == "length"
+            && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+    {
+        let arr = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+        let key = ast.add_expr(Expr::String("length".into()));
+        let idx = ast.add_expr(Expr::Index {
+            obj: arr,
+            index: key,
+        });
+        return ast.add_expr(Expr::Delete { expr: idx });
+    }
+    let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
+    if e2 == expr {
+        return eid;
+    }
+    ast.add_expr(Expr::Delete { expr: e2 })
 }
