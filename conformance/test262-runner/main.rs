@@ -275,6 +275,7 @@ fn transform_source(src: &str) -> String {
             (b"isConstructor(", "__t262_isConstructor("),
             (b"assertRelativeDateMs(", "__t262_assertRelativeDateMs("),
             (b"asyncTest(", "__t262_asyncTest("),
+            (b"fnGlobalObject(", "__t262_fnGlobalObject("),
         ];
         let mut hit_helper = false;
         for (needle, replacement) in T262_HELPER_REWRITES {
@@ -394,6 +395,10 @@ fn run_case(
         // 2026-07-30 — real `__t262_asyncTest` + `__t262_throwsAsync`
         // (constructor comparison kept, see the harness port note).
         "asyncHelpers.js",
+        // 2026-08-11 — real global object: the stock body's
+        // `Function("return this;")()` runs on tr and answers the G2
+        // globalThis singleton, so the port returns it directly.
+        "fnGlobalObject.js",
     ];
     let unported: Vec<&str> = fm
         .includes

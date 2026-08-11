@@ -35,8 +35,10 @@
 // detachArrayBuffer.js (326) / resizableArrayBufferUtils.js (188) —
 //   ArrayBuffer is unimplemented.
 // testIntl.js (175) — Intl is unimplemented.
-// fnGlobalObject.js (130) — `globalThis` has no expression surface
-//   (unknown identifier).
+// fnGlobalObject.js — PORTED 2026-08-11: `globalThis` has a value
+//   surface (G2 singleton) and `Function("return this;")()` answers
+//   the same object (10.2.1.2 sloppy this-bind), so the stock
+//   harness body reduces to the singleton itself.
 
 // Extends Error (matching real test262's Test262Error, which derives
 // from Error) so instances carry the Error layout prefix (message
@@ -188,6 +190,14 @@ function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
 // stayed out of PORTED_INCLUDES: admitting cases against a shim that
 // says yes to everything would have put ~370 free passes into the
 // numbers.
+// fnGlobalObject.js — the stock body is `Function("return this;")()`,
+// which under 10.2.1.2 (sloppy dynamic fn, undefined thisArg) binds
+// `this` to the global object; tr mints exactly one (G2), so the
+// port returns it directly.
+function __t262_fnGlobalObject(): any {
+  return globalThis;
+}
+
 function __t262_isConstructor(obj: any): boolean {
   if (typeof obj !== "function") {
     throw new Test262Error("isConstructor invoked with a non-function value");
