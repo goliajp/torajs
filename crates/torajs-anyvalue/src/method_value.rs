@@ -76,6 +76,8 @@ pub(crate) use ns_static_ctor::{ctor_own_read_cell, ctor_static_cell, ctor_stati
 pub(crate) mod globalthis_object;
 pub(crate) mod ns_object;
 mod ns_static;
+mod ns_static_coerce;
+mod ns_static_externs;
 // Ctor-static arms (RFC 20260720-ctor-static-reflection 刀 1).
 mod ns_static_ctor;
 pub(crate) mod symbol_static;

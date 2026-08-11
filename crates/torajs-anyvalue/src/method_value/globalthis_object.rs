@@ -120,10 +120,6 @@ const MISSING_KNOWN: &[&[u8]] = &[
     b"Bun",
     b"fetch",
     b"process",
-    b"encodeURI",
-    b"decodeURI",
-    b"encodeURIComponent",
-    b"decodeURIComponent",
     b"queueMicrotask",
 ];
 
@@ -193,12 +189,17 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
         // object"), so the fill reuses those interned cells and
         // `globalThis.parseInt === Number.parseInt` holds like bun.
         // §19.2.2 / §19.2.3 — `isFinite` / `isNaN` are their own
-        // ToNumber-coercing cells (globalThis-keyed rows).
+        // ToNumber-coercing cells (globalThis-keyed rows), and the
+        // §19.2.6 URI quartet rides the same lane.
         for (ns, name) in [
             ("Number", &b"parseInt"[..]),
             ("Number", b"parseFloat"),
             ("globalThis", b"isFinite"),
             ("globalThis", b"isNaN"),
+            ("globalThis", b"decodeURI"),
+            ("globalThis", b"decodeURIComponent"),
+            ("globalThis", b"encodeURI"),
+            ("globalThis", b"encodeURIComponent"),
         ] {
             let key = mint_immortal_str(name);
             let cell = ns_static_cell(torajs_rc::ns_static::ns_static_id(

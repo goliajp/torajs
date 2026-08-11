@@ -441,6 +441,16 @@ mod tests {
     pub unsafe extern "C" fn __torajs_anyv_assign(_target: u64, _source: u64) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_arr_mark_kind(_arr: *mut c_void, _chain: u64) {}
+    // §19.2.6 — the URI kernels the UriKernel dispatch arm
+    // references (torajs-str's uri.rs in the shipped binary).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_uri_encode(_s: *const u8, _component: i64) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_uri_decode(_s: *const u8, _component: i64) -> *mut u8 {
+        core::ptr::null_mut()
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_symbol_for(_key: *mut c_void) -> *mut c_void {
         core::ptr::null_mut()

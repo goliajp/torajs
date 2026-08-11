@@ -267,6 +267,14 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // `globalThis` (their owning object). Lengths 1 per spec.
     row("globalThis", "isFinite", 1),
     row("globalThis", "isNaN", 1),
+    // §19.2.6 the four URI globals as VALUES — real Encode / Decode
+    // kernels (torajs-str uri.rs) behind the cells; a malformed
+    // input raises the same URIError the direct-call lowering
+    // propagates. Keyed under `globalThis`. Lengths 1 per spec.
+    row("globalThis", "decodeURI", 1),
+    row("globalThis", "decodeURIComponent", 1),
+    row("globalThis", "encodeURI", 1),
+    row("globalThis", "encodeURIComponent", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
