@@ -1530,7 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `1e1c6083`** (2026-08-11, rotation 358 — five blades on the
+**Latest @ `c025fd3f`** (2026-08-11, rotation 365 — five knives on the
+`identifier arguments` bug bucket, all t262-harness-driven shapes. The
+harness shadow poison closed: `__t262_throwsAsync`'s param `func`
+(captured by its own inner closure) killed every same-named top-level
+argv binding — the knife-7 bind-receiver gate on the shadow-aware kill
+walk lifted (its rest-tail-mint precondition now exists), which
+exposed the second half of the old 27-SIGSEGV shape (a promoted
+top-level binding resolves through the globals fallback, missing the
+let-decl variadic registration) — closed by the closure-local lane's
+`global_argv_face_binding` boxed route. The boxed-only admit template
+(no site can name the fn → no lane can reach the old signature → the
+universal boxed adapter is the only entry) landed three instances:
+zero-site objlit field closures (the Date `arg-to-number` valueOf
+idiom, this/value head-shape split), boxed-face store positions
+(`spy[Symbol.toPrimitive] = fnexpr`), and the fn-arg track (an
+argv-face fnexpr passed as a user fn's annotated param, the param's
+direct calls registered variadic via the new per-fn-keyed
+`ast.argv_boxed_params`). Plus a fix-grade double silent-wrong: Date
+setter `? ToNumber(arg)` abrupt completions were dropped AND the
+garbage wrote [[DateValue]] — decode_fields now aborts pre-write.
+Sweep: passTotal 28945 → **29032 (+87)**, bug **−89**, trAccepted −2,
+incompatible +2 (two reduce cases surfacing their checker reject),
+conservation exact (−2 = +87 − 89). Forward moves all direct-hit:
+Date/prototype 34, Array/prototype 33, for-of 5, assignment 5,
+defineProperties 5, String 4, keys 1; true pass regressions **0**;
+crash counts flat (139=39, 138=64, timeout=5). Gate predicate **293
+clusters flat / 4764 cases flat / residue 764 / 994 / core 5758**.
+Build determinism 44/44 (N=12). Conformance gate 2735 → **2740/0/4**
+(+5 fixtures, chain zero-red).)
+
+**Previous @ `1e1c6083`** (2026-08-11, rotation 358 — five blades on the
 argc/repr seam. Objlit-this receiver fix: a method body reading both
 `this` and a user param split its literal into a width-twin sid (the
 method fn's analyzed F64 ret vs the `__ObjLit_<n>` TypeDecl's static

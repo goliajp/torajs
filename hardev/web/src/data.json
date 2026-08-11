@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T10:00:01.319Z",
+  "generatedAt": "2026-08-11T11:28:40.739Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T09:58:50Z",
-    "headSha": "b12a975e",
-    "elapsedSec": 355.27,
+    "ranAt": "2026-08-11T11:24:52Z",
+    "headSha": "c025fd3f",
+    "elapsedSec": 322.15,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24199,
+    "pass": 24286,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28945,
-    "bug": 12775,
-    "incompatible": 11454,
+    "passTotal": 29032,
+    "bug": 12686,
+    "incompatible": 11456,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41720,
-    "passRateInScope": 54.43,
-    "passRateTrAccepted": 69.38
+    "trAccepted": 41718,
+    "passRateInScope": 54.6,
+    "passRateTrAccepted": 69.59
   },
   "torajs": {
-    "commit": "b12a975e",
-    "commitSubject": "feat: mixed-tier dup-named binding groups admit per instance (a group whose instances split across the argc and argv tiers no longer rejects whole - every init must still be a closure literal and mask/stray/owner checks stay group-wide, but only THIS tier's seeded instances return; the cross-tier name collision is safe on four audited fronts: the checker argv wedge re-gates on the fn's public variadic type, S3.5 admits beyond-arity universally, an SSA argv_face mis-hit only downgrades to the boxed dual entry which is behaviorally equivalent, and fnexpr_this_routed's consumption is a conservative exclusion arm - full audit in the task doc; probe b1 and fixture arguments-dup-group-mixed-tier-001 cover the 2-instance and 3-instance mixed shapes, tr==bun)",
+    "commit": "c025fd3f",
+    "commitSubject": "feat: fn-arg track - an anonymous argv-face fn-expr passed directly as a user fn's argument admits (the t262 assert.throws thunk idiom - runner(function () { ...arguments... }) where the receiving param is annotated non-rest and consumed by direct call only: collect_fn_arg_argv mirrors the argc tier's hof-arg walk with the same top-level-callee shadow guard plus the argv face's reference discipline, admits the fn-expr and records the (fn, param) pair in the new ast.argv_boxed_params table - per-fn keyed so the name scoping is by construction; setup_fn_params registers those params variadic so their direct calls ride the boxed dual entry, which is behavior-preserving for every other closure that can flow in since the boxed adapter is universal; and arg_admitted grows the narrow pairing arm admitting a rest-tail closure value into a declared closure param slot only for a table-registered pair with matching or Void return; probe r1 covers the annotated-param length-read and value-read shapes tr==bun, the RegExp compile t262 case advances from unknown-identifier to its real receiver-check assertion, and fixture arguments-fn-arg-argv-001 covers zero-arg and valued direct calls across two receiving fns)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "c025fd3f",
+      "subject": "feat: fn-arg track - an anonymous argv-face fn-expr passed directly as a user fn's argument admits (the t262 assert.throws thunk idiom - runner(function () { ...arguments... }) where the receiving param is annotated non-rest and consumed by direct call only: collect_fn_arg_argv mirrors the argc tier's hof-arg walk with the same top-level-callee shadow guard plus the argv face's reference discipline, admits the fn-expr and records the (fn, param) pair in the new ast.argv_boxed_params table - per-fn keyed so the name scoping is by construction; setup_fn_params registers those params variadic so their direct calls ride the boxed dual entry, which is behavior-preserving for every other closure that can flow in since the boxed adapter is universal; and arg_admitted grows the narrow pairing arm admitting a rest-tail closure value into a declared closure param slot only for a table-registered pair with matching or Void return; probe r1 covers the annotated-param length-read and value-read shapes tr==bun, the RegExp compile t262 case advances from unknown-identifier to its real receiver-check assertion, and fixture arguments-fn-arg-argv-001 covers zero-arg and valued direct calls across two receiving fns)"
+    },
+    {
+      "hash": "67bf781b",
+      "subject": "fix: date setter ToNumber abrupt completion aborts before the DateValue write (a user valueOf throw during the any-lane setter arg decode was silently dropped AND the setter absorbed the garbage coercion result - double silent-wrong against §21.4.4.20 step 2 et al., which the t262 Date -err family asserts on both faces; decode_fields now answers None when anyv_to_number left a pending record - a non-destructive __torajs_throw_check read after each arg - and all 16 setter arms short-circuit without touching the kernel, the caller's throw check then fires on the pending record; the typed lane's coerce_date_num grew the mirror check on its Any arm for lane consistency though the any-arg spelling routes any-lane today; probes e1/e2 assert throw propagation plus an unchanged getTime plus the happy-path setTime, the 17 t262 setter -err cases run clean under iter tr - the remaining value-to-primitive-call-err needs the Symbol.toPrimitive hook, registered L3b - and fixture date-setter-tonumber-abrupt-001 covers 1-arg and multi-arg setters tr==bun)"
+    },
+    {
+      "hash": "4499478c",
+      "subject": "feat: boxed-face store positions admit anonymous argv-face fn-exprs (the to-primitive spy idiom - spy[Symbol.toPrimitive] = function () { args = arguments } and its static-name spelling both join the argv face: the store target is any-lane-only consumption by the escape-store profile's B2 roots, so every call enters the closure cell's boxed adapter with real argc/argv, the same boxed-only argument as the objlit field arm; the per-fn admission gate extracts to admit_boxed_only shared by both source arms, and the field map's empty-early-return goes away - it was blocking the store arm behind an unrelated emptiness check, which the empty-object spy shape hit directly; probe s4 covers static-name store plus any-lane readback calls and fixture arguments-store-boxed-only-argv-001 adds the computed-key spelling, tr==bun; probes s1/s3 surfaced an independent gap - ToPrimitive never consults a Symbol.toPrimitive hook - registered L3b, the admit half no longer rejects loudly)"
+    },
+    {
+      "hash": "6220c81a",
+      "subject": "feat: boxed-only object-literal method argv - the date-setter valueOf idiom admits (a field closure with an arguments touch and ZERO visible call sites - no member read, no Ident reference, exactly one Closure reference at the field position - joins the argv face via the new collect_objlit_boxed_only_argv arm: no site can name the fn so no lane can reach it with the old signature, and the only path in is the dynobj any-lane boxed adapter which delivers real argc/argv/receiver, the same safety argument as knife 4a's zero-Ident rule; admitted fns split by fnexpr_recv_fns into the method head shape with __this or the P11 value head shape, both already synthesized and audited; probes d1/d2/d3 cover this-plus-arguments, arguments-only and this-only, the 17 t262 Date arg-to-number cases run clean under iter tr, and fixture arguments-objlit-boxed-only-argv-001 covers Number/setDate/binop coercion protocols across both head shapes tr==bun; close-audit: the wiring pushed the registered main-pass debt 313 to 321 so the escape-store double retain extracts to retain_escape_stored_off_static, main pass 300, debt back on the shrink-only path)"
+    },
+    {
+      "hash": "15e9ccb2",
+      "subject": "feat: shadow-colliding top-level argv-face bindings admit and call safely (the t262 harness idiom - a helper fn's param named func, captured by its own inner closure, no longer kills a same-named top-level binding's argv chain: the knife-7 bind-receiver gate on the shadow-aware kill walk lifts because the rest-tail mint it waited for now exists via closure_argv_fns' public (...args: any[]) => R type; lifting it exposed the second half of the old 27-SIGSEGV shape - a promoted top-level binding resolves through the globals fallback so the let-decl variadic_locals lane never saw it and the raw declared-sig dispatch read the argv param off an arg value - so the closure-local lane grows global_argv_face_binding, routing locals-miss + closure_argv_locals callees down the boxed dual entry, the locals miss itself scoping the name key; probe chain p1-p11 bisected the t262 harness to the exact poison line and covers pure-read, free-var-write, assert-arg-position, same-named-param and capture shapes; fixture arguments-shadow-collide-argv-001 covers Promise-executor capture plus over-arity direct calls, tr==bun byte-equal; the Array/prototype -c-i-25 family case runs clean under iter tr)"
+    },
+    {
+      "hash": "3f7d43c2",
+      "subject": "docs: rotation 364 close - hof argv-face remaining channels four knives plus mixed-tier dup-group admit plus close-audit double breach discharge, sweep conserved +5 pass / -5 bug all direct-hit zero regressions, crash counts flat, cluster predicate flat, build determinism 44/44 N=12, dashboard refresh @ b12a975e"
+    },
+    {
       "hash": "b12a975e",
       "subject": "feat: mixed-tier dup-named binding groups admit per instance (a group whose instances split across the argc and argv tiers no longer rejects whole - every init must still be a closure literal and mask/stray/owner checks stay group-wide, but only THIS tier's seeded instances return; the cross-tier name collision is safe on four audited fronts: the checker argv wedge re-gates on the fn's public variadic type, S3.5 admits beyond-arity universally, an SSA argv_face mis-hit only downgrades to the boxed dual entry which is behaviorally equivalent, and fnexpr_this_routed's consumption is a conservative exclusion arm - full audit in the task doc; probe b1 and fixture arguments-dup-group-mixed-tier-001 cover the 2-instance and 3-instance mixed shapes, tr==bun)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "a0586e3f",
       "subject": "feat: flatMap joins the argv-face HOF channels (the callback's argv_face branch packs the full §23.1.3.13 «kValue, k, O» triple through the boxed variadic dispatch with cb_arity forced to 3; the declared ret still drives dst_shape because the variadic conv unboxes the result back to it, so the scalar / inner-walk split is untouched; collector and chain whitelists take the name, and the checker wedge mirrors dst_shape - Array ret flattens one level, Void answers Array<Any>, primitive/Any pushes the scalar; probe q2 and fixture 006 cover anonymous array-ret, scalar-ret, arguments[2] source read and the binding form, all tr==bun)"
-    },
-    {
-      "hash": "2e29b08c",
-      "subject": "feat: the predicate family joins the argv-face HOF channels (find/findLast/findIndex/findLastIndex/some/every callbacks reading arguments values route through the boxed variadic pack with the full spec «kValue, k, O» triple - the collector and chain whitelists take the six names, the iter loop grows the argv_face branch mirroring the ho-loop posture with cb_arity forced to 3, and the checker wedge answers Boolean/Number/T per method; the 495-line lane file splits its loop engine to a directory child module first (watch discharge, methods.rs precedent) so the knife lands inside the 500 cap; probe q1 six shapes tr==bun, fixture 005 covers anonymous and binding forms plus the arguments[2] source read)"
-    },
-    {
-      "hash": "303f7c6d",
-      "subject": "docs: rotation 363 close - hof callback arguments face five knives (argc spec-count silent-wrong fix + argv value-read across map/filter/forEach/reduce/reduceRight, anonymous and binding forms, array/map/set receivers), sweep conserved zero-movement zero regressions, r362 verdicts gz backfill, dashboard refresh"
-    },
-    {
-      "hash": "81175cd5",
-      "subject": "feat: reduce/reduceRight join the argv-face HOF channels (the reducer's argv_face branch packs the whole §23.1.3.24 «previousValue, currentValue, currentIndex, O» through the boxed variadic dispatch - reduce_args grows the index/source slots under argv_face regardless of declared arity; the collector and chain whitelists take the two method names, and the checker's sister route mirrors the lane's resolve_acc_ty: callback ret widened to Any when the seed or the 1-arg first element doesn't share it, so the checker's answer and the acc slot's SSA type always agree; probe r1 six shapes tr==bun including reduceRight, a binding reducer and a string seed)"
-    },
-    {
-      "hash": "c0a8a584",
-      "subject": "feat: bindings at the HOF callback slot join the argv face (the safe-chain walk killed const f = function(){arguments[0]}; xs.map(f) at the map arg position; the slot is boxed-only consumption on every downgraded channel - array inline loops, Map/Set forEach, any-lane and struct-method receivers all route argv-face callees through the boxed variadic pack - so the chain's boxed_arg_sites now whitelists map/filter/forEach callback slots, the three lanes' argv_face predicate grows the Ident-resolving-to-argv-local arm, and the checker's sister route accepts the binding spelling; a mis-hit on a shadowed same-named non-argv binding only costs the devirt, not correctness, because the boxed dual entry is every closure's universal protocol; one binding may serve several slots, each use legal independently - probe k3)"
-    },
-    {
-      "hash": "f3cc747e",
-      "subject": "fix: Map/Set forEach routes argv-face callbacks through the boxed variadic pack (the collector's HOF-anon arm keys on the method NAME, so forEach admits on any receiver spelling - but only the array inline loops had the downgrade; the map/set dispatch loops still direct-called, landing the positional (value, key, map) in the reshaped sig's argv-pointer slot and running the walk as a silent no-op, probe x1 printed nothing where bun prints 3 a / 7; emit_argv_face_call goes pub(crate) and both dispatch loops branch to it, skipping the direct lane's per-iteration transfer inc since the pack borrows and the adapter's materialize incs what it stores; TypedArray globals are unimplemented so no third channel exists)"
-    },
-    {
-      "hash": "04f66c62",
-      "subject": "feat: anonymous HOF callbacks reading arguments values join the argv face on map/filter/forEach (the inline fn-expr has no binding for the safe-chain walk, but the shape needs no proof - its only consumer is the one callback slot, so a new collector arm admits it when the closure name has exactly one arena reference and no this promotion; the checker grows a sister route answering Array<R>/Array<T>/Void for the variadic public type the face mints, and the inline loop routes argv-face callees through the boxed variadic dispatch - emit_argv_face_call packs the full «kValue, k, O» into a stack argv via the extracted emit_variadic_call_conv half, cb_arity forced to 3 so the declared-arity truncation never starves the pack; reduce family and the binding-chain HOF-arg form stay loud, recorded next knives; probe m4 eight shapes tr==bun including spread and out-of-range)"
     }
   ],
-  "headSha": "b12a975e",
+  "headSha": "c025fd3f",
   "autorun": {
-    "total": 667,
+    "total": 668,
     "baselineTarget": 10,
-    "bySelf": 662,
+    "bySelf": 663,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786437171-6dbc",
-      "at": "2026-08-11T08:32:51Z",
-      "ts": 1786437171,
+      "rotationId": "r-1786442575-2586",
+      "at": "2026-08-11T10:02:55Z",
+      "ts": 1786442575,
       "trigger": "self",
-      "prevHead": "303f7c6d",
-      "handoffSha": "sha256:ca2661203fc66e482bc221a8025c29d4f704c2ee29ecbfeeab2c0e7dec9305a7",
-      "handoffAgeSec": 6,
+      "prevHead": "3f7d43c2",
+      "handoffSha": "sha256:149163e48c52507ce153f8841c99ea8bbd6510b575e8925353cb89dec1699029",
+      "handoffAgeSec": 98,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786442575-2586",
+        "at": "2026-08-11T10:02:55Z",
+        "ts": 1786442575,
+        "trigger": "self",
+        "prevHead": "3f7d43c2",
+        "handoffSha": "sha256:149163e48c52507ce153f8841c99ea8bbd6510b575e8925353cb89dec1699029",
+        "handoffAgeSec": 98,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786437171-6dbc",
         "at": "2026-08-11T08:32:51Z",
@@ -876,17 +887,6 @@
         "prevHead": "e67f498e",
         "handoffSha": "sha256:b9e80b9c3623b4ab528d6eb1ef383fc33b32ea2181d89e6c31b994a6f9cc49d4",
         "handoffAgeSec": 31,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786358492-63a1",
-        "at": "2026-08-10T10:41:32Z",
-        "ts": 1786358492,
-        "trigger": "self",
-        "prevHead": "8879aec0",
-        "handoffSha": "sha256:be29555988ac2e4035455996033ae85809cc3436da398fdab0ea04cb178ba0f5",
-        "handoffAgeSec": 1,
         "conformanceBefore": null,
         "commitsInSession": null
       }
