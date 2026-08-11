@@ -128,7 +128,19 @@ pub(crate) fn try_lower(
 /// undefined payload (SSA Ptr) is NaN, numerics widen via SiToFp.
 fn coerce_date_num(ctx: &mut LowerCtx<'_>, op: Operand) -> Operand {
     match ctx.operand_ty(&op) {
-        Type::Any => ctx.coerce_any_to_number(op, Type::F64),
+        Type::Any => {
+            let v = ctx.coerce_any_to_number(op, Type::F64);
+            // Rotation 365 — `? ToNumber(arg)` (§21.4.4.20 step 2 et
+            // al.): a user valueOf/toString throw recorded by the
+            // any_to_number kernel must abort HERE, before the setter
+            // kernel writes [[DateValue]] — without the check the
+            // throw was silently dropped AND the date absorbed the
+            // garbage coercion result (the t262 Date `-err` family
+            // asserts both faces: the throw propagates and getTime()
+            // is unchanged).
+            ctx.emit_throw_check(None);
+            v
+        }
         Type::Ptr => Operand::ConstF64(f64::NAN),
         _ => ctx.coerce_to_f64(op),
     }

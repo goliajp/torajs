@@ -130,17 +130,26 @@ struct Fields {
     present: i64,
 }
 
-fn decode_fields(argv: *const u64, argc: i64, arity: usize) -> Fields {
+/// `None` = a `? ToNumber(arg)` step threw (a user valueOf/toString
+/// recorded a pending throw): the setter must NOT run — §21.4.4.20
+/// step 2 et al. abort BEFORE the kernel writes [[DateValue]], and
+/// the t262 Date `-err` family asserts both faces (the throw
+/// propagates AND getTime() is unchanged). The caller's throw check
+/// fires on the pending record; the returned box is discarded.
+fn decode_fields(argv: *const u64, argc: i64, arity: usize) -> Option<Fields> {
     let mut v = [0f64; 4];
     let mut present = 1i64; // first arg mandatory (missing ≡ undefined ≡ NaN)
     v[0] = f64::NAN;
     for (k, slot) in v.iter_mut().enumerate().take(arity) {
         if (k as i64) < argc {
             *slot = unsafe { __torajs_anyv_to_number(*argv.add(k)) };
+            if unsafe { __torajs_throw_check() } != 0 {
+                return None;
+            }
             present |= 1 << k;
         }
     }
-    Fields { v, present }
+    Some(Fields { v, present })
 }
 
 /// `Tag::Date` arm — id-switch onto the torajs-date kernels (see
@@ -198,79 +207,111 @@ pub(crate) unsafe fn date_method(
             m if m == ANY_METHOD_TO_LOCALE_DATE_STRING => s(__torajs_date_to_locale_date_string(d)),
             m if m == ANY_METHOD_TO_LOCALE_TIME_STRING => s(__torajs_date_to_locale_time_string(d)),
             m if m == ANY_METHOD_SET_TIME => {
-                let f = fields(1);
+                let Some(f) = fields(1) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_time(d, f.v[0]))
             }
             m if m == ANY_METHOD_SET_YEAR => {
-                let f = fields(1);
+                let Some(f) = fields(1) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_year(d, f.v[0]))
             }
             m if m == ANY_METHOD_SET_FULL_YEAR => {
-                let f = fields(3);
+                let Some(f) = fields(3) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_full_year(
                     d, f.v[0], f.v[1], f.v[2], f.present,
                 ))
             }
             m if m == ANY_METHOD_SET_MONTH => {
-                let f = fields(2);
+                let Some(f) = fields(2) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_month(d, f.v[0], f.v[1], f.present))
             }
             m if m == ANY_METHOD_SET_DATE => {
-                let f = fields(1);
+                let Some(f) = fields(1) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_date(d, f.v[0], f.present))
             }
             m if m == ANY_METHOD_SET_HOURS => {
-                let f = fields(4);
+                let Some(f) = fields(4) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_hours(
                     d, f.v[0], f.v[1], f.v[2], f.v[3], f.present,
                 ))
             }
             m if m == ANY_METHOD_SET_MINUTES => {
-                let f = fields(3);
+                let Some(f) = fields(3) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_minutes(
                     d, f.v[0], f.v[1], f.v[2], f.present,
                 ))
             }
             m if m == ANY_METHOD_SET_SECONDS => {
-                let f = fields(2);
+                let Some(f) = fields(2) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_seconds(d, f.v[0], f.v[1], f.present))
             }
             m if m == ANY_METHOD_SET_MILLISECONDS => {
-                let f = fields(1);
+                let Some(f) = fields(1) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_milliseconds(d, f.v[0], f.present))
             }
             m if m == ANY_METHOD_SET_UTC_FULL_YEAR => {
-                let f = fields(3);
+                let Some(f) = fields(3) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_utc_full_year(
                     d, f.v[0], f.v[1], f.v[2], f.present,
                 ))
             }
             m if m == ANY_METHOD_SET_UTC_MONTH => {
-                let f = fields(2);
+                let Some(f) = fields(2) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_utc_month(d, f.v[0], f.v[1], f.present))
             }
             m if m == ANY_METHOD_SET_UTC_DATE => {
-                let f = fields(1);
+                let Some(f) = fields(1) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_utc_date(d, f.v[0], f.present))
             }
             m if m == ANY_METHOD_SET_UTC_HOURS => {
-                let f = fields(4);
+                let Some(f) = fields(4) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_utc_hours(
                     d, f.v[0], f.v[1], f.v[2], f.v[3], f.present,
                 ))
             }
             m if m == ANY_METHOD_SET_UTC_MINUTES => {
-                let f = fields(3);
+                let Some(f) = fields(3) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_utc_minutes(
                     d, f.v[0], f.v[1], f.v[2], f.present,
                 ))
             }
             m if m == ANY_METHOD_SET_UTC_SECONDS => {
-                let f = fields(2);
+                let Some(f) = fields(2) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_utc_seconds(d, f.v[0], f.v[1], f.present))
             }
             m if m == ANY_METHOD_SET_UTC_MILLISECONDS => {
-                let f = fields(1);
+                let Some(f) = fields(1) else {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                };
                 n(__torajs_date_set_utc_milliseconds(d, f.v[0], f.present))
             }
             _ => method_no_such(),
