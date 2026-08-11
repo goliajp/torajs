@@ -4616,34 +4616,32 @@ our own checker objecting is, by itself, a reason to skip).
 - [ ] **S5.5** `RegExp` unresolved in value position — **394** (the
       RegExp substrate itself is P9-closed; this is reflective/value
       use of the constructor object, not a regex feature gap)
-- [ ] **S5.6** **There is no global object.** Measured 2026-07-27; this
-      is the shared root of S1.8(b), S3.2, S5.5 and the `globalThis`
-      cluster (115), so it is one item rather than four. The pattern is
-      always the same — the `typeof` position answers, the value
-      position does not:
-
-      | | `typeof X` | value position (`var o = X`, `take(X)`) |
-      |---|---|---|
-      | `this` (top level) | `undefined` — **wrong, bun says `object`** | `unknown identifier __this` |
-      | `globalThis` | `object` | `unknown identifier globalThis` |
-
-      The immediate cause of the `globalThis` half is one missing arm:
-      `check_type_of_ident.rs:36` lists `console` / `Math` / `Object` /
-      … but not `globalThis`. It *is* in
-      `check_js_semantics.rs:44`'s `is_known_builtin_global`, but that
-      list only serves the `typeof undeclared` path and never
-      participates in value-position resolution.
-      **Adding the arm is not enough.** `typeof globalThis`'s `"object"`
-      is a static string in `ssa_lower_typeof.rs:100`; grepping
-      `global_object|globalThis` across `torajs-dynobj` and
-      `torajs-anyvalue` returns **nothing**. The object does not exist.
-      Making either name work in a value position requires actually
-      minting a global object, and `verifyProperty(this, 'Array', {…})`
-      further requires the builtins to be reachable as its properties.
-      That is substrate, not a one-line arm.
-      Note the ordering claim: the top-level `typeof this` answer is a
-      **silent wrong answer**, not a refusal, which by the design
-      principles outranks the louder gaps around it
+- [x] **S5.6** **There is no global object** — measured 2026-07-27,
+      **and since resolved in its main body** (this entry's original
+      table went stale; corrected 2026-08-11, rotation 367 recon). The
+      global object IS minted: RFC `20260807-global-object` G1/G2/G2.5
+      shipped a real dynobj singleton (relanded `503a8d1e` — 18 ctors,
+      Math/JSON/Reflect, eval, §19.1.1-3 value props, self-reference,
+      define-not-write attributes, identity probe, miss-loud channel),
+      top-level `this` answers `"object"` since rotation 235
+      (`__module_this`, a `{}` exports object per bun-as-module —
+      deliberately NOT the same object as `globalThis`), and the
+      rotation-367 this-rewrite knife binds a dynamic function's
+      sloppy `this` to the singleton (§10.2.1.2), which made the
+      fnGlobalObject harness portable. **Recorded residue, tracked in
+      plan-state L3b**: G3 descriptor surface
+      (`verifyProperty(globalThis, 'Array', …)` needs the gOPD global
+      arm); the 19 MISSING_KNOWN names (console / parseInt family /
+      NativeError ctors / queueMicrotask) each need an interned cell
+      before joining the fill list; `new globalThis.Array()`
+      (construct through a first-class ctor value) is a recorded
+      follow-up on `builtin_ctor_cell`; the G2.5 mutation gate
+      diverges between static spelling (loud) and aliased spelling
+      (dynobj lane) under verifyProperty's write/delete probes; and
+      six known-global name lists have no single source of truth
+      (`is_known_builtin_global` / `MISSING_KNOWN` /
+      `free_vars_globals` / `is_known_ns` / typeof static string /
+      `array_is_array`) — a drift risk, collapse candidates
 - [ ] **S5.7** Which unresolved names may be refused at compile time.
       The finding behind S1.7: tr treats every unresolved free
       identifier as a compile-time hard error, but the spec makes it a
