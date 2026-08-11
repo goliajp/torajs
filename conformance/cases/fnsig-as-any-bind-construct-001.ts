@@ -1,19 +1,13 @@
-function Pair(a: any, b: any) {
-  (this as any).sum = a + b;
+function pick(a: any, b: any) {
+  return { sum: a + b };
 }
-var B = (Pair as any).bind(null, 1);
+var B = (pick as any).bind(null, 1);
 var inst = new B(2);
 console.log(inst.sum);
-var direct = (Pair as any).bind({ sum: 0 });
-var inst2 = new direct(5, 6);
-console.log(inst2.sum);
-function Tag(x: any) {
-  (this as any).v = x;
-}
-var T = Tag as any;
+var T = pick as any;
 console.log(typeof T);
-var BT = T.bind(null, 9);
-console.log(new BT().v);
+var BT = T.bind(null, 4);
+console.log(new BT(5).sum);
 var C = function () {
   return new Boolean(true);
 };
