@@ -156,6 +156,7 @@ pub(crate) fn emit_per_method_body(
     fn_val: &Operand,
     fn_ty: Type,
     this_arg: Option<&Operand>,
+    argv_face: bool,
 ) {
     let i_now2 = ctx.f.append_inst(
         ctx.cur_block,
@@ -193,15 +194,23 @@ pub(crate) fn emit_per_method_body(
             None,
         )
     };
-    let cb_arity = ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len());
+    // Argv-face callbacks take the FULL spec list — their sig's
+    // params are the synthetic argv head, not positional slots, so
+    // the declared-arity truncation must not apply (the boxed pack
+    // wants «kValue, k, O» whole).
+    let cb_arity = if argv_face {
+        3
+    } else {
+        ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len())
+    };
     match method {
         "map" => emit_map(
             ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, this_arg, i_now2, src_arr,
-            cb_arity,
+            cb_arity, argv_face,
         ),
         "filter" => emit_filter(
             ctx, dst_slot, dst_arr_ty, elem, elem_ty, known_fid, fn_val, fn_ty, this_arg, i_now2,
-            src_arr, cb_arity,
+            src_arr, cb_arity, argv_face,
         ),
         "reduce" | "reduceRight" => emit_reduce(
             ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, i_now2, src_arr, cb_arity,
@@ -216,6 +225,7 @@ pub(crate) fn emit_per_method_body(
                 cb_args(this_arg, elem, i_now2, src_arr, cb_arity),
                 usize::from(this_arg.is_some()),
                 3,
+                argv_face,
             );
         }
         _ => unreachable!(),
@@ -268,6 +278,58 @@ fn cb_args(
     a
 }
 
+/// Rotation 363 — the argv-face downgrade: a callback the
+/// argv-face collector reshaped (synthetic `__torajs_argv` head
+/// param, body reads `arguments` values) cannot take the direct /
+/// devirt lanes — their positional args would land in the argv
+/// pointer slot. Route through the boxed variadic dispatch instead:
+/// box each spec argument into a stack argv (the caller passes the
+/// FULL spec list — cb_arity is forced to 3 upstream) and let the
+/// dual-entry adapter feed real argc + argv into the synthetic
+/// params. `box_to_any` is rc-neutral on every arm and an Any elem
+/// is already a box, so the pack is pure encoding; the adapter's
+/// materialize incs what it stores.
+fn emit_argv_face_call(
+    ctx: &mut LowerCtx<'_>,
+    fn_val: &Operand,
+    fn_ty: Type,
+    args: Vec<Operand>,
+    spec_argc: i64,
+) -> ValueId {
+    let Type::Closure(user_sig_id) = fn_ty else {
+        unreachable!("argv-face callee is always a lifted closure");
+    };
+    let argv = ctx.f.append_inst(
+        crate::ssa::BlockId(0),
+        InstKind::AllocaBytes((args.len().max(1) * 8) as u64),
+        Type::Ptr,
+        Some("__hof_argv"),
+    );
+    for (i, a) in args.into_iter().enumerate() {
+        let boxed = if ctx.operand_ty(&a) == Type::Any {
+            a
+        } else {
+            ctx.box_to_any(a)
+        };
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(boxed, Operand::Value(argv), (i * 8) as u64),
+        );
+    }
+    let r = crate::ssa_lower_call_closure_local::emit_variadic_call_conv(
+        ctx,
+        fn_val.clone(),
+        argv,
+        spec_argc,
+        Vec::new(),
+        user_sig_id,
+    );
+    match r {
+        Operand::Value(v) => v,
+        _ => unreachable!("variadic call conv answers an SSA value"),
+    }
+}
+
 fn emit_do_call(
     ctx: &mut LowerCtx<'_>,
     known_fid: Option<FuncId>,
@@ -276,7 +338,11 @@ fn emit_do_call(
     args: Vec<Operand>,
     sig_skip: usize,
     spec_argc: i64,
+    argv_face: bool,
 ) -> ValueId {
+    if argv_face {
+        return emit_argv_face_call(ctx, fn_val, fn_ty, args, spec_argc);
+    }
     // `sig_skip` — a promoted receiver-first callback's leading boxed
     // `__this` argv entry is not in the sig (knife 4); positional
     // alignment against the sig starts after it, and the call lanes

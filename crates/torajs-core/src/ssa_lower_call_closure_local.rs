@@ -299,15 +299,35 @@ pub(crate) fn emit_variadic_boxed_call(
     args: &[ExprId],
 ) -> Operand {
     let (argv, boxed_slots) = crate::ssa_lower_any_method_call::pack_any_argv(ctx, args);
+    emit_variadic_call_conv(
+        ctx,
+        env_ptr,
+        argv,
+        args.len() as i64,
+        boxed_slots,
+        user_sig_id,
+    )
+}
+
+/// The call + return-conversion half of the boxed variadic dispatch,
+/// shared by the ExprId-packing entry above and the value-packing
+/// HOF-loop entry ([`crate::ssa_lower_call_arr_ho_loop`]'s argv-face
+/// downgrade, rotation 363): `closure_call_variadic(env, argv, argc)`
+/// → drop the slots the packer boxed → throw check → unbox per the
+/// callee's declared return type.
+pub(crate) fn emit_variadic_call_conv(
+    ctx: &mut LowerCtx<'_>,
+    env_ptr: Operand,
+    argv: crate::ssa::ValueId,
+    argc: i64,
+    boxed_slots: Vec<Option<Operand>>,
+    user_sig_id: crate::ssa::SigId,
+) -> Operand {
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.closure_call_variadic,
-            vec![
-                env_ptr,
-                Operand::Value(argv),
-                Operand::ConstI64(args.len() as i64),
-            ],
+            vec![env_ptr, Operand::Value(argv), Operand::ConstI64(argc)],
         ),
         Type::Any,
         None,

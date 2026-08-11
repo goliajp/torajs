@@ -194,9 +194,77 @@ pub(super) fn collect_value_argv(
     }
     let candidates =
         super::arguments_object_chain::safe_binding_chain(ast, |fn_name| full.contains(fn_name));
-    let injected: HashSet<String> = candidates.iter().map(|(_, f)| f.clone()).collect();
+    let mut injected: HashSet<String> = candidates.iter().map(|(_, f)| f.clone()).collect();
+    injected.extend(collect_hof_anon_argv(ast, &full));
     let locals: HashSet<String> = candidates.iter().map(|(b, _)| b.clone()).collect();
     (injected, locals)
+}
+
+/// Rotation 363 — the HOF anonymous-callback arm of the argv face:
+/// `[].map(function () { return arguments[0]; })`. The inline
+/// fn-expr has no binding, so the safe-binding-chain walk (which
+/// exists to prove every reachable call site rides the boxed dual
+/// entry) has nothing to walk — but the shape needs no proof: the
+/// closure's ONLY consumer is the one callback slot, and that
+/// consumer is a lane that feeds real argc/argv (the array inline
+/// loops route argv-face callees through the boxed variadic call;
+/// every non-array receiver — any-lane, struct method, typed-array
+/// kernel — packs args through a boxed protocol already).
+///
+/// Admission gates, all mechanical:
+/// - the method name is in the lane whitelist below (exactly the
+///   channels whose inline loop got the boxed-downgrade routing —
+///   admitting a channel that still direct-calls would feed the
+///   reshaped signature garbage, the r362 SIGSEGV lesson);
+/// - the closure name's ONLY arena reference is that one callback
+///   slot (an alias / second use reaches sites the lane can't
+///   vouch for — those stay on the binding-chain track);
+/// - the body doesn't ride the fnexpr-this promotion (a `__this`
+///   head param and a `__torajs_argv` head would fight for the
+///   adapter's slot mapping — recorded loud face).
+fn collect_hof_anon_argv(
+    ast: &Ast,
+    full: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    use std::collections::{HashMap, HashSet};
+    const HOF_ARGV_METHODS: [&str; 3] = ["map", "filter", "forEach"];
+    let mut ref_counts: HashMap<&str, usize> = HashMap::new();
+    for e in &ast.exprs {
+        match e {
+            Expr::Closure { fn_name, .. } if full.contains(fn_name) => {
+                *ref_counts.entry(fn_name).or_insert(0) += 1;
+            }
+            Expr::Ident(n) if full.contains(n) => {
+                *ref_counts.entry(n).or_insert(0) += 1;
+            }
+            _ => {}
+        }
+    }
+    let mut admitted: HashSet<String> = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Member { name: m, .. } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if !HOF_ARGV_METHODS.contains(&m.as_str()) {
+            continue;
+        }
+        let Some(&a0) = args.first() else {
+            continue;
+        };
+        let Expr::Closure { fn_name, .. } = ast.get_expr(a0) else {
+            continue;
+        };
+        if full.contains(fn_name)
+            && ref_counts.get(fn_name.as_str()) == Some(&1)
+            && !ast.fnexpr_recv_fns.contains(fn_name)
+        {
+            admitted.insert(fn_name.clone());
+        }
+    }
+    admitted
 }
 
 /// RFC 20260708-closure-argc-abi chunk 2 — every arena occurrence of

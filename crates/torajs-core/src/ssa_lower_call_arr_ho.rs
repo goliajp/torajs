@@ -191,6 +191,14 @@ fn lower_higher_order(
         reduce_no_init,
         reduce_init_op,
     );
+    // Rotation 363 — an argv-face callback (the inline fn-expr
+    // whose body reads `arguments` values; collector doc at
+    // `arguments_object_collect::collect_hof_anon_argv`) must not
+    // take the direct / devirt call: its reshaped sig leads with the
+    // synthetic argv pointer. The loop body routes it through the
+    // boxed variadic dispatch instead (emit_argv_face_call).
+    let argv_face = matches!(ctx.ast.get_expr(args[0]),
+        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name));
     let frame = begin_loop(ctx, &method, src_arr, dst_slot, dst_arr_ty, reduce_no_init);
     emit_per_method_body(
         ctx,
@@ -206,6 +214,7 @@ fn lower_higher_order(
         &fn_val,
         fn_ty,
         this_arg.as_ref(),
+        argv_face,
     );
     let out = end_loop_and_produce(ctx, frame, &method, dst_slot, acc_slot, dst_arr_ty, acc_ty);
     // RFC 20260705 chunk 550 — release owned-shape temps after the
