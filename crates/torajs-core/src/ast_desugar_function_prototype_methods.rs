@@ -350,6 +350,18 @@ fn closure_binding_sig(
 ) -> Option<(Vec<Param>, Option<String>)> {
     let cn = closure_aliases.get(fn_name)?;
     let (cp, cr) = fn_sigs.get(cn)?;
+    // An unannotated return leaves the synth lane no truthful `->R`
+    // to write on the `__bt` capture: the source's real convention is
+    // its INFERRED type (raw slot), while the only writable fallback
+    // (`->any`) makes the wrapper's inner call read that raw slot as
+    // a NaN-box — `D.bind(null, 21)()` answered a garbage tag, the
+    // zero-partial form decoded the box as a cell. The named-FnDecl
+    // arm has no such lie (its wrapper calls through the NAME, the
+    // checker infers the ret, and the wrapper's own `->any` boundary
+    // boxes); a binding without a ret annotation instead declines
+    // here and rides the runtime bind kernel, whose boxed adapter
+    // owns both conventions end to end.
+    cr.as_ref()?;
     let stripped: Vec<Param> = cp
         .iter()
         .filter(|p| p.name != "__env")
