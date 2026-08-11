@@ -129,6 +129,9 @@ pub(crate) fn try_lower_register_native_error(
         // message, which is why torajs-throw reads this slot through
         // its own typed lookup.
         "AggregateError" => 5,
+        // §19.2.6 — the URI kernels' malformed-input raise
+        // (torajs-throw SLOT_URI_ERROR).
+        "URIError" => 6,
         _ => return Some(Operand::ConstI64(0)),
     };
     let factory = format!("__new_{cname}");

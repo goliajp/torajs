@@ -321,6 +321,8 @@ pub(super) fn emit_native_error_register(ast: &mut Ast, meta: &ClassMetadata, ou
                 // built by the runtime, so its factory has to be
                 // reachable from there like the thrown ones.
                 | "AggregateError"
+                // §19.2.6 — the URI kernels' malformed-input raise.
+                | "URIError"
         ) {
             let name_str = ast.add_expr(Expr::String(cname.clone()));
             let callee = ast.add_expr(Expr::Ident("__torajs_register_native_error".to_string()));

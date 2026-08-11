@@ -835,6 +835,8 @@ pub(crate) struct Intrinsics {
     pub(crate) str_ends_with_from: FuncId,
     pub(crate) str_includes_from: FuncId,
     pub(crate) symbol_description: FuncId,
+    pub(crate) str_uri_encode: FuncId,
+    pub(crate) str_uri_decode: FuncId,
     pub(crate) f64_to_str: FuncId,
     pub(crate) math_sqrt: FuncId,
     pub(crate) math_abs: FuncId,

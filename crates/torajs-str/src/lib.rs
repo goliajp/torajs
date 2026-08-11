@@ -145,6 +145,7 @@ pub mod symbol;
 pub mod to_number;
 pub mod transform;
 pub mod undef_sentinel;
+pub mod uri;
 
 // Re-export the small surface the rest of the workspace (and the
 // FFI consumers) reach for most often. Keeping this list tight
@@ -224,5 +225,12 @@ pub static STUB_THROW_RAISED: core::sync::atomic::AtomicBool =
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    STUB_THROW_RAISED.store(true, core::sync::atomic::Ordering::SeqCst);
+}
+// Same story for the §19.2.6 URIError raise (`uri.rs`) — the real
+// wrapper lives in torajs-throw at link time.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_uri_error(_msg: *const core::ffi::c_char) {
     STUB_THROW_RAISED.store(true, core::sync::atomic::Ordering::SeqCst);
 }

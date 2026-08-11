@@ -33,8 +33,58 @@ pub(crate) fn try_lower(
         "parseFloat" => Some(lower_parse_float(ctx, args)),
         "isNaN" | "isFinite" => Some(lower_is_nan_or_finite(ctx, name.as_str(), args)),
         "queueMicrotask" => Some(lower_queue_microtask(ctx, args)),
+        "encodeURI" => Some(lower_uri(ctx, args, true, false)),
+        "encodeURIComponent" => Some(lower_uri(ctx, args, true, true)),
+        "decodeURI" => Some(lower_uri(ctx, args, false, false)),
+        "decodeURIComponent" => Some(lower_uri(ctx, args, false, true)),
         _ => None,
     }
+}
+
+/// §19.2.6 — the four URI globals share one shape: ToString the
+/// argument (step 1), run the Encode / Decode kernel, propagate the
+/// malformed-URI URIError. The omitted / explicit-undefined argument
+/// folds to the literal "undefined" (ToString(undefined)), which
+/// both kernels map to itself — no escape, no `%`.
+fn lower_uri(ctx: &mut LowerCtx<'_>, args: &[ExprId], encode: bool, component: bool) -> Operand {
+    if args.is_empty()
+        || matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(check_mod::Type::Undefined)
+        )
+    {
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
+        }
+        let undef_str = ctx.intrinsics.undefined_to_str;
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(undef_str, vec![]),
+            Type::Str,
+            None,
+        );
+        return Operand::Value(v);
+    }
+    let raw = ctx.lower_expr(args[0]);
+    let s = decode_any_to_str(ctx, raw);
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let kernel = if encode {
+        ctx.intrinsics.str_uri_encode
+    } else {
+        ctx.intrinsics.str_uri_decode
+    };
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(kernel, vec![s, Operand::ConstI64(component as i64)]),
+        Type::Str,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
 }
 
 /// S336/S337 — decode an Any operand to a concrete Str via

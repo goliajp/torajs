@@ -343,6 +343,19 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
             && matches!(ast.get_expr(*obj), Expr::Ident(o) if o == "Promise"))
     });
 
+    // §19.2.6 — the four URI globals raise a real URIError on a
+    // malformed input, so calling any of them implies the class the
+    // same way bigint implies RangeError. Imply-only: programs that
+    // never touch a URI global pay nothing.
+    let uses_uri_global = [
+        "encodeURI",
+        "encodeURIComponent",
+        "decodeURI",
+        "decodeURIComponent",
+    ]
+    .iter()
+    .any(|n| referenced(n));
+
     // Subclasses to inject: (referenced OR implied OR runtime-thrown)
     // AND not user-shadowed.
     //
@@ -369,7 +382,8 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
                 .stmts
                 .iter()
                 .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
-            let implied = *n == "RangeError" && uses_bigint;
+            let implied =
+                (*n == "RangeError" && uses_bigint) || (*n == "URIError" && uses_uri_global);
             let runtime_thrown = matches!(
                 *n,
                 "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"

@@ -102,6 +102,26 @@ pub(crate) fn try_match(
                 }
                 Some(Ok(Type::Number))
             }
+            "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" => {
+                // §19.2.6 URI globals — one ToString'd argument
+                // (String / Undefined / Any accepted like the
+                // parse* pair), trailing args Web-IDL ignored.
+                for &arg in args.iter().skip(1) {
+                    if let Err(e) = checker.type_of(ast, arg) {
+                        return Some(Err(e));
+                    }
+                }
+                if let Some(arg0) = args.first() {
+                    let s_ty = match checker.type_of(ast, *arg0) {
+                        Ok(t) => t,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
+                        return Some(Err(format!("{name} arg must be string, got {s_ty:?}")));
+                    }
+                }
+                Some(Ok(Type::String))
+            }
             "isNaN" | "isFinite" => {
                 // S252 — isNaN/isFinite(value, ...trailing)
                 // per ES §19.2.3 / §19.2.4 trailing-arg

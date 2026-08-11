@@ -72,7 +72,7 @@ pub mod registry;
 pub use registry::{
     __torajs_make_aggregate_error, __torajs_register_native_error, AggregateErrorFactory,
     NativeErrorFactory, SLOT_AGGREGATE_ERROR, SLOT_ERROR, SLOT_RANGE_ERROR, SLOT_REFERENCE_ERROR,
-    SLOT_SYNTAX_ERROR, SLOT_TYPE_ERROR,
+    SLOT_SYNTAX_ERROR, SLOT_TYPE_ERROR, SLOT_URI_ERROR,
 };
 use registry::{ANY_VALUE_UNDEFINED, SLOT_COUNT, lookup_factory};
 
@@ -353,6 +353,19 @@ pub unsafe extern "C" fn __torajs_throw_reference_error_name(name: *mut c_void) 
 pub unsafe extern "C" fn __torajs_throw_syntax_error(msg: *const c_char) {
     // SAFETY: caller invariant — propagated.
     unsafe { throw_native(SLOT_SYNTAX_ERROR as i64, msg) };
+}
+
+/// Cross-TU wrapper for `URIError` — the §19.2.6 malformed-URI
+/// raise from the torajs-str `uri.rs` Encode / Decode kernels.
+///
+/// # Safety
+///
+/// `msg` must be a valid pointer to a NUL-terminated C string. The
+/// caller retains ownership.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_uri_error(msg: *const c_char) {
+    // SAFETY: caller invariant — propagated.
+    unsafe { throw_native(SLOT_URI_ERROR as i64, msg) };
 }
 
 /// §9.2.2 [[Construct]] step 15 — a derived constructor whose body

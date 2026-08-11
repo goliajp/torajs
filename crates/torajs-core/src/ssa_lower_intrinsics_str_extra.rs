@@ -37,6 +37,8 @@ pub(crate) struct StrExtraIds {
     pub bool_to_str: FuncId,
     pub null_to_str: FuncId,
     pub undefined_to_str: FuncId,
+    pub str_uri_encode: FuncId,
+    pub str_uri_decode: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> StrExtraIds {
@@ -104,6 +106,23 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_undefined_to_str",
             &[],
+            Type::Str,
+        ),
+        // §19.2.6 URI kernels (torajs-str uri.rs) — (Str, component
+        // flag) → fresh Str; the malformed path records a pending
+        // URIError, so call sites emit a throw check.
+        str_uri_encode: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_uri_encode",
+            &[Type::Str, Type::I64],
+            Type::Str,
+        ),
+        str_uri_decode: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_uri_decode",
+            &[Type::Str, Type::I64],
             Type::Str,
         ),
     }

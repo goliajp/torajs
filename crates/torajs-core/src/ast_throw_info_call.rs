@@ -39,6 +39,16 @@ pub(crate) fn scan_call(
             if name == "BigInt" {
                 *direct = true;
             }
+            // §19.2.6 — the URI kernels raise URIError on a
+            // malformed input (lone surrogate / bad escape run).
+            // Same conservative posture as BigInt: never hot-path,
+            // one cold throw-check buys "never silently swallowed".
+            if matches!(
+                name.as_str(),
+                "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent"
+            ) {
+                *direct = true;
+            }
             // `Number(x)` / `String(x)` over an Any/object argument
             // run OrdinaryToPrimitive at runtime, which records a
             // pending TypeError when both toString/valueOf answer

@@ -21,9 +21,9 @@ unsafe extern "C" {
 
 /// `slot` discriminants matching the C ABI:
 /// `0` = Error, `1` = TypeError, `2` = RangeError. Read from
-/// userspace JS via the SyntaxError / ReferenceError / EvalError /
-/// URIError subclasses inheriting from Error (slot 0 fallback);
-/// the three concrete slots cover the runtime-raised cases.
+/// userspace JS via the EvalError subclass inheriting from Error
+/// (slot 0 fallback); the concrete slots cover the runtime-raised
+/// cases.
 pub const SLOT_ERROR: usize = 0;
 pub const SLOT_TYPE_ERROR: usize = 1;
 pub const SLOT_RANGE_ERROR: usize = 2;
@@ -38,7 +38,11 @@ pub const SLOT_SYNTAX_ERROR: usize = 4;
 /// shared message, so it is read through [`lookup_aggregate_factory`]
 /// rather than [`lookup_factory`]. Registered like the rest.
 pub const SLOT_AGGREGATE_ERROR: usize = 5;
-pub(crate) const SLOT_COUNT: usize = 6;
+/// §19.2.6 — the malformed-URI raise from the `decodeURI` /
+/// `decodeURIComponent` / `encodeURI` / `encodeURIComponent`
+/// kernels (torajs-str `uri.rs`).
+pub const SLOT_URI_ERROR: usize = 6;
+pub(crate) const SLOT_COUNT: usize = 7;
 
 /// `undefined` in AnyValue NaN-box form (`torajs_anyvalue::nanbox::
 /// VALUE_UNDEFINED` = `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED`).
@@ -85,6 +89,7 @@ pub type AggregateErrorFactory =
 /// of padding on 32-bit systems, but Rust pointer width matches
 /// host so no layout issue.
 static REGISTRY: [AtomicPtr<()>; SLOT_COUNT] = [
+    AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
