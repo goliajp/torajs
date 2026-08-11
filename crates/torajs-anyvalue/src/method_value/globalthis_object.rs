@@ -15,8 +15,8 @@
 //! non-enumerable; the three value constants are non-everything;
 //! `globalThis` itself is writable+configurable, non-enumerable).
 //!
-//! A KNOWN builtin global the runtime cannot yet mint (`parseInt`,
-//! `JSON`, `console`, the NativeError constructors, …) is NOT
+//! A KNOWN builtin global the runtime cannot yet mint (`console`,
+//! `isNaN`, the NativeError constructors, …) is NOT
 //! filled — a dynamic read must stay LOUD, not answer a silent
 //! `undefined` where bun answers a function. The member-get miss
 //! lane consults [`globalthis_missing_known`] via the singleton
@@ -124,8 +124,6 @@ const MISSING_KNOWN: &[&[u8]] = &[
     b"decodeURI",
     b"encodeURIComponent",
     b"decodeURIComponent",
-    b"parseInt",
-    b"parseFloat",
     b"isFinite",
     b"isNaN",
     b"queueMicrotask",
@@ -191,6 +189,25 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             eval_cell as u64,
             REF_PROP_FLAGS,
         );
+        // §19.2.4 / §19.2.5 — the global `parseFloat` / `parseInt`
+        // ARE the `Number.parseFloat` / `Number.parseInt` function
+        // objects (§21.1.2.12/.13 "the same built-in function
+        // object"), so the fill reuses those interned cells and
+        // `globalThis.parseInt === Number.parseInt` holds like bun.
+        for name in [&b"parseInt"[..], &b"parseFloat"[..]] {
+            let key = mint_immortal_str(name);
+            let cell = ns_static_cell(torajs_rc::ns_static::ns_static_id(
+                "Number",
+                core::str::from_utf8(name).expect("ascii name"),
+            ));
+            __torajs_dynobj_define(
+                &mut obj,
+                key as *mut c_void,
+                AnySlotTag::Heap as u64,
+                cell as u64,
+                REF_PROP_FLAGS,
+            );
+        }
         let key = mint_immortal_str(b"Infinity");
         __torajs_dynobj_define(
             &mut obj,
