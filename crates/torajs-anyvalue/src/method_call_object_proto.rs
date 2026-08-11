@@ -316,6 +316,12 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
     if crate::method_value::ns_object::is_reflect_object(ptr) {
         return b"Reflect";
     }
+    // Web IDL namespace-object @@toStringTag — the console
+    // singleton answers `[object console]` (bun-verified;
+    // RFC 20260812-console-sink knife 4).
+    if crate::method_value::ns_object::is_console_object(ptr) {
+        return b"console";
+    }
     let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
     if proto_tag >= 0 {
         return match proto_tag {

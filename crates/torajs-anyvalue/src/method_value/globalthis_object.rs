@@ -40,7 +40,7 @@ use crate::nanbox::box_void_ptr;
 
 use super::ctor::builtin_ctor_cell;
 use super::mint_immortal_str;
-use super::ns_object::{json_object_ptr, math_object_ptr, reflect_object_ptr};
+use super::ns_object::{console_object_ptr, json_object_ptr, math_object_ptr, reflect_object_ptr};
 use super::ns_static::ns_static_cell;
 
 unsafe extern "C" {
@@ -110,7 +110,6 @@ const CTOR_PROPS: &[(&[u8], i64)] = &[
 /// silent `undefined`. Mirror of `is_known_builtin_global`
 /// (torajs-core `check_js_semantics.rs`) minus the filled names.
 const MISSING_KNOWN: &[&[u8]] = &[
-    b"console",
     b"TypeError",
     b"RangeError",
     b"ReferenceError",
@@ -170,6 +169,17 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             key as *mut c_void,
             AnySlotTag::Heap as u64,
             reflect_object_ptr() as u64,
+            REF_PROP_FLAGS,
+        );
+        // WHATWG console §1.1 (RFC 20260812-console-sink knife 4) —
+        // the same interned singleton the bare `console` value read
+        // answers, so `globalThis.console === console` holds.
+        let key = mint_immortal_str(b"console");
+        __torajs_dynobj_define(
+            &mut obj,
+            key as *mut c_void,
+            AnySlotTag::Heap as u64,
+            console_object_ptr() as u64,
             REF_PROP_FLAGS,
         );
         // §19.2.1 — the same interned cell the bare `eval` ident

@@ -177,6 +177,21 @@ pub(crate) fn json_object_ptr() -> *mut c_void {
     })
 }
 
+/// The interned console singleton — 0 until first minted.
+static CONSOLE_OBJECT: AtomicU64 = AtomicU64::new(0);
+
+/// The console singleton's dynobj pointer (WHATWG console §1.1) —
+/// the five logger function properties the ns-static table carries
+/// (log / info / debug / error / warn), no value properties. RFC
+/// 20260812-console-sink knife 4.
+pub(crate) fn console_object_ptr() -> *mut c_void {
+    intern_singleton(&CONSOLE_OBJECT, || unsafe {
+        let mut obj = __torajs_dynobj_alloc();
+        fill_ns_methods(&mut obj, "console");
+        obj
+    })
+}
+
 /// The interned Reflect singleton — 0 until first minted.
 static REFLECT_OBJECT: AtomicU64 = AtomicU64::new(0);
 
@@ -209,6 +224,12 @@ pub extern "C" fn __torajs_ns_object_reflect() -> AnyValue {
     box_void_ptr(reflect_object_ptr())
 }
 
+/// Compiler face — `console` lowered in a value position.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_ns_object_console() -> AnyValue {
+    box_void_ptr(console_object_ptr())
+}
+
 /// Compiler face — the global `eval` lowered in a value position
 /// (§19.2.1). The interned ns-static cell carries the name / length
 /// reflection and the recorded loud call face; identity holds
@@ -237,5 +258,12 @@ pub(crate) fn is_json_object(ptr: *const c_void) -> bool {
 /// badge.
 pub(crate) fn is_reflect_object(ptr: *const c_void) -> bool {
     let p = REFLECT_OBJECT.load(Ordering::Relaxed);
+    p != 0 && p == ptr as u64
+}
+
+/// [`is_math_object`]'s console twin — the Web IDL namespace-object
+/// @@toStringTag badge (`[object console]`, bun-verified).
+pub(crate) fn is_console_object(ptr: *const c_void) -> bool {
+    let p = CONSOLE_OBJECT.load(Ordering::Relaxed);
     p != 0 && p == ptr as u64
 }

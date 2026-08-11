@@ -745,6 +745,7 @@ pub(crate) fn build(
         math_sum_precise_i64: init_d.math.math_sum_precise_i64,
         math_random: init_d.math.math_random,
         ns_object_math: init_d.math.ns_object_math,
+        ns_object_console: init_d.math.ns_object_console,
         globalthis_object: init_d.math.globalthis_object,
         json_quote_str: init_d.json_misc.json_quote_str,
         json_quote_str_top: init_d.json_misc.json_quote_str_top,

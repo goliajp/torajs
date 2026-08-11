@@ -159,6 +159,10 @@ fn try_ns_object_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
         "Math" => ctx.intrinsics.ns_object_math,
         "JSON" => ctx.intrinsics.ns_object_json,
         "Reflect" => ctx.intrinsics.ns_object_reflect,
+        // RFC 20260812-console-sink knife 4 — the WHATWG console
+        // singleton (five logger cells; `console.log` calls and
+        // member value reads resolve in earlier lanes as before).
+        "console" => ctx.intrinsics.ns_object_console,
         "eval" => ctx.intrinsics.global_eval_value,
         "globalThis" => ctx.intrinsics.globalthis_object,
         _ => return None,

@@ -879,6 +879,9 @@ pub(crate) struct Intrinsics {
     pub(crate) math_random: FuncId,
     /// RFC 20260801-ns-object-value — Math namespace object value.
     pub(crate) ns_object_math: FuncId,
+    /// RFC 20260812-console-sink knife 4 — console namespace object
+    /// value (the WHATWG §1.1 five-logger singleton).
+    pub(crate) ns_object_console: FuncId,
     /// RFC 20260801-ns-object-value (JSON extension) — JSON
     /// namespace object value.
     pub(crate) ns_object_json: FuncId,
