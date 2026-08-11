@@ -185,8 +185,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // static face — the pre-4c "legal but silent" compromise, which
     // is strictly better than falling off both faces into a loud
     // arity refuse (the objlit fixture caught that regression).
-    let (value_argv_pre, argv_locals) =
+    let (value_argv_pre, argv_locals, argv_boxed_params) =
         collect_value_argv(ast, &env_fns, &iife_real_argc, &excluded);
+    ast.argv_boxed_params = argv_boxed_params;
     for f in &objlit_escaped {
         if value_argv_pre.contains(f) {
             static_argv.remove(f);

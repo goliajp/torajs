@@ -101,6 +101,7 @@ pub(crate) fn lower_fn(
         name,
         params,
         ast.headless_argc_fns.contains(name),
+        ast.argv_boxed_params.get(name),
         aliases,
         arr_layouts,
         fn_sigs,
@@ -241,6 +242,7 @@ fn setup_fn_params(
     name: &str,
     params: &[ast::Param],
     headless_hidden: bool,
+    argv_boxed: Option<&std::collections::HashSet<String>>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -262,7 +264,14 @@ fn setup_fn_params(
         param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
     }
     for p in params {
-        if p.type_ann.as_deref().is_some_and(|a| a.contains("__rest(")) {
+        // Rotation 365 fn-arg track — a param the argv tier marked
+        // boxed-only (an argv-face fn-expr flows in directly) routes
+        // its calls through the boxed dual entry exactly like a
+        // rest-annotated one; the adapter is universal, so any other
+        // inflowing closure behaves identically.
+        if p.type_ann.as_deref().is_some_and(|a| a.contains("__rest("))
+            || argv_boxed.is_some_and(|set| set.contains(&p.name))
+        {
             variadic_locals.insert(p.name.clone());
         }
         let pty = promote_and_widen(

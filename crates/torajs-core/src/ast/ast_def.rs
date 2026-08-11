@@ -457,6 +457,18 @@ pub struct Ast {
     /// symmetry with `closure_argc_locals`; the SSA variadic
     /// registration rides the checker's rest-tail type instead.
     pub closure_argv_locals: std::collections::HashSet<String>,
+    /// Rotation 365 — receiving-fn params whose direct calls must
+    /// route through the boxed dual entry: `fn name → {param names}`.
+    /// Filled by the argv tier's fn-arg track (an anonymous argv-face
+    /// fn-expr passed directly as that param's argument): the body
+    /// grew argc/argv slots, so the param's static-dispatch lane
+    /// would feed the reshaped signature garbage — the boxed adapter
+    /// is universal across closures, so routing the param's calls
+    /// boxed is behavior-preserving for every other value that can
+    /// flow in. Scoped by construction (per-fn key, param-name
+    /// value); consumed by the SSA `setup_fn_params` variadic
+    /// registration.
+    pub argv_boxed_params: std::collections::HashMap<String, std::collections::HashSet<String>>,
     /// RFC 20260801-arguments-method-face knife 4a — `__cm_` method
     /// bodies admitted to the runtime argv face: reached only through
     /// member-value reads (zero arena Ident references), so every

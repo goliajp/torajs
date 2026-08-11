@@ -175,8 +175,9 @@ pub(super) fn collect_value_argv(
 ) -> (
     std::collections::HashSet<String>,
     std::collections::HashSet<String>,
+    std::collections::HashMap<String, std::collections::HashSet<String>>,
 ) {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     let mut full: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, body, .. } = s
@@ -190,14 +191,108 @@ pub(super) fn collect_value_argv(
         }
     }
     if full.is_empty() {
-        return (HashSet::new(), HashSet::new());
+        return (HashSet::new(), HashSet::new(), HashMap::new());
     }
     let candidates =
         super::arguments_object_chain::safe_binding_chain(ast, |fn_name| full.contains(fn_name));
     let mut injected: HashSet<String> = candidates.iter().map(|(_, f)| f.clone()).collect();
     injected.extend(collect_hof_anon_argv(ast, &full));
+    let boxed_params = collect_fn_arg_argv(ast, &full, &mut injected);
     let locals: HashSet<String> = candidates.iter().map(|(b, _)| b.clone()).collect();
-    (injected, locals)
+    (injected, locals, boxed_params)
+}
+
+/// Rotation 365 fn-arg track — an anonymous argv-face fn-expr passed
+/// DIRECTLY as an argument to a USER fn (`runner(function () {
+/// …arguments… })`, the t262 `assert.throws(T, function () {
+/// f.call(arguments) })` idiom after the harness rewrite): the
+/// receiving param's body-consumption must be direct calls only, and
+/// those calls then route through the boxed dual entry (the returned
+/// `fn → {param}` map feeds the SSA variadic registration). Routing
+/// the param boxed is behavior-preserving for every OTHER value that
+/// can flow in — the boxed adapter is synthesized for every closure —
+/// so no flow analysis is needed beyond this site's own admit.
+///
+/// Gates, all mechanical:
+/// - the callee is a top-level FnDecl name never shadowed by any
+///   fn-local binding (the argc tier's name-only-resolution guard);
+/// - the closure's ONLY arena reference is this argument slot;
+/// - the receiving param is ANNOTATED and non-rest (an unannotated
+///   param rides the mono track, whose instantiated direct call
+///   never feeds the argv slot; a rest param already routes boxed);
+/// - every body use of the param is a direct call (`p(...)` — an
+///   alias / re-pass / `.call` replay reaches lanes this walk
+///   cannot vouch for);
+/// - the body doesn't ride the fnexpr-this promotion (same adapter
+///   slot-mapping defense as the HOF anon arm).
+fn collect_fn_arg_argv(
+    ast: &Ast,
+    full: &std::collections::HashSet<String>,
+    injected: &mut std::collections::HashSet<String>,
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    use std::collections::{HashMap, HashSet};
+    let mut fn_local_names: HashSet<String> = HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { params, body, .. } = s {
+            for p in params {
+                fn_local_names.insert(p.name.clone());
+            }
+            crate::ast_collect_bindings::collect_local_binding_names(body, &mut fn_local_names);
+        }
+    }
+    let mut ident_refs: HashSet<&str> = HashSet::new();
+    let mut closure_refs: HashMap<&str, usize> = HashMap::new();
+    for e in &ast.exprs {
+        match e {
+            Expr::Ident(n) => {
+                ident_refs.insert(n);
+            }
+            Expr::Closure { fn_name, .. } => *closure_refs.entry(fn_name).or_insert(0) += 1,
+            _ => {}
+        }
+    }
+    let mut boxed_params: HashMap<String, HashSet<String>> = HashMap::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(g) = ast.get_expr(*callee) else {
+            continue;
+        };
+        if fn_local_names.contains(g) {
+            continue;
+        }
+        for (pi, a) in args.iter().enumerate() {
+            let Expr::Closure { fn_name, .. } = ast.get_expr(*a) else {
+                continue;
+            };
+            if !full.contains(fn_name)
+                || ident_refs.contains(fn_name.as_str())
+                || closure_refs.get(fn_name.as_str()) != Some(&1)
+                || ast.fnexpr_recv_fns.contains(fn_name)
+            {
+                continue;
+            }
+            let Some(pname) = ast.stmts.iter().find_map(|s| match s {
+                Stmt::FnDecl {
+                    name, params, body, ..
+                } if name == g => {
+                    let p = params.get(pi)?;
+                    let ann = p.type_ann.as_deref()?;
+                    if ann.contains("__rest(") || !param_uses_are_direct_calls(ast, body, &p.name) {
+                        return None;
+                    }
+                    Some(p.name.clone())
+                }
+                _ => None,
+            }) else {
+                continue;
+            };
+            injected.insert(fn_name.clone());
+            boxed_params.entry(g.clone()).or_default().insert(pname);
+        }
+    }
+    boxed_params
 }
 
 /// Rotation 363 — the HOF anonymous-callback arm of the argv face:

@@ -245,6 +245,28 @@ fn arg_admitted(
     if arg_ty == param_ty {
         return true;
     }
+    // Rotation 365 fn-arg track — a rest-tail closure value (an
+    // argv-face fn-expr's public type) admits into a declared
+    // closure-typed param ONLY where the argv tier marked that exact
+    // (fn, param) boxed (`ast.argv_boxed_params`): the SSA variadic
+    // registration then routes the param's direct calls through the
+    // boxed dual entry, which serves the reshaped signature the
+    // rest-tail type advertises. The return types still pair (a Void
+    // param slot discards any return).
+    if let Type::Function(ps, aret) = arg_ty
+        && matches!(ps.last(), Some(Type::Rest(_)))
+        && let Type::Function(_, pret) = param_ty
+        && (pret.as_ref() == &Type::Void || pret == aret)
+        && let crate::ast::Expr::Ident(g) = ast.get_expr(*callee)
+        && ast.argv_boxed_params.get(g).is_some_and(|set| {
+            ast.stmts.iter().any(|s| {
+                matches!(s, crate::ast::Stmt::FnDecl { name, params, .. }
+                    if name == g && params.get(i).is_some_and(|p| set.contains(&p.name)))
+            })
+        })
+    {
+        return true;
+    }
     // M5.2 class-method receiver subclass prefix-subtype check extracted
     // to [`crate::check_type_of_call_class_method_subtype`] (chunk 309).
     if crate::check_type_of_call_class_method_subtype::skip(is_class_method, i, arg_ty, param_ty) {
