@@ -101,6 +101,23 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         {
             Some(Type::Any)
         }
+        // rotation 362 — a register-repr branch against `null` joins
+        // to ANY (S129-1 posture, mirror of the Undefined arm):
+        // Nullable<Number>/Nullable<Boolean> has no SSA repr — the
+        // F64 lane refuses ConstPtrNull loudly ("FPR materialization")
+        // and the I64/Bool lanes would store the null ptr's zero bits
+        // silently (probe: `c > 5 ? 7 : null` printed 0). A struct
+        // branch joins to Any for the rotation-233 reason: its
+        // Nullable join stored ConstPtrNull in an Obj-typed slot,
+        // which every consumer read as a live layout (probe:
+        // `c > 5 ? {a: 1} : null` printed [unknown-any-tag]). Ptr-repr
+        // types (String / arrays / closures …) keep the Nullable join
+        // below — their slot holds ConstPtrNull natively.
+        (Type::Null, o) | (o, Type::Null)
+            if matches!(o, Type::Number | Type::Boolean | Type::Struct(_)) =>
+        {
+            Some(Type::Any)
+        }
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {

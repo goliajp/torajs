@@ -172,6 +172,31 @@ fn widen_branches(
         ctx.expr_types.get(&else_branch),
         Some(crate::check::Type::Undefined)
     );
+    // rotation 362 — exactly one branch types Null against a
+    // register-repr or struct branch (the checker joined to Any, the
+    // S2.27 posture): box BOTH sides expr-aware. The Null side is a
+    // compile-time ConstPtrNull, which `box_to_any` folds to ANY_NULL;
+    // without the box the I64/Bool lanes stored its zero bits as a
+    // number (probe: `c > 5 ? 7 : null` printed 0) and the F64 lane
+    // refused loudly. Ptr-repr joins (Nullable<Str> etc.) stay on
+    // their native slot — the gate requires the OTHER side to be a
+    // scalar or struct.
+    let then_null = matches!(
+        ctx.expr_types.get(&then_branch),
+        Some(crate::check::Type::Null)
+    );
+    let else_null = matches!(
+        ctx.expr_types.get(&else_branch),
+        Some(crate::check::Type::Null)
+    );
+    let scalar_or_struct = |t: &Type| {
+        matches!(
+            t,
+            Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::Obj(_)
+        )
+    };
+    let null_join = (then_null && !else_null && scalar_or_struct(&et))
+        || (else_null && !then_null && scalar_or_struct(&tt));
     // rotation 233 (S2.27 field depth) — two struct-shaped branches
     // whose layouts differ (the checker joined them to Any: same
     // field names, field-wise joinable): box BOTH sides expr-aware,
@@ -193,7 +218,7 @@ fn widen_branches(
     // consumer's any lanes see tagged values whichever branch runs.
     let heap_mixed_join = (matches!(tt, Type::Arr(_)) && matches!(et, Type::Obj(_)))
         || (matches!(tt, Type::Obj(_)) && matches!(et, Type::Arr(_)));
-    if (struct_join || arr_join || heap_mixed_join || then_undef != else_undef)
+    if (struct_join || arr_join || heap_mixed_join || then_undef != else_undef || null_join)
         && tt != Type::Any
         && et != Type::Any
     {
