@@ -54,16 +54,16 @@ pub(crate) fn lower(
     let saved = ctx.cur_block;
     ctx.cur_block = then_blk;
     let then_val = ctx.lower_expr(then_branch);
-    let then_end = ctx.cur_block;
+    let mut then_end = ctx.cur_block;
     ctx.cur_block = else_blk;
     let else_val = ctx.lower_expr(else_branch);
-    let else_end = ctx.cur_block;
+    let mut else_end = ctx.cur_block;
     let (then_val, else_val, res_ty, then_boxed, else_boxed) = widen_branches(
         ctx,
         then_val,
         else_val,
-        then_end,
-        else_end,
+        &mut then_end,
+        &mut else_end,
         then_branch,
         else_branch,
     );
@@ -124,25 +124,37 @@ pub(crate) fn lower(
 /// box (chunk-563 contract), so a borrow-shape branch takes +1
 /// before boxing — without it the box stole the source binding's
 /// stake and the owned-join release turned that into a double-dec.
+///
+/// `then_end` / `else_end` are IN-OUT: a widen that boxes through an
+/// expr-aware lane can OPEN BLOCKS (`box_f64_or_undef` splits into
+/// undef/num/merge for a possibly-sentinel F64 — the typed-arr OOB
+/// read), leaving the boxed value defined in a NEW tail block. The
+/// caller's Store/Br must land on that tail — writing them on the
+/// stale end used to overwrite the box's own CondBr and orphan the
+/// merge block (regalloc "ValueId not allocated"; SIGSEGV with the
+/// egraph off — the L3b ① spread-fixture discovery, latent for every
+/// `cond ? typedArr[i] : undefined` join since the OOB-read RFC).
 fn widen_branches(
     ctx: &mut LowerCtx<'_>,
     then_val: Operand,
     else_val: Operand,
-    then_end: crate::ssa::BlockId,
-    else_end: crate::ssa::BlockId,
+    then_end: &mut crate::ssa::BlockId,
+    else_end: &mut crate::ssa::BlockId,
     then_branch: ExprId,
     else_branch: ExprId,
 ) -> (Operand, Operand, Type, bool, bool) {
     let tt = ctx.operand_ty(&then_val);
     let et = ctx.operand_ty(&else_val);
     if tt == Type::F64 && et == Type::I64 {
-        ctx.cur_block = else_end;
+        ctx.cur_block = *else_end;
         let e = ctx.coerce_to_f64(else_val);
+        *else_end = ctx.cur_block;
         return (then_val, e, Type::F64, false, false);
     }
     if tt == Type::I64 && et == Type::F64 {
-        ctx.cur_block = then_end;
+        ctx.cur_block = *then_end;
         let t = ctx.coerce_to_f64(then_val);
+        *then_end = ctx.cur_block;
         return (t, else_val, Type::F64, false, false);
     }
     // S2.27 (RFC 20260727-dstr-assignment 刀 5) — exactly one branch
@@ -185,33 +197,37 @@ fn widen_branches(
         && tt != Type::Any
         && et != Type::Any
     {
-        ctx.cur_block = then_end;
+        ctx.cur_block = *then_end;
         if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
             ctx.emit_rc_inc(then_val.clone());
         }
         let t = ctx.box_to_any_from_expr(then_branch, then_val);
-        ctx.cur_block = else_end;
+        *then_end = ctx.cur_block;
+        ctx.cur_block = *else_end;
         if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
             ctx.emit_rc_inc(else_val.clone());
         }
         let e = ctx.box_to_any_from_expr(else_branch, else_val);
+        *else_end = ctx.cur_block;
         return (t, e, Type::Any, true, true);
     }
     if tt == Type::Any || et == Type::Any {
         if tt != Type::Any {
-            ctx.cur_block = then_end;
+            ctx.cur_block = *then_end;
             if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
                 ctx.emit_rc_inc(then_val.clone());
             }
             let t = ctx.box_to_any(then_val);
+            *then_end = ctx.cur_block;
             return (t, else_val, Type::Any, true, false);
         }
         if et != Type::Any {
-            ctx.cur_block = else_end;
+            ctx.cur_block = *else_end;
             if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
                 ctx.emit_rc_inc(else_val.clone());
             }
             let e = ctx.box_to_any(else_val);
+            *else_end = ctx.cur_block;
             return (then_val, e, Type::Any, false, true);
         }
         return (then_val, else_val, Type::Any, false, false);
