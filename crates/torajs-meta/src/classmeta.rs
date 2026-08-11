@@ -27,6 +27,7 @@ use core::ffi::c_void;
 use crate::reflect::{ANY_HEAP, TAG_DYNOBJ, alloc_str_key, heap_type_tag};
 
 mod define;
+mod error_family;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
@@ -369,6 +370,10 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
     if !in_range(tag) || name.is_null() {
         return;
     }
+    // Feed the globalThis fill's Error-family registry (see
+    // classmeta/error_family.rs) — independent of the proto-shape
+    // gates below.
+    unsafe { error_family::record_error_family_class(tag, name) };
     // SAFETY: single-threaded JS; proto_register filled the slot
     // before this runs (class_globals.rs emit order).
     let proto = unsafe { PROTOS_BY_TAG_IMM[tag as usize] };

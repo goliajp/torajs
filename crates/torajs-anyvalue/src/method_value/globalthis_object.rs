@@ -15,9 +15,14 @@
 //! non-enumerable; the three value constants are non-everything;
 //! `globalThis` itself is writable+configurable, non-enumerable).
 //!
-//! A KNOWN builtin global the runtime cannot yet mint (`console`,
-//! `fetch`, the NativeError constructors, …) is NOT
-//! filled — a dynamic read must stay LOUD, not answer a silent
+//! The §20.5 Error family fills from the torajs-rc
+//! `native_error_class` registry (recorded at module init by the
+//! injected classes' `error_proto_install` emits), so the dynamic
+//! read answers the bare name's class object.
+//!
+//! A KNOWN builtin global the runtime cannot mint THIS program
+//! (`fetch`, a NativeError class the program never injected, …) is
+//! NOT filled — a dynamic read must stay LOUD, not answer a silent
 //! `undefined` where bun answers a function. The member-get miss
 //! lane consults [`globalthis_missing_known`] via the singleton
 //! pointer probe and raises a TypeError. Static spellings
@@ -33,6 +38,7 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use torajs_rc::builtin_proto::native_error_class;
 use torajs_rc::{AnySlotTag, FLAG_STATIC_LITERAL};
 
 use crate::AnyValue;
@@ -94,7 +100,6 @@ const CTOR_PROPS: &[(&[u8], i64)] = &[
     (b"BigInt", 6),
     (b"RegExp", 7),
     (b"Date", 8),
-    (b"Error", 9),
     (b"Promise", 10),
     (b"Map", 11),
     (b"Set", 12),
@@ -105,10 +110,14 @@ const CTOR_PROPS: &[(&[u8], i64)] = &[
     (b"WeakRef", 18),
 ];
 
-/// Known builtin globals the fill list CANNOT yet mint — a dynamic
-/// read through the singleton must throw rather than answer a
-/// silent `undefined`. Mirror of `is_known_builtin_global`
-/// (torajs-core `check_js_semantics.rs`) minus the filled names.
+/// Known builtin globals the fill list CANNOT always mint — a
+/// dynamic read that misses must throw rather than answer a silent
+/// `undefined`. Mirror of `is_known_builtin_global` (torajs-core
+/// `check_js_semantics.rs`) minus the unconditionally filled names.
+/// The NativeError rows stay listed even though the Error-family
+/// fill usually defines them: a program that never injects one (a
+/// computed-string read is invisible to the injection's reference
+/// scan) leaves the fill empty, and the miss keeps the loud posture.
 const MISSING_KNOWN: &[&[u8]] = &[
     b"TypeError",
     b"RangeError",
@@ -144,6 +153,36 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
                 key as *mut c_void,
                 AnySlotTag::Heap as u64,
                 builtin_ctor_cell(*tag) as u64,
+                REF_PROP_FLAGS,
+            );
+        }
+        // §20.5 Error family — the injected class objects, recorded
+        // at module init (torajs-meta `error_proto_install` → the
+        // torajs-rc registry). Defining the SAME object the bare name
+        // resolves to keeps identity (`globalThis.TypeError ===
+        // TypeError`); a member this program never injected stays out,
+        // so its dynamic read keeps the MISSING_KNOWN loud TypeError.
+        // `Error` alone falls back to the interned ctor cell so the
+        // row never vanishes (the pre-registry fill shape).
+        for (i, fam) in native_error_class::NATIVE_ERROR_FAMILY.iter().enumerate() {
+            let mut v = native_error_class::native_error_class(i);
+            if v == 0 {
+                if *fam != "Error" {
+                    continue;
+                }
+                v = builtin_ctor_cell(9) as u64;
+            } else {
+                // The define transfers a value stake; class objects
+                // are ordinary rc cells (the static ctor-cell
+                // fallback branch no-ops rc traffic).
+                torajs_rc::__torajs_rc_inc(v as *mut c_void);
+            }
+            let key = mint_immortal_str(fam.as_bytes());
+            __torajs_dynobj_define(
+                &mut obj,
+                key as *mut c_void,
+                AnySlotTag::Heap as u64,
+                v,
                 REF_PROP_FLAGS,
             );
         }
