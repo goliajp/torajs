@@ -214,6 +214,7 @@ pub(crate) fn emit_per_method_body(
         ),
         "reduce" | "reduceRight" => emit_reduce(
             ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, i_now2, src_arr, cb_arity,
+            argv_face,
         ),
         "forEach" => {
             // §23.1.3.15 step 5.c — Call(cb, thisArg, «kValue, k, O»).

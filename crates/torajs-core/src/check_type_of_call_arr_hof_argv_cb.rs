@@ -35,7 +35,11 @@ pub(crate) fn try_match(
     else {
         return None;
     };
-    if !matches!(m_name.as_str(), "map" | "filter" | "forEach") || args.is_empty() {
+    if !matches!(
+        m_name.as_str(),
+        "map" | "filter" | "forEach" | "reduce" | "reduceRight"
+    ) || args.is_empty()
+    {
         return None;
     }
     // The two shapes the SSA lanes downgrade to the boxed variadic
@@ -67,6 +71,19 @@ pub(crate) fn try_match(
     if !matches!(ps.as_slice(), [Type::Rest(_)]) {
         return None;
     }
+    // Reduce needs the seed's type BEFORE the trailing loop below
+    // types it (same expr, memoized — no double side effects).
+    let seed_ty = if matches!(m_name.as_str(), "reduce" | "reduceRight") {
+        match args.get(1) {
+            Some(&s) => match checker.type_of(ast, s) {
+                Ok(t) => Some(t),
+                Err(e) => return Some(Err(e)),
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
     // S270 — type_of + drop trailing args (thisArg + extras) so
     // side-effect expressions surface their own errors.
     for &t in args.iter().skip(1) {
@@ -86,6 +103,31 @@ pub(crate) fn try_match(
         }
         "filter" => Some(Ok(Type::Array(elem.clone()))),
         "forEach" => Some(Ok(Type::Void)),
+        // Mirror of the lane's `resolve_acc_ty`: the accumulator
+        // slot is the callback's return type, widened to Any when
+        // the seed (2-arg) or the element (1-arg, §23.1.3.24 step
+        // 8's initial accumulator) doesn't share it — the checker's
+        // answer and the slot's SSA type must agree or a typed
+        // reader sees the other union member's raw bits.
+        "reduce" | "reduceRight" => {
+            if !matches!(
+                **aret,
+                Type::Number | Type::String | Type::Boolean | Type::Any | Type::Void
+            ) {
+                return None;
+            }
+            let acc = if matches!(**aret, Type::Void | Type::Any) {
+                Type::Any
+            } else {
+                let first = seed_ty.unwrap_or_else(|| (**elem).clone());
+                if first == **aret {
+                    (**aret).clone()
+                } else {
+                    Type::Any
+                }
+            };
+            Some(Ok(acc))
+        }
         _ => unreachable!(),
     }
 }

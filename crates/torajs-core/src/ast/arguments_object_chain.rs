@@ -271,7 +271,10 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
     for e in &ast.exprs {
         if let Expr::Call { callee, args } = e
             && let Expr::Member { name: m, .. } = ast.get_expr(*callee)
-            && matches!(m.as_str(), "map" | "filter" | "forEach")
+            && matches!(
+                m.as_str(),
+                "map" | "filter" | "forEach" | "reduce" | "reduceRight"
+            )
             && let Some(&a0) = args.first()
         {
             boxed_arg_sites.insert(a0);
