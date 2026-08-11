@@ -18,6 +18,7 @@ pub(super) fn emit_sort_pred(
     prev: ValueId,
     cur: ValueId,
     elem_ty: Type,
+    argv_face: bool,
 ) -> ValueId {
     match (cmp_val, cmp_ty) {
         (Some(cv), Some(ct)) => {
@@ -27,13 +28,13 @@ pub(super) fn emit_sort_pred(
             // an Any slot carries the tag-5 immediate (刀 7 G8a).
             if matches!(elem_ty, Type::Str | Type::Substr) {
                 let pre_fid = ctx.intrinsics.str_sort_undef_pre;
-                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid);
+                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid, argv_face);
             }
             if matches!(elem_ty, Type::Any) {
                 let pre_fid = ctx.intrinsics.any_sort_undef_pre;
-                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid);
+                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid, argv_face);
             }
-            emit_user_cmp_pred(ctx, cv, ct, prev, cur)
+            emit_user_cmp_pred(ctx, cv, ct, prev, cur, argv_face)
         }
         _ => {
             // ES §23.1.3.30 SortCompare with no comparator =
@@ -180,6 +181,7 @@ fn emit_user_cmp_pred(
     ct: &Type,
     prev: ValueId,
     cur: ValueId,
+    argv_face: bool,
 ) -> ValueId {
     // RFC 20260726-array-elem-width knife 11 — the elements' width and
     // the comparator's parameter width answer to two different classes,
@@ -207,7 +209,15 @@ fn emit_user_cmp_pred(
             }
         })
         .collect::<Vec<_>>();
-    let cmp_ret = ctx.call_fn_value(cv.clone(), *ct, args, 0, 2);
+    // Rotation 364 — an argv-face comparator rides the boxed
+    // variadic pack (the direct call would land «x, y» in the
+    // reshaped sig's argv-pointer slot); the pack boxes each side,
+    // so the F64 param alignment above is a no-op on this route.
+    let cmp_ret = if argv_face {
+        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, cv, *ct, args, 2)
+    } else {
+        ctx.call_fn_value(cv.clone(), *ct, args, 0, 2)
+    };
     let cmp_ret_ty = ctx.f.value_type(cmp_ret);
     match cmp_ret_ty {
         Type::F64 => ctx.f.append_inst(
@@ -216,6 +226,23 @@ fn emit_user_cmp_pred(
             Type::Bool,
             None,
         ),
+        // An Any return (the argv-face route with an untyped body)
+        // coerces through ToNumber before the §23.1.3.30.2 step 2
+        // `> 0` test — the raw NaN-box bits are not a number.
+        Type::Any => {
+            let d = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![Operand::Value(cmp_ret)]),
+                Type::F64,
+                None,
+            );
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::FCmp(FPred::Ogt, Operand::Value(d), Operand::ConstF64(0.0)),
+                Type::Bool,
+                None,
+            )
+        }
         _ => ctx.f.append_inst(
             ctx.cur_block,
             InstKind::ICmp(IPred::Sgt, Operand::Value(cmp_ret), Operand::ConstI64(0)),
@@ -230,6 +257,7 @@ fn emit_user_cmp_pred(
 /// `1`/`-1`/`0` (SortCompare result — an undefined side sorts last,
 /// the comparator is NOT called) or `2` (no undefined — fall through
 /// to the call).
+#[allow(clippy::too_many_arguments)]
 fn emit_user_cmp_undef_pre(
     ctx: &mut LowerCtx<'_>,
     cv: &Operand,
@@ -237,6 +265,7 @@ fn emit_user_cmp_undef_pre(
     prev: ValueId,
     cur: ValueId,
     pre_fid: crate::ssa::FuncId,
+    argv_face: bool,
 ) -> ValueId {
     let slot = ctx.alloca_in_entry(Type::Bool, Some("__sort_pred"));
     let pre = ctx.f.append_inst(
@@ -275,7 +304,7 @@ fn emit_user_cmp_undef_pre(
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
     ctx.cur_block = cb_blk;
-    let cb_pred = emit_user_cmp_pred(ctx, cv, ct, prev, cur);
+    let cb_pred = emit_user_cmp_pred(ctx, cv, ct, prev, cur, argv_face);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(Operand::Value(cb_pred), Operand::Value(slot), 0),

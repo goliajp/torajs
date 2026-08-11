@@ -288,6 +288,8 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
                     | "every"
                     | "flatMap"
                     | "from"
+                    | "sort"
+                    | "toSorted"
             )
             // `Array.from`'s callback rides the SECOND slot
             // (§23.1.2.1); instance methods carry it first.

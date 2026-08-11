@@ -18,7 +18,7 @@
 //! method is neither `sort` nor `toSorted` so the caller can keep
 //! trying the remaining branches.
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
@@ -139,6 +139,20 @@ pub(crate) fn try_dispatch(
         for &a in args.iter().skip(1) {
             let _ = ctx.lower_expr(a);
         }
+        // Rotation 364 — an argv-face comparator (body reads
+        // `arguments` values) must not take the direct call: its
+        // reshaped sig leads with the synthetic argv pointer. The
+        // predicate routes it through the boxed variadic dispatch
+        // (`emit_argv_face_call`) with the §23.1.3.30.2 «x, y» pair.
+        // The helper fast path self-excludes (its gate requires the
+        // params to equal the element type; the argv head never does).
+        let argv_face = cmp_val.is_some()
+            && args.first().is_some_and(|&a0| {
+                matches!(ctx.ast.get_expr(a0),
+                    Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
+                    || matches!(ctx.ast.get_expr(a0),
+                        Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n))
+            });
         // Perf Round 5 attack #1 (RFC 20260703-perf-arr-sort-nlogn):
         // a user comparator whose signature matches the element layout
         // exactly routes through `__torajs_arr_sort_cb` — a stable
@@ -158,7 +172,7 @@ pub(crate) fn try_dispatch(
             release_cmp_temp(ctx, args, &cmp_val);
             return Some(Operand::Value(arr_ptr));
         }
-        emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty);
+        emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty, argv_face);
         if method == "sort" {
             ctx.emit_rc_inc(Operand::Value(arr_ptr));
         }
@@ -188,6 +202,7 @@ fn emit_insertion_sort(
     elem_ty: Type,
     cmp_val: &Option<Operand>,
     cmp_ty: &Option<Type>,
+    argv_face: bool,
 ) {
     let len = ctx.f.append_inst(
         ctx.cur_block,
@@ -268,7 +283,9 @@ fn emit_insertion_sort(
         ctx.cur_block,
         InstKind::Store(Operand::Value(i_now2), Operand::Value(j_slot), 0),
     );
-    emit_inner_shift_loop(ctx, arr_ptr, elem_ty, cmp_val, cmp_ty, cur_cmp, j_slot);
+    emit_inner_shift_loop(
+        ctx, arr_ptr, elem_ty, cmp_val, cmp_ty, cur_cmp, j_slot, argv_face,
+    );
     // inner after: xs[j] = cur
     let j_final = ctx.f.append_inst(
         ctx.cur_block,
@@ -301,6 +318,7 @@ fn emit_insertion_sort(
 /// extraction): `while j > 0 && cmp(xs[j-1], cur) > 0` shift
 /// xs[j] = xs[j-1], j-- . Leaves `ctx.cur_block` at the loop's
 /// after-block (where the caller writes `xs[j] = cur`).
+#[allow(clippy::too_many_arguments)]
 fn emit_inner_shift_loop(
     ctx: &mut LowerCtx<'_>,
     arr_ptr: ValueId,
@@ -309,6 +327,7 @@ fn emit_inner_shift_loop(
     cmp_ty: &Option<Type>,
     cur_cmp: ValueId,
     j_slot: ValueId,
+    argv_face: bool,
 ) {
     let inner_hdr = ctx.f.add_block();
     let inner_check = ctx.f.add_block();
@@ -377,7 +396,7 @@ fn emit_inner_shift_loop(
     // Without: directly compare prev > cur using the
     // element-type-aware predicate (Sgt for I64,
     // Ogt for F64, str_locale_compare for Str).
-    let pred_v = pred::emit_sort_pred(ctx, cmp_val, cmp_ty, prev, cur_cmp, elem_ty);
+    let pred_v = pred::emit_sort_pred(ctx, cmp_val, cmp_ty, prev, cur_cmp, elem_ty, argv_face);
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {

@@ -227,7 +227,7 @@ fn collect_hof_anon_argv(
     full: &std::collections::HashSet<String>,
 ) -> std::collections::HashSet<String> {
     use std::collections::{HashMap, HashSet};
-    const HOF_ARGV_METHODS: [&str; 13] = [
+    const HOF_ARGV_METHODS: [&str; 15] = [
         "map",
         "filter",
         "forEach",
@@ -241,6 +241,8 @@ fn collect_hof_anon_argv(
         "every",
         "flatMap",
         "from",
+        "sort",
+        "toSorted",
     ];
     let mut ref_counts: HashMap<&str, usize> = HashMap::new();
     for e in &ast.exprs {

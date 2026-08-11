@@ -50,6 +50,8 @@ pub(crate) fn try_match(
             | "some"
             | "every"
             | "flatMap"
+            | "sort"
+            | "toSorted"
     ) || args.is_empty()
     {
         return None;
@@ -136,6 +138,11 @@ pub(crate) fn try_match(
             }
             _ => None,
         },
+        // Rotation 364 — the comparator's return feeds ToNumber then
+        // the `> 0` test (§23.1.3.30.2); the result is the receiver's
+        // shape either way (in-place for sort, fresh clone for
+        // toSorted).
+        "sort" | "toSorted" => Some(Ok(Type::Array(elem.clone()))),
         // Mirror of the lane's `resolve_acc_ty`: the accumulator
         // slot is the callback's return type, widened to Any when
         // the seed (2-arg) or the element (1-arg, §23.1.3.24 step
