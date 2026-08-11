@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T18:31:17.940Z",
+  "generatedAt": "2026-08-11T22:41:24.812Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T18:27:56Z",
-    "headSha": "e96477f7",
-    "elapsedSec": 328.89,
+    "ranAt": "2026-08-11T22:39:29Z",
+    "headSha": "d9b8daf4",
+    "elapsedSec": 320.23,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.72
   },
   "torajs": {
-    "commit": "e96477f7",
-    "commitSubject": "feat: the eight global function properties read as bare values - parseInt/parseFloat/isNaN/isFinite and the URI quartet leave the is_known_builtin_global loud reject and answer their interned ns-static cells (the Math.max-as-a-value lane pointed at the global object's own function properties): the checker types the read with the concrete fn type like the Number.parseInt member read, the ident lowering mints through ns_static_cell, and a let-alias registers variadic via the shared bare_global_ns_static_id map so its calls take the boxed dual entry (identity, .name/.length, detached calls and the dynamic-lane === all hold vs bun). An under-arity alias call (pi with one arg against the 2-param sig) and the HOF-callback position (map(parseFloat), loud typed-slot TypeError) stay recorded boundaries; fixture bare-global-values-001 byte-equal vs bun",
+    "commit": "d9b8daf4",
+    "commitSubject": "feat: the console namespace object mints as a singleton and joins the globalThis fill - intern_singleton + fill_ns_methods(console) gives the five logger cells one immortal dynobj home (Math/JSON/Reflect same shape), the bare console ident in a value position lowers through the new ns_object_console intrinsic, the globalThis fill defines the console key with the same singleton so globalThis.console === console holds, MISSING_KNOWN drops console (11 -> 10), and the Web IDL namespace-object @@toStringTag badge answers [object console] by pointer identity (bun-verified); a typed alias's member CALL (const c = console; c.log(x)) stays a recorded boundary - probing showed const m = Math; m.max(1,2) raises the same loud unsupported-member-call-shape, so this is the pre-existing ns-alias family, registered in plan-state L3b with the dynamic cast as the working escape hatch; fixture globalthis-console-001 stdout+stderr byte-equal vs bun over identity, typeof, the dynamic lane both ways, and the badge (RFC 20260812-console-sink knife 4)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "d9b8daf4",
+      "subject": "feat: the console namespace object mints as a singleton and joins the globalThis fill - intern_singleton + fill_ns_methods(console) gives the five logger cells one immortal dynobj home (Math/JSON/Reflect same shape), the bare console ident in a value position lowers through the new ns_object_console intrinsic, the globalThis fill defines the console key with the same singleton so globalThis.console === console holds, MISSING_KNOWN drops console (11 -> 10), and the Web IDL namespace-object @@toStringTag badge answers [object console] by pointer identity (bun-verified); a typed alias's member CALL (const c = console; c.log(x)) stays a recorded boundary - probing showed const m = Math; m.max(1,2) raises the same loud unsupported-member-call-shape, so this is the pre-existing ns-alias family, registered in plan-state L3b with the dynamic cast as the working escape hatch; fixture globalthis-console-001 stdout+stderr byte-equal vs bun over identity, typeof, the dynamic lane both ways, and the badge (RFC 20260812-console-sink knife 4)"
+    },
+    {
+      "hash": "bbc2ad55",
+      "subject": "feat: console.error/warn become first-class values - two globalThis-visible rows append at the ns-static table end (append-only; the B2 comment's recorded face 'error/warn stay OFF until an any-print stderr kernel exists' retires now that the sink switch is that kernel), Disp::ConsoleLog parameterizes to { to_stderr } and the dispatch arm brackets the shared per-arg inline-print walk with the io current-sink switch, so the one streaming path serves both streams across the cell call, the detached let-alias (variadic boxed dual entry), and the reflection faces; checker face was already open (the five-method console arm) and the member cell-mint lane is purely table-driven, so the rows light up both without new code; fixture console-error-cell-001 stdout+stderr byte-equal vs bun over detached calls, identity, and name/length (bare console in a value position stays the knife-4 face) (RFC 20260812-console-sink knife 3)"
+    },
+    {
+      "hash": "16a5abbe",
+      "subject": "feat: console.error/warn route every runtime type to stderr - console_print_target collapses to one arg-type printer table and the new emit_console_print helper becomes the single gate every console print call goes through (error/warn bracket the call with the io sink-switch pair, wrapping only the print and never the argument lowering so a user toString's console.log stays on stdout); the four per-type _err intrinsics retire from the lowering face (declares, table wiring, fn_meta rows; torajs-num print_err.rs deleted whole, __torajs_str_print_err kept as the unhandled-rejection reporter's direct-call primitive with its doc repointed), rc_peephole's READONLY_INTRINSICS swaps in the sink pair so the error/warn inc/drop window stays transparent, and torajs-print's write_all switches from a raw fd-1 write(2) loop to __torajs_io_write_out - the fixture caught console.error(42/true) still landing on stdout because print_i64/print_bool bypassed both the sink and the line buffer (the io doc claiming they route through putc was stale); fixture console-error-types-001 stdout+stderr byte-equal vs bun across str/num/bool/null/undefined/arr/obj/map/set/substr/bigint/symbol/multi-arg plus 2>&1 interleave EQ (RFC 20260812-console-sink knife 2)"
+    },
+    {
+      "hash": "93fc557d",
+      "subject": "feat: the print family streams through a current-sink indirection - torajs-io grows a STDERR LineBuf twin and a sink module (putc_out/write_out + the sink_to_stderr/sink_to_stdout switch pair, AtomicBool flag per the multi-thread-ready shape), every sink switch drains the buffer it leaves so 2>&1 keeps caller order (generalizing the legacy flush-stdout-before-raw-stderr-write convention), and __torajs_io_flush drains both fds for the exit hook; the ~88 print/inspect call sites across 17 files (str/num/bigint/fnname/arr/collections/promise/meta/dynobj/regex/anyvalue inspect + the core IR declare face io_putc_out) mechanically rename from the fd-literal putc_stdout family to _out, while putc_stdout keeps its honest literal meaning for process.stdout.write; behavior is byte-identical while the sink rests on stdout (RFC 20260812-console-sink knife 1, groundwork for console.error/warn full-type stderr without per-type _err symbol growth)"
+    },
+    {
+      "hash": "d73c233a",
+      "subject": "docs: rotation 368 close leftovers - the roadmap sweep snapshot section and the sweep archive files (test262-latest.json / verdicts gz) were staged for the close but missed the git add; content is the e96477f7 sweep already described in 46a99a73"
+    },
+    {
+      "hash": "46a99a73",
+      "subject": "docs: rotation 368 close - the globalThis surface closes five knives deep: the G3 descriptor probe finds the gOPD global arm already working (closing the L3b entry without code), MISSING_KNOWN shrinks 19 -> 11 (parseInt/parseFloat reuse the Number.* cells per the 21.1.2.12/.13 same-object clause, isFinite/isNaN get ToNumber-coercing cells, the 19.2.6 URI quartet lands whole with a real Encode/Decode kernel and URIError as runtime slot 6), and the eight global function properties open as bare values; sweep conserved +170 pass / +8 bug (the non-constructor family honestly entering the truly-run surface) / -178 incompatible with zero pass regressions, the former top-1 unattributed cluster (decodeURI family) clears whole, gate predicate double-drops to 262 clusters / 3686 cases, build determinism 44/44 N=12, dashboard refresh @ e96477f7"
+    },
+    {
       "hash": "e96477f7",
       "subject": "feat: the eight global function properties read as bare values - parseInt/parseFloat/isNaN/isFinite and the URI quartet leave the is_known_builtin_global loud reject and answer their interned ns-static cells (the Math.max-as-a-value lane pointed at the global object's own function properties): the checker types the read with the concrete fn type like the Number.parseInt member read, the ident lowering mints through ns_static_cell, and a let-alias registers variadic via the shared bare_global_ns_static_id map so its calls take the boxed dual entry (identity, .name/.length, detached calls and the dynamic-lane === all hold vs bun). An under-arity alias call (pi with one arg against the 2-param sig) and the HOF-callback position (map(parseFloat), loud typed-slot TypeError) stay recorded boundaries; fixture bare-global-values-001 byte-equal vs bun"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d1e78766",
       "subject": "docs: rotation 367 close - the @@toPrimitive protocol hook, the delete pair and the dynamic-fn this-bind land with the fnGlobalObject harness port (130 include cases enter the truly-run surface), SR-2 attributes the source-phase-imports proposal family with the new test262-feature predicate, and the stale S5.6 roadmap entry closes its main body; sweep conserved +89 pass / +53 bug (the honest inflow of unlocked sloppy cases) / -142 incompatible with zero pass regressions, gate predicate double-drops to 268 clusters / 3862 cases (register 2 entries, 763 attributed), build determinism 44/44 N=12, dashboard refresh @ 9ca6ca25"
-    },
-    {
-      "hash": "79343160",
-      "subject": "docs: roadmap S5.6 closes its main body - the entry's 2026-07-27 table went stale (the global object IS minted: RFC 20260807-global-object G1/G2/G2.5 shipped the dynobj singleton relanded at 503a8d1e, top-level this answers object since rotation 235 as the module exports object deliberately distinct from globalThis, and the rotation-367 this-rewrite knife bound a dynamic function's sloppy this to the singleton making fnGlobalObject portable); the recorded residue moves to plan-state L3b: G3 descriptor surface, the 19 MISSING_KNOWN fills, first-class ctor construct, the G2.5 static-vs-aliased mutation divergence, and the six-list known-global drift risk"
-    },
-    {
-      "hash": "9ca6ca25",
-      "subject": "feat: fnGlobalObject.js joins the ported harness includes - the stock body Function(\"return this;\")() now runs on tr and answers the G2 globalThis singleton (the this-rewrite knife), so the port returns the singleton directly (an equivalence reduction, not a stand-in: the rotation-366 no-backdoor constraint dissolved the moment the substrate ran the real shape); runner whitelists the include and rewrites fnGlobalObject( call sites to __t262_fnGlobalObject(, the tree-shake reaches the new segment lexically, and the stale no-expression-surface note in the harness header is corrected - 130 include cases enter the truly-run surface"
-    },
-    {
-      "hash": "bc7cf9e3",
-      "subject": "feat: a dynamic function's this binds to the global object - the function_ctor touches-this gate turns from a loud reject into the 10.2.1.2 rewrite (a sloppy function called with an undefined thisArg binds this to the global object per OrdinaryCallBindThis step 5.a.ii, and tr mints exactly one - the G2 globalThis singleton - so every This in the synthesized body rewrites to the globalThis ident and answers the same object; the fnGlobalObject harness body Function(\"return this;\")() is exactly this shape). The gate narrows instead of vanishing: a strict-prologue body keeps the reject (strict this is undefined, a different rewrite with no measured demand), and a body whose token stream carries the function keyword keeps it too (a nested function owns its own this and the flat arena scan cannot tell whose this it sees - body_lexes_fn_keyword, same token-level judgement as the bare-with scan; a true arrow pierces this per 8.3.4 and does not disqualify). fixture dynfn-this-globalthis-001 locks identity, property write-through, the param-bearing shape and the arrow shape byte-equal vs bun"
-    },
-    {
-      "hash": "04dc2b0f",
-      "subject": "fix: delete stops misreading the void fold as a bare name, and a string receiver joins the delete kernel - the 13.5.1.1 early error is a syntax judgement so the source form decides: void <literal> folds to the undefined Ident in the arena and delete void 0 arrived identical to the user-written delete undefined, tripping the bare-name SyntaxError (the L3b case from the rotation-366 decision sweep); an operand that opens with the void token was never an IdentifierReference and answers true. The second half admits Type::String through receiver_admits_delete: 13.5.1.2 ToObject over a string primitive gives the wrapper a non-configurable own face per 10.4.3, so every delete is either the module-strict refusal throw or an absent-key true - the kernel's new Str arm (bare Str cell + ShortStr, ahead of the tag match) makes the same judgement the StringWrapper arm already made through its inner view via str_own_pair, and nothing is ever removed; probes lock in-range index and length refusing with TypeError while out-of-range answers true, fixture delete-nonref-string-001 byte-equal vs bun over the whole non-reference-return-true shape list"
-    },
-    {
-      "hash": "02c77a6e",
-      "subject": "docs: SR-2 enters the subset-decision register - the source-phase-imports proposal family (ModuleSource / import source, 93 incompatible cases) attributes to a recorded decision with the structural rationale (stage-3 proposal, no ratified clause, phase semantics presuppose a module-source reification layer tr's AOT model has no design for; retires when ratified or bun ships it), and cluster_incompat.py grows the register's second mechanical predicate kind test262-feature (frontmatter features: scan, symmetric with test262-flag)"
-    },
-    {
-      "hash": "dfca9923",
-      "subject": "feat: the @@toPrimitive protocol hook lands - ToPrimitive consults Symbol.toPrimitive before OrdinaryToPrimitive (spec 7.1.1 steps 1.a-1.c: GetMethod through the symbol-key walk, Call with the hint delivered by name as default/number/string, a nullish entry falls through to valueOf/toString while a present non-callable one is the GetMethod TypeError, an object answer refuses per step 1.b.iii, and a hook throw propagates through the placeholder protocol; the probe reuses symbol_key_pair + callable_entry + invoke_with_this, and since no builtin prototype reifies @@toPrimitive the walk only ever answers a property a user wrote - Date's 21.4.4.45 default-to-string mapping stays the tag special-case behind the hook miss), and new Date(value) grows its real step-4 kernel __torajs_date_from_value (a Date argument copies DateValue without observable calls, any other object runs the NO-hint ToPrimitive so a user hook receives default, and a String primitive - literal or hook-answered - PARSES instead of ToNumbering; the desugar keeps the literal fast lanes and routes every other single argument through the kernel, with checker + intrinsics wiring); probes h1 14/14 and h2 answer bun verbatim, fixture toprimitive-hook-001 locks the family byte-equal; three independent gaps registered in L3b (Number(bigint) wants ToNumeric not ToNumber, Date cells have no expando slot so the hint-family reify face stays blocked, the checker rejects mixed-type ternary branches)"
     }
   ],
-  "headSha": "e96477f7",
+  "headSha": "d9b8daf4",
   "autorun": {
-    "total": 671,
+    "total": 672,
     "baselineTarget": 10,
-    "bySelf": 666,
+    "bySelf": 667,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786466284-277c",
-      "at": "2026-08-11T16:38:04Z",
-      "ts": 1786466284,
+      "rotationId": "r-1786473108-2e09",
+      "at": "2026-08-11T18:31:48Z",
+      "ts": 1786473108,
       "trigger": "self",
-      "prevHead": "d1e78766",
-      "handoffSha": "sha256:d39f0568d20246cccae1875c6e9c22d99e4e648d22c7e8589430b3d331807bdc",
-      "handoffAgeSec": 9,
+      "prevHead": "46a99a73",
+      "handoffSha": "sha256:4c6f97eb55833eba72e4eb8bef67bece40844f99542471e3a4fef8f133c69047",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786473108-2e09",
+        "at": "2026-08-11T18:31:48Z",
+        "ts": 1786473108,
+        "trigger": "self",
+        "prevHead": "46a99a73",
+        "handoffSha": "sha256:4c6f97eb55833eba72e4eb8bef67bece40844f99542471e3a4fef8f133c69047",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786466284-277c",
         "at": "2026-08-11T16:38:04Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "1ce45a2f",
         "handoffSha": "sha256:ef0ed872bd6375b7c58b9fc1c502813bec3236bf66c9a73cced42d218ebc4723",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786398950-1980",
-        "at": "2026-08-10T21:55:50Z",
-        "ts": 1786398950,
-        "trigger": "self",
-        "prevHead": "7116e725",
-        "handoffSha": "sha256:f0afdbb63d5a16c5f896a2136b707d3e534f7104bf1020ad5c9461041a65d638",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null

@@ -1530,7 +1530,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `e96477f7`** (2026-08-12, rotation 368 — the globalThis
+**Latest @ `d9b8daf4`** (2026-08-12, rotation 369 — the console
+surface closes four knives deep behind RFC 20260812-console-sink:
+the print/inspect family streams through a torajs-io current-sink
+indirection (STDERR LineBuf twin + putc_out/write_out + a
+drain-on-switch pair that keeps `2>&1` caller order),
+`console.error` / `console.warn` route EVERY runtime type to stderr
+through the one `emit_console_print` gate (the four per-type `_err`
+intrinsics retire; the fixture caught `print_i64`/`print_bool`
+raw-writing fd 1 past the sink — the io doc claiming they route
+through putc was stale), the stderr pair becomes first-class
+ns-static cells, and the console namespace object mints as a
+singleton joining the globalThis fill (MISSING_KNOWN 11 → 10, Web
+IDL `[object console]` badge). test262: **zero movement — verdicts
+byte-identical across all 53174 cases** (passTotal 29307 / bug
+12731 / incompat 11136 / gate predicate 262 clusters · 3686 cases,
+all unchanged): the console surface is a conformance-gate face
+(stdout+stderr split byte-parity vs bun), not a test262 face —
+test262 never asserts console stream routing. Conformance gate
+2752 → **2755/0/4** (+3 fixtures: types / cell / singleton). One
+new recorded boundary probed honest: an ns-alias member CALL
+(`const c = console; c.log(x)`) rejects loud in the same family as
+`const m = Math; m.max(1,2)` — registered in plan-state L3b with
+the dynamic cast as the working escape hatch. Build determinism
+44/44 (N=12).)
+
+**Previous @ `e96477f7`** (2026-08-12, rotation 368 — the globalThis
 surface closes five knives deep: the G3 descriptor probe finds the
 gOPD global arm already working (verifyProperty-shape reads and
 aliased-spelling mutation probes byte-match bun, closing the L3b
