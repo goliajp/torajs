@@ -90,6 +90,11 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     // reads rewrite to the bare name before anything consumes member
     // shapes; eval-inlined stmts (prelude) are already in place.
     ast::desugar_globalthis_members(ast);
+    // Namespace-alias member rewrite — right after G1 (whose rewrite
+    // can mint the `const m = Math` alias shape from
+    // `const m = globalThis.Math`), before anything consumes member
+    // shapes.
+    ast::desugar_ns_alias_members(ast);
     ast::desugar_prototype_call(ast);
     ast::inject_builtin_classes(ast);
     ast::desugar_classes(ast);
