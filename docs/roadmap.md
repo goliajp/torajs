@@ -1530,7 +1530,33 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `03200808`** (2026-08-11, rotation 366 — the sign-off
+**Latest @ `9ca6ca25`** (2026-08-12, rotation 367 — the @@toPrimitive
+protocol hook lands (§7.1.1 steps 1.a-1.c: GetMethod through the
+symbol walk, hint delivered by name, object answers refuse, nullish
+falls through to OrdinaryToPrimitive) plus the §21.4.2.1
+`new Date(value)` kernel (Date copies [[DateValue]], objects run the
+no-hint ToPrimitive, string answers PARSE); `delete` gets the
+void-fold disambiguation and the String-receiver §10.4.3 arm; a
+dynamic function's sloppy `this` binds to the G2 globalThis singleton
+per §10.2.1.2 (token-gated: strict prologue and nested-function
+bodies keep the loud reject), which made the stock fnGlobalObject.js
+harness portable — 130 include cases enter the truly-run surface.
+Registers: SR-2 (source-phase-imports proposal, 93 cases) with the
+new `test262-feature` predicate kind. S5.6 recon corrected the stale
+roadmap entry (global object shipped 60 rotations ago); residue in
+plan-state L3b. Sweep: passTotal 29048 → **29137 (+89)**, bug
+**+53**, trAccepted +142 / incompatible **−142**, conservation exact
+(142 = 89 + 53). Forward 89: annexB eval-code 14, String trim 9,
+instanceof 9, Function/prototype 8, equals 6, the whole
+Date/value-symbol family. The +53 bug is the honest inflow of
+unlocked fnGlobalObject sloppy cases (annexB eval/global-code 64,
+Function/prototype 30) now truly running. True pass regressions
+**0**. Gate predicate **268 unattributed clusters / 3862 cases /
+register 2 entries · 763 attributed / residue 766 · 991 / core
+5616** — both headline numbers down (270 → 268, 4023 → 3862). Build
+determinism 44/44 (N=12). Conformance gate 2744 → **2747/0/4**.)
+
+**Previous @ `03200808`** (2026-08-11, rotation 366 — the sign-off
 delegation lands and the subset-decision register goes live: SR-1
 attributes the 752 noStrict-flagged core cases (sloppy-only surface —
 tr's TS-module surface is always strict, same as bun's `.ts` face),
@@ -1557,7 +1583,7 @@ clusters / 4023 cases / register 1 entry · 752 attributed / residue
 760 · 983 / core 5758**. Build determinism 44/44 (N=12). Conformance
 gate 2740 → **2744/0/4**.)
 
-**Previous @ `c025fd3f`** (2026-08-11, rotation 365 — five knives on the
+@ `c025fd3f` (2026-08-11, rotation 365 — five knives on the
 `identifier arguments` bug bucket, all t262-harness-driven shapes. The
 harness shadow poison closed: `__t262_throwsAsync`'s param `func`
 (captured by its own inner closure) killed every same-named top-level

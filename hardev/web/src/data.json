@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T13:05:36.997Z",
+  "generatedAt": "2026-08-11T16:37:17.442Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T13:02:02Z",
-    "headSha": "03200808",
-    "elapsedSec": 427.12,
+    "ranAt": "2026-08-11T16:34:10Z",
+    "headSha": "9ca6ca25",
+    "elapsedSec": 318.47,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24302,
+    "pass": 24391,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 29048,
-    "bug": 12670,
-    "incompatible": 11456,
-    "bunSkip": 6500,
+    "passTotal": 29137,
+    "bug": 12723,
+    "incompatible": 11314,
+    "bunSkip": 6584,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 41718,
-    "passRateInScope": 54.63,
-    "passRateTrAccepted": 69.63
+    "trAccepted": 41860,
+    "passRateInScope": 54.8,
+    "passRateTrAccepted": 69.61
   },
   "torajs": {
-    "commit": "03200808",
-    "commitSubject": "fix: revert the forwarder recv-first public face - the receiver channel needs a caller-audited design (the rotation-366 sweep caught what the gate could not: stamping FLAG_CLOSURE_RECV_FIRST on this-using forwarders shifted every caller that does not honor the flag - the gen-argv tail's [...arguments] swallowed the receiver into the generator argv, felling the whole async-gen-method-static family, and the strict-this / reduce-callback lanes misaligned their first argument - 128 t262 passes lost for 42 gained, bisected to 74557492 and reproduced deterministically on dflt-params-ref-prior where ref(3)'s first argument stopped being 3; the face returns to skip-this-and-feed-undefined with the revert rationale recorded at the site, the regressed case answers AsyncTestComplete again, and threading a receiver through a forwarder is registered in plan-state L3b as its own audited knife over every boxed-entry caller; the As-to-any collect axis stays - it is independent and sound - so the FnSig box, typeof, bound construct and partial-args faces all keep working, and the fixture re-scopes to those receiver-free shapes while the this-writing construct returns to its honest loud TypeError)",
+    "commit": "79343160",
+    "commitSubject": "docs: roadmap S5.6 closes its main body - the entry's 2026-07-27 table went stale (the global object IS minted: RFC 20260807-global-object G1/G2/G2.5 shipped the dynobj singleton relanded at 503a8d1e, top-level this answers object since rotation 235 as the module exports object deliberately distinct from globalThis, and the rotation-367 this-rewrite knife bound a dynamic function's sloppy this to the singleton making fnGlobalObject portable); the recorded residue moves to plan-state L3b: G3 descriptor surface, the 19 MISSING_KNOWN fills, first-class ctor construct, the G2.5 static-vs-aliased mutation divergence, and the six-list known-global drift risk",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "79343160",
+      "subject": "docs: roadmap S5.6 closes its main body - the entry's 2026-07-27 table went stale (the global object IS minted: RFC 20260807-global-object G1/G2/G2.5 shipped the dynobj singleton relanded at 503a8d1e, top-level this answers object since rotation 235 as the module exports object deliberately distinct from globalThis, and the rotation-367 this-rewrite knife bound a dynamic function's sloppy this to the singleton making fnGlobalObject portable); the recorded residue moves to plan-state L3b: G3 descriptor surface, the 19 MISSING_KNOWN fills, first-class ctor construct, the G2.5 static-vs-aliased mutation divergence, and the six-list known-global drift risk"
+    },
+    {
+      "hash": "9ca6ca25",
+      "subject": "feat: fnGlobalObject.js joins the ported harness includes - the stock body Function(\"return this;\")() now runs on tr and answers the G2 globalThis singleton (the this-rewrite knife), so the port returns the singleton directly (an equivalence reduction, not a stand-in: the rotation-366 no-backdoor constraint dissolved the moment the substrate ran the real shape); runner whitelists the include and rewrites fnGlobalObject( call sites to __t262_fnGlobalObject(, the tree-shake reaches the new segment lexically, and the stale no-expression-surface note in the harness header is corrected - 130 include cases enter the truly-run surface"
+    },
+    {
+      "hash": "bc7cf9e3",
+      "subject": "feat: a dynamic function's this binds to the global object - the function_ctor touches-this gate turns from a loud reject into the 10.2.1.2 rewrite (a sloppy function called with an undefined thisArg binds this to the global object per OrdinaryCallBindThis step 5.a.ii, and tr mints exactly one - the G2 globalThis singleton - so every This in the synthesized body rewrites to the globalThis ident and answers the same object; the fnGlobalObject harness body Function(\"return this;\")() is exactly this shape). The gate narrows instead of vanishing: a strict-prologue body keeps the reject (strict this is undefined, a different rewrite with no measured demand), and a body whose token stream carries the function keyword keeps it too (a nested function owns its own this and the flat arena scan cannot tell whose this it sees - body_lexes_fn_keyword, same token-level judgement as the bare-with scan; a true arrow pierces this per 8.3.4 and does not disqualify). fixture dynfn-this-globalthis-001 locks identity, property write-through, the param-bearing shape and the arrow shape byte-equal vs bun"
+    },
+    {
+      "hash": "04dc2b0f",
+      "subject": "fix: delete stops misreading the void fold as a bare name, and a string receiver joins the delete kernel - the 13.5.1.1 early error is a syntax judgement so the source form decides: void <literal> folds to the undefined Ident in the arena and delete void 0 arrived identical to the user-written delete undefined, tripping the bare-name SyntaxError (the L3b case from the rotation-366 decision sweep); an operand that opens with the void token was never an IdentifierReference and answers true. The second half admits Type::String through receiver_admits_delete: 13.5.1.2 ToObject over a string primitive gives the wrapper a non-configurable own face per 10.4.3, so every delete is either the module-strict refusal throw or an absent-key true - the kernel's new Str arm (bare Str cell + ShortStr, ahead of the tag match) makes the same judgement the StringWrapper arm already made through its inner view via str_own_pair, and nothing is ever removed; probes lock in-range index and length refusing with TypeError while out-of-range answers true, fixture delete-nonref-string-001 byte-equal vs bun over the whole non-reference-return-true shape list"
+    },
+    {
+      "hash": "02c77a6e",
+      "subject": "docs: SR-2 enters the subset-decision register - the source-phase-imports proposal family (ModuleSource / import source, 93 incompatible cases) attributes to a recorded decision with the structural rationale (stage-3 proposal, no ratified clause, phase semantics presuppose a module-source reification layer tr's AOT model has no design for; retires when ratified or bun ships it), and cluster_incompat.py grows the register's second mechanical predicate kind test262-feature (frontmatter features: scan, symmetric with test262-flag)"
+    },
+    {
+      "hash": "dfca9923",
+      "subject": "feat: the @@toPrimitive protocol hook lands - ToPrimitive consults Symbol.toPrimitive before OrdinaryToPrimitive (spec 7.1.1 steps 1.a-1.c: GetMethod through the symbol-key walk, Call with the hint delivered by name as default/number/string, a nullish entry falls through to valueOf/toString while a present non-callable one is the GetMethod TypeError, an object answer refuses per step 1.b.iii, and a hook throw propagates through the placeholder protocol; the probe reuses symbol_key_pair + callable_entry + invoke_with_this, and since no builtin prototype reifies @@toPrimitive the walk only ever answers a property a user wrote - Date's 21.4.4.45 default-to-string mapping stays the tag special-case behind the hook miss), and new Date(value) grows its real step-4 kernel __torajs_date_from_value (a Date argument copies DateValue without observable calls, any other object runs the NO-hint ToPrimitive so a user hook receives default, and a String primitive - literal or hook-answered - PARSES instead of ToNumbering; the desugar keeps the literal fast lanes and routes every other single argument through the kernel, with checker + intrinsics wiring); probes h1 14/14 and h2 answer bun verbatim, fixture toprimitive-hook-001 locks the family byte-equal; three independent gaps registered in L3b (Number(bigint) wants ToNumeric not ToNumber, Date cells have no expando slot so the hint-family reify face stays blocked, the checker rejects mixed-type ternary branches)"
+    },
+    {
+      "hash": "922e44b2",
+      "subject": "docs: rotation 366 sweep artifacts land - the P-SURF snapshot moves to 03200808 and the sweep json/verdicts enter the archive (these were updated during the rotation-366 close but missed the close commit, which only carried the dashboard refresh)"
+    },
+    {
+      "hash": "11c0cd47",
+      "subject": "docs: rotation 366 close - sign-off delegation lands and the subset-decision register goes live (SR-1 sloppy-only surface, 752 noStrict core cases attributed, gate predicate re-baselines 293/4764 to 270/4023 register-aware), bind family four knives one revert (synth-lane ->any capture lie routes to kernel, bound construct per 10.4.1.2, arguments joins constructor-arg walks, fn-as-any joins wrap axes; forwarder recv-first face reverted after the sweep caught 128 lost passes the gate could not see - bisected, reproduced, receiver-through-forwarder registered as a caller-audited knife), sweep conserved +16 pass / -16 bug zero regressions with the whole probed bind family forward, crash counts flat, build determinism 44/44 N=12, dashboard refresh @ 03200808"
+    },
+    {
       "hash": "03200808",
       "subject": "fix: revert the forwarder recv-first public face - the receiver channel needs a caller-audited design (the rotation-366 sweep caught what the gate could not: stamping FLAG_CLOSURE_RECV_FIRST on this-using forwarders shifted every caller that does not honor the flag - the gen-argv tail's [...arguments] swallowed the receiver into the generator argv, felling the whole async-gen-method-static family, and the strict-this / reduce-callback lanes misaligned their first argument - 128 t262 passes lost for 42 gained, bisected to 74557492 and reproduced deterministically on dflt-params-ref-prior where ref(3)'s first argument stopped being 3; the face returns to skip-this-and-feed-undefined with the revert rationale recorded at the site, the regressed case answers AsyncTestComplete again, and threading a receiver through a forwarder is registered in plan-state L3b as its own audited knife over every boxed-entry caller; the As-to-any collect axis stays - it is independent and sound - so the FnSig box, typeof, bound construct and partial-args faces all keep working, and the fixture re-scopes to those receiver-free shapes while the this-writing construct returns to its honest loud TypeError)"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "482559da",
       "subject": "feat: bound functions construct - new BD() reaches the target per §10.4.1.2 (is_constructor grows a cell-level recursion point answering a bound cell by its kind-1 target - BoundFunctionCreate copies [[Construct]] exactly when the target has it, kind-0 builtin prototype methods stay non-constructors - and the construct kernel's Closure arm concatenates the cell's partial args ahead of the call's own and recurses on the target, which is spec-exact for the unreflected form since step 5 swaps newTarget for the target, prototype included, and unwinds bound-over-bound chains outside-in; probes cover return-object targets with partials at both bind depths, the fresh-this default with expando readback, and the bound-arrow TypeError staying catchable, all tr==bun byte-equal; fixture bound-fn-construct-001 locks the five shapes; two neighbouring pre-existing walls surfaced and stay out of scope - this-in-fnexpr bindings still refuse at the __this face and the instance inspect renders {} without the constructor name both on plain and bound fn-value construct, both registered L3b)"
-    },
-    {
-      "hash": "101afd56",
-      "subject": "fix: unannotated-ret closure bindings decline the static bind synth lane and ride the runtime kernel (the synth lane's binding arm wrote ->any on the __bt capture while the source fn-expr's real return convention is its INFERRED raw slot - the wrapper's inner call then read raw i64 42 as a NaN-box, answering [unknown-any-tag] on the partial-args form D.bind(null, 21)() and decoding the box as a cell on the zero-partial form, both silent-wrong against bun's 42; the named-FnDecl arm has no such lie since its wrapper calls through the name, the checker infers the ret, and the wrapper's own ->any boundary boxes - so the fix is closure_binding_sig requiring an explicit return annotation, and every unannotated binding falls back to the member-call route whose bind_cell kernel owns both argument and return conventions through the universal boxed adapter, the lane the arguments-touching probe b1 already proved end to end; probes b4/b5 answer 42/42 on partial and zero-partial plus a mixed-type partial and an explicit-ret control, all ten existing bind-family fixtures stay EQ, and fixture fnexpr-bind-unannotated-ret-001 locks the four shapes tr==bun byte-equal)"
-    },
-    {
-      "hash": "c80a05d8",
-      "subject": "feat: subset-decision register goes live - SR-1 sloppy-only surface (noStrict-flagged cases, 752 of 5758 core at c025fd3f) lands as the first entry under the sign-off delegation recorded in S7.2 (decisions made against the design principles, takagi retains veto); the register is machine-readable (hardev/autorun/subset_register.json) and cluster_incompat.py applies each entry's mechanical predicate - test262 frontmatter flag lookup against vendor/test262 - and prints attributed mass beside the gate numbers, so the S7.2 predicate now counts unattributed clusters as the roadmap always defined it: gate re-baselines 293 clusters / 4764 cases to 270 / 4023, cause and magnitude recorded; companion decisions logged - fnGlobalObject cluster (88/130 noStrict absorbed, strict-reachable 42 queue behind S5.6 globalThis substrate, no harness special-case) and bare-name-strict cluster (103/104 noStrict, the one strict-reachable case is a delete non-reference gate misfire, registered as an L3b knife); SR-1 explicitly does not cover tr's own sloppy leaks (B.3.3 block-fn) which stay implementation debt"
-    },
-    {
-      "hash": "42dec38a",
-      "subject": "docs: rotation 365 close - identifier-arguments bug bucket five knives (harness shadow poison gate lift plus global variadic route, boxed-only admit template three instances - zero-site objlit fields / boxed-face stores / fn-arg track, date setter tonumber abrupt fix), sweep conserved +87 pass / -89 bug all direct-hit zero regressions, crash counts flat, cluster predicate flat 293/4764, build determinism 44/44 N=12, dashboard refresh @ c025fd3f"
-    },
-    {
-      "hash": "c025fd3f",
-      "subject": "feat: fn-arg track - an anonymous argv-face fn-expr passed directly as a user fn's argument admits (the t262 assert.throws thunk idiom - runner(function () { ...arguments... }) where the receiving param is annotated non-rest and consumed by direct call only: collect_fn_arg_argv mirrors the argc tier's hof-arg walk with the same top-level-callee shadow guard plus the argv face's reference discipline, admits the fn-expr and records the (fn, param) pair in the new ast.argv_boxed_params table - per-fn keyed so the name scoping is by construction; setup_fn_params registers those params variadic so their direct calls ride the boxed dual entry, which is behavior-preserving for every other closure that can flow in since the boxed adapter is universal; and arg_admitted grows the narrow pairing arm admitting a rest-tail closure value into a declared closure param slot only for a table-registered pair with matching or Void return; probe r1 covers the annotated-param length-read and value-read shapes tr==bun, the RegExp compile t262 case advances from unknown-identifier to its real receiver-check assertion, and fixture arguments-fn-arg-argv-001 covers zero-arg and valued direct calls across two receiving fns)"
-    },
-    {
-      "hash": "67bf781b",
-      "subject": "fix: date setter ToNumber abrupt completion aborts before the DateValue write (a user valueOf throw during the any-lane setter arg decode was silently dropped AND the setter absorbed the garbage coercion result - double silent-wrong against §21.4.4.20 step 2 et al., which the t262 Date -err family asserts on both faces; decode_fields now answers None when anyv_to_number left a pending record - a non-destructive __torajs_throw_check read after each arg - and all 16 setter arms short-circuit without touching the kernel, the caller's throw check then fires on the pending record; the typed lane's coerce_date_num grew the mirror check on its Any arm for lane consistency though the any-arg spelling routes any-lane today; probes e1/e2 assert throw propagation plus an unchanged getTime plus the happy-path setTime, the 17 t262 setter -err cases run clean under iter tr - the remaining value-to-primitive-call-err needs the Symbol.toPrimitive hook, registered L3b - and fixture date-setter-tonumber-abrupt-001 covers 1-arg and multi-arg setters tr==bun)"
-    },
-    {
-      "hash": "4499478c",
-      "subject": "feat: boxed-face store positions admit anonymous argv-face fn-exprs (the to-primitive spy idiom - spy[Symbol.toPrimitive] = function () { args = arguments } and its static-name spelling both join the argv face: the store target is any-lane-only consumption by the escape-store profile's B2 roots, so every call enters the closure cell's boxed adapter with real argc/argv, the same boxed-only argument as the objlit field arm; the per-fn admission gate extracts to admit_boxed_only shared by both source arms, and the field map's empty-early-return goes away - it was blocking the store arm behind an unrelated emptiness check, which the empty-object spy shape hit directly; probe s4 covers static-name store plus any-lane readback calls and fixture arguments-store-boxed-only-argv-001 adds the computed-key spelling, tr==bun; probes s1/s3 surfaced an independent gap - ToPrimitive never consults a Symbol.toPrimitive hook - registered L3b, the admit half no longer rejects loudly)"
-    },
-    {
-      "hash": "6220c81a",
-      "subject": "feat: boxed-only object-literal method argv - the date-setter valueOf idiom admits (a field closure with an arguments touch and ZERO visible call sites - no member read, no Ident reference, exactly one Closure reference at the field position - joins the argv face via the new collect_objlit_boxed_only_argv arm: no site can name the fn so no lane can reach it with the old signature, and the only path in is the dynobj any-lane boxed adapter which delivers real argc/argv/receiver, the same safety argument as knife 4a's zero-Ident rule; admitted fns split by fnexpr_recv_fns into the method head shape with __this or the P11 value head shape, both already synthesized and audited; probes d1/d2/d3 cover this-plus-arguments, arguments-only and this-only, the 17 t262 Date arg-to-number cases run clean under iter tr, and fixture arguments-objlit-boxed-only-argv-001 covers Number/setDate/binop coercion protocols across both head shapes tr==bun; close-audit: the wiring pushed the registered main-pass debt 313 to 321 so the escape-store double retain extracts to retain_escape_stored_off_static, main pass 300, debt back on the shrink-only path)"
-    },
-    {
-      "hash": "15e9ccb2",
-      "subject": "feat: shadow-colliding top-level argv-face bindings admit and call safely (the t262 harness idiom - a helper fn's param named func, captured by its own inner closure, no longer kills a same-named top-level binding's argv chain: the knife-7 bind-receiver gate on the shadow-aware kill walk lifts because the rest-tail mint it waited for now exists via closure_argv_fns' public (...args: any[]) => R type; lifting it exposed the second half of the old 27-SIGSEGV shape - a promoted top-level binding resolves through the globals fallback so the let-decl variadic_locals lane never saw it and the raw declared-sig dispatch read the argv param off an arg value - so the closure-local lane grows global_argv_face_binding, routing locals-miss + closure_argv_locals callees down the boxed dual entry, the locals miss itself scoping the name key; probe chain p1-p11 bisected the t262 harness to the exact poison line and covers pure-read, free-var-write, assert-arg-position, same-named-param and capture shapes; fixture arguments-shadow-collide-argv-001 covers Promise-executor capture plus over-arity direct calls, tr==bun byte-equal; the Array/prototype -c-i-25 family case runs clean under iter tr)"
     }
   ],
-  "headSha": "03200808",
+  "headSha": "79343160",
   "autorun": {
-    "total": 669,
+    "total": 670,
     "baselineTarget": 10,
-    "bySelf": 664,
+    "bySelf": 665,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786447988-3670",
-      "at": "2026-08-11T11:33:08Z",
-      "ts": 1786447988,
+      "rotationId": "r-1786453644-0f5b",
+      "at": "2026-08-11T13:07:24Z",
+      "ts": 1786453644,
       "trigger": "self",
-      "prevHead": "42dec38a",
-      "handoffSha": "sha256:d31b1f6e2b8abe147c9b7302cf00b69b298919347d145457544df7c2ef4eabe2",
-      "handoffAgeSec": 103,
+      "prevHead": "11c0cd47",
+      "handoffSha": "sha256:ee89c65def67dc3cac27436c029d39b6efba3e88396c6773657b51ce4d86b51d",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786453644-0f5b",
+        "at": "2026-08-11T13:07:24Z",
+        "ts": 1786453644,
+        "trigger": "self",
+        "prevHead": "11c0cd47",
+        "handoffSha": "sha256:ee89c65def67dc3cac27436c029d39b6efba3e88396c6773657b51ce4d86b51d",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786447988-3670",
         "at": "2026-08-11T11:33:08Z",
@@ -876,17 +887,6 @@
         "prevHead": "907416a2",
         "handoffSha": "sha256:4b5dc9f07747e3100cf0119f5c86c33de287bffe61c071c4f17154acefbdd30e",
         "handoffAgeSec": 34,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786370898-5fbe",
-        "at": "2026-08-10T14:08:18Z",
-        "ts": 1786370898,
-        "trigger": "self",
-        "prevHead": "27771085",
-        "handoffSha": "sha256:51cb81d33921d5cfe4344d01da69c9313f1f1c5c5b2df53b096670b6adb48bb4",
-        "handoffAgeSec": 120,
         "conformanceBefore": null,
         "commitsInSession": null
       }
