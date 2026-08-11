@@ -416,7 +416,9 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     // borrows only, the adapter's materialize incs what it stores,
     // so the direct lane's per-iteration transfer inc is skipped.
     let argv_face = matches!(ctx.ast.get_expr(args[0]),
-        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name));
+        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
+        || matches!(ctx.ast.get_expr(args[0]),
+            Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n));
     if argv_face {
         let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
             ctx,

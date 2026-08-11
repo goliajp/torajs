@@ -38,12 +38,16 @@ pub(crate) fn try_match(
     if !matches!(m_name.as_str(), "map" | "filter" | "forEach") || args.is_empty() {
         return None;
     }
-    // The one shape the SSA lane downgrades to the boxed variadic
-    // call: the inline closure the argv-face collector admitted.
-    let Expr::Closure { fn_name, .. } = ast.get_expr(args[0]) else {
-        return None;
+    // The two shapes the SSA lanes downgrade to the boxed variadic
+    // call: the inline closure the collector's HOF-anon arm admitted,
+    // and (rotation 363 knife 3) a binding the safe-chain walk let
+    // through to the callback slot.
+    let is_argv_cb = match ast.get_expr(args[0]) {
+        Expr::Closure { fn_name, .. } => ast.closure_argv_fns.contains(fn_name),
+        Expr::Ident(n) => ast.closure_argv_locals.contains(n),
+        _ => false,
     };
-    if !ast.closure_argv_fns.contains(fn_name) {
+    if !is_argv_cb {
         return None;
     }
     let src_ty = match checker.type_of(ast, *src_id) {

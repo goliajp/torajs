@@ -261,6 +261,22 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
             boxed_arg_sites.extend(elems.iter().copied());
         }
     }
+    // Rotation 363 — the HOF callback slot (map/filter/forEach) is
+    // boxed-only consumption on the downgraded channels: the array
+    // inline loops, the Map/Set forEach walks and every non-array
+    // receiver spelling (any-lane, struct method) all route an
+    // argv-face callee through the boxed variadic dispatch with
+    // REAL argc/argv, so a binding handed to that slot never
+    // reaches the declared static signature.
+    for e in &ast.exprs {
+        if let Expr::Call { callee, args } = e
+            && let Expr::Member { name: m, .. } = ast.get_expr(*callee)
+            && matches!(m.as_str(), "map" | "filter" | "forEach")
+            && let Some(&a0) = args.first()
+        {
+            boxed_arg_sites.insert(a0);
+        }
+    }
     loop {
         let mut killed: HashSet<String> = HashSet::new();
         for b in candidates.keys() {
