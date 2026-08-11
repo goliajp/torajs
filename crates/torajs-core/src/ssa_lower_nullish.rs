@@ -154,10 +154,26 @@ fn lower_any_lhs(
         },
     );
     ctx.cur_block = rhs_blk;
-    let rhs_op = ctx.lower_expr(rhs);
-    let rhs_ty = ctx.operand_ty(&rhs_op);
+    let rhs_raw = ctx.lower_expr(rhs);
+    let rhs_raw_ty = ctx.operand_ty(&rhs_raw);
+    // Rotation 362 — the join is ANY (mirrors check_nullish): a
+    // non-nullish lhs IS the result, whatever its tag holds, so the
+    // old unbox-to-rhs-width read an f64 box's raw bits as an i64
+    // (probe: `argsAnyArr[0] ?? nParam` printed 4611686018427387904)
+    // and squeezed a non-bool payload through an ICmp. Box the rhs
+    // side instead; a borrow-shape rhs takes +1 before the box (the
+    // chunk-722 transfer contract, same as the ternary widen).
+    let rhs_op = if rhs_raw_ty == Type::Any {
+        rhs_raw
+    } else {
+        if rhs_raw_ty.is_refcounted() && !ctx.expr_transfers_ownership(rhs) {
+            ctx.emit_rc_inc(rhs_raw.clone());
+        }
+        ctx.box_to_any_from_expr(rhs, rhs_raw)
+    };
+    let rhs_ty = Type::Any;
     let rhs_end = ctx.cur_block;
-    if rhs_ty.is_refcounted() && !ctx.expr_transfers_ownership(rhs) {
+    if rhs_raw_ty == Type::Any && !ctx.expr_transfers_ownership(rhs) {
         ctx.emit_owned_result_inc_in(rhs_end, rhs_op.clone(), rhs_ty);
     }
     ctx.cur_block = unbox_blk;

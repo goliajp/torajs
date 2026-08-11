@@ -200,7 +200,13 @@ pub(crate) fn check_nullish(
     let lhs_ty = checker.type_of(ast, lhs)?;
     let rhs_ty = checker.type_of(ast, rhs)?;
     if matches!(lhs_ty, Type::Any) {
-        return Ok(rhs_ty);
+        // Rotation 362 — an Any lhs joins to ANY, not rhs's type: a
+        // non-nullish lhs IS the result (§13.4.2), whatever it holds.
+        // Answering rhs_ty made the lowering unbox the lhs to rhs's
+        // register width, which read an f64 box's raw bits as an i64
+        // (silent wrong) and collapsed non-bool payloads through a
+        // != 0 test. The lowering boxes the rhs side instead.
+        return Ok(Type::Any);
     }
     let lhs_inner = match &lhs_ty {
         Type::Nullable(inner) => Some((**inner).clone()),
