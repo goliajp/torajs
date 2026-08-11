@@ -287,8 +287,15 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
                     | "some"
                     | "every"
                     | "flatMap"
+                    | "from"
             )
-            && let Some(&a0) = args.first()
+            // `Array.from`'s callback rides the SECOND slot
+            // (§23.1.2.1); instance methods carry it first.
+            && let Some(&a0) = if m == "from" {
+                args.get(1)
+            } else {
+                args.first()
+            }
         {
             boxed_arg_sites.insert(a0);
         }

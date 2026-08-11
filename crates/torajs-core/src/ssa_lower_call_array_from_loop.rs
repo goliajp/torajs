@@ -36,10 +36,25 @@ pub(crate) fn emit_map_loop(
         Type::Arr(id) => ctx.arr_layouts[id.0 as usize],
         _ => unreachable!(),
     };
-    let known_fid: Option<FuncId> = match ctx.ast.get_expr(args[1]) {
-        Expr::Closure { fn_name, .. } => ctx.fn_table.get(fn_name).copied(),
-        Expr::Ident(name) => ctx.fn_table.get(name).copied(),
-        _ => None,
+    // Rotation 364 — an argv-face mapFn (body reads `arguments`
+    // values) must not take the direct / devirt call: its reshaped
+    // sig leads with the synthetic argv pointer. The loop routes it
+    // through the boxed variadic dispatch (`emit_argv_face_call`)
+    // with the full §23.1.2.1 «kValue, k» pair; the declared ret
+    // still drives the dst layout — the variadic conv unboxes the
+    // result back to it.
+    let argv_face = matches!(ctx.ast.get_expr(args[1]),
+        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
+        || matches!(ctx.ast.get_expr(args[1]),
+            Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n));
+    let known_fid: Option<FuncId> = if argv_face {
+        None
+    } else {
+        match ctx.ast.get_expr(args[1]) {
+            Expr::Closure { fn_name, .. } => ctx.fn_table.get(fn_name).copied(),
+            Expr::Ident(name) => ctx.fn_table.get(name).copied(),
+            _ => None,
+        }
     };
     let fn_val = ctx.lower_expr(args[1]);
     let fn_ty = ctx.operand_ty(&fn_val);
@@ -188,13 +203,21 @@ pub(crate) fn emit_map_loop(
         call_args.push(t.clone());
     }
     call_args.push(Operand::Value(elem));
-    if sig_params.len() >= 2 {
+    // An argv-face mapFn takes the FULL spec pair — its sig's params
+    // are the synthetic argv head, not positional slots.
+    if argv_face || sig_params.len() >= 2 {
         call_args.push(Operand::Value(i_body));
     }
     let sig_skip = usize::from(this_arg.is_some());
-    let mapped = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, sig_skip, 2),
-        None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 2),
+    let mapped = if argv_face {
+        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, &fn_val, fn_ty, call_args, 2)
+    } else {
+        match known_fid {
+            Some(fid) => {
+                ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, sig_skip, 2)
+            }
+            None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 2),
+        }
     };
     let cur_dst = ctx.f.append_inst(
         ctx.cur_block,

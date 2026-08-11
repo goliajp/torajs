@@ -227,7 +227,7 @@ fn collect_hof_anon_argv(
     full: &std::collections::HashSet<String>,
 ) -> std::collections::HashSet<String> {
     use std::collections::{HashMap, HashSet};
-    const HOF_ARGV_METHODS: [&str; 12] = [
+    const HOF_ARGV_METHODS: [&str; 13] = [
         "map",
         "filter",
         "forEach",
@@ -240,6 +240,7 @@ fn collect_hof_anon_argv(
         "some",
         "every",
         "flatMap",
+        "from",
     ];
     let mut ref_counts: HashMap<&str, usize> = HashMap::new();
     for e in &ast.exprs {
@@ -264,7 +265,16 @@ fn collect_hof_anon_argv(
         if !HOF_ARGV_METHODS.contains(&m.as_str()) {
             continue;
         }
-        let Some(&a0) = args.first() else {
+        // `Array.from(iter, mapFn)` carries its callback in the
+        // SECOND slot (§23.1.2.1); every instance method carries it
+        // first. A 1-arg `.from(…)` (Iterator.from) has no callback
+        // slot and admits nothing.
+        let cb_slot = if m == "from" {
+            args.get(1)
+        } else {
+            args.first()
+        };
+        let Some(&a0) = cb_slot else {
             continue;
         };
         let Expr::Closure { fn_name, .. } = ast.get_expr(a0) else {
