@@ -7,10 +7,10 @@
 //!   Returns the byte cast to `i32` (matches libc's putchar
 //!   return semantics). Never returns -1; errors are swallowed
 //!   per stdio convention.
-//! - [`__torajs_io_write_stdout`] — bulk write(buf, len). Cheaper
-//!   than per-byte putchar in IR-emitted print_i64 / _f64 if
-//!   they batch the digit string into a stack buffer (deferred
-//!   to Step 14-d).
+//! - [`__torajs_io_write_stdout`] — bulk write(buf, len), for
+//!   callers that are stdout by definition (`process.stdout.write`).
+//!   The print family batches through the sink module's `write_out`
+//!   twin instead (torajs-print's digit buffers land there).
 //! - [`__torajs_io_flush`] — explicit drain. Emitted at process
 //!   exit hook before `exit(0)` to ensure all buffered bytes
 //!   reach stdout.

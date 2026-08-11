@@ -4,15 +4,17 @@
 //! `console.{log,error,warn,info,debug}(...)` recognizer +
 //! print-intrinsic picker: `console_method_member` returns the method
 //! name as a static string (or None for non-console calls);
-//! `console_print_target` maps `(method, arg_ty)` to the appropriate
-//! runtime print helper (Str / Substr / F64 / Bool / Any / Symbol /
-//! typed Arr walkers / Map / Set / FnSig / typed heap receivers /
-//! catch-all int/err). Method bodies are byte-for-byte preserved from
-//! the source; siblings and `ssa_lower.rs` reach them through the impl
-//! block on the shared `crate::ssa_lower::LowerCtx` type.
+//! `console_print_target` maps `arg_ty` to the appropriate runtime
+//! print helper (Str / Substr / F64 / Bool / Any / Symbol / typed
+//! Arr walkers / Map / Set / FnSig / typed heap receivers / catch-all
+//! int); `emit_console_print` is the one gate every console print
+//! call goes through — it brackets the stderr methods with the io
+//! current-sink switch (RFC 20260812-console-sink). Siblings and
+//! `ssa_lower.rs` reach them through the impl block on the shared
+//! `crate::ssa_lower::LowerCtx` type.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{FuncId, Type};
+use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
@@ -41,12 +43,17 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// Pick the right print intrinsic for `console.<method>(<arg>)`.
-    /// log / info / debug write to stdout; error / warn write to stderr.
-    pub(crate) fn console_print_target(&self, method: &str, arg_ty: Type) -> FuncId {
-        let to_stderr = matches!(method, "error" | "warn");
-        match (arg_ty, to_stderr) {
-            (Type::Str, false) => self.intrinsics.str_print,
-            (Type::Str, true) => self.intrinsics.str_print_err,
+    ///
+    /// RFC 20260812-console-sink knife 2 — the stderr methods are no
+    /// longer a mapping concern: every method uses the one printer
+    /// table below, and [`Self::emit_console_print`] brackets the
+    /// call with the io current-sink switch for `error` / `warn`.
+    /// (Pre-knife-2, only Str/F64/Bool/I64 had `_err` twins and every
+    /// other type silently printed to stdout — content right, stream
+    /// wrong.)
+    pub(crate) fn console_print_target(&self, arg_ty: Type) -> FuncId {
+        match arg_ty {
+            Type::Str => self.intrinsics.str_print,
             // V3-18 m1.h.34 — Substr layout differs from Str
             // (parent+offset+len vs inline data). Dedicated
             // substr_print walks parent + offset; pre-fix Substr
@@ -54,25 +61,15 @@ impl<'a> LowerCtx<'a> {
             // the pointer-as-integer (or nothing for empty), so any
             // `console.log("a-b".split("-")[0])` etc diverged from
             // bun.
-            (Type::Substr, false) => self.intrinsics.substr_print,
-            (Type::Substr, true) => self.intrinsics.substr_print,
-            (Type::F64, false) => self.intrinsics.print_f64,
-            (Type::F64, true) => self.intrinsics.print_f64_err,
-            (Type::Bool, false) => self.intrinsics.print_bool,
-            (Type::Bool, true) => self.intrinsics.print_bool_err,
+            Type::Substr => self.intrinsics.substr_print,
+            Type::F64 => self.intrinsics.print_f64,
+            Type::Bool => self.intrinsics.print_bool,
             // T-10.d.i — Type::Any operand routes through the
-            // tag-aware `__torajs_print_any` runtime helper. stderr
-            // variant deferred to T-10.d.ii alongside the multi-arg
-            // joiner; for v0.4 the boxed-Any path is single-arg-only,
-            // and console.error/warn don't yet show up in any
-            // conformance fixture that exercises Any operands.
-            (Type::Any, false) => self.intrinsics.print_any,
-            (Type::Any, true) => self.intrinsics.print_any,
+            // tag-aware `__torajs_print_any` runtime helper.
+            Type::Any => self.intrinsics.print_any,
             // T-13.a — Type::Symbol prints `Symbol(<desc>)` via the
-            // dedicated runtime helper. stderr variant uses stdout for
-            // now (no separate _err helper; matches console.error's
-            // partial behavior on rare types).
-            (Type::Symbol, _) => self.intrinsics.symbol_print,
+            // dedicated runtime helper.
+            Type::Symbol => self.intrinsics.symbol_print,
             // V3-18 m1.h.12 — `console.log(arr)` array pretty-print.
             // Per element type: I64 / F64 / Bool / Str / Substr; any
             // other elem type (Any / Arr<...> / Obj / Map / Set /
@@ -81,7 +78,7 @@ impl<'a> LowerCtx<'a> {
             // Tag::DynObj walkers; Commits 5-8 wire the remaining
             // typed Tag walkers). Closes W-O-1 (`const a:any[]=[]`),
             // W-O-3-nested (`console.log(Object.entries(o))`).
-            (Type::Arr(arr_id), false) => {
+            Type::Arr(arr_id) => {
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
                 match elem_ty {
                     Type::I64 => self.intrinsics.arr_print_i64,
@@ -97,25 +94,20 @@ impl<'a> LowerCtx<'a> {
                     _ => self.intrinsics.print_any,
                 }
             }
-            (Type::Arr(_), true) => self.intrinsics.print_any,
             // Nested-print substrate trunk Commit 4 — typed heap
-            // receivers (Type::Obj / Map / Set / Promise / Date /
-            // RegExp / Closure / WeakRef / WeakMap / WeakSet /
-            // MapIter / ArrIter) route through __torajs_print_anyv,
-            // which reads HeapHeader::type_tag and dispatches to its
-            // Commit 4 Tag::DynObj walker, or for the remaining
-            // tags falls back to `[object]\n` until Commits 5-8
-            // wire each typed walker (Date / RegExp / Function in 5,
-            // Map / Set / Promise in 6-8). Pre-Commit 4 these all
-            // fell through to print_i64 below, which emitted the
-            // raw heap pointer as a decimal — the typed-receiver
-            // console.log fallback wedge.
+            // receivers (Type::Obj / Promise / Date / RegExp /
+            // Closure / WeakRef / WeakMap / WeakSet / MapIter /
+            // ArrIter) route through __torajs_print_anyv, which
+            // reads HeapHeader::type_tag and dispatches to the
+            // matching typed walker. Pre-Commit 4 these all fell
+            // through to print_i64 below, which emitted the raw
+            // heap pointer as a decimal.
             // Commit 7 — Map / Set route through dedicated wrappers
             // because runtime Tag::Map=15 covers BOTH Map and Set
             // heap blocks (no separate Tag::Set). Going through
             // print_any would print Sets as `Map(...)`.
-            (Type::Map, _) => self.intrinsics.map_print_outer,
-            (Type::Set, _) => self.intrinsics.set_print_outer,
+            Type::Map => self.intrinsics.map_print_outer,
+            Type::Set => self.intrinsics.set_print_outer,
             // Fn-name registry Phase 1 narrow — Type::FnSig is a
             // raw code-section pointer (not a heap object) so it
             // can't go through print_any's NaN-box tag-walker
@@ -124,19 +116,48 @@ impl<'a> LowerCtx<'a> {
             // fallthrough). The dedicated outer wrapper emits
             // `[Function]\n` directly; Phase 2 swaps the body for
             // the rodata table binary-search.
-            (Type::FnSig(_), _) => self.intrinsics.fn_print_outer,
-            (Type::Obj(_), _)
-            | (Type::Promise, _)
-            | (Type::Date, _)
-            | (Type::RegExp, _)
-            | (Type::Closure(_), _)
-            | (Type::WeakRef, _)
-            | (Type::WeakMap, _)
-            | (Type::WeakSet, _)
-            | (Type::MapIter, _)
-            | (Type::ArrIter, _) => self.intrinsics.print_any,
-            (_, false) => self.intrinsics.print_i64,
-            (_, true) => self.intrinsics.print_i64_err,
+            Type::FnSig(_) => self.intrinsics.fn_print_outer,
+            Type::Obj(_)
+            | Type::Promise
+            | Type::Date
+            | Type::RegExp
+            | Type::Closure(_)
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::MapIter
+            | Type::ArrIter => self.intrinsics.print_any,
+            _ => self.intrinsics.print_i64,
+        }
+    }
+
+    /// Emit one `console.<method>` print call, bracketed with the io
+    /// current-sink switch when the method targets stderr (`error` /
+    /// `warn`) — RFC 20260812-console-sink knife 2. The bracket must
+    /// wrap only the print call, never the argument lowering: a user
+    /// `toString` running during coercion may itself `console.log`,
+    /// and that output belongs on stdout. Every console print call
+    /// site goes through here so a new lowering branch cannot
+    /// silently print to the wrong stream. Both switch intrinsics
+    /// drain the buffer they leave, so `2>&1` keeps caller order;
+    /// they never throw (fn_meta no-throw set).
+    pub(crate) fn emit_console_print(&mut self, method: &str, target: FuncId, arg: Operand) {
+        let to_stderr = matches!(method, "error" | "warn");
+        if to_stderr {
+            let cb = self.cur_block;
+            self.f.append_void(
+                cb,
+                InstKind::Call(self.intrinsics.io_sink_to_stderr, vec![]),
+            );
+        }
+        let cb = self.cur_block;
+        self.f.append_void(cb, InstKind::Call(target, vec![arg]));
+        if to_stderr {
+            let cb = self.cur_block;
+            self.f.append_void(
+                cb,
+                InstKind::Call(self.intrinsics.io_sink_to_stdout, vec![]),
+            );
         }
     }
 }

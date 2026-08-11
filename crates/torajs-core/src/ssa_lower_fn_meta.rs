@@ -45,10 +45,8 @@ impl<'a> LowerCtx<'a> {
         fid == i.print_i64
             || fid == i.print_f64
             || fid == i.print_bool
-            || fid == i.print_i64_err
-            || fid == i.print_f64_err
-            || fid == i.print_bool_err
-            || fid == i.str_print_err
+            || fid == i.io_sink_to_stderr
+            || fid == i.io_sink_to_stdout
             || fid == i.str_alloc
             || fid == i.str_print
             || fid == i.str_drop

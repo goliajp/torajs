@@ -97,9 +97,8 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
         Some(crate::check::Type::Undefined | crate::check::Type::Void)
     ) {
         let lit = ctx.intern_string_literal("undefined");
-        let target = ctx.console_print_target(method, Type::Str);
-        ctx.f
-            .append_void(cur_block, InstKind::Call(target, vec![Operand::Value(lit)]));
+        let target = ctx.console_print_target(Type::Str);
+        ctx.emit_console_print(method, target, Operand::Value(lit));
         return Operand::ConstI64(0);
     }
     if arg_ty == Type::Substr {
@@ -110,11 +109,8 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
             Type::Str,
             None,
         );
-        let target = ctx.console_print_target(method, Type::Str);
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Call(target, vec![Operand::Value(owned)]),
-        );
+        let target = ctx.console_print_target(Type::Str);
+        ctx.emit_console_print(method, target, Operand::Value(owned));
         ctx.emit_drop_value(Operand::Value(owned), Type::Str);
         if !is_borrow {
             ctx.emit_drop_value(arg, Type::Substr);
@@ -129,7 +125,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
         return lower_print_f64_or_undef(ctx, method, arg);
     }
     let is_str = arg_ty == Type::Str;
-    let target = ctx.console_print_target(method, arg_ty);
+    let target = ctx.console_print_target(arg_ty);
     let sentinel_join = open_console_sentinel_branch(ctx, method, &arg, arg_ty);
     // RFC 20260704 L3b #5 — a typed Arr whose elem has no dedicated
     // typed printer (Arr<Arr> / Arr<Obj> / …) routes through the
@@ -141,9 +137,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     if target == ctx.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
         ctx.emit_arr_mark_kind(&arg);
     }
-    let cur_block = ctx.cur_block;
-    ctx.f
-        .append_void(cur_block, InstKind::Call(target, vec![arg.clone()]));
+    ctx.emit_console_print(method, target, arg.clone());
     close_console_sentinel_branch(ctx, sentinel_join);
     if !is_borrow {
         if is_str {
@@ -202,11 +196,9 @@ fn lower_multi_arg(ctx: &mut LowerCtx<'_>, method: &'static str, args: &[ExprId]
             acc = Some(s_op);
         }
     }
-    let target = ctx.console_print_target(method, Type::Str);
+    let target = ctx.console_print_target(Type::Str);
     let final_str = acc.unwrap();
-    let cur_block = ctx.cur_block;
-    ctx.f
-        .append_void(cur_block, InstKind::Call(target, vec![final_str.clone()]));
+    ctx.emit_console_print(method, target, final_str.clone());
     ctx.emit_drop_value(final_str, Type::Str);
     Operand::ConstI64(0)
 }
@@ -256,16 +248,12 @@ pub(crate) fn lower_print_f64_or_undef(
         Type::Str,
         None,
     );
-    let str_target = ctx.console_print_target(method, Type::Str);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(str_target, vec![Operand::Value(sentinel)]),
-    );
+    let str_target = ctx.console_print_target(Type::Str);
+    ctx.emit_console_print(method, str_target, Operand::Value(sentinel));
     ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
     ctx.cur_block = num_blk;
-    let f64_target = ctx.console_print_target(method, Type::F64);
-    ctx.f
-        .append_void(ctx.cur_block, InstKind::Call(f64_target, vec![arg]));
+    let f64_target = ctx.console_print_target(Type::F64);
+    ctx.emit_console_print(method, f64_target, arg);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
     ctx.cur_block = merge;
     Operand::ConstI64(0)
@@ -309,11 +297,8 @@ pub(crate) fn open_console_sentinel_branch(
     );
     ctx.cur_block = undef_blk;
     let lit = ctx.intern_string_literal("undefined");
-    let str_target = ctx.console_print_target(method, Type::Str);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(str_target, vec![Operand::Value(lit)]),
-    );
+    let str_target = ctx.console_print_target(Type::Str);
+    ctx.emit_console_print(method, str_target, Operand::Value(lit));
     ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
     ctx.cur_block = live_blk;
     Some(join_blk)

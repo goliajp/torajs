@@ -35,7 +35,6 @@ pub mod math;
 pub mod object_is;
 pub mod parse;
 pub mod predicates;
-pub mod print_err;
 pub mod str_bridge;
 pub mod to_str;
 pub mod tostring;
@@ -89,7 +88,6 @@ pub use predicates::{
     __torajs_num_is_safe_integer_any, __torajs_num_is_safe_integer_f,
     __torajs_num_is_safe_integer_i,
 };
-pub use print_err::{__torajs_print_bool_err, __torajs_print_f64_err, __torajs_print_i64_err};
 pub use to_str::{
     __torajs_bool_to_str, __torajs_f64_to_str, __torajs_i64_to_str, __torajs_print_f64_js,
 };

@@ -59,11 +59,8 @@ impl<'a> LowerCtx<'a> {
                 // label via the str print path.
                 let _ = self.lower_expr(args[0]);
                 let lit = self.intern_string_literal(label);
-                let target = self.console_print_target(method, Type::Str);
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(target, vec![Operand::Value(lit)]),
-                );
+                let target = self.console_print_target(Type::Str);
+                self.emit_console_print(method, target, Operand::Value(lit));
                 return;
             }
             let is_borrow = matches!(
@@ -80,11 +77,8 @@ impl<'a> LowerCtx<'a> {
                     Type::Str,
                     None,
                 );
-                let target = self.console_print_target(method, Type::Str);
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(target, vec![Operand::Value(owned)]),
-                );
+                let target = self.console_print_target(Type::Str);
+                self.emit_console_print(method, target, Operand::Value(owned));
                 self.emit_drop_value(Operand::Value(owned), Type::Str);
                 if !is_borrow {
                     self.emit_drop_value(arg, Type::Substr);
@@ -104,9 +98,8 @@ impl<'a> LowerCtx<'a> {
              * "undefined" on the sentinel arm; drop no-ops). */
             if arg_ty == Type::BigInt {
                 let owned = self.coerce_to_str(arg.clone(), Type::BigInt);
-                let target = self.console_print_target(method, Type::Str);
-                self.f
-                    .append_void(self.cur_block, InstKind::Call(target, vec![owned.clone()]));
+                let target = self.console_print_target(Type::Str);
+                self.emit_console_print(method, target, owned.clone());
                 self.emit_drop_value(owned, Type::Str);
                 if !is_borrow {
                     self.emit_drop_value(arg, Type::BigInt);
@@ -124,7 +117,7 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_call_console::lower_print_f64_or_undef(self, method, arg);
                 return;
             }
-            let target = self.console_print_target(method, arg_ty);
+            let target = self.console_print_target(arg_ty);
             // RFC 20260710 C2b — an Obj/Arr/Closure arg may hold the
             // generic undefined cell (Nullable slot); branch to the
             // "undefined" label print (shared helper — mirror of the
@@ -141,8 +134,7 @@ impl<'a> LowerCtx<'a> {
             if target == self.intrinsics.print_any && matches!(arg_ty, Type::Arr(_)) {
                 self.emit_arr_mark_kind(&arg);
             }
-            self.f
-                .append_void(self.cur_block, InstKind::Call(target, vec![arg.clone()]));
+            self.emit_console_print(method, target, arg.clone());
             crate::ssa_lower_call_console::close_console_sentinel_branch(self, sentinel_join);
             if is_str && !is_borrow {
                 self.emit_drop_value(arg, Type::Str);
@@ -198,10 +190,9 @@ impl<'a> LowerCtx<'a> {
                     acc = Some(s_op);
                 }
             }
-            let target = self.console_print_target(method, Type::Str);
+            let target = self.console_print_target(Type::Str);
             let final_str = acc.unwrap();
-            self.f
-                .append_void(self.cur_block, InstKind::Call(target, vec![final_str]));
+            self.emit_console_print(method, target, final_str.clone());
             self.emit_drop_value(final_str, Type::Str);
             return;
         }

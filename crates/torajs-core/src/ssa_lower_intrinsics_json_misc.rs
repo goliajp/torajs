@@ -27,8 +27,6 @@
 //!   - `json_arr_first(s, cursor, depth) -> i64`
 //! - **`str_eq_cstr(s, cstr_ptr, cstr_len) -> i64`** — needle is a
 //!   constant byte buffer (lower wraps as `Ptr + I64`).
-//! - **stderr print** (V3-18 m1.h.13): `print_i64_err` / `_f64_err` /
-//!   `_bool_err` / `str_print_err` for `console.error`.
 //! - **Array immutable / bulk ops**:
 //!   - `arr_flat(arr) -> Ptr` (depth-1 flatten of typed Array<Array<T>>).
 //!   - `arr_flat_any(arr) -> Ptr` (Array<Any> flatten).
@@ -69,10 +67,6 @@ pub(crate) struct JsonMiscIds {
     pub json_arr_step: FuncId,
     pub json_arr_first: FuncId,
     pub str_eq_cstr: FuncId,
-    pub print_i64_err: FuncId,
-    pub print_f64_err: FuncId,
-    pub print_bool_err: FuncId,
-    pub str_print_err: FuncId,
     pub arr_flat: FuncId,
     pub arr_flat_any: FuncId,
     pub arr_extend_typed_into_any: FuncId,
@@ -238,34 +232,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             Type::I64,
         ),
         str_eq_cstr: declare_intrinsic(module, fn_table, "__torajs_str_eq_cstr", s_pi, Type::I64),
-        print_i64_err: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_print_i64_err",
-            &[Type::I64],
-            Type::Void,
-        ),
-        print_f64_err: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_print_f64_err",
-            &[Type::F64],
-            Type::Void,
-        ),
-        print_bool_err: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_print_bool_err",
-            &[Type::Bool],
-            Type::Void,
-        ),
-        str_print_err: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_str_print_err",
-            &[Type::Str],
-            Type::Void,
-        ),
         arr_flat: declare_intrinsic(module, fn_table, "__torajs_arr_flat", ptr1, Type::Ptr),
         arr_flat_any: declare_intrinsic(module, fn_table, "__torajs_arr_flat_any", ptr1, Type::Ptr),
         arr_extend_typed_into_any: declare_intrinsic(

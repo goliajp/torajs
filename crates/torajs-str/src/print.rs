@@ -1,27 +1,21 @@
-//! Str console print — `console.log(str)` (stdout) and
-//! `console.error(str)` (stderr) SSA dispatch targets.
+//! Str console print — the `console.log(str)` SSA dispatch target
+//! plus the stderr diagnostics writer.
 //!
-//! Both `__torajs_str_print` and `__torajs_str_print_err` live
-//! here as of P3.1-g.2 (2026-05-23).
-//!
-//! **Buffer-sharing constraint**: `__torajs_str_print` (stdout)
+//! **Buffer-sharing constraint**: `__torajs_str_print`
 //! uses `torajs_io::__torajs_io_putc_out` per-byte (v0.7-A3
 //! Step 14-b cutover from libc `putchar`). torajs-print's
 //! `print_i64` / `print_f64` / `print_bool` also route through
-//! the same symbol (Step 14-c cutover), so all stdout writers
+//! the same symbol (Step 14-c cutover), so all print writers
 //! share torajs-io's process-
 //! global line buffer. No cross-buffer reordering risk: every
 //! console.log call ends with '\n' which triggers a flush.
 //!
-//! `__torajs_str_print_err` (console.error) composes the payload +
-//! newline into one buffer and emits it with a single `write(2)`
-//! syscall via [`crate::write_stderr`] (v0.7-A5 Step 16-e no_std
-//! cutover from `std::io::stderr`). One write keeps the line atomic;
-//! the runtime is single-threaded so no cross-writer interleave.
-//!
-//! NULL → `"null\n"` (Nullable<Str> slots + uncaptured regex
-//! groups pass NULL through; printing "null" matches
-//! `console.error(null)` semantics).
+//! `console.error(str)` no longer has a dedicated `_err` twin here:
+//! since RFC 20260812-console-sink knife 2 the lowering brackets the
+//! ordinary `__torajs_str_print` call with torajs-io's current-sink
+//! switch, so the same streaming path serves both streams. The
+//! remaining stderr-direct writer is [`__torajs_str_write_err`]
+//! (the unhandled-rejection reporter's composing primitive).
 //!
 //! ## P11.1-S2.1 encoding-aware output
 //!
@@ -195,8 +189,8 @@ fn encode_payload_utf8(bytes: &[u8], is_latin1: bool, extra_cap: usize) -> Vec<u
 }
 
 /// Compose the bytes [`__torajs_str_write_err`] writes — the same
-/// UTF-8 transcoding as [`format_print_err`] with **no** trailing
-/// newline, and NULL rendering as nothing rather than `"null"`.
+/// UTF-8 transcoding [`encode_payload_utf8`] performs, with **no**
+/// trailing newline, and NULL rendering as nothing.
 ///
 /// The two differences are what make this the right primitive for
 /// composing a multi-part diagnostic line (an Error's `name`, then
@@ -324,10 +318,16 @@ pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
     putc(b'\n');
 }
 
-/// `console.error(str)` — write `s`'s payload (UTF-8 transcoded from
-/// the Str's native encoding) + newline to stderr. NULL →
-/// `"null\n"`. Same single-write pattern as [`__torajs_str_print`]
-/// above, just on stderr.
+/// Write `s`'s payload (UTF-8 transcoded from the Str's native
+/// encoding) + newline to stderr in one `write(2)`. NULL →
+/// `"null\n"`.
+///
+/// Since RFC 20260812-console-sink knife 2 the `console.error(str)`
+/// lowering no longer targets this symbol (it brackets the ordinary
+/// `__torajs_str_print` with the io current-sink switch); the
+/// remaining consumer is torajs-promise's unhandled-rejection
+/// reporter, which calls it directly from runtime Rust for its
+/// one-line reason rendering.
 ///
 /// # Safety
 ///
@@ -349,7 +349,7 @@ pub unsafe extern "C" fn __torajs_str_print_err(s: *const u8) {
 /// Write `s`'s payload (UTF-8 transcoded from the Str's native
 /// encoding) to stderr with **no** trailing newline. NULL → no-op.
 ///
-/// The newline-free twin of [`__torajs_str_print_err`], for
+/// A newline-free composing writer for
 /// diagnostics that compose several Str parts into one line — the
 /// unhandled-rejection reporter renders an Error as
 /// `name` + `": "` + `message`, which `print_err` could not spell
@@ -385,6 +385,12 @@ mod tests {
     }
 
     #[test]
+    fn format_empty_payload_yields_just_newline() {
+        assert_eq!(format_print_err(Some((b"", true))), b"\n");
+        assert_eq!(format_print_err(Some((b"", false))), b"\n");
+    }
+
+    #[test]
     fn write_err_null_yields_nothing() {
         assert!(format_write_err(None).is_empty());
     }
@@ -409,22 +415,16 @@ mod tests {
     }
 
     #[test]
-    fn format_empty_payload_yields_just_newline() {
-        assert_eq!(format_print_err(Some((b"", true))), b"\n");
-        assert_eq!(format_print_err(Some((b"", false))), b"\n");
-    }
-
-    #[test]
     fn latin1_ascii_writes_verbatim() {
-        assert_eq!(format_print_err(Some((b"hello", true))), b"hello\n");
+        assert_eq!(format_write_err(Some((b"hello", true))), b"hello");
     }
 
     #[test]
     fn latin1_supplement_expands_to_2byte_utf8() {
         // 'é' = U+00E9 = Latin-1 byte 0xE9 → UTF-8 0xC3 0xA9
         assert_eq!(
-            format_print_err(Some((&[b'c', b'a', b'f', 0xE9], true))),
-            b"caf\xC3\xA9\n"
+            format_write_err(Some((&[b'c', b'a', b'f', 0xE9], true))),
+            b"caf\xC3\xA9"
         );
     }
 
@@ -432,8 +432,8 @@ mod tests {
     fn utf16_bmp_decodes_to_utf8() {
         // U+4E2D ('中') little-endian → 0x2D 0x4E → UTF-8 0xE4 0xB8 0xAD
         assert_eq!(
-            format_print_err(Some((&[0x2D, 0x4E], false))),
-            b"\xE4\xB8\xAD\n"
+            format_write_err(Some((&[0x2D, 0x4E], false))),
+            b"\xE4\xB8\xAD"
         );
     }
 
@@ -443,8 +443,8 @@ mod tests {
         // little-endian → 0x3D 0xD8 0x00 0xDE
         // UTF-8 → 0xF0 0x9F 0x98 0x80
         assert_eq!(
-            format_print_err(Some((&[0x3D, 0xD8, 0x00, 0xDE], false))),
-            b"\xF0\x9F\x98\x80\n"
+            format_write_err(Some((&[0x3D, 0xD8, 0x00, 0xDE], false))),
+            b"\xF0\x9F\x98\x80"
         );
     }
 
@@ -454,8 +454,8 @@ mod tests {
         // UTF-8 → 0x41 + 0xF0 0x9F 0x98 0x80
         let payload = &[0x41, 0x00, 0x3D, 0xD8, 0x00, 0xDE];
         assert_eq!(
-            format_print_err(Some((payload, false))),
-            b"A\xF0\x9F\x98\x80\n"
+            format_write_err(Some((payload, false))),
+            b"A\xF0\x9F\x98\x80"
         );
     }
 
@@ -466,8 +466,8 @@ mod tests {
         // UTF-8 0xED 0xA0 0xBD per the formula. ES spec allows
         // this even though strictly not a valid Unicode scalar.
         assert_eq!(
-            format_print_err(Some((&[0x3D, 0xD8], false))),
-            b"\xED\xA0\xBD\n"
+            format_write_err(Some((&[0x3D, 0xD8], false))),
+            b"\xED\xA0\xBD"
         );
     }
 }

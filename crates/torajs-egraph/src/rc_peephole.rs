@@ -74,14 +74,24 @@ const DROP_INTRINSICS: [&str; 4] = [
 /// Runtime intrinsics that provably cannot change any refcount,
 /// free any object, or read a refcount field: they only read
 /// payload bytes plus header length/encoding bits and write to
-/// stdio (verified against `torajs-str/src/print.rs`). A call to
-/// one of these is window-transparent: nothing inside a transparent
-/// window can decrement a count, so every object alive at the inc
-/// stays alive across the whole window even with the pair removed.
-const READONLY_INTRINSICS: [&str; 3] = [
+/// stdio (verified against `torajs-str/src/print.rs` and
+/// `torajs-io/src/sink.rs`). A call to one of these is
+/// window-transparent: nothing inside a transparent window can
+/// decrement a count, so every object alive at the inc stays alive
+/// across the whole window even with the pair removed.
+///
+/// The io sink-switch pair joined with RFC 20260812-console-sink
+/// knife 2: `console.error(str)` now lowers as
+/// `sink_to_stderr; str_print; sink_to_stdout`, and without the
+/// pair in this set the switch calls would opacify a window that
+/// was transparent when the lowering emitted the single
+/// `str_print_err` call. They touch only the io buffers and an
+/// AtomicBool — no rc traffic.
+const READONLY_INTRINSICS: [&str; 4] = [
     "__torajs_str_print",
-    "__torajs_str_print_err",
     "__torajs_substr_print",
+    "__torajs_io_sink_to_stderr",
+    "__torajs_io_sink_to_stdout",
 ];
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

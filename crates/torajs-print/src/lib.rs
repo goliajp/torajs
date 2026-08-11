@@ -28,36 +28,28 @@
 //!   formatting. We don't re-implement the f64 path here; the
 //!   torajs-num version is the spec source of truth.
 //!
-//! All three call `__torajs_syscall_write` to reach the kernel
-//! `write(2)` directly — same pattern as `torajs-abort`. No libc
-//! `_write` undef ref bled into the user binary.
+//! Since RFC 20260812-console-sink knife 2 the composed bytes go
+//! through `torajs_io::__torajs_io_write_out` — the current-sink
+//! indirection the rest of the print family streams through — so a
+//! `console.error(42)` bracketed by the lowering's sink switch
+//! reaches stderr like every other type. (The pre-knife-2 body
+//! wrote fd 1 via a raw `__torajs_syscall_write` loop, which
+//! bypassed both the sink switch and torajs-io's line buffer —
+//! that made `console.error(int|bool)` the only two lanes that
+//! kept printing to stdout.) Every payload ends in `'\n'`, which
+//! triggers torajs-io's line flush, so byte-arrival timing is
+//! unchanged.
 
 unsafe extern "C" {
-    fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
+    fn __torajs_io_write_out(buf: *const u8, len: u64);
     fn __torajs_print_f64_js(d: f64);
 }
 
-const STDOUT_FILENO: i32 = 1;
-
-/// Buffer-or-syscall wrapper. Loops `write(2)` if the kernel only
-/// flushed a prefix on the first call — the typical short-write
-/// case on a pipe. `write` returning `< 0` is silently ignored
-/// (`console.log` doesn't surface I/O errors to userland).
+/// Hand the composed bytes to the print family's shared
+/// current-sink writer (line-buffered; the trailing `'\n'` in
+/// every caller's payload triggers the flush).
 fn write_all(buf: &[u8]) {
-    let mut written = 0usize;
-    while written < buf.len() {
-        let n = unsafe {
-            __torajs_syscall_write(
-                STDOUT_FILENO,
-                buf.as_ptr().add(written),
-                buf.len() - written,
-            )
-        };
-        if n <= 0 {
-            return;
-        }
-        written += n as usize;
-    }
+    unsafe { __torajs_io_write_out(buf.as_ptr(), buf.len() as u64) };
 }
 
 /// `_print_bool(b)` — writes `"true\n"` for `true` and

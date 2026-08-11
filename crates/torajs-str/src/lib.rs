@@ -65,7 +65,7 @@
 //! route through the active user binary's `#[global_allocator]`
 //! (torajs-mmalloc, 16-d); panics / alloc-errors land on torajs-
 //! panic-runtime's active-mode handlers. The lone stderr writer
-//! (`__torajs_str_print_err`, console.error) now goes through
+//! (`__torajs_str_write_err`, diagnostics) goes through
 //! [`write_stderr`] — a raw `write(2)` syscall via torajs-syscall —
 //! instead of `std::io::stderr`, so a `tr build` binary that reaches
 //! str through the heavier match/replace cross-tier path carries no
