@@ -1530,7 +1530,39 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `9ca6ca25`** (2026-08-12, rotation 367 — the @@toPrimitive
+**Latest @ `e96477f7`** (2026-08-12, rotation 368 — the globalThis
+surface closes five knives deep: the G3 descriptor probe finds the
+gOPD global arm already working (verifyProperty-shape reads and
+aliased-spelling mutation probes byte-match bun, closing the L3b
+entry without code); MISSING_KNOWN shrinks 19 → 11 — parseInt /
+parseFloat reuse the Number.* cells (§21.1.2.12/.13 same-object
+clause, identity free), isFinite / isNaN get their own
+ToNumber-coercing cells, and the §19.2.6 URI quartet lands whole: a
+real Encode/Decode kernel pair in torajs-str (uri.rs — code-unit
+walk over both encodings, strict escape-run parsing with from_utf8
+as the overlong/surrogate/range judge, decodeURI preserving a
+reserved escape's original spelling), URIError as a real runtime
+raise (torajs-throw slot 6 + factory registration + implied class
+injection + throw-info marking), then value cells + fill-list
+entries completing both call forms. The eight global function
+properties also open as bare VALUES (checker types the read
+concretely, ident lowering mints the interned cell, a let-alias
+registers variadic for the boxed dual entry); under-arity alias
+calls and the HOF-callback position stay recorded loud boundaries.
+Sweep: passTotal 29137 → **29307 (+170)**, bug +8, trAccepted +178
+/ incompatible **−178**, conservation exact (178 = 170 + 8).
+Forward 170: decodeURIComponent 51, decodeURI 50, encodeURI 26,
+encodeURIComponent 26 (the former top-1 unattributed cluster clears
+whole), global/isFinite/isNaN/parseFloat/parseInt 13, sm 2, Array 1.
+The +8 bug is the non-constructor family (`new parseInt()`-shape
+cases) honestly entering the truly-run surface. True pass
+regressions **0**. Gate predicate **262 unattributed clusters /
+3686 cases / register 2 entries · 763 attributed / residue 765 ·
+989 / core 5438** — both headline numbers down (268 → 262, 3862 →
+3686). Build determinism 44/44 (N=12). Conformance gate 2747 →
+**2752/0/4**.)
+
+**Previous @ `9ca6ca25`** (2026-08-12, rotation 367 — the @@toPrimitive
 protocol hook lands (§7.1.1 steps 1.a-1.c: GetMethod through the
 symbol walk, hint delivered by name, object answers refuse, nullish
 falls through to OrdinaryToPrimitive) plus the §21.4.2.1
