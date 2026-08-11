@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T11:28:40.739Z",
+  "generatedAt": "2026-08-11T13:05:36.997Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T11:24:52Z",
-    "headSha": "c025fd3f",
-    "elapsedSec": 322.15,
+    "ranAt": "2026-08-11T13:02:02Z",
+    "headSha": "03200808",
+    "elapsedSec": 427.12,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24286,
+    "pass": 24302,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 29032,
-    "bug": 12686,
+    "passTotal": 29048,
+    "bug": 12670,
     "incompatible": 11456,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 41718,
-    "passRateInScope": 54.6,
-    "passRateTrAccepted": 69.59
+    "passRateInScope": 54.63,
+    "passRateTrAccepted": 69.63
   },
   "torajs": {
-    "commit": "c025fd3f",
-    "commitSubject": "feat: fn-arg track - an anonymous argv-face fn-expr passed directly as a user fn's argument admits (the t262 assert.throws thunk idiom - runner(function () { ...arguments... }) where the receiving param is annotated non-rest and consumed by direct call only: collect_fn_arg_argv mirrors the argc tier's hof-arg walk with the same top-level-callee shadow guard plus the argv face's reference discipline, admits the fn-expr and records the (fn, param) pair in the new ast.argv_boxed_params table - per-fn keyed so the name scoping is by construction; setup_fn_params registers those params variadic so their direct calls ride the boxed dual entry, which is behavior-preserving for every other closure that can flow in since the boxed adapter is universal; and arg_admitted grows the narrow pairing arm admitting a rest-tail closure value into a declared closure param slot only for a table-registered pair with matching or Void return; probe r1 covers the annotated-param length-read and value-read shapes tr==bun, the RegExp compile t262 case advances from unknown-identifier to its real receiver-check assertion, and fixture arguments-fn-arg-argv-001 covers zero-arg and valued direct calls across two receiving fns)",
+    "commit": "03200808",
+    "commitSubject": "fix: revert the forwarder recv-first public face - the receiver channel needs a caller-audited design (the rotation-366 sweep caught what the gate could not: stamping FLAG_CLOSURE_RECV_FIRST on this-using forwarders shifted every caller that does not honor the flag - the gen-argv tail's [...arguments] swallowed the receiver into the generator argv, felling the whole async-gen-method-static family, and the strict-this / reduce-callback lanes misaligned their first argument - 128 t262 passes lost for 42 gained, bisected to 74557492 and reproduced deterministically on dflt-params-ref-prior where ref(3)'s first argument stopped being 3; the face returns to skip-this-and-feed-undefined with the revert rationale recorded at the site, the regressed case answers AsyncTestComplete again, and threading a receiver through a forwarder is registered in plan-state L3b as its own audited knife over every boxed-entry caller; the As-to-any collect axis stays - it is independent and sound - so the FnSig box, typeof, bound construct and partial-args faces all keep working, and the fixture re-scopes to those receiver-free shapes while the this-writing construct returns to its honest loud TypeError)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "03200808",
+      "subject": "fix: revert the forwarder recv-first public face - the receiver channel needs a caller-audited design (the rotation-366 sweep caught what the gate could not: stamping FLAG_CLOSURE_RECV_FIRST on this-using forwarders shifted every caller that does not honor the flag - the gen-argv tail's [...arguments] swallowed the receiver into the generator argv, felling the whole async-gen-method-static family, and the strict-this / reduce-callback lanes misaligned their first argument - 128 t262 passes lost for 42 gained, bisected to 74557492 and reproduced deterministically on dflt-params-ref-prior where ref(3)'s first argument stopped being 3; the face returns to skip-this-and-feed-undefined with the revert rationale recorded at the site, the regressed case answers AsyncTestComplete again, and threading a receiver through a forwarder is registered in plan-state L3b as its own audited knife over every boxed-entry caller; the As-to-any collect axis stays - it is independent and sound - so the FnSig box, typeof, bound construct and partial-args faces all keep working, and the fixture re-scopes to those receiver-free shapes while the this-writing construct returns to its honest loud TypeError)"
+    },
+    {
+      "hash": "74557492",
+      "subject": "feat: fn-as-any joins the forwarder wrap axes and this-using forwarders carry the receiver channel (two halves of the t262 bound-construct-with-this idiom (Pair as any).bind(null, 1): the As-to-any cast is itself an any-boxing position with no FnSig arm, so the collector's As arm now marks a bare top-FnDecl Ident under an any cast for the canonical __forward_ wrap, peeling nested As layers like every other axis while non-any casts keep the plain recursion; and the forwarder mint stops amputating a promoted target's __this - the old face skipped the param and hard-fed undefined, which was right for plain calls but severed the boxed adapter's receiver channel for construct, .call and bound-this, so the recv-first head shape [__env, __this, ...] stays on the public face and the forwarder registers in ast.fnexpr_recv_fns since the adapter keys the channel on FLAG_CLOSURE_RECV_FIRST at the closure mint, not on param names; probe b3 runs whole - inst.sum 3 through the bound construct partial, receiver-carrying bind, typeof function, and the bind.call construct chain - and the 247-fixture bind/forwarder/closure-global/fnexpr/arguments regression surface stays EQ; fixture fnsig-as-any-bind-construct-001 locks five shapes tr==bun byte-equal)"
+    },
+    {
+      "hash": "7764648c",
+      "subject": "feat: arguments inside constructor arguments joins every walk (the t262 bind-construct thunk idiom new Boolean(arguments.length === 0) was invisible to all three walks - expr_scan's face seeds, expr_uses_dynamic_arguments' materialize gate, and the copy-on-write rewrite recursion had no Expr::New / Expr::NewDynamic arms, so the fn never seeded a face and the raw ident leaked to the checker as unknown-identifier plus a .length-on-Ptr ssa reject; the scan arms recurse constructor args as the ordinary value positions they are, the dynamic-use arms conservatively materialize a spread-of-arguments there since no inline-spread rewrite exists for New, and the rewrite grows New/NewDynamic arms over a shared rewrite_args_vec copy-on-write helper; the registered rewrite_recurse_arm debt shrinks 298 to 290 by extracting the Delete arm whole into rewrite_delete_arm - additions pair with a shrink per the only-decrease rule; probe b2 now runs its full chain new NewFunc() through the bound cell over the arguments-touching fnexpr answering true==bun by composing with the bound-construct knife, the 108-fixture arguments family stays EQ, and fixture arguments-in-new-args-001 locks length-in-New-arg, index-in-New-arg, new-Array-of-argc and the b2 construct chain tr==bun byte-equal)"
+    },
+    {
+      "hash": "482559da",
+      "subject": "feat: bound functions construct - new BD() reaches the target per §10.4.1.2 (is_constructor grows a cell-level recursion point answering a bound cell by its kind-1 target - BoundFunctionCreate copies [[Construct]] exactly when the target has it, kind-0 builtin prototype methods stay non-constructors - and the construct kernel's Closure arm concatenates the cell's partial args ahead of the call's own and recurses on the target, which is spec-exact for the unreflected form since step 5 swaps newTarget for the target, prototype included, and unwinds bound-over-bound chains outside-in; probes cover return-object targets with partials at both bind depths, the fresh-this default with expando readback, and the bound-arrow TypeError staying catchable, all tr==bun byte-equal; fixture bound-fn-construct-001 locks the five shapes; two neighbouring pre-existing walls surfaced and stay out of scope - this-in-fnexpr bindings still refuse at the __this face and the instance inspect renders {} without the constructor name both on plain and bound fn-value construct, both registered L3b)"
+    },
+    {
+      "hash": "101afd56",
+      "subject": "fix: unannotated-ret closure bindings decline the static bind synth lane and ride the runtime kernel (the synth lane's binding arm wrote ->any on the __bt capture while the source fn-expr's real return convention is its INFERRED raw slot - the wrapper's inner call then read raw i64 42 as a NaN-box, answering [unknown-any-tag] on the partial-args form D.bind(null, 21)() and decoding the box as a cell on the zero-partial form, both silent-wrong against bun's 42; the named-FnDecl arm has no such lie since its wrapper calls through the name, the checker infers the ret, and the wrapper's own ->any boundary boxes - so the fix is closure_binding_sig requiring an explicit return annotation, and every unannotated binding falls back to the member-call route whose bind_cell kernel owns both argument and return conventions through the universal boxed adapter, the lane the arguments-touching probe b1 already proved end to end; probes b4/b5 answer 42/42 on partial and zero-partial plus a mixed-type partial and an explicit-ret control, all ten existing bind-family fixtures stay EQ, and fixture fnexpr-bind-unannotated-ret-001 locks the four shapes tr==bun byte-equal)"
+    },
+    {
+      "hash": "c80a05d8",
+      "subject": "feat: subset-decision register goes live - SR-1 sloppy-only surface (noStrict-flagged cases, 752 of 5758 core at c025fd3f) lands as the first entry under the sign-off delegation recorded in S7.2 (decisions made against the design principles, takagi retains veto); the register is machine-readable (hardev/autorun/subset_register.json) and cluster_incompat.py applies each entry's mechanical predicate - test262 frontmatter flag lookup against vendor/test262 - and prints attributed mass beside the gate numbers, so the S7.2 predicate now counts unattributed clusters as the roadmap always defined it: gate re-baselines 293 clusters / 4764 cases to 270 / 4023, cause and magnitude recorded; companion decisions logged - fnGlobalObject cluster (88/130 noStrict absorbed, strict-reachable 42 queue behind S5.6 globalThis substrate, no harness special-case) and bare-name-strict cluster (103/104 noStrict, the one strict-reachable case is a delete non-reference gate misfire, registered as an L3b knife); SR-1 explicitly does not cover tr's own sloppy leaks (B.3.3 block-fn) which stay implementation debt"
+    },
+    {
+      "hash": "42dec38a",
+      "subject": "docs: rotation 365 close - identifier-arguments bug bucket five knives (harness shadow poison gate lift plus global variadic route, boxed-only admit template three instances - zero-site objlit fields / boxed-face stores / fn-arg track, date setter tonumber abrupt fix), sweep conserved +87 pass / -89 bug all direct-hit zero regressions, crash counts flat, cluster predicate flat 293/4764, build determinism 44/44 N=12, dashboard refresh @ c025fd3f"
+    },
+    {
       "hash": "c025fd3f",
       "subject": "feat: fn-arg track - an anonymous argv-face fn-expr passed directly as a user fn's argument admits (the t262 assert.throws thunk idiom - runner(function () { ...arguments... }) where the receiving param is annotated non-rest and consumed by direct call only: collect_fn_arg_argv mirrors the argc tier's hof-arg walk with the same top-level-callee shadow guard plus the argv face's reference discipline, admits the fn-expr and records the (fn, param) pair in the new ast.argv_boxed_params table - per-fn keyed so the name scoping is by construction; setup_fn_params registers those params variadic so their direct calls ride the boxed dual entry, which is behavior-preserving for every other closure that can flow in since the boxed adapter is universal; and arg_admitted grows the narrow pairing arm admitting a rest-tail closure value into a declared closure param slot only for a table-registered pair with matching or Void return; probe r1 covers the annotated-param length-read and value-read shapes tr==bun, the RegExp compile t262 case advances from unknown-identifier to its real receiver-check assertion, and fixture arguments-fn-arg-argv-001 covers zero-arg and valued direct calls across two receiving fns)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "15e9ccb2",
       "subject": "feat: shadow-colliding top-level argv-face bindings admit and call safely (the t262 harness idiom - a helper fn's param named func, captured by its own inner closure, no longer kills a same-named top-level binding's argv chain: the knife-7 bind-receiver gate on the shadow-aware kill walk lifts because the rest-tail mint it waited for now exists via closure_argv_fns' public (...args: any[]) => R type; lifting it exposed the second half of the old 27-SIGSEGV shape - a promoted top-level binding resolves through the globals fallback so the let-decl variadic_locals lane never saw it and the raw declared-sig dispatch read the argv param off an arg value - so the closure-local lane grows global_argv_face_binding, routing locals-miss + closure_argv_locals callees down the boxed dual entry, the locals miss itself scoping the name key; probe chain p1-p11 bisected the t262 harness to the exact poison line and covers pure-read, free-var-write, assert-arg-position, same-named-param and capture shapes; fixture arguments-shadow-collide-argv-001 covers Promise-executor capture plus over-arity direct calls, tr==bun byte-equal; the Array/prototype -c-i-25 family case runs clean under iter tr)"
-    },
-    {
-      "hash": "3f7d43c2",
-      "subject": "docs: rotation 364 close - hof argv-face remaining channels four knives plus mixed-tier dup-group admit plus close-audit double breach discharge, sweep conserved +5 pass / -5 bug all direct-hit zero regressions, crash counts flat, cluster predicate flat, build determinism 44/44 N=12, dashboard refresh @ b12a975e"
-    },
-    {
-      "hash": "b12a975e",
-      "subject": "feat: mixed-tier dup-named binding groups admit per instance (a group whose instances split across the argc and argv tiers no longer rejects whole - every init must still be a closure literal and mask/stray/owner checks stay group-wide, but only THIS tier's seeded instances return; the cross-tier name collision is safe on four audited fronts: the checker argv wedge re-gates on the fn's public variadic type, S3.5 admits beyond-arity universally, an SSA argv_face mis-hit only downgrades to the boxed dual entry which is behaviorally equivalent, and fnexpr_this_routed's consumption is a conservative exclusion arm - full audit in the task doc; probe b1 and fixture arguments-dup-group-mixed-tier-001 cover the 2-instance and 3-instance mixed shapes, tr==bun)"
-    },
-    {
-      "hash": "c9054065",
-      "subject": "docs: rotation 364 close - hof argv-face remaining channels four knives (predicate family six names / flatMap / Array.from / sort-toSorted all through the boxed variadic pack, admit trio atomic per channel) plus close-audit double breach refactor discharge; sweep conserved +5 pass / -5 bug all direct-hit (predicate-call-parameters x4 + from/iter-map-fn-args), zero regressions, crash counts flat, build determinism 44/44 N=12; dashboard refresh"
-    },
-    {
-      "hash": "a9ec95d8",
-      "subject": "refactor: close-audit knife discharge - the rotation's two self-made function-face breaches extracted verbatim (safe_binding_chain's boxed-consumption site collection to collect_boxed_arg_sites, 204 -> ~145; emit_map_loop's promoted-this and dst-alloc blocks to lower_promoted_this / alloc_from_dst free fns, 246 -> 180 - the array_from_loop:25 entry was a registered 223 debt the argv-face knife pushed UP, violating shrink-only, so this clears past the registration and delists it); four argv-face fixtures re-verified EQ before and after"
-    },
-    {
-      "hash": "8570754d",
-      "subject": "feat: sort/toSorted comparators join the argv-face HOF channels (the argv_face verdict threads from try_lower through the insertion-sort chain into emit_user_cmp_pred, which packs the §23.1.3.30.2 «x, y» pair through the boxed variadic dispatch and grows an Any-ret arm - ToNumber before the >0 test, raw NaN-box bits are not a number; the O(n log n) helper fast path self-excludes because its gate requires comparator params equal to the element type and the synthetic argv head never is; collector and chain whitelists take both names, and the checker wedge answers Array<elem> for both spellings; probe q4 and fixture 008 cover number/string elements, Any-ret ternary body, binding form and toSorted source-untouched, all tr==bun)"
-    },
-    {
-      "hash": "c26eb639",
-      "subject": "feat: Array.from mapFn joins the argv-face HOF channels (the collector and chain whitelists take the name with the callback in the SECOND slot per §23.1.2.1 - a 1-arg .from() has no slot and admits nothing; the map loop's argv_face branch packs the «kValue, k» pair through the boxed variadic dispatch with known_fid forced off devirt, and the declared ret keeps driving the dst layout through the variadic conv's unbox; the checker's 2-arg arm already admits any Function shape so no checker change, and the any-tier kernel route is compatible for free - closure_boxed_entry is the universal protocol; probe q3 both shapes and fixture 007 anonymous+binding all tr==bun)"
-    },
-    {
-      "hash": "a0586e3f",
-      "subject": "feat: flatMap joins the argv-face HOF channels (the callback's argv_face branch packs the full §23.1.3.13 «kValue, k, O» triple through the boxed variadic dispatch with cb_arity forced to 3; the declared ret still drives dst_shape because the variadic conv unboxes the result back to it, so the scalar / inner-walk split is untouched; collector and chain whitelists take the name, and the checker wedge mirrors dst_shape - Array ret flattens one level, Void answers Array<Any>, primitive/Any pushes the scalar; probe q2 and fixture 006 cover anonymous array-ret, scalar-ret, arguments[2] source read and the binding form, all tr==bun)"
     }
   ],
-  "headSha": "c025fd3f",
+  "headSha": "03200808",
   "autorun": {
-    "total": 668,
+    "total": 669,
     "baselineTarget": 10,
-    "bySelf": 663,
+    "bySelf": 664,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786442575-2586",
-      "at": "2026-08-11T10:02:55Z",
-      "ts": 1786442575,
+      "rotationId": "r-1786447988-3670",
+      "at": "2026-08-11T11:33:08Z",
+      "ts": 1786447988,
       "trigger": "self",
-      "prevHead": "3f7d43c2",
-      "handoffSha": "sha256:149163e48c52507ce153f8841c99ea8bbd6510b575e8925353cb89dec1699029",
-      "handoffAgeSec": 98,
+      "prevHead": "42dec38a",
+      "handoffSha": "sha256:d31b1f6e2b8abe147c9b7302cf00b69b298919347d145457544df7c2ef4eabe2",
+      "handoffAgeSec": 103,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786447988-3670",
+        "at": "2026-08-11T11:33:08Z",
+        "ts": 1786447988,
+        "trigger": "self",
+        "prevHead": "42dec38a",
+        "handoffSha": "sha256:d31b1f6e2b8abe147c9b7302cf00b69b298919347d145457544df7c2ef4eabe2",
+        "handoffAgeSec": 103,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786442575-2586",
         "at": "2026-08-11T10:02:55Z",
@@ -876,17 +887,6 @@
         "prevHead": "27771085",
         "handoffSha": "sha256:51cb81d33921d5cfe4344d01da69c9313f1f1c5c5b2df53b096670b6adb48bb4",
         "handoffAgeSec": 120,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786364353-2f7c",
-        "at": "2026-08-10T12:19:13Z",
-        "ts": 1786364353,
-        "trigger": "self",
-        "prevHead": "e67f498e",
-        "handoffSha": "sha256:b9e80b9c3623b4ab528d6eb1ef383fc33b32ea2181d89e6c31b994a6f9cc49d4",
-        "handoffAgeSec": 31,
         "conformanceBefore": null,
         "commitsInSession": null
       }
