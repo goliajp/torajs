@@ -12,15 +12,16 @@ use super::{collect_legal_uses, collect_letdecls_recursive};
 /// make the shared name unambiguous:
 /// * every instance sits in a distinct top-level FnDecl body (a
 ///   module-top or same-owner instance rejects the group);
-/// * every instance's init is a seeded closure literal;
+/// * every instance's init is a closure literal, at least one of
+///   which passes this tier's seed (rotation 364 — a mixed-tier
+///   group returns only its seeded instances; see the body comment
+///   for why the cross-tier name collision is safe);
 /// * every arena `Ident(name)` lands inside exactly one owner's
 ///   expression mask (no stray module-top use);
-/// * per instance, the mask-local uses pass the same legal-use /
-///   boxed-consumption test as a solo chain (alias growth is NOT
-///   offered — a nested `const g = f` kills the group).
-/// All-or-nothing keeps the returned name set's meaning uniform: the
-/// downstream locals set is name-keyed, so a half-admitted group
-/// would mark the killed instance's binding as argv-shaped too.
+/// * per instance (seeded or not), the mask-local uses pass the same
+///   legal-use / boxed-consumption test as a solo chain (alias
+///   growth is NOT offered — a nested `const g = f` kills the
+///   group).
 pub(super) fn admit_dup_groups(
     ast: &Ast,
     dup: &std::collections::HashSet<&str>,
@@ -60,14 +61,27 @@ pub(super) fn admit_dup_groups(
         if owners.contains(&None) || owners.len() != insts.len() {
             continue;
         }
-        let fns: Vec<&str> = insts
+        // Rotation 364 — mixed-tier groups admit per instance: every
+        // init must still be a closure literal (a non-closure init
+        // leaves the shared name's meaning open — kill the group),
+        // but only the instances passing THIS tier's seed are
+        // returned. The other tier's instances get the same
+        // treatment from its own admit call; the resulting name
+        // collision across the two locals sets is safe — the
+        // checker's argv wedge re-gates on the fn's public variadic
+        // type, S3.5 admits beyond-arity universally, the SSA
+        // argv_face mis-hit only downgrades to the boxed dual entry
+        // (behaviorally equivalent), and fnexpr_this_routed's
+        // consumption is a conservative exclusion arm. Full audit:
+        // tasks/2026-08-11/dup-group-mixed-tier-design.md.
+        let fns: Vec<(&str, bool)> = insts
             .iter()
             .filter_map(|(_, init)| match ast.get_expr(*init) {
-                Expr::Closure { fn_name, .. } if seed(fn_name) => Some(fn_name.as_str()),
+                Expr::Closure { fn_name, .. } => Some((fn_name.as_str(), seed(fn_name))),
                 _ => None,
             })
             .collect();
-        if fns.len() != insts.len() {
+        if fns.len() != insts.len() || !fns.iter().any(|(_, s)| *s) {
             continue;
         }
         let masks: Vec<Vec<bool>> = insts
@@ -114,8 +128,10 @@ pub(super) fn admit_dup_groups(
                 .any(|&i| !boxed_arg_sites.contains(&ExprId(i)))
         });
         if all_pass {
-            for (idx, (_, _)) in insts.iter().enumerate() {
-                out.push((name.to_string(), fns[idx].to_string()));
+            for (fn_name, seeded) in &fns {
+                if *seeded {
+                    out.push((name.to_string(), fn_name.to_string()));
+                }
             }
         }
     }
