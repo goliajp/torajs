@@ -1,4 +1,5 @@
-//! `Array<T>.{map,filter,forEach}(cb)` × argv-face inline callback
+//! `Array<T>.{map,filter,forEach,reduce,reduceRight}(cb)` and (rotation
+//! 364) the predicate family × argv-face callback
 //! wedge (rotation 363) — the callback is an anonymous fn-expr whose
 //! body reads `arguments` values, so the argv-face collector
 //! reshaped it and the checker's public type for it is the variadic
@@ -37,7 +38,17 @@ pub(crate) fn try_match(
     };
     if !matches!(
         m_name.as_str(),
-        "map" | "filter" | "forEach" | "reduce" | "reduceRight"
+        "map"
+            | "filter"
+            | "forEach"
+            | "reduce"
+            | "reduceRight"
+            | "find"
+            | "findLast"
+            | "findIndex"
+            | "findLastIndex"
+            | "some"
+            | "every"
     ) || args.is_empty()
     {
         return None;
@@ -103,6 +114,14 @@ pub(crate) fn try_match(
         }
         "filter" => Some(Ok(Type::Array(elem.clone()))),
         "forEach" => Some(Ok(Type::Void)),
+        // Rotation 364 — the predicate family (short-circuit iter
+        // lane): the callback's return only feeds ToBoolean, so the
+        // result types mirror the Void-cb wedge's — some/every →
+        // Boolean, findIndex/findLastIndex → Number, find/findLast →
+        // T with the documented sentinel not-found subset semantics.
+        "some" | "every" => Some(Ok(Type::Boolean)),
+        "findIndex" | "findLastIndex" => Some(Ok(Type::Number)),
+        "find" | "findLast" => Some(Ok((**elem).clone())),
         // Mirror of the lane's `resolve_acc_ty`: the accumulator
         // slot is the callback's return type, widened to Any when
         // the seed (2-arg) or the element (1-arg, §23.1.3.24 step

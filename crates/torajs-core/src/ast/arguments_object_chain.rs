@@ -267,13 +267,25 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
     // receiver spelling (any-lane, struct method) all route an
     // argv-face callee through the boxed variadic dispatch with
     // REAL argc/argv, so a binding handed to that slot never
-    // reaches the declared static signature.
+    // reaches the declared static signature. Rotation 364 grows the
+    // whitelist as each lane takes the argv_face branch: the
+    // predicate family (the short-circuit iter loop).
     for e in &ast.exprs {
         if let Expr::Call { callee, args } = e
             && let Expr::Member { name: m, .. } = ast.get_expr(*callee)
             && matches!(
                 m.as_str(),
-                "map" | "filter" | "forEach" | "reduce" | "reduceRight"
+                "map"
+                    | "filter"
+                    | "forEach"
+                    | "reduce"
+                    | "reduceRight"
+                    | "find"
+                    | "findLast"
+                    | "findIndex"
+                    | "findLastIndex"
+                    | "some"
+                    | "every"
             )
             && let Some(&a0) = args.first()
         {
