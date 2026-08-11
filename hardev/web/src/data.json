@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T02:35:27.851Z",
+  "generatedAt": "2026-08-11T06:14:14.201Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T02:33:16Z",
-    "headSha": "e6703f30",
-    "elapsedSec": 319.04,
+    "ranAt": "2026-08-11T06:07:29Z",
+    "headSha": "d78edd54",
+    "elapsedSec": 320.33,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24184,
+    "pass": 24194,
     "passNoOracle": 791,
     "passNegative": 3955,
-    "passTotal": 28930,
-    "bug": 12790,
+    "passTotal": 28940,
+    "bug": 12780,
     "incompatible": 11454,
     "bunSkip": 6500,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 41720,
-    "passRateInScope": 54.41,
-    "passRateTrAccepted": 69.34
+    "passRateInScope": 54.43,
+    "passRateTrAccepted": 69.37
   },
   "torajs": {
-    "commit": "e6703f30",
-    "commitSubject": "feat: implicit-generic fn values escape through an all-any clone (l3b-3 - a let-bound generic fn's typevar face rejected every callindirect argument; the let-decl check widens the binding face and records the site, check_monomorph_any_widen drains it through a parameterized emit_widened_spec into a $$anywv spec, and the ident lowering takes the clone's address via the existing call_retargets channel)",
+    "commit": "5776b036",
+    "commitSubject": "refactor: split seed_objlit_aliases out of safe_binding_chain (rotation-362 close audit - the dup-group wiring pushed the fn to 215 lines past the 200 hard limit; the knife-4c objlit-field + var-hoisted alias seeding moves verbatim to a free fn returning the assign_legal whitelist, safe_binding_chain back to 163)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "5776b036",
+      "subject": "refactor: split seed_objlit_aliases out of safe_binding_chain (rotation-362 close audit - the dup-group wiring pushed the fn to 215 lines past the 200 hard limit; the knife-4c objlit-field + var-hoisted alias seeding moves verbatim to a free fn returning the assign_legal whitelist, safe_binding_chain back to 163)"
+    },
+    {
+      "hash": "d78edd54",
+      "subject": "fix: any ?? T joins to any instead of unboxing the lhs to rhs width (a non-nullish any lhs is the result per 13.4.2 whatever its tag holds, but check_nullish answered rhs_ty so the lowering's unbox_lhs_to_rhs_ty read an f64 box's raw bits as an i64 - argsAnyArr[0] ?? nParam printed 4611686018427387904 - and squeezed non-bool payloads through a != 0 test so any(0) ?? true answered false; the checker now answers any and lower_any_lhs boxes the rhs side expr-aware under the chunk-722 transfer contract, mirroring the ternary widen posture; surfaced by the rest-param probe family riding apply_rest_args packing)"
+    },
+    {
+      "hash": "507f1e45",
+      "subject": "feat: dup-named binding groups admit per-scope into the argc/argv tiers (l3b follow-up - two fns each declaring const f = function(){...arguments...} is the test262 helper idiom the rotation-362 nested tier conservatively dropped; admit_dup_groups re-runs the kill walk per instance against its owner fndecl's body_owned_exprs mask, requiring distinct top-level owners, seeded closure inits, zero stray uses outside every mask, and a solo-chain legal-use pass per instance with no alias growth; all-or-nothing per group keeps the name-keyed locals set unambiguous; safe_binding_chain returns pairs since a dup group maps one name to several fns; admit fn split to arguments_object_chain/dup.rs under the 500-line rule)"
+    },
+    {
+      "hash": "31d36ae2",
+      "subject": "feat: fn-nested closures join the arguments argc/argv value tiers (l3b nested face - the shared safe_binding_chain seeded only top-level letdecls, which was the single thing keeping fn-nested const f = function(){...arguments...} loud since the lifted closure is already a top-level fndecl the tier collectors see; the direct seed, alias-grow fixpoint and the kill walk's alias-init exemption now walk all nested statement containers, and a name bound more than once anywhere is conservatively dropped because the by-name kill walk cannot split scopes)"
+    },
+    {
+      "hash": "616b4db4",
+      "subject": "feat: ternary (typed : null) joins go through any (l3b-6 - nullable-scalar had no ssa repr: the f64 lane refused constptrnull loudly while the i64/bool lanes stored its zero bits silently (7:null printed 0) and a nullable-struct join read constptrnull as a live layout (unknown-any-tag); unify_ternary joins null against number/boolean/struct to any mirroring the undefined arm, and the ternary widen boxes both sides expr-aware so the null side folds to any_null; ptr-repr branches keep their nullable join)"
+    },
+    {
+      "hash": "4515c171",
+      "subject": "feat: container-stored fn-exprs join the arguments argv face (l3b - array-literal element positions are boxed-only consumption so the binding-chain kill walk admits them alongside the escape-store/arg-position profiles; a rest-tail closure value callee like box[0](...) routes through the boxed dual entry via emit_variadic_boxed_call mirroring the struct-field variadic arm, instead of the declared-sig env-first callindirect that fed the injected argv params garbage; safe_binding_chain + collect_legal_uses split to arguments_object_chain sibling under the 500-line rule)"
+    },
+    {
+      "hash": "f13e48f7",
+      "subject": "docs: rotation 361 close - l3b parallel-face four-clear (closure/fndecl typed+fnsig defaults via typednarrow lane, generic fn value escape via anywv clone), ternary widen orphaned-block fix, sweep +1 conserved zero regressions, dashboard refresh"
+    },
+    {
       "hash": "e6703f30",
       "subject": "feat: implicit-generic fn values escape through an all-any clone (l3b-3 - a let-bound generic fn's typevar face rejected every callindirect argument; the let-decl check widens the binding face and records the site, check_monomorph_any_widen drains it through a parameterized emit_widened_spec into a $$anywv spec, and the ident lowering takes the clone's address via the existing call_retargets channel)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "e0c29231",
       "subject": "feat: closure scalar-typed defaults fire on runtime undefined (l3b-1 route a - arrowfn typednarrow lane renames the param to a __dflt any carrier, body-head guard + let narrow back to the declared scalar; plus the pre-existing any-to-boolean let-narrow hole - bool row was missing from the binding-boundary kind table so a false box read as true)"
-    },
-    {
-      "hash": "438e8f44",
-      "subject": "docs: rotation 360 close - s1 indirect-argc abi five blades complete (t1/t2/h1/h2/c, real_argc injection retired workspace-wide), concat wrapper crash fix, sweep +1 conserved zero regressions, dashboard refresh"
-    },
-    {
-      "hash": "08a5e25f",
-      "subject": "fix: str concat tostrings an any argument through the kernel (raw str_concat deref'd the nan-box as a str pointer - sigsegv on 'a'.concat(Object('b')), the string-object test262 form)"
-    },
-    {
-      "hash": "c27a35fd",
-      "subject": "refactor: retire the injected real-argc param end to end (c blade - has_real_argc field chain, synthetic-params entry, length-fold filter, fnexpr face predicate, argcmode real field collapsed to unit; machine proof = zero grep hits workspace-wide)"
-    },
-    {
-      "hash": "c1e47b02",
-      "subject": "feat: the head-less tier reads the s1 hidden argc (h2 reader switch - classify merged into the hidden arm with reallocal write mirror, real_argc injection and prepend_static_argc retired, mono body-clone mirror moved to process_one_generic plus any-widen channel)"
-    },
-    {
-      "hash": "088f3502",
-      "subject": "feat: head-less t-31 fns take the s1 hidden argc at sig position 0 (h1 mechanical abi - headless_argc_fns side table with mono mirror, pass_1/setup twin injection, terminal shifts param reads and prepends argc after coercion)"
-    },
-    {
-      "hash": "543190cb",
-      "subject": "feat: the this-first method_argv family reads the s1 hidden argc (t2 reader switch - inject argv-only, classify hidden arm with length-write reallocal mirror, take-count face param retired, checker/metadata skip 3 to 2)"
-    },
-    {
-      "hash": "a807b6d9",
-      "subject": "feat: the this-first method_argv family takes the s1 hidden argc slot (t1 mechanical abi - shared predicate across pass_1/setup/boxed skip math, adapter forwards user argc, module_metadata dual-skip length gate)"
     }
   ],
-  "headSha": "e6703f30",
+  "headSha": "5776b036",
   "autorun": {
-    "total": 664,
+    "total": 665,
     "baselineTarget": 10,
-    "bySelf": 659,
+    "bySelf": 660,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786411524-713d",
-      "at": "2026-08-11T01:25:24Z",
-      "ts": 1786411524,
+      "rotationId": "r-1786416953-3012",
+      "at": "2026-08-11T02:55:53Z",
+      "ts": 1786416953,
       "trigger": "self",
-      "prevHead": "438e8f44",
-      "handoffSha": "sha256:8328d1cfdc8e5d353d53fd45a3744278393fb73ad13b7d1b899d5eb7120d3b78",
-      "handoffAgeSec": 270,
+      "prevHead": "f13e48f7",
+      "handoffSha": "sha256:2097f696bb41e5027a56fca8567238accbfb429e78f0d885ff26328505bc9a11",
+      "handoffAgeSec": 538,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786416953-3012",
+        "at": "2026-08-11T02:55:53Z",
+        "ts": 1786416953,
+        "trigger": "self",
+        "prevHead": "f13e48f7",
+        "handoffSha": "sha256:2097f696bb41e5027a56fca8567238accbfb429e78f0d885ff26328505bc9a11",
+        "handoffAgeSec": 538,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786411524-713d",
         "at": "2026-08-11T01:25:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "d2d2094e",
         "handoffSha": "sha256:18837f8fca745c5acdf8feabbefe0d032a74fbc0bc9703d011c0c72b39d63201",
         "handoffAgeSec": 33,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786327134-7d7e",
-        "at": "2026-08-10T01:58:54Z",
-        "ts": 1786327134,
-        "trigger": "self",
-        "prevHead": "1d74facf",
-        "handoffSha": "sha256:73f5a4610c0f933ae9f9dd79863b1821c770ea35726e71bf0d882ea1ae69d007",
-        "handoffAgeSec": 58,
         "conformanceBefore": null,
         "commitsInSession": null
       }
