@@ -209,8 +209,27 @@ impl<'a> FnToClosureCollector<'a> {
             Expr::Unary { expr, .. }
             | Expr::TypeOf { expr }
             | Expr::Spread { expr }
-            | Expr::InstanceOf { expr, .. }
-            | Expr::As { expr, .. } => self.walk_expr(*expr),
+            | Expr::InstanceOf { expr, .. } => self.walk_expr(*expr),
+            // `fn as any` — the cast IS an any-boxing position (the
+            // widened box has no FnSig arm), so a bare top-FnDecl
+            // Ident wraps to its canonical forwarder cell right here;
+            // `(Pair as any).bind(null, 1)` is the t262 shape that
+            // panicked at the box site. Nested As layers peel like
+            // every other axis; non-any casts keep the plain
+            // recursion (typecheck-only, no IR side effect).
+            Expr::As { expr, ty_ann } => {
+                let (expr, is_any) = (*expr, ty_ann == "any");
+                let inner = {
+                    let mut e = expr;
+                    while let Expr::As { expr, .. } = self.ast.get_expr(e) {
+                        e = *expr;
+                    }
+                    e
+                };
+                if !is_any || !self.try_mark(inner) {
+                    self.walk_expr(expr);
+                }
+            }
             Expr::Ternary {
                 cond,
                 then_branch,

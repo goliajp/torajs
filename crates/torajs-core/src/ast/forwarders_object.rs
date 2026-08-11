@@ -420,24 +420,28 @@ pub(super) fn synthesize_forwarder_decls(
             default: None,
             is_rest: false,
         });
-        // Skip a promoted target's hidden `__this` first param on the
-        // public face; forward `undefined` into it (mirrors
-        // forwarders.rs — plain-call receiver semantics).
-        let takes_this = params.first().is_some_and(|p| p.name == "__this");
-        let user_params = if takes_this {
-            &params[1..]
-        } else {
-            &params[..]
-        };
+        // A promoted target's `__this` first param stays on the
+        // forwarder's PUBLIC face — the recv-first head shape is what
+        // the boxed adapter keys its receiver channel on (RFC
+        // 20260717-objlit-anylane-recv knife 2d), so construct /
+        // `.call` / bound-this reach the target's `this` through the
+        // forwarder. A receiverless plain call feeds the slot
+        // undefined through the adapter's default, which is exactly
+        // what the old skip-and-feed-undefined face hard-coded.
+        let user_params = &params[..];
+        // The recv-first head shape alone is inert — the boxed
+        // adapter's receiver channel keys on FLAG_CLOSURE_RECV_FIRST,
+        // which the closure mint stamps off this registry; without it
+        // the receiver silently drops and `__this` reads undefined.
+        if params.first().is_some_and(|p| p.name == "__this") {
+            ast.fnexpr_recv_fns.insert(forward_name.clone());
+        }
         // Knife 4d — a trailing GEN_ARGV_PARAM never enters the
         // forwarder's declared face; the call below feeds it
         // `[...arguments]` (see forwarders::split_gen_argv_tail).
         let (user_params, takes_gen_argv) = super::forwarders::split_gen_argv_tail(user_params);
         fwd_params.extend(user_params.iter().cloned());
         let mut arg_eids: Vec<ExprId> = Vec::with_capacity(params.len());
-        if takes_this {
-            arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
-        }
         for p in user_params {
             let id = ast.add_expr(Expr::Ident(p.name.clone()));
             // A rest param forwards as a SPREAD: `target(args)` would
