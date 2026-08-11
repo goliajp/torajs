@@ -171,6 +171,28 @@ fn try_lower_call_or_closure_callee(
     let callee_ty = ctx.operand_ty(&callee_op);
     match callee_ty {
         Type::Closure(user_sig_id) => {
+            // Rotation 362 — a rest-tail callee VALUE (`box[0](…)` where
+            // the element's checker type is `(...args: any[]) => R`)
+            // never static-dispatches: the SSA sig only carries the
+            // fixed prefix, so the env-first CallIndirect argv would
+            // mismatch the closure's real native arity (the argv-face
+            // injected params read garbage — SIGSEGV). Route through
+            // the boxed dual entry, mirroring the struct-field arm
+            // (`callable_field_is_variadic`).
+            if matches!(
+                ctx.expr_types.get(&callee),
+                Some(crate::check::Type::Function(ps, _))
+                    if matches!(ps.last(), Some(crate::check::Type::Rest(_)))
+            ) {
+                return Some(
+                    crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
+                        ctx,
+                        callee_op,
+                        user_sig_id,
+                        args,
+                    ),
+                );
+            }
             // Rotation 328 — an inline PROMOTED fn-expr callee (the
             // IIFE arm): its native ABI carries the `__this: any`
             // param the Closure sig sheds, so the receiverless call

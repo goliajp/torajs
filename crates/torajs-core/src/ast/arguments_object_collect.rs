@@ -6,14 +6,15 @@
 //!   seed + HOF mono-track admit (RFC 20260708-closure-argc-abi).
 //! - `collect_value_argv` — full-arguments tier seed (RFC
 //!   20260708-closure-argv-face).
-//! - `safe_binding_chain` — the shared direct-call-or-alias binding
-//!   safety walk both tiers gate on.
+//!
+//! The shared `safe_binding_chain` safety walk both tiers gate on
+//! lives in the `arguments_object_chain` sibling.
 
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
     body_has_unsafe_return_arguments,
 };
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, Stmt};
 
 /// RFC 20260708-closure-argc-abi chunk 1 — collect the closure
 /// VALUE form seed: length-only lifted closures whose value is
@@ -136,7 +137,9 @@ pub(super) fn collect_value_argc(
 
     // Direct bindings + alias closure + kill fixpoint — the shared
     // safety walk (also used by the argv-face tier below).
-    argc_candidates = safe_binding_chain(ast, |fn_name| value_real_argc.contains(fn_name));
+    argc_candidates = super::arguments_object_chain::safe_binding_chain(ast, |fn_name| {
+        value_real_argc.contains(fn_name)
+    });
     // Only fns whose closure value is consumed EXCLUSIVELY through a
     // surviving binding chain get the argc injection — plus the
     // RFC-chunk-2 mono-track form below. A closure stored in a
@@ -189,287 +192,11 @@ pub(super) fn collect_value_argv(
     if full.is_empty() {
         return (HashSet::new(), HashSet::new());
     }
-    let candidates = safe_binding_chain(ast, |fn_name| full.contains(fn_name));
+    let candidates =
+        super::arguments_object_chain::safe_binding_chain(ast, |fn_name| full.contains(fn_name));
     let injected: HashSet<String> = candidates.values().cloned().collect();
     let locals: HashSet<String> = candidates.keys().cloned().collect();
     (injected, locals)
-}
-
-/// Shared binding safety walk (argc + argv tiers): seed direct
-/// bindings (`const f = <closure literal>` whose fn passes `seed`),
-/// grow aliases (`const g = f`) to a fixpoint, then kill every
-/// chain containing a binding used anywhere other than a Call
-/// callee or a still-candidate alias init. A killed chain removes
-/// the whole source fn (its call sites don't know the reshaped
-/// signature).
-fn safe_binding_chain(
-    ast: &Ast,
-    seed: impl Fn(&str) -> bool,
-) -> std::collections::HashMap<String, String> {
-    use std::collections::{HashMap, HashSet};
-    let mut candidates: HashMap<String, String> = HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s
-            && let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
-            && seed(fn_name)
-        {
-            candidates.insert(name.clone(), fn_name.clone());
-        }
-    }
-    // Knife 4c (RFC 20260801-arguments-method-face) — `var ref =
-    // obj.method`: a member read of a top-level object-literal
-    // binding whose field holds a seeded closure joins the chain
-    // too (the test262 meth-args template's escape form). Only the
-    // ALIAS binding enters the walk — the object binding itself is
-    // untouched, and its member CALLS stay safe because the argv
-    // face's rest-tail checker type routes a reshaped field through
-    // the boxed variadic lane rather than the static widen.
-    let mut objlit_fields: HashMap<(&str, &str), &str> = HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s
-            && let Expr::ObjectLit { fields } = ast.get_expr(*init)
-        {
-            for (fname, feid) in fields {
-                if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid) {
-                    objlit_fields.insert((name.as_str(), fname.as_str()), fn_name.as_str());
-                }
-            }
-        }
-    }
-    // The escape usually arrives var-hoisted: `var ref = obj.m` is
-    // `let ref: any (Uninit)` + a top-level `ref = obj.m` Assign.
-    // Seed both spellings; the Assign's target Ident is whitelisted
-    // for the kill walk below (it is the binding's own definition,
-    // not a value use — any OTHER assignment to the alias still
-    // kills the chain).
-    let mut assign_legal: HashSet<u32> = HashSet::new();
-    for s in &ast.stmts {
-        let (bname, member_eid, target_eid) = match s {
-            Stmt::LetDecl { name, init, .. } => (name.clone(), *init, None),
-            Stmt::Expr(eid) => {
-                let Expr::Assign { target, value } = ast.get_expr(*eid) else {
-                    continue;
-                };
-                let Expr::Ident(name) = ast.get_expr(*target) else {
-                    continue;
-                };
-                (name.clone(), *value, Some(target.0))
-            }
-            _ => continue,
-        };
-        if let Expr::Member { obj, name: m } = ast.get_expr(member_eid)
-            && let Expr::Ident(o) = ast.get_expr(*obj)
-            && let Some(fn_name) = objlit_fields.get(&(o.as_str(), m.as_str()))
-            && seed(fn_name)
-            && !candidates.contains_key(&bname)
-        {
-            candidates.insert(bname, fn_name.to_string());
-            if let Some(t) = target_eid {
-                assign_legal.insert(t);
-            }
-        }
-    }
-    loop {
-        let mut grew = false;
-        for s in &ast.stmts {
-            if let Stmt::LetDecl { name, init, .. } = s
-                && let Expr::Ident(src) = ast.get_expr(*init)
-                && candidates.contains_key(src)
-                && !candidates.contains_key(name)
-            {
-                candidates.insert(name.clone(), candidates[src].clone());
-                grew = true;
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    // RFC 20260808 knife 2 — the kill walk's by-name arena scan must
-    // not count a fn-local PARAM shadow's uses (the t262 harness
-    // declares a `func` param whose body uses killed every binding
-    // the bind family actually names `func`). Resolution is per fn —
-    // `toplevel_binding_refs` cannot arbitrate here: its Closure arm
-    // counts capture names unfiltered (the r290 over-approximation),
-    // so the harness param captured by its own inner closure poisons
-    // the whole set. A closure CAPTURE of the name outside a
-    // shadowing body is a real reference the walk can't see through —
-    // that still kills the chain.
-    //
-    // Knife 7 — the exemption arms ONLY for a binding that stands in
-    // `.bind`-receiver position somewhere: those calls reach the
-    // body through the bind kernel's boxed entry (real argc/argv),
-    // the verified face. A shadow-colliding binding whose only uses
-    // are DIRECT calls stays on the old kill: admitting it routes
-    // the calls down the fn-indirect lane on the DECLARED signature
-    // while the body grows the argc/argv slots — a 5-param body
-    // entered through a 2-param sig read its argv param off garbage
-    // (the 27 new SIGSEGVs of the every/filter/map `-c-i-25` t262
-    // family). Real fix = the var-hoisted binding's rest-tail mint
-    // (L3b); until then the un-exempted shape keeps its loud reject.
-    let shadow_owned: std::collections::HashMap<String, Vec<bool>> = candidates
-        .keys()
-        .map(|b| {
-            let has_bind_receiver_use = ast.exprs.iter().any(|e| {
-                matches!(e, Expr::Member { obj, name } if name == "bind"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == b))
-            });
-            let owned = if has_bind_receiver_use {
-                super::fnexpr_bind_this::shadowed_use_eids(ast, b)
-            } else {
-                vec![false; ast.exprs.len()]
-            };
-            (b.clone(), owned)
-        })
-        .collect();
-    // RFC 20260808 escape-store profile — the face-position roots
-    // the fnexpr-this store arm admits (B2, rotation 337): a store
-    // into `<any>.k` / `<any>[k]` / `X.prototype.k` /
-    // `<any|array>.constructor[k]` is boxed-only consumption — a
-    // builtin reaches the stored value through the factory adapter
-    // or the any-lane call path, both of which enter the boxed dual
-    // entry with REAL argc/argv. Computed once for the kill walk's
-    // escape-store exemption below.
-    let props_recvs =
-        super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
-    let boxed_face_store = |target: ExprId| -> bool {
-        super::arguments_object_escape_store::boxed_face_store_target(ast, target, &props_recvs)
-    };
-    // Rotation 345 — boxed-consumption ARGUMENT positions are legal
-    // too, on the same reasoning as the escape-store profile: a value
-    // handed to an explicit-`any` / proven-generic param crosses into
-    // the any lane, and a construct-channel builtin argument reaches
-    // its call through the construct kernel — both enter the boxed
-    // dual entry with REAL argc/argv, never the declared static sig.
-    let mut boxed_arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
-    boxed_arg_sites.extend(super::fnexpr_this_args::construct_channel_arg_idents(
-        &ast.exprs,
-    ));
-    // An equality operand (`r.constructor === C`) compares the cell
-    // pointer — no call lane at all, so it cannot reach the body on
-    // the declared signature either.
-    boxed_arg_sites.extend(super::fnexpr_this_args::eq_operand_idents(&ast.exprs));
-    loop {
-        let mut killed: HashSet<String> = HashSet::new();
-        for b in candidates.keys() {
-            let sh = &shadow_owned[b];
-            if ast.exprs.iter().enumerate().any(|(i, e)| {
-                matches!(e, Expr::Closure { captures, .. }
-                    if captures.iter().any(|c| c == b))
-                    && !sh[i]
-            }) {
-                killed.insert(b.clone());
-                continue;
-            }
-            let b_eids: HashSet<u32> = (0..ast.exprs.len() as u32)
-                .filter(|&i| {
-                    matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == b) && !sh[i as usize]
-                })
-                .collect();
-            let legal = collect_legal_uses(ast, &candidates, &b_eids, &assign_legal, |t| {
-                boxed_face_store(t)
-            });
-            if b_eids
-                .difference(&legal)
-                .any(|&i| !boxed_arg_sites.contains(&ExprId(i)))
-            {
-                killed.insert(b.clone());
-            }
-        }
-        if killed.is_empty() {
-            break;
-        }
-        let killed_fns: HashSet<String> = candidates
-            .iter()
-            .filter(|(b, _)| killed.contains(*b))
-            .map(|(_, f)| f.clone())
-            .collect();
-        candidates.retain(|_, f| !killed_fns.contains(f));
-    }
-    candidates
-}
-
-/// The kill walk's legal-use set for one candidate binding — every
-/// arena occurrence of the name that does NOT kill the chain:
-/// * a Call callee (the direct-site shape the fold rewrites);
-/// * a still-candidate alias init (`const g = f`);
-/// * the knife-4c seeding Assign's own target Ident (the binding's
-///   definition, not a value use);
-/// * RFC 20260808 escape-store — a store into a boxed-face position:
-///   every path from that slot back to the body (species construct,
-///   builtin callback, any-lane member call) enters the boxed dual
-///   entry, which feeds the reshaped signature its REAL argc/argv;
-/// * RFC 20260808 knife 2 — `b.bind(…)` as a Call callee: the bind
-///   kernel's bound cell dispatches through the boxed dual entry. A
-///   `.bind` member read outside a call (a stored `b.bind` value)
-///   still kills;
-/// * species key 2 — `b.prototype` as a member-read receiver, ONLY
-///   for a binding that also has an escape-store use: the read
-///   touches the closure cell's fnprops canonical pair (RFC
-///   20260804), never the body, and a prototype-object round trip
-///   back to the fn value (`b.prototype.constructor`) dispatches
-///   any-lane through the boxed dual entry — real argc/argv again.
-///   (create-species.js asserts `Object.getPrototypeOf(thisValue)
-///   === Ctor.prototype` — the read was killing the whole chain.)
-///   The store gate is load-bearing: a store-free fn-expr ctor
-///   (`var F = function () {…arguments…}; new F(…)`) rides the
-///   ctor-argv STATIC channel, which the kill of its desugar-
-///   synthesized `F.prototype` read is what selects — exempting it
-///   unconditionally floated those bindings into the boxed argv
-///   face against static call sites (the fnexpr-ctor-args-001
-///   TypeError/SIGSEGV pair, gate 8692ca1a').
-///
-/// Any other use shape kills.
-fn collect_legal_uses(
-    ast: &Ast,
-    candidates: &std::collections::HashMap<String, String>,
-    b_eids: &std::collections::HashSet<u32>,
-    assign_legal: &std::collections::HashSet<u32>,
-    boxed_face_store: impl Fn(ExprId) -> bool,
-) -> std::collections::HashSet<u32> {
-    let mut legal: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    for e in &ast.exprs {
-        if let Expr::Call { callee, .. } = e
-            && b_eids.contains(&callee.0)
-        {
-            legal.insert(callee.0);
-        }
-    }
-    for s in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s
-            && b_eids.contains(&init.0)
-            && candidates.contains_key(name)
-        {
-            legal.insert(init.0);
-        }
-    }
-    for &t in assign_legal.intersection(b_eids) {
-        legal.insert(t);
-    }
-    let mut escape_stored = false;
-    for e in &ast.exprs {
-        if let Expr::Assign { target, value } = e
-            && b_eids.contains(&value.0)
-            && boxed_face_store(*target)
-        {
-            legal.insert(value.0);
-            escape_stored = true;
-        }
-    }
-    for (mi, e) in ast.exprs.iter().enumerate() {
-        if let Expr::Member { obj, name } = e
-            && b_eids.contains(&obj.0)
-            && ((name == "prototype" && escape_stored)
-                || (name == "bind"
-                    && ast
-                        .exprs
-                        .iter()
-                        .any(|c| matches!(c, Expr::Call { callee, .. } if callee.0 == mi as u32))))
-        {
-            legal.insert(obj.0);
-        }
-    }
-    legal
 }
 
 /// RFC 20260708-closure-argc-abi chunk 2 — every arena occurrence of
