@@ -145,6 +145,65 @@ fn seed_objlit_aliases(
 /// different scopes) is dropped up front: the two chains would blur
 /// into one — the conservative skip loses the optimization, never
 /// admits wrongly.
+/// Boxed-consumption ARGUMENT positions — every ExprId whose use as
+/// a chain binding is legal because the consumer enters the boxed
+/// dual entry with REAL argc/argv, never the declared static sig:
+/// * rotation 345 — explicit-`any` / proven-generic param args and
+///   construct-channel builtin args (any lane / construct kernel);
+/// * an equality operand (`r.constructor === C`) compares the cell
+///   pointer — no call lane at all;
+/// * rotation 362 — array-literal ELEMENT positions (the
+///   container-store shape): every call reached back out of the
+///   array dispatches any-lane through the boxed dual entry;
+/// * rotations 363-364 — the HOF callback slot on the downgraded
+///   channels (inline loops, Map/Set walks, any-lane and
+///   struct-method receivers all route argv-face callees through
+///   the boxed variadic dispatch). `Array.from`'s callback rides
+///   the SECOND slot (§23.1.2.1); instance methods carry it first.
+fn collect_boxed_arg_sites(ast: &Ast) -> std::collections::HashSet<ExprId> {
+    let mut boxed_arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
+    boxed_arg_sites.extend(super::fnexpr_this_args::construct_channel_arg_idents(
+        &ast.exprs,
+    ));
+    boxed_arg_sites.extend(super::fnexpr_this_args::eq_operand_idents(&ast.exprs));
+    for e in &ast.exprs {
+        if let Expr::Array(elems) = e {
+            boxed_arg_sites.extend(elems.iter().copied());
+        }
+    }
+    for e in &ast.exprs {
+        if let Expr::Call { callee, args } = e
+            && let Expr::Member { name: m, .. } = ast.get_expr(*callee)
+            && matches!(
+                m.as_str(),
+                "map"
+                    | "filter"
+                    | "forEach"
+                    | "reduce"
+                    | "reduceRight"
+                    | "find"
+                    | "findLast"
+                    | "findIndex"
+                    | "findLastIndex"
+                    | "some"
+                    | "every"
+                    | "flatMap"
+                    | "from"
+                    | "sort"
+                    | "toSorted"
+            )
+            && let Some(&a0) = if m == "from" {
+                args.get(1)
+            } else {
+                args.first()
+            }
+        {
+            boxed_arg_sites.insert(a0);
+        }
+    }
+    boxed_arg_sites
+}
+
 pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<(String, String)> {
     use std::collections::{HashMap, HashSet};
     let mut all_lets: Vec<(&str, ExprId)> = Vec::new();
@@ -235,73 +294,7 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
     let boxed_face_store = |target: ExprId| -> bool {
         super::arguments_object_escape_store::boxed_face_store_target(ast, target, &props_recvs)
     };
-    // Rotation 345 — boxed-consumption ARGUMENT positions are legal
-    // too, on the same reasoning as the escape-store profile: a value
-    // handed to an explicit-`any` / proven-generic param crosses into
-    // the any lane, and a construct-channel builtin argument reaches
-    // its call through the construct kernel — both enter the boxed
-    // dual entry with REAL argc/argv, never the declared static sig.
-    let mut boxed_arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
-    boxed_arg_sites.extend(super::fnexpr_this_args::construct_channel_arg_idents(
-        &ast.exprs,
-    ));
-    // An equality operand (`r.constructor === C`) compares the cell
-    // pointer — no call lane at all, so it cannot reach the body on
-    // the declared signature either.
-    boxed_arg_sites.extend(super::fnexpr_this_args::eq_operand_idents(&ast.exprs));
-    // Rotation 362 — array-literal ELEMENT positions are boxed-only
-    // consumption too (the container-store shape): the element slot
-    // boxes the closure into the any world, and every call reached
-    // back out of the array (`box[0](…)`, an aliased element read, a
-    // spread) dispatches any-lane through the boxed dual entry with
-    // REAL argc/argv — no path from inside an array reaches the
-    // declared static signature.
-    for e in &ast.exprs {
-        if let Expr::Array(elems) = e {
-            boxed_arg_sites.extend(elems.iter().copied());
-        }
-    }
-    // Rotation 363 — the HOF callback slot (map/filter/forEach) is
-    // boxed-only consumption on the downgraded channels: the array
-    // inline loops, the Map/Set forEach walks and every non-array
-    // receiver spelling (any-lane, struct method) all route an
-    // argv-face callee through the boxed variadic dispatch with
-    // REAL argc/argv, so a binding handed to that slot never
-    // reaches the declared static signature. Rotation 364 grows the
-    // whitelist as each lane takes the argv_face branch: the
-    // predicate family (the short-circuit iter loop).
-    for e in &ast.exprs {
-        if let Expr::Call { callee, args } = e
-            && let Expr::Member { name: m, .. } = ast.get_expr(*callee)
-            && matches!(
-                m.as_str(),
-                "map"
-                    | "filter"
-                    | "forEach"
-                    | "reduce"
-                    | "reduceRight"
-                    | "find"
-                    | "findLast"
-                    | "findIndex"
-                    | "findLastIndex"
-                    | "some"
-                    | "every"
-                    | "flatMap"
-                    | "from"
-                    | "sort"
-                    | "toSorted"
-            )
-            // `Array.from`'s callback rides the SECOND slot
-            // (§23.1.2.1); instance methods carry it first.
-            && let Some(&a0) = if m == "from" {
-                args.get(1)
-            } else {
-                args.first()
-            }
-        {
-            boxed_arg_sites.insert(a0);
-        }
-    }
+    let boxed_arg_sites = collect_boxed_arg_sites(ast);
     loop {
         let mut killed: HashSet<String> = HashSet::new();
         for b in candidates.keys() {

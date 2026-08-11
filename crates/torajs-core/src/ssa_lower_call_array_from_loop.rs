@@ -22,6 +22,86 @@ pub(crate) fn from_mapfn_promoted(ctx: &LowerCtx<'_>, cb: ExprId) -> bool {
     }
 }
 
+/// Knife-4 mirror (rotation 260) — a promoted fn-expr callback takes
+/// the §23.1.2.1 thisArg as its leading boxed `__this` arg (undefined
+/// when absent); box_to_any is a pure encoding, so an owned-shape
+/// thisArg temp keeps its stake in `op` and settles after the loop,
+/// same as ssa_lower_call_arr_ho.
+fn lower_promoted_this(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> (Option<Operand>, Option<(ExprId, Operand)>) {
+    if !from_mapfn_promoted(ctx, args[1]) {
+        return (None, None);
+    }
+    if let Some(&t) = args.get(2) {
+        let op = ctx.lower_expr(t);
+        let boxed = ctx.box_to_any_from_expr(t, op.clone());
+        (Some(boxed), Some((t, op)))
+    } else {
+        (
+            Some(Operand::Value(
+                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
+            )),
+            None,
+        )
+    }
+}
+
+/// Pre-size dst to src.length (each iteration pushes exactly one
+/// element, so capacity is exact) and answer `(src_len, dst_slot)`.
+/// Chunk 625 precedent (flat_map) — an Any dst allocates the
+/// FLAG_ARR_ANY flavor: push_unchecked's 8B store is layout-correct
+/// (any slots ARE box bits), but the block must self-describe as Any
+/// for the kind-aware readers. B1 — reserve never moves the cell;
+/// the write-back is retired.
+fn alloc_from_dst(
+    ctx: &mut LowerCtx<'_>,
+    src_arr_val: crate::ssa::ValueId,
+    dst_elem_ty: Type,
+    dst_arr_ty: Type,
+) -> (crate::ssa::ValueId, crate::ssa::ValueId) {
+    let src_len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(src_arr_val), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let dst_alloc_fn = if dst_elem_ty == Type::Any {
+        ctx.intrinsics.arr_alloc_any
+    } else {
+        ctx.intrinsics.arr_alloc
+    };
+    let dst_arr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(dst_alloc_fn, vec![Operand::Value(src_len)]),
+        dst_arr_ty,
+        None,
+    );
+    let dst_slot = ctx.alloca(dst_arr_ty, Some("__from_dst"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(dst_arr), Operand::Value(dst_slot), 0),
+    );
+    let cur_dst0 = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
+        dst_arr_ty,
+        None,
+    );
+    let reserved = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_reserve,
+            vec![Operand::Value(cur_dst0), Operand::Value(src_len)],
+        ),
+        dst_arr_ty,
+        None,
+    );
+    let _ = reserved;
+    (src_len, dst_slot)
+}
+
 pub(crate) fn emit_map_loop(
     ctx: &mut LowerCtx<'_>,
     src_arr_op: Operand,
@@ -58,27 +138,7 @@ pub(crate) fn emit_map_loop(
     };
     let fn_val = ctx.lower_expr(args[1]);
     let fn_ty = ctx.operand_ty(&fn_val);
-    // Knife-4 mirror (rotation 260) — a promoted fn-expr callback
-    // takes the §23.1.2.1 thisArg as its leading boxed `__this` arg
-    // (undefined when absent); box_to_any is a pure encoding, so an
-    // owned-shape thisArg temp keeps its stake in `op` and settles
-    // after the loop, same as ssa_lower_call_arr_ho.
-    let promoted = from_mapfn_promoted(ctx, args[1]);
-    let mut this_temp: Option<(ExprId, Operand)> = None;
-    let this_arg: Option<Operand> = if promoted {
-        if let Some(&t) = args.get(2) {
-            let op = ctx.lower_expr(t);
-            let boxed = ctx.box_to_any_from_expr(t, op.clone());
-            this_temp = Some((t, op));
-            Some(boxed)
-        } else {
-            Some(Operand::Value(
-                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
-            ))
-        }
-    } else {
-        None
-    };
+    let (this_arg, this_temp) = lower_promoted_this(ctx, args);
     let (sig_params, dst_elem_ty) = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => {
             let (p, r) = ctx.fn_sigs[s.0 as usize].clone();
@@ -90,53 +150,7 @@ pub(crate) fn emit_map_loop(
     };
     let dst_arr_id = intern_arr_layout(ctx.arr_layouts, dst_elem_ty);
     let dst_arr_ty = Type::Arr(dst_arr_id);
-    // Pre-size dst to src.length (each iteration pushes exactly one
-    // element, so capacity is exact).
-    let src_len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(src_arr_val), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
-    // Chunk 625 precedent (flat_map) — an Any dst allocates the
-    // FLAG_ARR_ANY flavor: push_unchecked's 8B store is
-    // layout-correct (any slots ARE box bits), but the block must
-    // self-describe as Any for the kind-aware readers — the old
-    // typed alloc left an unmarked block whose index reads fell to
-    // the UNSET arm (undefined) and whose drop missed the rc walk.
-    let dst_alloc_fn = if dst_elem_ty == Type::Any {
-        ctx.intrinsics.arr_alloc_any
-    } else {
-        ctx.intrinsics.arr_alloc
-    };
-    let dst_arr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(dst_alloc_fn, vec![Operand::Value(src_len)]),
-        dst_arr_ty,
-        None,
-    );
-    let dst_slot = ctx.alloca(dst_arr_ty, Some("__from_dst"));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(dst_arr), Operand::Value(dst_slot), 0),
-    );
-    let cur_dst0 = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
-        dst_arr_ty,
-        None,
-    );
-    let reserved = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_reserve,
-            vec![Operand::Value(cur_dst0), Operand::Value(src_len)],
-        ),
-        dst_arr_ty,
-        None,
-    );
-    // B1 — reserve never moves the cell; write-back retired.
-    let _ = reserved;
+    let (src_len, dst_slot) = alloc_from_dst(ctx, src_arr_val, dst_elem_ty, dst_arr_ty);
     let header_blk = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
