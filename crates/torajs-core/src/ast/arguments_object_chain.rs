@@ -286,6 +286,7 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
                     | "findLastIndex"
                     | "some"
                     | "every"
+                    | "flatMap"
             )
             && let Some(&a0) = args.first()
         {

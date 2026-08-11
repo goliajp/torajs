@@ -49,6 +49,7 @@ pub(crate) fn try_match(
             | "findLastIndex"
             | "some"
             | "every"
+            | "flatMap"
     ) || args.is_empty()
     {
         return None;
@@ -122,6 +123,19 @@ pub(crate) fn try_match(
         "some" | "every" => Some(Ok(Type::Boolean)),
         "findIndex" | "findLastIndex" => Some(Ok(Type::Number)),
         "find" | "findLast" => Some(Ok((**elem).clone())),
+        // Rotation 364 — mirror of the lane's `dst_shape`: an
+        // Array-returning callback flattens one level, a Void one
+        // pushes boxed-undefined per element (dst takes the Any
+        // flavor), a primitive/Any ret pushes the scalar as-is.
+        // Anything else falls through to the loud reject.
+        "flatMap" => match &**aret {
+            Type::Array(inner) => Some(Ok(Type::Array(inner.clone()))),
+            Type::Void => Some(Ok(Type::Array(Box::new(Type::Any)))),
+            Type::Number | Type::String | Type::Boolean | Type::Any => {
+                Some(Ok(Type::Array(aret.clone())))
+            }
+            _ => None,
+        },
         // Mirror of the lane's `resolve_acc_ty`: the accumulator
         // slot is the callback's return type, widened to Any when
         // the seed (2-arg) or the element (1-arg, §23.1.3.24 step

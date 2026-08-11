@@ -60,6 +60,18 @@ pub(crate) fn try_lower(
     let fn_val = ctx.lower_expr(args[0]);
     let (this_arg, this_temp) = lower_promoted_this(ctx, args);
     let fn_ty = ctx.operand_ty(&fn_val);
+    // Rotation 364 — an argv-face callback (body reads `arguments`
+    // values) must not take the direct call: its reshaped sig leads
+    // with the synthetic argv pointer. The loop body routes it
+    // through the boxed variadic dispatch (`emit_argv_face_call`)
+    // with the full §23.1.3.13 «kValue, k, O» triple. The declared
+    // ret still drives `dst_shape` — the variadic conv unboxes the
+    // result back to it, so the downstream scalar / inner-walk
+    // split is unchanged.
+    let argv_face = matches!(ctx.ast.get_expr(args[0]),
+        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
+        || matches!(ctx.ast.get_expr(args[0]),
+            Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n));
     let cb_ret_ty = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
         _ => panic!("flatMap callback must be callable"),
@@ -146,7 +158,13 @@ pub(crate) fn try_lower(
     // lane. Spec §23.1.3 arity — (index, srcArray) slots are appended
     // per the callback's own declared arity (`materialize_call_args`
     // aligns the reprs, same as the ho-loop family's cb_args).
-    let cb_arity = ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len());
+    // An argv-face callback takes the FULL spec list — its sig's
+    // params are the synthetic argv head, not positional slots.
+    let cb_arity = if argv_face {
+        3
+    } else {
+        ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len())
+    };
     // A promoted receiver-first callback takes the boxed thisArg as
     // its leading `__this` argv entry, which is not in the sig —
     // `sig_skip` starts positional alignment after it (knife-4).
@@ -162,7 +180,11 @@ pub(crate) fn try_lower(
         call_args.push(Operand::Value(src_arr));
     }
     let sig_skip = usize::from(this_arg.is_some());
-    let cb_ret = ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 3);
+    let cb_ret = if argv_face {
+        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, &fn_val, fn_ty, call_args, 3)
+    } else {
+        ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 3)
+    };
 
     let final_dst = if scalar_ret && cb_ret_ty == Type::Any {
         // An Any return is only decidable at runtime — ES §23.1.3.11
