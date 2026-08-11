@@ -19,9 +19,11 @@
 //!
 //! Soundness bar (the `fnexpr_this` / `globalthis_member`
 //! program-wide gate shape):
-//! - the alias decl must be a TOP-LEVEL `const` whose init is the
-//!   bare namespace Ident — module scope makes every use site legal,
-//!   so the rewrite can never legalize an undeclared cross-fn read;
+//! - the alias decl must be a TOP-LEVEL, UNANNOTATED `const` whose
+//!   init is the bare namespace Ident — module scope makes every use
+//!   site legal, so the rewrite can never legalize an undeclared
+//!   cross-fn read, and an annotated decl (`const m: any = Math`)
+//!   keeps the dynamic-cast lane it explicitly asked for;
 //! - the name must be declared exactly ONCE program-wide and never
 //!   appear as any other binding form (fn name / param / catch /
 //!   for-of var / class name) — a shadowed name cannot tell which
@@ -36,19 +38,25 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 
 /// The interned namespace-object singletons (RFC 20260801 Math /
 /// JSON / Reflect + RFC 20260812 console).
 const NS_SINGLETONS: [&str; 4] = ["Math", "JSON", "Reflect", "console"];
 
 pub fn desugar_ns_alias_members(ast: &mut Ast) {
-    // Top-level alias candidates: `const <name> = <ns>;`.
+    // Top-level alias candidates: `const <name> = <ns>;` with NO type
+    // annotation. An annotated decl (`const m: any = Math`) is the
+    // recorded dynamic-cast escape hatch — the writer asked for the
+    // runtime lane (delete / descriptor / enumeration semantics), and
+    // rewriting its members would hijack that (rotation 370 gate
+    // caught exactly this on ns-object-attrs-001).
     let mut alias: HashMap<String, String> = HashMap::new();
     for s in &ast.stmts {
         let Stmt::LetDecl {
             mutable: false,
             name,
+            type_ann: None,
             init,
             ..
         } = s
@@ -98,11 +106,31 @@ pub fn desugar_ns_alias_members(ast: &mut Ast) {
         return;
     }
 
+    // Mutation positions keep their shape (the `globalthis_member`
+    // exclusion): a member standing as an Assign target, a Delete
+    // operand, or a PostIncr target mutates through the alias, and
+    // those surfaces stay loud rather than silently retargeting.
+    let mut excluded: HashSet<ExprId> = HashSet::new();
+    for e in &ast.exprs {
+        match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => {
+                excluded.insert(*target);
+            }
+            Expr::Delete { expr } => {
+                excluded.insert(*expr);
+            }
+            _ => {}
+        }
+    }
+
     // Rewrite: the OBJ ident of every member shape through an alias.
     // Each syntactic occurrence owns its ExprId, so retargeting the
     // ident never touches a value use (`m === Math` keeps reading the
     // binding).
     for i in 0..ast.exprs.len() {
+        if excluded.contains(&ExprId(i as u32)) {
+            continue;
+        }
         let Expr::Member { obj, .. } = &ast.exprs[i] else {
             continue;
         };
