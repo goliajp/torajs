@@ -235,6 +235,9 @@ pub(crate) struct Intrinsics {
     pub(crate) regex_set_last_index: FuncId,
     pub(crate) date_now: FuncId,
     pub(crate) date_from_ms: FuncId,
+    /// §21.4.2.1 step 4 — `new Date(<runtime value>)`; the anyvalue
+    /// kernel runs the no-hint ToPrimitive + parse/ToNumber split.
+    pub(crate) date_from_value: FuncId,
     pub(crate) date_drop: FuncId,
     pub(crate) date_now_static: FuncId,
     pub(crate) date_get_time: FuncId,

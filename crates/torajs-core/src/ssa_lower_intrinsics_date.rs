@@ -33,6 +33,7 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct DateIds {
     pub date_now: FuncId,
     pub date_from_ms: FuncId,
+    pub date_from_value: FuncId,
     pub date_drop: FuncId,
     pub date_now_static: FuncId,
     pub date_get_time: FuncId,
@@ -127,6 +128,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_date_from_ms",
             &[Type::F64],
+            Type::Date,
+        ),
+        date_from_value: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_date_from_value",
+            &[Type::Any],
             Type::Date,
         ),
         date_drop: declare_intrinsic(

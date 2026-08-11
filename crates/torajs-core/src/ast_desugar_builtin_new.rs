@@ -338,12 +338,16 @@ fn rewrite_date_new(ast: &mut Ast) {
             } if class_name == "Date" => match args.len() {
                 0 => Some(("__torajs_date_now".to_string(), false, args.clone())),
                 1 => {
-                    let is_str = matches!(ast.exprs[args[0].0 as usize], Expr::String(_));
-                    if is_str {
-                        Some(("__torajs_date_from_iso".to_string(), false, args.clone()))
-                    } else {
-                        Some(("__torajs_date_from_ms".to_string(), false, args.clone()))
-                    }
+                    // Literal fast lanes keep their direct kernels;
+                    // anything else is §21.4.2.1 step 4 over a runtime
+                    // value (Date copy / no-hint ToPrimitive / a
+                    // String primitive PARSES) — the anyvalue kernel.
+                    let factory = match &ast.exprs[args[0].0 as usize] {
+                        Expr::String(_) => "__torajs_date_from_iso",
+                        Expr::Number(_) => "__torajs_date_from_ms",
+                        _ => "__torajs_date_from_value",
+                    };
+                    Some((factory.to_string(), false, args.clone()))
                 }
                 n_args if (2..=7).contains(&n_args) => Some((
                     "__torajs_date_from_components".to_string(),

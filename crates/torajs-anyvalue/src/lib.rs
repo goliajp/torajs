@@ -102,6 +102,7 @@ mod coerce;
 mod collection_init;
 mod compare;
 mod construct;
+mod date_from_value;
 mod error_cause;
 mod function_subclass;
 pub(crate) mod index_any;

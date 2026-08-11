@@ -113,6 +113,7 @@ pub(crate) fn check(
         "globalThis" => Ok(Type::Any),
         "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
         "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
+        "__torajs_date_from_value" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Date))),
         "__torajs_date_from_iso" => Ok(Type::Function(vec![Type::String], Box::new(Type::Date))),
         "__torajs_date_from_components" => {
             Ok(Type::Function(vec![Type::Number; 7], Box::new(Type::Date)))

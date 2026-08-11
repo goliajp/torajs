@@ -195,6 +195,7 @@ pub(crate) fn build(
         regex_set_last_index: init_b.regex.regex_set_last_index,
         date_now: init_b.date.date_now,
         date_from_ms: init_b.date.date_from_ms,
+        date_from_value: init_b.date.date_from_value,
         date_drop: init_b.date.date_drop,
         date_now_static: init_b.date.date_now_static,
         date_get_time: init_b.date.date_get_time,
