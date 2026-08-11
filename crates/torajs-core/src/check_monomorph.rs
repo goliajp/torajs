@@ -48,7 +48,9 @@ use crate::ssa_lower_generics_monomorph::{
 /// `CheckArtifacts`. `mono_ast` is the owned post-restore AST with
 /// every specialization FnDecl appended; `call_retargets` maps each
 /// generic call's ExprId (top-level AND inside specialization
-/// bodies) to its mono fn name; `generic_fn_names` are the original
+/// bodies) to its mono fn name — plus each VALUE-escaping init
+/// Ident's ExprId to its `$$anywv` clone (L3b ③; the ident lowering
+/// reads the same map); `generic_fn_names` are the original
 /// generic decls lower pass-1 must skip.
 pub struct MonoOutput {
     pub mono_ast: Ast,

@@ -58,6 +58,30 @@ pub(crate) fn check(
             }
         }
     };
+    // L3b ③ — a generic fn escaping as a VALUE (`const g = f` where
+    // `f`'s face still carries un-inferred TypeVars from the
+    // implicit-generics pass): the binding's direct call is a
+    // CallIndirect with no mono channel, so the TypeVar face rejects
+    // every argument. Widen the face all-TypeVar→Any and record the
+    // site; `check_monomorph_any_widen` clones an all-`any` spec and
+    // the ident lowering takes ITS address (the generic original is a
+    // checker template that never lowers).
+    let init_ty = match (&init_ty, ast.get_expr(init)) {
+        (Type::Function(ptys, rty), Expr::Ident(n))
+            if checker.generic_type_params.contains_key(n.as_str())
+                && (ptys.iter().any(|t| matches!(t, Type::TypeVar(_)))
+                    || matches!(**rty, Type::TypeVar(_))) =>
+        {
+            checker.fn_escape_widen_sites.insert(init, n.clone());
+            let subst: std::collections::HashMap<String, Type> = checker.generic_type_params
+                [n.as_str()]
+            .iter()
+            .map(|tv| (tv.clone(), Type::Any))
+            .collect();
+            crate::check_substitute_typevars::substitute_typevars(&init_ty, &subst)
+        }
+        _ => init_ty,
+    };
     // Chunk 618 — a void-call init binds undefined (the call runs
     // for effect; a fn that produces no value returns undefined).
     // Void is not a value type: pre-fix the binding carried Void

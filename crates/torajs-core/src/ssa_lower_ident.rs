@@ -56,6 +56,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if name == "Infinity" {
             return Operand::ConstF64(f64::INFINITY);
         }
+        // L3b ③ — a generic-fn VALUE escape was retargeted by the
+        // checker to its all-`any` clone (`$$anywv`); take the
+        // CLONE's address — the generic original never lowers.
+        if let Some(mono) = ctx.call_retargets.get(&eid).cloned()
+            && let Some(op) = try_global_fn_addr(ctx, &mono)
+        {
+            return op;
+        }
         if let Some(op) = try_global_fn_addr(ctx, name) {
             return op;
         }

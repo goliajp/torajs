@@ -204,6 +204,7 @@ impl Checker {
             generic_type_params: HashMap::new(),
             generic_call_sites: HashMap::new(),
             any_widen_mono_sites: HashMap::new(),
+            fn_escape_widen_sites: HashMap::new(),
             arity_pad_count: HashMap::new(),
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
@@ -343,6 +344,16 @@ pub(crate) struct Checker {
     /// retargeted site would hand a NaN-boxed Arr<Any> block to a
     /// typed slot reader (silent wrong values).
     pub any_widen_mono_sites: HashMap<ExprId, (String, Vec<usize>)>,
+    /// L3b ③ — generic-fn VALUE escapes (`const g = f` where `f`'s
+    /// sig still carries un-inferred TypeVars): key is the init
+    /// Ident's ExprId, value the fn name. The binding's face is
+    /// widened all-TypeVar→Any at the let-decl check, and every
+    /// entry MUST be retargeted by `check_monomorph_any_widen` to an
+    /// all-`any` clone (suffix `$$anywv`) whose address the ident
+    /// lowering materializes instead — an un-retargeted site would
+    /// take the ORIGINAL fn's address, whose body never lowers
+    /// (generic originals are checker templates).
+    pub fn_escape_widen_sites: HashMap<ExprId, String>,
     /// T-28 — per-Call-site count of trailing args to pad with
     /// ANY_UNDEF. Set when caller passes fewer args than the callee's
     /// param count AND the trailing missing params are all Type::Any

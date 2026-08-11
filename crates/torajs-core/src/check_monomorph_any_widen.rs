@@ -57,7 +57,7 @@ pub(crate) fn run(
                 item,
             );
         }
-        if !widen_one(
+        let moved = widen_one(
             c,
             owned_ast,
             generics,
@@ -65,9 +65,100 @@ pub(crate) fn run(
             worklist,
             call_retargets,
             mono_decls,
-        ) && worklist.is_empty()
-        {
+        ) || escape_widen_one(
+            c,
+            owned_ast,
+            generics,
+            cache,
+            worklist,
+            call_retargets,
+            mono_decls,
+        );
+        if !moved && worklist.is_empty() {
             break;
+        }
+    }
+}
+
+/// L3b ③ twin of [`widen_one`] for the VALUE-escape sites
+/// (`Checker::fn_escape_widen_sites`): clone the fn with EVERY
+/// TypeVar param widened to plain `any` (suffix `$$anywv`) and
+/// retarget the escaping init Ident to the clone through the same
+/// `call_retargets` channel the ident lowering already consults for
+/// ExprId-keyed renames. Returns false when no site is pending.
+fn escape_widen_one(
+    c: &mut Checker,
+    owned_ast: &mut Ast,
+    generics: &Generics,
+    cache: &mut HashMap<(String, Vec<String>), String>,
+    worklist: &mut VecDeque<WorkItem>,
+    call_retargets: &mut HashMap<ExprId, String>,
+    mono_decls: &mut Vec<Stmt>,
+) -> bool {
+    let mut pending: Vec<(ExprId, String)> = c
+        .fn_escape_widen_sites
+        .iter()
+        .filter(|(eid, _)| !call_retargets.contains_key(eid))
+        .map(|(k, v)| (*k, v.clone()))
+        .collect();
+    pending.sort_by_key(|(eid, _)| eid.0);
+    let Some((init_eid, fn_name)) = pending.into_iter().next() else {
+        return false;
+    };
+    // Widen every TypeVar-typed param (the implicit-generics pass
+    // types each unannotated param with its own fresh TypeVar).
+    let idxs: Vec<usize> = match c.globals.get(&fn_name) {
+        Some(Type::Function(ptys, _)) => ptys
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| matches!(t, Type::TypeVar(_)))
+            .map(|(i, _)| i)
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mono_name = format!("{fn_name}$$anywv");
+    if owned_ast.headless_argc_fns.contains(&fn_name) {
+        owned_ast.headless_argc_fns.insert(mono_name.clone());
+    }
+    if !c.globals.contains_key(&mono_name) {
+        emit_widened_spec(
+            c,
+            owned_ast,
+            generics,
+            cache,
+            worklist,
+            call_retargets,
+            mono_decls,
+            &fn_name,
+            &mono_name,
+            "$$anywv",
+            &idxs,
+            WidenTarget::Scalar,
+        );
+    }
+    call_retargets.insert(init_eid, mono_name);
+    true
+}
+
+/// What a widened param slot becomes: the array channel rewrites
+/// `Array(Any)`-admitted params to `any[]`; the value-escape channel
+/// rewrites TypeVar params to plain `any`.
+enum WidenTarget {
+    Arr,
+    Scalar,
+}
+
+impl WidenTarget {
+    fn ann(&self) -> &'static str {
+        match self {
+            WidenTarget::Arr => "any[]",
+            WidenTarget::Scalar => "any",
+        }
+    }
+    fn ty(&self) -> Type {
+        match self {
+            WidenTarget::Arr => Type::Array(Box::new(Type::Any)),
+            WidenTarget::Scalar => Type::Any,
         }
     }
 }
@@ -123,6 +214,7 @@ fn widen_one(
             &mono_name,
             &suffix,
             &idxs,
+            WidenTarget::Arr,
         );
     }
     call_retargets.insert(call_eid, mono_name);
@@ -147,6 +239,7 @@ fn emit_widened_spec(
     mono_name: &str,
     suffix: &str,
     idxs: &[usize],
+    target: WidenTarget,
 ) {
     let Some((params, return_type, body)) = owned_ast.stmts.iter().find_map(|s| match s {
         Stmt::FnDecl {
@@ -168,16 +261,36 @@ fn emit_widened_spec(
         clone_spec_body(owned_ast, &params, &return_type, &body, &no_subst);
     for &i in idxs {
         if let Some(p) = new_params.get_mut(i) {
-            p.type_ann = Some("any[]".to_string());
+            p.type_ann = Some(target.ann().to_string());
         }
     }
+    // Value-escape clone: a TypeVar return ANN (the AST-side `__T`)
+    // erases to `any` too — the spec has no type params to bind it.
+    let new_return_type = match (&target, &new_return_type) {
+        (WidenTarget::Scalar, Some(rt))
+            if c.generic_type_params
+                .get(fn_name)
+                .is_some_and(|tvs| tvs.contains(rt)) =>
+        {
+            Some("any".to_string())
+        }
+        _ => new_return_type,
+    };
     if let Some(Type::Function(ptys, rty)) = c.globals.get(fn_name).cloned() {
         let mut spec_ptys = ptys;
         for &i in idxs {
             if let Some(t) = spec_ptys.get_mut(i) {
-                *t = Type::Array(Box::new(Type::Any));
+                *t = target.ty();
             }
         }
+        // The value-escape channel also erases a TypeVar RETURN (the
+        // clone's body re-infers under any params; a leftover TypeVar
+        // face would re-reject the binding's call).
+        let rty = if matches!(target, WidenTarget::Scalar) && matches!(*rty, Type::TypeVar(_)) {
+            Box::new(Type::Any)
+        } else {
+            rty
+        };
         c.globals
             .insert(mono_name.to_string(), Type::Function(spec_ptys, rty));
     }
