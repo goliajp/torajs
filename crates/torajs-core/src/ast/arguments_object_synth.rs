@@ -60,19 +60,13 @@ pub(super) fn synth_arguments_local_rest(ast: &mut Ast, fixed: &[String], rest: 
 /// so beyond-declared argument VALUES are reachable (the
 /// `[p0, p1, …]` builder above only covers declared params).
 ///
-/// The take-count follows the face (RFC 20260810-indirect-argc-abi
-/// S3.3): an env-first body reads the S1 hidden-ABI `__torajs_argc`;
-/// a `__cm_` this-first body has no hidden slot and keeps the
-/// injected `__torajs_real_argc` until the S1-extension blade covers
-/// that entry family.
-pub(super) fn synth_arguments_local_argv(ast: &mut Ast, env_first: bool) -> Stmt {
+/// The take-count is the S1 hidden-ABI `__torajs_argc` (RFC
+/// 20260810-indirect-argc-abi S3.3): both argv faces own the hidden
+/// sig slot — env-first since S3.2, `__cm_` this-first since S1-T2 —
+/// so the face parameter this fn used to take is gone.
+pub(super) fn synth_arguments_local_argv(ast: &mut Ast) -> Stmt {
     let argv = ast.add_expr(Expr::Ident("__torajs_argv".into()));
-    let argc_name = if env_first {
-        "__torajs_argc"
-    } else {
-        "__torajs_real_argc"
-    };
-    let argc = ast.add_expr(Expr::Ident(argc_name.into()));
+    let argc = ast.add_expr(Expr::Ident("__torajs_argc".into()));
     let callee = ast.add_expr(Expr::Ident("__torajs_arguments_materialize".into()));
     let init = ast.add_expr(Expr::Call {
         callee,

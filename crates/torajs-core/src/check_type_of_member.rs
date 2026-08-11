@@ -162,11 +162,12 @@ pub(crate) fn check(
         let cm_name = format!("__cm_{cname}__{name}");
         if let Some(Type::Function(params, ret)) = checker.globals.get(&cm_name) {
             // Strip the implicit `__this` first param — plus the
-            // knife-4a `__torajs_real_argc` / `__torajs_argv`
-            // synthetics when the body took the runtime argv face
-            // (the adapter feeds those; a caller never spells them).
+            // knife-4a `__torajs_argv` synthetic when the body took
+            // the runtime argv face (the adapter feeds it; a caller
+            // never spells it). Since S1-T2 the argc rides the
+            // hidden sig slot, not an AST param.
             let skip = if ast.method_argv_fns.contains(&cm_name) {
-                3
+                2
             } else {
                 1
             };

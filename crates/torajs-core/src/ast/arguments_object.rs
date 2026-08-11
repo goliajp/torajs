@@ -33,19 +33,19 @@ use super::{Ast, Stmt};
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ArgcMode {
-    /// Fn carries a real argc to read. `env_first: true` = closure
-    /// face (`__env`-first entry): reads route to the S1 hidden-ABI
-    /// `__torajs_argc` param (RFC 20260810-indirect-argc-abi S3.2) —
-    /// the AST-injected `__torajs_real_argc` on this face is now a
-    /// dead length-read slot retired in S3.4. `env_first: false` =
+    /// Fn carries a real argc to read. `hidden: true` = the entry
+    /// family owns the S1 hidden-ABI `__torajs_argc` sig slot and
+    /// reads route to it: `__env`-first closures (RFC
+    /// 20260810-indirect-argc-abi S3.2) and, since S1-T2, the
+    /// `__cm_` this-first method_argv family. `hidden: false` =
     /// head-less top-level fn: still reads the injected
-    /// `__torajs_real_argc` (no hidden param exists there until the
-    /// S1-extension ABI blade lands).
-    Real { env_first: bool },
-    /// Env-first face whose body WRITES `arguments.length`: reads and
-    /// writes ride a synthesized mutable `__torajs_argc_len` local
-    /// seeded from the S1 hidden argc (the hidden param itself is an
-    /// unwritable SSA value) — the exact semantics the injected
+    /// `__torajs_real_argc` (no hidden slot exists there until the
+    /// H blades land).
+    Real { hidden: bool },
+    /// Hidden-slot face whose body WRITES `arguments.length`: reads
+    /// and writes ride a synthesized mutable `__torajs_argc_len`
+    /// local seeded from the S1 hidden argc (the hidden param itself
+    /// is an unwritable SSA value) — the exact semantics the injected
     /// writable `__torajs_real_argc` param used to provide.
     RealLocal,
     /// Fold to the declared arity (legacy fallback; still serves
@@ -364,13 +364,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             let argc_len_opt = (argc_mode == ArgcMode::RealLocal)
                 .then(|| super::arguments_object_synth::synth_argc_len_local(ast));
             let synth_opt = if is_argv_fn {
-                // S3.3 — the materialize take-count follows the face:
-                // env-first bodies read the S1 hidden argc, `__cm_`
-                // this-first bodies keep the injected real_argc.
-                Some(synth_arguments_local_argv(
-                    ast,
-                    value_argv_fns.contains(name),
-                ))
+                // S3.3 — the materialize take-count is the S1 hidden
+                // argc; since S1-T2 both argv faces own the slot.
+                Some(synth_arguments_local_argv(ast))
             } else if needs_materialize && argc_mode != ArgcMode::KeepLoud {
                 Some(synth_materialized_arguments(
                     ast,

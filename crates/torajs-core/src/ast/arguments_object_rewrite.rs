@@ -272,11 +272,11 @@ fn rewrite_length_read(
     eid: ExprId,
 ) -> ExprId {
     match argc_mode {
-        // S3.2 — the env-first face reads the S1 hidden ABI argc; the
-        // head-less face keeps the injected param until the
-        // S1-extension blade covers it.
-        ArgcMode::Real { env_first } => {
-            let argc = if env_first {
+        // S3.2 — a hidden-slot face (env-first; this-first since
+        // S1-T2) reads the S1 hidden ABI argc; the head-less face
+        // keeps the injected param until the H blades cover it.
+        ArgcMode::Real { hidden } => {
+            let argc = if hidden {
                 "__torajs_argc"
             } else {
                 "__torajs_real_argc"

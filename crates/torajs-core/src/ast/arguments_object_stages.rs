@@ -191,26 +191,28 @@ pub(super) fn classify_argc_mode(
         } else {
             ArgcMode::FoldTo(n)
         }
-    } else if tiers.uses_real_argc.contains(name) || tiers.method_argv_fns.contains(name) {
-        // Head-less top-level fns and `__cm_` this-first
-        // method bodies have no S1 hidden argc — they keep
-        // reading the injected `__torajs_real_argc` until the
-        // S1-extension ABI blade covers those entry families.
-        ArgcMode::Real { env_first: false }
+    } else if tiers.uses_real_argc.contains(name) {
+        // Head-less top-level fns have no S1 hidden argc — they
+        // keep reading the injected `__torajs_real_argc` until
+        // the H blades cover that entry family.
+        ArgcMode::Real { hidden: false }
     } else if tiers.iife_real_argc.contains(name)
         || tiers.value_real_argc.contains(name)
         || tiers.value_argv_fns.contains(name)
+        || tiers.method_argv_fns.contains(name)
     {
-        // S3.2 — env-first faces read the S1 hidden argc. A
-        // body that WRITES `arguments.length` needs a mutable
-        // home (the hidden param is an SSA value): it rides a
-        // synthesized `__torajs_argc_len` local seeded from
-        // the hidden argc — the exact semantics the injected
-        // (writable) `__torajs_real_argc` param used to give.
+        // S3.2 — env-first faces read the S1 hidden argc; S1-T2
+        // moved the `__cm_` this-first method_argv family onto
+        // the same slot (T1 gave it one). A body that WRITES
+        // `arguments.length` needs a mutable home (the hidden
+        // param is an SSA value): it rides a synthesized
+        // `__torajs_argc_len` local seeded from the hidden argc
+        // — the exact semantics the injected (writable)
+        // `__torajs_real_argc` param used to give.
         if body_has_arguments_length_write(ast, body) {
             ArgcMode::RealLocal
         } else {
-            ArgcMode::Real { env_first: true }
+            ArgcMode::Real { hidden: true }
         }
     } else if tiers.env_fns.contains(name)
         && body_has_arguments_length(ast, body)
@@ -229,7 +231,7 @@ pub(super) fn classify_argc_mode(
         if body_has_arguments_length_write(ast, body) {
             ArgcMode::RealLocal
         } else {
-            ArgcMode::Real { env_first: true }
+            ArgcMode::Real { hidden: true }
         }
     } else if tiers.env_fns.contains(name)
         && (body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body))

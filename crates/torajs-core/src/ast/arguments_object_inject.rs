@@ -21,8 +21,9 @@ use super::{Ast, Expr, Param, Stmt};
 ///   no hidden slot exists there until the S1-extension blade.
 /// - `value_argv_fns` (env-first argv face): ONLY the raw argv
 ///   pointer, at the first user slot after `__env`.
-/// - `method_argv_fns` (`__cm_` this-first): argc + argv after
-///   `__this` — that entry family has no hidden slot either.
+/// - `method_argv_fns` (`__cm_` this-first): ONLY the argv pointer,
+///   right after `__this` — S1-T1 gave this family the hidden argc
+///   slot too, and T2 moved its readers onto it.
 pub(super) fn inject_argc_params(
     ast: &mut Ast,
     uses_real_argc: &std::collections::HashSet<String>,
@@ -51,8 +52,10 @@ pub(super) fn inject_argc_params(
             } else if value_argv_fns.contains(name) {
                 params.insert(1, argv());
             } else if method_argv_fns.contains(name) {
-                params.insert(1, real_argc());
-                params.insert(2, argv());
+                // S1-T2 — the this-first face reads the hidden sig
+                // argc (T1 gave `__cm_` bodies the slot); only the
+                // argv pointer still rides an injected param.
+                params.insert(1, argv());
             }
         }
     }

@@ -234,17 +234,17 @@ pub(crate) fn populate_class_layouts(
                 return false;
             };
             // Knife 4a — an argv-face method carries the synthetic
-            // `__torajs_real_argc` / `__torajs_argv` right after
-            // `__this`. The boxed adapter feeds those two directly
-            // (they never consume argv positions), so a bare call
-            // can't poison them with an undefined box — the audit
-            // skips them; only the real user slots are examined.
-            // Two counts since S1-T1: `f` is the SSA function, whose
-            // sig also carries the hidden I64 `__torajs_argc` at
-            // position 1; `verdicts` aligns with the AST param list,
-            // which never sees that slot.
+            // `__torajs_argv` right after `__this` (since S1-T2 the
+            // argc rides the hidden sig slot instead of an injected
+            // param). The adapter feeds both directly (they never
+            // consume argv positions), so a bare call can't poison
+            // them with an undefined box — the audit skips them;
+            // only the real user slots are examined. Two counts:
+            // `f` is the SSA function, whose sig carries the hidden
+            // I64 `__torajs_argc` at position 1; `verdicts` aligns
+            // with the AST param list, which never sees that slot.
             let (ssa_skip, ast_skip) = if ast.method_argv_fns.contains(f.name.as_str()) {
-                (4, 3)
+                (3, 2)
             } else {
                 (1, 1)
             };
