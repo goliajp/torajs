@@ -198,6 +198,16 @@ impl<'a> Parser<'a> {
             Stmt::ClassDecl { name, .. } => name.clone(),
             _ => unreachable!("parse_class_decl_with_abstract returns ClassDecl"),
         };
+        // Rotation 373 (L3b 373-05) — an expression-position class
+        // inside an enclosing class body evaluates when THAT code
+        // runs, after every top-level class definition completed;
+        // mark it so the field-flattening order check defers it
+        // (the synth flush below lands it before the enclosing
+        // ClassDecl stmt). `class_stack` is the enclosing-class-body
+        // signal the private-name machinery already maintains.
+        if !self.class_stack.is_empty() {
+            self.ast.class_expr_deferred.insert(cls_name.clone());
+        }
         self.synth_classes.push(stmt);
         return Ok(self.ast.add_expr(Expr::Ident(cls_name)));
     }

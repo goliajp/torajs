@@ -95,7 +95,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // extracted to `desugar_classes_fields.rs` sub-sibling (chunk 179,
     // 2026-06-28). Pure data computation over `class_index`; panics on
     // forward-reference parent / subclass field collision.
-    let full_fields = super::desugar_classes_fields::compute_full_fields(&class_index);
+    let full_fields = super::desugar_classes_fields::compute_full_fields(ast, &class_index);
 
     // Method-owner table + Phase I.1 chain-classification extracted to
     // `desugar_classes_method_owners.rs` sub-sibling (chunk 180,

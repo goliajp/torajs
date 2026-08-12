@@ -128,6 +128,17 @@ pub struct Ast {
     /// (`class Inner {}`) parses under its own name and never
     /// enters this map (§15.5.5: the self-name wins).
     pub class_expr_display_names: std::collections::HashMap<String, String>,
+    /// Rotation 373 (L3b 373-05) — synth `__ClassExpr_<id>` decls
+    /// whose expression site sat INSIDE an enclosing class body (a
+    /// method / accessor / field initializer / static block). Their
+    /// evaluation is deferred past the enclosing class's definition,
+    /// so `class extends Outer` from within Outer's own body is
+    /// legal — but the parser's synth flush lands the decl BEFORE
+    /// the enclosing ClassDecl stmt, where the M5.2 source-order
+    /// check would reject the parent as a forward reference.
+    /// `compute_full_fields` resolves members of this set in a
+    /// second, dependency-ordered pass instead.
+    pub class_expr_deferred: std::collections::HashSet<String>,
     /// Recorded by `desugar_classes` so post-desugar passes (check, ssa_lower)
     /// can resolve `instanceof Parent` on a subclass instance: maps each
     /// declared class name to its parent (None if no `extends`). Empty
