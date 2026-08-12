@@ -118,6 +118,122 @@ pub(super) fn collect_anylane_objlits(
     marked
 }
 
+/// RFC 20260813-detached-objlit-method — widen `const o = { m() {
+/// this… } }` to the (a)-leg spelling when the program reads `o.m` as
+/// a VALUE rather than calling it.
+///
+/// A nominal method's body takes `__this: __ObjLit_n` and reads the
+/// receiver at struct offsets, but a detached call has no receiver to
+/// hand it: the callee is an ordinary `Type::Closure` binding, so it
+/// lowers to the env-first `CallIndirect` — which carries no receiver
+/// slot AT ALL, leaving the body's third parameter reading whatever
+/// register happens to hold it. Measured: `const t = o.read; t()`
+/// SIGSEGVs, and so does `t.call({ n: 9 })`, whose explicit thisArg
+/// that same arm silently drops.
+///
+/// The any lane answers all of it — the receiver-first `__this: any`
+/// shape takes §10.2.1.2's undefined receiver for a bare call and an
+/// explicit thisArg through argv[0]. Selecting it is NOT a matter of
+/// marking the literal here: the marked set must stay ⊆ the literals
+/// that actually lower through the dynobj lane, and a bare `const`
+/// binding lowers nominal. Marking alone gives the method an `any`
+/// receiver while the call site still hands it a struct pointer —
+/// measured as silent-wrong direct calls (`o.read()` answered
+/// `undefined`, `o.bump()` NaN), which is worse than the crash. So
+/// the widen is the whole knife: the annotation becomes what the user
+/// could have written, and every existing lane follows from it.
+///
+/// Only `Expr::Member` reads off a bare `Ident` bound by a `LetDecl`
+/// whose init IS the literal — the syntactically certain subset this
+/// module keeps to. A receiver that is not a resolvable binding
+/// (`makeCounter().read`) stays nominal and stays broken; recorded
+/// residue, not a silent narrowing. Callee position is what separates
+/// a read from a call, so `o.read()` does not widen while
+/// `o.read.call(x)` does (there `o.read` is the callee's OBJECT).
+/// Binding names are not scope-resolved: a same-named binding
+/// elsewhere can widen this one, which only ever costs the nominal
+/// receiver's struct-offset reads — the (f) leg's trade.
+pub(super) fn widen_detached_method_objlits(stmts: &mut [Stmt], exprs: &[Expr]) {
+    let reads = value_read_members(exprs);
+    if !reads.is_empty() {
+        widen_inner(stmts, exprs, &reads);
+    }
+}
+
+/// `(receiver binding, member)` pairs the program reads as a value.
+fn value_read_members(exprs: &[Expr]) -> std::collections::HashSet<(&str, &str)> {
+    let callees: std::collections::HashSet<u32> = exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Call { callee, .. } => Some(callee.0),
+            _ => None,
+        })
+        .collect();
+    exprs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match e {
+            Expr::Member { obj, name } if !callees.contains(&(i as u32)) => {
+                match &exprs[obj.0 as usize] {
+                    Expr::Ident(b) => Some((b.as_str(), name.as_str())),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Statement recursion of [`widen_detached_method_objlits`] — same
+/// shape as [`collect_any_let_inits`], which is what will pick the
+/// widened declaration up on the (a) leg.
+fn widen_inner(stmts: &mut [Stmt], exprs: &[Expr], reads: &std::collections::HashSet<(&str, &str)>) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } => {
+                // An explicit annotation is the user's word on the
+                // shape; only an unannotated binding is ours to widen.
+                if type_ann.is_none()
+                    && let Expr::ObjectLit { fields } = &exprs[init.0 as usize]
+                    && fields.iter().any(|(f, fe)| {
+                        reads.contains(&(name.as_str(), f.as_str()))
+                            && matches!(&exprs[fe.0 as usize], Expr::Closure { .. })
+                    })
+                {
+                    *type_ann = Some("any".to_string());
+                }
+            }
+            Stmt::FnDecl { body, .. } => widen_inner(body, exprs, reads),
+            Stmt::Block(inner) | Stmt::Multi(inner) => widen_inner(inner, exprs, reads),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                widen_inner(std::slice::from_mut(then_branch.as_mut()), exprs, reads);
+                if let Some(eb) = else_branch {
+                    widen_inner(std::slice::from_mut(eb.as_mut()), exprs, reads);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+                widen_inner(std::slice::from_mut(body.as_mut()), exprs, reads);
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    widen_inner(std::slice::from_mut(i.as_mut()), exprs, reads);
+                }
+                widen_inner(std::slice::from_mut(body.as_mut()), exprs, reads);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// (f) leg of [`collect_anylane_objlits`] — per-FnDecl mask of the
 /// params annotated `: any` verbatim. Generic fns are out (a mono
 /// instance's param is not Any) and so are synthesized closure

@@ -73,6 +73,9 @@ pub(crate) fn run(
     if objlit_method_exprs.is_empty() {
         return;
     }
+    // RFC 20260813-detached-objlit-method — widen FIRST: the (a) leg
+    // of the collector below is what picks the widened binding up.
+    super::objlit_nominal_anylane::widen_detached_method_objlits(stmts, exprs);
     let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(stmts, exprs);
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
