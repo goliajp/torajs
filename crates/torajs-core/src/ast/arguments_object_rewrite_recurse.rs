@@ -7,7 +7,46 @@ use super::arguments_object::ArgcMode;
 use super::arguments_object_rewrite::{SloppyCallee, keyed_callee_ref, rewrite_arguments_in_expr};
 use super::{Ast, Expr, ExprId};
 
+/// The mechanical copy-on-write recursion over an expression's
+/// children: recurse each child, hand the original `eid` back when
+/// nothing moved, mint a rebuilt node when something did.
+///
+/// r380 file-size — the seventeen arms were one 295-line body. They
+/// are split three ways here purely by position, NOT regrouped: the
+/// patterns are distinct `Expr` variants, so no arm can shadow
+/// another and the relative order carries nothing. Each part keeps
+/// its own catch-all, and the leaf answer stays a bare `eid` so a
+/// no-op clone never enters the arena.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_recurse_arm(
+    ast: &mut Ast,
+    eid: ExprId,
+    e: Expr,
+    params: &[String],
+    argc_mode: ArgcMode,
+    is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
+) -> ExprId {
+    match &e {
+        Expr::PostIncr { .. }
+        | Expr::Spread { .. }
+        | Expr::Ternary { .. }
+        | Expr::Nullish { .. }
+        | Expr::OptChain { .. }
+        | Expr::OptIndex { .. }
+        | Expr::OptCall { .. } => {
+            recurse_optional(ast, eid, e, params, argc_mode, is_argv_fn, sloppy_callee)
+        }
+        Expr::Member { .. } | Expr::Assign { .. } | Expr::ObjectLit { .. } => {
+            recurse_place(ast, eid, e, params, argc_mode, is_argv_fn, sloppy_callee)
+        }
+        _ => recurse_operator(ast, eid, e, params, argc_mode, is_argv_fn, sloppy_callee),
+    }
+}
+
+/// Operators and construction — the first positional third.
+#[allow(clippy::too_many_arguments)]
+fn recurse_operator(
     ast: &mut Ast,
     eid: ExprId,
     e: Expr,
@@ -105,6 +144,25 @@ pub(super) fn rewrite_recurse_arm(
         // non-obj Ptr"). A length-writing body classifies RealLocal
         // (`__torajs_argc_len--`), LiveLength lands on
         // `__torajs_arguments.length--`.
+        // Leaf / opaque shapes — no children to recurse through here.
+        // Intentionally returns the original `eid` so we don't bloat
+        // the arena with no-op clones.
+        _ => eid,
+    }
+}
+
+/// Post-increment through optional-chaining — the second third.
+#[allow(clippy::too_many_arguments)]
+fn recurse_optional(
+    ast: &mut Ast,
+    eid: ExprId,
+    e: Expr,
+    params: &[String],
+    argc_mode: ArgcMode,
+    is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
+) -> ExprId {
+    match e {
         Expr::PostIncr { target, is_inc } => {
             let t = rewrite_arguments_in_expr(
                 ast,
@@ -210,6 +268,25 @@ pub(super) fn rewrite_recurse_arm(
                 args: new_args,
             })
         }
+        // Leaf / opaque shapes — no children to recurse through here.
+        // Intentionally returns the original `eid` so we don't bloat
+        // the arena with no-op clones.
+        _ => eid,
+    }
+}
+
+/// Member reads, assignment targets and object literals — the third.
+#[allow(clippy::too_many_arguments)]
+fn recurse_place(
+    ast: &mut Ast,
+    eid: ExprId,
+    e: Expr,
+    params: &[String],
+    argc_mode: ArgcMode,
+    is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
+) -> ExprId {
+    match e {
         Expr::Member { obj, name } => {
             let o =
                 rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
