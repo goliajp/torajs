@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T13:05:50.410Z",
+  "generatedAt": "2026-08-12T14:34:02.277Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T13:04:50Z",
-    "headSha": "4ad81fc3",
-    "elapsedSec": 325.53,
+    "ranAt": "2026-08-12T14:32:19Z",
+    "headSha": "7f2ea0e7",
+    "elapsedSec": 321.6,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24868,
+    "pass": 24879,
     "passNoOracle": 837,
-    "passNegative": 3978,
-    "passTotal": 29683,
-    "bug": 12857,
-    "incompatible": 10634,
+    "passNegative": 4081,
+    "passTotal": 29797,
+    "bug": 12748,
+    "incompatible": 10629,
     "bunSkip": 6636,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42540,
-    "passRateInScope": 55.82,
-    "passRateTrAccepted": 69.78
+    "trAccepted": 42545,
+    "passRateInScope": 56.04,
+    "passRateTrAccepted": 70.04
   },
   "torajs": {
-    "commit": "4ad81fc3",
-    "commitSubject": "feat: strict-reserved words reach the parameter lists too",
+    "commit": "7f2ea0e7",
+    "commitSubject": "feat: a with statement is refused in strict code",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "7f2ea0e7",
+      "subject": "feat: a with statement is refused in strict code"
+    },
+    {
+      "hash": "238e33cc",
+      "subject": "fix: a strict dynamic-function body that fails to parse asks why"
+    },
+    {
+      "hash": "27a283c5",
+      "subject": "feat: strict code refuses eval and arguments as assignment targets"
+    },
+    {
+      "hash": "f6f1b7f7",
+      "subject": "feat: a top-level use-strict directive arms the parser's strictness bit"
+    },
+    {
+      "hash": "0136b748",
+      "subject": "feat: a function's own name is judged by its own strictness"
+    },
+    {
+      "hash": "6343e73e",
+      "subject": "fix: dynamic Function judges strict parameter names before the parse"
+    },
+    {
+      "hash": "6054e649",
+      "subject": "feat: strict code refuses eval and arguments in binding position"
+    },
+    {
+      "hash": "1c0f31b6",
+      "subject": "docs: rotation 376 close - knife 4 folded in, sweep and dashboard reland on the true HEAD"
+    },
+    {
       "hash": "4ad81fc3",
       "subject": "feat: strict-reserved words reach the parameter lists too"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "12c07688",
       "subject": "feat: sloppy detached this reaches the plain-function lane, and the prologue keeps expr_spans in sync"
-    },
-    {
-      "hash": "f66431e7",
-      "subject": "feat: per-function strictness is inherited lexically, written back into the body"
-    },
-    {
-      "hash": "50888a7b",
-      "subject": "docs: rotation 375 close - the 79-case unknown-ident-__this cluster gets its surface knives: sloppy detached this binds globalThis at a callee-side prologue per $10.2.1.2 step 6 (skipped when the body's directive prologue says use strict - the close sweep caught 22 nested-strict 10.4.3 regressions, the in-knife fix recovered the directive-carrying 4, the 18 lexically-inheriting twins 10.4.3-1-{36..44}{-s,gs} share one root with L3b 374-00's missing per-function strictness bit which is now the next rotation's lead item), four new receiver-safe faces (NewDynamic inline callee, throw operand, string-pattern replace/replaceAll callbacks with the str kernel's recv-first argv shift, inline fn-exprs in explicit-any param slots = the new Promise executor spelling), the IIFE-return face tried and reverted in-knife (checker types the IIFE result non-Function, ToString path splices fn source - loud would have become silent-wrong), and a double debt-clean (num_width 508/225 -> ~434/151 delisted; fnexpr_this self-breach 517/226 -> 474/193 via the cb_slots sibling); sweep passTotal 29634 -> 29625 (pass +9 true forward, passNoOracle -18 honest regression ledger, bug +17, conservation exact +8 = -9+17), incompat 10634 (-8), unknown-__this cluster 79 -> 68, gate predicate 246 clusters / 3301 cases / core 4943, gate chain 2776 -> 2780/0/4 five knives zero red, build determinism 44/44 N=12, NOTE bun answers object for per-function-strict detached this in .cts (transpile layer drops the directive, spec truth-source discipline applies), L3b 375-00..06 recorded, dashboard @ 868507c6"
-    },
-    {
-      "hash": "868507c6",
-      "subject": "fix: per-function strict bodies keep the undefined detached this - the sloppy globalThis prologue (10a4ddda) bound EVERY promoted body in a sloppy-goal file, but a body whose directive prologue says 'use strict' is a STRICT function ($10.2.1.2 step 5) and its detached this stays undefined - the rotation-375 close sweep caught 22 function-code 10.4.3 regressions ('function () { \"use strict\"; return typeof this; }' answered object); the fix probes the leading run of string-literal expression statements before inserting, the same cooked-value comparison as the parser's non-simple-params directive gate; NOTE bun answers object for this shape in .cts (its transpile layer appears to drop the per-function directive), diverging from spec - the 10.4.3 family is bun-skip no-oracle so scoring rides tr's own test262 asserts (spec is the truth source per the test262 discipline), and the shape deliberately gets no bun-parity fixture"
-    },
-    {
-      "hash": "b83316fc",
-      "subject": "refactor: num_width analyze tables and fnexpr-this callback-slot arms split to siblings - two file-size debts cleared in one knife: (1) the r373-registered num_width drift pair (mod.rs 508 prod / analyze 225) - the analyze driver's two side tables move verbatim to num_width/analyze_tables.rs (the pre-walk slot-name registry with its Global-keyed rationale promoted to fn doc, and the rotation-371 W4 objlit shape-join collector); mod.rs ~434 prod, analyze 151, both delisted; (2) the rotation-375 self-made breach caught by the closing audit (43268208's replace arm pushed fnexpr_this.rs to 517 and collect_position_faces to 226, past the per-commit audit) - four builtin callback-slot arms (JSON.parse reviver, replace family, Array.from mapFn, f.call/apply) move verbatim to ast/fnexpr_this_cb_slots.rs with each receiver check relocated from the match guard into the collector body, fall-through-safe because no later cascade arm matches those member names; fnexpr_this.rs 474, collect_position_faces 193; sibling moves are the only cut in negative-headroom files (the rotation-147 lesson)"
-    },
-    {
-      "hash": "43268208",
-      "subject": "feat: fn-expr this reaches string-replace callbacks and any-param argument slots - two more receiver-safe faces for the fnexpr-this promote pass: (1) the str-pattern replace/replaceAll functional replaceValue over a string-literal receiver (function-code 10.4.3 family) - the literal receiver + String/Null/undefined pattern pin the lowering to the str replace_fn lane, whose kernel now reads the closure's FLAG_CLOSURE_RECV_FIRST (mirrored constant, lockstep with torajs_rc bit 12) and seeds argv[0] undefined with the user triple shifted up one per $22.1.3.18 step 10's Call(replaceValue, undefined, ...); a regex pattern or non-literal receiver keeps the loud reject because the regex replacer lane dispatches by typed transmute with no receiver slot; (2) collect_any_param_literal_faces, the inline-literal twin of the sixth shape: a marked fn-expr standing directly in an explicitly-any (or proven-safe generic) param slot of a program-local FnDecl call promotes under the same greatest-fixpoint proof, which is exactly what admits the 'new Promise(function () { ...this... })' executor - the promise-new desugar has rewritten it to __promise_from_executor(<fnexpr>) whose __ex: any body calls through the flag-aware any lane ($27.2.3.1 step 9); the IIFE-return spelling was tried and REVERTED in-knife: the checker types an IIFE call's result as non-Function so the lowering falls to the ToString replaceValue path and splices the fn's source text - promoting there turned a loud reject into silent-wrong, recorded in L3b 375-01 pending IIFE return-type inference; fixtures fnexpr-this-replace-cb-001.cts (sloppy AND strict goals byte-equal vs bun) + fnexpr-this-executor-001.cts"
-    },
-    {
-      "hash": "0d1843f0",
-      "subject": "feat: fn-expr this reaches the construct callee and the throw operand - two new receiver-safe face positions for the fnexpr-this promote pass: (1) the NewDynamic INLINE-callee face ('new (function () { ...this... })') is the zero-alias twin of rotation 345 knife 5's Ident-callee shape - the runtime construct channel is receiver-honoring end to end (__torajs_anyv_construct's plain-fn kernel invokes through invoke_with_this with the freshly allocated this, shifting argv on FLAG_CLOSURE_RECV_FIRST), so the closure value that exists only as the construct's callee promotes safely; (2) the throw-operand face ('throw function () { ...this... }', the try-statement 12.14 family) rides the any-shaped exception channel - a catch binding is any, every downstream call is __torajs_any_call -> invoke_with_this, detached receiver undefined with the sloppy prologue answering globalThis - plus the checker's throw gate learns Type::Function (a closure is the same 8-byte heap shape; lowering's refcounted fallback already packs it ANY_HEAP=4); both faces walk the shared stmt spine so throws inside lifted closure bodies are seen; second knife of the 79-case 'unknown ident __this' cluster after the sloppy-globalThis prologue; fixture fnexpr-this-construct-throw-001.cts byte-equal vs bun over both faces; new-x-reassign profile (new x(x=1)) stays loud by the knife-2 parity bar - recorded residue"
-    },
-    {
-      "hash": "10a4ddda",
-      "subject": "feat: sloppy detached this binds globalThis at the callee prologue - $10.2.1.2 OrdinaryCallBindThis step 6 (ThisMode ~global~) says an undefined/null thisArgument resolves to the global object under the sloppy goal, but every promoted recv-first body (fnexpr faces, HOF callbacks, direct-call locals, IIFEs, objlit any-lane methods) read the seeded undefined verbatim - sloppy forEach callbacks answered 'this === globalThis' false where bun says true, and a direct-called 'this.p = v' body threw TypeError where bun writes the global; the fix is the textbook callee-side prologue ('__this = __this ?? globalThis' as the promoted body's first stmt, inserted by promote_recv_any under ast.sloppy_script_goal, idempotent by first-stmt shape probe since objlit_nominal and fnexpr_this can promote the same fn), one rewrite covering every call lane because they all flow through the body; strict-goal files never enter (step-5 strict branch keeps undefined, .ts fixture behavior byte-identical), primitive receivers keep their unwrapped value (step-4 ToObject wrapper face recorded as residue); groundwork for the 79-case 'unknown ident __this' cluster (spawned from r374 handoff next-item) whose sloppy half needs this binding before the promote surface widens; fixture sloppy-this-globalthis-001.cts byte-equal vs bun over the HOF/direct-call/IIFE trio"
-    },
-    {
-      "hash": "469056d9",
-      "subject": "docs: rotation 374 close - sloppy yield is an identifier across the whole surface (the 82-case got-Yield family: binding names, IdentifierReference, accessor property names, fn-expression/declaration names, parameter names - r372's delete-bare-name goal-triage pattern with a new yield_ident_positions side table, the strict gate now firing BEFORE the import resolver after the sweep caught the ordering regression), the global eval as a value resolves inside closure bodies (one free_vars_globals row clears both 63-case checker and 19-case lowering signatures), nativeFunctionMatcher.js joins the ported harness includes (70-case toString family: 40 pass immediately), in_generator now swaps in before the param list at all four generator parse sites per $15.5.1, and every yield admission site guards on class_stack ($15.7 class code is always strict); sweep passTotal 29464 -> 29634 (+119 this rotation) with exact conservation (+217 trAccepted = +119 pass +98 bug), ONE pass regression (identifier-shorthand-yield-invalid: deflation - the old pass rode a var-yield parse error, real face is per-function use-strict, L3b 374-00), incompat 10642, gate predicate 246 clusters / 3304 cases / core 4951 (all down), gate chain 2772 -> 2776/0/4 (+4 fixtures, zero red rounds over seven knives), build determinism 44/44 N=12, L3b 374-00..03 recorded, dashboard @ 3b157bce"
     }
   ],
-  "headSha": "4ad81fc3",
+  "headSha": "7f2ea0e7",
   "autorun": {
-    "total": 679,
+    "total": 680,
     "baselineTarget": 10,
-    "bySelf": 674,
+    "bySelf": 675,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786533065-16d2",
-      "at": "2026-08-12T11:11:05Z",
-      "ts": 1786533065,
+      "rotationId": "r-1786540019-03a9",
+      "at": "2026-08-12T13:06:59Z",
+      "ts": 1786540019,
       "trigger": "self",
-      "prevHead": "50888a7b",
-      "handoffSha": "sha256:7f9817b7cea8e0ac073dab0bbab4980c6838f9a455702341312103981fe66f8c",
-      "handoffAgeSec": 93,
+      "prevHead": "1c0f31b6",
+      "handoffSha": "sha256:f871429cc31c040fb38bbd519a798a444c6455ac447b08471f1655e57694606d",
+      "handoffAgeSec": 40,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786540019-03a9",
+        "at": "2026-08-12T13:06:59Z",
+        "ts": 1786540019,
+        "trigger": "self",
+        "prevHead": "1c0f31b6",
+        "handoffSha": "sha256:f871429cc31c040fb38bbd519a798a444c6455ac447b08471f1655e57694606d",
+        "handoffAgeSec": 40,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786533065-16d2",
         "at": "2026-08-12T11:11:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "d1e78766",
         "handoffSha": "sha256:d39f0568d20246cccae1875c6e9c22d99e4e648d22c7e8589430b3d331807bdc",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786453644-0f5b",
-        "at": "2026-08-11T13:07:24Z",
-        "ts": 1786453644,
-        "trigger": "self",
-        "prevHead": "11c0cd47",
-        "handoffSha": "sha256:ee89c65def67dc3cac27436c029d39b6efba3e88396c6773657b51ce4d86b51d",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
