@@ -26,6 +26,14 @@ impl Checker {
         result
     }
 
+    /// Type of one expression, before the memo/cycle bookkeeping in
+    /// [`Self::type_of`].
+    ///
+    /// r380 file-size — the twenty-seven arms are split in two by
+    /// POSITION, not regrouped: the patterns are distinct `Expr`
+    /// variants so none can shadow another and the relative order
+    /// carries nothing. The first half falls through to the second,
+    /// which keeps the literal catch-all.
     fn type_of_inner(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
         match ast.get_expr(eid) {
             Expr::Ident(name) => {
@@ -138,6 +146,13 @@ impl Checker {
                 }
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
             }
+            _ => self.type_of_inner_tail(ast, eid),
+        }
+    }
+
+    /// Second positional half of [`Self::type_of_inner`].
+    fn type_of_inner_tail(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+        match ast.get_expr(eid) {
             // S-NEW 刀 2 — `new <expr>()`. Nothing static can be said
             // about the result: whether the callee is a constructor at
             // all is §7.2.4 IsConstructor, answered at run time by
