@@ -90,6 +90,22 @@ pub unsafe extern "C" fn __torajs_anyv_bitnot_pair(tag: i64, value: i64) -> AnyV
     unsafe { any_bitnot(tag, value) }
 }
 
+/// Pair-arg unary `-` per ES §13.5.5 — a BigInt operand negates
+/// through its own kernel (§6.1.6.2.1, unary minus IS legal on
+/// BigInt), everything else rides the Number lane's `0 - x`. The
+/// `~` shim above got its BigInt leg first; this closes the same
+/// family gap for `-` (the raw `any_arith(0 - x)` emission threw
+/// the mixed-pair TypeError on a BigInt).
+///
+/// # Safety
+///
+/// Same as [`__torajs_anyv_bitwise_pair`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unary_neg_pair(tag: i64, value: i64) -> AnyValue {
+    // SAFETY: caller invariant on tag/value pair.
+    unsafe { crate::arith_bigint::any_unary_neg(tag, value) }
+}
+
 /// Immediate-vs-pair strict equality. ssa_lower's array-includes
 /// + class-tag dispatch paths produce one `AnyValue` immediate
 /// (the heap-stored element) and one statically-decoded

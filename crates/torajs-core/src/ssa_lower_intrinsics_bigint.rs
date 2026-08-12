@@ -47,6 +47,9 @@ pub(crate) struct BigIntIds {
     /// The `Number(any)` pre-gate kernel (BigInt window + generic
     /// ToNumber delegate; torajs-anyvalue `number_ctor.rs`).
     pub number_ctor_any: FuncId,
+    /// §13.5.5 any-tier unary minus (BigInt leg + Number-lane 0-x;
+    /// torajs-anyvalue `nanbox_encode/pair.rs`).
+    pub any_unary_neg: FuncId,
     pub bigint_clone: FuncId,
     pub bigint_neg: FuncId,
     pub bigint_cmp: FuncId,
@@ -130,6 +133,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_anyv_number_ctor",
             &[Type::Any],
             Type::F64,
+        ),
+        any_unary_neg: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_unary_neg_pair",
+            &[Type::I64, Type::I64],
+            Type::Any,
         ),
         bigint_clone: declare_intrinsic(
             module,

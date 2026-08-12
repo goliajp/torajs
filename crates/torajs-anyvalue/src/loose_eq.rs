@@ -57,6 +57,7 @@ pub(crate) mod bigint_ffi {
         pub fn __torajs_bigint_shl(a: *const c_void, b: *const c_void) -> *mut u8;
         pub fn __torajs_bigint_shr(a: *const c_void, b: *const c_void) -> *mut u8;
         pub fn __torajs_bigint_not(a: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_neg(a: *const c_void) -> *mut u8;
     }
 }
 
@@ -113,6 +114,9 @@ pub(crate) mod bigint_ffi {
         core::ptr::null_mut()
     }
     pub unsafe extern "C" fn __torajs_bigint_not(_a: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_neg(_a: *const c_void) -> *mut u8 {
         core::ptr::null_mut()
     }
 }

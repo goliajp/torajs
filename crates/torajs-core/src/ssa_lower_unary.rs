@@ -147,18 +147,16 @@ impl LowerCtx<'_> {
             None,
         );
         let result = if matches!(op, crate::ast::UnaryOp::Neg) {
-            // 0 - x via any_arith op=0
+            // §13.5.5 — the pair kernel's BigInt leg negates
+            // legally (§6.1.6.2.1); every other tag rides the
+            // Number lane's `0 - x` inside. The raw any_arith
+            // emission this replaces threw the mixed-pair
+            // TypeError on a BigInt operand.
             let r = self.f.append_inst(
                 self.cur_block,
                 InstKind::Call(
-                    self.intrinsics.any_arith,
-                    vec![
-                        Operand::ConstI64(0), // op=Sub
-                        Operand::ConstI64(2), // ANY_I64
-                        Operand::ConstI64(0), // value 0
-                        Operand::Value(r_tag),
-                        Operand::Value(r_value),
-                    ],
+                    self.intrinsics.any_unary_neg,
+                    vec![Operand::Value(r_tag), Operand::Value(r_value)],
                 ),
                 Type::Any,
                 None,
@@ -194,6 +192,12 @@ impl LowerCtx<'_> {
                 vec![v, Operand::Value(r_value)],
             ),
         );
+        // §7.1.4 records pending throws (Symbol reject, `+bigint`'s
+        // mixed-pair TypeError, OrdinaryToPrimitive both-objects) —
+        // without this check the undefined placeholder leaked out as
+        // the result and the stranded throw poisoned the next entry
+        // (rotation 370: `+b` over any(bigint) printed `undefined`).
+        self.emit_throw_check(None);
         result
     }
 
@@ -234,6 +238,9 @@ impl LowerCtx<'_> {
                 vec![v, Operand::Value(r_value)],
             ),
         );
+        // §7.1.4 pending throws (Symbol reject / OrdinaryToPrimitive
+        // both-objects) — same leak the arith twin had (rotation 370).
+        self.emit_throw_check(None);
         Operand::Value(r)
     }
 

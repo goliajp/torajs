@@ -126,3 +126,33 @@ pub(crate) unsafe fn try_bitnot_bigint(tag: i64, value: i64) -> Option<AnyValue>
     }
     Some(crate::nanbox::box_void_ptr(out as *mut c_void))
 }
+
+/// The BigInt leg of the any-tier unary minus — §6.1.6.2.1: unary
+/// minus is LEGAL on a BigInt (unlike ToNumber, §7.1.4 step 2), so
+/// the `0 - x` Number-lane identity the lowering uses everywhere
+/// else must not run (its mixed-pair arm would throw). `None` = not
+/// a BigInt, the caller's Number lane proceeds.
+pub(crate) unsafe fn try_unary_neg_bigint(tag: i64, value: i64) -> Option<AnyValue> {
+    // SAFETY: caller invariant — propagated.
+    let p = unsafe { heap_bigint_ptr(tag, value) }?;
+    // SAFETY: p is a live BigInt cell; the kernel mints rc=1.
+    let out = unsafe { bigint_ffi::__torajs_bigint_neg(p) };
+    if out.is_null() {
+        return Some(crate::nanbox::VALUE_UNDEFINED);
+    }
+    Some(crate::nanbox::box_void_ptr(out as *mut c_void))
+}
+
+/// Any-tier unary minus: the BigInt leg above, else the Number
+/// lane's `0 - x` through [`crate::arith::any_arith`] (whose
+/// ToNumber records the Symbol / mixed rejects as pending throws —
+/// the lowering emits the throw check).
+pub(crate) unsafe fn any_unary_neg(tag: i64, value: i64) -> AnyValue {
+    // SAFETY: caller invariant — propagated.
+    if let Some(v) = unsafe { try_unary_neg_bigint(tag, value) } {
+        return v;
+    }
+    // SAFETY: same contract; 0=Sub, ANY_I64 tag = 2 (ssa_lower wire
+    // format).
+    unsafe { crate::arith::any_arith(0, AnySlotTag::I64 as i64, 0, tag, value) }
+}

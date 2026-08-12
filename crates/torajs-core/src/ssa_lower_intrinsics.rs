@@ -702,6 +702,7 @@ pub(crate) struct Intrinsics {
     pub(crate) bigint_from_number: FuncId,
     pub(crate) bigint_to_number: FuncId,
     pub(crate) number_ctor_any: FuncId,
+    pub(crate) any_unary_neg: FuncId,
     pub(crate) bigint_clone: FuncId,
     pub(crate) bigint_neg: FuncId,
     pub(crate) bigint_cmp: FuncId,
