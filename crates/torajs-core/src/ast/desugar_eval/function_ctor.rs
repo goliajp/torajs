@@ -159,10 +159,37 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                     synth += 1;
                 }
             }
-            None => {}
+            None => {
+                // A strict body that fails to parse has two possible
+                // causes, and they want opposite answers: a §15.2.1
+                // early error the parser itself refuses (assignment to
+                // `eval`, a reserved binding) is the creation-time
+                // SyntaxError the spec asks for, while a shape tr's
+                // subset does not cover yet is the honest reject this
+                // arm otherwise keeps. Asking which is which needs no
+                // message sniffing — it is the same question §15.2.1
+                // asks: does this text parse when it is NOT strict?
+                if strict_body && parses_without_the_prologue(&name, &params, &body, ast) {
+                    let throw = syntax_error_throw(
+                        "dynamic function: strict-mode early error in body".into(),
+                        ast,
+                    );
+                    wrap_throw_iife(i, throw, ast);
+                }
+            }
         }
         i += 1;
     }
+}
+
+/// Re-assemble with an empty statement ahead of the body, which closes
+/// the directive prologue before it opens: the `"use strict"` that
+/// follows is then an ordinary string expression and arms nothing. A
+/// text that parses this way and not the other failed on strictness
+/// alone.
+fn parses_without_the_prologue(name: &str, params: &str, body: &str, ast: &mut Ast) -> bool {
+    let probe = format!("function {name}({params}\n) {{\n;\n{body}\n}}");
+    parse_eval_source(&probe, ast, false).is_some()
 }
 
 /// Whether the body text's directive prologue opens with a
