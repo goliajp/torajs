@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T00:27:36.179Z",
+  "generatedAt": "2026-08-12T02:06:42.045Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T00:26:15Z",
-    "headSha": "cb50411f",
-    "elapsedSec": 325.7,
+    "ranAt": "2026-08-12T02:03:48Z",
+    "headSha": "830bfeca",
+    "elapsedSec": 323.48,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24554,
+    "pass": 24642,
     "passNoOracle": 799,
     "passNegative": 3955,
-    "passTotal": 29308,
-    "bug": 12733,
-    "incompatible": 11133,
+    "passTotal": 29396,
+    "bug": 12734,
+    "incompatible": 11044,
     "bunSkip": 6584,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42041,
-    "passRateInScope": 55.12,
-    "passRateTrAccepted": 69.71
+    "trAccepted": 42130,
+    "passRateInScope": 55.28,
+    "passRateTrAccepted": 69.77
   },
   "torajs": {
-    "commit": "cb50411f",
-    "commitSubject": "fix: the any-tier unary family stops leaking pending throws and negates bigints legally - the L3b rotation-370 silent-wrong (+b over any(bigint) printed undefined where bun throws) had two roots and a sibling: (1) lower_unary_any_arith and lower_unary_any_bitnot never emitted a throw check, so the §7.1.4 rejects any_arith/any_bitnot correctly RECORD (Symbol, mixed-BigInt, OrdinaryToPrimitive both-objects) stranded as pending state while the undefined placeholder leaked out as the result - both paths now check after the settle; (2) unary minus lowered as the Number-lane 0-x identity through any_arith, whose mixed-pair arm threw on a BigInt operand even though §6.1.6.2.1 makes unary minus LEGAL on BigInt - a new __torajs_anyv_unary_neg_pair kernel (the anyv_bitnot_pair shape, whose BigInt leg already existed) negates through __torajs_bigint_neg and delegates every other tag to the same 0-x lane, with the bigint_ffi extern + test stub rows added; the ~ path was already correct and pins the family shape; fixture unary-any-bigint-001 byte-equal vs bun over -5n/~5n/-(-3n)/-0n, the +bigint throw, and the Symbol throws on all three signs with clean continuation after each catch",
+    "commit": "830bfeca",
+    "commitSubject": "fix: the synthesized exotic default ctor narrows to Map/Set - the db66228e gate caught the forward breaking every OTHER exotic family (5 red: class-extends-array/regexp/wrapper + two proto fixtures): a fixed one-argument forward turns a 0-argument new C() into super(undefined), and Array / the wrappers are not argument-count agnostic (new Array(undefined) is the RangeError the gate printed; new Number(undefined) is NaN where new Number() is +0) - only the Map/Set kernels treat nullish as the spec no-op step so the two forms coincide; the synthesis now keys on those two parents and the rest keep the no-forward shape until an arguments-length-aware forward exists",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "830bfeca",
+      "subject": "fix: the synthesized exotic default ctor narrows to Map/Set - the db66228e gate caught the forward breaking every OTHER exotic family (5 red: class-extends-array/regexp/wrapper + two proto fixtures): a fixed one-argument forward turns a 0-argument new C() into super(undefined), and Array / the wrappers are not argument-count agnostic (new Array(undefined) is the RangeError the gate printed; new Number(undefined) is NaN where new Number() is +0) - only the Map/Set kernels treat nullish as the spec no-op step so the two forms coincide; the synthesis now keys on those two parents and the rest keep the no-forward shape until an arguments-length-aware forward exists"
+    },
+    {
+      "hash": "db66228e",
+      "subject": "fix: builtin-subclass ctors stop dropping the iterable argument - new MySet([1]) on a class extends Set came up EMPTY (L3b 371-00 silent-wrong, caught by the rotation-371 super probe): the exotic strip runs BEFORE the derived-default-ctor synthesis and that pass keys on parent.is_some(), so a ctor-less stripped class never got a super forward, and Map/Set had no super(v) kernel anyway (exotic_super_kernel answered None - a 1-arg super(iterable) in an explicit ctor panicked as not-yet-supported); both halves land: __torajs_map_subclass_super / __torajs_set_subclass_super wrap the existing collection_init_from_iterable walk (§24.1.1.1 / §24.2.1.1 steps - nullish adds nothing, entries walk the adder) applied to the minted subclass cell, wired through the four existing per-kernel faces (checker ident whitelist, exotic dispatch arm, subclass declare group, Intrinsics slots), and the strip synthesizes a one-argument forwarding ctor for a ctor-less exotic subclass whose builtin has a super kernel (rest-forwarding stays the recorded call-spread boundary, L3b 371-01); fixture subclass-ctor-iterable-001 byte-equal vs bun over Set/Map iterable ctors, the 0-arg and null forms, and an explicit forwarding ctor"
+    },
+    {
+      "hash": "0847f518",
+      "subject": "feat: builtin-heritage super.m() reaches the parent prototype - the recorded boundary in desugar_classes_builtin_heritage (a stripped class kept its __supercall__ spelling and died on an unknown identifier - the 7-case subclass-receiver-methods face of the Set cluster) closes: rewrite_super_method_calls now admits a stripped class by reading its builtin back from ast.exotic_parent, and a site whose owner walk ends in a builtin-rooted chain (exotic_parent marks a stripped ancestor) rewrites to __superbuiltin__<m>(this, args) instead of a __cm_ face; the checker admits the synthetic name early (args typecheck, answers Any) and the lowering routes it to the new __torajs_super_builtin_method kernel (fn_table by-name, array_from_dyn precedent) which enters any_method_redispatch directly - §13.3.7.3 resolves on the PARENT prototype so the receiver's own override is skipped (own-property probing is over, the reified-cell [[Call]] contract), and a name outside the builtin id space answers the spec not-a-function TypeError instead of a compile error; Object/Iterator (non-exotic stripped parents) keep the loud boundary; fixture super-builtin-001 byte-equal vs bun over Set/Map super calls through overrides (count pinned at 1 - no bounce-back), mixed super+this bodies, and the unknown-name TypeError"
+    },
+    {
+      "hash": "01e25da6",
+      "subject": "feat: typed-tier set methods admit set-like arguments - the checker's seven-method signature widens vec![Type::Set] -> vec![Type::Any] (§24.2.1.2 GetSetRecord decides at runtime; the ~85-case checker-reject face of the Set cluster opens), and the lowering's emit_relation_predicate / emit_setop split on the argument's checked type: statically-Set keeps the untouched Set×Set fast kernels, everything else boxes and routes to the new set_relation_setlike / set_setop_setlike protocol kernels (own declare micro-group ssa_lower_intrinsics_set_like per the map_set group's no-growth ledger) with release_owned_temp for inline literals and a throw check right after; the set-dispatch file crossed 500 on the split and the setops family moved verbatim to the ssa_lower_call_set_dispatch/setops.rs child module (427/111, arr_predicate/iter.rs precedent); fixture set-setlike-002 byte-equal vs bun over the Set×Set fast path, struct/Map/accessor-class arguments, inline-literal temps, five refusal shapes, and a throwing has through the typed route"
+    },
+    {
+      "hash": "bf2a06e0",
+      "subject": "fix: same-shaped object literals join their layout slot widths - the W4 container-width debt recorded in ssa_lower_objlit_layout.rs bit for real (rotation 371, surfaced by the set-like probe): resolve_objlit_layout's coercible first-match shares one layout across same-shaped anonymous literals, so a first {x: 9} froze an I64 slot and a later {x: 1.5} / {x: NaN} silently truncated through the FpToSi coercion (NaN -> 0 - the set-like size gate then read 0 and never threw); two roots fixed without touching the per-binding operation-width domain (the d5 slot-granularity contract keeps o2.x narrow while o1.x floats): (1) the main width walk now seeds every ObjectLit field unconditionally - the container walker only reached literals standing in container positions (let-init, known container flow), so a call-argument literal never seeded and carried no f64 verdict at all; (2) analyze's tail aggregates a per-shape (ordered field-name list) table of floating fields from every literal's frozen verdict, and apply_w4_widen consults it beside the literal's own key, so the FIRST registrant already claims the joined width; first knife tried anon-shape UNIONS in the container UF instead - it fixed the truncation but broke d5 (the family join leaked into operation widths), which is why the join lives in a layout-only side table; fixture objlit-shape-width-001 byte-equal vs bun over var/call-arg literals with integer-first NaN/fractional followers; num_width nextest 236/236"
+    },
+    {
+      "hash": "c6110e7b",
+      "subject": "feat: set methods accept set-like arguments on the any tier - ES2025 §24.2.1.2 GetSetRecord lands as a runtime protocol instead of the real-Set-only gate (the top unattributed test262 cluster, 85 cases across the seven §24.2.4 methods): set_like.rs builds the record (step-1 object refusal before any property read; size = Get + ToNumber + ToIntegerOrInfinity with the NaN TypeError / negative RangeError faces and a Map/Set builtin-count shortcut since the member probe only reifies methods; has/keys = Get + IsCallable with no nullish amnesty, classified through call_target so a Map's reified builtin methods, a class instance's method faces, and plain closures all invoke through one dispatch), and set_like_ops.rs walks the seven algorithms with the spec's side split (receiver index-walk when thisSize <= size, keys()-iterator walk otherwise - the asymmetry is observable and pinned by the set-like-class-order suites), IteratorClose on early relation exits, -0 key canonicalization per §24.2.1.4, owned-frame element stakes across user callbacks, and partial-product drops on the throw path; the any-tier setops arm routes a real-Set argument to the untouched Set×Set fast kernels and everything else here; fixture set-setlike-001 byte-equal vs bun over object-literal/accessor-class/Map arguments, all seven methods, -0 canonicalization, and seven refusal shapes plus a throwing has"
+    },
+    {
+      "hash": "70708e0c",
+      "subject": "docs: rotation 370 sweep artifacts - the close commit's first git add silently aborted on a bad path (2>/dev/null swallowed the exit), so test262-latest.json + verdicts gz missed the ride; same sweep @ cb50411f"
+    },
+    {
+      "hash": "6a6b3f10",
+      "subject": "docs: rotation 370 close - handoff 369's next-item chain lands whole: the injected error-family class objects join the globalThis fill through a torajs-rc 9-slot registry (probing caught the shipped g.Error === Error identity split - the fill's ctor cell vs the bare name's class object - fixed in the same knife), member calls through a top-level immutable namespace-singleton alias rewrite to the bare name (the gate caught the first cut hijacking the const m: any = Math dynamic-cast escape hatch on ns-object-attrs-001 - an annotated decl now opts out and mutation positions keep their shape), Number(bigint) opens the one legal ToNumeric window (sticky-reduction u128 rounding kernel + anyv_number_ctor pre-gate; test262 Number/bigint-conversion.js flips incompatible -> pass and two Temporal/Intl cases flow honestly into the bug bucket), and the any-tier unary family stops leaking pending throws (lower_unary_any_arith/_any_bitnot never emitted a throw check so Symbol/mixed-BigInt rejects stranded while undefined placeholders leaked; unary minus gains its legal BigInt leg via anyv_unary_neg_pair); gate chain 2755 -> 2759/0/4 (+4 fixtures, the knife-2 red self-healed in-rotation), sweep passTotal 29307 -> 29308 with exact conservation (+3 trAccepted = +1 pass +2 bug) and zero pass regressions across 53174 verdicts, gate predicate 262 clusters / 3687 cases, build determinism 44/44 N=12, dashboard refresh @ cb50411f"
+    },
+    {
       "hash": "cb50411f",
       "subject": "fix: the any-tier unary family stops leaking pending throws and negates bigints legally - the L3b rotation-370 silent-wrong (+b over any(bigint) printed undefined where bun throws) had two roots and a sibling: (1) lower_unary_any_arith and lower_unary_any_bitnot never emitted a throw check, so the §7.1.4 rejects any_arith/any_bitnot correctly RECORD (Symbol, mixed-BigInt, OrdinaryToPrimitive both-objects) stranded as pending state while the undefined placeholder leaked out as the result - both paths now check after the settle; (2) unary minus lowered as the Number-lane 0-x identity through any_arith, whose mixed-pair arm threw on a BigInt operand even though §6.1.6.2.1 makes unary minus LEGAL on BigInt - a new __torajs_anyv_unary_neg_pair kernel (the anyv_bitnot_pair shape, whose BigInt leg already existed) negates through __torajs_bigint_neg and delegates every other tag to the same 0-x lane, with the bigint_ffi extern + test stub rows added; the ~ path was already correct and pins the family shape; fixture unary-any-bigint-001 byte-equal vs bun over -5n/~5n/-(-3n)/-0n, the +bigint throw, and the Symbol throws on all three signs with clean continuation after each catch"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "5205636d",
       "subject": "feat: member calls through a namespace-singleton alias dispatch like the bare name - a new desugar_ns_alias_members pass (right after G1, whose rewrite can itself mint the alias shape from const m = globalThis.Math) retargets the receiver ident of every member access through a TOP-LEVEL immutable alias of Math / JSON / Reflect / console onto the namespace name, so const m = Math; m.max(1, 2) rides the existing syntactic dispatch lanes instead of the resolve_callee unsupported-member-call-shape panic (the boundary RFC 20260812-console-sink knife 4 recorded); the soundness bar is the fnexpr_this / globalthis_member program-wide gate shape - top-level const with a bare-namespace init only (module scope means the rewrite can never legalize an undeclared cross-fn read), exactly one program-wide declaration of the name, no other binding form claiming it (fn/param/catch/for-of/class incl arrow-fn params via the expr arena), never an assign/post-incr target - and the alias LetDecl plus every value use stay untouched so m === Math keeps reading the boxed singleton; ctor namespaces (const O = Object) are a different family and stay a recorded boundary; fixture ns-alias-member-001 byte-equal vs bun over Math triple-dispatch, identity, JSON stringify/parse, console log + error (stderr routing through the alias), and Reflect.has"
-    },
-    {
-      "hash": "2ef0647f",
-      "subject": "feat: the injected error-family class objects join the globalThis fill - torajs-rc grows a 9-slot native_error_class registry (fixed family index as recorder/reader ABI), the error_proto_install emit records each injected class's registered anyv into it through a new classmeta/error_family.rs sibling (meta stays zero-Cargo-dep via the _record C symbol; class_register precedes the install in the class_globals_register emit order so the tag slot is already filled), and the globalThis mint defines every recorded family member with the SAME class object the bare name resolves to - probing caught that the shipped fill's Error row (builtin_ctor_cell tag 9) was a silent identity split: g.Error === Error answered false vs bun true because bare Error reads the injected class object, so Error moves out of CTOR_PROPS into the family loop with the ctor cell kept only as the never-injected fallback; construct through a dynamically read ctor works for free (the any-lane class-object new was already live, probe-verified), MISSING_KNOWN keeps all six NativeError rows as the loud posture for programs whose computed-string reads never trigger injection; fixture globalthis-native-error-001 byte-equal vs bun over 8-way identity (incl AggregateError), typeof, new through the dynamic lane, instanceof both levels, message/name, and the G1 static spelling"
-    },
-    {
-      "hash": "c2bceccb",
-      "subject": "docs: rotation 369 close - the console surface closes four knives deep behind RFC 20260812-console-sink: the print/inspect family streams through a torajs-io current-sink indirection (STDERR LineBuf twin, putc_out/write_out, drain-on-switch pair preserving 2>&1 caller order), console.error/warn route every runtime type to stderr through the single emit_console_print gate (four per-type _err intrinsics retire; the fixture caught print_i64/print_bool raw-writing fd 1 past the sink - the io doc claiming putc routing was stale), the stderr pair becomes first-class ns-static cells, and the console namespace object mints as a singleton joining the globalThis fill (MISSING_KNOWN 11 -> 10, Web IDL [object console] badge); test262 zero movement with verdicts byte-identical across all 53174 cases (console is a conformance-gate face, not a test262 face), conformance gate 2752 -> 2755/0/4 (+3 fixtures), one new recorded boundary (ns-alias member call, Math-family) registered, build determinism 44/44 N=12, dashboard refresh @ d9b8daf4"
-    },
-    {
-      "hash": "d9b8daf4",
-      "subject": "feat: the console namespace object mints as a singleton and joins the globalThis fill - intern_singleton + fill_ns_methods(console) gives the five logger cells one immortal dynobj home (Math/JSON/Reflect same shape), the bare console ident in a value position lowers through the new ns_object_console intrinsic, the globalThis fill defines the console key with the same singleton so globalThis.console === console holds, MISSING_KNOWN drops console (11 -> 10), and the Web IDL namespace-object @@toStringTag badge answers [object console] by pointer identity (bun-verified); a typed alias's member CALL (const c = console; c.log(x)) stays a recorded boundary - probing showed const m = Math; m.max(1,2) raises the same loud unsupported-member-call-shape, so this is the pre-existing ns-alias family, registered in plan-state L3b with the dynamic cast as the working escape hatch; fixture globalthis-console-001 stdout+stderr byte-equal vs bun over identity, typeof, the dynamic lane both ways, and the badge (RFC 20260812-console-sink knife 4)"
-    },
-    {
-      "hash": "bbc2ad55",
-      "subject": "feat: console.error/warn become first-class values - two globalThis-visible rows append at the ns-static table end (append-only; the B2 comment's recorded face 'error/warn stay OFF until an any-print stderr kernel exists' retires now that the sink switch is that kernel), Disp::ConsoleLog parameterizes to { to_stderr } and the dispatch arm brackets the shared per-arg inline-print walk with the io current-sink switch, so the one streaming path serves both streams across the cell call, the detached let-alias (variadic boxed dual entry), and the reflection faces; checker face was already open (the five-method console arm) and the member cell-mint lane is purely table-driven, so the rows light up both without new code; fixture console-error-cell-001 stdout+stderr byte-equal vs bun over detached calls, identity, and name/length (bare console in a value position stays the knife-4 face) (RFC 20260812-console-sink knife 3)"
-    },
-    {
-      "hash": "16a5abbe",
-      "subject": "feat: console.error/warn route every runtime type to stderr - console_print_target collapses to one arg-type printer table and the new emit_console_print helper becomes the single gate every console print call goes through (error/warn bracket the call with the io sink-switch pair, wrapping only the print and never the argument lowering so a user toString's console.log stays on stdout); the four per-type _err intrinsics retire from the lowering face (declares, table wiring, fn_meta rows; torajs-num print_err.rs deleted whole, __torajs_str_print_err kept as the unhandled-rejection reporter's direct-call primitive with its doc repointed), rc_peephole's READONLY_INTRINSICS swaps in the sink pair so the error/warn inc/drop window stays transparent, and torajs-print's write_all switches from a raw fd-1 write(2) loop to __torajs_io_write_out - the fixture caught console.error(42/true) still landing on stdout because print_i64/print_bool bypassed both the sink and the line buffer (the io doc claiming they route through putc was stale); fixture console-error-types-001 stdout+stderr byte-equal vs bun across str/num/bool/null/undefined/arr/obj/map/set/substr/bigint/symbol/multi-arg plus 2>&1 interleave EQ (RFC 20260812-console-sink knife 2)"
-    },
-    {
-      "hash": "93fc557d",
-      "subject": "feat: the print family streams through a current-sink indirection - torajs-io grows a STDERR LineBuf twin and a sink module (putc_out/write_out + the sink_to_stderr/sink_to_stdout switch pair, AtomicBool flag per the multi-thread-ready shape), every sink switch drains the buffer it leaves so 2>&1 keeps caller order (generalizing the legacy flush-stdout-before-raw-stderr-write convention), and __torajs_io_flush drains both fds for the exit hook; the ~88 print/inspect call sites across 17 files (str/num/bigint/fnname/arr/collections/promise/meta/dynobj/regex/anyvalue inspect + the core IR declare face io_putc_out) mechanically rename from the fd-literal putc_stdout family to _out, while putc_stdout keeps its honest literal meaning for process.stdout.write; behavior is byte-identical while the sink rests on stdout (RFC 20260812-console-sink knife 1, groundwork for console.error/warn full-type stderr without per-type _err symbol growth)"
-    },
-    {
-      "hash": "d73c233a",
-      "subject": "docs: rotation 368 close leftovers - the roadmap sweep snapshot section and the sweep archive files (test262-latest.json / verdicts gz) were staged for the close but missed the git add; content is the e96477f7 sweep already described in 46a99a73"
-    },
-    {
-      "hash": "46a99a73",
-      "subject": "docs: rotation 368 close - the globalThis surface closes five knives deep: the G3 descriptor probe finds the gOPD global arm already working (closing the L3b entry without code), MISSING_KNOWN shrinks 19 -> 11 (parseInt/parseFloat reuse the Number.* cells per the 21.1.2.12/.13 same-object clause, isFinite/isNaN get ToNumber-coercing cells, the 19.2.6 URI quartet lands whole with a real Encode/Decode kernel and URIError as runtime slot 6), and the eight global function properties open as bare values; sweep conserved +170 pass / +8 bug (the non-constructor family honestly entering the truly-run surface) / -178 incompatible with zero pass regressions, the former top-1 unattributed cluster (decodeURI family) clears whole, gate predicate double-drops to 262 clusters / 3686 cases, build determinism 44/44 N=12, dashboard refresh @ e96477f7"
     }
   ],
-  "headSha": "cb50411f",
+  "headSha": "830bfeca",
   "autorun": {
-    "total": 673,
+    "total": 674,
     "baselineTarget": 10,
-    "bySelf": 668,
+    "bySelf": 669,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786488158-1bef",
-      "at": "2026-08-11T22:42:38Z",
-      "ts": 1786488158,
+      "rotationId": "r-1786494552-7745",
+      "at": "2026-08-12T00:29:12Z",
+      "ts": 1786494552,
       "trigger": "self",
-      "prevHead": "c2bceccb",
-      "handoffSha": "sha256:60ea93734c7960a3f1e1cdd367535726364eb8a5ff5f17bc74909ff8f7f1e72c",
-      "handoffAgeSec": 29,
+      "prevHead": "70708e0c",
+      "handoffSha": "sha256:eec057d303a0b1851c815b69f54592c74298c813486026cd208c4a669138937b",
+      "handoffAgeSec": 51,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786494552-7745",
+        "at": "2026-08-12T00:29:12Z",
+        "ts": 1786494552,
+        "trigger": "self",
+        "prevHead": "70708e0c",
+        "handoffSha": "sha256:eec057d303a0b1851c815b69f54592c74298c813486026cd208c4a669138937b",
+        "handoffAgeSec": 51,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786488158-1bef",
         "at": "2026-08-11T22:42:38Z",
@@ -876,17 +887,6 @@
         "prevHead": "f13e48f7",
         "handoffSha": "sha256:2097f696bb41e5027a56fca8567238accbfb429e78f0d885ff26328505bc9a11",
         "handoffAgeSec": 538,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786411524-713d",
-        "at": "2026-08-11T01:25:24Z",
-        "ts": 1786411524,
-        "trigger": "self",
-        "prevHead": "438e8f44",
-        "handoffSha": "sha256:8328d1cfdc8e5d353d53fd45a3744278393fb73ad13b7d1b899d5eb7120d3b78",
-        "handoffAgeSec": 270,
         "conformanceBefore": null,
         "commitsInSession": null
       }
