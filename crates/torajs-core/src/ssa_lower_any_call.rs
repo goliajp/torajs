@@ -16,6 +16,28 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_any_method_call::pack_any_argv;
 
+/// RFC 20260813-detached-objlit-method — the callee's REPRESENTATION
+/// is `any` even though the checker named a sharper type.
+///
+/// A class method read off an instance (`const t = c.read`) types at
+/// the method's signature: that is Phase I.1 in
+/// `check_type_of_member`, and the type is not wrong — TypeScript
+/// says the same. But a class method has no static function identity
+/// to hand out, so the READ lowers to the runtime member-get and what
+/// lands in the binding's slot is an Any (the runtime mints the
+/// method value off the class-methods table; `typeof t` already
+/// answers `function`). Dispatching on the checker type alone sent
+/// the call looking for a FuncId by name — "unknown function `t`".
+///
+/// The slot is what the call has to work with, so it is what the
+/// dispatch reads. Scope resolution comes from `ctx.locals`, so a
+/// global fn shadowed by an any-typed local answers for the local,
+/// as it should.
+pub(crate) fn callee_slot_is_any(ctx: &LowerCtx<'_>, eid: crate::ast::ExprId) -> bool {
+    matches!(ctx.ast.get_expr(eid), Expr::Ident(n)
+        if ctx.locals.get(n).is_some_and(|i| i.ty == Type::Any))
+}
+
 /// Try to lower `callee(args…)` as a bare any-call. Returns `None`
 /// unless the callee is a non-Member expression typing as `any`.
 pub(crate) fn try_lower(
@@ -26,7 +48,9 @@ pub(crate) fn try_lower(
     if matches!(ctx.ast.get_expr(callee), Expr::Member { .. }) {
         return None;
     }
-    if !matches!(ctx.expr_types.get(&callee), Some(crate::check::Type::Any)) {
+    if !matches!(ctx.expr_types.get(&callee), Some(crate::check::Type::Any))
+        && !callee_slot_is_any(ctx, callee)
+    {
         return None;
     }
     let recv = ctx.lower_expr(callee);

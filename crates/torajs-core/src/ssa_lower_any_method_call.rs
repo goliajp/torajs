@@ -100,7 +100,20 @@ pub(crate) fn try_lower(
                 .get(obj)
                 .and_then(crate::builtin_proto_shadow::family_of)
                 .is_some_and(|f| ctx.proto_shadow.shadows(f, name));
-        if !sugar_fn_on_any && !builtin_mv && !ns_static_fn && !any_member_read && !shadowed_builtin
+        // RFC 20260813-detached-objlit-method — the same surfaces on a
+        // binding whose SLOT holds an Any while the checker named a
+        // class method's signature (`const t = c.read; t.call(c)`).
+        // The read minted the method value off the class-methods
+        // table, so the runtime dispatcher is the only thing that can
+        // re-bind it; see `any_call::callee_slot_is_any`.
+        let detached_method =
+            is_fn_surface && crate::ssa_lower_any_call::callee_slot_is_any(ctx, *obj);
+        if !sugar_fn_on_any
+            && !builtin_mv
+            && !ns_static_fn
+            && !any_member_read
+            && !shadowed_builtin
+            && !detached_method
         {
             return None;
         }
