@@ -55,33 +55,12 @@ pub(crate) fn try_parse_fn_type(
         .strip_prefix("->")
         .unwrap_or_else(|| panic!("ssa-lower: malformed fn-type ret `{s}`"));
 
-    // Split params at depth-0 `|`.
+    // Split params at depth-0 `|` on the checker's own splitter, so
+    // the two sides of this encoding cannot disagree about what nests.
     let mut params: Vec<Type> = Vec::new();
-    let mut depth2: i32 = 0;
-    let mut last = 0usize;
-    let pb = params_str.as_bytes();
-    for (i, &b) in pb.iter().enumerate() {
-        match b {
-            b'(' => depth2 += 1,
-            b')' => depth2 -= 1,
-            b'|' if depth2 == 0 => {
-                params.push(parse_type(
-                    Some(&params_str[last..i]),
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                ));
-                last = i + 1;
-            }
-            _ => {}
-        }
-    }
-    if !params_str.is_empty() {
+    for seg in crate::check_type_ann::split_top_pipe(params_str) {
         params.push(parse_type(
-            Some(&params_str[last..]),
+            Some(seg),
             aliases,
             arr_layouts,
             fn_sigs,

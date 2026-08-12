@@ -5,7 +5,7 @@
 //! in a hard None) merge into one fn — the caller's single `<...>`
 //! guard reaches this in the same order, so fall-through semantics
 //! are unchanged. The two inline depth-aware `|` splitters collapse
-//! into `markers::split_top_pipe(.., true)`.
+//! into `markers::split_top_pipe`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -68,7 +68,7 @@ pub(super) fn resolve_generic(
     if let Some((tp_names, fields)) = generic_aliases.get(head) {
         let inner = &name[open_idx + 1..name.len() - 1];
         // Split inner at depth-0 `|`.
-        let args = split_top_pipe(inner, true);
+        let args = split_top_pipe(inner);
         if args.len() != tp_names.len() {
             return None;
         }
@@ -166,7 +166,7 @@ pub(super) fn resolve_generic(
         // generic-instantiation decoder above) so nested generics
         // like `Map<string, Array<number>>` (flat `Map<string|Array<number>>`)
         // resolve their args correctly.
-        let args = split_top_pipe(inner, true);
+        let args = split_top_pipe(inner);
         for arg in &args {
             resolve_type_ann_inner(arg, aliases, type_params, generic_aliases, in_flight)?;
         }

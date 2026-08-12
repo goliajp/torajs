@@ -62,9 +62,15 @@ pub(crate) fn fn_type_canon(ann: &str) -> Option<String> {
 }
 
 /// Split a fn-type canonical spelling into its param spellings and
-/// ret spelling: `__fn(P1|P2)->R` → (["P1","P2"], "R"). Depth-aware
-/// at `(` so nested fn-types / generic args don't split. Returns
-/// None on malformed spellings (the consumer keeps parse widths).
+/// ret spelling: `__fn(P1|P2)->R` → (["P1","P2"], "R"). Returns None
+/// on malformed spellings (the consumer keeps parse widths).
+///
+/// The param split runs on the shared `check_type_ann::split_top_pipe`
+/// so a multi-argument generic param (`__fn(Map<string|number>)->void`)
+/// nests instead of splitting — see that function's r381 note. The
+/// close-paren scan below stays paren-only on purpose: it is looking
+/// for the `)` that closes `__fn(`, and no generic argument can hide
+/// one from it.
 pub(crate) fn split_fn_type(canon: &str) -> Option<(Vec<&str>, &str)> {
     let rest = canon.strip_prefix("__fn(")?;
     let bytes = rest.as_bytes();
@@ -86,23 +92,10 @@ pub(crate) fn split_fn_type(canon: &str) -> Option<(Vec<&str>, &str)> {
     let close = close?;
     let params_str = &rest[..close];
     let ret = rest[close + 1..].strip_prefix("->")?;
-    let mut params = Vec::new();
-    if !params_str.is_empty() {
-        let mut d = 0i32;
-        let mut last = 0usize;
-        for (i, &b) in params_str.as_bytes().iter().enumerate() {
-            match b {
-                b'(' => d += 1,
-                b')' => d -= 1,
-                b'|' if d == 0 => {
-                    params.push(params_str[last..i].trim());
-                    last = i + 1;
-                }
-                _ => {}
-            }
-        }
-        params.push(params_str[last..].trim());
-    }
+    let params: Vec<&str> = crate::check_type_ann::split_top_pipe(params_str)
+        .into_iter()
+        .map(str::trim)
+        .collect();
     Some((params, ret.trim()))
 }
 

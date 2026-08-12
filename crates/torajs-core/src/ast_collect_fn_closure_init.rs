@@ -15,9 +15,11 @@ use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann, 
 /// Chunk 793 — decode an inline object-type annotation
 /// (`__inlobj(f:ann|...)`, optionally `__nullable(...)`-wrapped)
 /// into its field→annotation map; `None` for any other ann shape.
-/// Depth-0 `|` split with paren-only nesting, mirroring the
-/// checker's `check_type_ann::markers::split_top_pipe(s, false)`
-/// spelling for the same encoding.
+/// Splits on the checker's own `check_type_ann::split_top_pipe`, so
+/// the two readers of this encoding cannot drift apart. The private
+/// copy this replaced nested parens only, which cut a field spelled
+/// with a multi-argument generic (`{ m: Map<string, number> }` →
+/// `__inlobj(m:Map<string|number>)`) in half.
 pub(crate) fn parse_inlobj_field_anns(ann: &str) -> Option<HashMap<String, String>> {
     let t = ann.trim();
     let t = t
@@ -29,22 +31,7 @@ pub(crate) fn parse_inlobj_field_anns(ann: &str) -> Option<HashMap<String, Strin
     if body.trim().is_empty() {
         return Some(map);
     }
-    let mut depth: i32 = 0;
-    let mut last = 0usize;
-    let mut segs: Vec<&str> = Vec::new();
-    for (i, &b) in body.as_bytes().iter().enumerate() {
-        match b {
-            b'(' => depth += 1,
-            b')' => depth -= 1,
-            b'|' if depth == 0 => {
-                segs.push(&body[last..i]);
-                last = i + 1;
-            }
-            _ => {}
-        }
-    }
-    segs.push(&body[last..]);
-    for seg in segs {
+    for seg in crate::check_type_ann::split_top_pipe(body) {
         let colon = seg.find(':')?;
         map.insert(
             seg[..colon].trim().to_string(),

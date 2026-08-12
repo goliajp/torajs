@@ -23,42 +23,12 @@ pub(super) fn parse_struct(
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
     let mut fields: Vec<(String, Type)> = Vec::new();
-    let mut depth: i32 = 0;
-    let mut last = 0usize;
-    let bytes = inner.as_bytes();
-    let mut prev: u8 = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        match b {
-            b'(' | b'<' => depth += 1,
-            // Chunk 794 — the `>` of a fn-type return arrow
-            // (`__cls(a|b)->r`) is not a generic closer; counting it
-            // dropped the depth below zero right after the fn's `)`
-            // closed, so every later depth-0 `|` went unseen and a
-            // fn-typed field swallowed the rest of the field list
-            // (fill_optional_fields splitter mirror).
-            b'>' if prev == b'-' => {}
-            b')' | b'>' => depth -= 1,
-            b'|' if depth == 0 => {
-                let part = &inner[last..i];
-                let (n, t) = part.split_once(':').unwrap_or((part, ""));
-                let fty = parse_struct_field_type(
-                    t,
-                    aliases,
-                    arr_layouts,
-                    fn_sigs,
-                    generic_struct_decls,
-                    struct_layouts,
-                    inst_memo,
-                );
-                fields.push((n.to_string(), fty));
-                last = i + 1;
-            }
-            _ => {}
-        }
-        prev = b;
-    }
-    if !inner.is_empty() {
-        let part = &inner[last..];
+    // One splitter for this encoding, shared with the checker
+    // (`check_type_ann::split_top_pipe`). The hand-rolled copies this
+    // family used to keep drifted apart twice: chunk 794 taught one of
+    // them that the `>` of a return arrow is not a generic closer, and
+    // r381 found two more still nesting parens only.
+    for part in crate::check_type_ann::split_top_pipe(inner) {
         let (n, t) = part.split_once(':').unwrap_or((part, ""));
         let fty = parse_struct_field_type(
             t,
@@ -124,33 +94,7 @@ pub(super) fn parse_cls(
     // boxed dual entry (`closure_call_variadic`) which never reads
     // the static params.
     let mut params: Vec<Type> = Vec::new();
-    let mut depth2: i32 = 0;
-    let mut last = 0usize;
-    let pb = params_str.as_bytes();
-    for (i, &b) in pb.iter().enumerate() {
-        match b {
-            b'(' => depth2 += 1,
-            b')' => depth2 -= 1,
-            b'|' if depth2 == 0 => {
-                let seg = &params_str[last..i];
-                if !seg.starts_with("__rest(") {
-                    params.push(parse_type(
-                        Some(seg),
-                        aliases,
-                        arr_layouts,
-                        fn_sigs,
-                        generic_struct_decls,
-                        struct_layouts,
-                        inst_memo,
-                    ));
-                }
-                last = i + 1;
-            }
-            _ => {}
-        }
-    }
-    if !params_str.is_empty() {
-        let seg = &params_str[last..];
+    for seg in crate::check_type_ann::split_top_pipe(params_str) {
         if !seg.starts_with("__rest(") {
             params.push(parse_type(
                 Some(seg),

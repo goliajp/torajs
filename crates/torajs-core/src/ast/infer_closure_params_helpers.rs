@@ -32,7 +32,7 @@ pub(super) fn mapset_foreach_expected(ann: &str, method: &str) -> Option<(Vec<St
         return None;
     }
     if let Some(inner) = ann.strip_prefix("Map<").and_then(|r| r.strip_suffix('>')) {
-        let parts = crate::check_type_ann::split_top_pipe(inner, true);
+        let parts = crate::check_type_ann::split_top_pipe(inner);
         let [k, v] = parts.as_slice() else {
             return None;
         };
@@ -42,7 +42,7 @@ pub(super) fn mapset_foreach_expected(ann: &str, method: &str) -> Option<(Vec<St
         ));
     }
     if let Some(inner) = ann.strip_prefix("Set<").and_then(|r| r.strip_suffix('>')) {
-        let parts = crate::check_type_ann::split_top_pipe(inner, true);
+        let parts = crate::check_type_ann::split_top_pipe(inner);
         let [t] = parts.as_slice() else {
             return None;
         };

@@ -10,25 +10,31 @@ use std::collections::{HashMap, HashSet};
 
 use crate::check::{GenericAliasMap, Type};
 
-/// Split `s` at every depth-0 `|`. With `angle`, `<`/`>` nest depth
-/// alongside `(`/`)` (the generic-argument spelling); without, only
-/// parens nest (the `__inlobj` / `__fn` param spelling — verbatim
-/// from the pre-split inline copies). Chunk 795 — in angle mode the
-/// `>` of a fn-type return arrow (`Pair<__fn()->number|string>`) is
-/// not a generic closer: counting it dropped the depth below zero
-/// and the depth-0 `|` between the type args went unseen (chunk-794
-/// splitter-family mirror; `-` only precedes `>` in the
-/// return-arrow spelling).
-pub(crate) fn split_top_pipe(s: &str, angle: bool) -> Vec<&str> {
+/// Split `s` at every depth-0 `|`, with both `(`/`)` and `<`/`>`
+/// nesting. The `>` of a fn-type return arrow
+/// (`Pair<__fn()->number|string>`) is not a generic closer: counting
+/// it dropped the depth below zero and the depth-0 `|` between the
+/// type args went unseen (`-` only precedes `>` in the return-arrow
+/// spelling).
+///
+/// r381 — angle nesting used to be opt-in, and the `__inlobj(` /
+/// `__fn(` decoders opted out. That was never a real distinction:
+/// a `|` inside `<..>` separates GENERIC ARGUMENTS in every one of
+/// these spellings, never the marker's own fields or params. Opting
+/// out cut `__fn(Map<string|number>)->void` into `Map<string` and
+/// `number>`, so any multi-argument generic in a fn-type or inline
+/// object type was a loud "unknown type" (single-argument ones
+/// carry no `|` and survived, which is why it stayed hidden).
+pub(crate) fn split_top_pipe(s: &str) -> Vec<&str> {
     let mut parts: Vec<&str> = Vec::new();
     let mut depth: i32 = 0;
     let mut last = 0usize;
     let mut prev: u8 = 0;
     for (i, &b) in s.as_bytes().iter().enumerate() {
         match b {
-            b'<' if angle => depth += 1,
-            b'>' if angle && prev == b'-' => {}
-            b'>' if angle => depth -= 1,
+            b'<' => depth += 1,
+            b'>' if prev == b'-' => {}
+            b'>' => depth -= 1,
             b'(' => depth += 1,
             b')' => depth -= 1,
             b'|' if depth == 0 => {
@@ -77,7 +83,7 @@ pub(super) fn resolve_inlobj(
 ) -> Option<Type> {
     let close = find_close_paren(rest)?;
     let fields_str = &rest[..close];
-    let fields_split = split_top_pipe(fields_str, false);
+    let fields_split = split_top_pipe(fields_str);
     let mut fields_out: Vec<(String, Type)> = Vec::with_capacity(fields_split.len());
     for f in fields_split {
         let colon = f.find(':')?;
@@ -113,7 +119,7 @@ pub(super) fn resolve_fn_cls(
     let params_str = &rest[..close];
     let after = &rest[close + 1..];
     let ret_str = after.strip_prefix("->")?;
-    let params = split_top_pipe(params_str, false);
+    let params = split_top_pipe(params_str);
     let mut param_tys = Vec::with_capacity(params.len());
     for p in params {
         param_tys.push(super::resolve_type_ann_inner(
