@@ -136,6 +136,7 @@ mod this_param;
 mod toplevel_this;
 mod uninit_let;
 mod var_hoist;
+mod yield_ident_goal;
 pub use apply_args::apply_default_args;
 pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_rest_args::apply_rest_args;
@@ -201,6 +202,7 @@ pub use this_param::bind_this_param;
 pub use toplevel_this::rewrite_toplevel_this;
 pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
+pub use yield_ident_goal::triage_yield_idents;
 
 mod ast_def;
 pub use ast_def::*;

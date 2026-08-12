@@ -615,6 +615,13 @@ pub struct Ast {
     /// reads it for the sloppy `callee` / mapped-aliasing faces;
     /// every other pass keeps the strict-goal behavior regardless.
     pub sloppy_script_goal: bool,
+    /// Byte positions where the parser admitted `yield` as an
+    /// identifier (binding name or IdentifierReference) outside a
+    /// generator body. §12.7.2 reserves the word under the STRICT
+    /// goal only, and the goal bit above is stamped after parsing —
+    /// so the parser admits and `ast::triage_yield_idents` (prelude)
+    /// raises the strict-goal SyntaxError when this is non-empty.
+    pub yield_ident_positions: Vec<u32>,
 }
 
 /// Thin wrapper preserving the `ast::desugar_builtin_new` public

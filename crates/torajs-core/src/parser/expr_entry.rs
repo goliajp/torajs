@@ -212,7 +212,11 @@ impl<'a> Parser<'a> {
         // `YieldInto` temp (yield_expr_hoist.rs). The statement /
         // let-init lanes peeked their `yield` earlier, so this only
         // sees genuinely nested positions.
-        if matches!(self.peek(), Token::Yield) {
+        // Outside a generator the token is an IdentifierReference
+        // candidate (§12.7.2) — parse_ternary reaches primary.rs,
+        // which admits it and records the site for the strict-goal
+        // prelude gate.
+        if matches!(self.peek(), Token::Yield) && self.in_generator {
             return self.parse_yield_expr_hoist();
         }
         let target = self.parse_ternary()?;

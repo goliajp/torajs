@@ -148,7 +148,11 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Try) {
             return self.parse_try();
         }
-        if matches!(self.peek(), Token::Yield) {
+        // Outside a generator the token is an identifier candidate
+        // (§12.7.2 — strict-goal reservation is judged by the prelude
+        // gate), so it falls through to the expression-statement lane
+        // and primary.rs admits it.
+        if matches!(self.peek(), Token::Yield) && self.in_generator {
             return self.parse_yield_stmt();
         }
         // P2.1 — `var` is parsed identically to `let` here; the
@@ -284,6 +288,15 @@ impl<'a> Parser<'a> {
         loop {
             let name = match self.peek() {
                 Token::Ident(n) => n.clone(),
+                // §12.7.2 — `let/var/const yield` is a valid binding
+                // outside generators under the sloppy goal; the parser
+                // admits and records, the prelude gate raises the
+                // strict-goal SyntaxError (goal stamped post-parse).
+                Token::Yield if !self.in_generator => {
+                    let at = self.at();
+                    self.ast.yield_ident_positions.push(at);
+                    "yield".to_string()
+                }
                 t => {
                     return Err(format!(
                         "expected identifier after `{kw}`, got {t:?} at {}",
@@ -361,16 +374,10 @@ impl<'a> Parser<'a> {
             // user writes `let x = yield e, y = ...` we fall
             // through to parse_expr which won't accept yield —
             // matches the v0.5 generator semantics.
-            if decls.is_empty() && matches!(self.peek(), Token::Yield) {
-                // §15.5.5 / §16.1 early error (r290) — same
-                // parse-time gate as the statement / expression
-                // lanes.
-                if !self.in_generator {
-                    return Err(format!(
-                        "`yield` is only valid inside a `function*` generator body at {} (ES §15.5.5)",
-                        self.at()
-                    ));
-                }
+            // Outside a generator the init falls through to
+            // parse_expr, where primary.rs admits `yield` as an
+            // IdentifierReference (§12.7.2 goal triage).
+            if decls.is_empty() && matches!(self.peek(), Token::Yield) && self.in_generator {
                 self.pos += 1;
                 // S2.41 — `let v = yield;` binds the resumption value
                 // with an undefined operand (same optional-operand

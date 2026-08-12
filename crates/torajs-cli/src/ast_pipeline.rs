@@ -63,6 +63,13 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // `yield`-as-identifier goal triage (§12.7.2) — same shape: the
+    // parser admitted the sites, strict raises the SyntaxError here,
+    // sloppy keeps the identifiers as parsed.
+    if let Some(msg) = ast::triage_yield_idents(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // After the redeclaration early errors, which want the raw AST —
     // and a declaration inlined out of an eval is not an early error
     // anyway (§19.2.1.1 makes an eval-introduced conflict a runtime
