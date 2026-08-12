@@ -276,6 +276,17 @@ fn transform_source(src: &str) -> String {
             (b"assertRelativeDateMs(", "__t262_assertRelativeDateMs("),
             (b"asyncTest(", "__t262_asyncTest("),
             (b"fnGlobalObject(", "__t262_fnGlobalObject("),
+            // nativeFunctionMatcher.js port (2026-08-12). Distinct
+            // prefixes — no ordering hazard against each other.
+            (
+                b"assertToStringOrNativeFunction(",
+                "__t262_assertToStringOrNativeFunction(",
+            ),
+            (b"assertNativeFunction(", "__t262_assertNativeFunction("),
+            (
+                b"validateNativeFunctionSource(",
+                "__t262_validateNativeFunctionSource(",
+            ),
         ];
         let mut hit_helper = false;
         for (needle, replacement) in T262_HELPER_REWRITES {
@@ -399,6 +410,10 @@ fn run_case(
         // `Function("return this;")()` runs on tr and answers the G2
         // globalThis singleton, so the port returns it directly.
         "fnGlobalObject.js",
+        // 2026-08-12 — real NativeFunction-grammar validator
+        // (ASCII-narrowed identifier classes; builtin names are
+        // ASCII, non-ASCII fails loud).
+        "nativeFunctionMatcher.js",
     ];
     let unported: Vec<&str> = fm
         .includes

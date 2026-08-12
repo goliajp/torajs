@@ -869,3 +869,202 @@ function checkSettledPromises(settleds: any, expected: any, message: string = ""
 }
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
+
+// ─── nativeFunctionMatcher.js port (2026-08-12) ───
+//
+// Validates the NativeFunction grammar (§20.2.3.5):
+//   function get|set? IdentifierName? ( FormalParameters ) { [ native code ] }
+// The stock harness carries ~2KB Unicode ID_Start / ID_Continue
+// regexes; every name Function.prototype.toString mints for a builtin
+// is ASCII, so the port narrows the identifier classes to ASCII (a
+// non-ASCII name fails validation LOUDLY — it can't silently pass).
+// Char reads go through charCodeAt (out of range answers NaN, and
+// every numeric comparison against NaN is false, so no bounds guards).
+class __T262NfmScan {
+  src: string;
+  pos: number;
+  // Set when a malformed block comment is met; the top-level driver
+  // reads it (the stock code throws SyntaxError from eatWhitespace).
+  bad: boolean;
+  constructor(src: string) {
+    this.src = src;
+    this.pos = 0;
+    this.bad = false;
+  }
+  isWs(c: number): boolean {
+    return c === 32 || c === 9 || c === 11 || c === 12 || c === 160 || c === 65279;
+  }
+  isNl(c: number): boolean {
+    return c === 10 || c === 13 || c === 8232 || c === 8233;
+  }
+  isIdStart(c: number): boolean {
+    return (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c === 95 || c === 36;
+  }
+  isIdCont(c: number): boolean {
+    return this.isIdStart(c) || (c >= 48 && c <= 57);
+  }
+  eatWhitespace(): void {
+    while (this.pos < this.src.length) {
+      const c = this.src.charCodeAt(this.pos);
+      if (this.isWs(c) || this.isNl(c)) {
+        this.pos = this.pos + 1;
+        continue;
+      }
+      // 47 = '/', 42 = '*'
+      if (c === 47 && this.src.charCodeAt(this.pos + 1) === 47) {
+        while (this.pos < this.src.length && !this.isNl(this.src.charCodeAt(this.pos))) {
+          this.pos = this.pos + 1;
+        }
+        continue;
+      }
+      if (c === 47 && this.src.charCodeAt(this.pos + 1) === 42) {
+        let j = this.pos + 2;
+        let closed = false;
+        while (j + 1 < this.src.length) {
+          if (this.src.charCodeAt(j) === 42 && this.src.charCodeAt(j + 1) === 47) {
+            closed = true;
+            break;
+          }
+          j = j + 1;
+        }
+        if (!closed) {
+          this.bad = true;
+          return;
+        }
+        this.pos = j + 2;
+        continue;
+      }
+      break;
+    }
+  }
+  // Reads (without consuming) the identifier at the cursor after
+  // whitespace; empty string = none (an identifier is never empty).
+  peekIdentifier(): string {
+    this.eatWhitespace();
+    const start = this.pos;
+    let end = this.pos;
+    if (!this.isIdStart(this.src.charCodeAt(end))) {
+      return "";
+    }
+    end = end + 1;
+    while (end < this.src.length && this.isIdCont(this.src.charCodeAt(end))) {
+      end = end + 1;
+    }
+    return this.src.slice(start, end);
+  }
+  eatIdentifier(): boolean {
+    const n = this.peekIdentifier();
+    if (n === "") {
+      return false;
+    }
+    this.pos = this.pos + n.length;
+    return true;
+  }
+  // Word tokens (function / get / set / native / code) must match the
+  // WHOLE identifier at the cursor — `functionX` must not eat its
+  // `function` prefix (the stock test() compares getIdentifier()).
+  eatWord(w: string): boolean {
+    if (this.peekIdentifier() === w) {
+      this.pos = this.pos + w.length;
+      return true;
+    }
+    return false;
+  }
+  // Single-char punctuation.
+  eatPunct(c: string): boolean {
+    this.eatWhitespace();
+    if (this.src.slice(this.pos, this.pos + 1) === c) {
+      this.pos = this.pos + 1;
+      return true;
+    }
+    return false;
+  }
+  // 39 = '\'', 34 = '"', 92 = '\\'
+  eatStringLiteral(): void {
+    const q = this.src.charCodeAt(this.pos);
+    if (q !== 39 && q !== 34) {
+      return;
+    }
+    this.pos = this.pos + 1;
+    while (this.pos < this.src.length) {
+      if (this.src.charCodeAt(this.pos) === q && this.src.charCodeAt(this.pos - 1) !== 92) {
+        return;
+      }
+      if (this.isNl(this.src.charCodeAt(this.pos))) {
+        this.bad = true;
+        return;
+      }
+      this.pos = this.pos + 1;
+    }
+    this.bad = true;
+  }
+  // Advance until the balanced closer `c` ("]" or ")"), assuming the
+  // ECMAScript source keeps the pair balanced; strings may hold
+  // unbalanced chars so they are skipped whole.
+  stumbleUntil(c: string): boolean {
+    const closer = c.charCodeAt(0);
+    // 93 ']' pairs with 91 '['; 41 ')' pairs with 40 '('.
+    const opener = closer === 93 ? 91 : 40;
+    let nesting = 1;
+    while (this.pos < this.src.length) {
+      this.eatWhitespace();
+      this.eatStringLiteral();
+      if (this.bad) {
+        return false;
+      }
+      const cur = this.src.charCodeAt(this.pos);
+      if (cur === opener) {
+        nesting = nesting + 1;
+      } else if (cur === closer) {
+        nesting = nesting - 1;
+      }
+      this.pos = this.pos + 1;
+      if (nesting === 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+// true = `source` conforms to the NativeFunction grammar.
+function __t262_validateNativeFunctionSource(source: string): boolean {
+  const s = new __T262NfmScan(source);
+  if (!s.eatWord("function")) return false;
+  // NativeFunctionAccessor opt
+  if (!s.eatWord("get")) {
+    s.eatWord("set");
+  }
+  // PropertyName opt — an identifier, or a computed `[...]` name.
+  if (!s.eatIdentifier() && s.eatPunct("[")) {
+    if (!s.stumbleUntil("]")) return false;
+  }
+  if (!s.eatPunct("(")) return false;
+  if (!s.stumbleUntil(")")) return false;
+  if (!s.eatPunct("{")) return false;
+  if (!s.eatPunct("[")) return false;
+  if (!s.eatWord("native")) return false;
+  if (!s.eatWord("code")) return false;
+  if (!s.eatPunct("]")) return false;
+  if (!s.eatPunct("}")) return false;
+  s.eatWhitespace();
+  if (s.bad) return false;
+  return s.pos === s.src.length;
+}
+
+function __t262_assertNativeFunction(fn: any, special: any = ""): void {
+  const actual = "" + fn;
+  if (!__t262_validateNativeFunctionSource(actual)) {
+    throw new Test262Error(
+      "Conforms to NativeFunction Syntax: " + JSON.stringify(actual) + (special ? " (" + special + ")" : "")
+    );
+  }
+}
+
+function __t262_assertToStringOrNativeFunction(fn: any, expected: string): void {
+  const actual = "" + fn;
+  if (actual === expected) {
+    return;
+  }
+  __t262_assertNativeFunction(fn, expected);
+}
