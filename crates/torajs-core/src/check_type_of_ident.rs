@@ -23,6 +23,45 @@
 
 use crate::check::{Checker, Type};
 
+/// RFC 20260730 blade 1 — exotic-subclass factory internals: the
+/// zero-arg self-alloc magics (class resolved from the enclosing
+/// `__new_<C>` at lower time), Array's ctor-side `super(len)` resize,
+/// and the `super(v)` semantics kernels, which coerce any operand
+/// themselves (§21.1.1.1 / §22.1.1.1 / §20.3.1.1 all run To*; the
+/// collection / weak-collection twins take the §24.x.1.1 iterable and
+/// Date the §21.4.2.1 value ladder). One name family, three shapes —
+/// the suffix grammar IS the contract (the heritage table builds
+/// every name as `__torajs_<x>_subclass_{alloc_self,super}`), so a
+/// per-builtin arm list here re-stated the same fact and grew the
+/// registered known-debt cascade below with every new builtin
+/// (rotation 373's three pushed it over the fn hard limit).
+fn subclass_magic_ty(name: &str) -> Option<Type> {
+    let alloc_self = name.strip_prefix("__torajs_").is_some_and(|r| {
+        r.strip_suffix("_subclass_alloc_self")
+            .is_some_and(|b| !b.is_empty())
+    });
+    if alloc_self {
+        return Some(Type::Function(Vec::new(), Box::new(Type::Any)));
+    }
+    if name == "__torajs_arr_subclass_super_len" {
+        return Some(Type::Function(
+            vec![Type::Any, Type::Number],
+            Box::new(Type::Any),
+        ));
+    }
+    let is_super = name.strip_prefix("__torajs_").is_some_and(|r| {
+        r.strip_suffix("_subclass_super")
+            .is_some_and(|b| !b.is_empty())
+    });
+    if is_super {
+        return Some(Type::Function(
+            vec![Type::Any, Type::Any],
+            Box::new(Type::Any),
+        ));
+    }
+    None
+}
+
 /// Signatures of the error-family synth intrinsics the class-injection
 /// passes write into the AST — `Error`'s prototype install and its
 /// §20.5.8.1 `cause` install, the `[[ErrorData]]` / IsConstructor
@@ -184,43 +223,7 @@ pub(crate) fn check(
         // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),
         "__torajs_ctor_no_super_throw" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
-        // RFC 20260730 blade 1 — exotic-subclass factory internals:
-        // the zero-arg self-alloc magic (class resolved from the
-        // enclosing `__new_<C>` at lower time) and the ctor-side
-        // `super(len)` resize.
-        "__torajs_arr_subclass_alloc_self"
-        | "__torajs_number_wrapper_subclass_alloc_self"
-        | "__torajs_string_wrapper_subclass_alloc_self"
-        | "__torajs_boolean_wrapper_subclass_alloc_self"
-        | "__torajs_function_subclass_alloc_self"
-        | "__torajs_map_subclass_alloc_self"
-        | "__torajs_set_subclass_alloc_self"
-        | "__torajs_promise_subclass_alloc_self"
-        | "__torajs_regex_subclass_alloc_self"
-        | "__torajs_weakmap_subclass_alloc_self"
-        | "__torajs_weakset_subclass_alloc_self"
-        | "__torajs_date_subclass_alloc_self" => {
-            Ok(Type::Function(Vec::new(), Box::new(Type::Any)))
-        }
-        "__torajs_arr_subclass_super_len" => Ok(Type::Function(
-            vec![Type::Any, Type::Number],
-            Box::new(Type::Any),
-        )),
-        // Blade 2 — the wrapper `super(v)` kernels coerce any operand
-        // (§21.1.1.1 / §22.1.1.1 / §20.3.1.1 all run To* themselves).
-        "__torajs_number_wrapper_subclass_super"
-        | "__torajs_string_wrapper_subclass_super"
-        | "__torajs_boolean_wrapper_subclass_super"
-        | "__torajs_promise_subclass_super"
-        | "__torajs_regex_subclass_super"
-        | "__torajs_map_subclass_super"
-        | "__torajs_set_subclass_super"
-        | "__torajs_weakmap_subclass_super"
-        | "__torajs_weakset_subclass_super"
-        | "__torajs_date_subclass_super" => Ok(Type::Function(
-            vec![Type::Any, Type::Any],
-            Box::new(Type::Any),
-        )),
+        n if subclass_magic_ty(n).is_some() => Ok(subclass_magic_ty(n).unwrap()),
         "__torajs_error_stack" => Ok(Type::Function(vec![Type::Any], Box::new(Type::String))),
         "__torajs_register_native_error" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
