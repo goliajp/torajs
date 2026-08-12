@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
     /// identifier — the ASI-identifier spelling the reject above
     /// exempts. (`var` shares `Token::Let` at the token level but
     /// its LetDecl carries `is_var: true` and never reaches this.)
-    fn let_newline_asi_form(&self, body_start: usize) -> bool {
+    pub(super) fn let_newline_asi_form(&self, body_start: usize) -> bool {
         let (Some(a), Some(b)) = (self.tokens.get(body_start), self.tokens.get(body_start + 1))
         else {
             return false;

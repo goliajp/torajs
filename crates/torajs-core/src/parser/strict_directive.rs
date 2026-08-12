@@ -114,14 +114,17 @@ impl Parser<'_> {
             Token::Function => "a function declaration",
             Token::Class => "a class declaration",
             Token::Const => "a `const` declaration",
-            // `let` only opens a declaration when a binding follows it;
-            // sloppy code may still use the name as an ordinary
-            // identifier, and that spelling stays a Statement.
+            // `let` only opens a declaration when a binding follows
+            // it, and §13.16's lookahead restriction forbids only
+            // `let [` — so `let` then a LINE BREAK then an identifier
+            // is an ASI-split pair of expression statements, which IS
+            // a Statement and stays legal. Same exemption, same
+            // helper, as the loop-body rule (`let_newline_asi_form`,
+            // named for the very test262 family that pins it).
             Token::Let
-                if matches!(
-                    next,
-                    Some(Token::Ident(_)) | Some(Token::LBracket) | Some(Token::LBrace)
-                ) =>
+                if matches!(next, Some(Token::LBracket))
+                    || (matches!(next, Some(Token::Ident(_)) | Some(Token::LBrace))
+                        && !self.let_newline_asi_form(at)) =>
             {
                 "a `let` declaration"
             }
