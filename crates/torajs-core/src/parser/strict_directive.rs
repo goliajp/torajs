@@ -81,7 +81,80 @@ impl Parser<'_> {
             ));
         }
         self.record_strict_goal_site("with");
-        Ok(())
+        self.reject_with_body_declaration()
+    }
+
+    /// §14.11 — `with ( Expression ) Statement`, and the Statement
+    /// production excludes every Declaration. Sloppy code is the only
+    /// caller that gets here (strict already refused above), and it
+    /// would otherwise read `with ({}) function f() {}` as a call
+    /// followed by an ordinary function declaration.
+    fn reject_with_body_declaration(&self) -> Result<(), String> {
+        let Some(mut at) = self.after_matching_rparen(self.pos + 1) else {
+            // Unbalanced — the ordinary parse reports it better than a
+            // guess about the body would.
+            return Ok(());
+        };
+        // A LabelledStatement is a Statement, but §14.13.1 refuses a
+        // function as its body wherever a plain function declaration is
+        // refused, so the label chain is walked through.
+        while matches!(self.tokens.get(at).map(|s| &s.token), Some(Token::Ident(_)))
+            && matches!(
+                self.tokens.get(at + 1).map(|s| &s.token),
+                Some(Token::Colon)
+            )
+        {
+            at += 2;
+        }
+        let Some(t) = self.tokens.get(at).map(|s| &s.token) else {
+            return Ok(());
+        };
+        let next = self.tokens.get(at + 1).map(|s| &s.token);
+        let kind = match t {
+            Token::Function => "a function declaration",
+            Token::Class => "a class declaration",
+            Token::Const => "a `const` declaration",
+            // `let` only opens a declaration when a binding follows it;
+            // sloppy code may still use the name as an ordinary
+            // identifier, and that spelling stays a Statement.
+            Token::Let
+                if matches!(
+                    next,
+                    Some(Token::Ident(_)) | Some(Token::LBracket) | Some(Token::LBrace)
+                ) =>
+            {
+                "a `let` declaration"
+            }
+            Token::Async if matches!(next, Some(Token::Function)) => {
+                "an async function declaration"
+            }
+            _ => return Ok(()),
+        };
+        Err(format!(
+            "the body of a `with` statement cannot be {kind} at {} (ES §14.11)",
+            self.at()
+        ))
+    }
+
+    /// Index of the token after the `)` that closes the `(` at `open`,
+    /// or `None` when the parentheses do not balance before end of
+    /// input.
+    fn after_matching_rparen(&self, open: usize) -> Option<usize> {
+        let mut depth = 0usize;
+        for (i, s) in self.tokens.iter().enumerate().skip(open) {
+            match s.token {
+                Token::LParen => depth += 1,
+                Token::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(i + 1);
+                    }
+                }
+                Token::Eof => return None,
+                _ => {}
+            }
+        }
+        None
     }
 
     /// The program-level directive prologue — §11.2.2 makes global

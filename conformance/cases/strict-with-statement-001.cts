@@ -17,3 +17,14 @@ console.log(holder.with);
 // not the form either.
 const nowith = (n: number) => n * 2;
 console.log(nowith(5));
+
+// §14.11 also bars a Declaration as the `with` body, which is read by
+// scanning past the closing `)`. Any OTHER call followed by a
+// declaration must survive that scan untouched.
+const call = (x: any) => x;
+call({});
+function afterCall() {
+  return 12;
+}
+class AfterCall {}
+console.log(afterCall(), typeof AfterCall);
