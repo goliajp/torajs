@@ -203,12 +203,17 @@ pub(crate) fn parse_type(
     //   Fn-typed param / return / let bindings keep `__fn(P)->R` →
     //   Type::FnSig via try_parse_fn_type below, preserving direct
     //   dispatch on the hot fn-as-callback path.
-    // - RFC 20260714-objlit-accessor `__mth(recv|P)->R`: an object-literal
-    //   method slot. Closure-repr like `__cls(`, and the sig KEEPS the
-    //   leading receiver — `CallIndirect`'s argv must match it, and the
-    //   field-call arm prepends the receiver for exactly the slots
-    //   `LowerCtx::objlit_method_slots` names. The checker drops that
-    //   leading param instead, so `o.m(x)` types at the source arity.
+    // - RFC 20260714-objlit-accessor `__mth(P)->R`: an object-literal
+    //   method slot. Closure-repr like `__cls(`, and the params are
+    //   the USER params only — `objlit_nominal` builds the ann by
+    //   filtering `__env` / `__this` out, so `o.m(x)` types at the
+    //   source arity on both sides. A receiver-first body announces
+    //   itself through the closure cell's `FLAG_CLOSURE_RECV_FIRST`
+    //   instead, which is what the runtime dispatcher reads.
+    //   (Measured r379: `t()`'s env-first sig is `(ptr, i64)` — no
+    //   receiver slot. The earlier note here claimed the sig KEEPS a
+    //   leading receiver and pointed at a `LowerCtx::objlit_method_slots`
+    //   that does not exist.)
     if let Some(rest) = s
         .strip_prefix("__fn(")
         .filter(|_| s.contains("__rest("))
