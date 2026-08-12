@@ -362,6 +362,22 @@ fn rewrite_date_new(ast: &mut Ast) {
         };
         if let Some((factory, pad_components, mut args)) = plan {
             if pad_components {
+                // Rotation 373 (L3b 373-02) — §21.4.2.1 step 5: every
+                // supplied component runs ToNumber, in argument order.
+                // A non-Number-literal argument wraps in the
+                // `Number(x)` coercion call the m1.h.8 machinery
+                // already owns (`new Date(1859, '10', 24)` reads
+                // month 10, not NaN); a Number literal skips the wrap
+                // — the components kernel takes f64 directly.
+                for a in args.iter_mut() {
+                    if !matches!(ast.exprs[a.0 as usize], Expr::Number(_)) {
+                        let callee = ast.add_expr(Expr::Ident("Number".to_string()));
+                        *a = ast.add_expr(Expr::Call {
+                            callee,
+                            args: vec![*a],
+                        });
+                    }
+                }
                 while args.len() < 7 {
                     let val = match args.len() {
                         2 => 1.0,
