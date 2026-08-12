@@ -97,6 +97,31 @@ impl Parser<'_> {
         self.reject_if_strict_reserved(name, strict)
     }
 
+    /// Judge `name` in an IdentifierReference position: `Err` when the
+    /// position is already known to be strict, otherwise the site is
+    /// recorded for the goal gate and `Ok` admits it.
+    ///
+    /// The seven-word test runs FIRST because this is the hottest judge
+    /// in the parser — every identifier the program mentions arrives
+    /// here. An ordinary name pays seven length-then-bytes comparisons
+    /// and leaves without touching the site vector, which is noise next
+    /// to the `String` clone the same arm makes to build `Expr::Ident`.
+    ///
+    /// Strictness has a third source at this position that the binding
+    /// sites do not see: a class body is strict by §15.7 whatever the
+    /// goal and whatever enclosing function said, so `class_stack`
+    /// counts alongside the per-function bit — the same guard the
+    /// sibling `yield` admission sites carry.
+    pub(super) fn note_strict_reference(&mut self, name: &str) -> Result<(), String> {
+        if !STRICT_RESERVED.contains(&name) {
+            return Ok(());
+        }
+        let strict = self.in_strict_fn || !self.class_stack.is_empty();
+        self.reject_if_strict_reserved(name, strict)?;
+        self.record_strict_goal_site(name);
+        Ok(())
+    }
+
     /// Reference-position judge — the §12.7.2 half only. `eval` and
     /// `arguments` stay readable in strict code, so they are absent
     /// here by design.

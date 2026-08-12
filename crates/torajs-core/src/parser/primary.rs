@@ -73,8 +73,16 @@ impl<'a> Parser<'a> {
             return Ok(e);
         }
         match &self.tokens[pos].token {
+            // §12.7.2 — the future reserved words reach the parser as
+            // plain identifiers, and unlike `eval` / `arguments` they
+            // are refused in EVERY occurrence of strict code, this
+            // reference position included. Sloppy script code keeps
+            // them as ordinary identifiers, so the site is recorded
+            // rather than refused and the goal gate answers the module
+            // half.
             Token::Ident(n) => {
                 let n = n.clone();
+                self.note_strict_reference(&n)?;
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Ident(n)))
             }
