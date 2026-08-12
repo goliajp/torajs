@@ -79,6 +79,14 @@ impl<'a> Parser<'a> {
                     Token::Ident(n) => {
                         let s = n.clone();
                         self.pos += 1;
+                        // §12.7.2 / §13.1.1 — the catch parameter is a
+                        // BindingIdentifier, so strict code refuses
+                        // `catch (eval)` the same way it refuses
+                        // `var eval`. Judged where the name is read:
+                        // unlike a function's parameter list, a catch
+                        // clause has no directive prologue of its own,
+                        // so the strictness in force is already final.
+                        self.note_strict_binding(&s)?;
                         s
                     }
                     // P4.7 — destructuring catch parameter

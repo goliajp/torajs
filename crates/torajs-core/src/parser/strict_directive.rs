@@ -84,24 +84,30 @@ impl Parser<'_> {
         self.reject_strict_reserved_params(params, strict)
     }
 
-    /// §12.7.2 in a parameter list. This runs at the END of the
-    /// function-body parse, not where the names were read, because a
-    /// function's own `"use strict"` sits INSIDE the body it precedes:
-    /// at parameter-parse time the directive has not been seen yet, so
-    /// `function f(static) { "use strict" }` would slip through a
-    /// check placed where the name is consumed.
-    fn reject_strict_reserved_params(&self, params: &[Param], strict: bool) -> Result<(), String> {
-        if !strict {
-            // Sloppy: ordinary identifiers. The goal half is not
-            // recorded here — a parameter list is re-read from the
-            // `Param` names by nothing else, and the strict GOAL makes
-            // the whole file strict, which the declaration-site
-            // recording already covers for every binding the file
-            // introduces.
-            return Ok(());
-        }
+    /// §12.7.2 and §13.1.1 in a parameter list. This runs at the END
+    /// of the function-body parse, not where the names were read,
+    /// because a function's own `"use strict"` sits INSIDE the body it
+    /// precedes: at parameter-parse time the directive has not been
+    /// seen yet, so `function f(static) { "use strict" }` would slip
+    /// through a check placed where the name is consumed.
+    ///
+    /// The sloppy branch still has to park the names: a parameter is a
+    /// binding the goal gate would otherwise never hear about, since
+    /// nothing else re-reads a `Param` name. The recorded position is
+    /// the end of the body rather than the parameter itself — the same
+    /// deferral that makes this check correct costs the exact offset,
+    /// and the message names the word.
+    fn reject_strict_reserved_params(
+        &mut self,
+        params: &[Param],
+        strict: bool,
+    ) -> Result<(), String> {
         for p in params {
-            self.reject_if_strict_reserved(&p.name, true)?;
+            if strict {
+                self.reject_if_strict_binding(&p.name, true)?;
+            } else if super::strict_reserved::refused_as_binding(&p.name) {
+                self.record_strict_goal_site(&p.name);
+            }
         }
         Ok(())
     }

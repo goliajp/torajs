@@ -1,4 +1,5 @@
-//! Strict-only future reserved words, goal half — ES §12.7.2.
+//! Names strict mode code refuses, goal half — ES §12.7.2 future
+//! reserved words and §13.1.1 `eval` / `arguments`.
 //!
 //! The parser raised the per-function cases itself
 //! (`parser::strict_reserved`); what it could not judge is the GOAL,
@@ -8,6 +9,10 @@
 //! ordinary identifier and nothing moves. Same three-part shape as
 //! `yield_ident_goal` and the rotation-372 `delete <bare name>`
 //! triage.
+//!
+//! Both lists share the one site vector: the two are disjoint, so the
+//! clause a site belongs to is recoverable from the name itself and
+//! nothing has to be tagged at record time.
 
 use super::Ast;
 
@@ -18,8 +23,14 @@ pub fn triage_strict_reserved_idents(ast: &Ast) -> Option<String> {
         return None;
     }
     ast.strict_reserved_positions.first().map(|(at, name)| {
-        format!(
-            "`{name}` is a reserved word in strict code (modules are strict) at {at} (ES §12.7.2)"
-        )
+        if name == "eval" || name == "arguments" {
+            format!(
+                "`{name}` cannot be bound in strict code (modules are strict) at {at} (ES §13.1.1)"
+            )
+        } else {
+            format!(
+                "`{name}` is a reserved word in strict code (modules are strict) at {at} (ES §12.7.2)"
+            )
+        }
     })
 }
