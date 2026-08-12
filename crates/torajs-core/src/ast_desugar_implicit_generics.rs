@@ -48,6 +48,7 @@ pub(crate) fn run(ast: &mut Ast) {
     let Ast {
         stmts,
         exprs,
+        expr_spans,
         sloppy_script_goal,
         objlit_method_exprs,
         objlit_method_fields,
@@ -122,6 +123,7 @@ pub(crate) fn run(ast: &mut Ast) {
         stmts,
         exprs,
         *sloppy_script_goal,
+        expr_spans,
         objlit_method_exprs,
         objlit_method_fields,
         &outer_binds,
@@ -145,6 +147,7 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_fns,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        expr_spans,
     );
     let ast_exprs_view: AstExprsView = &*exprs;
     // Second pass over top-level lets — a `const h = <closure>`

@@ -19,11 +19,13 @@
 //! bound by their parameter list), plain functions always do, and no
 //! name-matching on `__cm_`/`__new_` prefixes is needed.
 //!
-//! `this` is bound to `undefined` at a plain call. TypeScript is strict
-//! by default and spec §10.2.1.1 skips the ToObject coercion in strict
-//! mode, so `F(1)` sees `undefined` and `this.x` throws a TypeError —
-//! matching bun. Binding it to a fresh object is blade 2's job, and only
-//! for `new F(1)`.
+//! `this` is bound to `undefined` at a plain call — in STRICT code.
+//! TypeScript is strict by default, so `F(1)` sees `undefined` and
+//! `this.x` throws a TypeError, matching bun. Under the sloppy script
+//! goal §10.2.1.2 step 6 answers the global object instead, and the
+//! body opens with the shared `sloppy_this_prologue` to say so.
+//! Binding it to a fresh object is blade 2's job, and only for
+//! `new F(1)`.
 
 use super::free_vars::free_vars_of_body;
 use super::{Ast, Expr, Param, Stmt};
@@ -57,24 +59,45 @@ pub fn bind_this_param(ast: &mut Ast) {
         return;
     }
 
-    for st in &mut ast.stmts {
-        let Stmt::FnDecl { name, params, .. } = st else {
+    let Ast {
+        stmts,
+        exprs,
+        expr_spans,
+        sloppy_script_goal,
+        ..
+    } = ast;
+    for st in stmts.iter_mut() {
+        let Stmt::FnDecl {
+            name, params, body, ..
+        } = st
+        else {
             continue;
         };
-        if needs.iter().any(|n| n == name) {
-            params.insert(
-                0,
-                Param {
-                    name: "__this".into(),
-                    // Not the declaring class's nominal type, the way a
-                    // class factory annotates it: a plain function's
-                    // field set is whatever its branches assign, so the
-                    // receiver is a dynamic object.
-                    type_ann: Some("any".into()),
-                    default: None,
-                    is_rest: false,
-                },
-            );
+        if !needs.iter().any(|n| n == name) {
+            continue;
+        }
+        params.insert(
+            0,
+            Param {
+                name: "__this".into(),
+                // Not the declaring class's nominal type, the way a
+                // class factory annotates it: a plain function's
+                // field set is whatever its branches assign, so the
+                // receiver is a dynamic object.
+                type_ann: Some("any".into()),
+                default: None,
+                is_rest: false,
+            },
+        );
+        // §10.2.1.2 step 6 — the seed below is `undefined`, which is
+        // the answer only for STRICT code (step 5). Under the sloppy
+        // script goal a call that supplied no receiver gets the global
+        // object instead, so the body opens with the same callee-side
+        // prologue the promoted recv-first bodies carry. A body that is
+        // strict — by its own directive or by the lexical inheritance
+        // the parser writes in — is skipped inside the helper.
+        if *sloppy_script_goal {
+            crate::ast::sloppy_this_prologue::insert_sloppy_this_prologue(body, exprs, expr_spans);
         }
     }
 

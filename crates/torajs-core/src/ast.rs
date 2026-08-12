@@ -128,6 +128,7 @@ mod prototype_call;
 mod sfi_pass;
 mod sfi_rewrite;
 mod sfi_safe;
+pub(crate) mod sloppy_this_prologue;
 mod stmt;
 mod stmt_flat;
 pub(crate) mod stmt_nested_lists;

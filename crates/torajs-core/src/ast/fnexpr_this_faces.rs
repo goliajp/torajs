@@ -6,6 +6,7 @@
 //! shorthand / knife-2 Ident candidates / literal-descriptor field
 //! walk) decides whether it joins the patch list.
 
+use super::sloppy_this_prologue::insert_sloppy_this_prologue;
 use super::{Expr, ExprId, Param, Stmt};
 
 /// A closure to patch: the lifted FnDecl gains a `__this: any` param.
@@ -105,6 +106,7 @@ pub(crate) fn promote_recv_any(
     patches: &[(ExprId, String)],
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
     sloppy: bool,
+    spans: &mut Vec<crate::lexer::Span>,
 ) {
     for (eid, _) in patches {
         if let Expr::Closure { captures, .. } = &mut exprs[eid.0 as usize] {
@@ -161,67 +163,12 @@ pub(crate) fn promote_recv_any(
                 );
             }
             if sloppy {
-                insert_sloppy_this_prologue(body, exprs);
+                insert_sloppy_this_prologue(body, exprs, spans);
             }
             fnexpr_recv_fns.insert(fn_name.clone());
             break;
         }
     }
-}
-
-/// §10.2.1.2 OrdinaryCallBindThis step 6 (ThisMode ~global~) — under
-/// the sloppy script goal a promoted body's `this` is the GLOBAL
-/// OBJECT whenever the call site supplied no receiver (undefined /
-/// null in the `__this` slot). The binding is a callee-side prologue
-/// (`__this = __this ?? globalThis`), the textbook place: every call
-/// lane — boxed dispatch, HOF loop seed, direct-call seed — flows
-/// through the body, so one rewrite covers them all, and strict-goal
-/// files never enter (their detached `this` stays undefined per the
-/// step-5 strict branch). Idempotent by shape probe: a body whose
-/// first stmt already assigns `__this` was patched by an earlier
-/// promote round (the objlit_nominal → fnexpr_this fall-through
-/// pair). A primitive receiver keeps its unwrapped value — the
-/// step-4 ToObject wrapper face is recorded residue (L3b), not a
-/// silent wrap here.
-fn insert_sloppy_this_prologue(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
-    // Per-function strict (§10.2.1.2 step 5): a body whose directive
-    // prologue — the leading run of string-literal expression
-    // statements — says "use strict" is a STRICT function inside the
-    // sloppy file, and its detached `this` stays undefined. The
-    // sweep caught 22 function-code 10.4.3 regressions
-    // (`function () { "use strict"; return typeof this; }` answered
-    // "object") when the first cut bound every promoted body. Same
-    // cooked-value comparison as the parser's non-simple-params
-    // directive gate (its precision note applies here too).
-    for s in body.iter() {
-        let Stmt::Expr(e) = s else { break };
-        let Expr::String(v) = &exprs[e.0 as usize] else {
-            break;
-        };
-        if v == "use strict" {
-            return;
-        }
-    }
-    if let Some(Stmt::Expr(e)) = body.first()
-        && let Expr::Assign { target, .. } = &exprs[e.0 as usize]
-        && matches!(&exprs[target.0 as usize], Expr::Ident(n) if n == "__this")
-    {
-        return;
-    }
-    let target = ExprId(exprs.len() as u32);
-    exprs.push(Expr::Ident("__this".to_string()));
-    let lhs = ExprId(exprs.len() as u32);
-    exprs.push(Expr::Ident("__this".to_string()));
-    let rhs = ExprId(exprs.len() as u32);
-    exprs.push(Expr::Ident("globalThis".to_string()));
-    let nullish = ExprId(exprs.len() as u32);
-    exprs.push(Expr::Nullish { lhs, rhs });
-    let assign = ExprId(exprs.len() as u32);
-    exprs.push(Expr::Assign {
-        target,
-        value: nullish,
-    });
-    body.insert(0, Stmt::Expr(assign));
 }
 
 /// Rotation 375 — a marked fn-expr standing as a `throw` operand

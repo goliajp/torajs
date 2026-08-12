@@ -62,6 +62,7 @@ pub(crate) fn run(
     stmts: &mut Vec<Stmt>,
     exprs: &mut Vec<Expr>,
     sloppy: bool,
+    spans: &mut Vec<crate::lexer::Span>,
     objlit_method_exprs: &std::collections::HashSet<ExprId>,
     objlit_method_fields: &mut HashMap<String, Vec<String>>,
     outer_binds: &HashMap<String, String>,
@@ -221,7 +222,14 @@ pub(crate) fn run(
     }
 
     if !any_patches.is_empty() {
-        super::fnexpr_this::promote_recv_any(stmts, exprs, &any_patches, fnexpr_recv_fns, sloppy);
+        super::fnexpr_this::promote_recv_any(
+            stmts,
+            exprs,
+            &any_patches,
+            fnexpr_recv_fns,
+            sloppy,
+            spans,
+        );
     }
     if patches.is_empty() {
         return;

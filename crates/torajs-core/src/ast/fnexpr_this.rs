@@ -68,6 +68,7 @@ pub(crate) fn run(
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
     fnexpr_recv_locals: &mut std::collections::HashSet<String>,
+    spans: &mut Vec<crate::lexer::Span>,
 ) {
     // A face need not be spelled as a fn-expr. `Object.defineProperty(o,
     // k, { get() { return this._y } })` is a METHOD SHORTHAND, which
@@ -127,7 +128,7 @@ pub(crate) fn run(
         return;
     }
     let pairs: Vec<(ExprId, String)> = patches.into_iter().map(|p| (p.eid, p.fn_name)).collect();
-    promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns, sloppy);
+    promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns, sloppy, spans);
 }
 
 /// Position walk — collect literal fn-expr faces (and Ident face
