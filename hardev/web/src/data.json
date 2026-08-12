@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T16:07:45.837Z",
+  "generatedAt": "2026-08-12T18:41:14.563Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T16:03:30Z",
-    "headSha": "42d49993",
-    "elapsedSec": 324.27,
+    "ranAt": "2026-08-12T17:46:07Z",
+    "headSha": "8f24ebbe",
+    "elapsedSec": 324.76,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24879,
-    "passNoOracle": 837,
+    "pass": 24890,
+    "passNoOracle": 839,
     "passNegative": 4100,
-    "passTotal": 29816,
-    "bug": 12729,
-    "incompatible": 10629,
+    "passTotal": 29829,
+    "bug": 12737,
+    "incompatible": 10608,
     "bunSkip": 6636,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42545,
-    "passRateInScope": 56.07,
+    "trAccepted": 42566,
+    "passRateInScope": 56.1,
     "passRateTrAccepted": 70.08
   },
   "torajs": {
-    "commit": "42d49993",
-    "commitSubject": "feat: yield stops reading as a name inside a strict function",
+    "commit": "8f24ebbe",
+    "commitSubject": "fix: the object-literal shorthand judges `let` too",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "8f24ebbe",
+      "subject": "fix: the object-literal shorthand judges `let` too"
+    },
+    {
+      "hash": "4ceef3f3",
+      "subject": "feat: let reads as a name where the spec says it is one"
+    },
+    {
+      "hash": "49d3cb84",
+      "subject": "fix: a class method survives being read as a value"
+    },
+    {
+      "hash": "7f4b1da6",
+      "subject": "style: rustfmt the widen recursion's signature"
+    },
+    {
+      "hash": "a8c94696",
+      "subject": "fix: an object-literal method survives being read as a value"
+    },
+    {
+      "hash": "d74982ee",
+      "subject": "docs: rotation 378 close - reference-position reserved words, and one knife the measurement refuted"
+    },
+    {
       "hash": "42d49993",
       "subject": "feat: yield stops reading as a name inside a strict function"
     },
@@ -735,158 +759,134 @@
     {
       "hash": "ec06302b",
       "subject": "feat: strict code refuses the future reserved words in reference position"
-    },
-    {
-      "hash": "f4b94962",
-      "subject": "docs: rotation 377 close - final sweep on the true HEAD after knives 8 and 9"
-    },
-    {
-      "hash": "b60b6dbe",
-      "subject": "fix: the with-body rule keeps the let-ASI exemption the loop-body rule has"
-    },
-    {
-      "hash": "fadaf262",
-      "subject": "feat: a with statement cannot take a declaration as its body"
-    },
-    {
-      "hash": "802787c4",
-      "subject": "docs: rotation 377 close - the strict bit gets its missing names, positions, and starting point"
-    },
-    {
-      "hash": "7f2ea0e7",
-      "subject": "feat: a with statement is refused in strict code"
-    },
-    {
-      "hash": "238e33cc",
-      "subject": "fix: a strict dynamic-function body that fails to parse asks why"
     }
   ],
-  "headSha": "42d49993",
+  "headSha": "8f24ebbe",
   "autorun": {
-    "total": 511,
+    "total": 682,
     "baselineTarget": 10,
-    "bySelf": 506,
+    "bySelf": 677,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784931424-3ed7",
-      "at": "2026-07-24T22:17:04Z",
-      "ts": 1784931424,
+      "rotationId": "r-1786552494-10ad",
+      "at": "2026-08-12T16:34:54Z",
+      "ts": 1786552494,
       "trigger": "self",
-      "prevHead": "6caee759",
-      "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
-      "handoffAgeSec": 4,
+      "prevHead": "d74982ee",
+      "handoffSha": "sha256:967180c6e20a384367e2e103197efb11df1d82ebedf3d49b654f8dae5831be03",
+      "handoffAgeSec": 1189,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
       {
-        "rotationId": "r-1784931424-3ed7",
-        "at": "2026-07-24T22:17:04Z",
-        "ts": 1784931424,
+        "rotationId": "r-1786552494-10ad",
+        "at": "2026-08-12T16:34:54Z",
+        "ts": 1786552494,
         "trigger": "self",
-        "prevHead": "6caee759",
-        "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
+        "prevHead": "d74982ee",
+        "handoffSha": "sha256:967180c6e20a384367e2e103197efb11df1d82ebedf3d49b654f8dae5831be03",
+        "handoffAgeSec": 1189,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1786547053-7c82",
+        "at": "2026-08-12T15:04:13Z",
+        "ts": 1786547053,
+        "trigger": "self",
+        "prevHead": "f4b94962",
+        "handoffSha": "sha256:2c3b07235b05785ef484d1e01d57f5504be02784a03fa3742ba66e6782552848",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1786540019-03a9",
+        "at": "2026-08-12T13:06:59Z",
+        "ts": 1786540019,
+        "trigger": "self",
+        "prevHead": "1c0f31b6",
+        "handoffSha": "sha256:f871429cc31c040fb38bbd519a798a444c6455ac447b08471f1655e57694606d",
+        "handoffAgeSec": 40,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1786533065-16d2",
+        "at": "2026-08-12T11:11:05Z",
+        "ts": 1786533065,
+        "trigger": "self",
+        "prevHead": "50888a7b",
+        "handoffSha": "sha256:7f9817b7cea8e0ac073dab0bbab4980c6838f9a455702341312103981fe66f8c",
+        "handoffAgeSec": 93,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1786527536-2146",
+        "at": "2026-08-12T09:38:56Z",
+        "ts": 1786527536,
+        "trigger": "self",
+        "prevHead": "469056d9",
+        "handoffSha": "sha256:cfe53a97ff98283946a95f4a3b962a70b39f069365453fbd509b2f5ec2a1514e",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784922574-192b",
-        "at": "2026-07-24T19:49:35Z",
-        "ts": 1784922575,
+        "rotationId": "r-1786515480-772e",
+        "at": "2026-08-12T06:18:00Z",
+        "ts": 1786515480,
         "trigger": "self",
-        "prevHead": "d347bdc2",
-        "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
-        "handoffAgeSec": 4,
+        "prevHead": "cd75ce29",
+        "handoffSha": "sha256:1375c7d7ef1a13536fb1a189323fcf442ce7a3708cce730d3164787875a3e967",
+        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784916735-40ca",
-        "at": "2026-07-24T18:12:15Z",
-        "ts": 1784916735,
+        "rotationId": "r-1786506305-701b",
+        "at": "2026-08-12T03:45:05Z",
+        "ts": 1786506305,
         "trigger": "self",
-        "prevHead": "f0464206",
-        "handoffSha": "sha256:b9ecf50b244ecaf63c2525e3c0b79036a5fc0ca8267e00d81fc058d2473c4c32",
-        "handoffAgeSec": 216,
+        "prevHead": "1e305571",
+        "handoffSha": "sha256:7770ede27e3808354c6947c55d06558bd4e19da70a7c8f9a01e568dc3dbfb5e7",
+        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784911321-73e6",
-        "at": "2026-07-24T16:42:01Z",
-        "ts": 1784911321,
+        "rotationId": "r-1786500431-784b",
+        "at": "2026-08-12T02:07:11Z",
+        "ts": 1786500431,
         "trigger": "self",
-        "prevHead": "afa46564",
-        "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
-        "handoffAgeSec": 4,
+        "prevHead": "632ee9ac",
+        "handoffSha": "sha256:6a561a6770958f075ab9bc49a350594491d97045a400646d2a251de6a4a1289d",
+        "handoffAgeSec": 34,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784902951-3e83",
-        "at": "2026-07-24T14:22:31Z",
-        "ts": 1784902951,
+        "rotationId": "r-1786494552-7745",
+        "at": "2026-08-12T00:29:12Z",
+        "ts": 1786494552,
         "trigger": "self",
-        "prevHead": "995dce57",
-        "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
-        "handoffAgeSec": 7,
+        "prevHead": "70708e0c",
+        "handoffSha": "sha256:eec057d303a0b1851c815b69f54592c74298c813486026cd208c4a669138937b",
+        "handoffAgeSec": 51,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784897109-063d",
-        "at": "2026-07-24T12:45:09Z",
-        "ts": 1784897109,
+        "rotationId": "r-1786488158-1bef",
+        "at": "2026-08-11T22:42:38Z",
+        "ts": 1786488158,
         "trigger": "self",
-        "prevHead": "cf93f4ac",
-        "handoffSha": "sha256:14c61e5b1fe723711e14f1ca892d1a681055610f12496e65aa96513a5b1bb7cd",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784890738-6e31",
-        "at": "2026-07-24T10:58:58Z",
-        "ts": 1784890738,
-        "trigger": "self",
-        "prevHead": "afd510a4",
-        "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784878903-5f45",
-        "at": "2026-07-24T07:41:43Z",
-        "ts": 1784878903,
-        "trigger": "self",
-        "prevHead": "71520e66",
-        "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
-        "handoffAgeSec": 73,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784871854-6136",
-        "at": "2026-07-24T05:44:14Z",
-        "ts": 1784871854,
-        "trigger": "self",
-        "prevHead": "ca912d11",
-        "handoffSha": "sha256:68ab650b8dc42563ad78be2b23e93fb853b38372d9f87077f20423b71f3c7927",
-        "handoffAgeSec": 77,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784832173-7644",
-        "at": "2026-07-23T18:42:53Z",
-        "ts": 1784832173,
-        "trigger": "self",
-        "prevHead": "31e6b3a3",
-        "handoffSha": "sha256:9acb3bf9041b0b339eaf324094560765c34b20ffb05cf631be0a492b5779f519",
-        "handoffAgeSec": 928,
+        "prevHead": "c2bceccb",
+        "handoffSha": "sha256:60ea93734c7960a3f1e1cdd367535726364eb8a5ff5f17bc74909ff8f7f1e72c",
+        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
