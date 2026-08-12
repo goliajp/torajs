@@ -316,7 +316,26 @@ pub(crate) fn populate_class_layouts(
             ),
         });
     }
+    // W-J Phase A0 — anonymous ObjectLit structs get their own
+    // ClassLayoutMeta entries, in [`register_anonymous_struct_layouts`].
+    register_anonymous_struct_layouts(
+        class_name_to_tag,
+        aliases,
+        module,
+        struct_layouts_pass15_len,
+    );
+}
 
+/// W-J Phase A0 (RFC 20260614-w-j-struct-reflect §3) — the anonymous
+/// half of [`populate_class_layouts`], split out for file-size. It
+/// reads none of the named walk's locals: the four parameters here are
+/// the whole of what it needs.
+fn register_anonymous_struct_layouts(
+    class_name_to_tag: &HashMap<String, u32>,
+    aliases: &HashMap<String, Type>,
+    module: &mut Module,
+    struct_layouts_pass15_len: usize,
+) {
     // W-J Phase A0 (RFC 20260614-w-j-struct-reflect §3) — anonymous
     // ObjectLit struct also registers a ClassLayoutMeta entry so the
     // downstream reflection substrate (Phase B `gOPD` struct cell arm /
