@@ -13,6 +13,15 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
 
+// CARVE-OUT: dispatch table — 15 mechanically-ordered `try_match` wedges,
+// each one `if let Some(r) = …::try_match(…) { return r }` and nothing
+// else. Same shape and same reason as the sibling `route_arity_widen`:
+// wedge order is semantically load-bearing (an earlier wedge pre-empts a
+// later, more general shape), and this file's own module doc records that
+// the segment boundaries are mechanical, NOT semantic regroupings — so
+// splitting the cascade would either perturb acceptance or invent a
+// grouping the pre-split order never had. Grows one line per new wedge.
+
 pub(crate) fn try_route(
     checker: &mut Checker,
     ast: &Ast,
