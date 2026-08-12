@@ -40,16 +40,27 @@ impl Parser<'_> {
         if !STRICT_RESERVED.contains(&name) {
             return Ok(());
         }
-        if self.in_strict_fn {
+        self.reject_if_strict_reserved(name, self.in_strict_fn)?;
+        let at = self.at();
+        self.ast
+            .strict_reserved_positions
+            .push((at, name.to_string()));
+        Ok(())
+    }
+
+    /// The per-function half with the verdict passed IN rather than
+    /// read off `self`. The parameter-list caller has already restored
+    /// the enclosing function's bit by the time it asks — its own
+    /// strictness came from the body that has just finished parsing —
+    /// so consulting `self.in_strict_fn` here would answer for the
+    /// wrong function.
+    pub(super) fn reject_if_strict_reserved(&self, name: &str, strict: bool) -> Result<(), String> {
+        if strict && STRICT_RESERVED.contains(&name) {
             return Err(format!(
                 "`{name}` is a reserved word in strict code at {} (ES §12.7.2)",
                 self.at()
             ));
         }
-        let at = self.at();
-        self.ast
-            .strict_reserved_positions
-            .push((at, name.to_string()));
         Ok(())
     }
 }

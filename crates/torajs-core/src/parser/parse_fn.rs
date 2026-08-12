@@ -162,7 +162,7 @@ impl<'a> Parser<'a> {
         }
         self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        self.finish_fn_body_strict(strict_outer, &params, &mut body);
+        self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         // V3-18 wedge — prepend per-param destructuring lets when a
         // parameter was a binding pattern. Order is preserved (lets
         // run first, then user body).

@@ -217,7 +217,7 @@ impl<'a> Parser<'a> {
         // directive in here would also cost real ground: an
         // expression-bodied arrow is exactly `[Stmt::Return]`, a shape
         // several later passes probe for.
-        self.restore_fn_strict(strict_outer);
+        self.restore_fn_strict(strict_outer, &params)?;
         // V3-18 wedge — prepend destr-param lets to the body, matching
         // the parse_fn wedge.
         let body = if param_destr_lets.is_empty() {

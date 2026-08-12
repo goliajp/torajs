@@ -71,9 +71,39 @@ impl Parser<'_> {
     /// Pop back to the enclosing function's strictness, for the body
     /// sites that only need the bit scoped — arrows, whose `this` is
     /// lexical, and generator bodies, whose receiver comes from the
-    /// state-machine class rather than a promoted prologue.
-    pub(super) fn restore_fn_strict(&mut self, inherited: bool) {
+    /// state-machine class rather than a promoted prologue. Judges the
+    /// parameter names on the way out, for the reason
+    /// `finish_fn_body_strict` gives.
+    pub(super) fn restore_fn_strict(
+        &mut self,
+        inherited: bool,
+        params: &[Param],
+    ) -> Result<(), String> {
+        let strict = self.in_strict_fn;
         self.in_strict_fn = inherited;
+        self.reject_strict_reserved_params(params, strict)
+    }
+
+    /// §12.7.2 in a parameter list. This runs at the END of the
+    /// function-body parse, not where the names were read, because a
+    /// function's own `"use strict"` sits INSIDE the body it precedes:
+    /// at parameter-parse time the directive has not been seen yet, so
+    /// `function f(static) { "use strict" }` would slip through a
+    /// check placed where the name is consumed.
+    fn reject_strict_reserved_params(&self, params: &[Param], strict: bool) -> Result<(), String> {
+        if !strict {
+            // Sloppy: ordinary identifiers. The goal half is not
+            // recorded here — a parameter list is re-read from the
+            // `Param` names by nothing else, and the strict GOAL makes
+            // the whole file strict, which the declaration-site
+            // recording already covers for every binding the file
+            // introduces.
+            return Ok(());
+        }
+        for p in params {
+            self.reject_if_strict_reserved(&p.name, true)?;
+        }
+        Ok(())
     }
 
     /// Restore the enclosing function's strictness bit and, when this
@@ -99,12 +129,14 @@ impl Parser<'_> {
         inherited: bool,
         params: &[Param],
         body: &mut Vec<Stmt>,
-    ) {
-        self.restore_fn_strict(inherited);
+    ) -> Result<(), String> {
+        let strict = self.in_strict_fn;
+        self.in_strict_fn = inherited;
+        self.reject_strict_reserved_params(params, strict)?;
         if !inherited {
             // Sloppy here, or strict by this body's own directive —
             // which is what the probe downstream already reads.
-            return;
+            return Ok(());
         }
         // A prologue that already says it needs nothing written.
         if body
@@ -112,16 +144,17 @@ impl Parser<'_> {
             .map_while(|s| self.directive_value(s))
             .any(|v| v == "use strict")
         {
-            return;
+            return Ok(());
         }
         let simple = params
             .iter()
             .all(|p| p.default.is_none() && !p.is_rest && !p.name.starts_with("__param_destr_"));
         if !simple {
-            return;
+            return Ok(());
         }
         let e = self.ast.add_expr(Expr::String("use strict".to_string()));
         self.ast.synth_strict_directives.insert(e);
         body.insert(0, Stmt::Expr(e));
+        Ok(())
     }
 }

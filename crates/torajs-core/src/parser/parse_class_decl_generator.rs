@@ -214,7 +214,7 @@ impl<'a> Parser<'a> {
         // the receiver, so no promoted-body prologue reads its
         // strictness; and `destr_prefix` below counts leading
         // statements, which a written-in directive would shift.
-        self.restore_fn_strict(strict_outer);
+        self.restore_fn_strict(strict_outer, &params)?;
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body

@@ -196,7 +196,7 @@ impl<'a> Parser<'a> {
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
         // Restore only, same reading as the class generator method.
-        self.restore_fn_strict(strict_outer);
+        self.restore_fn_strict(strict_outer, &params)?;
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body

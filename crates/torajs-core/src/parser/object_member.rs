@@ -117,7 +117,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        self.finish_fn_body_strict(strict_outer, &params, &mut body);
+        self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         // Prepend destructuring-param helper lets (same shape as
         // non-async method shorthand at parser.rs:4988).
         let body = if destr_lets.is_empty() {

@@ -410,7 +410,7 @@ impl<'a> Parser<'a> {
         }
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        self.finish_fn_body_strict(strict_outer, &params, &mut body);
+        self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         let body = if destr_lets.is_empty() {
             body
         } else {
