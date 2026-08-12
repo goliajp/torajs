@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `6d622249`** (2026-08-12, rotation 373 — class instances
+**Latest @ `868507c6`** (2026-08-12, rotation 375 — the 79-case
+`unknown ident __this` cluster: a fn-expr body's `this` desugars to a
+`__this` the promote pass only admitted at face positions. Knife D
+lands the §10.2.1.2 step-6 callee-side prologue (`__this = __this ??
+globalThis` under the sloppy goal, skipped when the directive
+prologue says "use strict") — sloppy detached calls now bind the
+global object, fixing four standing silent-wrongs (forEach / filter /
+some no-thisArg callbacks and `f.call(undefined)` answered undefined
+where bun answers globalThis). Four new receiver-safe faces:
+NewDynamic inline callee (`new (function () {…this…})`), the throw
+operand (any-shaped exception channel), string-pattern
+replace/replaceAll callbacks (the str kernel gained the recv-first
+argv shift), and inline fn-exprs in explicitly-`any` param slots —
+which is what admits the `new Promise(executor)` spelling. The
+cluster drops 79 → **68**. Sweep: passTotal 29634 → **29625 (−9)**:
+pass **+9** (true forward), passNoOracle **−22 +4 = −18** — the 18
+are 10.4.3-1-{36..44}{-s,gs}, nested functions inheriting an
+enclosing "use strict" that the body-local directive probe cannot
+see; same root as L3b 374-00 (no per-function strictness bit), now
+the next rotation's lead item. bug +17, incompatible −8, trAccepted
++8, conservation exact (+8 = −9 + 17). Gate predicate **246
+unattributed clusters / 3301 cases / register 2 · 657 / residue
+762 · 985 / core 4943**. Build determinism 44/44, N=12. NOTE: bun
+answers `object` for a per-function-strict detached `this` in .cts —
+its transpile layer appears to drop the directive; the 10.4.3 family
+is bun-skip no-oracle so scoring rides tr's own asserts, spec is the
+truth source.)
+
+**Previous @ `6d622249`** (2026-08-12, rotation 373 — class instances
 grow dynamic members on the WRITE side: the checker's field-miss on
 a ClassRef receiver admits an expando definition (§10.1.9.2; the
 lowering boxes the receiver into RFC 20260714's +24 expando dict

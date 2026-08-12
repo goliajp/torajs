@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T09:38:19.378Z",
+  "generatedAt": "2026-08-12T11:09:58.160Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T09:29:24Z",
-    "headSha": "3b157bce",
-    "elapsedSec": 324.15,
+    "ranAt": "2026-08-12T11:02:44Z",
+    "headSha": "f2b4dade",
+    "elapsedSec": 322.68,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24846,
-    "passNoOracle": 834,
+    "pass": 24855,
+    "passNoOracle": 816,
     "passNegative": 3954,
-    "passTotal": 29634,
-    "bug": 12898,
-    "incompatible": 10642,
+    "passTotal": 29625,
+    "bug": 12915,
+    "incompatible": 10634,
     "bunSkip": 6636,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42532,
-    "passRateInScope": 55.73,
-    "passRateTrAccepted": 69.67
+    "trAccepted": 42540,
+    "passRateInScope": 55.71,
+    "passRateTrAccepted": 69.64
   },
   "torajs": {
-    "commit": "f2b4dade",
-    "commitSubject": "refactor: gen-object-method return annotation splits out of the method parser - knife 5's generator-bit swap pushed try_parse_generator_object_method from its registered 232-line debt to 234 (registered entries may only shrink): the ':' Generator<T> collapse moves to a parse_gen_method_return_ann sibling method, main fn 228; gen-method return-ann fixture byte-equal vs bun; also stores the rotation-374 sweep artifacts (test262-latest.json + verdicts gz @ 3b157bce)",
+    "commit": "868507c6",
+    "commitSubject": "fix: per-function strict bodies keep the undefined detached this - the sloppy globalThis prologue (10a4ddda) bound EVERY promoted body in a sloppy-goal file, but a body whose directive prologue says 'use strict' is a STRICT function ($10.2.1.2 step 5) and its detached this stays undefined - the rotation-375 close sweep caught 22 function-code 10.4.3 regressions ('function () { \"use strict\"; return typeof this; }' answered object); the fix probes the leading run of string-literal expression statements before inserting, the same cooked-value comparison as the parser's non-simple-params directive gate; NOTE bun answers object for this shape in .cts (its transpile layer appears to drop the per-function directive), diverging from spec - the 10.4.3 family is bun-skip no-oracle so scoring rides tr's own test262 asserts (spec is the truth source per the test262 discipline), and the shape deliberately gets no bun-parity fixture",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "868507c6",
+      "subject": "fix: per-function strict bodies keep the undefined detached this - the sloppy globalThis prologue (10a4ddda) bound EVERY promoted body in a sloppy-goal file, but a body whose directive prologue says 'use strict' is a STRICT function ($10.2.1.2 step 5) and its detached this stays undefined - the rotation-375 close sweep caught 22 function-code 10.4.3 regressions ('function () { \"use strict\"; return typeof this; }' answered object); the fix probes the leading run of string-literal expression statements before inserting, the same cooked-value comparison as the parser's non-simple-params directive gate; NOTE bun answers object for this shape in .cts (its transpile layer appears to drop the per-function directive), diverging from spec - the 10.4.3 family is bun-skip no-oracle so scoring rides tr's own test262 asserts (spec is the truth source per the test262 discipline), and the shape deliberately gets no bun-parity fixture"
+    },
+    {
+      "hash": "b83316fc",
+      "subject": "refactor: num_width analyze tables and fnexpr-this callback-slot arms split to siblings - two file-size debts cleared in one knife: (1) the r373-registered num_width drift pair (mod.rs 508 prod / analyze 225) - the analyze driver's two side tables move verbatim to num_width/analyze_tables.rs (the pre-walk slot-name registry with its Global-keyed rationale promoted to fn doc, and the rotation-371 W4 objlit shape-join collector); mod.rs ~434 prod, analyze 151, both delisted; (2) the rotation-375 self-made breach caught by the closing audit (43268208's replace arm pushed fnexpr_this.rs to 517 and collect_position_faces to 226, past the per-commit audit) - four builtin callback-slot arms (JSON.parse reviver, replace family, Array.from mapFn, f.call/apply) move verbatim to ast/fnexpr_this_cb_slots.rs with each receiver check relocated from the match guard into the collector body, fall-through-safe because no later cascade arm matches those member names; fnexpr_this.rs 474, collect_position_faces 193; sibling moves are the only cut in negative-headroom files (the rotation-147 lesson)"
+    },
+    {
+      "hash": "43268208",
+      "subject": "feat: fn-expr this reaches string-replace callbacks and any-param argument slots - two more receiver-safe faces for the fnexpr-this promote pass: (1) the str-pattern replace/replaceAll functional replaceValue over a string-literal receiver (function-code 10.4.3 family) - the literal receiver + String/Null/undefined pattern pin the lowering to the str replace_fn lane, whose kernel now reads the closure's FLAG_CLOSURE_RECV_FIRST (mirrored constant, lockstep with torajs_rc bit 12) and seeds argv[0] undefined with the user triple shifted up one per $22.1.3.18 step 10's Call(replaceValue, undefined, ...); a regex pattern or non-literal receiver keeps the loud reject because the regex replacer lane dispatches by typed transmute with no receiver slot; (2) collect_any_param_literal_faces, the inline-literal twin of the sixth shape: a marked fn-expr standing directly in an explicitly-any (or proven-safe generic) param slot of a program-local FnDecl call promotes under the same greatest-fixpoint proof, which is exactly what admits the 'new Promise(function () { ...this... })' executor - the promise-new desugar has rewritten it to __promise_from_executor(<fnexpr>) whose __ex: any body calls through the flag-aware any lane ($27.2.3.1 step 9); the IIFE-return spelling was tried and REVERTED in-knife: the checker types an IIFE call's result as non-Function so the lowering falls to the ToString replaceValue path and splices the fn's source text - promoting there turned a loud reject into silent-wrong, recorded in L3b 375-01 pending IIFE return-type inference; fixtures fnexpr-this-replace-cb-001.cts (sloppy AND strict goals byte-equal vs bun) + fnexpr-this-executor-001.cts"
+    },
+    {
+      "hash": "0d1843f0",
+      "subject": "feat: fn-expr this reaches the construct callee and the throw operand - two new receiver-safe face positions for the fnexpr-this promote pass: (1) the NewDynamic INLINE-callee face ('new (function () { ...this... })') is the zero-alias twin of rotation 345 knife 5's Ident-callee shape - the runtime construct channel is receiver-honoring end to end (__torajs_anyv_construct's plain-fn kernel invokes through invoke_with_this with the freshly allocated this, shifting argv on FLAG_CLOSURE_RECV_FIRST), so the closure value that exists only as the construct's callee promotes safely; (2) the throw-operand face ('throw function () { ...this... }', the try-statement 12.14 family) rides the any-shaped exception channel - a catch binding is any, every downstream call is __torajs_any_call -> invoke_with_this, detached receiver undefined with the sloppy prologue answering globalThis - plus the checker's throw gate learns Type::Function (a closure is the same 8-byte heap shape; lowering's refcounted fallback already packs it ANY_HEAP=4); both faces walk the shared stmt spine so throws inside lifted closure bodies are seen; second knife of the 79-case 'unknown ident __this' cluster after the sloppy-globalThis prologue; fixture fnexpr-this-construct-throw-001.cts byte-equal vs bun over both faces; new-x-reassign profile (new x(x=1)) stays loud by the knife-2 parity bar - recorded residue"
+    },
+    {
+      "hash": "10a4ddda",
+      "subject": "feat: sloppy detached this binds globalThis at the callee prologue - $10.2.1.2 OrdinaryCallBindThis step 6 (ThisMode ~global~) says an undefined/null thisArgument resolves to the global object under the sloppy goal, but every promoted recv-first body (fnexpr faces, HOF callbacks, direct-call locals, IIFEs, objlit any-lane methods) read the seeded undefined verbatim - sloppy forEach callbacks answered 'this === globalThis' false where bun says true, and a direct-called 'this.p = v' body threw TypeError where bun writes the global; the fix is the textbook callee-side prologue ('__this = __this ?? globalThis' as the promoted body's first stmt, inserted by promote_recv_any under ast.sloppy_script_goal, idempotent by first-stmt shape probe since objlit_nominal and fnexpr_this can promote the same fn), one rewrite covering every call lane because they all flow through the body; strict-goal files never enter (step-5 strict branch keeps undefined, .ts fixture behavior byte-identical), primitive receivers keep their unwrapped value (step-4 ToObject wrapper face recorded as residue); groundwork for the 79-case 'unknown ident __this' cluster (spawned from r374 handoff next-item) whose sloppy half needs this binding before the promote surface widens; fixture sloppy-this-globalthis-001.cts byte-equal vs bun over the HOF/direct-call/IIFE trio"
+    },
+    {
+      "hash": "469056d9",
+      "subject": "docs: rotation 374 close - sloppy yield is an identifier across the whole surface (the 82-case got-Yield family: binding names, IdentifierReference, accessor property names, fn-expression/declaration names, parameter names - r372's delete-bare-name goal-triage pattern with a new yield_ident_positions side table, the strict gate now firing BEFORE the import resolver after the sweep caught the ordering regression), the global eval as a value resolves inside closure bodies (one free_vars_globals row clears both 63-case checker and 19-case lowering signatures), nativeFunctionMatcher.js joins the ported harness includes (70-case toString family: 40 pass immediately), in_generator now swaps in before the param list at all four generator parse sites per $15.5.1, and every yield admission site guards on class_stack ($15.7 class code is always strict); sweep passTotal 29464 -> 29634 (+119 this rotation) with exact conservation (+217 trAccepted = +119 pass +98 bug), ONE pass regression (identifier-shorthand-yield-invalid: deflation - the old pass rode a var-yield parse error, real face is per-function use-strict, L3b 374-00), incompat 10642, gate predicate 246 clusters / 3304 cases / core 4951 (all down), gate chain 2772 -> 2776/0/4 (+4 fixtures, zero red rounds over seven knives), build determinism 44/44 N=12, L3b 374-00..03 recorded, dashboard @ 3b157bce"
+    },
+    {
       "hash": "f2b4dade",
       "subject": "refactor: gen-object-method return annotation splits out of the method parser - knife 5's generator-bit swap pushed try_parse_generator_object_method from its registered 232-line debt to 234 (registered entries may only shrink): the ':' Generator<T> collapse moves to a parse_gen_method_return_ann sibling method, main fn 228; gen-method return-ann fixture byte-equal vs bun; also stores the rotation-374 sweep artifacts (test262-latest.json + verdicts gz @ 3b157bce)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "e32a0de1",
       "subject": "feat: yield rides the misc identifier faces - accessor property names, fn-expression self-names and declaration names (the 8-case tail of the got-Yield family): the objlit accessor gate only admitted Ident/String/Number/LBracket after get/set, so 'get yield() {}' died at 'expected :' even though $12.7.6 allows the FULL reserved-word set in property-name positions - the gate and prop-name read now ride the shared keyword_property_name table (every keyword accessor name fixed, not just yield); a function EXPRESSION self-name is [~Yield] per $15.2 so '(function yield() {})' admits unconditionally (a generator expression's name is [+Yield] and stays on the loud '(' reject), and a DECLARATION name inherits the ENCLOSING [Yield] parameter per $15.1/$15.5 so 'function* yield() {}' admits when the enclosing scope is non-generator - both record into yield_ident_positions for the strict-goal prelude gate; fixture sloppy-yield-ident-002.cts byte-equal vs bun over get/set yield accessor pair, fn-expr self-name call and a generator declaration named yield driven through next(); param-name face (2 cases) deferred - it needs the fn's own generator bit threaded through parse_param_list's six call sites (the in_generator swap sits after params by design)"
-    },
-    {
-      "hash": "ab1a97fd",
-      "subject": "feat: yield is a valid identifier outside generators under the sloppy goal - $12.7.2 reserves the word under the STRICT goal only, but all three yield lanes (statement / let-init / assignment) rejected it unconditionally and the let/var/const name site refused the token, so the 69-case t262 'got Yield' family (sloppy dstr headers 'var yield = 4' + IdentifierReference reads) died at parse; the lanes now route to the YieldExpression parsers only inside a generator body, primary.rs and the binding-name site admit the identifier and record each position in a new ast.yield_ident_positions side table, and a prelude gate (ast::triage_yield_idents, the rotation-372 delete-bare-name pattern) raises the strict-goal SyntaxError after the goal bit is stamped; fixture sloppy-yield-ident-001.cts byte-equal vs bun over binding/read/assign/arith/closure-capture/shadow/typeof, strict twin rejects loud; RESIDUE: the lexer still classes a '/' after yield as regex-start, so sloppy 'yield / 2' mis-lexes (edge, no t262 coverage in the cluster)"
-    },
-    {
-      "hash": "cd75ce29",
-      "subject": "docs: rotation 373 close - class instances grow dynamic members on the WRITE side (the 113-case 'no field on Struct' cluster drops to 13): checker field-miss on a ClassRef receiver admits the expando definition into RFC 20260714's +24 dict, private METHOD writes take a static PrivateSet TypeError lane, getter-only accessors throw through the runtime kernel, and every class/struct member store marks may-throw - which also cleared the pre-existing frozen-store throw swallow; WeakMap / WeakSet / Date join the exotic-subclass table (weak twins ride the shared iterable kernel + Map|Set synthesis group, Date mints at now with the §21.4.2.1 value-ladder super, ctor-less Date stays loud pending the real-argc face); multi-component Date ctor args run ToNumber; a class expression inside a class body may extend its enclosing class (field flattening became a dependency-ordered fixpoint; declaration-order cluster 96 -> 78); sweep passTotal 29464 -> 29515 (+51) with exact conservation (+91 trAccepted = +51 pass +40 bug), ZERO pass regressions, incompat 10859, gate predicate 250 clusters / 3445 cases / core 5167 (all down), gate chain 2768 -> 2772/0/4 (+4 fixtures, zero red rounds), build determinism 44/44 N=12, L3b 373-00/01/06/07 recorded (373-02/05 cleared in-rotation), dashboard @ 6d622249"
-    },
-    {
-      "hash": "6d622249",
-      "subject": "refactor: exotic-subclass magic idents collapse to their suffix grammar - rotation 373's three new builtins pushed check_type_of_ident's registered known-debt cascade past the 200-line fn hard limit via per-builtin whitelist arms that re-state what the heritage table already encodes (every name is minted as __torajs_<x>_subclass_{alloc_self,super}): the three shapes become one subclass_magic_ty predicate keyed on the suffix, so the next builtin joining the table costs zero lines here; behavior-preserving for every minted name (weak/date + nested-class fixtures re-verified byte-equal), check fn back to ~175"
-    },
-    {
-      "hash": "8a7d0652",
-      "subject": "feat: a class expression inside a class body may extend the enclosing class - the M5.2 source-order check rejected 'class Outer { m() { return class extends Outer {...} } }' because the parser's synth flush lands the lifted __ClassExpr_ decl BEFORE the enclosing ClassDecl stmt, but an expression-position class inside a class body evaluates when that body RUNS, after every top-level definition completed, so its parent may sit anywhere (L3b 373-05): the parser marks such decls in a new ast.class_expr_deferred side table (class_stack is the enclosing-body signal the private-name machinery already maintains), the source-order validation exempts them, and the field flattening becomes a worklist fixpoint whose no-progress case keeps the same loud M5.2 panic (source order is one valid schedule, so statement-position classes resolve in the first sweep exactly as before - hand-verified 'class A extends B {} class B {}' still rejects); fixture nested-class-extends-outer-001 byte-equal vs bun over direct-new, a static-field class expression and an inherited field+method chain; scouting found the privatefieldget t262 family needs two MORE pre-existing faces past this - construct from a runtime class value (373-06) and class-expr method bodies capturing enclosing locals (373-07), both registered"
-    },
-    {
-      "hash": "d225799b",
-      "subject": "fix: multi-component Date constructor arguments run ToNumber - §21.4.2.1 step 5 says every supplied component coerces in argument order, but the desugar handed them verbatim to the f64-signed components kernel, so new Date(1859, '10', 24) read month NaN where bun/spec read 10 (L3b 373-02, found scouting the Date-subclass t262 family): the pad_components branch now wraps every non-Number-literal component in the Number(x) coercion call the m1.h.8 machinery already owns - string digits, booleans, null, user valueOf hooks (argument order preserved) and the Symbol TypeError all ride the existing lane, a Number literal keeps the direct f64 path; fixture date-components-tonumber-001 byte-equal vs bun over string/bool/null components, a runtime string variable, valueOf ordering, a non-numeric string invalidating the date, and the two-argument day=1 pad"
-    },
-    {
-      "hash": "57d58c65",
-      "subject": "feat: WeakMap / WeakSet / Date join the exotic-subclass table - the builtin half of the 96-case t262 declaration-order cluster (extends RFC 20260730 blade 2, the rotation-371 Map/Set pattern): the weak twins mint real weak-collection cells (FLAG_SUBCLASSED + torajs-meta identity, drop paths scrub the entry) and their super(iterable) rides the same __torajs_collection_init_from_iterable kernel the plain ctors use with the WEAK kinds, so they join the Map|Set nullish-noop default-ctor synthesis group; Date mints at the current wall clock (a bare super() IS the no-argument new Date()) and super(v) reuses the full __torajs_date_from_value §21.4.2.1 step-4 ladder via a new __torajs_date_set_ms_from copy (invalid values land as Invalid Date with the pending throw intact); a ctor-less Date subclass stays a LOUD reject - its default forward needs the caller's real argument count (new D() = now while super(undefined) = Invalid Date, the db66228e wrapper trap; L3b 372-00/02 family); wrapper_subclass_probe admits the three new tags so subclass-declared methods dispatch between the expando shadow and the builtin surface; fixture subclass-weak-date-001 byte-equal vs bun over 8 shapes incl iterable seeding, Invalid Date, the no-super ReferenceError and an own method next to the builtin surface"
     }
   ],
-  "headSha": "f2b4dade",
+  "headSha": "868507c6",
   "autorun": {
-    "total": 677,
+    "total": 678,
     "baselineTarget": 10,
-    "bySelf": 672,
+    "bySelf": 673,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786515480-772e",
-      "at": "2026-08-12T06:18:00Z",
-      "ts": 1786515480,
+      "rotationId": "r-1786527536-2146",
+      "at": "2026-08-12T09:38:56Z",
+      "ts": 1786527536,
       "trigger": "self",
-      "prevHead": "cd75ce29",
-      "handoffSha": "sha256:1375c7d7ef1a13536fb1a189323fcf442ce7a3708cce730d3164787875a3e967",
-      "handoffAgeSec": 15,
+      "prevHead": "469056d9",
+      "handoffSha": "sha256:cfe53a97ff98283946a95f4a3b962a70b39f069365453fbd509b2f5ec2a1514e",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786527536-2146",
+        "at": "2026-08-12T09:38:56Z",
+        "ts": 1786527536,
+        "trigger": "self",
+        "prevHead": "469056d9",
+        "handoffSha": "sha256:cfe53a97ff98283946a95f4a3b962a70b39f069365453fbd509b2f5ec2a1514e",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786515480-772e",
         "at": "2026-08-12T06:18:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "42dec38a",
         "handoffSha": "sha256:d31b1f6e2b8abe147c9b7302cf00b69b298919347d145457544df7c2ef4eabe2",
         "handoffAgeSec": 103,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786442575-2586",
-        "at": "2026-08-11T10:02:55Z",
-        "ts": 1786442575,
-        "trigger": "self",
-        "prevHead": "3f7d43c2",
-        "handoffSha": "sha256:149163e48c52507ce153f8841c99ea8bbd6510b575e8925353cb89dec1699029",
-        "handoffAgeSec": 98,
         "conformanceBefore": null,
         "commitsInSession": null
       }
