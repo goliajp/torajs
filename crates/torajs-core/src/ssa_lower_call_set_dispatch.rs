@@ -35,6 +35,9 @@ use crate::check as check_mod;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
+mod setops;
+use setops::{emit_relation_predicate, emit_setop};
+
 /// Try to lower a Set-method call. Returns `Some` when dispatched.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -129,20 +132,24 @@ fn dispatch_set_method(
             Operand::ConstI64(0)
         }
         "isSubsetOf" => {
-            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_subset_of)
+            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_subset_of, 0)
         }
         "isSupersetOf" => {
-            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_superset_of)
+            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_superset_of, 1)
         }
         "isDisjointFrom" => {
-            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_disjoint_from)
+            emit_relation_predicate(ctx, recv_op, args, ctx.intrinsics.set_is_disjoint_from, 2)
         }
-        "union" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_union),
-        "intersection" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_intersection),
-        "difference" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_difference),
-        "symmetricDifference" => {
-            emit_setop(ctx, recv_op, args, ctx.intrinsics.set_symmetric_difference)
-        }
+        "union" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_union, 0),
+        "intersection" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_intersection, 1),
+        "difference" => emit_setop(ctx, recv_op, args, ctx.intrinsics.set_difference, 2),
+        "symmetricDifference" => emit_setop(
+            ctx,
+            recv_op,
+            args,
+            ctx.intrinsics.set_symmetric_difference,
+            3,
+        ),
         "keys" | "values" => {
             // P6.4b — Set.keys / .values are aliased per spec §24.2.3.5 /
             // §24.2.3.10. Both yield the Set's elements (stored as the
@@ -235,62 +242,6 @@ fn emit_key_predicate(
         None,
     );
     Operand::Value(b)
-}
-
-/// isSubsetOf / isSupersetOf / isDisjointFrom shared shape (ES2025
-/// read-only setops): both Set sides borrowed; runtime returns i64
-/// (1/0), narrowed back to Bool the same way Set.has does.
-fn emit_relation_predicate(
-    ctx: &mut LowerCtx<'_>,
-    recv_op: Operand,
-    args: &[ExprId],
-    intrinsic: FuncId,
-) -> Operand {
-    debug_assert!(!args.is_empty());
-    let other_op = ctx.lower_expr(args[0]);
-    // S318 — ES §24.2.5.{4-6} silently ignore args past index 0; mirror
-    // S272 lower-and-drop trailing.
-    for &a in args.iter().skip(1) {
-        let _ = ctx.lower_expr(a);
-    }
-    let r = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(intrinsic, vec![recv_op, other_op]),
-        Type::I64,
-        None,
-    );
-    let b = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0)),
-        Type::Bool,
-        None,
-    );
-    Operand::Value(b)
-}
-
-/// union / intersection / difference / symmetricDifference shared shape
-/// (ES2025 mutating setops): fresh Set; receiver + other are borrowed.
-/// Heap keys are rc_inc'd by the runtime helper before re-insert so the
-/// source still owns its own ref.
-fn emit_setop(
-    ctx: &mut LowerCtx<'_>,
-    recv_op: Operand,
-    args: &[ExprId],
-    intrinsic: FuncId,
-) -> Operand {
-    debug_assert!(!args.is_empty());
-    let other_op = ctx.lower_expr(args[0]);
-    // S318 — ES §24.2.5.{7-10} silently ignore args past index 0.
-    for &a in args.iter().skip(1) {
-        let _ = ctx.lower_expr(a);
-    }
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(intrinsic, vec![recv_op, other_op]),
-        Type::Set,
-        None,
-    );
-    Operand::Value(v)
 }
 
 /// keys / values / entries shared shape: trailing-drop + 1-arg

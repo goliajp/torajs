@@ -626,6 +626,8 @@ pub(crate) fn build(
         set_intersection: init_c.map_set.set_intersection,
         set_difference: init_c.map_set.set_difference,
         set_symmetric_difference: init_c.map_set.set_symmetric_difference,
+        set_relation_setlike: init_c.set_like.relation_setlike,
+        set_setop_setlike: init_c.set_like.setop_setlike,
         map_clone: init_c.map_set.map_clone,
         map_set: init_c.map_set.map_set,
         map_get: init_c.map_set.map_get,

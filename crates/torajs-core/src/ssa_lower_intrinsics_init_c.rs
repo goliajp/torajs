@@ -31,6 +31,7 @@ pub(crate) struct InitC {
     pub bigint: crate::ssa_lower_intrinsics_bigint::BigIntIds,
     pub weak: crate::ssa_lower_intrinsics_weak::WeakIds,
     pub map_set: crate::ssa_lower_intrinsics_map_set::MapSetIds,
+    pub set_like: crate::ssa_lower_intrinsics_set_like::SetLikeIds,
     pub runtime_misc: crate::ssa_lower_intrinsics_runtime_misc::RuntimeMiscIds,
 }
 
@@ -47,6 +48,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     let bigint = crate::ssa_lower_intrinsics_bigint::declare(module, fn_table);
     let weak = crate::ssa_lower_intrinsics_weak::declare(module, fn_table);
     let map_set = crate::ssa_lower_intrinsics_map_set::declare(module, fn_table);
+    let set_like = crate::ssa_lower_intrinsics_set_like::declare(module, fn_table);
     let runtime_misc = crate::ssa_lower_intrinsics_runtime_misc::declare(module, fn_table);
     // User-visible `gc()` lowers as a direct call to cycle_collect.
     // Register the alias so the existing global-fn path picks it up
@@ -67,6 +69,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         bigint,
         weak,
         map_set,
+        set_like,
         runtime_misc,
     }
 }

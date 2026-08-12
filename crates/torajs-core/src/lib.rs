@@ -446,6 +446,7 @@ pub(crate) mod ssa_lower_intrinsics_process;
 pub(crate) mod ssa_lower_intrinsics_promise;
 pub(crate) mod ssa_lower_intrinsics_regex;
 pub(crate) mod ssa_lower_intrinsics_runtime_misc;
+pub(crate) mod ssa_lower_intrinsics_set_like;
 pub(crate) mod ssa_lower_intrinsics_str_a;
 pub(crate) mod ssa_lower_intrinsics_str_b;
 pub(crate) mod ssa_lower_intrinsics_str_extra;

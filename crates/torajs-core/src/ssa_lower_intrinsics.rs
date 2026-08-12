@@ -759,6 +759,10 @@ pub(crate) struct Intrinsics {
     pub(crate) set_intersection: FuncId,
     pub(crate) set_difference: FuncId,
     pub(crate) set_symmetric_difference: FuncId,
+    /* §24.2.1.2 GetSetRecord kernels — the typed lowering's route
+     * for a non-Set setops argument (set_like declare group). */
+    pub(crate) set_relation_setlike: FuncId,
+    pub(crate) set_setop_setlike: FuncId,
     pub(crate) map_clone: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,

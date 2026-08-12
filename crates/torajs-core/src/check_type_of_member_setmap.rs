@@ -106,18 +106,21 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Set, "add") => Type::Function(vec![Type::Any], Box::new(Type::Set)),
         (Type::Set, "has") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         // ES2025 read-only Set setops (§24.2.3.{12,13,14}).
-        // Spec accepts any "Set-like" object; tora's narrow
-        // form requires the argument to also be a Set.
+        // §24.2.1.2 GetSetRecord admits any set-like argument —
+        // the runtime protocol decides (a non-set-like refuses
+        // with the spec TypeError/RangeError), so the checker's
+        // parameter is Any; a real-Set argument keeps the Set×Set
+        // fast kernels in the lowering.
         (Type::Set, "isSubsetOf") | (Type::Set, "isSupersetOf") | (Type::Set, "isDisjointFrom") => {
-            Type::Function(vec![Type::Set], Box::new(Type::Boolean))
+            Type::Function(vec![Type::Any], Box::new(Type::Boolean))
         }
-        // ES2025 mutating Set setops (§24.2.3.{15,16,17,18}).
-        // Returns a fresh Set with rc=1.
+        // ES2025 combining Set setops (§24.2.3.{15,16,17,18}) —
+        // same set-like admission. Returns a fresh Set with rc=1.
         (Type::Set, "union")
         | (Type::Set, "intersection")
         | (Type::Set, "difference")
         | (Type::Set, "symmetricDifference") => {
-            Type::Function(vec![Type::Set], Box::new(Type::Set))
+            Type::Function(vec![Type::Any], Box::new(Type::Set))
         }
         (Type::Set, "delete") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         (Type::Set, "clear") => Type::Function(Vec::new(), Box::new(Type::Void)),
