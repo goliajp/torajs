@@ -427,11 +427,14 @@ pub struct Ast {
     /// synthetic directive re-emitted into a function with a
     /// non-simple parameter list would be the §15.1.3 SyntaxError.
     pub synth_strict_directives: std::collections::HashSet<ExprId>,
-    /// §12.7.2 strict-only future reserved words (`static`, `public`,
-    /// …) admitted in a BindingIdentifier position where the parser
-    /// could not yet know the goal. `(byte offset, word)`; the prelude
-    /// gate `triage_strict_reserved_idents` raises the strict-goal
-    /// SyntaxError, sloppy script code keeps them as identifiers. The
+    /// Sites that are legal in sloppy script code and a SyntaxError
+    /// under a strict goal, parked because the goal is only stamped
+    /// after the parse. `(byte offset, word)` — the word names the
+    /// clause, the three being disjoint: a §12.7.2 future reserved
+    /// word (`static`, `public`, …) in any Identifier position,
+    /// `eval` / `arguments` where §13.1.1 binds or §13.1.3 assigns
+    /// them, and `with` per §14.11.1. The prelude gate
+    /// `triage_strict_reserved_idents` raises the first one. The
     /// per-FUNCTION half never lands here — the parser rejects it on
     /// the spot, knowing its own `in_strict_fn`.
     pub strict_reserved_positions: Vec<(u32, String)>,

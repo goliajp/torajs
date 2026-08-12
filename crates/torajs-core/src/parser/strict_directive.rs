@@ -57,6 +57,33 @@ impl Parser<'_> {
         }
     }
 
+    /// §14.11.1 — a WithStatement is a SyntaxError in strict mode
+    /// code. `with` reaches the parser as a plain identifier (the
+    /// lexer's reserved table serves escaped spellings only), so the
+    /// statement is recognised the way `interface` and `abstract` are
+    /// in the dispatcher: the contextual name plus the one token that
+    /// form must have next. Nothing is consumed — sloppy code keeps
+    /// today's answer, and `with` being a ReservedWord in the grammar
+    /// means no legal program can spell a call this way.
+    pub(super) fn judge_with_statement(&mut self) -> Result<(), String> {
+        let is_with = matches!(self.peek(), Token::Ident(s) if s == "with")
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|n| matches!(n.token, Token::LParen));
+        if !is_with {
+            return Ok(());
+        }
+        if self.in_strict_fn {
+            return Err(format!(
+                "`with` is not allowed in strict code at {} (ES §14.11.1)",
+                self.at()
+            ));
+        }
+        self.record_strict_goal_site("with");
+        Ok(())
+    }
+
     /// The program-level directive prologue — §11.2.2 makes global
     /// code strict when it opens with one, exactly as a function body
     /// is. Same recognition, but "still inside the prologue" is the

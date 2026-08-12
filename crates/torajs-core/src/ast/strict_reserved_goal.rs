@@ -23,7 +23,11 @@ pub fn triage_strict_reserved_idents(ast: &Ast) -> Option<String> {
         return None;
     }
     ast.strict_reserved_positions.first().map(|(at, name)| {
-        if name == "eval" || name == "arguments" {
+        if name == "with" {
+            format!(
+                "`with` is not allowed in strict code (modules are strict) at {at} (ES §14.11.1)"
+            )
+        } else if name == "eval" || name == "arguments" {
             // One message for both clauses that park this pair: the
             // vector carries no position kind, and §13.1.1 (binding)
             // and §13.1.3 (assignment target) are the only two ways in.

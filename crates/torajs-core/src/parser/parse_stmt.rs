@@ -112,6 +112,7 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Type) {
             return self.parse_type_decl();
         }
+        self.judge_with_statement()?;
         // V3-18 wedge — `interface X { ... }`. TS-only structural
         // typing declaration; subset desugars to `type X = { ... }`.
         // Contextual keyword: `interface` is just an Ident in the
