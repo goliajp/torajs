@@ -102,3 +102,34 @@ pub(crate) unsafe fn subclass_method(
         ))
     }
 }
+
+/// `super.<m>(args)` inside a builtin-heritage subclass method
+/// (rotation 371) — §13.3.7.3 resolves the method on the PARENT
+/// prototype, so the receiver's own override must NOT be consulted:
+/// straight to the builtin re-dispatch (own-property probing is
+/// over, the same contract as a reified cell's [[Call]]). A name
+/// outside the builtin method id space answers the not-a-function
+/// TypeError (the parent prototype has nothing callable there).
+///
+/// # Safety
+/// `recv` is a live AnyValue; `argv` points at `argc` live slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_super_builtin_method(
+    recv: AnyValue,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        if mid == 0 {
+            __torajs_throw_type_error(c"super method is not a function".as_ptr());
+            return crate::nanbox::VALUE_UNDEFINED;
+        }
+        crate::method_call::any_method_redispatch(recv, mid, argv, argc)
+    }
+}
+
+unsafe extern "C" {
+    /// torajs-throw — records a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}

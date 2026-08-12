@@ -18,6 +18,23 @@ pub(crate) fn try_route(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
+    // Rotation 371 — `__superbuiltin__<m>(this, args…)` is the
+    // desugared `super.m()` of a builtin-heritage subclass method
+    // (desugar_classes_super): the callee is a runtime re-dispatch,
+    // not a program identifier, so admit it here (args still
+    // typecheck) before the generic ident route would refuse the
+    // unknown name. Answers Any — the builtin surface's verdict is
+    // a runtime fact.
+    if let Expr::Ident(n) = ast.get_expr(*callee)
+        && n.starts_with("__superbuiltin__")
+    {
+        for &a in args.iter() {
+            if let Err(e) = checker.type_of(ast, a) {
+                return Some(Err(e));
+            }
+        }
+        return Some(Ok(Type::Any));
+    }
     // Name-based class-method rewrite vs builtin-container
     // receiver — decision + alt typecheck live in cm_demote.rs.
     if let Some(demoted) = checker.try_demote_cm_rewrite(ast, eid, args) {

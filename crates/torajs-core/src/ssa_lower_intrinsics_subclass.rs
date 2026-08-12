@@ -54,6 +54,15 @@ pub(crate) fn declare(
         &[Type::Any, Type::Any, Type::Any][..],
         Type::Ptr,
     );
+    // Rotation 371 — the builtin-heritage `super.m()` re-dispatch
+    // (ssa_lower_call_super_builtin resolves it by name; no slot).
+    declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_super_builtin_method",
+        &[Type::Any, Type::I64, Type::Ptr, Type::I64][..],
+        Type::Any,
+    );
     let d =
         |module: &mut Module,
          fn_table: &mut HashMap<String, FuncId>,

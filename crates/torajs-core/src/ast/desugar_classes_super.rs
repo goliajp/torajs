@@ -125,9 +125,20 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
     // site was named `__cm_...` with a minted `this` and died loud on
     // an unknown identifier.
     for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in class_index {
-        let Some(parent_name) = parent.as_ref() else {
-            continue;
+        // Rotation 371 — a builtin-heritage class was STRIPPED
+        // (desugar_classes_builtin_heritage sets its parent to None
+        // and records the builtin in `exotic_parent`); its
+        // `super.m()` sites route to the runtime super-builtin
+        // re-dispatch below. Object / Iterator (non-exotic stripped
+        // parents) keep the recorded loud boundary.
+        let parent_name = match parent.as_ref() {
+            Some(p) => p.clone(),
+            None => match ast.exotic_parent.get(cname) {
+                Some(p) => p.clone(),
+                None => continue,
+            },
         };
+        let parent_name = &parent_name;
         let mut sites: Vec<(ExprId, String, Vec<ExprId>)> = Vec::new();
         if let Some(c) = ctor.as_ref() {
             for s in &c.body {
@@ -148,9 +159,22 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             // `__cm_B__m` and the program died on an unknown identifier.
             // Falling back to the direct parent when nothing declares it
             // keeps the pre-existing diagnostic for a genuine typo.
-            let owner = nearest_declaring(class_index, parent_name, &m_name, false)
-                .unwrap_or(parent_name.clone());
-            let callee = ast.add_expr(Expr::Ident(format!("__cm_{owner}__{m_name}")));
+            let owner = nearest_declaring(class_index, parent_name, &m_name, false);
+            // Rotation 371 — no user ancestor declares `m` and the
+            // heritage chain roots in a builtin (`class C extends
+            // Set`): `super.m()` resolves on the BUILTIN prototype,
+            // which has no `__cm_` face. Route through the runtime
+            // super-builtin re-dispatch (own overrides skipped per
+            // §13.3.7.3); a genuine typo still dies there as the
+            // spec not-a-function TypeError instead of an unknown
+            // identifier at compile time.
+            let callee = match &owner {
+                Some(o) => ast.add_expr(Expr::Ident(format!("__cm_{o}__{m_name}"))),
+                None if builtin_heritage_root(ast, class_index, parent_name) => {
+                    ast.add_expr(Expr::Ident(format!("__superbuiltin__{m_name}")))
+                }
+                None => ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__{m_name}"))),
+            };
             let this_id = ast.add_expr(Expr::This);
             let mut new_args = Vec::with_capacity(args.len() + 1);
             new_args.push(this_id);
@@ -173,6 +197,30 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             ast.exprs[eid.0 as usize] = Expr::Call { callee, args };
         }
     }
+}
+
+/// True when `start`'s heritage chain roots in a name outside the
+/// class index — an `extends` of a builtin (Set / Map / Array /
+/// Error / …). The checker already refused an `extends` of a name
+/// that is neither a class nor a known builtin, so "not in the
+/// index" is the builtin verdict here.
+fn builtin_heritage_root(ast: &Ast, class_index: &[ClassIndexEntry], start: &str) -> bool {
+    let mut cur = start.to_string();
+    for _ in 0..64 {
+        let Some(entry) = class_index.iter().find(|e| e.1 == cur) else {
+            return true;
+        };
+        // A stripped ancestor lost its parent link but keeps the
+        // builtin in `exotic_parent` — the chain roots there.
+        if ast.exotic_parent.contains_key(&cur) {
+            return true;
+        }
+        match &entry.3 {
+            Some(p) => cur = p.clone(),
+            None => return false,
+        }
+    }
+    false
 }
 
 /// Walk `start` and its ancestors for the first class declaring a

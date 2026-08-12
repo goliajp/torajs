@@ -47,6 +47,13 @@ pub(crate) fn lower(
     {
         return ctx.lower_expr(callee);
     }
+    // Rotation 371 — `__superbuiltin__<m>` is the desugared
+    // `super.m()` of a builtin-heritage subclass method; claim the
+    // synthetic name before any dispatcher reads it as a program
+    // identifier.
+    if let Some(op) = crate::ssa_lower_call_super_builtin::try_lower(ctx, callee, args) {
+        return op;
+    }
     // Any-method-call RFC 20260704 — an `any`-typed receiver claims
     // the call before every typed dispatcher (their name matches
     // assume concrete receiver types).
