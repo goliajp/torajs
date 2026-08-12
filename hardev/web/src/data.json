@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T18:41:14.563Z",
+  "generatedAt": "2026-08-12T21:53:33.295Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T17:46:07Z",
-    "headSha": "8f24ebbe",
-    "elapsedSec": 324.76,
+    "ranAt": "2026-08-12T21:50:38Z",
+    "headSha": "363961a6",
+    "elapsedSec": 323.29,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24890,
-    "passNoOracle": 839,
-    "passNegative": 4100,
-    "passTotal": 29829,
-    "bug": 12737,
-    "incompatible": 10608,
+    "pass": 24895,
+    "passNoOracle": 842,
+    "passNegative": 4106,
+    "passTotal": 29843,
+    "bug": 12761,
+    "incompatible": 10570,
     "bunSkip": 6636,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42566,
-    "passRateInScope": 56.1,
-    "passRateTrAccepted": 70.08
+    "trAccepted": 42604,
+    "passRateInScope": 56.12,
+    "passRateTrAccepted": 70.05
   },
   "torajs": {
-    "commit": "8f24ebbe",
-    "commitSubject": "fix: the object-literal shorthand judges `let` too",
+    "commit": "363961a6",
+    "commitSubject": "refactor: split the arguments-rewrite recursion three ways",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "363961a6",
+      "subject": "refactor: split the arguments-rewrite recursion three ways"
+    },
+    {
+      "hash": "c947b3b5",
+      "subject": "fix: a class cannot be named with a strict reserved word"
+    },
+    {
+      "hash": "94ffec61",
+      "subject": "fix: a primitive receiver is wrapped before a sloppy body sees it"
+    },
+    {
+      "hash": "545af445",
+      "subject": "docs: the __mth signature does not carry a receiver"
+    },
+    {
+      "hash": "4f6444ad",
+      "subject": "docs: the parameter shape is no longer uncovered"
+    },
+    {
+      "hash": "48e0edb7",
+      "subject": "fix: a detached object-literal method reached through a parameter"
+    },
+    {
+      "hash": "cc72578e",
+      "subject": "fix: an object-literal method returned from a function survives detaching"
+    },
+    {
+      "hash": "349e6e5a",
+      "subject": "feat: an any-typed argument reaches a heap-typed parameter"
+    },
+    {
+      "hash": "f393dc8f",
+      "subject": "docs: rotation 379 close - methods that survive being read as a value, and the last reserved word"
+    },
+    {
       "hash": "8f24ebbe",
       "subject": "fix: the object-literal shorthand judges `let` too"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "49d3cb84",
       "subject": "fix: a class method survives being read as a value"
-    },
-    {
-      "hash": "7f4b1da6",
-      "subject": "style: rustfmt the widen recursion's signature"
-    },
-    {
-      "hash": "a8c94696",
-      "subject": "fix: an object-literal method survives being read as a value"
-    },
-    {
-      "hash": "d74982ee",
-      "subject": "docs: rotation 378 close - reference-position reserved words, and one knife the measurement refuted"
-    },
-    {
-      "hash": "42d49993",
-      "subject": "feat: yield stops reading as a name inside a strict function"
-    },
-    {
-      "hash": "767ad93b",
-      "subject": "fix: typeof stops answering for a builtin name the program has taken"
-    },
-    {
-      "hash": "7d5b1959",
-      "subject": "Revert \"feat: module code is strict from the first token, not from a gate\""
-    },
-    {
-      "hash": "065a3ded",
-      "subject": "feat: module code is strict from the first token, not from a gate"
-    },
-    {
-      "hash": "ca9bf26b",
-      "subject": "feat: the object-literal shorthand is a reference position too"
-    },
-    {
-      "hash": "ec06302b",
-      "subject": "feat: strict code refuses the future reserved words in reference position"
     }
   ],
-  "headSha": "8f24ebbe",
+  "headSha": "363961a6",
   "autorun": {
-    "total": 682,
+    "total": 683,
     "baselineTarget": 10,
-    "bySelf": 677,
+    "bySelf": 678,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786552494-10ad",
-      "at": "2026-08-12T16:34:54Z",
-      "ts": 1786552494,
+      "rotationId": "r-1786567042-4b19",
+      "at": "2026-08-12T20:37:22Z",
+      "ts": 1786567042,
       "trigger": "self",
-      "prevHead": "d74982ee",
-      "handoffSha": "sha256:967180c6e20a384367e2e103197efb11df1d82ebedf3d49b654f8dae5831be03",
-      "handoffAgeSec": 1189,
+      "prevHead": "f393dc8f",
+      "handoffSha": "sha256:1c6114a4a29cee6d09ffd8fb53d269354770c8681d66475cbed991ac8e8d6b48",
+      "handoffAgeSec": 22,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786567042-4b19",
+        "at": "2026-08-12T20:37:22Z",
+        "ts": 1786567042,
+        "trigger": "self",
+        "prevHead": "f393dc8f",
+        "handoffSha": "sha256:1c6114a4a29cee6d09ffd8fb53d269354770c8681d66475cbed991ac8e8d6b48",
+        "handoffAgeSec": 22,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786552494-10ad",
         "at": "2026-08-12T16:34:54Z",
@@ -876,17 +887,6 @@
         "prevHead": "70708e0c",
         "handoffSha": "sha256:eec057d303a0b1851c815b69f54592c74298c813486026cd208c4a669138937b",
         "handoffAgeSec": 51,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786488158-1bef",
-        "at": "2026-08-11T22:42:38Z",
-        "ts": 1786488158,
-        "trigger": "self",
-        "prevHead": "c2bceccb",
-        "handoffSha": "sha256:60ea93734c7960a3f1e1cdd367535726364eb8a5ff5f17bc74909ff8f7f1e72c",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
