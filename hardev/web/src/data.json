@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T22:41:24.812Z",
+  "generatedAt": "2026-08-12T00:27:36.179Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-11T22:39:29Z",
-    "headSha": "d9b8daf4",
-    "elapsedSec": 320.23,
+    "ranAt": "2026-08-12T00:26:15Z",
+    "headSha": "cb50411f",
+    "elapsedSec": 325.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24553,
+    "pass": 24554,
     "passNoOracle": 799,
     "passNegative": 3955,
-    "passTotal": 29307,
-    "bug": 12731,
-    "incompatible": 11136,
+    "passTotal": 29308,
+    "bug": 12733,
+    "incompatible": 11133,
     "bunSkip": 6584,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42038,
+    "trAccepted": 42041,
     "passRateInScope": 55.12,
-    "passRateTrAccepted": 69.72
+    "passRateTrAccepted": 69.71
   },
   "torajs": {
-    "commit": "d9b8daf4",
-    "commitSubject": "feat: the console namespace object mints as a singleton and joins the globalThis fill - intern_singleton + fill_ns_methods(console) gives the five logger cells one immortal dynobj home (Math/JSON/Reflect same shape), the bare console ident in a value position lowers through the new ns_object_console intrinsic, the globalThis fill defines the console key with the same singleton so globalThis.console === console holds, MISSING_KNOWN drops console (11 -> 10), and the Web IDL namespace-object @@toStringTag badge answers [object console] by pointer identity (bun-verified); a typed alias's member CALL (const c = console; c.log(x)) stays a recorded boundary - probing showed const m = Math; m.max(1,2) raises the same loud unsupported-member-call-shape, so this is the pre-existing ns-alias family, registered in plan-state L3b with the dynamic cast as the working escape hatch; fixture globalthis-console-001 stdout+stderr byte-equal vs bun over identity, typeof, the dynamic lane both ways, and the badge (RFC 20260812-console-sink knife 4)",
+    "commit": "cb50411f",
+    "commitSubject": "fix: the any-tier unary family stops leaking pending throws and negates bigints legally - the L3b rotation-370 silent-wrong (+b over any(bigint) printed undefined where bun throws) had two roots and a sibling: (1) lower_unary_any_arith and lower_unary_any_bitnot never emitted a throw check, so the §7.1.4 rejects any_arith/any_bitnot correctly RECORD (Symbol, mixed-BigInt, OrdinaryToPrimitive both-objects) stranded as pending state while the undefined placeholder leaked out as the result - both paths now check after the settle; (2) unary minus lowered as the Number-lane 0-x identity through any_arith, whose mixed-pair arm threw on a BigInt operand even though §6.1.6.2.1 makes unary minus LEGAL on BigInt - a new __torajs_anyv_unary_neg_pair kernel (the anyv_bitnot_pair shape, whose BigInt leg already existed) negates through __torajs_bigint_neg and delegates every other tag to the same 0-x lane, with the bigint_ffi extern + test stub rows added; the ~ path was already correct and pins the family shape; fixture unary-any-bigint-001 byte-equal vs bun over -5n/~5n/-(-3n)/-0n, the +bigint throw, and the Symbol throws on all three signs with clean continuation after each catch",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "cb50411f",
+      "subject": "fix: the any-tier unary family stops leaking pending throws and negates bigints legally - the L3b rotation-370 silent-wrong (+b over any(bigint) printed undefined where bun throws) had two roots and a sibling: (1) lower_unary_any_arith and lower_unary_any_bitnot never emitted a throw check, so the §7.1.4 rejects any_arith/any_bitnot correctly RECORD (Symbol, mixed-BigInt, OrdinaryToPrimitive both-objects) stranded as pending state while the undefined placeholder leaked out as the result - both paths now check after the settle; (2) unary minus lowered as the Number-lane 0-x identity through any_arith, whose mixed-pair arm threw on a BigInt operand even though §6.1.6.2.1 makes unary minus LEGAL on BigInt - a new __torajs_anyv_unary_neg_pair kernel (the anyv_bitnot_pair shape, whose BigInt leg already existed) negates through __torajs_bigint_neg and delegates every other tag to the same 0-x lane, with the bigint_ffi extern + test stub rows added; the ~ path was already correct and pins the family shape; fixture unary-any-bigint-001 byte-equal vs bun over -5n/~5n/-(-3n)/-0n, the +bigint throw, and the Symbol throws on all three signs with clean continuation after each catch"
+    },
+    {
+      "hash": "48105f41",
+      "subject": "feat: Number(bigint) converts per the ToNumeric window - §21.1.1.1 step 3 makes the explicit Number() call the one legal BigInt-to-Number face (F(R(value)), round-to-nearest ties-to-even) while implicit ToNumber keeps throwing (§7.1.4 step 2), so the knife opens exactly one window instead of touching the generic kernel: torajs-bigint grows __torajs_bigint_to_number (a <=1-limb magnitude rides the u64->f64 cast; a multi-limb one reduces to a single correctly rounded u128->f64 conversion by folding any-lower-limb-nonzero into bit 0 - the classic sticky reduction, the top two limbs already carry the mantissa plus guard - then exact power-of-two scaling that overflows to the spec's Infinity; unit tests pin the tie cases incl a third-limb sticky bit), torajs-anyvalue grows the __torajs_anyv_number_ctor pre-gate (BigInt cells convert, every other tag delegates to the generic kernel so the Symbol reject and OrdinaryToPrimitive ladder stay put - the anyv_to_display_str Symbol-window shape), the Number() lowering gains a Type::BigInt arm and swaps its Any arm onto the pre-gate kernel with the same pending-throw check, and the checker admits BigInt into the Number() coercion set; the fixture probe also caught a PRE-EXISTING silent-wrong outside this lane - +b over any(bigint) answers undefined where bun throws TypeError - registered in plan-state L3b rotation 370; fixture number-bigint-001 byte-equal vs bun over sign/zero/2^64/2^70/2^130 rounding and the any lane"
+    },
+    {
+      "hash": "eee096b6",
+      "subject": "fix: the ns-alias rewrite spares the dynamic-cast lane and mutation positions - the 5205636d gate caught ns-object-attrs-001 red: const m: any = Math is the RECORDED dynamic-cast escape hatch (delete / descriptor / enumeration semantics through the runtime lane), and the alias rewrite was hijacking its members onto the typed namespace lane, turning delete m.PI into a compile reject; an alias candidate now requires type_ann: None (an annotated decl asked for the lane it wrote), and members standing as an Assign target / Delete operand / PostIncr target keep their shape (the globalthis_member exclusion pattern) so mutation surfaces stay loud instead of silently retargeting; both fixtures byte-equal vs bun on the fixed binary"
+    },
+    {
+      "hash": "5205636d",
+      "subject": "feat: member calls through a namespace-singleton alias dispatch like the bare name - a new desugar_ns_alias_members pass (right after G1, whose rewrite can itself mint the alias shape from const m = globalThis.Math) retargets the receiver ident of every member access through a TOP-LEVEL immutable alias of Math / JSON / Reflect / console onto the namespace name, so const m = Math; m.max(1, 2) rides the existing syntactic dispatch lanes instead of the resolve_callee unsupported-member-call-shape panic (the boundary RFC 20260812-console-sink knife 4 recorded); the soundness bar is the fnexpr_this / globalthis_member program-wide gate shape - top-level const with a bare-namespace init only (module scope means the rewrite can never legalize an undeclared cross-fn read), exactly one program-wide declaration of the name, no other binding form claiming it (fn/param/catch/for-of/class incl arrow-fn params via the expr arena), never an assign/post-incr target - and the alias LetDecl plus every value use stay untouched so m === Math keeps reading the boxed singleton; ctor namespaces (const O = Object) are a different family and stay a recorded boundary; fixture ns-alias-member-001 byte-equal vs bun over Math triple-dispatch, identity, JSON stringify/parse, console log + error (stderr routing through the alias), and Reflect.has"
+    },
+    {
+      "hash": "2ef0647f",
+      "subject": "feat: the injected error-family class objects join the globalThis fill - torajs-rc grows a 9-slot native_error_class registry (fixed family index as recorder/reader ABI), the error_proto_install emit records each injected class's registered anyv into it through a new classmeta/error_family.rs sibling (meta stays zero-Cargo-dep via the _record C symbol; class_register precedes the install in the class_globals_register emit order so the tag slot is already filled), and the globalThis mint defines every recorded family member with the SAME class object the bare name resolves to - probing caught that the shipped fill's Error row (builtin_ctor_cell tag 9) was a silent identity split: g.Error === Error answered false vs bun true because bare Error reads the injected class object, so Error moves out of CTOR_PROPS into the family loop with the ctor cell kept only as the never-injected fallback; construct through a dynamically read ctor works for free (the any-lane class-object new was already live, probe-verified), MISSING_KNOWN keeps all six NativeError rows as the loud posture for programs whose computed-string reads never trigger injection; fixture globalthis-native-error-001 byte-equal vs bun over 8-way identity (incl AggregateError), typeof, new through the dynamic lane, instanceof both levels, message/name, and the G1 static spelling"
+    },
+    {
+      "hash": "c2bceccb",
+      "subject": "docs: rotation 369 close - the console surface closes four knives deep behind RFC 20260812-console-sink: the print/inspect family streams through a torajs-io current-sink indirection (STDERR LineBuf twin, putc_out/write_out, drain-on-switch pair preserving 2>&1 caller order), console.error/warn route every runtime type to stderr through the single emit_console_print gate (four per-type _err intrinsics retire; the fixture caught print_i64/print_bool raw-writing fd 1 past the sink - the io doc claiming putc routing was stale), the stderr pair becomes first-class ns-static cells, and the console namespace object mints as a singleton joining the globalThis fill (MISSING_KNOWN 11 -> 10, Web IDL [object console] badge); test262 zero movement with verdicts byte-identical across all 53174 cases (console is a conformance-gate face, not a test262 face), conformance gate 2752 -> 2755/0/4 (+3 fixtures), one new recorded boundary (ns-alias member call, Math-family) registered, build determinism 44/44 N=12, dashboard refresh @ d9b8daf4"
+    },
+    {
       "hash": "d9b8daf4",
       "subject": "feat: the console namespace object mints as a singleton and joins the globalThis fill - intern_singleton + fill_ns_methods(console) gives the five logger cells one immortal dynobj home (Math/JSON/Reflect same shape), the bare console ident in a value position lowers through the new ns_object_console intrinsic, the globalThis fill defines the console key with the same singleton so globalThis.console === console holds, MISSING_KNOWN drops console (11 -> 10), and the Web IDL namespace-object @@toStringTag badge answers [object console] by pointer identity (bun-verified); a typed alias's member CALL (const c = console; c.log(x)) stays a recorded boundary - probing showed const m = Math; m.max(1,2) raises the same loud unsupported-member-call-shape, so this is the pre-existing ns-alias family, registered in plan-state L3b with the dynamic cast as the working escape hatch; fixture globalthis-console-001 stdout+stderr byte-equal vs bun over identity, typeof, the dynamic lane both ways, and the badge (RFC 20260812-console-sink knife 4)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "46a99a73",
       "subject": "docs: rotation 368 close - the globalThis surface closes five knives deep: the G3 descriptor probe finds the gOPD global arm already working (closing the L3b entry without code), MISSING_KNOWN shrinks 19 -> 11 (parseInt/parseFloat reuse the Number.* cells per the 21.1.2.12/.13 same-object clause, isFinite/isNaN get ToNumber-coercing cells, the 19.2.6 URI quartet lands whole with a real Encode/Decode kernel and URIError as runtime slot 6), and the eight global function properties open as bare values; sweep conserved +170 pass / +8 bug (the non-constructor family honestly entering the truly-run surface) / -178 incompatible with zero pass regressions, the former top-1 unattributed cluster (decodeURI family) clears whole, gate predicate double-drops to 262 clusters / 3686 cases, build determinism 44/44 N=12, dashboard refresh @ e96477f7"
-    },
-    {
-      "hash": "e96477f7",
-      "subject": "feat: the eight global function properties read as bare values - parseInt/parseFloat/isNaN/isFinite and the URI quartet leave the is_known_builtin_global loud reject and answer their interned ns-static cells (the Math.max-as-a-value lane pointed at the global object's own function properties): the checker types the read with the concrete fn type like the Number.parseInt member read, the ident lowering mints through ns_static_cell, and a let-alias registers variadic via the shared bare_global_ns_static_id map so its calls take the boxed dual entry (identity, .name/.length, detached calls and the dynamic-lane === all hold vs bun). An under-arity alias call (pi with one arg against the 2-param sig) and the HOF-callback position (map(parseFloat), loud typed-slot TypeError) stay recorded boundaries; fixture bare-global-values-001 byte-equal vs bun"
-    },
-    {
-      "hash": "876943fe",
-      "subject": "feat: the four URI globals become first-class values and join the globalThis fill list - four globalThis-keyed ns-static rows dispatch through the new UriKernel arm (ToString then the torajs-str Encode/Decode kernel, URIError propagating through the cell face), completing the 19.2.6 surface across both call forms; MISSING_KNOWN shrinks to 11. Two file-size knives ride along: the coercing arm family (parseInt/parseFloat/globalNumTest/uriKernel) moves to the new ns_static_coerce sibling, and the kernel externs block moves to ns_static_externs (glob re-export keeps every super::ns_static_table:: path unchanged) after the UriKernel rows pushed ns_static_table.rs to 518; fixture globalthis-uri-001 byte-equal vs bun over cell call/name/length, malformed raise and descriptor faces"
-    },
-    {
-      "hash": "d6dd3a77",
-      "subject": "feat: the 19.2.6 URI handling globals land - encodeURI/encodeURIComponent/decodeURI/decodeURIComponent get a real Encode/Decode kernel pair in torajs-str (uri.rs: code-unit walk over both Str encodings, lone-surrogate URIError on encode, strict escape-run parsing on decode with from_utf8 as the overlong/surrogate/range judge, decodeURI preserving a reserved escape's ORIGINAL spelling, canonical narrow output). URIError becomes a real runtime raise: torajs-throw slot 6 + __torajs_throw_uri_error wrapper, the injected URIError class registers its factory (class_globals_register + synth_error slot map), and referencing any URI global implies the class like bigint implies RangeError; throw-info marks the four callees may-throw so a fn-boundary URIError is never swallowed. Checker admits String/Undefined/Any with Web-IDL trailing ignore; the omitted arg folds to the undefined_to_str literal. fixture uri-globals-001 byte-equal vs bun over encode sets, multibyte/emoji roundtrip, preserved-case reserved escapes, eight malformed decode raises and the lone-surrogate encode raise"
-    },
-    {
-      "hash": "86a3146b",
-      "subject": "feat: global isFinite and isNaN join the ns-static surface and the globalThis fill list - two globalThis-keyed rows (19.2.2/19.2.3) dispatch through the new GlobalNumTest arm (ToNumber first, so Symbol/BigInt throw and the 0-arg call tests ToNumber(undefined) = NaN), deliberately distinct cells from the never-coercing Number.* predicates (bun agrees isNaN !== Number.isNaN); MISSING_KNOWN shrinks to 15. The dispatch match had crept to 206 lines - the three coercing arms (parseInt/parseFloat/globalNumTest) extract to free fns, dispatch back to 176; fixture globalthis-isnan-001 byte-equal vs bun over call/coercion/identity/descriptor faces"
-    },
-    {
-      "hash": "db7abce7",
-      "subject": "feat: parseInt and parseFloat join the globalThis fill list - the 19.2.4/19.2.5 globals ARE the Number.parseInt/Number.parseFloat function objects per 21.1.2.12/.13 (the same built-in function object), so the fill reuses the interned Number ns-static cells and identity holds through the dynamic lane (globalThis[\"parseInt\"] === Number.parseInt answers true like bun); MISSING_KNOWN shrinks by the two filled names, the gOPD global arm answers the 17-shape descriptor (writable+configurable, non-enumerable), fixture globalthis-parseint-001 byte-equal vs bun over call/name/length/identity/descriptor faces"
-    },
-    {
-      "hash": "d1e78766",
-      "subject": "docs: rotation 367 close - the @@toPrimitive protocol hook, the delete pair and the dynamic-fn this-bind land with the fnGlobalObject harness port (130 include cases enter the truly-run surface), SR-2 attributes the source-phase-imports proposal family with the new test262-feature predicate, and the stale S5.6 roadmap entry closes its main body; sweep conserved +89 pass / +53 bug (the honest inflow of unlocked sloppy cases) / -142 incompatible with zero pass regressions, gate predicate double-drops to 268 clusters / 3862 cases (register 2 entries, 763 attributed), build determinism 44/44 N=12, dashboard refresh @ 9ca6ca25"
     }
   ],
-  "headSha": "d9b8daf4",
+  "headSha": "cb50411f",
   "autorun": {
-    "total": 672,
+    "total": 673,
     "baselineTarget": 10,
-    "bySelf": 667,
+    "bySelf": 668,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786473108-2e09",
-      "at": "2026-08-11T18:31:48Z",
-      "ts": 1786473108,
+      "rotationId": "r-1786488158-1bef",
+      "at": "2026-08-11T22:42:38Z",
+      "ts": 1786488158,
       "trigger": "self",
-      "prevHead": "46a99a73",
-      "handoffSha": "sha256:4c6f97eb55833eba72e4eb8bef67bece40844f99542471e3a4fef8f133c69047",
-      "handoffAgeSec": 1,
+      "prevHead": "c2bceccb",
+      "handoffSha": "sha256:60ea93734c7960a3f1e1cdd367535726364eb8a5ff5f17bc74909ff8f7f1e72c",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786488158-1bef",
+        "at": "2026-08-11T22:42:38Z",
+        "ts": 1786488158,
+        "trigger": "self",
+        "prevHead": "c2bceccb",
+        "handoffSha": "sha256:60ea93734c7960a3f1e1cdd367535726364eb8a5ff5f17bc74909ff8f7f1e72c",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786473108-2e09",
         "at": "2026-08-11T18:31:48Z",
@@ -876,17 +887,6 @@
         "prevHead": "438e8f44",
         "handoffSha": "sha256:8328d1cfdc8e5d353d53fd45a3744278393fb73ad13b7d1b899d5eb7120d3b78",
         "handoffAgeSec": 270,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786406080-193a",
-        "at": "2026-08-10T23:54:40Z",
-        "ts": 1786406080,
-        "trigger": "self",
-        "prevHead": "1ce45a2f",
-        "handoffSha": "sha256:ef0ed872bd6375b7c58b9fc1c502813bec3236bf66c9a73cced42d218ebc4723",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
