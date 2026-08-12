@@ -82,7 +82,11 @@ fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
         "Boolean" => Some("__torajs_boolean_wrapper_subclass_super"),
         "Promise" => Some("__torajs_promise_subclass_super"),
         "RegExp" => Some("__torajs_regex_subclass_super"),
-        "Function" | "Map" | "Set" => None,
+        // Rotation 371 — the collection ctors' §24.1.1.1 / §24.2.1.1
+        // iterable walk applied to the minted subclass cell.
+        "Map" => Some("__torajs_map_subclass_super"),
+        "Set" => Some("__torajs_set_subclass_super"),
+        "Function" => None,
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -143,6 +147,29 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         }
         if let Some(tag) = builtin_proto_heir_tag(p) {
             ast.builtin_proto_heirs.insert(cname.clone(), tag);
+        }
+        // Rotation 371 — a ctor-less exotic subclass gets the spec
+        // derived default ctor's observable half: `new MySet(iter)`
+        // must hand its argument to the builtin's [[Construct]]
+        // (probe: the iterable silently dropped and the set came up
+        // empty). The general default-ctor synthesis pass runs AFTER
+        // this strip and keys on `parent.is_some()`, so the stripped
+        // entry never gets one — synthesize the single-argument
+        // forward here (Map / Set / the wrapper ctors read exactly
+        // one argument; rest-forwarding is the recorded call-spread
+        // boundary, L3b 371-01).
+        if exotic && ctor.is_none() && exotic_super_kernel(p).is_some() {
+            let arg = ast.add_expr(Expr::Ident("__superarg".to_string()));
+            let sup = ast.add_expr(Expr::Super { args: vec![arg] });
+            *ctor = Some(crate::ast::ClassCtor {
+                params: vec![crate::ast::Param {
+                    name: "__superarg".to_string(),
+                    type_ann: Some("any".to_string()),
+                    default: None,
+                    is_rest: false,
+                }],
+                body: vec![Stmt::Expr(sup)],
+            });
         }
         if let Some(c) = ctor.as_mut() {
             let mut sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();

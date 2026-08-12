@@ -209,7 +209,9 @@ pub(crate) fn check(
         | "__torajs_string_wrapper_subclass_super"
         | "__torajs_boolean_wrapper_subclass_super"
         | "__torajs_promise_subclass_super"
-        | "__torajs_regex_subclass_super" => Ok(Type::Function(
+        | "__torajs_regex_subclass_super"
+        | "__torajs_map_subclass_super"
+        | "__torajs_set_subclass_super" => Ok(Type::Function(
             vec![Type::Any, Type::Any],
             Box::new(Type::Any),
         )),

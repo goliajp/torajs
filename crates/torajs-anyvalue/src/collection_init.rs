@@ -341,3 +341,47 @@ pub unsafe extern "C" fn __torajs_collection_init_from_iterable(
         release(adder);
     }
 }
+
+/// `super(iterable)` inside a `class C extends Map` ctor (rotation
+/// 371) — the builtin's [[Construct]] semantics applied to the
+/// already-minted subclass cell: §24.1.1.1 steps 6-8 (a nullish
+/// iterable adds nothing; entries walk through the adder). The
+/// desugar hands exactly one argument (the synthesized default ctor
+/// forwards its first — Map/Set ctors read no others).
+///
+/// # Safety
+/// `this` is the live minted subclass cell; `iterable` is a live
+/// borrowed AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_map_subclass_super(
+    this: AnyValue,
+    iterable: AnyValue,
+) -> AnyValue {
+    unsafe {
+        __torajs_collection_init_from_iterable(
+            this,
+            iterable,
+            torajs_rc::collection_kind::COLLECTION_MAP,
+        );
+    }
+    VALUE_UNDEFINED
+}
+
+/// The Set twin — §24.2.1.1 steps 5-7.
+///
+/// # Safety
+/// Same contract as the Map twin above.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_set_subclass_super(
+    this: AnyValue,
+    iterable: AnyValue,
+) -> AnyValue {
+    unsafe {
+        __torajs_collection_init_from_iterable(
+            this,
+            iterable,
+            torajs_rc::collection_kind::COLLECTION_SET,
+        );
+    }
+    VALUE_UNDEFINED
+}

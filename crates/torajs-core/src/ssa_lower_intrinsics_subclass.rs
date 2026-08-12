@@ -32,6 +32,8 @@ pub(crate) struct ExoticSubclassIds {
     pub promise_subclass_alloc: FuncId,
     pub regex_subclass_alloc: FuncId,
     pub number_wrapper_subclass_super: FuncId,
+    pub map_subclass_super: FuncId,
+    pub set_subclass_super: FuncId,
     pub promise_subclass_super: FuncId,
     pub regex_subclass_super: FuncId,
     pub string_wrapper_subclass_super: FuncId,
@@ -139,6 +141,8 @@ pub(crate) fn declare(
             "__torajs_number_wrapper_subclass_super",
             super_pair,
         ),
+        map_subclass_super: d(module, fn_table, "__torajs_map_subclass_super", super_pair),
+        set_subclass_super: d(module, fn_table, "__torajs_set_subclass_super", super_pair),
         string_wrapper_subclass_super: d(
             module,
             fn_table,

@@ -421,6 +421,8 @@ pub(crate) fn build(
         promise_subclass_alloc: init_c.subclass.promise_subclass_alloc,
         regex_subclass_alloc: init_c.subclass.regex_subclass_alloc,
         number_wrapper_subclass_super: init_c.subclass.number_wrapper_subclass_super,
+        map_subclass_super: init_c.subclass.map_subclass_super,
+        set_subclass_super: init_c.subclass.set_subclass_super,
         promise_subclass_super: init_c.subclass.promise_subclass_super,
         regex_subclass_super: init_c.subclass.regex_subclass_super,
         string_wrapper_subclass_super: init_c.subclass.string_wrapper_subclass_super,
