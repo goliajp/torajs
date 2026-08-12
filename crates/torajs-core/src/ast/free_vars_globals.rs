@@ -61,6 +61,12 @@ pub(crate) fn is_global_name(name: &str) -> bool {
             | "NaN"
             | "Infinity"
             | "undefined"
+            // §19.2.1 — the global `eval` as a VALUE resolves through
+            // the checker fallback (Type::Any) exactly like
+            // `globalThis`; collecting it as a capture renames it out
+            // from under that resolution (the Iterator drift, one row
+            // down, was the same failure).
+            | "eval"
             // Top-level coercion functions
             | "parseInt"
             | "parseFloat"
