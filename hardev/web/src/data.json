@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T12:46:17.931Z",
+  "generatedAt": "2026-08-12T13:05:50.410Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T12:45:00Z",
-    "headSha": "b3d91be0",
-    "elapsedSec": 323.6,
+    "ranAt": "2026-08-12T13:04:50Z",
+    "headSha": "4ad81fc3",
+    "elapsedSec": 325.53,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.78
   },
   "torajs": {
-    "commit": "b3d91be0",
-    "commitSubject": "feat: strict-only reserved words are rejected in binding position",
+    "commit": "4ad81fc3",
+    "commitSubject": "feat: strict-reserved words reach the parameter lists too",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "4ad81fc3",
+      "subject": "feat: strict-reserved words reach the parameter lists too"
+    },
+    {
+      "hash": "3c8c99a2",
+      "subject": "docs: rotation 376 close - per-function strictness, one thread through three knives"
+    },
+    {
       "hash": "b3d91be0",
       "subject": "feat: strict-only reserved words are rejected in binding position"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "469056d9",
       "subject": "docs: rotation 374 close - sloppy yield is an identifier across the whole surface (the 82-case got-Yield family: binding names, IdentifierReference, accessor property names, fn-expression/declaration names, parameter names - r372's delete-bare-name goal-triage pattern with a new yield_ident_positions side table, the strict gate now firing BEFORE the import resolver after the sweep caught the ordering regression), the global eval as a value resolves inside closure bodies (one free_vars_globals row clears both 63-case checker and 19-case lowering signatures), nativeFunctionMatcher.js joins the ported harness includes (70-case toString family: 40 pass immediately), in_generator now swaps in before the param list at all four generator parse sites per $15.5.1, and every yield admission site guards on class_stack ($15.7 class code is always strict); sweep passTotal 29464 -> 29634 (+119 this rotation) with exact conservation (+217 trAccepted = +119 pass +98 bug), ONE pass regression (identifier-shorthand-yield-invalid: deflation - the old pass rode a var-yield parse error, real face is per-function use-strict, L3b 374-00), incompat 10642, gate predicate 246 clusters / 3304 cases / core 4951 (all down), gate chain 2772 -> 2776/0/4 (+4 fixtures, zero red rounds over seven knives), build determinism 44/44 N=12, L3b 374-00..03 recorded, dashboard @ 3b157bce"
-    },
-    {
-      "hash": "f2b4dade",
-      "subject": "refactor: gen-object-method return annotation splits out of the method parser - knife 5's generator-bit swap pushed try_parse_generator_object_method from its registered 232-line debt to 234 (registered entries may only shrink): the ':' Generator<T> collapse moves to a parse_gen_method_return_ann sibling method, main fn 228; gen-method return-ann fixture byte-equal vs bun; also stores the rotation-374 sweep artifacts (test262-latest.json + verdicts gz @ 3b157bce)"
-    },
-    {
-      "hash": "3b157bce",
-      "subject": "fix: the strict-goal yield gate fires before the import resolver - the parse-time yield reject used to guarantee that a yield nested in an import(...) argument raised the parse-phase SyntaxError instead of dying in the resolver on path resolution (the yield_expr_hoist doc records exactly this ordering), and moving the judgement to the post-parse prelude gate silently re-broke it: 2nd-param-yield-ident-invalid.js regressed pass-negative -> negative-unsupported because 'import path not found' beat the gate; the yield triage moves out of run_ast_prelude into a new run_pre_resolve_gates shared by tr run and tr build, called right after the goal stamp and before modules::resolve_imports (the delete triage has no resolver-facing shape and stays in the prelude); hand-verified: import('./missing.js', yield) answers the $12.7.2 parse error again, both sloppy yield fixtures stay byte-equal"
     }
   ],
-  "headSha": "b3d91be0",
+  "headSha": "4ad81fc3",
   "autorun": {
     "total": 679,
     "baselineTarget": 10,
