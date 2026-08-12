@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T11:09:58.160Z",
+  "generatedAt": "2026-08-12T12:46:17.931Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T11:02:44Z",
-    "headSha": "f2b4dade",
-    "elapsedSec": 322.68,
+    "ranAt": "2026-08-12T12:45:00Z",
+    "headSha": "b3d91be0",
+    "elapsedSec": 323.6,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24855,
-    "passNoOracle": 816,
-    "passNegative": 3954,
-    "passTotal": 29625,
-    "bug": 12915,
+    "pass": 24868,
+    "passNoOracle": 837,
+    "passNegative": 3978,
+    "passTotal": 29683,
+    "bug": 12857,
     "incompatible": 10634,
     "bunSkip": 6636,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 42540,
-    "passRateInScope": 55.71,
-    "passRateTrAccepted": 69.64
+    "passRateInScope": 55.82,
+    "passRateTrAccepted": 69.78
   },
   "torajs": {
-    "commit": "868507c6",
-    "commitSubject": "fix: per-function strict bodies keep the undefined detached this - the sloppy globalThis prologue (10a4ddda) bound EVERY promoted body in a sloppy-goal file, but a body whose directive prologue says 'use strict' is a STRICT function ($10.2.1.2 step 5) and its detached this stays undefined - the rotation-375 close sweep caught 22 function-code 10.4.3 regressions ('function () { \"use strict\"; return typeof this; }' answered object); the fix probes the leading run of string-literal expression statements before inserting, the same cooked-value comparison as the parser's non-simple-params directive gate; NOTE bun answers object for this shape in .cts (its transpile layer appears to drop the per-function directive), diverging from spec - the 10.4.3 family is bun-skip no-oracle so scoring rides tr's own test262 asserts (spec is the truth source per the test262 discipline), and the shape deliberately gets no bun-parity fixture",
+    "commit": "b3d91be0",
+    "commitSubject": "feat: strict-only reserved words are rejected in binding position",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "b3d91be0",
+      "subject": "feat: strict-only reserved words are rejected in binding position"
+    },
+    {
+      "hash": "12c07688",
+      "subject": "feat: sloppy detached this reaches the plain-function lane, and the prologue keeps expr_spans in sync"
+    },
+    {
+      "hash": "f66431e7",
+      "subject": "feat: per-function strictness is inherited lexically, written back into the body"
+    },
+    {
+      "hash": "50888a7b",
+      "subject": "docs: rotation 375 close - the 79-case unknown-ident-__this cluster gets its surface knives: sloppy detached this binds globalThis at a callee-side prologue per $10.2.1.2 step 6 (skipped when the body's directive prologue says use strict - the close sweep caught 22 nested-strict 10.4.3 regressions, the in-knife fix recovered the directive-carrying 4, the 18 lexically-inheriting twins 10.4.3-1-{36..44}{-s,gs} share one root with L3b 374-00's missing per-function strictness bit which is now the next rotation's lead item), four new receiver-safe faces (NewDynamic inline callee, throw operand, string-pattern replace/replaceAll callbacks with the str kernel's recv-first argv shift, inline fn-exprs in explicit-any param slots = the new Promise executor spelling), the IIFE-return face tried and reverted in-knife (checker types the IIFE result non-Function, ToString path splices fn source - loud would have become silent-wrong), and a double debt-clean (num_width 508/225 -> ~434/151 delisted; fnexpr_this self-breach 517/226 -> 474/193 via the cb_slots sibling); sweep passTotal 29634 -> 29625 (pass +9 true forward, passNoOracle -18 honest regression ledger, bug +17, conservation exact +8 = -9+17), incompat 10634 (-8), unknown-__this cluster 79 -> 68, gate predicate 246 clusters / 3301 cases / core 4943, gate chain 2776 -> 2780/0/4 five knives zero red, build determinism 44/44 N=12, NOTE bun answers object for per-function-strict detached this in .cts (transpile layer drops the directive, spec truth-source discipline applies), L3b 375-00..06 recorded, dashboard @ 868507c6"
+    },
+    {
       "hash": "868507c6",
       "subject": "fix: per-function strict bodies keep the undefined detached this - the sloppy globalThis prologue (10a4ddda) bound EVERY promoted body in a sloppy-goal file, but a body whose directive prologue says 'use strict' is a STRICT function ($10.2.1.2 step 5) and its detached this stays undefined - the rotation-375 close sweep caught 22 function-code 10.4.3 regressions ('function () { \"use strict\"; return typeof this; }' answered object); the fix probes the leading run of string-literal expression statements before inserting, the same cooked-value comparison as the parser's non-simple-params directive gate; NOTE bun answers object for this shape in .cts (its transpile layer appears to drop the per-function directive), diverging from spec - the 10.4.3 family is bun-skip no-oracle so scoring rides tr's own test262 asserts (spec is the truth source per the test262 discipline), and the shape deliberately gets no bun-parity fixture"
     },
@@ -743,43 +759,38 @@
     {
       "hash": "3b157bce",
       "subject": "fix: the strict-goal yield gate fires before the import resolver - the parse-time yield reject used to guarantee that a yield nested in an import(...) argument raised the parse-phase SyntaxError instead of dying in the resolver on path resolution (the yield_expr_hoist doc records exactly this ordering), and moving the judgement to the post-parse prelude gate silently re-broke it: 2nd-param-yield-ident-invalid.js regressed pass-negative -> negative-unsupported because 'import path not found' beat the gate; the yield triage moves out of run_ast_prelude into a new run_pre_resolve_gates shared by tr run and tr build, called right after the goal stamp and before modules::resolve_imports (the delete triage has no resolver-facing shape and stays in the prelude); hand-verified: import('./missing.js', yield) answers the $12.7.2 parse error again, both sloppy yield fixtures stay byte-equal"
-    },
-    {
-      "hash": "4f0b7575",
-      "subject": "feat: yield as a parameter name outside generators, and the generator bit swaps in before the param list - $15.5.1 gives FormalParameters the fn's OWN [Yield] parameter, but all four generator parse sites (fn decl / fn expr / gen object method / gen class method) swapped in_generator only at the BODY, so the param list read the enclosing scope's bit: the swap moves before parse_param_list (declaration names keep the enclosing bit - they read it before the swap; the overload-signature early return restores), which makes 'function* g(yield)' reject on its own bit regardless of nesting, and the four param-name sites (parse_param_list / ctor list / parse_fn_params / arrow) admit Token::Yield when the bit is off; ALSO every admission site from the first two knives gains a class_stack guard - class bodies are ALWAYS strict ($15.7), so a sloppy .cts class ctor/method param or body admission would have been silent-wrong; fixture sloppy-yield-ident-003.cts byte-equal vs bun over arrow param, object-method param and fn-decl param, negatives hand-verified: 'function* g(yield)' rejects, 'class C { constructor(yield) }' rejects under the sloppy goal, strict twin gate fires"
-    },
-    {
-      "hash": "d023caeb",
-      "subject": "feat: nativeFunctionMatcher.js joins the ported harness includes - the 70-case Function.prototype.toString family died at 'needs nativeFunctionMatcher.js' (67 of 70 are static shapes, only 3 need the dynamic Function-ctor face): the port validates the $20.2.3.5 NativeFunction grammar with a charCodeAt scanner class (ASCII-narrowed ID classes - every builtin name toString mints is ASCII, a non-ASCII name fails LOUD, and the stock ~2KB Unicode regexes exist only for names that never arise here), assertToStringOrNativeFunction keeps the stock either-or contract (source equality first, native-grammar fallback), assertNativeFunction throws Test262Error through the same JSON.stringify message; runner transform gains the three rewrites (distinct prefixes, no ordering hazard) and the include joins PORTED_INCLUDES; subset run on mini: 40 pass / 24 bug / 16 incompat where the family was needs-harness incompat before - the bug rows are honest truly-run toString-shape mismatches (class/method/getter source forms) for later rotations"
-    },
-    {
-      "hash": "3953e332",
-      "subject": "fix: the global eval as a value resolves inside closure bodies - the checker fallback types bare eval Any ($19.2.1, value position only - direct calls compile away in desugar_eval) and top-level / FnDecl reads already lowered through the any lanes, but free_vars_globals drifted (the exact Iterator failure recorded in that table): a closure body referencing eval collected it as a capture, renaming it out from under the fallback - 'closure references unknown identifier eval' (63 t262 cases, assert.throws(TypeError, function() { Promise.all.call(eval) }) shape) plus the 19-case 'closure capture eval not in scope' lowering twin; one table row fixes both; fixture eval-value-closure-001.ts byte-equal vs bun over fn-expr callback, typeof from a fn-expr value, and an arrow capturing eval with identity preserved (picked[0] === eval)"
-    },
-    {
-      "hash": "e32a0de1",
-      "subject": "feat: yield rides the misc identifier faces - accessor property names, fn-expression self-names and declaration names (the 8-case tail of the got-Yield family): the objlit accessor gate only admitted Ident/String/Number/LBracket after get/set, so 'get yield() {}' died at 'expected :' even though $12.7.6 allows the FULL reserved-word set in property-name positions - the gate and prop-name read now ride the shared keyword_property_name table (every keyword accessor name fixed, not just yield); a function EXPRESSION self-name is [~Yield] per $15.2 so '(function yield() {})' admits unconditionally (a generator expression's name is [+Yield] and stays on the loud '(' reject), and a DECLARATION name inherits the ENCLOSING [Yield] parameter per $15.1/$15.5 so 'function* yield() {}' admits when the enclosing scope is non-generator - both record into yield_ident_positions for the strict-goal prelude gate; fixture sloppy-yield-ident-002.cts byte-equal vs bun over get/set yield accessor pair, fn-expr self-name call and a generator declaration named yield driven through next(); param-name face (2 cases) deferred - it needs the fn's own generator bit threaded through parse_param_list's six call sites (the in_generator swap sits after params by design)"
     }
   ],
-  "headSha": "868507c6",
+  "headSha": "b3d91be0",
   "autorun": {
-    "total": 678,
+    "total": 679,
     "baselineTarget": 10,
-    "bySelf": 673,
+    "bySelf": 674,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786527536-2146",
-      "at": "2026-08-12T09:38:56Z",
-      "ts": 1786527536,
+      "rotationId": "r-1786533065-16d2",
+      "at": "2026-08-12T11:11:05Z",
+      "ts": 1786533065,
       "trigger": "self",
-      "prevHead": "469056d9",
-      "handoffSha": "sha256:cfe53a97ff98283946a95f4a3b962a70b39f069365453fbd509b2f5ec2a1514e",
-      "handoffAgeSec": 4,
+      "prevHead": "50888a7b",
+      "handoffSha": "sha256:7f9817b7cea8e0ac073dab0bbab4980c6838f9a455702341312103981fe66f8c",
+      "handoffAgeSec": 93,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786533065-16d2",
+        "at": "2026-08-12T11:11:05Z",
+        "ts": 1786533065,
+        "trigger": "self",
+        "prevHead": "50888a7b",
+        "handoffSha": "sha256:7f9817b7cea8e0ac073dab0bbab4980c6838f9a455702341312103981fe66f8c",
+        "handoffAgeSec": 93,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786527536-2146",
         "at": "2026-08-12T09:38:56Z",
@@ -876,17 +887,6 @@
         "prevHead": "11c0cd47",
         "handoffSha": "sha256:ee89c65def67dc3cac27436c029d39b6efba3e88396c6773657b51ce4d86b51d",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786447988-3670",
-        "at": "2026-08-11T11:33:08Z",
-        "ts": 1786447988,
-        "trigger": "self",
-        "prevHead": "42dec38a",
-        "handoffSha": "sha256:d31b1f6e2b8abe147c9b7302cf00b69b298919347d145457544df7c2ef4eabe2",
-        "handoffAgeSec": 103,
         "conformanceBefore": null,
         "commitsInSession": null
       }
