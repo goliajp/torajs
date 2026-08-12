@@ -97,24 +97,16 @@ impl<'a> FnToClosureCollector<'a> {
             let cname = cname.clone();
             self.mark_known_callee_args(&cname, args);
         }
-        // Rotation 372 — a spread-carrying call's Ident callee is a
-        // VALUE use: the spread lane (`ssa_lower_call_spread`) boxes
-        // the callee into the any world (argc is a runtime fact read
-        // off the materialized args array), which a raw FnSig can't.
-        // Wrap it so the callee lowers as a closure cell whose boxed
-        // dual entry the spread kernel invokes. GATE: a body that
-        // touches `arguments` must NOT wrap — the forwarder relays
-        // the DECLARED params only, so the real argc dies at the
-        // relay (a 0-param arguments-style fn answered length 0,
-        // silent) — it stays on the loud box_to_any reject instead
-        // (recorded boundary, rotation-372 L3b).
-        if args
-            .iter()
-            .any(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
-            && !self.callee_touches_arguments(callee)
-        {
-            self.try_mark(*callee);
-        }
+        // Rotation 372 — a spread-carrying call whose callee is a
+        // top-FnDecl Ident deliberately does NOT wrap: the static
+        // expanders run AFTER this pass (apply_spread_args'
+        // index-read expansion is the semantic owner of the
+        // known-arity direct-call shapes, __cm_* super chains
+        // included), and wrapping here hijacked them into the
+        // dynamic lane through a forwarder that relays only the
+        // DECLARED params (the ba9095b4 gate: 6 red). A direct-fn
+        // spread call the static expanders can't take stays on the
+        // loud box_to_any reject (recorded boundary, L3b 372-00).
         // r290 (box_to_any FnSig sweep cluster) — an indirect call
         // through a binding that is NOT a top-FnDecl name
         // (`var every = Array.prototype.every; every(callback)`):
@@ -375,21 +367,5 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
         }
-    }
-
-    /// Rotation 372 — does the Ident callee name a top-FnDecl whose
-    /// body touches `arguments` (any form)? Such a fn must not ride
-    /// the fixed-arity forwarder relay (see the spread axis in
-    /// `walk_call`). Cold path — only spread-carrying calls ask.
-    pub(crate) fn callee_touches_arguments(&self, callee: &ExprId) -> bool {
-        let Expr::Ident(name) = self.ast.get_expr(*callee) else {
-            return false;
-        };
-        self.ast.stmts.iter().any(|s| {
-            matches!(s, crate::ast::Stmt::FnDecl { name: n, body, .. }
-                if n == name
-                    && (crate::ast::body_has_non_length_arguments_touch(self.ast, body)
-                        || crate::ast::body_has_arguments_length(self.ast, body)))
-        })
     }
 }
