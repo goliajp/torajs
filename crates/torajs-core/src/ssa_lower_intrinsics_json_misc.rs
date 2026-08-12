@@ -76,6 +76,13 @@ pub(crate) struct JsonMiscIds {
     pub arr_copy_within: FuncId,
 }
 
+// CARVE-OUT: dispatch table — back-to-back `declare_intrinsic` calls
+// filling one `JsonMiscIds` struct literal, three shared param slices
+// and nothing else. Same shape and same reason as the sibling
+// intrinsics declare tables (`map_set`, `print_freeze`, `promise`,
+// `any_substrate`): the field order is what callers read the ids back
+// out by, so the body is data, not branches. Grows one entry per new
+// intrinsic.
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> JsonMiscIds {
     let s_pp = &[Type::Str, Type::Ptr][..];
     let s_pi = &[Type::Str, Type::Ptr, Type::I64][..];
