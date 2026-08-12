@@ -130,9 +130,16 @@ pub(crate) struct WidthTable {
     /// own body asks here, because the value arrives from a caller
     /// lowered separately and nothing else records it.
     undef_sentinel_params: HashSet<(String, String)>,
+    /// W4 shape-join (rotation 371) — per ordered-field-name shape,
+    /// the fields whose width floats on ANY same-shaped literal.
+    /// Layout slot width is family-wide (same-shaped literals share
+    /// a layout through the coercible first-match); operation width
+    /// stays per-binding through the keys above.
+    objlit_shape_f64: HashMap<Vec<String>, HashSet<String>>,
 }
 
 impl WidthTable {
+    #[allow(clippy::too_many_arguments)] // frozen-analysis assembly, one call site
     pub(super) fn new(
         canon: HashSet<SlotKey>,
         any_escaped: HashSet<SlotKey>,
@@ -141,6 +148,7 @@ impl WidthTable {
         nominal_aliases: HashSet<String>,
         fallthrough_fns: HashSet<String>,
         undef_sentinel_params: HashSet<(String, String)>,
+        objlit_shape_f64: HashMap<Vec<String>, HashSet<String>>,
     ) -> Self {
         WidthTable {
             canon,
@@ -150,7 +158,16 @@ impl WidthTable {
             nominal_aliases,
             fallthrough_fns,
             undef_sentinel_params,
+            objlit_shape_f64,
         }
+    }
+
+    /// W4 shape-join query — true when `name` floats on any literal
+    /// sharing this ordered field-name shape (see the field's doc).
+    pub(crate) fn objlit_shape_field_is_f64(&self, shape: &[String], name: &str) -> bool {
+        self.objlit_shape_f64
+            .get(shape)
+            .is_some_and(|s| s.contains(name))
     }
 
     /// True when `param` of `fn_name` may be handed the `undefined`

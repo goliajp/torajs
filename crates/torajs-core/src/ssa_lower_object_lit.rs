@@ -401,8 +401,15 @@ fn apply_w4_widen(
     eid: ExprId,
 ) {
     let key = crate::num_width::SlotKey::Anon(eid.0);
+    // W4 shape-join (rotation 371) — the literal's own verdict OR the
+    // family verdict: same-shaped literals share a layout, so the
+    // first registrant must already claim the joined slot width.
+    let shape: Vec<String> = field_tys.iter().map(|(n, _)| n.clone()).collect();
     for (i, (fname, fty)) in field_tys.iter_mut().enumerate() {
-        if *fty == Type::I64 && ctx.num_f64_slots.field_is_f64(&key, fname) {
+        if *fty == Type::I64
+            && (ctx.num_f64_slots.field_is_f64(&key, fname)
+                || ctx.num_f64_slots.objlit_shape_field_is_f64(&shape, fname))
+        {
             *fty = Type::F64;
             let coerced = ctx.coerce_to_f64(field_vals[i].clone());
             field_vals[i] = coerced;

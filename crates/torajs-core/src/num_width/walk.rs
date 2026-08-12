@@ -399,7 +399,20 @@ impl<'a> Analysis<'a> {
                 }
             }
             Expr::ObjectLit { fields } => {
-                for (_, e) in fields {
+                // W4 shape-join (rotation 371) — every literal seeds
+                // its field widths unconditionally. The container
+                // walker only reaches literals standing in container
+                // positions (let-init, known container flow), so a
+                // call-argument literal never seeded: its fractional /
+                // NaN initializer then truncated through the
+                // same-shape layout's I64 slot (`anon_shape_unions`
+                // gives the family one root; this hands the root
+                // every member's evidence).
+                let anon = SlotKey::Anon(eid.0);
+                for (fname, e) in fields {
+                    let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
+                    let w = self.width_of(*e, scope);
+                    self.add_container_constraint(fk, w);
                     self.walk_expr(*e, scope);
                 }
             }

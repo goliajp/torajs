@@ -437,6 +437,44 @@ pub(crate) fn analyze(
             eprintln!("[num_width] any-escape class: {l}");
         }
     }
+    // W4 shape-join (rotation 371) — same-shaped anonymous literals
+    // share one struct layout at lowering (resolve_objlit_layout's
+    // first-match scan admits F64-vs-I64 as coercible), so the
+    // LAYOUT slot width must join across the family even though each
+    // binding keeps its own OPERATION width (the d5 slot-granularity
+    // contract). Collect, per ordered field-name shape, the fields
+    // any family member's verdict floats; `apply_w4_widen` consults
+    // this beside the literal's own key, so the FIRST registrant
+    // already claims the joined width and a later `{x: 1.5}` /
+    // `{x: NaN}` stops truncating through the coercible-match
+    // FpToSi (it read back 0 as a set-like `size`).
+    let mut objlit_shape_f64: HashMap<Vec<String>, std::collections::HashSet<String>> =
+        HashMap::new();
+    if !a.container_poison {
+        for (i, e) in ast.exprs.iter().enumerate() {
+            let crate::ast::Expr::ObjectLit { fields } = e else {
+                continue;
+            };
+            if fields.is_empty() {
+                continue;
+            }
+            let anon = SlotKey::Anon(i as u32);
+            let floats: Vec<String> = fields
+                .iter()
+                .filter(|(fname, _)| {
+                    let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
+                    canon_out.contains(&container::canon_key_frozen(&a.uf, &fk))
+                })
+                .map(|(fname, _)| fname.clone())
+                .collect();
+            if floats.is_empty() {
+                continue;
+            }
+            let shape: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
+            objlit_shape_f64.entry(shape).or_default().extend(floats);
+        }
+    }
+
     WidthTable::new(
         canon_out,
         any_escaped,
@@ -445,6 +483,7 @@ pub(crate) fn analyze(
         a.nominal_aliases,
         fallthrough_fns,
         undef_sentinel_params,
+        objlit_shape_f64,
     )
 }
 
