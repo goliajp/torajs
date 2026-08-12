@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T23:25:34.731Z",
+  "generatedAt": "2026-08-12T23:39:08.607Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.05
   },
   "torajs": {
-    "commit": "47ee7e3d",
-    "commitSubject": "fix: an asserted array element keeps the repr its value really has",
+    "commit": "eec17894",
+    "commitSubject": "fix: stop advising integer divide for a non-numeric slot mismatch",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "eec17894",
+      "subject": "fix: stop advising integer divide for a non-numeric slot mismatch"
+    },
+    {
+      "hash": "bf517bb8",
+      "subject": "docs: refresh the dashboard snapshot for rotation 381 close"
+    },
+    {
       "hash": "47ee7e3d",
       "subject": "fix: an asserted array element keeps the repr its value really has"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "0840a13b",
       "subject": "docs: rotation 380 close - the two largest function-debt entries went with it"
-    },
-    {
-      "hash": "a781074b",
-      "subject": "refactor: split the expression typing cascade in two"
-    },
-    {
-      "hash": "29159729",
-      "subject": "docs: rotation 380 close - the four places `any` could not reach"
     }
   ],
-  "headSha": "47ee7e3d",
+  "headSha": "eec17894",
   "autorun": {
     "total": 684,
     "baselineTarget": 10,
