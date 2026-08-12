@@ -83,6 +83,30 @@ pub unsafe extern "C" fn __torajs_any_call_spread(
     }
 }
 
+/// `super.m(a, ...xs)` in a builtin-heritage subclass method — the
+/// spread flavor of
+/// [`crate::method_call_subclass::__torajs_super_builtin_method`]
+/// (rotation 372; `super.has(...rest)` is the t262
+/// subclass-receiver-methods forwarding idiom). Same §13.3.7.3
+/// contract: parent-prototype resolution, the receiver's own
+/// override is never consulted.
+///
+/// # Safety
+/// `recv` is a live AnyValue; `args_arr` is a live `Array<Any>`
+/// the caller keeps alive across the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_super_builtin_method_spread(
+    recv: AnyValue,
+    mid: i64,
+    args_arr: *const c_void,
+) -> AnyValue {
+    unsafe {
+        with_argv(args_arr, |argv, argc| {
+            crate::method_call_subclass::__torajs_super_builtin_method(recv, mid, argv, argc)
+        })
+    }
+}
+
 /// `recv.name(a, ...xs)` — the method flavor. Same dispatch tail as
 /// [`crate::method_call::__torajs_any_method_call`]: the shared
 /// inner, then the builtin-proto patch consult on a mid-miss, then

@@ -37,6 +37,30 @@ pub(crate) fn try_lower(
     // A name outside the builtin id space passes mid 0 — the kernel
     // answers the spec not-a-function TypeError.
     let mid = torajs_rc::any_method_id(&m_name);
+    // Rotation 372 — `super.has(...rest)` (the t262
+    // subclass-receiver-methods forwarding idiom): a spread argument
+    // needs a runtime argc, so the list materializes into one
+    // Array<Any> and the spread kernel flavor reads argc off it.
+    if args[1..]
+        .iter()
+        .any(|a| matches!(ctx.ast.get_expr(*a), Expr::Spread { .. }))
+    {
+        let fid_spread = *ctx.fn_table.get("__torajs_super_builtin_method_spread")?;
+        let args_arr = crate::ssa_lower_call_spread::build_args_arr(ctx, &args[1..]);
+        let arr_any_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
+        let result = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                fid_spread,
+                vec![recv, Operand::ConstI64(mid), args_arr.clone()],
+            ),
+            Type::Any,
+            None,
+        );
+        ctx.emit_drop_value(args_arr, Type::Arr(arr_any_id));
+        ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
+        return Some(Operand::Value(result));
+    }
     let (argv, boxed_slots) = crate::ssa_lower_any_method_call::pack_any_argv(ctx, &args[1..]);
     let result = ctx.f.append_inst(
         ctx.cur_block,

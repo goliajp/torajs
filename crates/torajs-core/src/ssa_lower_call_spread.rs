@@ -154,8 +154,9 @@ fn lower_method_spread(
 /// and materializes via `ssa_lower_arr_from_any::emit` (typed
 /// arrays bridge per-slot; strings iterate per code point; custom
 /// `[Symbol.iterator]` shapes and non-iterables resolve per §7.4.2
-/// GetIterator at runtime).
-fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+/// GetIterator at runtime). `pub(crate)` for the super-builtin
+/// lane's spread flavor ([`crate::ssa_lower_call_super_builtin`]).
+pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let literal_count = args
         .iter()

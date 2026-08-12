@@ -65,6 +65,15 @@ pub(crate) fn declare(
         &[Type::Any, Type::I64, Type::Ptr, Type::I64][..],
         Type::Any,
     );
+    // Rotation 372 — the spread flavor (`super.has(...rest)`): argc
+    // is a runtime fact read off the materialized Array<Any>.
+    declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_super_builtin_method_spread",
+        &[Type::Any, Type::I64, Type::Ptr][..],
+        Type::Any,
+    );
     let d =
         |module: &mut Module,
          fn_table: &mut HashMap<String, FuncId>,
