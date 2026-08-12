@@ -77,6 +77,7 @@ mod primary_async;
 mod primary_atoms;
 mod primary_new_super;
 mod private_refs;
+mod program;
 mod ret_throw_try;
 mod strict_directive;
 mod strict_reserved;
@@ -399,27 +400,6 @@ struct Parser<'a> {
 }
 
 impl Parser<'_> {
-    fn parse_program(&mut self) -> Result<(), String> {
-        while !matches!(self.peek(), Token::Eof) {
-            let stmt = self.parse_stmt()?;
-            // P8.5 — flush parser-synthesized class expressions
-            // (`__ClassExpr_<id>` ClassDecls produced by class-in-
-            // expression-position) immediately before the stmt that
-            // owns their use site. Preserves: (i) parent-before-child
-            // for `class extends Parent` (Parent was pushed in an
-            // earlier iteration); (ii) synth-before-use (Ident hop in
-            // the about-to-be-pushed stmt). Append-only — does not
-            // alter the `stmt_offset` contract that `parse_into` relies
-            // on for module merging.
-            if !self.synth_classes.is_empty() {
-                let synth: Vec<Stmt> = std::mem::take(&mut self.synth_classes);
-                self.ast.stmts.extend(synth);
-            }
-            self.ast.stmts.push(stmt);
-        }
-        Ok(())
-    }
-
     fn parse_block(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `{`
         let mut stmts = Vec::new();

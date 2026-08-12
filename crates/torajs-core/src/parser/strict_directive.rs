@@ -57,6 +57,27 @@ impl Parser<'_> {
         }
     }
 
+    /// The program-level directive prologue — §11.2.2 makes global
+    /// code strict when it opens with one, exactly as a function body
+    /// is. Same recognition, but "still inside the prologue" is the
+    /// caller's flag rather than a scan of what came before: the top
+    /// level pushes straight into `ast.stmts`, which under `parse_into`
+    /// may already hold an earlier module's statements, so the leading
+    /// run of directives is not recoverable from that vector.
+    pub(super) fn arm_strict_directive_program(&mut self, s: &Stmt, in_prologue: &mut bool) {
+        if !*in_prologue {
+            return;
+        }
+        match self.directive_value(s) {
+            Some(v) => {
+                if v == "use strict" {
+                    self.in_strict_fn = true;
+                }
+            }
+            None => *in_prologue = false,
+        }
+    }
+
     /// The cooked value of `s` when it is an expression statement
     /// holding a string literal — i.e. a directive, as far as the
     /// prologue grammar is concerned.
