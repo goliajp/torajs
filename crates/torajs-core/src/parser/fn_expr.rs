@@ -195,7 +195,10 @@ impl<'a> Parser<'a> {
             let n = n.clone();
             self.pos += 1;
             Some(n)
-        } else if matches!(self.peek(), Token::Yield) && !is_generator {
+        } else if matches!(self.peek(), Token::Yield)
+            && !is_generator
+            && self.class_stack.is_empty()
+        {
             // §15.2 FunctionExpression names its BindingIdentifier
             // [~Yield] — `(function yield() {})` is legal even inside
             // an enclosing generator, strict-goal only rejection (the
@@ -209,6 +212,11 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // §15.5.1 — FormalParameters ride the fn's OWN [Yield] bit,
+        // so the generator swap happens BEFORE the param list (the
+        // self-name above stayed on the enclosing scope's bit). Error
+        // paths do not restore (failed parse, value moot).
+        let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let (params, destr_lets) = self.parse_param_list()?;
         // A function *expression* takes plain FormalParameters.
         self.reject_duplicate_params(&params, false)?;
@@ -245,7 +253,6 @@ impl<'a> Parser<'a> {
         // nested inside an async-generator body.
         let saved_async_gen =
             std::mem::replace(&mut self.in_async_gen, was_async_prefixed && is_generator);
-        let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
         // r295 — a generator EXPRESSION body's `this` is the factory
         // call's receiver (§27.5.1.1: OrdinaryCallBindThis on the

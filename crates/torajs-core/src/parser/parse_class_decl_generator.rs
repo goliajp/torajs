@@ -121,6 +121,9 @@ impl<'a> Parser<'a> {
         };
         self.pos += 1;
 
+        // §15.5.1 — the generator bit swaps in BEFORE the param list
+        // (FormalParameters[+Yield]); error paths do not restore.
+        let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let (mut params, destr_lets) = self.parse_param_list()?;
         self.infer_default_param_anns(&mut params);
         // A method definition takes UniqueFormalParameters (§15.4).
@@ -156,7 +159,6 @@ impl<'a> Parser<'a> {
         // resolved below.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
-        let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {

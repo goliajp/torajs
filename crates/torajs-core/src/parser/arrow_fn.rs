@@ -82,6 +82,15 @@ impl<'a> Parser<'a> {
                 }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
+                    // §15.3 — ArrowParameters inherit the ENCLOSING
+                    // [Yield] bit (arrows never swap it); outside a
+                    // generator `yield` is an identifier candidate,
+                    // judged by the strict-goal prelude gate.
+                    Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+                        let at = self.at();
+                        self.ast.yield_ident_positions.push(at);
+                        "yield".to_string()
+                    }
                     t => {
                         return Err(format!(
                             "expected parameter name, got {t:?} at {}",

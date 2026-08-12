@@ -86,7 +86,10 @@ impl<'a> Parser<'a> {
             // SyntaxError. Generator bodies never reach this arm — the
             // statement / let-init / assignment lanes route their
             // `yield` to the YieldExpression parsers first.
-            Token::Yield if !self.in_generator => {
+            // (Class bodies are ALWAYS strict, §15.7 — no admission
+            // there under either goal, hence the class_stack guard;
+            // same on every sibling admission site.)
+            Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 self.pos += 1;

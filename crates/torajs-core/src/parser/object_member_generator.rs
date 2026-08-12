@@ -122,6 +122,9 @@ impl<'a> Parser<'a> {
             (method_name, None)
         };
 
+        // §15.5.1 — the generator bit swaps in BEFORE the param list
+        // (FormalParameters[+Yield]); error paths do not restore.
+        let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let (mut params, destr_lets) = self.parse_param_list()?;
         self.infer_default_param_anns(&mut params);
         self.reject_duplicate_params(&params, true)?;
@@ -151,7 +154,6 @@ impl<'a> Parser<'a> {
         // object-literal method site).
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
-        let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         // Knife 4d — arena range for the `arguments` rename sweep
         // below (the class half does the same, see

@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
                 // outside generators under the sloppy goal; the parser
                 // admits and records, the prelude gate raises the
                 // strict-goal SyntaxError (goal stamped post-parse).
-                Token::Yield if !self.in_generator => {
+                Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
                     let at = self.at();
                     self.ast.yield_ident_positions.push(at);
                     "yield".to_string()

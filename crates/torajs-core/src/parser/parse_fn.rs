@@ -39,7 +39,7 @@ impl<'a> Parser<'a> {
             // swap to this fn's own generator context happens at the
             // body, so `self.in_generator` still reads the enclosing
             // scope here.
-            Token::Yield if !self.in_generator => {
+            Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 "yield".to_string()
@@ -57,6 +57,13 @@ impl<'a> Parser<'a> {
         // treats them as placeholder types that don't resolve to a concrete
         // shape until each call site.
         let type_params = self.parse_fn_type_params()?;
+        // §15.5.1 — FormalParameters ride the fn's OWN [Yield]
+        // parameter, so the generator bit swaps in BEFORE the param
+        // list (a generator's `(x = yield)` reaches the yield-expr
+        // parser, a plain fn's `(yield)` is an identifier candidate).
+        // The name above stayed on the enclosing scope's bit. Error
+        // paths do not restore, per the saved_super rationale below.
+        let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let (params, param_destr_lets) = self.parse_fn_params()?;
         let mut return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
@@ -110,6 +117,7 @@ impl<'a> Parser<'a> {
         // returning an empty Block — the real FnDecl follows.
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
+            self.in_generator = saved_gen;
             return Ok(Stmt::Block(Vec::new()));
         }
         // body must be a block
@@ -135,7 +143,6 @@ impl<'a> Parser<'a> {
         // early SyntaxError (§15.4.1), even nested in a method.
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async && is_generator);
-        let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -317,6 +324,16 @@ impl<'a> Parser<'a> {
                 }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
+                    // §15.1.2 — a parameter name rides the fn's own
+                    // [Yield] bit (swapped in before this list);
+                    // outside a generator `yield` is an identifier
+                    // candidate, judged by the strict-goal prelude
+                    // gate.
+                    Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+                        let at = self.at();
+                        self.ast.yield_ident_positions.push(at);
+                        "yield".to_string()
+                    }
                     t => {
                         return Err(format!(
                             "expected parameter name, got {t:?} at {}",
