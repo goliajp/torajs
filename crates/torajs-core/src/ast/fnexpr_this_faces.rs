@@ -101,9 +101,10 @@ pub(super) fn literal_desc_faces(exprs: &[Expr], desc: ExprId) -> Vec<ExprId> {
 /// 20260717-objlit-anylane-recv knife 1).
 pub(crate) fn promote_recv_any(
     stmts: &mut [Stmt],
-    exprs: &mut [Expr],
+    exprs: &mut Vec<Expr>,
     patches: &[(ExprId, String)],
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
+    sloppy: bool,
 ) {
     for (eid, _) in patches {
         if let Expr::Closure { captures, .. } = &mut exprs[eid.0 as usize] {
@@ -116,7 +117,10 @@ pub(crate) fn promote_recv_any(
             _ => continue,
         };
         for s in stmts.iter_mut() {
-            let Stmt::FnDecl { name, params, .. } = s else {
+            let Stmt::FnDecl {
+                name, params, body, ..
+            } = s
+            else {
                 continue;
             };
             if name != fn_name {
@@ -156,10 +160,50 @@ pub(crate) fn promote_recv_any(
                     },
                 );
             }
+            if sloppy {
+                insert_sloppy_this_prologue(body, exprs);
+            }
             fnexpr_recv_fns.insert(fn_name.clone());
             break;
         }
     }
+}
+
+/// §10.2.1.2 OrdinaryCallBindThis step 6 (ThisMode ~global~) — under
+/// the sloppy script goal a promoted body's `this` is the GLOBAL
+/// OBJECT whenever the call site supplied no receiver (undefined /
+/// null in the `__this` slot). The binding is a callee-side prologue
+/// (`__this = __this ?? globalThis`), the textbook place: every call
+/// lane — boxed dispatch, HOF loop seed, direct-call seed — flows
+/// through the body, so one rewrite covers them all, and strict-goal
+/// files never enter (their detached `this` stays undefined per the
+/// step-5 strict branch). Idempotent by shape probe: a body whose
+/// first stmt already assigns `__this` was patched by an earlier
+/// promote round (the objlit_nominal → fnexpr_this fall-through
+/// pair). A primitive receiver keeps its unwrapped value — the
+/// step-4 ToObject wrapper face is recorded residue (L3b), not a
+/// silent wrap here.
+fn insert_sloppy_this_prologue(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
+    if let Some(Stmt::Expr(e)) = body.first()
+        && let Expr::Assign { target, .. } = &exprs[e.0 as usize]
+        && matches!(&exprs[target.0 as usize], Expr::Ident(n) if n == "__this")
+    {
+        return;
+    }
+    let target = ExprId(exprs.len() as u32);
+    exprs.push(Expr::Ident("__this".to_string()));
+    let lhs = ExprId(exprs.len() as u32);
+    exprs.push(Expr::Ident("__this".to_string()));
+    let rhs = ExprId(exprs.len() as u32);
+    exprs.push(Expr::Ident("globalThis".to_string()));
+    let nullish = ExprId(exprs.len() as u32);
+    exprs.push(Expr::Nullish { lhs, rhs });
+    let assign = ExprId(exprs.len() as u32);
+    exprs.push(Expr::Assign {
+        target,
+        value: nullish,
+    });
+    body.insert(0, Stmt::Expr(assign));
 }
 
 /// Rotation 346 — the seventh receiver-safe face position: a marked

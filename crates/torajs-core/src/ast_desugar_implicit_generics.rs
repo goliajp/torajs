@@ -48,6 +48,7 @@ pub(crate) fn run(ast: &mut Ast) {
     let Ast {
         stmts,
         exprs,
+        sloppy_script_goal,
         objlit_method_exprs,
         objlit_method_fields,
         fn_expr_exprs,
@@ -120,6 +121,7 @@ pub(crate) fn run(ast: &mut Ast) {
     crate::ast::objlit_nominal::run(
         stmts,
         exprs,
+        *sloppy_script_goal,
         objlit_method_exprs,
         objlit_method_fields,
         &outer_binds,
@@ -135,6 +137,7 @@ pub(crate) fn run(ast: &mut Ast) {
     crate::ast::fnexpr_this::run(
         stmts,
         exprs,
+        *sloppy_script_goal,
         fn_expr_exprs,
         objlit_method_exprs,
         closure_argc_locals,

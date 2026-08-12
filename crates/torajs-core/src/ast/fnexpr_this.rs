@@ -59,7 +59,8 @@ use super::{Expr, ExprId, Stmt};
 
 pub(crate) fn run(
     stmts: &mut [Stmt],
-    exprs: &mut [Expr],
+    exprs: &mut Vec<Expr>,
+    sloppy: bool,
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     objlit_method_exprs: &std::collections::HashSet<ExprId>,
     closure_argc_locals: &std::collections::HashSet<String>,
@@ -115,7 +116,7 @@ pub(crate) fn run(
         return;
     }
     let pairs: Vec<(ExprId, String)> = patches.into_iter().map(|p| (p.eid, p.fn_name)).collect();
-    promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns);
+    promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns, sloppy);
 }
 
 /// Position walk — collect literal fn-expr faces (and Ident face
