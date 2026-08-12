@@ -95,6 +95,24 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
     let Expr::Ident(name) = ctx.ast.get_expr(expr) else {
         return None;
     };
+    // Phase A1's rewrite, so program-declared by construction — it has
+    // to be answered before the shadowing test below, which would
+    // otherwise reject every class in the program.
+    if name.starts_with("__class_") {
+        return Some("function");
+    }
+    // The table below answers by NAME, and a name only means the
+    // builtin while nothing in the program has taken it: `var eval =
+    // 10; typeof eval` is `"number"`. Nothing about this is specific to
+    // `eval` — `var parseInt = 3` reads the same way — so the test is
+    // the general one, the same three scopes the sibling
+    // `try_undeclared_ident_typeof` consults for the opposite question.
+    if ctx.locals.get(name).is_some()
+        || ctx.globals.contains_key(name)
+        || ctx.fn_table.contains_key(name)
+    {
+        return None;
+    }
     match name.as_str() {
         "undefined" => Some("undefined"),
         "Math" | "JSON" | "Reflect" | "globalThis" | "console" => Some("object"),
@@ -104,7 +122,6 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
         | "RangeError" | "SyntaxError" | "ReferenceError" | "EvalError" | "URIError"
         | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
         | "encodeURIComponent" | "decodeURIComponent" | "eval" => Some("function"),
-        n if n.starts_with("__class_") => Some("function"),
         _ => None,
     }
 }
