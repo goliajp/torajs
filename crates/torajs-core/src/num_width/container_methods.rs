@@ -447,6 +447,13 @@ impl<'a> Analysis<'a> {
                 let w = self.width_of(*a, scope);
                 let pk = SlotKey::Field(Box::new(fk.clone()), format!("__p{i}"));
                 self.add_constraint(pk.clone(), w);
+                // RFC 20260726-array-elem-width, member-callee half — a
+                // CONTAINER arg JOINS the projection, it does not merely
+                // hand over its scalar width (direct + F1 arms both do
+                // this). Without it `ns.take(xs)` read its array from a
+                // different element class than the caller filled: an
+                // `any`-held block met a raw f64 loader and answered NaN.
+                self.alias_guarded(pk.clone(), *a, scope);
                 self.fn_value_flow(&pk, *a, scope);
             }
         }
