@@ -33,13 +33,10 @@ impl<'a> Parser<'a> {
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
             // §15.1/§15.5 — a declaration's BindingIdentifier inherits
-            // the ENCLOSING [Yield] parameter (`function yield() {}` /
-            // `function* yield() {}` are legal outside a generator,
-            // strict-goal only rejection via the prelude gate). The
-            // swap to this fn's own generator context happens at the
-            // body, so `self.in_generator` still reads the enclosing
-            // scope here.
-            Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+            // the ENCLOSING [Yield] parameter, so the swap to this fn's
+            // own generator context happens at the body and the
+            // predicate still reads the enclosing scope here.
+            Token::Yield if self.yield_reads_as_ident() => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 "yield".to_string()
@@ -335,11 +332,8 @@ impl<'a> Parser<'a> {
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     // §15.1.2 — a parameter name rides the fn's own
-                    // [Yield] bit (swapped in before this list);
-                    // outside a generator `yield` is an identifier
-                    // candidate, judged by the strict-goal prelude
-                    // gate.
-                    Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+                    // [Yield] bit, swapped in before this list.
+                    Token::Yield if self.yield_reads_as_ident() => {
                         let at = self.at();
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()

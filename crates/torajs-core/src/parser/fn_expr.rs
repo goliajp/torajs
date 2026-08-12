@@ -175,13 +175,19 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return Some(n);
         }
-        if matches!(self.peek(), Token::Yield) && !is_generator && self.class_stack.is_empty() {
-            // §15.2 FunctionExpression names its BindingIdentifier
-            // [~Yield] — `(function yield() {})` is legal even inside
-            // an enclosing generator, strict-goal only rejection (the
-            // prelude gate). A generator EXPRESSION's name is [+Yield]
-            // (§15.5), so that spelling stays on the loud reject path
-            // (param_list's `(` check fires next).
+        if matches!(self.peek(), Token::Yield)
+            && !is_generator
+            && self.class_stack.is_empty()
+            && !self.in_strict_fn
+        {
+            // The one admission site that cannot share
+            // `yield_reads_as_ident`: §15.2 names a FunctionExpression's
+            // BindingIdentifier [~Yield], so `(function yield() {})` is
+            // legal even INSIDE an enclosing generator, and the
+            // predicate's clause is the enclosing bit. A generator
+            // EXPRESSION's name is [+Yield] (§15.5), which is why this
+            // reads its own `is_generator`. The other two clauses are
+            // the predicate's, spelled out and kept in step with it.
             let at = self.at();
             self.ast.yield_ident_positions.push(at);
             self.pos += 1;

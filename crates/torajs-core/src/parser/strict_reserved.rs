@@ -97,6 +97,27 @@ impl Parser<'_> {
         self.reject_if_strict_reserved(name, strict)
     }
 
+    /// Whether a bare `yield` here may be read as an ordinary
+    /// identifier — the question seven of the eight admission sites
+    /// ask, and used to ask two thirds of each. (The eighth,
+    /// `fn_expr`'s function-expression name, spells its clauses out
+    /// for the §15.2 reason recorded there.)
+    ///
+    /// Three things reserve it, and only the third is new: a generator
+    /// body spells a YieldExpression instead; a class body is strict
+    /// by §15.7 whatever the goal says; and §12.7.2 reserves it in
+    /// strict code generally, which since rotation 376 the parser can
+    /// finally answer per function rather than leaving all of it to
+    /// the strict-goal gate. A site that declines here falls through
+    /// to its own "expected an identifier" reject, which is the
+    /// SyntaxError the spec wants.
+    ///
+    /// Sloppy code outside a generator keeps `yield` as a name, and
+    /// the admitted site is still recorded for the goal gate.
+    pub(super) fn yield_reads_as_ident(&self) -> bool {
+        !self.in_generator && self.class_stack.is_empty() && !self.in_strict_fn
+    }
+
     /// Judge `name` in an IdentifierReference position: `Err` when the
     /// position is already known to be strict, otherwise the site is
     /// recorded for the goal gate and `Ok` admits it.

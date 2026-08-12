@@ -86,18 +86,12 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Ident(n)))
             }
-            // §12.7.2 — outside a generator, `yield` is reserved under
-            // the STRICT goal only, and the goal bit is stamped after
-            // parsing. So the IdentifierReference parses plain here and
-            // the site is recorded; the prelude gate
-            // (`ast::triage_yield_idents`) raises the strict-goal
-            // SyntaxError. Generator bodies never reach this arm — the
-            // statement / let-init / assignment lanes route their
-            // `yield` to the YieldExpression parsers first.
-            // (Class bodies are ALWAYS strict, §15.7 — no admission
-            // there under either goal, hence the class_stack guard;
-            // same on every sibling admission site.)
-            Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+            // §12.7.2 — where `yield` still reads as a name, it parses
+            // plain here and the site is recorded for the strict-GOAL
+            // gate (`ast::triage_yield_idents`), the goal bit being
+            // stamped after the parse. What reserves it instead is the
+            // one predicate every admission site shares.
+            Token::Yield if self.yield_reads_as_ident() => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 self.pos += 1;

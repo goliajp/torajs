@@ -299,10 +299,9 @@ impl<'a> Parser<'a> {
                     n
                 }
                 // §12.7.2 — `let/var/const yield` is a valid binding
-                // outside generators under the sloppy goal; the parser
-                // admits and records, the prelude gate raises the
-                // strict-goal SyntaxError (goal stamped post-parse).
-                Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+                // wherever the predicate still admits the name; the
+                // recorded site is what the strict-GOAL gate raises on.
+                Token::Yield if self.yield_reads_as_ident() => {
                     let at = self.at();
                     self.ast.yield_ident_positions.push(at);
                     "yield".to_string()

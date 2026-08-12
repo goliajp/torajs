@@ -153,11 +153,9 @@ impl<'a> Parser<'a> {
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     // §15.1.2 — a parameter name rides the fn's own
-                    // [Yield] bit (the callers swap it in before this
-                    // list); outside a generator `yield` is an
-                    // identifier candidate, judged by the strict-goal
-                    // prelude gate.
-                    Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+                    // [Yield] bit, which the callers swap in before
+                    // this list.
+                    Token::Yield if self.yield_reads_as_ident() => {
                         let at = self.at();
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()
@@ -353,11 +351,9 @@ impl<'a> Parser<'a> {
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     // §15.1.2 — a parameter name rides the fn's own
-                    // [Yield] bit (the callers swap it in before this
-                    // list); outside a generator `yield` is an
-                    // identifier candidate, judged by the strict-goal
-                    // prelude gate.
-                    Token::Yield if !self.in_generator && self.class_stack.is_empty() => {
+                    // [Yield] bit, which the callers swap in before
+                    // this list.
+                    Token::Yield if self.yield_reads_as_ident() => {
                         let at = self.at();
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()
