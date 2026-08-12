@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T22:00:16.802Z",
+  "generatedAt": "2026-08-12T22:09:18.629Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.05
   },
   "torajs": {
-    "commit": "a781074b",
-    "commitSubject": "refactor: split the expression typing cascade in two",
+    "commit": "66809ecf",
+    "commitSubject": "refactor: split the anonymous half out of the class-layout walk",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "66809ecf",
+      "subject": "refactor: split the anonymous half out of the class-layout walk"
+    },
+    {
+      "hash": "3236d98a",
+      "subject": "docs: mark the json-misc intrinsics table, and reconcile the debt list"
+    },
+    {
+      "hash": "60a09ad3",
+      "subject": "docs: mark the collections route cascade as a dispatch table"
+    },
+    {
+      "hash": "0840a13b",
+      "subject": "docs: rotation 380 close - the two largest function-debt entries went with it"
+    },
+    {
       "hash": "a781074b",
       "subject": "refactor: split the expression typing cascade in two"
     },
@@ -743,25 +759,9 @@
     {
       "hash": "48e0edb7",
       "subject": "fix: a detached object-literal method reached through a parameter"
-    },
-    {
-      "hash": "cc72578e",
-      "subject": "fix: an object-literal method returned from a function survives detaching"
-    },
-    {
-      "hash": "349e6e5a",
-      "subject": "feat: an any-typed argument reaches a heap-typed parameter"
-    },
-    {
-      "hash": "f393dc8f",
-      "subject": "docs: rotation 379 close - methods that survive being read as a value, and the last reserved word"
-    },
-    {
-      "hash": "8f24ebbe",
-      "subject": "fix: the object-literal shorthand judges `let` too"
     }
   ],
-  "headSha": "a781074b",
+  "headSha": "66809ecf",
   "autorun": {
     "total": 683,
     "baselineTarget": 10,
