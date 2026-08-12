@@ -39,6 +39,11 @@ pub const TAG_WEAKSET: u16 = 13;
 /// runtime-wide invariant.
 pub const FLAG_STATIC_LITERAL: u16 = 4;
 
+/// `torajs_rc::FLAG_SUBCLASSED` mirror (flags bit 0, RFC 20260730
+/// blade 0) — exotic cell minted as a user-class instance; the drop
+/// paths scrub the torajs-meta identity entry when it is set.
+pub const FLAG_SUBCLASSED: u16 = 1;
+
 /// Observer-kind discriminant for the shared registry. Matches
 /// `runtime_weakref.c::ObserverKind` numeric values. Each new
 /// observer kind (WeakMap / WeakSet later) appends another u32.

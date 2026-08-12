@@ -86,6 +86,10 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     /// Defined in `runtime_str.c` — universal-drop dispatcher.
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); gated on
+    /// `FLAG_SUBCLASSED` so plain weak collections never call out.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
 
 /// Fold a pointer into a bucket index. Same splitmix-style mix as
@@ -353,6 +357,9 @@ pub unsafe extern "C" fn __torajs_weakmap_drop(p: *mut c_void) {
                 free(cur as *mut c_void);
                 cur = next;
             }
+        }
+        if (*m).header.flags & crate::layout::FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(p);
         }
         free((*m).buckets as *mut c_void);
         free(p);

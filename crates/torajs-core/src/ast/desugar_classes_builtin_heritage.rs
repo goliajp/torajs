@@ -47,6 +47,7 @@ const SUBCLASSABLE_BUILTINS: &[&str] = &["Object", "Iterator"];
 /// stripped base-class shape below.
 const EXOTIC_SUBCLASSABLE: &[&str] = &[
     "Array", "Number", "String", "Boolean", "Function", "Map", "Set", "Promise", "RegExp",
+    "WeakMap", "WeakSet", "Date",
 ];
 
 /// The factory's zero-arg mint magic for an exotic parent (the class
@@ -62,6 +63,9 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
         "Set" => "__torajs_set_subclass_alloc_self",
         "Promise" => "__torajs_promise_subclass_alloc_self",
         "RegExp" => "__torajs_regex_subclass_alloc_self",
+        "WeakMap" => "__torajs_weakmap_subclass_alloc_self",
+        "WeakSet" => "__torajs_weakset_subclass_alloc_self",
+        "Date" => "__torajs_date_subclass_alloc_self",
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -86,6 +90,12 @@ fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
         // iterable walk applied to the minted subclass cell.
         "Map" => Some("__torajs_map_subclass_super"),
         "Set" => Some("__torajs_set_subclass_super"),
+        // Rotation 373 — the weak twins (§24.3.1.1 / §24.4.1.1 ride
+        // the same iterable kernel) and Date's §21.4.2.1 step-4
+        // value ladder applied onto the minted cell.
+        "WeakMap" => Some("__torajs_weakmap_subclass_super"),
+        "WeakSet" => Some("__torajs_weakset_subclass_super"),
+        "Date" => Some("__torajs_date_subclass_super"),
         "Function" => None,
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
@@ -165,7 +175,22 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         // shape until an arguments-length-aware forward exists
         // (rest-forwarding is the recorded call-spread boundary,
         // L3b 371-01).
-        if exotic && ctor.is_none() && matches!(p.as_str(), "Map" | "Set") {
+        // Rotation 373 — a ctor-less Date subclass stays LOUD: its
+        // default ctor must forward the caller's ACTUAL argument
+        // count (`new D()` → now, `new D(v)` → the value ladder,
+        // `new D(y, m, ...)` → components — none argument-count
+        // agnostic), which needs the real-argc face (L3b 372-00/02).
+        // A single-arg forward would mint `new D()` as Invalid Date
+        // — the exact db66228e silent-wrong the r371 gate caught on
+        // the wrappers. Explicit ctors carry their own super sites.
+        if ctor.is_none() && p == "Date" {
+            panic!(
+                "M5.N: `{cname} extends Date` — a ctor-less Date subclass needs an \
+                 argument-count-aware super forward (not yet supported); declare an \
+                 explicit constructor"
+            );
+        }
+        if exotic && ctor.is_none() && matches!(p.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
             let arg = ast.add_expr(Expr::Ident("__superarg".to_string()));
             let sup = ast.add_expr(Expr::Super { args: vec![arg] });
             *ctor = Some(crate::ast::ClassCtor {

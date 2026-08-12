@@ -385,3 +385,44 @@ pub unsafe extern "C" fn __torajs_set_subclass_super(
     }
     VALUE_UNDEFINED
 }
+
+/// The WeakMap twin — §24.3.1.1 steps 5-7 (rotation 373; the plain
+/// `new WeakMap(iter)` ctor rides the same kernel with the same
+/// kind, so the subclass form inherits its adder resolution and
+/// nullish no-op verbatim).
+///
+/// # Safety
+/// Same contract as the Map twin above.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_weakmap_subclass_super(
+    this: AnyValue,
+    iterable: AnyValue,
+) -> AnyValue {
+    unsafe {
+        __torajs_collection_init_from_iterable(
+            this,
+            iterable,
+            torajs_rc::collection_kind::COLLECTION_WEAKMAP,
+        );
+    }
+    VALUE_UNDEFINED
+}
+
+/// The WeakSet twin — §24.4.1.1 steps 5-7.
+///
+/// # Safety
+/// Same contract as the Map twin above.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_weakset_subclass_super(
+    this: AnyValue,
+    iterable: AnyValue,
+) -> AnyValue {
+    unsafe {
+        __torajs_collection_init_from_iterable(
+            this,
+            iterable,
+            torajs_rc::collection_kind::COLLECTION_WEAKSET,
+        );
+    }
+    VALUE_UNDEFINED
+}

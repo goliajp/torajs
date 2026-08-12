@@ -69,6 +69,10 @@ unsafe extern "C" {
     fn calloc(nmemb: usize, size: usize) -> *mut c_void;
     #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); gated on
+    /// `FLAG_SUBCLASSED` so plain weak collections never call out.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
 
 /// Fold a pointer into a bucket index. Same splitmix-style mix as
@@ -278,6 +282,9 @@ pub unsafe extern "C" fn __torajs_weakset_drop(p: *mut c_void) {
                 free(cur as *mut c_void);
                 cur = next;
             }
+        }
+        if (*s).header.flags & crate::layout::FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(p);
         }
         free((*s).buckets as *mut c_void);
         free(p);

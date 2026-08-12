@@ -58,6 +58,7 @@ pub mod drop;
 pub mod key;
 pub mod layout;
 pub mod registry;
+pub mod subclass_alloc;
 pub mod weakmap;
 pub mod weakset;
 

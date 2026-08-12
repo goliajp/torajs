@@ -130,7 +130,12 @@ unsafe fn wrapper_subclass_probe(
         || tag == Tag::Map as u16
         || tag == Tag::Set as u16
         || tag == Tag::Promise as u16
-        || tag == Tag::RegExp as u16;
+        || tag == Tag::RegExp as u16
+        // Rotation 373 — the weak collections and Date joined the
+        // exotic-subclass table.
+        || tag == Tag::WeakMap as u16
+        || tag == Tag::WeakSet as u16
+        || tag == Tag::Date as u16;
     if !probed || name_str.is_null() {
         return None;
     }

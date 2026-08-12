@@ -23,6 +23,8 @@ unsafe extern "C" {
     fn __torajs_date_from_ms(ms: f64) -> *mut c_void;
     fn __torajs_date_from_iso(str_ptr: *const c_void) -> *mut c_void;
     fn __torajs_date_get_time(d_ptr: *const c_void) -> f64;
+    fn __torajs_date_set_ms_from(dst: *mut c_void, src: *const c_void);
+    fn __torajs_date_drop(d_ptr: *mut c_void);
     fn __torajs_str_drop(p: *mut c_void);
     fn __torajs_throw_check() -> i64;
 }
@@ -94,4 +96,24 @@ pub unsafe extern "C" fn __torajs_date_from_value(v: AnyValue) -> *mut c_void {
         }
         date_from_primitive(v)
     }
+}
+
+/// The Date-subclass ctor's `super(v)` (rotation 373) — resolve `v`
+/// through the full §21.4.2.1 step-4 ladder above into a scratch
+/// Date, then copy its [[DateValue]] onto the minted subclass cell
+/// (a refused coercion lands as Invalid Date with the pending throw
+/// intact, exactly like the plain one-argument ctor). Answers
+/// undefined — `super()`'s value is never observed.
+///
+/// # Safety
+/// `this` is the boxed Date cell the subclass factory minted; `v` is
+/// a live AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_subclass_super(this: AnyValue, v: AnyValue) -> AnyValue {
+    unsafe {
+        let tmp = __torajs_date_from_value(v);
+        __torajs_date_set_ms_from(as_void_ptr(this) as *mut c_void, tmp);
+        __torajs_date_drop(tmp);
+    }
+    crate::nanbox::VALUE_UNDEFINED
 }

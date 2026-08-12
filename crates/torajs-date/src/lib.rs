@@ -28,6 +28,7 @@ pub mod getters;
 pub mod make_time;
 pub mod parse;
 pub mod setters_utc;
+pub mod subclass;
 pub mod tm;
 pub mod tz;
 pub mod tz_names;

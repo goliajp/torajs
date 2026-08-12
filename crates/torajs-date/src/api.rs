@@ -34,6 +34,14 @@ fn now_ms() -> i64 {
     }
 }
 
+unsafe extern "C" {
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); gated on
+    /// `FLAG_SUBCLASSED` in the drop below so plain dates never
+    /// call out.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
+}
+
 // ---- Constructors ----
 
 fn alloc_date(ms: i64) -> *mut c_void {
@@ -168,6 +176,12 @@ pub unsafe extern "C" fn __torajs_date_drop(d_ptr: *mut c_void) {
         return;
     }
     unsafe {
+        // Rotation 373 — a Date-subclass instance scrubs its
+        // torajs-meta identity entry (RFC 20260730 blade 0); gated
+        // on FLAG_SUBCLASSED so plain dates never call out.
+        if (*(d_ptr as *const Date)).header.flags & crate::subclass::FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(d_ptr);
+        }
         let _ = Box::from_raw(d_ptr as *mut Date);
     }
 }

@@ -196,7 +196,10 @@ pub(crate) fn check(
         | "__torajs_map_subclass_alloc_self"
         | "__torajs_set_subclass_alloc_self"
         | "__torajs_promise_subclass_alloc_self"
-        | "__torajs_regex_subclass_alloc_self" => {
+        | "__torajs_regex_subclass_alloc_self"
+        | "__torajs_weakmap_subclass_alloc_self"
+        | "__torajs_weakset_subclass_alloc_self"
+        | "__torajs_date_subclass_alloc_self" => {
             Ok(Type::Function(Vec::new(), Box::new(Type::Any)))
         }
         "__torajs_arr_subclass_super_len" => Ok(Type::Function(
@@ -211,7 +214,10 @@ pub(crate) fn check(
         | "__torajs_promise_subclass_super"
         | "__torajs_regex_subclass_super"
         | "__torajs_map_subclass_super"
-        | "__torajs_set_subclass_super" => Ok(Type::Function(
+        | "__torajs_set_subclass_super"
+        | "__torajs_weakmap_subclass_super"
+        | "__torajs_weakset_subclass_super"
+        | "__torajs_date_subclass_super" => Ok(Type::Function(
             vec![Type::Any, Type::Any],
             Box::new(Type::Any),
         )),
