@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T02:06:42.045Z",
+  "generatedAt": "2026-08-12T03:43:04.403Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T02:03:48Z",
-    "headSha": "830bfeca",
-    "elapsedSec": 323.48,
+    "ranAt": "2026-08-12T03:40:42Z",
+    "headSha": "c5182f07",
+    "elapsedSec": 321.43,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24642,
-    "passNoOracle": 799,
+    "pass": 24708,
+    "passNoOracle": 801,
     "passNegative": 3955,
-    "passTotal": 29396,
-    "bug": 12734,
-    "incompatible": 11044,
+    "passTotal": 29464,
+    "bug": 12760,
+    "incompatible": 10950,
     "bunSkip": 6584,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42130,
-    "passRateInScope": 55.28,
-    "passRateTrAccepted": 69.77
+    "trAccepted": 42224,
+    "passRateInScope": 55.41,
+    "passRateTrAccepted": 69.78
   },
   "torajs": {
-    "commit": "830bfeca",
-    "commitSubject": "fix: the synthesized exotic default ctor narrows to Map/Set - the db66228e gate caught the forward breaking every OTHER exotic family (5 red: class-extends-array/regexp/wrapper + two proto fixtures): a fixed one-argument forward turns a 0-argument new C() into super(undefined), and Array / the wrappers are not argument-count agnostic (new Array(undefined) is the RangeError the gate printed; new Number(undefined) is NaN where new Number() is +0) - only the Map/Set kernels treat nullish as the spec no-op step so the two forms coincide; the synthesis now keys on those two parents and the rest keep the no-forward shape until an arguments-length-aware forward exists",
+    "commit": "c5182f07",
+    "commitSubject": "feat: delete on a bare name resolves per compile goal - the top1 t262 cluster (103 cases, all flags:[noStrict] delete-on-identifier under the runner's .cts sloppy goal) rejected in the PARSER, which cannot know the goal (ast.sloppy_script_goal is stamped after parsing from the .cts extension): the parser now emits a plain Delete{Ident} node and a new raw-AST prelude gate (triage_delete_bare_names, right after the redeclaration early errors) resolves it - the strict goal keeps the same SyntaxError text (§13.5.1.1), the sloppy goal answers §13.5.1.2 statically: a name declared anywhere in the program is a non-configurable binding per §9.1.1.1.7 DeleteBinding and answers false (the shared binding collector plus FnDecl/ClassDecl names), the non-configurable globals undefined/NaN/Infinity/globalThis answer false per §18.1, and everything else (unresolvable per step 3.a, or a configurable builtin) answers true; recorded residue: a configurable builtin answers true without being removed, and bun's CJS-sloppy quirk of answering true for delete Infinity/undefined (§18.1 and test262 S15.1.1.*_A3_T2 both say false) keeps those two names out of the bun-oracle fixture; both goals leave zero Delete{Ident} nodes for downstream passes; fixture delete-bare-name-001.cts byte-equal vs bun over var/let/function bindings, an unresolvable name, NaN, delete delete chaining, and the strict .ts goal keeps the parse-error reject verified by hand",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "c5182f07",
+      "subject": "feat: delete on a bare name resolves per compile goal - the top1 t262 cluster (103 cases, all flags:[noStrict] delete-on-identifier under the runner's .cts sloppy goal) rejected in the PARSER, which cannot know the goal (ast.sloppy_script_goal is stamped after parsing from the .cts extension): the parser now emits a plain Delete{Ident} node and a new raw-AST prelude gate (triage_delete_bare_names, right after the redeclaration early errors) resolves it - the strict goal keeps the same SyntaxError text (§13.5.1.1), the sloppy goal answers §13.5.1.2 statically: a name declared anywhere in the program is a non-configurable binding per §9.1.1.1.7 DeleteBinding and answers false (the shared binding collector plus FnDecl/ClassDecl names), the non-configurable globals undefined/NaN/Infinity/globalThis answer false per §18.1, and everything else (unresolvable per step 3.a, or a configurable builtin) answers true; recorded residue: a configurable builtin answers true without being removed, and bun's CJS-sloppy quirk of answering true for delete Infinity/undefined (§18.1 and test262 S15.1.1.*_A3_T2 both say false) keeps those two names out of the bun-oracle fixture; both goals leave zero Delete{Ident} nodes for downstream passes; fixture delete-bare-name-001.cts byte-equal vs bun over var/let/function bindings, an unresolvable name, NaN, delete delete chaining, and the strict .ts goal keeps the parse-error reject verified by hand"
+    },
+    {
+      "hash": "792d49db",
+      "subject": "feat: super.m(...rest) reaches the builtin-heritage re-dispatch - the t262 subclass-receiver-methods forwarding idiom (7 Set-cluster cases: an override declared (...rest) relays through super.has(...rest)) died in the super-builtin lane's fixed argv pack (lower_expr on the spread panicked; the checker's rotation-372 entry wedge already admitted the call): the lane now splits on a spread argument - the list materializes through the shared build_args_arr and routes to __torajs_super_builtin_method_spread, a with_argv wrapper over the same §13.3.7.3 kernel (parent-prototype resolution, the receiver's own override never consulted, mid 0 still the spec not-a-function TypeError); fixture spread-super-builtin-001 byte-equal vs bun over the has/keys rest-forward with call counts, a union() proving set-operation kernels stay override-blind, a Map set prefix-arg spread, and the unknown-name TypeError"
+    },
+    {
+      "hash": "d33c2659",
+      "subject": "feat: a spread-carrying literal argArray reaches .apply - the t262 expressions/array family (8 cases: (function(){...}).apply(null, [1, 2, ...src]) is how the array-spread cases observe their product) rejected on the fn-value apply route, whose checker arm unpacks the LITERAL argArray into a fixed argument list and fed the spread element to the generic type_of reject: both sides of that route now split on a spread-carrying argArray - the checker walks the elements (spread sources included) and answers Any, the lowering evaluates the thisArg for effect (the no-this subset) and re-enters the rotation-372 spread lane's bare kernel with the array's elements as the argument list; promoted this-using shapes stand aside on both sides (the fixed-argc replay owns their __this slot) and keep the loud reject; the boxed-only argv face gains the apply arm - an inline fn-expr as the .apply callee with a spread argArray is single-reference by construction and every call enters the closure cell's boxed adapter, so its arguments body reads real argc/argv (it had NO face before: the static faces need argc votes a spread site can't cast, and the fn answered 'unknown identifier arguments'); a named-FnDecl .apply with a spread argArray keeps riding the desugar swallow into a direct spread call for the static expander; fixture spread-apply-001 byte-equal vs bun over the assign-source t262 shape, Ident sources, an empty-spread argArray, a closure-value binding, and the named-fn swallow path; the dynamic-argArray silent-wrong (g.apply(undefined, arr) answering argc 0 through the forwarder relay) stays recorded as L3b 372-01 - it needs the real-argc ABI face (372-00)"
+    },
+    {
+      "hash": "8f5a92a3",
+      "subject": "fix: the spread-callee wrap axis retires - the ba9095b4 gate caught it hijacking every statically-expandable direct-call shape (6 red: super-call chains through __cm_* ctors fed undefined into the this slot, closure-arguments/rest-param/short-source fixtures lost their index-read expansion semantics): the fn-to-closure pass runs BEFORE apply_spread_args, so the axis could not know which spread calls the static expanders own, and the forwarder it minted relays only the DECLARED params; the objlit boxed-only face exception and apply_spread's arguments-carrying skip both stand (they serve shapes the static expanders genuinely cannot take), and a direct-fn spread call outside both stays on the loud box_to_any reject (recorded boundary, L3b 372-00: a named FnDecl called with spread beyond its static expansion needs a real-argc ABI face)"
+    },
+    {
+      "hash": "ba9095b4",
+      "subject": "feat: dynamic spread call arguments reach the any-lane runtime - the 91-case top2 t262 cluster (§13.3.8.1 ArgumentListEvaluation) breaks open: a call whose argument list still carries a ...spread after the static expanders (fold_static_spread / apply_rest_args / apply_spread_args) needs a RUNTIME argc no fixed-argc lane can express, so the new ssa_lower_call_spread lane (claimed before every fixed-argc dispatcher) materializes the full list into one Array<Any> (literal args via pack_any_elem; spread sources through the unified iteration protocol - Arr<Any> extends, Str walks arr_from_string per code point, everything else boxes into arr_from_any::emit where §7.4.5 IteratorStep errors stay catchable) and routes to the new __torajs_any_call_spread / __torajs_any_method_call_spread kernels, thin wrappers that read argc off the array's 16-byte slots into an 8-byte nanbox argv and enter the same dispatch tails as their fixed-argc twins; the checker admits spread-carrying calls as Any ahead of every route (callee callability is the lane's runtime TypeError); three AST-side faces keep argc truthful: the objlit boxed-only argv face admits a field whose member references are all spread-call callees (those sites enter through the boxed adapter, the face's own channel), the fn-to-closure collector wraps a spread-call's Ident callee EXCEPT when the body touches arguments (the fixed-arity forwarder relay would trim the real argc to the declared params - a 0-param arguments-style fn answered length 0, silent; that shape stays on the loud reject, recorded L3b 372-00), and apply_spread's index-read expansion skips arguments-carrying callees outright (its arity trim was a pre-existing silent-wrong: f(...s) against a 0-param fn expanded to f() and arguments.length answered 0); fixture spread-call-001 byte-equal vs bun over objlit-method multi-spread with trailing comma, IIFE, closure-value argc/argv faces, mid-position and empty spreads, string code-point iteration (surrogate pair), Set, custom Symbol.iterator in-order values, IteratorStep throw propagation, and the non-iterable TypeError; AOT churn probe flat at 6.75MB over 900k spread calls"
+    },
+    {
+      "hash": "632ee9ac",
+      "subject": "docs: rotation 371 close - the Set cluster's top face (163 cases) breaks open: §24.2.1.2 GetSetRecord lands as a runtime protocol on both tiers (any-tier kernel with the spec's observable side split, IteratorClose, -0 canonicalization; typed tier widens the checker sig and splits the lowering on the argument's checked type, real Sets keeping the Set×Set fast kernels), builtin-heritage super.m() reaches the parent prototype through a re-dispatch that skips the receiver's own override, and ctor-less Map/Set subclasses stop dropping their iterable argument; the probe chain also cashed the W4 shape-width debt recorded in ssa_lower_objlit_layout (same-shaped literals now join their layout slot widths through an unconditional walk seed + a per-shape side table, leaving per-binding operation widths alone after the first UF-union knife broke d5); sweep passTotal 29308 -> 29396 (+88) with exact conservation (+89 trAccepted = +88 pass +1 bug) and ZERO pass regressions, incompat 11133 -> 11044, gate predicate 253 clusters / 3608 cases (both down), Set cluster 163 -> 78, gate chain 2759 -> 2764/0/4 (+5 fixtures, both mid-rotation reds self-healed), build determinism 44/44 N=12, dashboard @ 830bfeca"
+    },
+    {
       "hash": "830bfeca",
       "subject": "fix: the synthesized exotic default ctor narrows to Map/Set - the db66228e gate caught the forward breaking every OTHER exotic family (5 red: class-extends-array/regexp/wrapper + two proto fixtures): a fixed one-argument forward turns a 0-argument new C() into super(undefined), and Array / the wrappers are not argument-count agnostic (new Array(undefined) is the RangeError the gate printed; new Number(undefined) is NaN where new Number() is +0) - only the Map/Set kernels treat nullish as the spec no-op step so the two forms coincide; the synthesis now keys on those two parents and the rest keep the no-forward shape until an arguments-length-aware forward exists"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c6110e7b",
       "subject": "feat: set methods accept set-like arguments on the any tier - ES2025 §24.2.1.2 GetSetRecord lands as a runtime protocol instead of the real-Set-only gate (the top unattributed test262 cluster, 85 cases across the seven §24.2.4 methods): set_like.rs builds the record (step-1 object refusal before any property read; size = Get + ToNumber + ToIntegerOrInfinity with the NaN TypeError / negative RangeError faces and a Map/Set builtin-count shortcut since the member probe only reifies methods; has/keys = Get + IsCallable with no nullish amnesty, classified through call_target so a Map's reified builtin methods, a class instance's method faces, and plain closures all invoke through one dispatch), and set_like_ops.rs walks the seven algorithms with the spec's side split (receiver index-walk when thisSize <= size, keys()-iterator walk otherwise - the asymmetry is observable and pinned by the set-like-class-order suites), IteratorClose on early relation exits, -0 key canonicalization per §24.2.1.4, owned-frame element stakes across user callbacks, and partial-product drops on the throw path; the any-tier setops arm routes a real-Set argument to the untouched Set×Set fast kernels and everything else here; fixture set-setlike-001 byte-equal vs bun over object-literal/accessor-class/Map arguments, all seven methods, -0 canonicalization, and seven refusal shapes plus a throwing has"
-    },
-    {
-      "hash": "70708e0c",
-      "subject": "docs: rotation 370 sweep artifacts - the close commit's first git add silently aborted on a bad path (2>/dev/null swallowed the exit), so test262-latest.json + verdicts gz missed the ride; same sweep @ cb50411f"
-    },
-    {
-      "hash": "6a6b3f10",
-      "subject": "docs: rotation 370 close - handoff 369's next-item chain lands whole: the injected error-family class objects join the globalThis fill through a torajs-rc 9-slot registry (probing caught the shipped g.Error === Error identity split - the fill's ctor cell vs the bare name's class object - fixed in the same knife), member calls through a top-level immutable namespace-singleton alias rewrite to the bare name (the gate caught the first cut hijacking the const m: any = Math dynamic-cast escape hatch on ns-object-attrs-001 - an annotated decl now opts out and mutation positions keep their shape), Number(bigint) opens the one legal ToNumeric window (sticky-reduction u128 rounding kernel + anyv_number_ctor pre-gate; test262 Number/bigint-conversion.js flips incompatible -> pass and two Temporal/Intl cases flow honestly into the bug bucket), and the any-tier unary family stops leaking pending throws (lower_unary_any_arith/_any_bitnot never emitted a throw check so Symbol/mixed-BigInt rejects stranded while undefined placeholders leaked; unary minus gains its legal BigInt leg via anyv_unary_neg_pair); gate chain 2755 -> 2759/0/4 (+4 fixtures, the knife-2 red self-healed in-rotation), sweep passTotal 29307 -> 29308 with exact conservation (+3 trAccepted = +1 pass +2 bug) and zero pass regressions across 53174 verdicts, gate predicate 262 clusters / 3687 cases, build determinism 44/44 N=12, dashboard refresh @ cb50411f"
-    },
-    {
-      "hash": "cb50411f",
-      "subject": "fix: the any-tier unary family stops leaking pending throws and negates bigints legally - the L3b rotation-370 silent-wrong (+b over any(bigint) printed undefined where bun throws) had two roots and a sibling: (1) lower_unary_any_arith and lower_unary_any_bitnot never emitted a throw check, so the §7.1.4 rejects any_arith/any_bitnot correctly RECORD (Symbol, mixed-BigInt, OrdinaryToPrimitive both-objects) stranded as pending state while the undefined placeholder leaked out as the result - both paths now check after the settle; (2) unary minus lowered as the Number-lane 0-x identity through any_arith, whose mixed-pair arm threw on a BigInt operand even though §6.1.6.2.1 makes unary minus LEGAL on BigInt - a new __torajs_anyv_unary_neg_pair kernel (the anyv_bitnot_pair shape, whose BigInt leg already existed) negates through __torajs_bigint_neg and delegates every other tag to the same 0-x lane, with the bigint_ffi extern + test stub rows added; the ~ path was already correct and pins the family shape; fixture unary-any-bigint-001 byte-equal vs bun over -5n/~5n/-(-3n)/-0n, the +bigint throw, and the Symbol throws on all three signs with clean continuation after each catch"
-    },
-    {
-      "hash": "48105f41",
-      "subject": "feat: Number(bigint) converts per the ToNumeric window - §21.1.1.1 step 3 makes the explicit Number() call the one legal BigInt-to-Number face (F(R(value)), round-to-nearest ties-to-even) while implicit ToNumber keeps throwing (§7.1.4 step 2), so the knife opens exactly one window instead of touching the generic kernel: torajs-bigint grows __torajs_bigint_to_number (a <=1-limb magnitude rides the u64->f64 cast; a multi-limb one reduces to a single correctly rounded u128->f64 conversion by folding any-lower-limb-nonzero into bit 0 - the classic sticky reduction, the top two limbs already carry the mantissa plus guard - then exact power-of-two scaling that overflows to the spec's Infinity; unit tests pin the tie cases incl a third-limb sticky bit), torajs-anyvalue grows the __torajs_anyv_number_ctor pre-gate (BigInt cells convert, every other tag delegates to the generic kernel so the Symbol reject and OrdinaryToPrimitive ladder stay put - the anyv_to_display_str Symbol-window shape), the Number() lowering gains a Type::BigInt arm and swaps its Any arm onto the pre-gate kernel with the same pending-throw check, and the checker admits BigInt into the Number() coercion set; the fixture probe also caught a PRE-EXISTING silent-wrong outside this lane - +b over any(bigint) answers undefined where bun throws TypeError - registered in plan-state L3b rotation 370; fixture number-bigint-001 byte-equal vs bun over sign/zero/2^64/2^70/2^130 rounding and the any lane"
-    },
-    {
-      "hash": "eee096b6",
-      "subject": "fix: the ns-alias rewrite spares the dynamic-cast lane and mutation positions - the 5205636d gate caught ns-object-attrs-001 red: const m: any = Math is the RECORDED dynamic-cast escape hatch (delete / descriptor / enumeration semantics through the runtime lane), and the alias rewrite was hijacking its members onto the typed namespace lane, turning delete m.PI into a compile reject; an alias candidate now requires type_ann: None (an annotated decl asked for the lane it wrote), and members standing as an Assign target / Delete operand / PostIncr target keep their shape (the globalthis_member exclusion pattern) so mutation surfaces stay loud instead of silently retargeting; both fixtures byte-equal vs bun on the fixed binary"
-    },
-    {
-      "hash": "5205636d",
-      "subject": "feat: member calls through a namespace-singleton alias dispatch like the bare name - a new desugar_ns_alias_members pass (right after G1, whose rewrite can itself mint the alias shape from const m = globalThis.Math) retargets the receiver ident of every member access through a TOP-LEVEL immutable alias of Math / JSON / Reflect / console onto the namespace name, so const m = Math; m.max(1, 2) rides the existing syntactic dispatch lanes instead of the resolve_callee unsupported-member-call-shape panic (the boundary RFC 20260812-console-sink knife 4 recorded); the soundness bar is the fnexpr_this / globalthis_member program-wide gate shape - top-level const with a bare-namespace init only (module scope means the rewrite can never legalize an undeclared cross-fn read), exactly one program-wide declaration of the name, no other binding form claiming it (fn/param/catch/for-of/class incl arrow-fn params via the expr arena), never an assign/post-incr target - and the alias LetDecl plus every value use stay untouched so m === Math keeps reading the boxed singleton; ctor namespaces (const O = Object) are a different family and stay a recorded boundary; fixture ns-alias-member-001 byte-equal vs bun over Math triple-dispatch, identity, JSON stringify/parse, console log + error (stderr routing through the alias), and Reflect.has"
     }
   ],
-  "headSha": "830bfeca",
+  "headSha": "c5182f07",
   "autorun": {
-    "total": 674,
+    "total": 675,
     "baselineTarget": 10,
-    "bySelf": 669,
+    "bySelf": 670,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786494552-7745",
-      "at": "2026-08-12T00:29:12Z",
-      "ts": 1786494552,
+      "rotationId": "r-1786500431-784b",
+      "at": "2026-08-12T02:07:11Z",
+      "ts": 1786500431,
       "trigger": "self",
-      "prevHead": "70708e0c",
-      "handoffSha": "sha256:eec057d303a0b1851c815b69f54592c74298c813486026cd208c4a669138937b",
-      "handoffAgeSec": 51,
+      "prevHead": "632ee9ac",
+      "handoffSha": "sha256:6a561a6770958f075ab9bc49a350594491d97045a400646d2a251de6a4a1289d",
+      "handoffAgeSec": 34,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786500431-784b",
+        "at": "2026-08-12T02:07:11Z",
+        "ts": 1786500431,
+        "trigger": "self",
+        "prevHead": "632ee9ac",
+        "handoffSha": "sha256:6a561a6770958f075ab9bc49a350594491d97045a400646d2a251de6a4a1289d",
+        "handoffAgeSec": 34,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786494552-7745",
         "at": "2026-08-12T00:29:12Z",
@@ -876,17 +887,6 @@
         "prevHead": "5e9ff442",
         "handoffSha": "sha256:4ecafed5907d11ff99ec950bb83658354511b1885a57ec0c431f279f88f74eed",
         "handoffAgeSec": 16,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786416953-3012",
-        "at": "2026-08-11T02:55:53Z",
-        "ts": 1786416953,
-        "trigger": "self",
-        "prevHead": "f13e48f7",
-        "handoffSha": "sha256:2097f696bb41e5027a56fca8567238accbfb429e78f0d885ff26328505bc9a11",
-        "handoffAgeSec": 538,
         "conformanceBefore": null,
         "commitsInSession": null
       }

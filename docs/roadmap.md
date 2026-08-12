@@ -1530,7 +1530,43 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `d9b8daf4`** (2026-08-12, rotation 369 — the console
+**Latest @ `c5182f07`** (2026-08-12, rotation 372 — the two headline
+clusters both break: **dynamic spread call arguments** (§13.3.8.1,
+the 91-case top-2) land as a runtime lane on every tier that owns a
+boxed-adapter channel — a spread-carrying call materializes its full
+argument list into one Array<Any> (spread sources walk the unified
+iteration protocol: typed arrays bridge, strings iterate per code
+point, custom @@iterator resolves at runtime, IteratorStep errors
+stay catchable) and routes to thin dynamic-argc kernels
+(`__torajs_any_call_spread` / `__torajs_any_method_call_spread` /
+`__torajs_super_builtin_method_spread`) that enter the existing
+dispatch tails; the `.apply` literal-argArray form re-enters the
+same lane, and `super.m(...rest)` reaches the builtin-heritage
+re-dispatch. The static expanders stay the semantic owners of
+known-arity shapes (a gate round proved a too-early wrap axis
+hijacks them — retired same rotation). **Sloppy-goal bare-name
+`delete`** (the 103-case top-1) resolves per compile goal: the
+parser emits a plain Delete{Ident} node and a prelude gate answers
+§13.5.1.1 (strict SyntaxError) or §13.5.1.2 statically (declared
+bindings and non-configurable globals false, unresolvable true). A
+pre-existing silent-wrong also cleared: apply_spread's index-read
+expansion trimmed arguments-carrying callees to declared arity
+(`f(...s)` on a 0-param fn answered length 0). Sweep: passTotal
+29396 → **29464 (+68)**, bug +26, trAccepted +94 / incompatible
+**−94**, conservation exact (94 = 68 + 26). True pass regressions
+**0**; the +26 bug is the unlocked surface's next stratum honestly
+entering the truly-run set (spread through private class methods,
+delete edge shapes, Promise.any resolve probes). Gate predicate
+**252 unattributed clusters / 3543 cases / register 2 entries · 733
+attributed / residue 761 · 980 / core 5256** — both headline
+numbers down (253 → 252, 3608 → 3543). Recorded boundaries: L3b
+372-00 (named-FnDecl spread beyond static expansion needs a
+real-argc ABI face), 372-01 (dynamic-argArray `.apply` silent-wrong
+rides the same face), 372-02 (super(...args) spread + class-ctor
+arguments face). Conformance gate 2764 → **2768/0/4** (+4
+fixtures). Build determinism 44/44 (N=12).)
+
+**Previous @ `d9b8daf4`** (2026-08-12, rotation 369 — the console
 surface closes four knives deep behind RFC 20260812-console-sink:
 the print/inspect family streams through a torajs-io current-sink
 indirection (STDERR LineBuf twin + putc_out/write_out + a
