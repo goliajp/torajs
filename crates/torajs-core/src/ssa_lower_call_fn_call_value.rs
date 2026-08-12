@@ -67,6 +67,39 @@ pub(crate) fn try_lower(
             _ => return None,
         }
     };
+    // Rotation 372 — a LITERAL argArray carrying a `...spread`
+    // (`fnexpr.apply(null, [1, 2, ...src])`, the t262
+    // expressions/array family): its runtime length is unknowable,
+    // so the fixed-argc replay arms below cannot take it — the
+    // spread lane re-enters with the array's elements as the
+    // argument list (its Array<Any> materialization runs the
+    // iteration protocol per element). The promoted this-using
+    // shapes stand aside (their `__this` slot needs the fixed-argc
+    // replay) and keep the loud reject.
+    if rest
+        .iter()
+        .any(|e| matches!(ctx.ast.get_expr(*e), Expr::Spread { .. }))
+    {
+        let this_using = matches!(
+            ctx.ast.get_expr(obj), Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n)
+        ) || matches!(
+            ctx.ast.get_expr(obj), Expr::Closure { fn_name, .. }
+                if ctx.ast.fnexpr_recv_fns.contains(fn_name)
+        );
+        if this_using {
+            return None;
+        }
+        // thisArg evaluates for effect (§20.2.3.1 evaluates it),
+        // then its fresh ownership ends here (the no-this subset).
+        let t_op = ctx.lower_expr(args[0]);
+        let t_ty = ctx.operand_ty(&t_op);
+        if t_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
+            ctx.emit_drop_value(t_op, t_ty);
+        }
+        return Some(crate::ssa_lower_call_spread::lower_bare_spread(
+            ctx, obj, &rest,
+        ));
+    }
     // Rotation 261 — a promoted fnexpr-this binding (`const f =
     // function () { …this… }` whose every use is a face read /
     // direct call / this replay) has the `__this: any` slot in its

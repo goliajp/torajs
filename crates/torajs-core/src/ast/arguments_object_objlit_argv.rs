@@ -151,6 +151,42 @@ pub(super) fn collect_objlit_boxed_only_argv(
             &mut method_fns,
         );
     }
+    // Rotation 372 apply arm — an INLINE fn-expr as the `.apply`
+    // callee whose LITERAL argArray carries a `...spread`
+    // (`(function () { …arguments… }).apply(null, [1, ...src])`,
+    // the t262 expressions/array family): the fn-value apply route
+    // hands exactly this shape to the spread lane's bare kernel,
+    // which invokes the closure cell's boxed adapter — real
+    // argc/argv, the face's own channel. Inline means the Closure
+    // expr is the fn's only reference (the shared gate re-checks).
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if name != "apply" || args.len() != 2 {
+            continue;
+        }
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*obj) else {
+            continue;
+        };
+        let spread_arg_array = matches!(ast.get_expr(args[1]), Expr::Array(els)
+            if els.iter().any(|el| matches!(ast.get_expr(*el), Expr::Spread { .. })));
+        if !spread_arg_array {
+            continue;
+        }
+        admit_boxed_only(
+            ast,
+            fn_name,
+            excluded,
+            &ident_refs,
+            &closure_refs,
+            &mut value_fns,
+            &mut method_fns,
+        );
+    }
     (value_fns, method_fns)
 }
 

@@ -363,6 +363,38 @@ fn try_fn_value_call(
             _ => return None,
         }
     };
+    // Rotation 372 — a literal argArray carrying a `...spread`
+    // rides the runtime spread lane (its length is a runtime fact);
+    // the walk mirrors the entry wedge. Promoted this-using shapes
+    // stand aside with the lowering (fixed-argc replay owns their
+    // `__this` slot) and keep the loud reject.
+    if rest
+        .iter()
+        .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+    {
+        let this_using = matches!(
+            ast.get_expr(*obj), Expr::Ident(n) if ast.fnexpr_recv_locals.contains(n)
+        ) || matches!(
+            ast.get_expr(*obj), Expr::Closure { fn_name, .. }
+                if ast.fnexpr_recv_fns.contains(fn_name)
+        );
+        if this_using {
+            return None;
+        }
+        if let Err(e) = checker.type_of(ast, args[0]) {
+            return Some(Err(e));
+        }
+        for &a in &rest {
+            let r = match ast.get_expr(a) {
+                Expr::Spread { expr } => checker.type_of(ast, *expr),
+                _ => checker.type_of(ast, a),
+            };
+            if let Err(e) = r {
+                return Some(Err(e));
+            }
+        }
+        return Some(Ok(Type::Any));
+    }
     if let Err(e) = checker.type_of(ast, args[0]) {
         return Some(Err(e));
     }

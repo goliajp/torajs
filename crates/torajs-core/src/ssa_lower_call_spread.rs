@@ -49,7 +49,15 @@ pub(crate) fn try_lower(
 
 /// Bare callee: lower it, box to Any (a fn value / closure /
 /// already-any), materialize the args, enter the spread kernel.
-fn lower_bare_spread(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Operand {
+/// `pub(crate)` for the fn-value `.apply` route
+/// ([`crate::ssa_lower_call_fn_call_value`]) — a spread-carrying
+/// literal argArray re-enters here with the array's elements as the
+/// argument list.
+pub(crate) fn lower_bare_spread(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Operand {
     let raw = ctx.lower_expr(callee);
     let recv = if matches!(ctx.operand_ty(&raw), Type::Any) {
         raw.clone()
