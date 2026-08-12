@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T06:16:22.255Z",
+  "generatedAt": "2026-08-12T09:38:19.378Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T06:13:53Z",
-    "headSha": "6d622249",
-    "elapsedSec": 321.75,
+    "ranAt": "2026-08-12T09:29:24Z",
+    "headSha": "3b157bce",
+    "elapsedSec": 324.15,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24758,
-    "passNoOracle": 802,
-    "passNegative": 3955,
-    "passTotal": 29515,
-    "bug": 12800,
-    "incompatible": 10859,
-    "bunSkip": 6584,
+    "pass": 24846,
+    "passNoOracle": 834,
+    "passNegative": 3954,
+    "passTotal": 29634,
+    "bug": 12898,
+    "incompatible": 10642,
+    "bunSkip": 6636,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42315,
-    "passRateInScope": 55.51,
-    "passRateTrAccepted": 69.75
+    "trAccepted": 42532,
+    "passRateInScope": 55.73,
+    "passRateTrAccepted": 69.67
   },
   "torajs": {
-    "commit": "6d622249",
-    "commitSubject": "refactor: exotic-subclass magic idents collapse to their suffix grammar - rotation 373's three new builtins pushed check_type_of_ident's registered known-debt cascade past the 200-line fn hard limit via per-builtin whitelist arms that re-state what the heritage table already encodes (every name is minted as __torajs_<x>_subclass_{alloc_self,super}): the three shapes become one subclass_magic_ty predicate keyed on the suffix, so the next builtin joining the table costs zero lines here; behavior-preserving for every minted name (weak/date + nested-class fixtures re-verified byte-equal), check fn back to ~175",
+    "commit": "f2b4dade",
+    "commitSubject": "refactor: gen-object-method return annotation splits out of the method parser - knife 5's generator-bit swap pushed try_parse_generator_object_method from its registered 232-line debt to 234 (registered entries may only shrink): the ':' Generator<T> collapse moves to a parse_gen_method_return_ann sibling method, main fn 228; gen-method return-ann fixture byte-equal vs bun; also stores the rotation-374 sweep artifacts (test262-latest.json + verdicts gz @ 3b157bce)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "f2b4dade",
+      "subject": "refactor: gen-object-method return annotation splits out of the method parser - knife 5's generator-bit swap pushed try_parse_generator_object_method from its registered 232-line debt to 234 (registered entries may only shrink): the ':' Generator<T> collapse moves to a parse_gen_method_return_ann sibling method, main fn 228; gen-method return-ann fixture byte-equal vs bun; also stores the rotation-374 sweep artifacts (test262-latest.json + verdicts gz @ 3b157bce)"
+    },
+    {
+      "hash": "3b157bce",
+      "subject": "fix: the strict-goal yield gate fires before the import resolver - the parse-time yield reject used to guarantee that a yield nested in an import(...) argument raised the parse-phase SyntaxError instead of dying in the resolver on path resolution (the yield_expr_hoist doc records exactly this ordering), and moving the judgement to the post-parse prelude gate silently re-broke it: 2nd-param-yield-ident-invalid.js regressed pass-negative -> negative-unsupported because 'import path not found' beat the gate; the yield triage moves out of run_ast_prelude into a new run_pre_resolve_gates shared by tr run and tr build, called right after the goal stamp and before modules::resolve_imports (the delete triage has no resolver-facing shape and stays in the prelude); hand-verified: import('./missing.js', yield) answers the $12.7.2 parse error again, both sloppy yield fixtures stay byte-equal"
+    },
+    {
+      "hash": "4f0b7575",
+      "subject": "feat: yield as a parameter name outside generators, and the generator bit swaps in before the param list - $15.5.1 gives FormalParameters the fn's OWN [Yield] parameter, but all four generator parse sites (fn decl / fn expr / gen object method / gen class method) swapped in_generator only at the BODY, so the param list read the enclosing scope's bit: the swap moves before parse_param_list (declaration names keep the enclosing bit - they read it before the swap; the overload-signature early return restores), which makes 'function* g(yield)' reject on its own bit regardless of nesting, and the four param-name sites (parse_param_list / ctor list / parse_fn_params / arrow) admit Token::Yield when the bit is off; ALSO every admission site from the first two knives gains a class_stack guard - class bodies are ALWAYS strict ($15.7), so a sloppy .cts class ctor/method param or body admission would have been silent-wrong; fixture sloppy-yield-ident-003.cts byte-equal vs bun over arrow param, object-method param and fn-decl param, negatives hand-verified: 'function* g(yield)' rejects, 'class C { constructor(yield) }' rejects under the sloppy goal, strict twin gate fires"
+    },
+    {
+      "hash": "d023caeb",
+      "subject": "feat: nativeFunctionMatcher.js joins the ported harness includes - the 70-case Function.prototype.toString family died at 'needs nativeFunctionMatcher.js' (67 of 70 are static shapes, only 3 need the dynamic Function-ctor face): the port validates the $20.2.3.5 NativeFunction grammar with a charCodeAt scanner class (ASCII-narrowed ID classes - every builtin name toString mints is ASCII, a non-ASCII name fails LOUD, and the stock ~2KB Unicode regexes exist only for names that never arise here), assertToStringOrNativeFunction keeps the stock either-or contract (source equality first, native-grammar fallback), assertNativeFunction throws Test262Error through the same JSON.stringify message; runner transform gains the three rewrites (distinct prefixes, no ordering hazard) and the include joins PORTED_INCLUDES; subset run on mini: 40 pass / 24 bug / 16 incompat where the family was needs-harness incompat before - the bug rows are honest truly-run toString-shape mismatches (class/method/getter source forms) for later rotations"
+    },
+    {
+      "hash": "3953e332",
+      "subject": "fix: the global eval as a value resolves inside closure bodies - the checker fallback types bare eval Any ($19.2.1, value position only - direct calls compile away in desugar_eval) and top-level / FnDecl reads already lowered through the any lanes, but free_vars_globals drifted (the exact Iterator failure recorded in that table): a closure body referencing eval collected it as a capture, renaming it out from under the fallback - 'closure references unknown identifier eval' (63 t262 cases, assert.throws(TypeError, function() { Promise.all.call(eval) }) shape) plus the 19-case 'closure capture eval not in scope' lowering twin; one table row fixes both; fixture eval-value-closure-001.ts byte-equal vs bun over fn-expr callback, typeof from a fn-expr value, and an arrow capturing eval with identity preserved (picked[0] === eval)"
+    },
+    {
+      "hash": "e32a0de1",
+      "subject": "feat: yield rides the misc identifier faces - accessor property names, fn-expression self-names and declaration names (the 8-case tail of the got-Yield family): the objlit accessor gate only admitted Ident/String/Number/LBracket after get/set, so 'get yield() {}' died at 'expected :' even though $12.7.6 allows the FULL reserved-word set in property-name positions - the gate and prop-name read now ride the shared keyword_property_name table (every keyword accessor name fixed, not just yield); a function EXPRESSION self-name is [~Yield] per $15.2 so '(function yield() {})' admits unconditionally (a generator expression's name is [+Yield] and stays on the loud '(' reject), and a DECLARATION name inherits the ENCLOSING [Yield] parameter per $15.1/$15.5 so 'function* yield() {}' admits when the enclosing scope is non-generator - both record into yield_ident_positions for the strict-goal prelude gate; fixture sloppy-yield-ident-002.cts byte-equal vs bun over get/set yield accessor pair, fn-expr self-name call and a generator declaration named yield driven through next(); param-name face (2 cases) deferred - it needs the fn's own generator bit threaded through parse_param_list's six call sites (the in_generator swap sits after params by design)"
+    },
+    {
+      "hash": "ab1a97fd",
+      "subject": "feat: yield is a valid identifier outside generators under the sloppy goal - $12.7.2 reserves the word under the STRICT goal only, but all three yield lanes (statement / let-init / assignment) rejected it unconditionally and the let/var/const name site refused the token, so the 69-case t262 'got Yield' family (sloppy dstr headers 'var yield = 4' + IdentifierReference reads) died at parse; the lanes now route to the YieldExpression parsers only inside a generator body, primary.rs and the binding-name site admit the identifier and record each position in a new ast.yield_ident_positions side table, and a prelude gate (ast::triage_yield_idents, the rotation-372 delete-bare-name pattern) raises the strict-goal SyntaxError after the goal bit is stamped; fixture sloppy-yield-ident-001.cts byte-equal vs bun over binding/read/assign/arith/closure-capture/shadow/typeof, strict twin rejects loud; RESIDUE: the lexer still classes a '/' after yield as regex-start, so sloppy 'yield / 2' mis-lexes (edge, no t262 coverage in the cluster)"
+    },
+    {
+      "hash": "cd75ce29",
+      "subject": "docs: rotation 373 close - class instances grow dynamic members on the WRITE side (the 113-case 'no field on Struct' cluster drops to 13): checker field-miss on a ClassRef receiver admits the expando definition into RFC 20260714's +24 dict, private METHOD writes take a static PrivateSet TypeError lane, getter-only accessors throw through the runtime kernel, and every class/struct member store marks may-throw - which also cleared the pre-existing frozen-store throw swallow; WeakMap / WeakSet / Date join the exotic-subclass table (weak twins ride the shared iterable kernel + Map|Set synthesis group, Date mints at now with the §21.4.2.1 value-ladder super, ctor-less Date stays loud pending the real-argc face); multi-component Date ctor args run ToNumber; a class expression inside a class body may extend its enclosing class (field flattening became a dependency-ordered fixpoint; declaration-order cluster 96 -> 78); sweep passTotal 29464 -> 29515 (+51) with exact conservation (+91 trAccepted = +51 pass +40 bug), ZERO pass regressions, incompat 10859, gate predicate 250 clusters / 3445 cases / core 5167 (all down), gate chain 2768 -> 2772/0/4 (+4 fixtures, zero red rounds), build determinism 44/44 N=12, L3b 373-00/01/06/07 recorded (373-02/05 cleared in-rotation), dashboard @ 6d622249"
+    },
+    {
       "hash": "6d622249",
       "subject": "refactor: exotic-subclass magic idents collapse to their suffix grammar - rotation 373's three new builtins pushed check_type_of_ident's registered known-debt cascade past the 200-line fn hard limit via per-builtin whitelist arms that re-state what the heritage table already encodes (every name is minted as __torajs_<x>_subclass_{alloc_self,super}): the three shapes become one subclass_magic_ty predicate keyed on the suffix, so the next builtin joining the table costs zero lines here; behavior-preserving for every minted name (weak/date + nested-class fixtures re-verified byte-equal), check fn back to ~175"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "57d58c65",
       "subject": "feat: WeakMap / WeakSet / Date join the exotic-subclass table - the builtin half of the 96-case t262 declaration-order cluster (extends RFC 20260730 blade 2, the rotation-371 Map/Set pattern): the weak twins mint real weak-collection cells (FLAG_SUBCLASSED + torajs-meta identity, drop paths scrub the entry) and their super(iterable) rides the same __torajs_collection_init_from_iterable kernel the plain ctors use with the WEAK kinds, so they join the Map|Set nullish-noop default-ctor synthesis group; Date mints at the current wall clock (a bare super() IS the no-argument new Date()) and super(v) reuses the full __torajs_date_from_value §21.4.2.1 step-4 ladder via a new __torajs_date_set_ms_from copy (invalid values land as Invalid Date with the pending throw intact); a ctor-less Date subclass stays a LOUD reject - its default forward needs the caller's real argument count (new D() = now while super(undefined) = Invalid Date, the db66228e wrapper trap; L3b 372-00/02 family); wrapper_subclass_probe admits the three new tags so subclass-declared methods dispatch between the expando shadow and the builtin surface; fixture subclass-weak-date-001 byte-equal vs bun over 8 shapes incl iterable seeding, Invalid Date, the no-super ReferenceError and an own method next to the builtin surface"
-    },
-    {
-      "hash": "dda75d31",
-      "subject": "feat: class-instance member writes admit dynamic names - the write mirror of the read side's terminal-miss admission (113-case t262 cluster 'no field on Struct'): the checker's field-miss on a ClassRef receiver now admits an expando definition (per §10.1.9.2 OrdinarySet; the lowering boxes the receiver and rides the any-member set lane into RFC 20260714's +24 expando dict with its non-extensible gate), a __priv_ name resolving to a declared private METHOD takes a static always-throw lane (§13.15.2 PutValue -> PrivateSet kind=method TypeError, rhs evaluates first) and a private getter-only accessor rides the boxed lane into the runtime accessor kernel's readonly TypeError; an UNDECLARED private name and a public name colliding with a class-chain METHOD keep the loud reject (static call sites dispatch directly - an expando shadow they cannot see would be silent-wrong); ast_throw_info marks every class/struct member store may-throw, which also clears a pre-existing silent-wrong: a frozen instance's method-body store recorded the writable-gate TypeError but the caller's pruned throw-check swallowed it (bun throws, tr answered 'no throw' - same family as the rotation-270 length-assign rule); fixture class-expando-write-001 byte-equal vs bun over 14 shapes incl the t262 private-setter-body arrow idiom, preventExtensions, frozen propagation and Object.keys visibility"
-    },
-    {
-      "hash": "1e305571",
-      "subject": "docs: rotation 372 close - both headline t262 clusters break: dynamic spread call arguments (§13.3.8.1, the 91-case top2) land as a runtime lane over the boxed-adapter channels (Array<Any> materialization through the unified iteration protocol + thin dynamic-argc kernels entering the existing dispatch tails; .apply literal argArray re-enters the lane; super.m(...rest) reaches the builtin-heritage re-dispatch; the too-early wrap axis a gate round caught was retired - static expanders stay the semantic owners of known-arity shapes), and sloppy-goal bare-name delete (the 103-case top1) resolves per compile goal via a prelude gate (strict keeps the §13.5.1.1 SyntaxError, sloppy answers §13.5.1.2 statically); a pre-existing silent-wrong cleared (apply_spread trimmed arguments-carrying callees to declared arity); sweep passTotal 29396 -> 29464 (+68) with exact conservation (+94 trAccepted = +68 pass +26 bug, the bug influx being the unlocked surface's next stratum), ZERO pass regressions, incompat 11044 -> 10950, gate predicate 252 clusters / 3543 cases (both down), gate chain 2764 -> 2768/0/4 (+4 fixtures, one 6-red round self-healed), build determinism 44/44 N=12, L3b 372-00/01/02 recorded (real-argc ABI face family), dashboard @ c5182f07"
-    },
-    {
-      "hash": "c5182f07",
-      "subject": "feat: delete on a bare name resolves per compile goal - the top1 t262 cluster (103 cases, all flags:[noStrict] delete-on-identifier under the runner's .cts sloppy goal) rejected in the PARSER, which cannot know the goal (ast.sloppy_script_goal is stamped after parsing from the .cts extension): the parser now emits a plain Delete{Ident} node and a new raw-AST prelude gate (triage_delete_bare_names, right after the redeclaration early errors) resolves it - the strict goal keeps the same SyntaxError text (§13.5.1.1), the sloppy goal answers §13.5.1.2 statically: a name declared anywhere in the program is a non-configurable binding per §9.1.1.1.7 DeleteBinding and answers false (the shared binding collector plus FnDecl/ClassDecl names), the non-configurable globals undefined/NaN/Infinity/globalThis answer false per §18.1, and everything else (unresolvable per step 3.a, or a configurable builtin) answers true; recorded residue: a configurable builtin answers true without being removed, and bun's CJS-sloppy quirk of answering true for delete Infinity/undefined (§18.1 and test262 S15.1.1.*_A3_T2 both say false) keeps those two names out of the bun-oracle fixture; both goals leave zero Delete{Ident} nodes for downstream passes; fixture delete-bare-name-001.cts byte-equal vs bun over var/let/function bindings, an unresolvable name, NaN, delete delete chaining, and the strict .ts goal keeps the parse-error reject verified by hand"
-    },
-    {
-      "hash": "792d49db",
-      "subject": "feat: super.m(...rest) reaches the builtin-heritage re-dispatch - the t262 subclass-receiver-methods forwarding idiom (7 Set-cluster cases: an override declared (...rest) relays through super.has(...rest)) died in the super-builtin lane's fixed argv pack (lower_expr on the spread panicked; the checker's rotation-372 entry wedge already admitted the call): the lane now splits on a spread argument - the list materializes through the shared build_args_arr and routes to __torajs_super_builtin_method_spread, a with_argv wrapper over the same §13.3.7.3 kernel (parent-prototype resolution, the receiver's own override never consulted, mid 0 still the spec not-a-function TypeError); fixture spread-super-builtin-001 byte-equal vs bun over the has/keys rest-forward with call counts, a union() proving set-operation kernels stay override-blind, a Map set prefix-arg spread, and the unknown-name TypeError"
-    },
-    {
-      "hash": "d33c2659",
-      "subject": "feat: a spread-carrying literal argArray reaches .apply - the t262 expressions/array family (8 cases: (function(){...}).apply(null, [1, 2, ...src]) is how the array-spread cases observe their product) rejected on the fn-value apply route, whose checker arm unpacks the LITERAL argArray into a fixed argument list and fed the spread element to the generic type_of reject: both sides of that route now split on a spread-carrying argArray - the checker walks the elements (spread sources included) and answers Any, the lowering evaluates the thisArg for effect (the no-this subset) and re-enters the rotation-372 spread lane's bare kernel with the array's elements as the argument list; promoted this-using shapes stand aside on both sides (the fixed-argc replay owns their __this slot) and keep the loud reject; the boxed-only argv face gains the apply arm - an inline fn-expr as the .apply callee with a spread argArray is single-reference by construction and every call enters the closure cell's boxed adapter, so its arguments body reads real argc/argv (it had NO face before: the static faces need argc votes a spread site can't cast, and the fn answered 'unknown identifier arguments'); a named-FnDecl .apply with a spread argArray keeps riding the desugar swallow into a direct spread call for the static expander; fixture spread-apply-001 byte-equal vs bun over the assign-source t262 shape, Ident sources, an empty-spread argArray, a closure-value binding, and the named-fn swallow path; the dynamic-argArray silent-wrong (g.apply(undefined, arr) answering argc 0 through the forwarder relay) stays recorded as L3b 372-01 - it needs the real-argc ABI face (372-00)"
-    },
-    {
-      "hash": "8f5a92a3",
-      "subject": "fix: the spread-callee wrap axis retires - the ba9095b4 gate caught it hijacking every statically-expandable direct-call shape (6 red: super-call chains through __cm_* ctors fed undefined into the this slot, closure-arguments/rest-param/short-source fixtures lost their index-read expansion semantics): the fn-to-closure pass runs BEFORE apply_spread_args, so the axis could not know which spread calls the static expanders own, and the forwarder it minted relays only the DECLARED params; the objlit boxed-only face exception and apply_spread's arguments-carrying skip both stand (they serve shapes the static expanders genuinely cannot take), and a direct-fn spread call outside both stays on the loud box_to_any reject (recorded boundary, L3b 372-00: a named FnDecl called with spread beyond its static expansion needs a real-argc ABI face)"
-    },
-    {
-      "hash": "ba9095b4",
-      "subject": "feat: dynamic spread call arguments reach the any-lane runtime - the 91-case top2 t262 cluster (§13.3.8.1 ArgumentListEvaluation) breaks open: a call whose argument list still carries a ...spread after the static expanders (fold_static_spread / apply_rest_args / apply_spread_args) needs a RUNTIME argc no fixed-argc lane can express, so the new ssa_lower_call_spread lane (claimed before every fixed-argc dispatcher) materializes the full list into one Array<Any> (literal args via pack_any_elem; spread sources through the unified iteration protocol - Arr<Any> extends, Str walks arr_from_string per code point, everything else boxes into arr_from_any::emit where §7.4.5 IteratorStep errors stay catchable) and routes to the new __torajs_any_call_spread / __torajs_any_method_call_spread kernels, thin wrappers that read argc off the array's 16-byte slots into an 8-byte nanbox argv and enter the same dispatch tails as their fixed-argc twins; the checker admits spread-carrying calls as Any ahead of every route (callee callability is the lane's runtime TypeError); three AST-side faces keep argc truthful: the objlit boxed-only argv face admits a field whose member references are all spread-call callees (those sites enter through the boxed adapter, the face's own channel), the fn-to-closure collector wraps a spread-call's Ident callee EXCEPT when the body touches arguments (the fixed-arity forwarder relay would trim the real argc to the declared params - a 0-param arguments-style fn answered length 0, silent; that shape stays on the loud reject, recorded L3b 372-00), and apply_spread's index-read expansion skips arguments-carrying callees outright (its arity trim was a pre-existing silent-wrong: f(...s) against a 0-param fn expanded to f() and arguments.length answered 0); fixture spread-call-001 byte-equal vs bun over objlit-method multi-spread with trailing comma, IIFE, closure-value argc/argv faces, mid-position and empty spreads, string code-point iteration (surrogate pair), Set, custom Symbol.iterator in-order values, IteratorStep throw propagation, and the non-iterable TypeError; AOT churn probe flat at 6.75MB over 900k spread calls"
-    },
-    {
-      "hash": "632ee9ac",
-      "subject": "docs: rotation 371 close - the Set cluster's top face (163 cases) breaks open: §24.2.1.2 GetSetRecord lands as a runtime protocol on both tiers (any-tier kernel with the spec's observable side split, IteratorClose, -0 canonicalization; typed tier widens the checker sig and splits the lowering on the argument's checked type, real Sets keeping the Set×Set fast kernels), builtin-heritage super.m() reaches the parent prototype through a re-dispatch that skips the receiver's own override, and ctor-less Map/Set subclasses stop dropping their iterable argument; the probe chain also cashed the W4 shape-width debt recorded in ssa_lower_objlit_layout (same-shaped literals now join their layout slot widths through an unconditional walk seed + a per-shape side table, leaving per-binding operation widths alone after the first UF-union knife broke d5); sweep passTotal 29308 -> 29396 (+88) with exact conservation (+89 trAccepted = +88 pass +1 bug) and ZERO pass regressions, incompat 11133 -> 11044, gate predicate 253 clusters / 3608 cases (both down), Set cluster 163 -> 78, gate chain 2759 -> 2764/0/4 (+5 fixtures, both mid-rotation reds self-healed), build determinism 44/44 N=12, dashboard @ 830bfeca"
     }
   ],
-  "headSha": "6d622249",
+  "headSha": "f2b4dade",
   "autorun": {
-    "total": 676,
+    "total": 677,
     "baselineTarget": 10,
-    "bySelf": 671,
+    "bySelf": 672,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786506305-701b",
-      "at": "2026-08-12T03:45:05Z",
-      "ts": 1786506305,
+      "rotationId": "r-1786515480-772e",
+      "at": "2026-08-12T06:18:00Z",
+      "ts": 1786515480,
       "trigger": "self",
-      "prevHead": "1e305571",
-      "handoffSha": "sha256:7770ede27e3808354c6947c55d06558bd4e19da70a7c8f9a01e568dc3dbfb5e7",
+      "prevHead": "cd75ce29",
+      "handoffSha": "sha256:1375c7d7ef1a13536fb1a189323fcf442ce7a3708cce730d3164787875a3e967",
       "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786515480-772e",
+        "at": "2026-08-12T06:18:00Z",
+        "ts": 1786515480,
+        "trigger": "self",
+        "prevHead": "cd75ce29",
+        "handoffSha": "sha256:1375c7d7ef1a13536fb1a189323fcf442ce7a3708cce730d3164787875a3e967",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786506305-701b",
         "at": "2026-08-12T03:45:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "3f7d43c2",
         "handoffSha": "sha256:149163e48c52507ce153f8841c99ea8bbd6510b575e8925353cb89dec1699029",
         "handoffAgeSec": 98,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786437171-6dbc",
-        "at": "2026-08-11T08:32:51Z",
-        "ts": 1786437171,
-        "trigger": "self",
-        "prevHead": "303f7c6d",
-        "handoffSha": "sha256:ca2661203fc66e482bc221a8025c29d4f704c2ee29ecbfeeab2c0e7dec9305a7",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
