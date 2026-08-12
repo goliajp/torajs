@@ -84,6 +84,7 @@ mod fn_constructor_assign;
 mod fnexpr_bind_this;
 pub(crate) mod fnexpr_this;
 pub(crate) mod fnexpr_this_args;
+pub(crate) mod fnexpr_this_cb_slots;
 pub(crate) mod fnexpr_this_faces;
 pub(crate) mod fnexpr_this_recvs;
 pub(crate) mod fnexpr_this_routed;

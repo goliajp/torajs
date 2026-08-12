@@ -234,87 +234,54 @@ fn collect_position_faces(
                     }
                 }
             }
-            // RFC 20260808-json-parse-any blade 4 — `JSON.parse(text,
-            // <fn-expr>)`: the reviver slot. §25.5.1.1 calls it with
-            // the holder as `this`; the internalize kernel dispatches
-            // through `invoke_with_this`, which reads the closure's
-            // RECV flag and seeds the holder into the promoted
-            // `__this` slot. Inline fn-expr only — zero aliases.
+            // Builtin callback-slot arms — bodies (and their receiver
+            // checks, fall-through-safe: no later arm matches these
+            // member names) live in sibling `fnexpr_this_cb_slots.rs`
+            // (file-size split, rotation 375).
             Expr::Member { obj, name } if name == "parse" => {
-                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "JSON") {
-                    continue;
-                }
-                if let Some(rev) = args.get(1) {
-                    collect_face(stmts, exprs, *rev, fn_expr_exprs, patches);
-                    collect_ident_face(exprs, *rev, ident_cands);
-                }
+                super::fnexpr_this_cb_slots::collect_json_parse_face(
+                    stmts,
+                    exprs,
+                    fn_expr_exprs,
+                    *obj,
+                    args,
+                    patches,
+                    ident_cands,
+                );
             }
-            // Rotation 375 — string-pattern `.replace` / `.replaceAll`
-            // functional replaceValue over a STRING-LITERAL receiver
-            // (`"ab".replace("b", <fn-expr>)`, the function-code
-            // 10.4.3 family). The literal receiver + literal pattern
-            // pin the lowering to the str replace_fn lane
-            // (`ssa_lower_str_replace_fn`'s String/Null/Undefined
-            // pattern gate), whose kernel reads the closure's
-            // receiver-first flag and seeds argv[0] undefined
-            // (§22.1.3.18 step 10's Call(replaceValue, undefined,
-            // «…»)). A non-literal receiver or a regex pattern keeps
-            // the loud reject — the regex replacer lane dispatches by
-            // typed transmute and has no receiver slot (L3b 375-01).
-            // ONLY the inline fn-expr admits. The IIFE-return
-            // spelling (`replace("b", (function () { return
-            // function () {…this…} })())`, function-code 10.4.3) was
-            // tried and REVERTED in-knife: the checker types the
-            // IIFE call's result as non-Function, so the lowering
-            // falls to the ToString replaceValue path and splices
-            // the fn's source text — promoting the inner fn-expr
-            // turned a loud reject into that silent-wrong. It needs
-            // the IIFE return-type inference first (L3b 375-01).
-            Expr::Member { obj, name }
-                if (name == "replace" || name == "replaceAll")
-                    && matches!(&exprs[obj.0 as usize], Expr::String(_))
-                    && args
-                        .first()
-                        .is_some_and(|p| is_str_pattern_literal(exprs, *p)) =>
-            {
-                if let Some(cb) = args.get(1) {
-                    collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
-                }
+            Expr::Member { obj, name } if name == "replace" || name == "replaceAll" => {
+                super::fnexpr_this_cb_slots::collect_replace_face(
+                    stmts,
+                    exprs,
+                    fn_expr_exprs,
+                    *obj,
+                    args,
+                    patches,
+                );
             }
-            // Rotation 260 — `Array.from(iterable, <fn-expr>,
-            // thisArg?)`: the static mapFn slot. Only the INLINE
-            // fn-expr promotes (zero aliases by construction); the
-            // from lowering's map loop threads the boxed thisArg
-            // ahead of (elem, i) exactly like the trio kernels.
             Expr::Member { obj, name } if name == "from" => {
-                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Array") {
-                    continue;
-                }
-                if let Some(cb) = args.get(1) {
-                    collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
-                    collect_ident_face(exprs, *cb, ident_cands);
-                }
+                super::fnexpr_this_cb_slots::collect_array_from_face(
+                    stmts,
+                    exprs,
+                    fn_expr_exprs,
+                    *obj,
+                    args,
+                    patches,
+                    ident_cands,
+                );
             }
-            // Rotation 261 — `f.call(thisArg, ...)` / `f.apply(
-            // thisArg, [args])` on a bare-name binding: §20.2.3.3 /
-            // §20.2.3.1 supply an EXPLICIT this, so the callee-obj
-            // position is receiver-correct by construction — the
-            // fn-value lowering boxes thisArg into the promoted
-            // `__this` argv slot instead of the no-this drop. The
-            // Ident joins `call_faces` too: this use shape replays
-            // through `closure_local`, whose variadic / real-argc
-            // lanes have no `__this` slot, so those bindings keep
-            // the loud reject (same argv-contention bar as the
-            // knife-2W mixed profile).
+            // Rotation 261 — `f.call` / `f.apply` faces (doc on the
+            // collector in sibling `fnexpr_this_cb_slots.rs`).
             Expr::Member { obj, name } if name == "call" || name == "apply" => {
-                // An INLINE fn-expr callee (`(function () { …this…
-                // }).apply(obj)`) promotes directly — zero aliases
-                // by construction, the call is its only consumer.
-                collect_face(stmts, exprs, *obj, fn_expr_exprs, patches);
-                if matches!(&exprs[obj.0 as usize], Expr::Ident(_)) {
-                    collect_ident_face(exprs, *obj, ident_cands);
-                    call_faces.insert(*obj);
-                }
+                super::fnexpr_this_cb_slots::collect_call_apply_face(
+                    stmts,
+                    exprs,
+                    fn_expr_exprs,
+                    *obj,
+                    patches,
+                    ident_cands,
+                    call_faces,
+                );
             }
             // Knife 4 — array HOF callback position over a
             // syntactically-certain `any` receiver
@@ -363,16 +330,6 @@ fn collect_position_faces(
             _ => {}
         }
     }
-}
-
-/// `true` when the replace-family pattern argument is a shape the
-/// str replace_fn lane accepts (mirror of
-/// `ssa_lower_str_replace_fn`'s String / Null / Undefined checker
-/// gate) — anything else may route to the regex replacer lane,
-/// whose dispatch has no receiver slot.
-fn is_str_pattern_literal(exprs: &[Expr], p: ExprId) -> bool {
-    matches!(&exprs[p.0 as usize], Expr::String(_) | Expr::Null)
-        || matches!(&exprs[p.0 as usize], Expr::Ident(n) if n == "undefined")
 }
 
 /// Member-store face — `anyRecv.m = <fn-expr>` (expando method
