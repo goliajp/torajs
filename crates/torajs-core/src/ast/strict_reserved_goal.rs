@@ -24,8 +24,12 @@ pub fn triage_strict_reserved_idents(ast: &Ast) -> Option<String> {
     }
     ast.strict_reserved_positions.first().map(|(at, name)| {
         if name == "eval" || name == "arguments" {
+            // One message for both clauses that park this pair: the
+            // vector carries no position kind, and §13.1.1 (binding)
+            // and §13.1.3 (assignment target) are the only two ways in.
             format!(
-                "`{name}` cannot be bound in strict code (modules are strict) at {at} (ES §13.1.1)"
+                "`{name}` cannot be bound or assigned in strict code \
+                 (modules are strict) at {at} (ES §13.1.1 / §13.1.3)"
             )
         } else {
             format!(

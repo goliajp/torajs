@@ -134,18 +134,43 @@ impl<'a> Parser<'a> {
     ///   statement-position ImportCall dispatch exposed 15 test262
     ///   negatives that previously "passed" on an unrelated parse
     ///   error).
-    pub(super) fn reject_invalid_assignment_target(&self, target: ExprId) -> Result<(), String> {
-        match self.ast.get_expr(target) {
-            Expr::Ident(n) if n.starts_with("__yx_") => Err(format!(
-                "`yield` is not a valid assignment target at {} (ES §13.15.1)",
+    /// - An `eval` / `arguments` target has AssignmentTargetType
+    ///   invalid in strict code (§13.1.3), which is the one arm that
+    ///   depends on strictness: the same name READ is legal in the
+    ///   strictest module there is, and in sloppy code writing it is
+    ///   legal too. Strict by goal is deferred to the prelude gate,
+    ///   the shape every strict-refused name already uses.
+    pub(super) fn reject_invalid_assignment_target(
+        &mut self,
+        target: ExprId,
+    ) -> Result<(), String> {
+        // Classified before anything is recorded: the goal half needs
+        // `&mut self`, and the scrutinee's borrow of the arena runs to
+        // the end of the match.
+        let strict_only = match self.ast.get_expr(target) {
+            Expr::Ident(n) if n.starts_with("__yx_") => {
+                return Err(format!(
+                    "`yield` is not a valid assignment target at {} (ES §13.15.1)",
+                    self.at()
+                ));
+            }
+            Expr::Call { .. } | Expr::OptCall { .. } => {
+                return Err(format!(
+                    "a call expression is not a valid assignment target at {} (ES §13.15.1)",
+                    self.at()
+                ));
+            }
+            Expr::Ident(n) if n == "eval" || n == "arguments" => n.clone(),
+            _ => return Ok(()),
+        };
+        if self.in_strict_fn {
+            return Err(format!(
+                "`{strict_only}` is not a valid assignment target in strict code at {} (ES §13.1.3)",
                 self.at()
-            )),
-            Expr::Call { .. } | Expr::OptCall { .. } => Err(format!(
-                "a call expression is not a valid assignment target at {} (ES §13.15.1)",
-                self.at()
-            )),
-            _ => Ok(()),
+            ));
         }
+        self.record_strict_goal_site(&strict_only);
+        Ok(())
     }
 
     /// Drain wrapper around the statement dispatcher — see module doc.
