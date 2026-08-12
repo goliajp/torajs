@@ -55,6 +55,14 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         }
         return Err(());
     }
+    // `delete <bare name>` goal triage (rotation 372) — strict is
+    // the §13.5.1.1 SyntaxError, sloppy resolves §13.5.1.2
+    // statically. Wants the raw AST (declaration names pre-desugar)
+    // and the goal bit, which the caller stamped before the prelude.
+    if let Some(msg) = ast::triage_delete_bare_names(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // After the redeclaration early errors, which want the raw AST —
     // and a declaration inlined out of an eval is not an early error
     // anyway (§19.2.1.1 makes an eval-introduced conflict a runtime

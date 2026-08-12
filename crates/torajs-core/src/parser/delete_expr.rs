@@ -51,15 +51,14 @@ impl Parser<'_> {
             Expr::Ident(n) if n == "undefined" && opens_with_void => {
                 Ok(self.ast.add_expr(Expr::Bool(true)))
             }
-            // §13.5.1.1 — `delete x` on an unqualified name is the
-            // strict-mode early error. The sloppy-only semantics
-            // (false for a declared binding) has no surface here: tr
-            // compiles modules, and bun rejects these programs the
-            // same way.
-            Expr::Ident(_) => Err(format!(
-                "`delete` on a bare name is a SyntaxError in strict code (modules are strict) at {}",
-                self.at()
-            )),
+            // §13.5.1.1 — `delete x` on an unqualified name is a
+            // strict-goal-ONLY early error, and the goal bit is
+            // stamped after parsing (`.cts` = CommonJS sloppy, the
+            // bun mapping) — so the judgement moves to the prelude
+            // gate (`ast::triage_delete_bare_names`, rotation 372):
+            // strict keeps the SyntaxError, sloppy resolves the
+            // §13.5.1.2 answer statically. The node parses plain.
+            Expr::Ident(_) => Ok(self.ast.add_expr(Expr::Delete { expr: inner })),
             // Deleting through `?.` is a real delete guarded by the
             // nullish check (§13.5.1.2 step 3) — routing it to the
             // true-lane would silently skip the deletion.
