@@ -187,7 +187,11 @@ fn value_read_members(exprs: &[Expr]) -> std::collections::HashSet<(&str, &str)>
 /// Statement recursion of [`widen_detached_method_objlits`] — same
 /// shape as [`collect_any_let_inits`], which is what will pick the
 /// widened declaration up on the (a) leg.
-fn widen_inner(stmts: &mut [Stmt], exprs: &[Expr], reads: &std::collections::HashSet<(&str, &str)>) {
+fn widen_inner(
+    stmts: &mut [Stmt],
+    exprs: &[Expr],
+    reads: &std::collections::HashSet<(&str, &str)>,
+) {
     for s in stmts {
         match s {
             Stmt::LetDecl {
