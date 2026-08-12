@@ -44,7 +44,6 @@ mod destr_defaults;
 mod destr_helpers;
 mod destr_shape;
 mod dstr_assign;
-mod entry;
 mod expr_entry;
 mod expr_prec;
 mod fn_expr;
@@ -92,21 +91,44 @@ mod yield_expr_hoist;
 use class_member::ClassMemberModifierPrefix;
 use type_ann_helpers::{is_identifier_name, unwrap_generator_return_ann};
 
-// The four ways to start a parse keep their `parser::` call face; what
-// each one seeds the outermost body's strictness with lives together in
-// `entry`.
-pub use entry::{parse, parse_goal, parse_into, parse_into_super_prop};
+pub fn parse(source: &str, tokens: &[Spanned]) -> Result<Ast, String> {
+    let mut ast = Ast::default();
+    parse_into(source, tokens, &mut ast)?;
+    Ok(ast)
+}
 
-/// The one Parser constructor. `strict_seed` is the strictness the
-/// OUTERMOST body starts in — false for script code, true for module
-/// code (`parser::entry` is where each entry point picks one).
-/// Everything nested inherits it the ordinary way.
-pub(super) fn parse_into_seeded(
+/// Phase K.2 — append-mode parse. Parses `tokens` into the existing
+/// `target` AST, sharing its `exprs` arena so any newly-minted ExprIds
+/// continue numbering from `target.exprs.len()`. Returns the index of
+/// the first appended Stmt in `target.stmts` (caller can drain from
+/// there to extract just the new section).
+///
+/// Used by `modules::resolve_imports` to merge an imported file's AST
+/// into the main file's AST without an ExprId remap pass — every Expr
+/// landed via `add_expr`, which mints a fresh u32 from the current
+/// `exprs.len()`, so values originating in the imported file are
+/// already indexed correctly within the merged arena.
+///
+/// The Parser-internal `desugar_id` counter is seeded with the current
+/// arena length so any temp-name minting (`__step_<n>`, etc.) emitted
+/// by parse-time desugars in the imported file can't collide with
+/// names already minted while parsing the main file (or any earlier
+/// imported file).
+pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<usize, String> {
+    parse_into_super_prop(source, tokens, target, false)
+}
+
+/// Eval-source variant of [`parse_into`]. §19.2.1.1 PerformEval decides
+/// SuperProperty legality from the CALL SITE's environment (steps 4-6:
+/// direct eval within a method context may contain `super.x`), which a
+/// fresh parse of the eval text cannot see — the eval desugar passes
+/// the verdict in as `super_prop_ok`. Everything else parses with the
+/// same default position flags as a whole program.
+pub fn parse_into_super_prop(
     source: &str,
     tokens: &[Spanned],
     target: &mut Ast,
     super_prop_ok: bool,
-    strict_seed: bool,
 ) -> Result<usize, String> {
     let stmt_offset = target.stmts.len();
     let id_offset = target.exprs.len() as u32;
@@ -127,7 +149,7 @@ pub(super) fn parse_into_seeded(
         gen_recv_minted: false,
         in_async_gen: false,
         in_generator: false,
-        in_strict_fn: strict_seed,
+        in_strict_fn: false,
         pending_async_fn_expr: false,
         static_this_class: None,
         super_call_allowed: false,

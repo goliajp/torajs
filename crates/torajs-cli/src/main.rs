@@ -185,13 +185,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> Exit
         return ExitCode::SUCCESS;
     }
 
-    // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
-    // extension (bun mapping: `.cts` = CommonJS sloppy). It goes IN to
-    // the parse rather than onto the result: module code is strict
-    // (§16.1), and that is the one consequence of the goal a function
-    // body has to know while it is being parsed. `parse_goal` stamps
-    // the bit itself, so the two cannot disagree.
-    let mut ast = match parser::parse_goal(src, &tokens, sloppy_goal) {
+    let mut ast = match parser::parse(src, &tokens) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("parse error: {e}");
@@ -203,6 +197,9 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> Exit
     // during runtime panic backtraces.
     ast.source = src.to_string();
     ast.warm_newline_cache();
+    // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
+    // extension (bun mapping: `.cts` = CommonJS sloppy).
+    ast.sloppy_script_goal = sloppy_goal;
     // Goal-triage gates that must beat the resolver's diagnostics —
     // see ast_pipeline.rs.
     if ast_pipeline::run_pre_resolve_gates(&mut ast).is_err() {

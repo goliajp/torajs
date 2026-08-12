@@ -124,15 +124,15 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
         eprintln!("lex error: {e}");
         ExitCode::from(1)
     })?;
-    // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
-    // extension, passed IN so the parser can act on module strictness
-    // (§16.1) while it parses. See `parser::parse_goal`.
-    let mut ast = parser::parse_goal(&src, &tokens, sloppy_goal_for(input)).map_err(|e| {
+    let mut ast = parser::parse(&src, &tokens).map_err(|e| {
         eprintln!("parse error: {e}");
         ExitCode::from(1)
     })?;
     ast.source = src.to_string();
     ast.warm_newline_cache();
+    // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
+    // extension (bun mapping: `.cts` = CommonJS sloppy).
+    ast.sloppy_script_goal = sloppy_goal_for(input);
     // Goal-triage gates that must beat the resolver's diagnostics —
     // see ast_pipeline.rs.
     ast_pipeline::run_pre_resolve_gates(&mut ast).map_err(|()| ExitCode::from(1))?;

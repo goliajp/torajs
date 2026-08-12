@@ -1,9 +1,12 @@
 // §16.1 — module code is strict, so a function called with no
 // receiver gets `undefined` rather than the global object
-// (§10.2.1.2 step 5 instead of step 6). This file is a module, and
-// nothing in it says `"use strict"`: the goal alone has to arm it.
-// The `.cts` sibling of this shape keeps answering `object`, which is
-// what makes this pair worth pinning rather than either half alone.
+// (§10.2.1.2 step 5 instead of step 6). This file is a module and
+// nothing in it says `"use strict"`, so the goal alone is what
+// decides — `bind_this_param` reads the goal bit and withholds the
+// sloppy-receiver prologue, leaving the `undefined` seed standing.
+// The `.cts` sibling of this shape answers `object`, which is what
+// makes the pair worth pinning rather than either half alone. Nothing
+// pinned this before; the answers below were already right.
 function detached() {
   return typeof this;
 }
