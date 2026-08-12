@@ -133,6 +133,9 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
     // extension (bun mapping: `.cts` = CommonJS sloppy).
     ast.sloppy_script_goal = sloppy_goal_for(input);
+    // Goal-triage gates that must beat the resolver's diagnostics —
+    // see ast_pipeline.rs.
+    ast_pipeline::run_pre_resolve_gates(&mut ast).map_err(|()| ExitCode::from(1))?;
     let base_dir = base_dir_for(input);
     modules::resolve_imports(&mut ast, &base_dir).map_err(|e| {
         eprintln!("import error: {e}");

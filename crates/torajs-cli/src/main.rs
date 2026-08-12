@@ -200,6 +200,11 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> Exit
     // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
     // extension (bun mapping: `.cts` = CommonJS sloppy).
     ast.sloppy_script_goal = sloppy_goal;
+    // Goal-triage gates that must beat the resolver's diagnostics —
+    // see ast_pipeline.rs.
+    if ast_pipeline::run_pre_resolve_gates(&mut ast).is_err() {
+        return ExitCode::from(1);
+    }
     // K.2 — resolve cross-file imports BEFORE the desugar pipeline so
     // imported decls go through the same downstream passes (class
     // desugar, arrow lift, etc.) as same-file decls.

@@ -44,6 +44,24 @@ use torajs_core::{ast, ast_closure_param_tag};
 /// pass would have to be added to twice, is now written once.
 ///
 /// (The REPL and LSP keep their own reduced pipelines.)
+/// Goal-triage gates that must fire BEFORE `modules::resolve_imports`:
+/// a strict-goal SyntaxError must precede any resolver diagnostics —
+/// `import('./missing.js', yield)` expects the parse-phase reject, not
+/// "import path not found" (the same ordering the parse-time yield
+/// gate used to guarantee before the goal bit moved post-parse).
+/// The delete triage has no resolver-facing face and stays in the
+/// prelude with the other raw-AST gates.
+pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
+    // `yield`-as-identifier goal triage (§12.7.2) — the parser
+    // admitted the sites, strict raises the SyntaxError here, sloppy
+    // keeps the identifiers as parsed.
+    if let Some(msg) = ast::triage_yield_idents(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
+    Ok(())
+}
+
 pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // Block/CaseBlock redeclaration early errors — must see the RAW
     // AST before the generator / async / var-hoist desugars move one
@@ -60,13 +78,6 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // statically. Wants the raw AST (declaration names pre-desugar)
     // and the goal bit, which the caller stamped before the prelude.
     if let Some(msg) = ast::triage_delete_bare_names(ast) {
-        eprintln!("parse error: {msg}");
-        return Err(());
-    }
-    // `yield`-as-identifier goal triage (§12.7.2) — same shape: the
-    // parser admitted the sites, strict raises the SyntaxError here,
-    // sloppy keeps the identifiers as parsed.
-    if let Some(msg) = ast::triage_yield_idents(ast) {
         eprintln!("parse error: {msg}");
         return Err(());
     }
