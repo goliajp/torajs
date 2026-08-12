@@ -184,6 +184,24 @@ pub(crate) fn promote_recv_any(
 /// step-4 ToObject wrapper face is recorded residue (L3b), not a
 /// silent wrap here.
 fn insert_sloppy_this_prologue(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
+    // Per-function strict (§10.2.1.2 step 5): a body whose directive
+    // prologue — the leading run of string-literal expression
+    // statements — says "use strict" is a STRICT function inside the
+    // sloppy file, and its detached `this` stays undefined. The
+    // sweep caught 22 function-code 10.4.3 regressions
+    // (`function () { "use strict"; return typeof this; }` answered
+    // "object") when the first cut bound every promoted body. Same
+    // cooked-value comparison as the parser's non-simple-params
+    // directive gate (its precision note applies here too).
+    for s in body.iter() {
+        let Stmt::Expr(e) = s else { break };
+        let Expr::String(v) = &exprs[e.0 as usize] else {
+            break;
+        };
+        if v == "use strict" {
+            return;
+        }
+    }
     if let Some(Stmt::Expr(e)) = body.first()
         && let Expr::Assign { target, .. } = &exprs[e.0 as usize]
         && matches!(&exprs[target.0 as usize], Expr::Ident(n) if n == "__this")
