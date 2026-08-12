@@ -166,8 +166,9 @@ pub(super) fn widen_detached_method_objlits(
     spans: &mut Vec<crate::lexer::Span>,
 ) {
     {
-        let reads = value_read_members(exprs);
+        let mut reads = value_read_members(exprs);
         if !reads.is_empty() {
+            propagate_param_reads(stmts, exprs, &mut reads);
             widen_inner(stmts, exprs, &reads);
         }
     }
@@ -205,6 +206,103 @@ fn value_read_members(exprs: &[Expr]) -> std::collections::HashSet<(&str, &str)>
             _ => None,
         })
         .collect()
+}
+
+/// r380 — carry a value-read back across a PARAMETER to the caller's
+/// argument binding. `function via(p){ return p.read }` reads the
+/// member off `p`, but the literal lives on the caller's
+/// `const obj = { … }`, so the binding leg alone never sees it and
+/// the detached call SIGSEGVs.
+///
+/// Only the caller's BINDING needs widening — measured on the parent
+/// commit by splitting the two spellings apart: annotating the
+/// parameter `: any` while leaving the binding alone still SIGSEGVs,
+/// while widening the binding alone answers everything with the
+/// parameter's structural annotation untouched. So this knife never
+/// rewrites a signature; it only grows the read set the binding leg
+/// already consults.
+///
+/// Fixpoint because an argument can itself be another fn's parameter
+/// (`a(obj)` → `b(p)` → reads `q.m`). Parameter names are not
+/// scope-resolved and a duplicated fn name drops out of the map
+/// entirely, the same trade the (f) leg takes.
+fn propagate_param_reads<'a>(
+    stmts: &[Stmt],
+    exprs: &'a [Expr],
+    reads: &mut std::collections::HashSet<(&'a str, &'a str)>,
+) {
+    let params = collect_fn_param_names(stmts);
+    if params.is_empty() {
+        return;
+    }
+    loop {
+        let mut added = false;
+        for e in exprs {
+            let Expr::Call { callee, args } = e else {
+                continue;
+            };
+            let Expr::Ident(f) = &exprs[callee.0 as usize] else {
+                continue;
+            };
+            let Some(pnames) = params.get(f) else {
+                continue;
+            };
+            for (i, a) in args.iter().enumerate() {
+                let Expr::Ident(arg_name) = &exprs[a.0 as usize] else {
+                    continue;
+                };
+                let Some(pn) = pnames.get(i) else {
+                    continue;
+                };
+                let members: Vec<&'a str> = reads
+                    .iter()
+                    .filter(|(recv, _)| *recv == pn.as_str())
+                    .map(|(_, m)| *m)
+                    .collect();
+                for m in members {
+                    added |= reads.insert((arg_name.as_str(), m));
+                }
+            }
+        }
+        if !added {
+            return;
+        }
+    }
+}
+
+/// Per-FnDecl parameter names for [`propagate_param_reads`]. Shape
+/// mirrors [`collect_fn_any_params`], including its ambiguity drop:
+/// the map is name-keyed while the real binding resolves per scope,
+/// so a duplicated name could pair the wrong parameter list with a
+/// call site.
+fn collect_fn_param_names(stmts: &[Stmt]) -> HashMap<String, Vec<String>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    collect_fn_param_names_inner(stmts, &mut map, &mut seen);
+    map
+}
+
+fn collect_fn_param_names_inner(
+    stmts: &[Stmt],
+    map: &mut HashMap<String, Vec<String>>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        if let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        {
+            if !seen.insert(name.clone()) {
+                map.remove(name);
+            } else {
+                map.insert(
+                    name.clone(),
+                    params.iter().map(|p| p.name.clone()).collect(),
+                );
+            }
+            collect_fn_param_names_inner(body, map, seen);
+        }
+    }
 }
 
 /// Statement recursion of [`widen_detached_method_objlits`] — same
