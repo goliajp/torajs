@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T03:43:04.403Z",
+  "generatedAt": "2026-08-12T06:16:22.255Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T03:40:42Z",
-    "headSha": "c5182f07",
-    "elapsedSec": 321.43,
+    "ranAt": "2026-08-12T06:13:53Z",
+    "headSha": "6d622249",
+    "elapsedSec": 321.75,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24708,
-    "passNoOracle": 801,
+    "pass": 24758,
+    "passNoOracle": 802,
     "passNegative": 3955,
-    "passTotal": 29464,
-    "bug": 12760,
-    "incompatible": 10950,
+    "passTotal": 29515,
+    "bug": 12800,
+    "incompatible": 10859,
     "bunSkip": 6584,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42224,
-    "passRateInScope": 55.41,
-    "passRateTrAccepted": 69.78
+    "trAccepted": 42315,
+    "passRateInScope": 55.51,
+    "passRateTrAccepted": 69.75
   },
   "torajs": {
-    "commit": "c5182f07",
-    "commitSubject": "feat: delete on a bare name resolves per compile goal - the top1 t262 cluster (103 cases, all flags:[noStrict] delete-on-identifier under the runner's .cts sloppy goal) rejected in the PARSER, which cannot know the goal (ast.sloppy_script_goal is stamped after parsing from the .cts extension): the parser now emits a plain Delete{Ident} node and a new raw-AST prelude gate (triage_delete_bare_names, right after the redeclaration early errors) resolves it - the strict goal keeps the same SyntaxError text (§13.5.1.1), the sloppy goal answers §13.5.1.2 statically: a name declared anywhere in the program is a non-configurable binding per §9.1.1.1.7 DeleteBinding and answers false (the shared binding collector plus FnDecl/ClassDecl names), the non-configurable globals undefined/NaN/Infinity/globalThis answer false per §18.1, and everything else (unresolvable per step 3.a, or a configurable builtin) answers true; recorded residue: a configurable builtin answers true without being removed, and bun's CJS-sloppy quirk of answering true for delete Infinity/undefined (§18.1 and test262 S15.1.1.*_A3_T2 both say false) keeps those two names out of the bun-oracle fixture; both goals leave zero Delete{Ident} nodes for downstream passes; fixture delete-bare-name-001.cts byte-equal vs bun over var/let/function bindings, an unresolvable name, NaN, delete delete chaining, and the strict .ts goal keeps the parse-error reject verified by hand",
+    "commit": "6d622249",
+    "commitSubject": "refactor: exotic-subclass magic idents collapse to their suffix grammar - rotation 373's three new builtins pushed check_type_of_ident's registered known-debt cascade past the 200-line fn hard limit via per-builtin whitelist arms that re-state what the heritage table already encodes (every name is minted as __torajs_<x>_subclass_{alloc_self,super}): the three shapes become one subclass_magic_ty predicate keyed on the suffix, so the next builtin joining the table costs zero lines here; behavior-preserving for every minted name (weak/date + nested-class fixtures re-verified byte-equal), check fn back to ~175",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "6d622249",
+      "subject": "refactor: exotic-subclass magic idents collapse to their suffix grammar - rotation 373's three new builtins pushed check_type_of_ident's registered known-debt cascade past the 200-line fn hard limit via per-builtin whitelist arms that re-state what the heritage table already encodes (every name is minted as __torajs_<x>_subclass_{alloc_self,super}): the three shapes become one subclass_magic_ty predicate keyed on the suffix, so the next builtin joining the table costs zero lines here; behavior-preserving for every minted name (weak/date + nested-class fixtures re-verified byte-equal), check fn back to ~175"
+    },
+    {
+      "hash": "8a7d0652",
+      "subject": "feat: a class expression inside a class body may extend the enclosing class - the M5.2 source-order check rejected 'class Outer { m() { return class extends Outer {...} } }' because the parser's synth flush lands the lifted __ClassExpr_ decl BEFORE the enclosing ClassDecl stmt, but an expression-position class inside a class body evaluates when that body RUNS, after every top-level definition completed, so its parent may sit anywhere (L3b 373-05): the parser marks such decls in a new ast.class_expr_deferred side table (class_stack is the enclosing-body signal the private-name machinery already maintains), the source-order validation exempts them, and the field flattening becomes a worklist fixpoint whose no-progress case keeps the same loud M5.2 panic (source order is one valid schedule, so statement-position classes resolve in the first sweep exactly as before - hand-verified 'class A extends B {} class B {}' still rejects); fixture nested-class-extends-outer-001 byte-equal vs bun over direct-new, a static-field class expression and an inherited field+method chain; scouting found the privatefieldget t262 family needs two MORE pre-existing faces past this - construct from a runtime class value (373-06) and class-expr method bodies capturing enclosing locals (373-07), both registered"
+    },
+    {
+      "hash": "d225799b",
+      "subject": "fix: multi-component Date constructor arguments run ToNumber - §21.4.2.1 step 5 says every supplied component coerces in argument order, but the desugar handed them verbatim to the f64-signed components kernel, so new Date(1859, '10', 24) read month NaN where bun/spec read 10 (L3b 373-02, found scouting the Date-subclass t262 family): the pad_components branch now wraps every non-Number-literal component in the Number(x) coercion call the m1.h.8 machinery already owns - string digits, booleans, null, user valueOf hooks (argument order preserved) and the Symbol TypeError all ride the existing lane, a Number literal keeps the direct f64 path; fixture date-components-tonumber-001 byte-equal vs bun over string/bool/null components, a runtime string variable, valueOf ordering, a non-numeric string invalidating the date, and the two-argument day=1 pad"
+    },
+    {
+      "hash": "57d58c65",
+      "subject": "feat: WeakMap / WeakSet / Date join the exotic-subclass table - the builtin half of the 96-case t262 declaration-order cluster (extends RFC 20260730 blade 2, the rotation-371 Map/Set pattern): the weak twins mint real weak-collection cells (FLAG_SUBCLASSED + torajs-meta identity, drop paths scrub the entry) and their super(iterable) rides the same __torajs_collection_init_from_iterable kernel the plain ctors use with the WEAK kinds, so they join the Map|Set nullish-noop default-ctor synthesis group; Date mints at the current wall clock (a bare super() IS the no-argument new Date()) and super(v) reuses the full __torajs_date_from_value §21.4.2.1 step-4 ladder via a new __torajs_date_set_ms_from copy (invalid values land as Invalid Date with the pending throw intact); a ctor-less Date subclass stays a LOUD reject - its default forward needs the caller's real argument count (new D() = now while super(undefined) = Invalid Date, the db66228e wrapper trap; L3b 372-00/02 family); wrapper_subclass_probe admits the three new tags so subclass-declared methods dispatch between the expando shadow and the builtin surface; fixture subclass-weak-date-001 byte-equal vs bun over 8 shapes incl iterable seeding, Invalid Date, the no-super ReferenceError and an own method next to the builtin surface"
+    },
+    {
+      "hash": "dda75d31",
+      "subject": "feat: class-instance member writes admit dynamic names - the write mirror of the read side's terminal-miss admission (113-case t262 cluster 'no field on Struct'): the checker's field-miss on a ClassRef receiver now admits an expando definition (per §10.1.9.2 OrdinarySet; the lowering boxes the receiver and rides the any-member set lane into RFC 20260714's +24 expando dict with its non-extensible gate), a __priv_ name resolving to a declared private METHOD takes a static always-throw lane (§13.15.2 PutValue -> PrivateSet kind=method TypeError, rhs evaluates first) and a private getter-only accessor rides the boxed lane into the runtime accessor kernel's readonly TypeError; an UNDECLARED private name and a public name colliding with a class-chain METHOD keep the loud reject (static call sites dispatch directly - an expando shadow they cannot see would be silent-wrong); ast_throw_info marks every class/struct member store may-throw, which also clears a pre-existing silent-wrong: a frozen instance's method-body store recorded the writable-gate TypeError but the caller's pruned throw-check swallowed it (bun throws, tr answered 'no throw' - same family as the rotation-270 length-assign rule); fixture class-expando-write-001 byte-equal vs bun over 14 shapes incl the t262 private-setter-body arrow idiom, preventExtensions, frozen propagation and Object.keys visibility"
+    },
+    {
+      "hash": "1e305571",
+      "subject": "docs: rotation 372 close - both headline t262 clusters break: dynamic spread call arguments (§13.3.8.1, the 91-case top2) land as a runtime lane over the boxed-adapter channels (Array<Any> materialization through the unified iteration protocol + thin dynamic-argc kernels entering the existing dispatch tails; .apply literal argArray re-enters the lane; super.m(...rest) reaches the builtin-heritage re-dispatch; the too-early wrap axis a gate round caught was retired - static expanders stay the semantic owners of known-arity shapes), and sloppy-goal bare-name delete (the 103-case top1) resolves per compile goal via a prelude gate (strict keeps the §13.5.1.1 SyntaxError, sloppy answers §13.5.1.2 statically); a pre-existing silent-wrong cleared (apply_spread trimmed arguments-carrying callees to declared arity); sweep passTotal 29396 -> 29464 (+68) with exact conservation (+94 trAccepted = +68 pass +26 bug, the bug influx being the unlocked surface's next stratum), ZERO pass regressions, incompat 11044 -> 10950, gate predicate 252 clusters / 3543 cases (both down), gate chain 2764 -> 2768/0/4 (+4 fixtures, one 6-red round self-healed), build determinism 44/44 N=12, L3b 372-00/01/02 recorded (real-argc ABI face family), dashboard @ c5182f07"
+    },
+    {
       "hash": "c5182f07",
       "subject": "feat: delete on a bare name resolves per compile goal - the top1 t262 cluster (103 cases, all flags:[noStrict] delete-on-identifier under the runner's .cts sloppy goal) rejected in the PARSER, which cannot know the goal (ast.sloppy_script_goal is stamped after parsing from the .cts extension): the parser now emits a plain Delete{Ident} node and a new raw-AST prelude gate (triage_delete_bare_names, right after the redeclaration early errors) resolves it - the strict goal keeps the same SyntaxError text (§13.5.1.1), the sloppy goal answers §13.5.1.2 statically: a name declared anywhere in the program is a non-configurable binding per §9.1.1.1.7 DeleteBinding and answers false (the shared binding collector plus FnDecl/ClassDecl names), the non-configurable globals undefined/NaN/Infinity/globalThis answer false per §18.1, and everything else (unresolvable per step 3.a, or a configurable builtin) answers true; recorded residue: a configurable builtin answers true without being removed, and bun's CJS-sloppy quirk of answering true for delete Infinity/undefined (§18.1 and test262 S15.1.1.*_A3_T2 both say false) keeps those two names out of the bun-oracle fixture; both goals leave zero Delete{Ident} nodes for downstream passes; fixture delete-bare-name-001.cts byte-equal vs bun over var/let/function bindings, an unresolvable name, NaN, delete delete chaining, and the strict .ts goal keeps the parse-error reject verified by hand"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "632ee9ac",
       "subject": "docs: rotation 371 close - the Set cluster's top face (163 cases) breaks open: §24.2.1.2 GetSetRecord lands as a runtime protocol on both tiers (any-tier kernel with the spec's observable side split, IteratorClose, -0 canonicalization; typed tier widens the checker sig and splits the lowering on the argument's checked type, real Sets keeping the Set×Set fast kernels), builtin-heritage super.m() reaches the parent prototype through a re-dispatch that skips the receiver's own override, and ctor-less Map/Set subclasses stop dropping their iterable argument; the probe chain also cashed the W4 shape-width debt recorded in ssa_lower_objlit_layout (same-shaped literals now join their layout slot widths through an unconditional walk seed + a per-shape side table, leaving per-binding operation widths alone after the first UF-union knife broke d5); sweep passTotal 29308 -> 29396 (+88) with exact conservation (+89 trAccepted = +88 pass +1 bug) and ZERO pass regressions, incompat 11133 -> 11044, gate predicate 253 clusters / 3608 cases (both down), Set cluster 163 -> 78, gate chain 2759 -> 2764/0/4 (+5 fixtures, both mid-rotation reds self-healed), build determinism 44/44 N=12, dashboard @ 830bfeca"
-    },
-    {
-      "hash": "830bfeca",
-      "subject": "fix: the synthesized exotic default ctor narrows to Map/Set - the db66228e gate caught the forward breaking every OTHER exotic family (5 red: class-extends-array/regexp/wrapper + two proto fixtures): a fixed one-argument forward turns a 0-argument new C() into super(undefined), and Array / the wrappers are not argument-count agnostic (new Array(undefined) is the RangeError the gate printed; new Number(undefined) is NaN where new Number() is +0) - only the Map/Set kernels treat nullish as the spec no-op step so the two forms coincide; the synthesis now keys on those two parents and the rest keep the no-forward shape until an arguments-length-aware forward exists"
-    },
-    {
-      "hash": "db66228e",
-      "subject": "fix: builtin-subclass ctors stop dropping the iterable argument - new MySet([1]) on a class extends Set came up EMPTY (L3b 371-00 silent-wrong, caught by the rotation-371 super probe): the exotic strip runs BEFORE the derived-default-ctor synthesis and that pass keys on parent.is_some(), so a ctor-less stripped class never got a super forward, and Map/Set had no super(v) kernel anyway (exotic_super_kernel answered None - a 1-arg super(iterable) in an explicit ctor panicked as not-yet-supported); both halves land: __torajs_map_subclass_super / __torajs_set_subclass_super wrap the existing collection_init_from_iterable walk (§24.1.1.1 / §24.2.1.1 steps - nullish adds nothing, entries walk the adder) applied to the minted subclass cell, wired through the four existing per-kernel faces (checker ident whitelist, exotic dispatch arm, subclass declare group, Intrinsics slots), and the strip synthesizes a one-argument forwarding ctor for a ctor-less exotic subclass whose builtin has a super kernel (rest-forwarding stays the recorded call-spread boundary, L3b 371-01); fixture subclass-ctor-iterable-001 byte-equal vs bun over Set/Map iterable ctors, the 0-arg and null forms, and an explicit forwarding ctor"
-    },
-    {
-      "hash": "0847f518",
-      "subject": "feat: builtin-heritage super.m() reaches the parent prototype - the recorded boundary in desugar_classes_builtin_heritage (a stripped class kept its __supercall__ spelling and died on an unknown identifier - the 7-case subclass-receiver-methods face of the Set cluster) closes: rewrite_super_method_calls now admits a stripped class by reading its builtin back from ast.exotic_parent, and a site whose owner walk ends in a builtin-rooted chain (exotic_parent marks a stripped ancestor) rewrites to __superbuiltin__<m>(this, args) instead of a __cm_ face; the checker admits the synthetic name early (args typecheck, answers Any) and the lowering routes it to the new __torajs_super_builtin_method kernel (fn_table by-name, array_from_dyn precedent) which enters any_method_redispatch directly - §13.3.7.3 resolves on the PARENT prototype so the receiver's own override is skipped (own-property probing is over, the reified-cell [[Call]] contract), and a name outside the builtin id space answers the spec not-a-function TypeError instead of a compile error; Object/Iterator (non-exotic stripped parents) keep the loud boundary; fixture super-builtin-001 byte-equal vs bun over Set/Map super calls through overrides (count pinned at 1 - no bounce-back), mixed super+this bodies, and the unknown-name TypeError"
-    },
-    {
-      "hash": "01e25da6",
-      "subject": "feat: typed-tier set methods admit set-like arguments - the checker's seven-method signature widens vec![Type::Set] -> vec![Type::Any] (§24.2.1.2 GetSetRecord decides at runtime; the ~85-case checker-reject face of the Set cluster opens), and the lowering's emit_relation_predicate / emit_setop split on the argument's checked type: statically-Set keeps the untouched Set×Set fast kernels, everything else boxes and routes to the new set_relation_setlike / set_setop_setlike protocol kernels (own declare micro-group ssa_lower_intrinsics_set_like per the map_set group's no-growth ledger) with release_owned_temp for inline literals and a throw check right after; the set-dispatch file crossed 500 on the split and the setops family moved verbatim to the ssa_lower_call_set_dispatch/setops.rs child module (427/111, arr_predicate/iter.rs precedent); fixture set-setlike-002 byte-equal vs bun over the Set×Set fast path, struct/Map/accessor-class arguments, inline-literal temps, five refusal shapes, and a throwing has through the typed route"
-    },
-    {
-      "hash": "bf2a06e0",
-      "subject": "fix: same-shaped object literals join their layout slot widths - the W4 container-width debt recorded in ssa_lower_objlit_layout.rs bit for real (rotation 371, surfaced by the set-like probe): resolve_objlit_layout's coercible first-match shares one layout across same-shaped anonymous literals, so a first {x: 9} froze an I64 slot and a later {x: 1.5} / {x: NaN} silently truncated through the FpToSi coercion (NaN -> 0 - the set-like size gate then read 0 and never threw); two roots fixed without touching the per-binding operation-width domain (the d5 slot-granularity contract keeps o2.x narrow while o1.x floats): (1) the main width walk now seeds every ObjectLit field unconditionally - the container walker only reached literals standing in container positions (let-init, known container flow), so a call-argument literal never seeded and carried no f64 verdict at all; (2) analyze's tail aggregates a per-shape (ordered field-name list) table of floating fields from every literal's frozen verdict, and apply_w4_widen consults it beside the literal's own key, so the FIRST registrant already claims the joined width; first knife tried anon-shape UNIONS in the container UF instead - it fixed the truncation but broke d5 (the family join leaked into operation widths), which is why the join lives in a layout-only side table; fixture objlit-shape-width-001 byte-equal vs bun over var/call-arg literals with integer-first NaN/fractional followers; num_width nextest 236/236"
-    },
-    {
-      "hash": "c6110e7b",
-      "subject": "feat: set methods accept set-like arguments on the any tier - ES2025 §24.2.1.2 GetSetRecord lands as a runtime protocol instead of the real-Set-only gate (the top unattributed test262 cluster, 85 cases across the seven §24.2.4 methods): set_like.rs builds the record (step-1 object refusal before any property read; size = Get + ToNumber + ToIntegerOrInfinity with the NaN TypeError / negative RangeError faces and a Map/Set builtin-count shortcut since the member probe only reifies methods; has/keys = Get + IsCallable with no nullish amnesty, classified through call_target so a Map's reified builtin methods, a class instance's method faces, and plain closures all invoke through one dispatch), and set_like_ops.rs walks the seven algorithms with the spec's side split (receiver index-walk when thisSize <= size, keys()-iterator walk otherwise - the asymmetry is observable and pinned by the set-like-class-order suites), IteratorClose on early relation exits, -0 key canonicalization per §24.2.1.4, owned-frame element stakes across user callbacks, and partial-product drops on the throw path; the any-tier setops arm routes a real-Set argument to the untouched Set×Set fast kernels and everything else here; fixture set-setlike-001 byte-equal vs bun over object-literal/accessor-class/Map arguments, all seven methods, -0 canonicalization, and seven refusal shapes plus a throwing has"
     }
   ],
-  "headSha": "c5182f07",
+  "headSha": "6d622249",
   "autorun": {
-    "total": 675,
+    "total": 676,
     "baselineTarget": 10,
-    "bySelf": 670,
+    "bySelf": 671,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786500431-784b",
-      "at": "2026-08-12T02:07:11Z",
-      "ts": 1786500431,
+      "rotationId": "r-1786506305-701b",
+      "at": "2026-08-12T03:45:05Z",
+      "ts": 1786506305,
       "trigger": "self",
-      "prevHead": "632ee9ac",
-      "handoffSha": "sha256:6a561a6770958f075ab9bc49a350594491d97045a400646d2a251de6a4a1289d",
-      "handoffAgeSec": 34,
+      "prevHead": "1e305571",
+      "handoffSha": "sha256:7770ede27e3808354c6947c55d06558bd4e19da70a7c8f9a01e568dc3dbfb5e7",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786506305-701b",
+        "at": "2026-08-12T03:45:05Z",
+        "ts": 1786506305,
+        "trigger": "self",
+        "prevHead": "1e305571",
+        "handoffSha": "sha256:7770ede27e3808354c6947c55d06558bd4e19da70a7c8f9a01e568dc3dbfb5e7",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786500431-784b",
         "at": "2026-08-12T02:07:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "303f7c6d",
         "handoffSha": "sha256:ca2661203fc66e482bc221a8025c29d4f704c2ee29ecbfeeab2c0e7dec9305a7",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786428897-3a24",
-        "at": "2026-08-11T06:14:57Z",
-        "ts": 1786428897,
-        "trigger": "self",
-        "prevHead": "5e9ff442",
-        "handoffSha": "sha256:4ecafed5907d11ff99ec950bb83658354511b1885a57ec0c431f279f88f74eed",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }

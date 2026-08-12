@@ -1530,7 +1530,40 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `c5182f07`** (2026-08-12, rotation 372 — the two headline
+**Latest @ `6d622249`** (2026-08-12, rotation 373 — class instances
+grow dynamic members on the WRITE side: the checker's field-miss on
+a ClassRef receiver admits an expando definition (§10.1.9.2; the
+lowering boxes the receiver into RFC 20260714's +24 expando dict
+with its non-extensible gate), a `__priv_` name resolving to a
+private METHOD takes a static always-throw lane (§13.15.2 PutValue →
+PrivateSet TypeError) and a getter-only private accessor throws
+through the runtime accessor kernel — the 113-case `no field on
+Struct` cluster drops to **13**. The same knife cleared a
+pre-existing silent-wrong: every class/struct member store now marks
+its fn may-throw, so a frozen instance's method-body store
+PROPAGATES its TypeError instead of being pruned at the caller.
+**WeakMap / WeakSet / Date join the exotic-subclass table**
+(rotation-371 pattern: weak twins ride the shared iterable kernel
+and the Map|Set default-ctor synthesis group; Date mints at now,
+`super(v)` reuses the §21.4.2.1 value ladder; ctor-less Date stays
+loud pending the real-argc face). Multi-component `new Date(y, m,
+…)` components now run ToNumber (§21.4.2.1 step 5). A class
+expression inside a class body may extend its enclosing class
+(field flattening became a dependency-ordered fixpoint; the
+declaration-order cluster 96 → **78**). Sweep: passTotal 29464 →
+**29515 (+51)**, bug +40, trAccepted +91 / incompatible **−91**,
+conservation exact (91 = 51 + 40). True pass regressions **0**.
+Gate predicate **250 unattributed clusters / 3445 cases / register
+2 entries · 732 attributed / residue 766 · 990 / core 5167** — all
+three headline numbers down (252 → 250, 3543 → 3445, 5256 → 5167).
+Recorded boundaries: 373-00 (public method-shadow write stays loud —
+static dispatch can't see an expando shadow), 373-01 (private-method
+compound assignment blocked on the mixed-binop coercion surface),
+373-06 (construct from a runtime class value), 373-07 (class-expr
+method bodies capturing enclosing locals). Conformance gate 2768 →
+**2772/0/4** (+4 fixtures). Build determinism 44/44 (N=12).)
+
+**Previous @ `c5182f07`** (2026-08-12, rotation 372 — the two headline
 clusters both break: **dynamic spread call arguments** (§13.3.8.1,
 the 91-case top-2) land as a runtime lane on every tier that owns a
 boxed-adapter channel — a spread-carrying call materializes its full
