@@ -54,6 +54,12 @@ pub(crate) fn lower(
     if let Some(op) = crate::ssa_lower_call_super_builtin::try_lower(ctx, callee, args) {
         return op;
     }
+    // Rotation 372 — a call whose argument list still carries a
+    // dynamic `...spread` needs a RUNTIME argc; claimed before every
+    // fixed-argc lane (all of them assume a compile-time list).
+    if let Some(op) = crate::ssa_lower_call_spread::try_lower(ctx, callee, args) {
+        return op;
+    }
     // Any-method-call RFC 20260704 — an `any`-typed receiver claims
     // the call before every typed dispatcher (their name matches
     // assume concrete receiver types).

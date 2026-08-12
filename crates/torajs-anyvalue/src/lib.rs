@@ -97,6 +97,7 @@ mod arr_member_value;
 mod arr_proto_probe;
 mod array_from;
 mod array_from_async_finish;
+mod call_spread;
 pub(crate) mod closure_proto;
 mod coerce;
 mod collection_init;

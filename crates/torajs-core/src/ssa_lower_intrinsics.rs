@@ -765,6 +765,10 @@ pub(crate) struct Intrinsics {
      * for a non-Set setops argument (set_like declare group). */
     pub(crate) set_relation_setlike: FuncId,
     pub(crate) set_setop_setlike: FuncId,
+    /* §13.3.8.1 spread-call kernels — dynamic-argc call over a
+     * materialized Array<Any> argument list (spread declare group). */
+    pub(crate) any_call_spread: FuncId,
+    pub(crate) any_method_call_spread: FuncId,
     pub(crate) map_clone: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,

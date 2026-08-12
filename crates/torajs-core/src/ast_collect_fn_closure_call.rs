@@ -97,6 +97,24 @@ impl<'a> FnToClosureCollector<'a> {
             let cname = cname.clone();
             self.mark_known_callee_args(&cname, args);
         }
+        // Rotation 372 — a spread-carrying call's Ident callee is a
+        // VALUE use: the spread lane (`ssa_lower_call_spread`) boxes
+        // the callee into the any world (argc is a runtime fact read
+        // off the materialized args array), which a raw FnSig can't.
+        // Wrap it so the callee lowers as a closure cell whose boxed
+        // dual entry the spread kernel invokes. GATE: a body that
+        // touches `arguments` must NOT wrap — the forwarder relays
+        // the DECLARED params only, so the real argc dies at the
+        // relay (a 0-param arguments-style fn answered length 0,
+        // silent) — it stays on the loud box_to_any reject instead
+        // (recorded boundary, rotation-372 L3b).
+        if args
+            .iter()
+            .any(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
+            && !self.callee_touches_arguments(callee)
+        {
+            self.try_mark(*callee);
+        }
         // r290 (box_to_any FnSig sweep cluster) — an indirect call
         // through a binding that is NOT a top-FnDecl name
         // (`var every = Array.prototype.every; every(callback)`):
@@ -125,25 +143,7 @@ impl<'a> FnToClosureCollector<'a> {
         }
         self.mark_shadowed_builtin_args(callee, args);
         self.mark_namespace_static_args(callee, args);
-        // S2.37 followup — a REWRITE-MINTED method-body ident
-        // (`__sm_<C>__<m>` / `__cm_<C>__<m>`, the static-member /
-        // static-this rewrite's product — user code never spells
-        // these) as an argument of ANY member call: the arg boxes
-        // into the any world at the dispatch boundary, which a raw
-        // FnSig can't (`assert.notSameValue(result, this.method)` in
-        // a static body — the t262 forbidden-ext family). Bare-ident
-        // callees ride the declared-param axis above; the mangled
-        // prefix keeps user `xs.map(topFn)` hot paths on their raw
-        // FnSig direct dispatch.
-        if matches!(self.ast.get_expr(*callee), Expr::Member { .. }) {
-            for &arg in args {
-                if let Expr::Ident(n) = self.ast.get_expr(arg)
-                    && (n.starts_with("__sm_") || n.starts_with("__cm_"))
-                {
-                    self.try_mark(arg);
-                }
-            }
-        }
+        self.mark_rewrite_minted_member_args(callee, args);
         // Cluster #4 (test262) — a top-FnDecl Ident as the RECEIVER
         // of a member call the Function family's member tables
         // answer with their catch-all (`inner.hasOwnProperty(…)`):
@@ -353,5 +353,43 @@ impl<'a> FnToClosureCollector<'a> {
         for &arg in args {
             self.try_mark(arg);
         }
+    }
+
+    /// S2.37 followup — a REWRITE-MINTED method-body ident
+    /// (`__sm_<C>__<m>` / `__cm_<C>__<m>`, the static-member /
+    /// static-this rewrite's product — user code never spells
+    /// these) as an argument of ANY member call: the arg boxes
+    /// into the any world at the dispatch boundary, which a raw
+    /// FnSig can't (`assert.notSameValue(result, this.method)` in
+    /// a static body — the t262 forbidden-ext family). Bare-ident
+    /// callees ride the declared-param axis; the mangled prefix
+    /// keeps user `xs.map(topFn)` hot paths on their raw FnSig
+    /// direct dispatch.
+    fn mark_rewrite_minted_member_args(&mut self, callee: &ExprId, args: &[ExprId]) {
+        if matches!(self.ast.get_expr(*callee), Expr::Member { .. }) {
+            for &arg in args {
+                if let Expr::Ident(n) = self.ast.get_expr(arg)
+                    && (n.starts_with("__sm_") || n.starts_with("__cm_"))
+                {
+                    self.try_mark(arg);
+                }
+            }
+        }
+    }
+
+    /// Rotation 372 — does the Ident callee name a top-FnDecl whose
+    /// body touches `arguments` (any form)? Such a fn must not ride
+    /// the fixed-arity forwarder relay (see the spread axis in
+    /// `walk_call`). Cold path — only spread-carrying calls ask.
+    pub(crate) fn callee_touches_arguments(&self, callee: &ExprId) -> bool {
+        let Expr::Ident(name) = self.ast.get_expr(*callee) else {
+            return false;
+        };
+        self.ast.stmts.iter().any(|s| {
+            matches!(s, crate::ast::Stmt::FnDecl { name: n, body, .. }
+                if n == name
+                    && (crate::ast::body_has_non_length_arguments_touch(self.ast, body)
+                        || crate::ast::body_has_arguments_length(self.ast, body)))
+        })
     }
 }

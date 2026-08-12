@@ -630,6 +630,8 @@ pub(crate) fn build(
         set_symmetric_difference: init_c.map_set.set_symmetric_difference,
         set_relation_setlike: init_c.set_like.relation_setlike,
         set_setop_setlike: init_c.set_like.setop_setlike,
+        any_call_spread: init_c.spread_call.any_call_spread,
+        any_method_call_spread: init_c.spread_call.any_method_call_spread,
         map_clone: init_c.map_set.map_clone,
         map_set: init_c.map_set.map_set,
         map_get: init_c.map_set.map_get,

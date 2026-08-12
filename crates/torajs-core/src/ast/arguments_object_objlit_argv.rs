@@ -67,15 +67,36 @@ pub(super) fn collect_objlit_boxed_only_argv(
     }
     // Reference discipline over the whole arena. (No early return on
     // an empty field map — the store arm below seeds independently.)
+    //
+    // Rotation 372 — a member reference standing as the callee of a
+    // SPREAD-carrying call is NOT a typed-dispatch site: the spread
+    // lane (`ssa_lower_call_spread`) boxes the receiver and enters
+    // the any-lane member dispatch, which reaches the field closure
+    // through its boxed adapter — the exact channel this face is
+    // built on. Such a reference doesn't refuse admission; any OTHER
+    // member spelling of the field name still does (it could be a
+    // typed direct call carrying the OLD signature).
+    let mut spread_call_callees: HashSet<u32> = HashSet::new();
+    for e in &ast.exprs {
+        if let Expr::Call { callee, args } | Expr::OptCall { callee, args } = e
+            && args
+                .iter()
+                .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+        {
+            spread_call_callees.insert(callee.0);
+        }
+    }
     let mut ident_refs: HashMap<&str, usize> = HashMap::new();
     let mut closure_refs: HashMap<&str, usize> = HashMap::new();
     let mut member_names: HashSet<&str> = HashSet::new();
-    for e in &ast.exprs {
+    for (i, e) in ast.exprs.iter().enumerate() {
         match e {
             Expr::Ident(n) => *ident_refs.entry(n).or_insert(0) += 1,
             Expr::Closure { fn_name, .. } => *closure_refs.entry(fn_name).or_insert(0) += 1,
             Expr::Member { name, .. } | Expr::OptChain { name, .. } => {
-                member_names.insert(name);
+                if !spread_call_callees.contains(&(i as u32)) {
+                    member_names.insert(name);
+                }
             }
             _ => {}
         }

@@ -148,6 +148,24 @@ pub fn apply_spread_args(ast: &mut Ast) {
                 None => continue,
             },
         };
+        // Rotation 372 — an arguments-carrying callee must NOT be
+        // index-read expanded: the expansion trims the list to the
+        // declared/inferred arity, and the real argc dies with the
+        // trimmed tail (`f(...s)` against a 0-param arguments-style
+        // fn expanded to `f()` — arguments.length answered 0,
+        // silent). The face records desugar_arguments_object left on
+        // the Ast are the signal (the `arguments` idents themselves
+        // are already rewritten by now); such a call keeps its
+        // spread and rides the runtime lane
+        // (`ssa_lower_call_spread`), whose boxed dispatch feeds the
+        // true argc.
+        if ast.closure_argv_fns.contains(&resolved)
+            || ast.headless_argc_fns.contains(&resolved)
+            || ast.closure_argc_locals.contains(name)
+            || ast.closure_argv_locals.contains(name)
+        {
+            continue;
+        }
         // Exactly one spread, at the last position, over an Ident.
         let spread_count = args
             .iter()

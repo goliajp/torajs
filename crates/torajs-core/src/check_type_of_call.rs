@@ -67,6 +67,40 @@ pub(crate) fn check(
         checker.expr_types.insert(*callee, Type::Any);
         return Ok(Type::Any);
     }
+    // Rotation 372 — a call whose argument list still carries a
+    // dynamic `...spread` (it survived every static expander) types
+    // as Any and lowers through the runtime spread kernels
+    // (§13.3.8.1 ArgumentListEvaluation — argc is a runtime fact).
+    // Claimed before every route: a fixed-arity route would read the
+    // spread as ONE argument. Spread sources and literal args both
+    // walk (the walk records implicit-generic instantiation sites);
+    // iterability of a source is §7.4.2 GetIterator's runtime
+    // question, and callee callability is the any lane's runtime
+    // TypeError — so the callee walk is deliberately lenient.
+    if args
+        .iter()
+        .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+    {
+        for &a in args {
+            match ast.get_expr(a) {
+                Expr::Spread { expr } => {
+                    checker.type_of(ast, *expr)?;
+                }
+                _ => {
+                    checker.type_of(ast, a)?;
+                }
+            }
+        }
+        match ast.get_expr(*callee) {
+            Expr::Member { obj, .. } => {
+                let _ = checker.type_of(ast, *obj);
+            }
+            _ => {
+                let _ = checker.type_of(ast, *callee);
+            }
+        }
+        return Ok(Type::Any);
+    }
     if let Some(r) = route_early::try_route(checker, ast, eid, callee, args) {
         return r;
     }
