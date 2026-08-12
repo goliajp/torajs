@@ -163,7 +163,11 @@ impl<'a> Parser<'a> {
         // to the enclosing fn-body / top-level script (per spec
         // §14.3.2.1 VariableStatement).
         let (mutable, is_var) = match self.peek() {
-            Token::Let => (Some(true), false),
+            // §13.16 — sloppy code can also START a statement with
+            // `let` the NAME (`let = let * 2`), so the word only
+            // heads a declaration when what follows can begin a
+            // binding. `var` has its own token and never asks.
+            Token::Let if self.let_begins_declaration() => (Some(true), false),
             Token::Var => (Some(true), true),
             Token::Const => (Some(false), false),
             _ => (None, false),
@@ -305,6 +309,16 @@ impl<'a> Parser<'a> {
                     let at = self.at();
                     self.ast.yield_ident_positions.push(at);
                     "yield".to_string()
+                }
+                // §12.7.2 / §14.3.1.1 — `var let = 1` is an ordinary
+                // sloppy declaration, but `let let` and `const let`
+                // are Syntax Errors even in sloppy code, so only the
+                // `var` spelling asks the predicate. The other two
+                // fall through to the reject below, which is what
+                // the spec wants there.
+                Token::Let if kw == "var" && self.let_reads_as_ident() => {
+                    self.record_strict_goal_site("let");
+                    "let".to_string()
                 }
                 t => {
                     return Err(format!(

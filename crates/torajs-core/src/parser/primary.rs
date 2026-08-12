@@ -97,6 +97,17 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Ident("yield".to_string())))
             }
+            // §12.7.2 — the same for `let` in an IdentifierReference.
+            // Statement position never arrives here: the statement
+            // dispatcher claims `Token::Let` as a declaration before
+            // any expression parse begins, and the one shape that
+            // falls back out of it carries its own ASI answer
+            // (`let_newline_asi_form`).
+            Token::Let if self.let_reads_as_ident() => {
+                self.record_strict_goal_site("let");
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::Ident("let".to_string())))
+            }
             Token::String(s) => {
                 let s = s.clone();
                 self.pos += 1;

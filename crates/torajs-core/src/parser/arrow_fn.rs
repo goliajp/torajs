@@ -89,6 +89,12 @@ impl<'a> Parser<'a> {
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()
                     }
+                    // §12.7.2 — a sloppy arrow parameter may be
+                    // named `let`.
+                    Token::Let if self.let_reads_as_ident() => {
+                        self.record_strict_goal_site("let");
+                        "let".to_string()
+                    }
                     t => {
                         return Err(format!(
                             "expected parameter name, got {t:?} at {}",

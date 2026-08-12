@@ -118,6 +118,59 @@ impl Parser<'_> {
         !self.in_generator && self.class_stack.is_empty() && !self.in_strict_fn
     }
 
+    /// Whether a bare `let` here may be read as an ordinary
+    /// identifier — the `yield` predicate's sibling, and the last of
+    /// §12.7.2's list to reach the parser as its own token.
+    ///
+    /// The direction is the OPPOSITE of `yield`'s. `yield` arrived
+    /// admitted everywhere and needed the strict half added; `let`
+    /// arrived refused everywhere — even in a sloppy script, where
+    /// `var let = 1` is an ordinary declaration bun answers `1` for.
+    /// So what this predicate opens is the sloppy half, and the two
+    /// clauses that close it are the ones `yield` shares: a class
+    /// body is strict by §15.7 whatever the goal says, and §12.7.2
+    /// reserves the word in strict code, which the parser answers per
+    /// function since rotation 376. There is no generator clause —
+    /// `let` means the same thing inside one and outside.
+    ///
+    /// A site that declines falls through to its own "expected an
+    /// identifier" reject, which is the SyntaxError the spec wants.
+    /// An admitted site records itself on the shared
+    /// `strict_reserved_positions` vector, whose §12.7.2 message is
+    /// already the right one for this word — `yield` needed a lane of
+    /// its own for reasons that do not apply here.
+    ///
+    /// NOT every position an ordinary name reaches: §14.3.1.1 makes
+    /// `let` a Syntax Error in the BoundNames of a `let` or `const`
+    /// declaration in sloppy code TOO, so that caller keeps refusing
+    /// it and only the `var` spelling asks.
+    pub(super) fn let_reads_as_ident(&self) -> bool {
+        self.class_stack.is_empty() && !self.in_strict_fn
+    }
+
+    /// §13.16 / §14.3.1 — whether a `let` at STATEMENT START heads a
+    /// LexicalDeclaration rather than an ExpressionStatement.
+    ///
+    /// The two readings are only ever in competition where the word
+    /// can be a name at all, so strict code answers `true` outright.
+    /// In sloppy code the next token decides, and the ASI restriction
+    /// §13.16 already wrote the answer down: an ExpressionStatement
+    /// may not begin `let [`, which is why the bracket counts as a
+    /// declaration here even though `let[0]` is a perfectly ordinary
+    /// index expression anywhere else.
+    ///
+    /// `Token::Let` itself stays on the declaration side so that
+    /// `let let = 1` keeps reaching the loud reject §14.3.1.1 wants;
+    /// reading it as an expression would have quietly turned it into
+    /// two statements.
+    pub(super) fn let_begins_declaration(&self) -> bool {
+        !self.let_reads_as_ident()
+            || matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Ident(_) | Token::LBracket | Token::LBrace | Token::Yield | Token::Let)
+            )
+    }
+
     /// Judge `name` in an IdentifierReference position: `Err` when the
     /// position is already known to be strict, otherwise the site is
     /// recorded for the goal gate and `Ok` admits it.
