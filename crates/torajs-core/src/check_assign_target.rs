@@ -107,6 +107,9 @@ pub(crate) fn check_member(
         return Ok(t);
     }
     let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == &field) else {
+        if let Some(t) = try_class_dynamic_write(checker, ast, &obj_ty_nominal, &field, value)? {
+            return Ok(t);
+        }
         return Err(format!("no field `{field}` on type {obj_ty:?}"));
     };
     let field_ty = field_ty.clone();
@@ -139,6 +142,85 @@ pub(crate) fn check_member(
         ));
     }
     Ok(field_ty)
+}
+
+/// Rotation 373 — the write mirror of the read side's class-instance
+/// terminal-miss admission (RFC 20260804 blade 4): §10.1.9.2
+/// OrdinarySet on a name the layout never carries is an expando
+/// definition, not a type error — `this._v = v` inside an untyped
+/// class body is ordinary JS and bun runs it. The lowering boxes the
+/// receiver and rides the any-member set lane, whose runtime tail
+/// (RFC 20260714-struct-dynamic-props blade 2) owns the +24 expando
+/// dict, the non-extensible gate, and the accessor dispatch (a
+/// getter-only property throws the §10.1.9 readonly TypeError there).
+///
+/// A `__priv_` mangled name is narrower (§13.15.2 PutValue →
+/// PrivateSet): a declared private METHOD or getter-only accessor
+/// admits — the write must throw a CATCHABLE TypeError at runtime
+/// (compound assignment reads first, computes, then dies at PutValue),
+/// supplied by the lowering's static-throw arm (method) / the runtime
+/// accessor kernel (getter-only). An UNDECLARED private name keeps the
+/// loud reject: §13.1 requires lexical resolution, never a runtime
+/// answer.
+///
+/// A name the class chain declares as a METHOD keeps the loud reject:
+/// method call sites dispatch statically (`__cm_<C>__<name>` direct
+/// call), so an expando shadow the runtime would honor is invisible to
+/// them — admitting the write would be a silent-wrong, not a feature.
+/// Anonymous Struct receivers keep the loud reject too: an object
+/// literal's fields are statically known, so a miss there is
+/// overwhelmingly a typo (the read side's recorded diagnostic-posture
+/// boundary).
+fn try_class_dynamic_write(
+    checker: &mut Checker,
+    ast: &Ast,
+    obj_ty_nominal: &Type,
+    field: &str,
+    value: ExprId,
+) -> Result<Option<Type>, String> {
+    let Some(cname) = crate::check_type_of_member_accessor::class_name_of(obj_ty_nominal, ast)
+    else {
+        return Ok(None);
+    };
+    if field.starts_with("__priv_") {
+        let is_method = matches!(
+            checker.globals.get(&format!("__cm_{cname}__{field}")),
+            Some(Type::Function(..))
+        );
+        let is_getter = ast
+            .accessor_getters
+            .contains_key(&(cname.clone(), field.to_string()));
+        if !(is_method || is_getter) {
+            let raw = field
+                .strip_prefix("__priv_")
+                .and_then(|r| r.split_once("__").map(|(_, f)| f))
+                .unwrap_or(field);
+            return Err(format!(
+                "private field `#{raw}` is not declared in this class"
+            ));
+        }
+    } else if class_chain_declares_method(checker, ast, &cname, field) {
+        return Ok(None);
+    }
+    let _ = checker.type_of(ast, value)?;
+    Ok(Some(Type::Any))
+}
+
+/// Walk `cname`'s parent chain probing `__cm_<C>__<name>` — the shape
+/// the read side's class-method arm resolves. Inherited methods count:
+/// their call sites are just as statically dispatched.
+fn class_chain_declares_method(checker: &Checker, ast: &Ast, cname: &str, field: &str) -> bool {
+    let mut cur = Some(cname.to_string());
+    while let Some(c) = cur {
+        if matches!(
+            checker.globals.get(&format!("__cm_{c}__{field}")),
+            Some(Type::Function(..))
+        ) {
+            return true;
+        }
+        cur = ast.class_parents.get(&c).cloned().flatten();
+    }
+    false
 }
 
 fn enforce_readonly(checker: &Checker, ast: &Ast, obj: ExprId, field: &str) -> Result<(), String> {

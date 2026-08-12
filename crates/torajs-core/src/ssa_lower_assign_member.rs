@@ -99,7 +99,7 @@ pub(crate) fn lower(
         Type::Obj(sid) => sid,
         other => panic!("ssa-lower: field assign on non-obj {other:?}"),
     };
-    lower_obj_assign(ctx, obj, obj_val, sid, &field, value)
+    lower_obj_assign(ctx, eid, obj, obj_val, sid, &field, value)
 }
 
 /// The assignment expression's value is its rhs (§13.15.2 step 8 —
@@ -287,6 +287,7 @@ fn lower_regex_last_index_assign(
 
 fn lower_obj_assign(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
     sid: StructId,
@@ -294,14 +295,62 @@ fn lower_obj_assign(
     value: ExprId,
 ) -> Operand {
     if let Some(v) = crate::ssa_lower_assign_member_field::try_lower_setter_call(
-        ctx, obj, obj_val, sid, field, value,
+        ctx,
+        obj,
+        obj_val.clone(),
+        sid,
+        field,
+        value,
     ) {
         return v;
     }
     if let Some(v) =
-        crate::ssa_lower_assign_member_objlit::try_lower(ctx, obj_val, sid, field, value)
+        crate::ssa_lower_assign_member_objlit::try_lower(ctx, obj_val.clone(), sid, field, value)
     {
         return v;
     }
+    // Rotation 373 — the checker admitted a name the layout never
+    // carries (write mirror of the read side's blade-4 miss arm).
+    // A `__priv_` mangled name resolving to a class METHOD is a
+    // §13.15.2 PutValue → PrivateSet kind=method: the rhs evaluates
+    // first (GetValue/compute already happened inside it for compound
+    // forms), then the write itself throws a catchable TypeError. All
+    // other misses — plain expando definitions and private getter-only
+    // accessors — box the receiver and ride the any-member set lane,
+    // whose runtime tail owns the +24 expando dict and the accessor
+    // dispatch (getter-only throws the same readonly TypeError there).
+    if !ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .any(|(n, _)| n == field)
+    {
+        if field.starts_with("__priv_")
+            && let Some(cname) = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, obj)
+            && ctx.fn_table.contains_key(&format!("__cm_{cname}__{field}"))
+        {
+            return lower_private_method_write_throw(ctx, value);
+        }
+        let boxed = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
+            ctx, eid, boxed, field, value, &None, false,
+        );
+    }
     crate::ssa_lower_assign_member_field::lower_struct_field_store(ctx, obj_val, sid, field, value)
+}
+
+/// §13.15.2 — the rhs evaluates first and its value drops (the throw
+/// makes it unobservable), then the readonly-assign raiser records the
+/// pending TypeError and the throw-check propagates it (the
+/// `lower_self_name_write_throw` shape). `undefined`'s shape stands in
+/// so the enclosing expression still types out.
+fn lower_private_method_write_throw(ctx: &mut LowerCtx<'_>, value: ExprId) -> Operand {
+    let v = ctx.lower_expr(value);
+    let v_ty = ctx.operand_ty(&v);
+    if !v_ty.is_copy() {
+        ctx.emit_drop_value(v, v_ty);
+    }
+    let raiser = ctx.intrinsics.throw_readonly_assign;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(cur_block, InstKind::Call(raiser, vec![]));
+    ctx.emit_throw_check(None);
+    Operand::ConstPtrNull
 }

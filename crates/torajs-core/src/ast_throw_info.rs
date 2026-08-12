@@ -325,6 +325,25 @@ pub(crate) fn scan_expr(
             if is_arr_length_member(ast, *target, expr_types) {
                 *direct = true;
             }
+            // Rotation 373 — EVERY class-instance / struct member
+            // store can throw: the §10.1.9 writable gate (frozen
+            // instance, defineProperty-demoted field) arms a
+            // TypeError on the plain typed store, and the checker-
+            // admitted dynamic lanes (expando definition, private
+            // method write, getter-only accessor) throw on their own
+            // paths. Before this rule a fn whose ONLY throw source
+            // was `this.x = v` was pruned at the caller and the
+            // pending TypeError dropped — a frozen instance's method
+            // store answered "no throw" (pre-existing silent-wrong,
+            // same family as the length-assign rule above).
+            if let Expr::Member { obj, .. } = ast.get_expr(*target)
+                && matches!(
+                    expr_types.get(obj),
+                    Some(crate::check::Type::ClassRef(_) | crate::check::Type::Struct(_))
+                )
+            {
+                *direct = true;
+            }
             scan_expr(ast, *target, out, direct, fn_values, expr_types);
             scan_expr(ast, *value, out, direct, fn_values, expr_types);
         }
