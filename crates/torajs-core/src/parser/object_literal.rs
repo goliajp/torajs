@@ -181,6 +181,16 @@ impl<'a> Parser<'a> {
         // when the field name isn't followed by `:` AND isn't followed
         // by `(` (the method shorthand path above).
         if matches!(self.peek(), Token::Comma | Token::RBrace) {
+            // The shorthand is the one place an object literal spells
+            // an IdentifierReference rather than a property NAME, so it
+            // is the one place §12.7.2 applies: `{ static: 1 }` and
+            // `{ static() {} }` name a property and stay legal in
+            // strict code, `{ static }` reads a variable and does not.
+            // The recorded offset is the delimiter rather than the name
+            // itself — the name has already been consumed by the time
+            // the shorthand shape is recognised, and the message says
+            // which word.
+            self.note_strict_reference(&name)?;
             let value = self.ast.add_expr(Expr::Ident(name.clone()));
             // §B.3.1 — a shorthand `__proto__` is an ordinary own
             // property; only the `__proto__: v` production sets
@@ -199,6 +209,10 @@ impl<'a> Parser<'a> {
         // and record the eid; a literal that survives to expression
         // position early-errors on it (check_type_of_object_lit).
         if matches!(self.peek(), Token::Eq) {
+            // Same reference position as the plain shorthand above, and
+            // an assignment target on top of it — either clause refuses
+            // the seven words, so the one judge answers both.
+            self.note_strict_reference(&name)?;
             self.pos += 1;
             let default = self.parse_expr()?;
             let target = self.ast.add_expr(Expr::Ident(name.clone()));

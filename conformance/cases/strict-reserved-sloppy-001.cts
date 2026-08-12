@@ -20,6 +20,15 @@ function reads() {
   return static + public;
 }
 
+// The shorthand is a reference, so it is refused in strict code just
+// like the bare reads above; `{ static: 1 }` names a property and is
+// legal everywhere. Both spellings belong here so the sloppy answer to
+// the pair stays pinned.
+const shorthand = { static, public };
+const named = { static: 1, public: 2 };
+
 console.log(static + public + private + protected + implements + interface + package);
 console.log(reads());
 console.log(staticv + interfacev);
+console.log(shorthand.static + shorthand.public);
+console.log(named.static + named.public);
