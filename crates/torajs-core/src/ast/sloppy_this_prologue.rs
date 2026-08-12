@@ -1,10 +1,12 @@
-//! §10.2.1.2 OrdinaryCallBindThis step 6 (ThisMode ~global~) — under
-//! the sloppy script goal a function's `this` is the GLOBAL OBJECT
-//! whenever the call site supplied no receiver (undefined / null in
-//! the `__this` slot).
+//! §10.2.1.2 OrdinaryCallBindThis steps 4 and 6 (ThisMode ~global~) —
+//! under the sloppy script goal a function's `this` is the GLOBAL
+//! OBJECT whenever the call site supplied no receiver (undefined /
+//! null in the `__this` slot), and a PRIMITIVE receiver is wrapped by
+//! ToObject (`who.call(5)` sees a Number object, so `typeof this` is
+//! `"object"` — bun agrees).
 //!
-//! The binding is a callee-side prologue, `__this = __this ??
-//! globalThis`, which is the textbook place for it: every call lane —
+//! The binding is a callee-side prologue, `__this = Object(__this ??
+//! globalThis)`, which is the textbook place for it: every call lane —
 //! boxed dispatch, HOF loop seed, direct-call seed, the plain
 //! direct-call `undefined` that `this_param` seeds — flows through the
 //! body, so one rewrite covers them all. Strict-GOAL files never enter
@@ -16,9 +18,10 @@
 //! bodies, and `this_param::bind_this_param` for the plain functions
 //! that merely mention `this`.
 //!
-//! A primitive receiver keeps its unwrapped value — the step-4
-//! ToObject wrapper face is recorded residue (L3b 375-04), not a
-//! silent wrap here.
+//! Both `globalThis` and `Object` are spelled as bare names, so a
+//! binding shadowing either one inside the body would be read
+//! instead — the same trade the prologue has always taken on
+//! `globalThis`.
 
 use super::{Expr, ExprId, Stmt};
 use crate::lexer::Span;
@@ -79,9 +82,18 @@ pub(crate) fn insert_sloppy_this_prologue(
     let lhs = mint(Expr::Ident("__this".to_string()));
     let rhs = mint(Expr::Ident("globalThis".to_string()));
     let nullish = mint(Expr::Nullish { lhs, rhs });
+    // Step 4 — ToObject. `Object(x)` IS ToObject, and it already
+    // hands an object receiver straight back (measured:
+    // `Object(o) === o` and `Object(globalThis) === globalThis`), so
+    // the wrap costs a tag check on the paths that do not need it.
+    let object_ident = mint(Expr::Ident("Object".to_string()));
+    let to_object = mint(Expr::Call {
+        callee: object_ident,
+        args: vec![nullish],
+    });
     let assign = mint(Expr::Assign {
         target,
-        value: nullish,
+        value: to_object,
     });
     body.insert(0, Stmt::Expr(assign));
 }
