@@ -1530,32 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a3f0ce09`, never as a constant.
 
-**Latest @ `7f2ea0e7`** (2026-08-12, rotation 377 — the strict-code
-refusals rotation 376's per-function bit made answerable: §13.1.1
-`eval` / `arguments` in every binding position (declarations,
-parameter lists — which also gained the goal half they never had —
-catch parameters, and a function's own name, judged by its own body's
-directive), §13.1.3 the same pair as an assignment target (simple,
-compound, logical, prefix and postfix, through the one judge every
-form already shared), and §14.11.1 `with`. Plus the position rotation
-376 missed entirely: a TOP-LEVEL `"use strict"` armed nothing, so a
-sloppy script's directive neither refused a reserved binding nor made
-its functions' detached `this` undefined — one bit, three consumers,
-all three now answer. Sweep: passTotal 29683 → **29797 (+114)**:
-pass **+11** (true forward), passNegative **+103** (negatives now
-refused at parse phase where the spec asks), passNoOracle **0**;
-bug **−109**, incompatible −5, trAccepted +5, conservation exact
-(+5 = +114 − 109). **Zero pass regressions** (228-line verdict diff =
-114 × 2). Gate predicate **246 unattributed clusters / 3301 cases /
-register 2 · 654 / residue 761 · 983 / core 4938** — the four gate
-numbers hold because the movement is entirely bug→pass, on cases tr
-already accepted; the `incompatible` face it measures was not touched.
-Build determinism 44/44, N=12. NOTE: two of the seven knives are the
-same repair twice — `new Function`'s §15.2.1 early errors were read
-off a SUCCESSFUL parse, so each new parser refusal silently demoted
-them to the honest-reject arm's runtime TypeError; the fix moves the
-parameter-name check ahead of the parse and teaches the failure arm to
-ask whether the text parses when it is not strict.)
+**Latest @ `b60b6dbe`** (2026-08-12, rotation 377 — the strict-code
+refusals rotation 376's per-function bit made answerable, plus the
+position that bit was never armed in. §13.1.1 `eval` / `arguments` in
+every binding position (declarations, parameter lists — which also
+gained the goal half they never had — catch parameters, and a
+function's own name, judged by its own body's directive); §13.1.3 the
+same pair as an assignment target, through the one judge every
+assignment and update form already shared; §14.11 `with`, both halves —
+refused outright in strict code, and refused a Declaration as its body
+in sloppy. The missing position: a TOP-LEVEL `"use strict"` armed
+nothing, so a sloppy script's directive neither refused a reserved
+binding nor made its functions' detached `this` undefined — one bit,
+three consumers, all three now answer. Sweep: passTotal 29683 →
+**29805 (+122)**: pass **+11** (true forward), passNegative **+111**
+(negatives refused at parse phase where the spec asks), passNoOracle
+**0**; bug **−117**, incompatible −5, trAccepted +5, conservation
+exact (+5 = +122 − 117). **Zero pass regressions.** Gate predicate
+**246 unattributed clusters / 3301 cases / register 2 · 654 / residue
+761 · 983 / core 4938** — the four numbers hold because the movement is
+entirely bug→pass on cases tr already accepted; the `incompatible` face
+they measure was not touched. Build determinism 44/44, N=12. TWO
+lessons worth carrying: (1) `new Function`'s §15.2.1 early errors were
+read off a SUCCESSFUL parse, so each new parser refusal silently
+demoted them to the honest-reject arm's runtime TypeError — twice in
+one rotation, same fixture; the repair moves the parameter-name check
+ahead of the parse and teaches the failure arm to ask whether the text
+parses when it is not strict. (2) the gate was GREEN for the with-body
+knife and the sweep still found a real pass regression
+(`with ({}) let \n x = 1` — §13.16 restricts only `let [`), which the
+loop-body rule had already exempted in a helper named for that very
+test262 family; the two now share it instead of restating it.)
 
 **Previous @ `868507c6`** (2026-08-12, rotation 375 — the 79-case
 `unknown ident __this` cluster: a fn-expr body's `this` desugars to a

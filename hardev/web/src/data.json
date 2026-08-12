@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T14:34:02.277Z",
+  "generatedAt": "2026-08-12T15:02:47.671Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T14:32:19Z",
-    "headSha": "7f2ea0e7",
-    "elapsedSec": 321.6,
+    "ranAt": "2026-08-12T15:01:26Z",
+    "headSha": "b60b6dbe",
+    "elapsedSec": 322.25,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
     "pass": 24879,
     "passNoOracle": 837,
-    "passNegative": 4081,
-    "passTotal": 29797,
-    "bug": 12748,
+    "passNegative": 4089,
+    "passTotal": 29805,
+    "bug": 12740,
     "incompatible": 10629,
     "bunSkip": 6636,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 42545,
-    "passRateInScope": 56.04,
-    "passRateTrAccepted": 70.04
+    "passRateInScope": 56.05,
+    "passRateTrAccepted": 70.06
   },
   "torajs": {
-    "commit": "7f2ea0e7",
-    "commitSubject": "feat: a with statement is refused in strict code",
+    "commit": "b60b6dbe",
+    "commitSubject": "fix: the with-body rule keeps the let-ASI exemption the loop-body rule has",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "b60b6dbe",
+      "subject": "fix: the with-body rule keeps the let-ASI exemption the loop-body rule has"
+    },
+    {
+      "hash": "fadaf262",
+      "subject": "feat: a with statement cannot take a declaration as its body"
+    },
+    {
+      "hash": "802787c4",
+      "subject": "docs: rotation 377 close - the strict bit gets its missing names, positions, and starting point"
+    },
+    {
       "hash": "7f2ea0e7",
       "subject": "feat: a with statement is refused in strict code"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "4ad81fc3",
       "subject": "feat: strict-reserved words reach the parameter lists too"
-    },
-    {
-      "hash": "3c8c99a2",
-      "subject": "docs: rotation 376 close - per-function strictness, one thread through three knives"
-    },
-    {
-      "hash": "b3d91be0",
-      "subject": "feat: strict-only reserved words are rejected in binding position"
-    },
-    {
-      "hash": "12c07688",
-      "subject": "feat: sloppy detached this reaches the plain-function lane, and the prologue keeps expr_spans in sync"
     }
   ],
-  "headSha": "7f2ea0e7",
+  "headSha": "b60b6dbe",
   "autorun": {
     "total": 680,
     "baselineTarget": 10,
