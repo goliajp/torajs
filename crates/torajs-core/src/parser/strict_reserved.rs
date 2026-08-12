@@ -52,6 +52,23 @@ pub(super) fn refused_as_binding(name: &str) -> bool {
     STRICT_RESERVED.contains(&name) || STRICT_BAD_BINDING.contains(&name)
 }
 
+/// The §12.7.2 list as a REFERENCE position sees it, which is the
+/// seven words plus `let`.
+///
+/// `let` is on the same clause of the spec but reaches the parser as
+/// its own token, so every other occurrence is judged at the site by
+/// `let_reads_as_ident`. One position judges by NAME instead: the
+/// object-literal shorthand. There the property-name reader has
+/// already accepted the token and turned it into a string, and the
+/// shorthand shape then re-reads that string as an
+/// IdentifierReference — so `{ let }` has to be refused in strict
+/// code while `{ let: 1 }` stays legal, and this is where that is
+/// decided. (The binding list above is deliberately unchanged: no
+/// binding site hands `let` to a name-shaped judge today.)
+fn refused_as_reference(name: &str) -> bool {
+    STRICT_RESERVED.contains(&name) || name == "let"
+}
+
 impl Parser<'_> {
     /// Judge `name` in a BindingIdentifier position. `Err` when the
     /// position is already known to be strict; otherwise the site is
@@ -187,7 +204,7 @@ impl Parser<'_> {
     /// counts alongside the per-function bit — the same guard the
     /// sibling `yield` admission sites carry.
     pub(super) fn note_strict_reference(&mut self, name: &str) -> Result<(), String> {
-        if !STRICT_RESERVED.contains(&name) {
+        if !refused_as_reference(name) {
             return Ok(());
         }
         let strict = self.in_strict_fn || !self.class_stack.is_empty();
@@ -200,7 +217,7 @@ impl Parser<'_> {
     /// `arguments` stay readable in strict code, so they are absent
     /// here by design.
     pub(super) fn reject_if_strict_reserved(&self, name: &str, strict: bool) -> Result<(), String> {
-        if strict && STRICT_RESERVED.contains(&name) {
+        if strict && refused_as_reference(name) {
             return Err(format!(
                 "`{name}` is a reserved word in strict code at {} (ES §12.7.2)",
                 self.at()

@@ -49,3 +49,11 @@ console.log(outer());
 // stay visibly distinct.
 var holder = { let: 11 };
 console.log(holder.let);
+
+// The shorthand is the one place an object literal spells an
+// IdentifierReference instead of a property name, so it is the one
+// place §12.7.2 reaches this word by NAME rather than by token —
+// legal here, a SyntaxError under strict code
+// (test262 identifier-shorthand-let-invalid-strict-mode).
+var short = { let };
+console.log(short.let);
