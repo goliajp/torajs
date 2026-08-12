@@ -154,12 +154,12 @@ pub(super) fn collect_anylane_objlits(
 /// elsewhere can widen this one, which only ever costs the nominal
 /// receiver's struct-offset reads — the (f) leg's trade.
 ///
-/// r380 adds the second receiver shape — a call RESULT
-/// (`makeCounter().read`), which has no binding to annotate — in
-/// [`super::objlit_nominal_returned`]. What remains uncovered is a
-/// receiver reached through a PARAMETER (`function via(p){ return
-/// p.read }`), where the literal's binding lives in the caller;
-/// recorded residue, not a silent narrowing.
+/// r380 adds the other two receiver shapes. A call RESULT
+/// (`makeCounter().read`) has no binding to annotate at all and is
+/// forced at the `return` instead — [`super::objlit_nominal_returned`].
+/// A receiver reached through a PARAMETER (`function via(p){ return
+/// p.read }`) does have one, in the caller: [`propagate_param_reads`]
+/// carries the read back to it, and this leg lands the widen there.
 pub(super) fn widen_detached_method_objlits(
     stmts: &mut [Stmt],
     exprs: &mut Vec<Expr>,
