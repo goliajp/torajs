@@ -91,6 +91,9 @@ pub(crate) fn run(
         &mut ident_cands,
         &mut call_faces,
     );
+    // Rotation 375 — marked fn-exprs standing as a `throw` operand
+    // (doc on the collector).
+    super::fnexpr_this_faces::collect_throw_faces(stmts, stmts, exprs, fn_expr_exprs, &mut patches);
     // Seventh face position (rotation 346) — marked fn-exprs returned
     // from an objlit method/accessor body (doc on the collector).
     super::fnexpr_this_faces::collect_method_return_faces(
@@ -150,6 +153,20 @@ fn collect_position_faces(
                 patches,
                 ident_cands,
             );
+            continue;
+        }
+        // Rotation 375 — the NewDynamic inline-callee face:
+        // `new (function () { …this… })(…)`. Zero aliases by
+        // construction — the closure value exists only as this
+        // construct's callee — and the runtime construct channel is
+        // receiver-honoring end to end (rotation 345 knife 5:
+        // `__torajs_anyv_construct`'s plain-fn kernel invokes through
+        // `invoke_with_this` with the freshly allocated `this`, which
+        // shifts argv on FLAG_CLOSURE_RECV_FIRST). The Ident-callee
+        // spelling already rides `construct_channel_arg_idents`; this
+        // arm is its inline twin.
+        if let Expr::NewDynamic { callee, .. } = &exprs[i] {
+            collect_face(stmts, exprs, *callee, fn_expr_exprs, patches);
             continue;
         }
         let Expr::Call { callee, args } = &exprs[i] else {

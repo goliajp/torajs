@@ -37,6 +37,12 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, eid: ExprId) {
         // types as `ClassRef("Error")` now; a class instance is a heap
         // pointer, the same 8-byte shape as the struct behind it.
         Ok(Type::Array(_)) | Ok(Type::Struct(_)) | Ok(Type::ClassRef(_)) => {}
+        // Rotation 375 — `throw function () {…}` (the try-statement
+        // 12.14 family): a closure is a heap cell, the same 8-byte
+        // pointer shape; the lowering's refcounted fallback packs it
+        // ANY_HEAP=4 and a `catch (e: any)` reconstructs the box, so
+        // `e()` rides the any-call lane.
+        Ok(Type::Function(..)) => {}
         Ok(Type::Null) | Ok(Type::Nullable(_)) => {}
         Ok(Type::Undefined) => {}
         Ok(Type::Any) => {}

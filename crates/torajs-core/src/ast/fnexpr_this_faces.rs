@@ -206,6 +206,35 @@ fn insert_sloppy_this_prologue(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
     body.insert(0, Stmt::Expr(assign));
 }
 
+/// Rotation 375 — a marked fn-expr standing as a `throw` operand
+/// (`throw function () { …this… }`, the try-statement 12.14 family).
+/// The thrown value crosses into the exception channel, which is
+/// `any`-shaped end to end: a `catch (e)` binding is `any`, so every
+/// downstream consumption — `e()`, `e.m`, a re-throw — rides the
+/// runtime any lane, whose call paths all honor
+/// FLAG_CLOSURE_RECV_FIRST (`__torajs_any_call` →
+/// `invoke_with_this`, detached receiver `undefined` per §10.2.1.2 —
+/// the sloppy prologue then answers globalThis). Zero aliases: the
+/// fn-expr is the throw operand itself. Walks every statement list
+/// through the shared spine, FnDecl bodies included (a `throw`
+/// inside a lifted closure body is the common spelling).
+pub(super) fn collect_throw_faces(
+    body: &[Stmt],
+    all_stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    patches: &mut Vec<FacePatch>,
+) {
+    for s in body {
+        if let Stmt::Throw(e) = s {
+            collect_face(all_stmts, exprs, *e, fn_expr_exprs, patches);
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_throw_faces(inner, all_stmts, exprs, fn_expr_exprs, patches)
+        });
+    }
+}
+
 /// Rotation 346 — the seventh receiver-safe face position: a marked
 /// fn-expr RETURNED from an object-literal method or accessor body
 /// (`get f() { return function () { …this… } }`, the await-using
