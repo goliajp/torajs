@@ -9,6 +9,15 @@ use super::*;
 impl<'a> Parser<'a> {
     /// Class name position: user ident, force-synth discard (P8.5
     /// class-expression inner name), or anonymous synth mint.
+    ///
+    /// r380 — the §12.7.2 judge runs with `strict` hardwired true:
+    /// §15.7 makes every part of a class strict whatever the goal
+    /// said and whatever the enclosing function said, so `class
+    /// package {}` is a SyntaxError in a sloppy script too (measured:
+    /// bun refuses all seven words here in both goals, tr took them
+    /// all). The class-body `class_stack` push happens after this
+    /// call, which is why the verdict is passed in rather than read
+    /// off the stack.
     pub(super) fn parse_class_name(
         &mut self,
         allow_anon: bool,
@@ -28,6 +37,18 @@ impl<'a> Parser<'a> {
                 // lands first, so binding-position or_insert
                 // registrations never override it. Inner self-binding
                 // resolution stays an L3b follow-up.
+                // `implements` is TypeScript's heritage keyword, and
+                // at EXPRESSION position it reads as one: bun takes
+                // `const C = class implements {}` as an anonymous
+                // class carrying a heritage clause, while refusing it
+                // at declaration position where a name is required.
+                // The other six words have no such second reading, so
+                // only this one is left to whatever the parser
+                // already did with it (which is not bun's reading
+                // either — recorded as 380-04, not widened here).
+                if n != "implements" {
+                    self.reject_if_strict_reserved(n, true)?;
+                }
                 let inner = n.clone();
                 self.pos += 1;
                 let id = self.mint_desugar_id();
@@ -38,6 +59,7 @@ impl<'a> Parser<'a> {
                 synth
             }
             Token::Ident(n) => {
+                self.reject_if_strict_reserved(n, true)?;
                 let n = n.clone();
                 self.pos += 1;
                 n
