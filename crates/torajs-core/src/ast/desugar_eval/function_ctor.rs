@@ -65,6 +65,19 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
             i += 1;
             continue;
         }
+        // Same before-the-parse posture, and for the same reason: the
+        // parser refuses a strict-reserved BINDING outright, so a body
+        // whose prologue is strict never reaches `strict_early_error`
+        // with `function anonymous(eval)` — the assembly fails to parse
+        // and lands in the honest-reject arm, which answers the runtime
+        // "not a constructor" rather than the creation-time SyntaxError
+        // §20.2.1.1 step 22 asks for.
+        if strict_body && let Some(msg) = strict_param_name_error(&params) {
+            let throw = syntax_error_throw(msg, ast);
+            wrap_throw_iife(i, throw, ast);
+            i += 1;
+            continue;
+        }
         let full = format!("function {name}({params}\n) {{\n{body}\n}}");
         let arena_before = ast.exprs.len();
         // super_ok = false — §20.2.1.1 parses the body as an ordinary
@@ -168,20 +181,37 @@ fn body_prologue_strict(body: &str) -> bool {
 /// `eval` / `arguments` anywhere in the body — the parse appended
 /// every body expression after `arena_before`, so the arena tail scan
 /// sees all depths (same posture as the `this` scan).
+/// The names §15.2.1 refuses as a parameter of a strict function —
+/// `eval` / `arguments` (§13.1.1) plus the §12.7.2 future reserved
+/// words.
+const FUTURE_RESERVED: &[&str] = &[
+    "eval",
+    "arguments",
+    "implements",
+    "interface",
+    "let",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "static",
+    "yield",
+];
+
+/// The same rule read off the parameter TEXT, for the names the parser
+/// refuses before a declaration can be handed back. Splitting on commas
+/// is the spec's own assembly (step 16 joins the argument strings with
+/// commas), and only a segment that is EXACTLY the bare name counts, so
+/// the legal `function f(a = eval)` stays untouched.
+fn strict_param_name_error(params: &str) -> Option<String> {
+    params
+        .split(',')
+        .map(str::trim)
+        .find(|seg| FUTURE_RESERVED.contains(seg))
+        .map(|name| format!("dynamic function: `{name}` as a parameter name in strict mode"))
+}
+
 fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option<String> {
-    const FUTURE_RESERVED: &[&str] = &[
-        "eval",
-        "arguments",
-        "implements",
-        "interface",
-        "let",
-        "package",
-        "private",
-        "protected",
-        "public",
-        "static",
-        "yield",
-    ];
     let [Stmt::FnDecl { params, .. }] = parsed else {
         return None;
     };
