@@ -124,5 +124,25 @@ fn elem_value_ty(checker: &mut Checker, ast: &Ast, eid: ExprId) -> Result<Option
     if matches!(ast.get_expr(eid), Expr::Array(els) if els.is_empty()) {
         return Ok(None);
     }
-    Ok(Some(checker.type_of(ast, eid)?))
+    // r381 — an `as` cast over an `any` value asserts a type without
+    // changing the repr: the element is still a NaN box. Answering the
+    // asserted type here picked the 8-byte typed slot layout for a
+    // literal whose element is a 16-byte tagged one, so `take([z as P])`
+    // read the struct at P's declared offsets and answered `0` / `null`
+    // while its uncast twin `take([z])` was right. This is the same
+    // repr-over-assertion rule the Hole X arm above applies to nested
+    // containers, and the same one the call-argument peel applies.
+    // The RECORDED type has to move with it: the Any-slot pack reads
+    // `expr_types` to choose the element's tag (the G15 note above), so
+    // leaving the asserted type there packs a NaN box under a struct
+    // tag. Same post-hoc overwrite the let-decl annotation and the
+    // any-callee call site already do.
+    let ty = checker.type_of(ast, eid)?;
+    if let Expr::As { expr, .. } = ast.get_expr(eid)
+        && checker.type_of(ast, *expr)? == Type::Any
+    {
+        checker.expr_types.insert(eid, Type::Any);
+        return Ok(Some(Type::Any));
+    }
+    Ok(Some(ty))
 }

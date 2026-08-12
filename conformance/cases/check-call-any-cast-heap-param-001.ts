@@ -71,3 +71,15 @@ grid.push([1, 2]);
 grid.push([3, 4]);
 function takeGrid(g: number[][]) { console.log("grid", g[0][1] + g[1][0]); }
 takeGrid(grid as number[][]);
+
+// the cast one level down, as an ELEMENT of a literal: the element's
+// repr is still a NaN box, so the literal's slot layout has to follow
+// the repr and not the assertion. `take([z])` was already right.
+function takeList(ps: P[]) { console.log("elem", ps.length, ps[0].x, ps[0].y); }
+takeList([z as P]);
+takeList([z]);
+
+// mixed: an asserted element beside a genuinely typed one
+const real: P = { x: 1, y: "r" };
+function takeBoth(ps: P[]) { console.log("elem2", ps[0].x, ps[1].x, ps[1].y); }
+takeBoth([z as P, real]);
