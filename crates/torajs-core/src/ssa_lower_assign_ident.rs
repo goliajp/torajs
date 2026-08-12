@@ -73,6 +73,10 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_assign_slot_fit::{
+    check_local_coercion, coerce_for_global, coerce_for_local, global_coercion_compatible,
+    mismatch_hint,
+};
 
 pub(crate) fn lower(
     ctx: &mut LowerCtx<'_>,
@@ -211,7 +215,8 @@ fn lower_global_assign(
     let v_ty = ctx.operand_ty(&v);
     if !global_coercion_compatible(slot_ty, v_ty) {
         panic!(
-            "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}; use `>>` for integer divide or annotate the slot as the appropriate numeric width",
+            "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}{}",
+            mismatch_hint(&slot_ty, &v_ty),
         );
     }
     // Chunk 809 — a concrete rhs boxes into the Any slot (the
@@ -251,34 +256,6 @@ fn lower_global_assign(
         None,
     );
     Operand::Value(r)
-}
-
-fn global_coercion_compatible(slot_ty: Type, v_ty: Type) -> bool {
-    v_ty == slot_ty
-        // chunk 809 — an Any slot admits everything (boxed at the caller)
-        || slot_ty == Type::Any
-        || (slot_ty == Type::F64 && v_ty == Type::I64)
-        || (slot_ty == Type::I64 && v_ty == Type::I32)
-        || (slot_ty == Type::I32 && v_ty == Type::I64)
-        || slot_ty == Type::Ptr
-        || v_ty == Type::Ptr
-        || (matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
-        || (slot_ty == Type::Str && v_ty == Type::Any)
-        // L3b #4 — shorter-arity closures fit wider fn-typed slots
-        // (see check_local_coercion's Closure arm).
-        || (matches!(slot_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)))
-}
-
-fn coerce_for_global(ctx: &mut LowerCtx<'_>, slot_ty: Type, v_ty: Type, v: Operand) -> Operand {
-    if slot_ty == Type::F64 && v_ty == Type::I64 {
-        ctx.coerce_to_f64(v)
-    } else if matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
-        ctx.coerce_any_to_number(v, slot_ty)
-    } else if slot_ty == Type::Str && v_ty == Type::Any {
-        ctx.coerce_to_str(v, Type::Any)
-    } else {
-        v
-    }
 }
 
 fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Operand {
@@ -404,81 +381,5 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
     };
     if needs_inc {
         ctx.emit_rc_inc(*v);
-    }
-}
-
-fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type, v_ty: Type) {
-    if snap_ty == Type::Any && v_ty != Type::Any {
-        return;
-    }
-    let direct_compatible = v_ty == snap_ty
-        || (snap_ty == Type::F64 && v_ty == Type::I64)
-        || (matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
-        || (snap_ty == Type::Str && v_ty == Type::Any)
-        || (snap_ty == Type::Str && v_ty == Type::Substr);
-    if direct_compatible {
-        return;
-    }
-    let int_or_ptr_lax = (snap_ty == Type::I64 && v_ty == Type::I32)
-        || (snap_ty == Type::I32 && v_ty == Type::I64)
-        || snap_ty == Type::Ptr
-        || v_ty == Type::Ptr;
-    if int_or_ptr_lax {
-        return;
-    }
-    // L3b #4 — a shorter-arity closure fits a wider fn-typed slot
-    // (the checker's callback-subtype lattice is the sole admit
-    // gate): both are env cells, the call site pushes the SLOT sig's
-    // args and the callee reads its own shorter prefix, extra arg
-    // registers are simply never read.
-    if matches!(snap_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)) {
-        return;
-    }
-    let _ = ctx;
-    panic!(
-        "ssa-lower: assignment to `{name}` mismatch — slot is {snap_ty:?} but value is {v_ty:?}; use `>>` for integer divide or annotate the slot as the appropriate numeric width",
-    );
-}
-
-fn coerce_for_local(
-    ctx: &mut LowerCtx<'_>,
-    snap_ty: Type,
-    v_ty: Type,
-    v: Operand,
-    value: ExprId,
-) -> Operand {
-    if snap_ty == Type::Any && v_ty != Type::Any {
-        // S2.28 (RFC 20260727-dstr-assignment) — the eid-aware box,
-        // same as the global lane and the let-init lane: a typed OOB
-        // element read (`b = t[i]` past the end) carries the
-        // undefined sentinel, and the eid-blind `box_to_any` was
-        // boxing its raw bits as a Number (`let b: any = 0;
-        // b = t[1];` answered NaN). The expr gate also keeps
-        // `undefined` / `null` rhs tags apart, as the global path
-        // has since chunk 809.
-        ctx.box_to_any_from_expr(value, v)
-    } else if snap_ty == Type::F64 && v_ty == Type::I64 {
-        ctx.coerce_to_f64(v)
-    } else if matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
-        ctx.coerce_any_to_number(v, snap_ty)
-    } else if snap_ty == Type::Str && v_ty == Type::Any {
-        ctx.coerce_to_str(v, Type::Any)
-    } else if snap_ty == Type::Str && v_ty == Type::Substr {
-        // Chunk 561 — a Substr view assigned into an owned-Str slot
-        // materializes (mirror of materialize_call_args); the view
-        // reference (fresh from string indexing, or the +1 an alias
-        // rhs took above) releases after the copy, so both shapes
-        // balance.
-        let cur_block = ctx.cur_block;
-        let owned = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
-            Type::Str,
-            None,
-        );
-        ctx.emit_drop_value(v, Type::Substr);
-        Operand::Value(owned)
-    } else {
-        v
     }
 }

@@ -264,6 +264,7 @@ pub(crate) mod ssa_lower_assign_member;
 pub(crate) mod ssa_lower_assign_member_any;
 pub(crate) mod ssa_lower_assign_member_field;
 pub(crate) mod ssa_lower_assign_member_objlit;
+pub(crate) mod ssa_lower_assign_slot_fit;
 pub(crate) mod ssa_lower_binop;
 pub(crate) mod ssa_lower_binop_inner;
 pub(crate) mod ssa_lower_binop_inner_any_arith;
