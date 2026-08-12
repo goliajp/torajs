@@ -129,13 +129,7 @@ impl<'a> Parser<'a> {
         self.infer_default_param_anns(&mut params);
         self.reject_duplicate_params(&params, true)?;
 
-        let return_type = if matches!(self.peek(), Token::Colon) {
-            self.pos += 1;
-            let ann = self.parse_type_ann()?;
-            Some(unwrap_generator_return_ann(&ann))
-        } else {
-            None
-        };
+        let return_type = self.parse_gen_method_return_ann()?;
 
         match self.peek() {
             Token::LBrace => self.pos += 1,
@@ -275,5 +269,18 @@ impl<'a> Parser<'a> {
             self.ast.objlit_computed_keys.insert(value, key_expr);
         }
         Ok(Some((method_name, value)))
+    }
+
+    /// The optional `: Generator<T>`-style return annotation of a
+    /// generator method, collapsed to the yield type the state-machine
+    /// desugar consumes (split out of the method parser above to keep
+    /// it under the 200-line fn limit).
+    fn parse_gen_method_return_ann(&mut self) -> Result<Option<String>, String> {
+        if !matches!(self.peek(), Token::Colon) {
+            return Ok(None);
+        }
+        self.pos += 1;
+        let ann = self.parse_type_ann()?;
+        Ok(Some(unwrap_generator_return_ann(&ann)))
     }
 }
