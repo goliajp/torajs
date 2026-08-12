@@ -155,10 +155,17 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         // empty). The general default-ctor synthesis pass runs AFTER
         // this strip and keys on `parent.is_some()`, so the stripped
         // entry never gets one — synthesize the single-argument
-        // forward here (Map / Set / the wrapper ctors read exactly
-        // one argument; rest-forwarding is the recorded call-spread
-        // boundary, L3b 371-01).
-        if exotic && ctor.is_none() && exotic_super_kernel(p).is_some() {
+        // forward here. Map / Set ONLY: their kernels treat a
+        // nullish argument as the no-op §24.x.1.1 step 6, so
+        // `super(undefined)` from a 0-argument `new` is exactly
+        // `super()`; Array / the wrappers are NOT argument-count
+        // agnostic (`new Array(undefined)` is a RangeError,
+        // `new Number(undefined)` is NaN where `new Number()` is +0
+        // — the db66228e gate red), so they keep the no-forward
+        // shape until an arguments-length-aware forward exists
+        // (rest-forwarding is the recorded call-spread boundary,
+        // L3b 371-01).
+        if exotic && ctor.is_none() && matches!(p.as_str(), "Map" | "Set") {
             let arg = ast.add_expr(Expr::Ident("__superarg".to_string()));
             let sup = ast.add_expr(Expr::Super { args: vec![arg] });
             *ctor = Some(crate::ast::ClassCtor {
