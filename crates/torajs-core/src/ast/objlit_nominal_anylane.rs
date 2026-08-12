@@ -2,7 +2,9 @@
 //! collector family, extracted from `objlit_nominal.rs` (file-size:
 //! the dead-arena guard + construction-site binds overlay pushed the
 //! host over the 500-line hard limit). One logical unit: the root
-//! collectors (a)/(f) legs plus the nested-literal closure walk.
+//! collectors (a)/(f) legs, the nested-literal closure walk, and the
+//! binding leg of the detached-method widen (its returned-literal
+//! twin sits in `objlit_nominal_returned.rs`).
 
 use std::collections::HashMap;
 
@@ -143,32 +145,53 @@ pub(super) fn collect_anylane_objlits(
 /// the widen is the whole knife: the annotation becomes what the user
 /// could have written, and every existing lane follows from it.
 ///
-/// Only `Expr::Member` reads off a bare `Ident` bound by a `LetDecl`
-/// whose init IS the literal — the syntactically certain subset this
-/// module keeps to. A receiver that is not a resolvable binding
-/// (`makeCounter().read`) stays nominal and stays broken; recorded
-/// residue, not a silent narrowing. Callee position is what separates
-/// a read from a call, so `o.read()` does not widen while
+/// The binding leg here takes `Expr::Member` reads off a bare
+/// `Ident` bound by a `LetDecl` whose init IS the literal — the
+/// syntactically certain subset. Callee position is what separates a
+/// read from a call, so `o.read()` does not widen while
 /// `o.read.call(x)` does (there `o.read` is the callee's OBJECT).
 /// Binding names are not scope-resolved: a same-named binding
 /// elsewhere can widen this one, which only ever costs the nominal
 /// receiver's struct-offset reads — the (f) leg's trade.
-pub(super) fn widen_detached_method_objlits(stmts: &mut [Stmt], exprs: &[Expr]) {
-    let reads = value_read_members(exprs);
-    if !reads.is_empty() {
-        widen_inner(stmts, exprs, &reads);
+///
+/// r380 adds the second receiver shape — a call RESULT
+/// (`makeCounter().read`), which has no binding to annotate — in
+/// [`super::objlit_nominal_returned`]. What remains uncovered is a
+/// receiver reached through a PARAMETER (`function via(p){ return
+/// p.read }`), where the literal's binding lives in the caller;
+/// recorded residue, not a silent narrowing.
+pub(super) fn widen_detached_method_objlits(
+    stmts: &mut [Stmt],
+    exprs: &mut Vec<Expr>,
+    spans: &mut Vec<crate::lexer::Span>,
+) {
+    {
+        let reads = value_read_members(exprs);
+        if !reads.is_empty() {
+            widen_inner(stmts, exprs, &reads);
+        }
+    }
+    let returned = super::objlit_nominal_returned::value_read_call_members(exprs);
+    if !returned.is_empty() {
+        super::objlit_nominal_returned::force_returned_literals(stmts, exprs, spans, &returned);
     }
 }
 
-/// `(receiver binding, member)` pairs the program reads as a value.
-fn value_read_members(exprs: &[Expr]) -> std::collections::HashSet<(&str, &str)> {
-    let callees: std::collections::HashSet<u32> = exprs
+/// ExprIds sitting in callee position — what separates reading a
+/// member as a VALUE from calling it.
+pub(super) fn callee_positions(exprs: &[Expr]) -> std::collections::HashSet<u32> {
+    exprs
         .iter()
         .filter_map(|e| match e {
             Expr::Call { callee, .. } => Some(callee.0),
             _ => None,
         })
-        .collect();
+        .collect()
+}
+
+/// `(receiver binding, member)` pairs the program reads as a value.
+fn value_read_members(exprs: &[Expr]) -> std::collections::HashSet<(&str, &str)> {
+    let callees = callee_positions(exprs);
     exprs
         .iter()
         .enumerate()

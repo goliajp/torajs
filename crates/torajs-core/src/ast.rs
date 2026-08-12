@@ -123,6 +123,7 @@ mod nested_fns_idents;
 mod ns_alias;
 pub(crate) mod objlit_nominal;
 mod objlit_nominal_anylane;
+mod objlit_nominal_returned;
 mod prop_key;
 mod prototype_call;
 mod sfi_pass;
