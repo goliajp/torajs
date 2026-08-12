@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T22:09:18.629Z",
+  "generatedAt": "2026-08-12T23:25:34.731Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-12T21:50:38Z",
-    "headSha": "363961a6",
-    "elapsedSec": 323.29,
+    "ranAt": "2026-08-12T23:24:04Z",
+    "headSha": "47ee7e3d",
+    "elapsedSec": 324.21,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.05
   },
   "torajs": {
-    "commit": "66809ecf",
-    "commitSubject": "refactor: split the anonymous half out of the class-layout walk",
+    "commit": "47ee7e3d",
+    "commitSubject": "fix: an asserted array element keeps the repr its value really has",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "47ee7e3d",
+      "subject": "fix: an asserted array element keeps the repr its value really has"
+    },
+    {
+      "hash": "fa39e038",
+      "subject": "fix: extend the as-cast peel to the container widen wedge"
+    },
+    {
+      "hash": "77238620",
+      "subject": "fix: an as-cast over any must not buy a call argument past the repr gate"
+    },
+    {
+      "hash": "f97a948c",
+      "subject": "fix: nest angle brackets when splitting a marker annotation's parts"
+    },
+    {
+      "hash": "33ebb2a3",
+      "subject": "fix: join a container argument onto an object-literal method's param class"
+    },
+    {
+      "hash": "6808d6f1",
+      "subject": "docs: refresh the dashboard snapshot for rotation 380 close"
+    },
+    {
       "hash": "66809ecf",
       "subject": "refactor: split the anonymous half out of the class-layout walk"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "29159729",
       "subject": "docs: rotation 380 close - the four places `any` could not reach"
-    },
-    {
-      "hash": "363961a6",
-      "subject": "refactor: split the arguments-rewrite recursion three ways"
-    },
-    {
-      "hash": "c947b3b5",
-      "subject": "fix: a class cannot be named with a strict reserved word"
-    },
-    {
-      "hash": "94ffec61",
-      "subject": "fix: a primitive receiver is wrapped before a sloppy body sees it"
-    },
-    {
-      "hash": "545af445",
-      "subject": "docs: the __mth signature does not carry a receiver"
-    },
-    {
-      "hash": "4f6444ad",
-      "subject": "docs: the parameter shape is no longer uncovered"
-    },
-    {
-      "hash": "48e0edb7",
-      "subject": "fix: a detached object-literal method reached through a parameter"
     }
   ],
-  "headSha": "66809ecf",
+  "headSha": "47ee7e3d",
   "autorun": {
-    "total": 683,
+    "total": 684,
     "baselineTarget": 10,
-    "bySelf": 678,
+    "bySelf": 679,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786567042-4b19",
-      "at": "2026-08-12T20:37:22Z",
-      "ts": 1786567042,
+      "rotationId": "r-1786572569-6b44",
+      "at": "2026-08-12T22:09:29Z",
+      "ts": 1786572569,
       "trigger": "self",
-      "prevHead": "f393dc8f",
-      "handoffSha": "sha256:1c6114a4a29cee6d09ffd8fb53d269354770c8681d66475cbed991ac8e8d6b48",
-      "handoffAgeSec": 22,
+      "prevHead": "6808d6f1",
+      "handoffSha": "sha256:25f75cbc2412820420dc993d24382b3e47621361169252726e65815a3d7fb089",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786572569-6b44",
+        "at": "2026-08-12T22:09:29Z",
+        "ts": 1786572569,
+        "trigger": "self",
+        "prevHead": "6808d6f1",
+        "handoffSha": "sha256:25f75cbc2412820420dc993d24382b3e47621361169252726e65815a3d7fb089",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786567042-4b19",
         "at": "2026-08-12T20:37:22Z",
@@ -876,17 +887,6 @@
         "prevHead": "632ee9ac",
         "handoffSha": "sha256:6a561a6770958f075ab9bc49a350594491d97045a400646d2a251de6a4a1289d",
         "handoffAgeSec": 34,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786494552-7745",
-        "at": "2026-08-12T00:29:12Z",
-        "ts": 1786494552,
-        "trigger": "self",
-        "prevHead": "70708e0c",
-        "handoffSha": "sha256:eec057d303a0b1851c815b69f54592c74298c813486026cd208c4a669138937b",
-        "handoffAgeSec": 51,
         "conformanceBefore": null,
         "commitsInSession": null
       }
