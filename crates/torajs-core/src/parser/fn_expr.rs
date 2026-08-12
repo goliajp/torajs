@@ -195,6 +195,17 @@ impl<'a> Parser<'a> {
             let n = n.clone();
             self.pos += 1;
             Some(n)
+        } else if matches!(self.peek(), Token::Yield) && !is_generator {
+            // §15.2 FunctionExpression names its BindingIdentifier
+            // [~Yield] — `(function yield() {})` is legal even inside
+            // an enclosing generator, strict-goal only rejection (the
+            // prelude gate). A generator EXPRESSION's name is [+Yield]
+            // (§15.5), so that spelling stays on the loud reject path
+            // (param_list's `(` check fires next).
+            let at = self.at();
+            self.ast.yield_ident_positions.push(at);
+            self.pos += 1;
+            Some("yield".to_string())
         } else {
             None
         };

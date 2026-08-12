@@ -258,10 +258,10 @@ impl<'a> Parser<'a> {
         member_start_pos: usize,
     ) -> Result<Option<(String, ExprId)>, String> {
         if !((name == "get" || name == "set")
-            && matches!(
+            && (matches!(
                 self.peek(),
                 Token::Ident(_) | Token::String(_) | Token::Number(_) | Token::LBracket
-            ))
+            ) || Self::keyword_property_name(self.peek()).is_some()))
         {
             return Ok(None);
         }
@@ -280,7 +280,10 @@ impl<'a> Parser<'a> {
             Token::Ident(n) => n.clone(),
             Token::String(s) => s.clone(),
             Token::Number(n) => crate::ast::number_prop_key(*n),
-            _ => unreachable!(),
+            // §12.7.6 — the full reserved-word set is legal in
+            // property-name positions (`{ get yield() {} }`); the
+            // gate above admitted it via the shared table.
+            t => Self::keyword_property_name(t).unwrap().to_string(),
         };
         self.pos += 1;
         if !matches!(self.peek(), Token::LParen) {
