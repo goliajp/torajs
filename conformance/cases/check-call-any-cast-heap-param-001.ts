@@ -52,3 +52,22 @@ console.log("after", y[0], y[1], y[2]);
 // nested: the cast argument is itself the result of a call
 function makeAny(): any { return { x: 1, y: "n" }; }
 takeStruct(makeAny() as P);
+
+// the container half of the same rule: an `any[]` block cast to a
+// typed array. `take(seq)` was already right (the Array(Any) wedge);
+// `take(seq as number[])` read the NaN-boxed slots raw and answered
+// NaN. Both spellings now take the widen lane.
+const seq: any[] = [];
+seq.push(1);
+seq.push(2);
+seq.push(3);
+function takeNums(xs: number[]) { console.log("anyarr", xs.length, xs[0], xs[1] + xs[2]); }
+takeNums(seq as number[]);
+takeNums(seq);
+
+// a nested container cast keeps its element kind through the lane
+const grid: any[] = [];
+grid.push([1, 2]);
+grid.push([3, 4]);
+function takeGrid(g: number[][]) { console.log("grid", g[0][1] + g[1][0]); }
+takeGrid(grid as number[][]);

@@ -7,11 +7,9 @@
 //! subtype loop + consume bitmap.
 
 use crate::ast::{Ast, ExprId};
-use crate::check::{Checker, Type, WidenTarget};
+use crate::check::{Checker, Type};
 
-use super::any_widen::{
-    any_into_heap_param, as_cast_over_any, record_widen_site, widenable_fn_decl,
-};
+use super::any_widen::{any_into_heap_param, arr_any_into_typed_arr_param, as_cast_inner_ty};
 
 pub(crate) fn general_call(
     checker: &mut Checker,
@@ -233,8 +231,9 @@ fn arg_admitted(
     // same monomorph lane the UNCAST spelling already takes — the two
     // spellings must not disagree, and that lane is the one whose
     // answers were verified bun-equal.
-    if as_cast_over_any(checker, ast, arg_id)
-        && any_into_heap_param(checker, ast, eid, callee, &Type::Any, param_ty, i)
+    if let Some(inner) = as_cast_inner_ty(checker, ast, arg_id)
+        && (any_into_heap_param(checker, ast, eid, callee, &inner, param_ty, i)
+            || arr_any_into_typed_arr_param(checker, ast, eid, callee, &inner, param_ty, i))
     {
         return true;
     }
@@ -331,17 +330,7 @@ fn arg_admitted(
     // non-generic non-generator user FnDecls without rest params —
     // the only shape the clone+retarget lane handles; everything
     // else stays loud.
-    if matches!(param_ty, Type::Array(el) if !matches!(**el, Type::Any))
-        && matches!(arg_ty, Type::Array(el) if matches!(**el, Type::Any))
-        && let crate::ast::Expr::Ident(n) = ast.get_expr(*callee)
-        && !checker.closure_fn_names.contains(n)
-        && checker
-            .generic_type_params
-            .get(n)
-            .is_none_or(|tp| tp.is_empty())
-        && widenable_fn_decl(ast, n, i)
-    {
-        record_widen_site(checker, eid, n, i, WidenTarget::Arr);
+    if arr_any_into_typed_arr_param(checker, ast, eid, callee, arg_ty, param_ty, i) {
         return true;
     }
     // Chunk 641 — an empty `[]` literal argument has no element

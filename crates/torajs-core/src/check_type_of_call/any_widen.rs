@@ -72,16 +72,56 @@ pub(super) fn any_into_heap_param(
     true
 }
 
-/// Is this argument an `as` cast written over a value that is `any`
-/// underneath? TS treats the assertion as erasing nothing at runtime,
-/// and neither does tr: the operand `lower_as_cast` hands on for a
-/// non-scalar annotation is the NaN box itself. So the cast must not
-/// buy the argument past a repr gate its uncast twin has to clear.
-pub(super) fn as_cast_over_any(checker: &mut Checker, ast: &Ast, arg_id: &ExprId) -> bool {
-    let crate::ast::Expr::As { expr, .. } = ast.get_expr(*arg_id) else {
+/// RFC 20260802 `Array(Any)` → typed `Array(T)` wedge, the container
+/// twin of [`any_into_heap_param`]: `var seq = []; seq.push(1);
+/// f(seq)` against `f(xs: number[])` is TS any-assignability. Same
+/// monomorph backing — the site is recorded and the callee clone's
+/// param is widened to `any[]`, so a typed reader never faces the
+/// NaN-boxed block. Gated to the one callee shape the clone+retarget
+/// lane handles; everything else stays loud.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn arr_any_into_typed_arr_param(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    arg_ty: &Type,
+    param_ty: &Type,
+    i: usize,
+) -> bool {
+    if !matches!(param_ty, Type::Array(el) if !matches!(**el, Type::Any))
+        || !matches!(arg_ty, Type::Array(el) if matches!(**el, Type::Any))
+    {
+        return false;
+    }
+    let crate::ast::Expr::Ident(n) = ast.get_expr(*callee) else {
         return false;
     };
-    checker.type_of(ast, *expr) == Ok(Type::Any)
+    if checker.closure_fn_names.contains(n)
+        || !checker
+            .generic_type_params
+            .get(n)
+            .is_none_or(|tp| tp.is_empty())
+        || !widenable_fn_decl(ast, n, i)
+    {
+        return false;
+    }
+    record_widen_site(checker, eid, n, i, WidenTarget::Arr);
+    true
+}
+
+/// The type UNDER an `as` cast, or None when the argument is not one.
+///
+/// TS treats the assertion as erasing nothing at runtime, and neither
+/// does tr: the operand `lower_as_cast` hands on for a non-scalar
+/// annotation is the value itself. So the cast must not buy the
+/// argument past a repr gate its uncast twin has to clear — both
+/// widen wedges re-run against what is really underneath.
+pub(super) fn as_cast_inner_ty(checker: &mut Checker, ast: &Ast, arg_id: &ExprId) -> Option<Type> {
+    let crate::ast::Expr::As { expr, .. } = ast.get_expr(*arg_id) else {
+        return None;
+    };
+    checker.type_of(ast, *expr).ok()
 }
 
 /// Record one param's widen plan on the call site both any-widen
