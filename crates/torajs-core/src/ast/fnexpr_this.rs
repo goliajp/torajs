@@ -94,6 +94,14 @@ pub(crate) fn run(
     // Rotation 375 — marked fn-exprs standing as a `throw` operand
     // (doc on the collector).
     super::fnexpr_this_faces::collect_throw_faces(stmts, stmts, exprs, fn_expr_exprs, &mut patches);
+    // Rotation 375 — inline fn-exprs in explicitly-`any` param slots
+    // (doc on the collector; the Promise-executor spelling).
+    super::fnexpr_this_args::collect_any_param_literal_faces(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        &mut patches,
+    );
     // Seventh face position (rotation 346) — marked fn-exprs returned
     // from an objlit method/accessor body (doc on the collector).
     super::fnexpr_this_faces::collect_method_return_faces(
@@ -241,6 +249,38 @@ fn collect_position_faces(
                     collect_ident_face(exprs, *rev, ident_cands);
                 }
             }
+            // Rotation 375 — string-pattern `.replace` / `.replaceAll`
+            // functional replaceValue over a STRING-LITERAL receiver
+            // (`"ab".replace("b", <fn-expr>)`, the function-code
+            // 10.4.3 family). The literal receiver + literal pattern
+            // pin the lowering to the str replace_fn lane
+            // (`ssa_lower_str_replace_fn`'s String/Null/Undefined
+            // pattern gate), whose kernel reads the closure's
+            // receiver-first flag and seeds argv[0] undefined
+            // (§22.1.3.18 step 10's Call(replaceValue, undefined,
+            // «…»)). A non-literal receiver or a regex pattern keeps
+            // the loud reject — the regex replacer lane dispatches by
+            // typed transmute and has no receiver slot (L3b 375-01).
+            // ONLY the inline fn-expr admits. The IIFE-return
+            // spelling (`replace("b", (function () { return
+            // function () {…this…} })())`, function-code 10.4.3) was
+            // tried and REVERTED in-knife: the checker types the
+            // IIFE call's result as non-Function, so the lowering
+            // falls to the ToString replaceValue path and splices
+            // the fn's source text — promoting the inner fn-expr
+            // turned a loud reject into that silent-wrong. It needs
+            // the IIFE return-type inference first (L3b 375-01).
+            Expr::Member { obj, name }
+                if (name == "replace" || name == "replaceAll")
+                    && matches!(&exprs[obj.0 as usize], Expr::String(_))
+                    && args
+                        .first()
+                        .is_some_and(|p| is_str_pattern_literal(exprs, *p)) =>
+            {
+                if let Some(cb) = args.get(1) {
+                    collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+                }
+            }
             // Rotation 260 — `Array.from(iterable, <fn-expr>,
             // thisArg?)`: the static mapFn slot. Only the INLINE
             // fn-expr promotes (zero aliases by construction); the
@@ -323,6 +363,16 @@ fn collect_position_faces(
             _ => {}
         }
     }
+}
+
+/// `true` when the replace-family pattern argument is a shape the
+/// str replace_fn lane accepts (mirror of
+/// `ssa_lower_str_replace_fn`'s String / Null / Undefined checker
+/// gate) — anything else may route to the regex replacer lane,
+/// whose dispatch has no receiver slot.
+fn is_str_pattern_literal(exprs: &[Expr], p: ExprId) -> bool {
+    matches!(&exprs[p.0 as usize], Expr::String(_) | Expr::Null)
+        || matches!(&exprs[p.0 as usize], Expr::Ident(n) if n == "undefined")
 }
 
 /// Member-store face — `anyRecv.m = <fn-expr>` (expando method

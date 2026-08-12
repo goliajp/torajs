@@ -45,6 +45,17 @@ type BoxedEntry = unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64;
 
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
+/// Closure header flags word (cell +6) and the receiver-first bit —
+/// mirror of `torajs_rc::FLAG_CLOSURE_RECV_FIRST` (bit 12), must move
+/// in lockstep. A promoted callback (`function () { …this… }`)
+/// declares `__this` as its first param; §22.1.3.18 step 10 runs the
+/// replacer as Call(replaceValue, undefined, «matched, position,
+/// string»), so the kernel seeds argv[0] `undefined` and shifts the
+/// user triple up by one (the sloppy prologue then answers
+/// globalThis). A plain callback keeps the unshifted argv.
+const CLOSURE_FLAGS_OFF: usize = 6;
+const FLAG_CLOSURE_RECV_FIRST: u16 = 1 << 12;
+
 /// argv slot count handed to the boxed entry. 3 live slots
 /// (matched / position / whole) + undefined pad so a callback
 /// declaring extra params stays in bounds.
@@ -74,10 +85,17 @@ unsafe fn invoke_cb(
     };
     let undef = unsafe { __torajs_anyv_box_from_pair(TAG_UNDEF, 0) };
     let mut argv = [undef; ARGV_SLOTS];
-    argv[0] = unsafe { __torajs_anyv_box_from_pair(TAG_HEAP, matched as i64) };
-    argv[1] = unsafe { __torajs_anyv_box_from_pair(TAG_I64, position_cu) };
-    argv[2] = unsafe { __torajs_anyv_box_from_pair(TAG_HEAP, whole_str as i64) };
-    let ret = unsafe { boxed_entry(closure, argv.as_ptr(), 3) };
+    // Receiver-first shift (doc on FLAG_CLOSURE_RECV_FIRST above):
+    // argv[0] stays the undefined receiver, user triple moves up one.
+    let shift = usize::from(
+        unsafe { ((closure as *const u8).add(CLOSURE_FLAGS_OFF) as *const u16).read() }
+            & FLAG_CLOSURE_RECV_FIRST
+            != 0,
+    );
+    argv[shift] = unsafe { __torajs_anyv_box_from_pair(TAG_HEAP, matched as i64) };
+    argv[shift + 1] = unsafe { __torajs_anyv_box_from_pair(TAG_I64, position_cu) };
+    argv[shift + 2] = unsafe { __torajs_anyv_box_from_pair(TAG_HEAP, whole_str as i64) };
+    let ret = unsafe { boxed_entry(closure, argv.as_ptr(), 3 + shift as i64) };
     unsafe { __torajs_str_drop(matched) };
     if unsafe { __torajs_throw_check() } != 0 {
         return core::ptr::null_mut();

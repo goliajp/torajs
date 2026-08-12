@@ -147,6 +147,61 @@ pub(super) fn any_param_arg_idents(
     out
 }
 
+/// Rotation 375 — the INLINE-literal twin of
+/// [`any_param_arg_idents`]: a marked fn-expr standing directly in
+/// an explicitly-`any` (or proven-safe generic) param slot of a
+/// program-local FnDecl call promotes under the same
+/// greatest-fixpoint proof — the value crosses into the flag-aware
+/// any lane at the call boundary, and an inline literal has zero
+/// aliases by construction (stronger than the Ident shape, which
+/// must also pass the routed parity walk). This is what admits the
+/// `new Promise(function () { …this… })` executor: the
+/// promise-new desugar has already rewritten it to
+/// `__promise_from_executor(<fn-expr>)` whose `__ex` param is
+/// explicit `any`, and the helper body's `__ex(...)` rides
+/// `__torajs_any_call` → `invoke_with_this` (§27.2.3.1 step 9's
+/// Call(executor, undefined, «…»)).
+pub(super) fn collect_any_param_literal_faces(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    patches: &mut Vec<super::fnexpr_this_faces::FacePatch>,
+) {
+    let mut fn_params: std::collections::HashMap<&str, Option<FnSig>> =
+        std::collections::HashMap::new();
+    collect_fn_decl_params(stmts, &mut fn_params);
+    let safe_generics = safe_generic_param_names(stmts, exprs, &fn_params);
+    for e in exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Ident(fname) = &exprs[callee.0 as usize] else {
+            continue;
+        };
+        let Some(Some((type_params, params))) = fn_params.get(fname.as_str()) else {
+            continue;
+        };
+        if args
+            .iter()
+            .any(|a| matches!(&exprs[a.0 as usize], Expr::Spread { .. }))
+        {
+            continue;
+        }
+        for (i, a) in args.iter().enumerate() {
+            if let Some(p) = params.get(i)
+                && !p.is_rest
+                && p.type_ann.as_deref().is_some_and(|ann| {
+                    ann == "any"
+                        || (type_params.iter().any(|t| t == ann)
+                            && safe_generics.contains(p.name.as_str()))
+                })
+            {
+                super::fnexpr_this_faces::collect_face(stmts, exprs, *a, fn_expr_exprs, patches);
+            }
+        }
+    }
+}
+
 /// FnDecl type-params + params by name over the whole program (fn
 /// bodies and blocks recurse). A second decl of the same name
 /// poisons the entry to `None` — a by-name call cannot tell which
