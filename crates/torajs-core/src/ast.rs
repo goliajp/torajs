@@ -132,6 +132,7 @@ pub(crate) mod sloppy_this_prologue;
 mod stmt;
 mod stmt_flat;
 pub(crate) mod stmt_nested_lists;
+mod strict_reserved_goal;
 mod super_collect;
 mod super_collect_prop;
 mod this_param;
@@ -200,6 +201,7 @@ pub use stmt::{
 };
 pub(crate) use stmt::{GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM};
 pub use stmt_flat::toplevel_stmts_flat;
+pub use strict_reserved_goal::triage_strict_reserved_idents;
 pub use this_param::bind_this_param;
 pub use toplevel_this::rewrite_toplevel_this;
 pub use uninit_let::desugar_uninit_let;

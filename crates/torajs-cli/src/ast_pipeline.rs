@@ -59,6 +59,12 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // §12.7.2 strict-only future reserved words, goal half — same
+    // reason it sits with the yield gate rather than in the prelude.
+    if let Some(msg) = ast::triage_strict_reserved_idents(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     Ok(())
 }
 

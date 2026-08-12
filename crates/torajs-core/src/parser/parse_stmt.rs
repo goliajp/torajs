@@ -287,7 +287,15 @@ impl<'a> Parser<'a> {
         let mut decls: Vec<Stmt> = Vec::new();
         loop {
             let name = match self.peek() {
-                Token::Ident(n) => n.clone(),
+                Token::Ident(n) => {
+                    let n = n.clone();
+                    // §12.7.2 — `static` and friends are ordinary
+                    // identifiers in sloppy code and reserved in
+                    // strict; per-function strictness rejects here,
+                    // the goal half is recorded for the prelude gate.
+                    self.note_strict_reserved_binding(&n)?;
+                    n
+                }
                 // §12.7.2 — `let/var/const yield` is a valid binding
                 // outside generators under the sloppy goal; the parser
                 // admits and records, the prelude gate raises the

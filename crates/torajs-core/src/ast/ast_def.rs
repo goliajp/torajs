@@ -427,6 +427,14 @@ pub struct Ast {
     /// synthetic directive re-emitted into a function with a
     /// non-simple parameter list would be the §15.1.3 SyntaxError.
     pub synth_strict_directives: std::collections::HashSet<ExprId>,
+    /// §12.7.2 strict-only future reserved words (`static`, `public`,
+    /// …) admitted in a BindingIdentifier position where the parser
+    /// could not yet know the goal. `(byte offset, word)`; the prelude
+    /// gate `triage_strict_reserved_idents` raises the strict-goal
+    /// SyntaxError, sloppy script code keeps them as identifiers. The
+    /// per-FUNCTION half never lands here — the parser rejects it on
+    /// the spot, knowing its own `in_strict_fn`.
+    pub strict_reserved_positions: Vec<(u32, String)>,
     /// Template-substitution `String(...)` wrappers the parser
     /// synthesizes (§13.2.8.5 hint-string order) — keyed by the
     /// synthesized CALLEE Ident's ExprId (fresh per substitution, so
