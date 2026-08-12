@@ -165,6 +165,31 @@ impl<'a> Parser<'a> {
     /// an `Expr::ArrowFn` (the optional self-name is dropped — function
     /// expression names bind only inside the body, a feature out-of-
     /// scope for the subset).
+    /// Optional self-name — chunk 796: recorded by ExprId for the
+    /// NamedEvaluation registry (`.name` / fn-print; ES §15.5.5 — the
+    /// self-name wins over a binding name). Body-scope self-binding
+    /// stays out of scope for the subset.
+    fn parse_fn_expr_self_name(&mut self, is_generator: bool) -> Option<String> {
+        if let Token::Ident(n) = self.peek() {
+            let n = n.clone();
+            self.pos += 1;
+            return Some(n);
+        }
+        if matches!(self.peek(), Token::Yield) && !is_generator && self.class_stack.is_empty() {
+            // §15.2 FunctionExpression names its BindingIdentifier
+            // [~Yield] — `(function yield() {})` is legal even inside
+            // an enclosing generator, strict-goal only rejection (the
+            // prelude gate). A generator EXPRESSION's name is [+Yield]
+            // (§15.5), so that spelling stays on the loud reject path
+            // (param_list's `(` check fires next).
+            let at = self.at();
+            self.ast.yield_ident_positions.push(at);
+            self.pos += 1;
+            return Some("yield".to_string());
+        }
+        None
+    }
+
     pub(super) fn parse_fn_expr(&mut self) -> Result<ExprId, String> {
         // current token is `function` — the span anchor (RFC
         // 20260719-fn-tostring-source B1: toString hands back the
@@ -187,31 +212,7 @@ impl<'a> Parser<'a> {
         if is_generator {
             self.pos += 1;
         }
-        // Optional self-name — chunk 796: recorded by ExprId for the
-        // NamedEvaluation registry (`.name` / fn-print; ES §15.5.5 —
-        // the self-name wins over a binding name). Body-scope
-        // self-binding stays out of scope for the subset.
-        let self_name = if let Token::Ident(n) = self.peek() {
-            let n = n.clone();
-            self.pos += 1;
-            Some(n)
-        } else if matches!(self.peek(), Token::Yield)
-            && !is_generator
-            && self.class_stack.is_empty()
-        {
-            // §15.2 FunctionExpression names its BindingIdentifier
-            // [~Yield] — `(function yield() {})` is legal even inside
-            // an enclosing generator, strict-goal only rejection (the
-            // prelude gate). A generator EXPRESSION's name is [+Yield]
-            // (§15.5), so that spelling stays on the loud reject path
-            // (param_list's `(` check fires next).
-            let at = self.at();
-            self.ast.yield_ident_positions.push(at);
-            self.pos += 1;
-            Some("yield".to_string())
-        } else {
-            None
-        };
+        let self_name = self.parse_fn_expr_self_name(is_generator);
         // §15.5.1 — FormalParameters ride the fn's OWN [Yield] bit,
         // so the generator swap happens BEFORE the param list (the
         // self-name above stayed on the enclosing scope's bit). Error
@@ -305,6 +306,12 @@ impl<'a> Parser<'a> {
         }
         self.reject_lexical_shadowing_param(&params, &destr_lets, &stmts)?;
         self.reject_use_strict_with_non_simple_params(&params, &stmts)?;
+        // §13.1.1 on the expression's self-name — same deferral as the
+        // declaration form: `(function eval() { "use strict"; })` is
+        // refused by its own body's directive, which is only known now.
+        if let Some(n) = &self_name {
+            self.note_strict_binding(n, self.in_strict_fn)?;
+        }
         self.finish_fn_body_strict(strict_outer, &params, &mut stmts)?;
         let destr_prefix = destr_lets.len();
         let stmts = if destr_lets.is_empty() {

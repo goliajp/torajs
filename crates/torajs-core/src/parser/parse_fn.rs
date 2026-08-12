@@ -162,6 +162,12 @@ impl<'a> Parser<'a> {
         }
         self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        // §13.1.1 on the declaration's own BindingIdentifier. Judged
+        // here, before the bit is restored, because a function whose
+        // body says `"use strict"` refuses its OWN name — `function
+        // eval() { "use strict"; }` is a SyntaxError even in a sloppy
+        // script, so reading the enclosing strictness would miss it.
+        self.note_strict_binding(&name, self.in_strict_fn)?;
         self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         // V3-18 wedge — prepend per-param destructuring lets when a
         // parameter was a binding pattern. Order is preserved (lets

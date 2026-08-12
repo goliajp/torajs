@@ -54,13 +54,20 @@ pub(super) fn refused_as_binding(name: &str) -> bool {
 
 impl Parser<'_> {
     /// Judge `name` in a BindingIdentifier position. `Err` when the
-    /// enclosing function is already known to be strict; otherwise the
-    /// site is recorded for the goal gate and `Ok` admits it.
-    pub(super) fn note_strict_binding(&mut self, name: &str) -> Result<(), String> {
+    /// position is already known to be strict; otherwise the site is
+    /// recorded for the goal gate and `Ok` admits it.
+    ///
+    /// `strict` is passed in rather than read off `self` because the
+    /// two differ at the sites that must defer: a function's own
+    /// `"use strict"` lives inside the body, so its NAME and its
+    /// PARAMETERS are only judgeable once that body has been parsed —
+    /// by which point `self.in_strict_fn` has been restored to the
+    /// enclosing function's answer.
+    pub(super) fn note_strict_binding(&mut self, name: &str, strict: bool) -> Result<(), String> {
         if !refused_as_binding(name) {
             return Ok(());
         }
-        self.reject_if_strict_binding(name, self.in_strict_fn)?;
+        self.reject_if_strict_binding(name, strict)?;
         self.record_strict_goal_site(name);
         Ok(())
     }

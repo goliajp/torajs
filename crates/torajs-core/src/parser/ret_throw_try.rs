@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
                         // unlike a function's parameter list, a catch
                         // clause has no directive prologue of its own,
                         // so the strictness in force is already final.
-                        self.note_strict_binding(&s)?;
+                        self.note_strict_binding(&s, self.in_strict_fn)?;
                         s
                     }
                     // P4.7 — destructuring catch parameter
