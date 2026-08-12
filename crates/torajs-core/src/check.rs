@@ -184,6 +184,8 @@ pub use crate::check_entry::{
 // `CheckArtifacts`, so the type needs a public path.
 pub use crate::check_monomorph::MonoOutput;
 
+pub use crate::check_monomorph_any_widen::WidenTarget;
+
 impl Checker {
     pub(crate) fn new() -> Self {
         Self {
@@ -336,14 +338,18 @@ pub(crate) struct Checker {
     /// fn. Public via `pub fn check_with_generics` below.
     pub generic_call_sites: HashMap<ExprId, (String, Vec<Type>)>,
     /// RFC 20260802-any-arg-typed-param-mono — call sites whose
-    /// `Array(Any)` argument was admitted against a typed `Array(T)`
-    /// param of a plain-Ident user FnDecl. Keyed by the Call ExprId;
-    /// value is `(callee_name, widened param indexes)`. Every entry
-    /// MUST be retargeted by `check_monomorph_any_widen` to a clone
-    /// whose params are widened to `any[]` — an admitted-but-not-
-    /// retargeted site would hand a NaN-boxed Arr<Any> block to a
-    /// typed slot reader (silent wrong values).
-    pub any_widen_mono_sites: HashMap<ExprId, (String, Vec<usize>)>,
+    /// argument was admitted against a mismatched param of a
+    /// plain-Ident user FnDecl on TS any-assignability. Keyed by the
+    /// Call ExprId; value is `(callee_name, per-param widen plan)`.
+    /// Two flavors share the channel: an `Array(Any)` arg into a
+    /// typed `Array(T)` param widens that param to `any[]`
+    /// ([`WidenTarget::Arr`]), and a plain `Any` arg into a
+    /// heap-typed param (Function / Struct / Map / …) widens it to
+    /// `any` ([`WidenTarget::Scalar`]). Every entry MUST be
+    /// retargeted by `check_monomorph_any_widen` to the widened
+    /// clone — an admitted-but-not-retargeted site would hand a
+    /// NaN-boxed value to a typed slot reader (silent wrong values).
+    pub any_widen_mono_sites: HashMap<ExprId, (String, Vec<(usize, WidenTarget)>)>,
     /// L3b ③ — generic-fn VALUE escapes (`const g = f` where `f`'s
     /// sig still carries un-inferred TypeVars): key is the init
     /// Ident's ExprId, value the fn name. The binding's face is

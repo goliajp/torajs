@@ -7,7 +7,7 @@
 //! subtype loop + consume bitmap.
 
 use crate::ast::{Ast, ExprId};
-use crate::check::{Checker, Type};
+use crate::check::{Checker, Type, WidenTarget};
 
 pub(crate) fn general_call(
     checker: &mut Checker,
@@ -324,14 +324,7 @@ fn arg_admitted(
             .is_none_or(|tp| tp.is_empty())
         && widenable_fn_decl(ast, n, i)
     {
-        let name = n.clone();
-        let entry = checker
-            .any_widen_mono_sites
-            .entry(eid)
-            .or_insert_with(|| (name, Vec::new()));
-        if !entry.1.contains(&i) {
-            entry.1.push(i);
-        }
+        record_widen_site(checker, eid, n, i, WidenTarget::Arr);
         return true;
     }
     // Chunk 641 — an empty `[]` literal argument has no element
@@ -360,9 +353,10 @@ fn arg_admitted(
     // same contract since RFC 20260714 刀 1), so the coerce hook
     // the original gate was missing exists now (probe: plain-fn
     // `f(u)` coerced while `new A().m(u)` stayed a loud reject —
-    // bun accepts both). Heap-typed params (Array / struct /
-    // Map / …) stay loud: there is no caller-side Any→heap unbox
-    // helper (mirrors the let-decl lane's wrong-repr stance).
+    // bun accepts both). Heap-typed params take the monomorph lane
+    // below instead — there is still no caller-side Any→heap unbox
+    // helper, and widening the CALLEE's slot removes the need for
+    // one.
     if matches!(arg_ty, Type::Any)
         && matches!(
             param_ty,
@@ -375,12 +369,99 @@ fn arg_admitted(
     {
         return true;
     }
+    // r380 — the heap-typed half of that same rule, in
+    // [`any_into_heap_param`] (it records a widen site, so it wants
+    // its own frame).
+    if any_into_heap_param(checker, ast, eid, callee, arg_ty, param_ty, i) {
+        return true;
+    }
     // Chunk 762 — struct-param Nullable-field covariance wedge:
     // `{ inner: { a: 3 } }` / `{ inner: undefined }` into a declared
     // `{ inner?: Inner }` param, riding the same assignability
     // lattice the let-decl lane uses. See
     // [`crate::check_type_of_call_struct_field_covariance`].
     crate::check_type_of_call_struct_field_covariance::matches(checker, param_ty, arg_ty)
+}
+
+/// r380 — the heap-typed half of TS any-assignability at the call
+/// boundary (`const a: any = fn; takes(a)` against
+/// `takes(f: () => void)`). A caller-side unbox is the wrong shape
+/// here: an `Any` slot holding a Function / Struct / Map has no
+/// scalar to coerce into, and taxing every typed reader with a kind
+/// check costs the hot path. So the CALLEE moves instead — the same
+/// monomorph channel the `Array(Any)` wedge rides, with the param
+/// widened to plain `any` so the clone's body re-checks and re-lowers
+/// through the any-tier lanes (probe: Function / Array / Struct /
+/// Map / Set / class instance all answer bun-equal once the param is
+/// spelled `any` by hand, and a non-callable behind `any` still
+/// throws where bun throws). Typed callers keep the original decl —
+/// zero hot-path cost.
+///
+/// The excluded param types are the ones that must NOT reach here:
+/// scalars ride the caller-side coerce above, `Any` needs nothing,
+/// and `Rest` / `TypeVar` name shapes the clone lane cannot serve
+/// (`widenable_fn_decl` rejects rest params and generic decls
+/// anyway — the match keeps the intent readable at the gate).
+#[allow(clippy::too_many_arguments)]
+fn any_into_heap_param(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    arg_ty: &Type,
+    param_ty: &Type,
+    i: usize,
+) -> bool {
+    if !matches!(arg_ty, Type::Any)
+        || matches!(
+            param_ty,
+            Type::Any
+                | Type::Number
+                | Type::String
+                | Type::Boolean
+                | Type::BigInt
+                | Type::Void
+                | Type::Rest(_)
+                | Type::TypeVar(_)
+        )
+    {
+        return false;
+    }
+    let crate::ast::Expr::Ident(n) = ast.get_expr(*callee) else {
+        return false;
+    };
+    if checker.closure_fn_names.contains(n)
+        || !checker
+            .generic_type_params
+            .get(n)
+            .is_none_or(|tp| tp.is_empty())
+        || !widenable_fn_decl(ast, n, i)
+    {
+        return false;
+    }
+    record_widen_site(checker, eid, n, i, WidenTarget::Scalar);
+    true
+}
+
+/// Record one param's widen plan on the call site both any-widen
+/// wedges share. First writer per index wins: an index already
+/// planned cannot be re-targeted, and the two wedges are mutually
+/// exclusive on `arg_ty` anyway (`Array(Any)` vs plain `Any`).
+fn record_widen_site(
+    checker: &mut Checker,
+    eid: ExprId,
+    callee_name: &str,
+    i: usize,
+    target: WidenTarget,
+) {
+    let name = callee_name.to_string();
+    let entry = checker
+        .any_widen_mono_sites
+        .entry(eid)
+        .or_insert_with(|| (name, Vec::new()));
+    if !entry.1.iter().any(|(j, _)| *j == i) {
+        entry.1.push((i, target));
+    }
 }
 
 /// RFC 20260802 gate — can the any-widen lane clone this callee with
