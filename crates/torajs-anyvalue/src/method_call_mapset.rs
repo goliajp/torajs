@@ -227,23 +227,24 @@ pub(crate) unsafe fn map_set_method(
                         | ANY_METHOD_IS_DISJOINT_FROM
                 ) =>
             {
-                // ES2025 §24.2.5 — GetSetRecord requires a Set-shaped
-                // argument; tr's subset accepts real Set cells only
-                // (a non-Set answers the catchable TypeError below).
+                // §24.2.1.2 GetSetRecord — a real-Set argument keeps
+                // the Set×Set fast kernels; anything else (a Map, a
+                // user set-like, a refusing primitive) walks the
+                // observable size/has/keys protocol in `set_like`.
+                let other_av = arg_at(0);
                 let other = {
                     // Borrow-shaped cell read — a ShortStr / immediate
-                    // answers NULL and falls to the TypeError below
-                    // (the pre-fix `unbox_value` materialized a Str
-                    // cell for a ShortStr arg and leaked it on the
-                    // throw path).
-                    let p = crate::nanbox_encode::__torajs_anyv_cell_ptr(arg_at(0)) as *mut c_void;
+                    // answers NULL and routes to the protocol (whose
+                    // step-1 object gate throws for it).
+                    let p = crate::nanbox_encode::__torajs_anyv_cell_ptr(other_av) as *mut c_void;
                     if p.is_null()
                         || (p.cast::<u8>().add(4) as *const u16).read() != Tag::Set as u16
                     {
-                        __torajs_throw_type_error(
-                            c"argument of a Set method must be a Set".as_ptr(),
-                        );
-                        return VALUE_UNDEFINED;
+                        let out = crate::set_like_ops::setlike_method(m, m2, other_av);
+                        if __torajs_throw_check() != 0 {
+                            return VALUE_UNDEFINED;
+                        }
+                        return out;
                     }
                     p as *const c_void
                 };

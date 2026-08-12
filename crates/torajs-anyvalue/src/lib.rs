@@ -190,6 +190,8 @@ mod prop_has;
 mod prop_has_proto;
 mod reflect_apply;
 mod reflect_construct;
+mod set_like;
+mod set_like_ops;
 mod str_iterator;
 mod str_match_custom;
 mod struct_error_msg;
@@ -1730,6 +1732,7 @@ mod tests {
         __torajs_regex_set_last_index,
         __torajs_regex_test,
         __torajs_regex_to_string,
+        __torajs_set_create,
         __torajs_set_difference,
         __torajs_set_intersection,
         __torajs_set_is_disjoint_from,
