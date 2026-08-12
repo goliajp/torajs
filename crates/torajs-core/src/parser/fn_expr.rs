@@ -269,6 +269,7 @@ impl<'a> Parser<'a> {
         // inside is an early SyntaxError (§15.4.1) even when the
         // expression sits in a method.
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, false);
+        let strict_outer = self.in_strict_fn;
         let mut stmts = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             let s = match self.parse_stmt() {
@@ -283,6 +284,7 @@ impl<'a> Parser<'a> {
                     return Err(e);
                 }
             };
+            self.arm_strict_directive(&s, &stmts);
             stmts.push(s);
         }
         let recv_minted = self.gen_recv_minted;
@@ -303,6 +305,7 @@ impl<'a> Parser<'a> {
         }
         self.reject_lexical_shadowing_param(&params, &destr_lets, &stmts)?;
         self.reject_use_strict_with_non_simple_params(&params, &stmts)?;
+        self.finish_fn_body_strict(strict_outer, &params, &mut stmts);
         let destr_prefix = destr_lets.len();
         let stmts = if destr_lets.is_empty() {
             stmts

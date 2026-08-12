@@ -92,10 +92,14 @@ impl<'a> Parser<'a> {
         }
         // §15.8.1 — this IS an async body: await is legal.
         let saved_await = std::mem::replace(&mut self.await_allowed, true);
+        let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {
-                Ok(s) => body.push(s),
+                Ok(s) => {
+                    self.arm_strict_directive(&s, &body);
+                    body.push(s);
+                }
                 Err(e) => {
                     self.await_allowed = saved_await;
                     return Err(e);
@@ -113,6 +117,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        self.finish_fn_body_strict(strict_outer, &params, &mut body);
         // Prepend destructuring-param helper lets (same shape as
         // non-async method shorthand at parser.rs:4988).
         let body = if destr_lets.is_empty() {

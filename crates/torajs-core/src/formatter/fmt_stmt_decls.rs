@@ -38,6 +38,9 @@ impl<'a> Formatter<'a> {
         self.newline();
         self.indent += 1;
         for s in body {
+            if self.is_synth_strict_directive(s) {
+                continue;
+            }
             self.fmt_stmt(s);
             self.newline();
         }
@@ -139,6 +142,9 @@ impl<'a> Formatter<'a> {
             self.newline();
             self.indent += 1;
             for s in &ctor.body {
+                if self.is_synth_strict_directive(s) {
+                    continue;
+                }
                 self.fmt_stmt(s);
                 self.newline();
             }

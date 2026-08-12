@@ -168,13 +168,17 @@ impl<'a> Parser<'a> {
         // at the `)` would reject the comma operator.
         self.reject_duplicate_params(&params, true)?;
         let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
+        let strict_outer = self.in_strict_fn;
         let body_result = if matches!(self.peek(), Token::LBrace) {
             self.pos += 1;
             let mut stmts = Vec::new();
             let mut err = None;
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
                 match self.parse_stmt() {
-                    Ok(s) => stmts.push(s),
+                    Ok(s) => {
+                        self.arm_strict_directive(&s, &stmts);
+                        stmts.push(s);
+                    }
                     Err(e) => {
                         err = Some(e);
                         break;
@@ -205,6 +209,15 @@ impl<'a> Parser<'a> {
         let body = body_result?;
         self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        // Restore only — an arrow takes the LEXICAL `this` (§15.3), so
+        // no receiver decision downstream ever asks this body whether
+        // it is strict; the enclosing function already answered. It
+        // still had to ARM the bit above, because `() => { "use
+        // strict"; function f() {} }` makes `f` strict. Writing the
+        // directive in here would also cost real ground: an
+        // expression-bodied arrow is exactly `[Stmt::Return]`, a shape
+        // several later passes probe for.
+        self.restore_fn_strict(strict_outer);
         // V3-18 wedge — prepend destr-param lets to the body, matching
         // the parse_fn wedge.
         let body = if param_destr_lets.is_empty() {

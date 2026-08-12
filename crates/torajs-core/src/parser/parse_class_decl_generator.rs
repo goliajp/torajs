@@ -160,10 +160,14 @@ impl<'a> Parser<'a> {
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
+        let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {
-                Ok(s) => body.push(s),
+                Ok(s) => {
+                    self.arm_strict_directive(&s, &body);
+                    body.push(s);
+                }
                 Err(e) => {
                     self.in_gen_class_method = saved_in_gen;
                     self.in_generator = saved_gen;
@@ -205,6 +209,12 @@ impl<'a> Parser<'a> {
         // does not enter into it.
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        // Restore only — see `restore_fn_strict`. A generator body is
+        // rewritten into a state-machine class whose `next()` carries
+        // the receiver, so no promoted-body prologue reads its
+        // strictness; and `destr_prefix` below counts leading
+        // statements, which a written-in directive would shift.
+        self.restore_fn_strict(strict_outer);
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body
@@ -241,25 +251,10 @@ impl<'a> Parser<'a> {
                 .iter()
                 .any(|e| matches!(e, Expr::Ident(n) if n == GEN_RECV_PARAM));
 
-        // RFC 20260801-arguments-method-face knife 2b — the body's
-        // `arguments` idents rename to the trailing argv param over
-        // the same arena range (once the state machine owns the
-        // body, `arguments` would denote next()'s own object). A
-        // body that declares its own `arguments` binding keeps it
-        // (sloppy shadow, pre-face semantics).
-        let mut body_uses_arguments = false;
-        {
-            let mut local_binds = std::collections::HashSet::new();
-            crate::ast_collect_bindings::collect_local_binding_names(&body, &mut local_binds);
-            if !local_binds.contains("arguments") && !params.iter().any(|p| p.name == "arguments") {
-                for e in self.ast.exprs[body_expr_start..].iter_mut() {
-                    if matches!(e, Expr::Ident(n) if n == "arguments") {
-                        *e = Expr::Ident(GEN_ARGV_PARAM.into());
-                        body_uses_arguments = true;
-                    }
-                }
-            }
-        }
+        // RFC 20260801-arguments-method-face knife 2b — shared with
+        // the object-literal generator shorthand's knife 4d.
+        let body_uses_arguments =
+            self.rename_gen_arguments_to_argv(&body, &params, body_expr_start);
 
         // The hoisted generator: receiver first, then the user's params.
         // An instance receiver carries the declaring class's own name

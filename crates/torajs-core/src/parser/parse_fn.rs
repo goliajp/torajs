@@ -144,9 +144,12 @@ impl<'a> Parser<'a> {
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async && is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
+        let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-            body.push(self.parse_stmt()?);
+            let s = self.parse_stmt()?;
+            self.arm_strict_directive(&s, &body);
+            body.push(s);
         }
         self.await_allowed = saved_await;
         self.in_generator = saved_gen;
@@ -159,6 +162,7 @@ impl<'a> Parser<'a> {
         }
         self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        self.finish_fn_body_strict(strict_outer, &params, &mut body);
         // V3-18 wedge — prepend per-param destructuring lets when a
         // parameter was a binding pattern. Order is preserved (lets
         // run first, then user body).

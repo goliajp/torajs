@@ -419,6 +419,14 @@ pub struct Ast {
     /// `lift_arrow_fns` (it replaces the arena slot in place with the
     /// `Expr::Closure`).
     pub fn_expr_exprs: std::collections::HashSet<ExprId>,
+    /// The `"use strict"` string literals the parser WROTE rather than
+    /// read — one per function body that is strict only by lexical
+    /// inheritance (§11.2.2), materialized so the desugar chain can
+    /// read strictness off the body itself (see
+    /// `parser::strict_directive`). `tr fmt` skips exactly these: a
+    /// synthetic directive re-emitted into a function with a
+    /// non-simple parameter list would be the §15.1.3 SyntaxError.
+    pub synth_strict_directives: std::collections::HashSet<ExprId>,
     /// Template-substitution `String(...)` wrappers the parser
     /// synthesizes (§13.2.8.5 hint-string order) — keyed by the
     /// synthesized CALLEE Ident's ExprId (fresh per substitution, so

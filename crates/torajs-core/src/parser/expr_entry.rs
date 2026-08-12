@@ -108,6 +108,11 @@ impl<'a> Parser<'a> {
                         // along like the other position markers.
                         in_async_gen: self.in_async_gen,
                         in_generator: self.in_generator,
+                        // §11.2.2 strictness is lexical, and a template
+                        // interpolation is inside whatever function
+                        // encloses the literal — a fn-expr written in
+                        // `${...}` within a strict body is strict.
+                        in_strict_fn: self.in_strict_fn,
                         pending_async_fn_expr: false,
                         current_class_has_parent: self.current_class_has_parent,
                         synth_classes: Vec::new(),

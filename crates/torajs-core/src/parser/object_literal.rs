@@ -380,10 +380,14 @@ impl<'a> Parser<'a> {
         // §15.8.1 — a non-async method/accessor body may not await;
         // an async one may.
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
+        let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {
-                Ok(s) => body.push(s),
+                Ok(s) => {
+                    self.arm_strict_directive(&s, &body);
+                    body.push(s);
+                }
                 Err(e) => {
                     self.await_allowed = saved_await;
                     self.super_call_allowed = saved_super;
@@ -406,6 +410,7 @@ impl<'a> Parser<'a> {
         }
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        self.finish_fn_body_strict(strict_outer, &params, &mut body);
         let body = if destr_lets.is_empty() {
             body
         } else {

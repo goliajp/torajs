@@ -50,6 +50,7 @@ mod fn_expr;
 mod forof_binding;
 mod forof_forin_src;
 mod forof_using;
+mod gen_arguments_face;
 mod import_export;
 mod keyword_property;
 mod loops;
@@ -77,6 +78,7 @@ mod primary_atoms;
 mod primary_new_super;
 mod private_refs;
 mod ret_throw_try;
+mod strict_directive;
 mod try_parse_for_of;
 mod type_ann;
 mod type_ann_fn;
@@ -145,6 +147,7 @@ pub fn parse_into_super_prop(
         gen_recv_minted: false,
         in_async_gen: false,
         in_generator: false,
+        in_strict_fn: false,
         pending_async_fn_expr: false,
         static_this_class: None,
         super_call_allowed: false,
@@ -278,6 +281,15 @@ struct Parser<'a> {
     /// resolution. Save/restore at every function-body parse site,
     /// same discipline as `in_async_gen`; arrows inherit (§15.3).
     in_generator: bool,
+    /// §11.2.2 — is the cursor inside a function whose own directive
+    /// prologue said `"use strict"`, at any depth? Strictness only
+    /// accumulates inward, so the bit is armed per parsed body
+    /// statement and restored at every function-body parse site, same
+    /// discipline as `in_generator`; blocks and loops carry it through
+    /// untouched, being no such site. What it is FOR, and why the
+    /// answer is written back into the body rather than tabled: the
+    /// `strict_directive` module.
+    in_strict_fn: bool,
     /// One-shot handshake from `primary_async` to `parse_fn_expr`:
     /// the `async` keyword was consumed one token earlier, so the
     /// expression parser cannot see async-ness itself. `take`n at

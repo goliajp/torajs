@@ -153,10 +153,14 @@ impl<'a> Parser<'a> {
         // below (the class half does the same, see
         // parse_class_decl_generator.rs knife 2b).
         let body_expr_start = self.ast.exprs.len();
+        let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {
-                Ok(s) => body.push(s),
+                Ok(s) => {
+                    self.arm_strict_directive(&s, &body);
+                    body.push(s);
+                }
                 Err(e) => {
                     self.await_allowed = saved_await;
                     self.in_generator = saved_gen;
@@ -191,6 +195,8 @@ impl<'a> Parser<'a> {
         // against a field that was never created.
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        // Restore only, same reading as the class generator method.
+        self.restore_fn_strict(strict_outer);
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body
@@ -200,25 +206,10 @@ impl<'a> Parser<'a> {
             full
         };
 
-        // Knife 4d (RFC 20260801-arguments-method-face) — the body's
-        // `arguments` idents rename to the trailing argv param over
-        // the parsed arena range, mirroring the class generator
-        // method (knife 2b): once the state machine owns the body,
-        // `arguments` would denote next()'s own object. A body that
-        // declares its own `arguments` binding keeps it.
-        let mut body_uses_arguments = false;
-        {
-            let mut local_binds = std::collections::HashSet::new();
-            crate::ast_collect_bindings::collect_local_binding_names(&body, &mut local_binds);
-            if !local_binds.contains("arguments") && !params.iter().any(|p| p.name == "arguments") {
-                for e in self.ast.exprs[body_expr_start..].iter_mut() {
-                    if matches!(e, Expr::Ident(n) if n == "arguments") {
-                        *e = Expr::Ident(crate::ast::GEN_ARGV_PARAM.into());
-                        body_uses_arguments = true;
-                    }
-                }
-            }
-        }
+        // Knife 4d (RFC 20260801-arguments-method-face) — shared with
+        // the class generator method's knife 2b.
+        let body_uses_arguments =
+            self.rename_gen_arguments_to_argv(&body, &params, body_expr_start);
         // The argv rides a trailing `any` param — an ordinary
         // generator param, so the __Gen field / ctor / factory
         // plumbing carries it with zero desugar changes. The

@@ -183,6 +183,19 @@ impl<'a> Formatter<'a> {
         self.out.push('\n');
     }
 
+    /// Is this one of the `"use strict"` directives the PARSER wrote,
+    /// into a body that is strict only by lexical inheritance
+    /// (`parser::strict_directive`)? Those must not be re-emitted.
+    /// Printing one would put an explicit directive into a function
+    /// that may have a non-simple parameter list — the §15.1.3
+    /// SyntaxError — so `tr fmt` would be handing back source its own
+    /// parser rejects. Nothing is lost: the source states the
+    /// strictness once, in the enclosing function, and re-parsing this
+    /// output derives every inherited copy again.
+    pub(super) fn is_synth_strict_directive(&self, s: &Stmt) -> bool {
+        matches!(s, Stmt::Expr(e) if self.ast.synth_strict_directives.contains(e))
+    }
+
     fn fmt_top_stmt(&mut self, s: &Stmt) {
         self.fmt_stmt(s);
         self.newline();

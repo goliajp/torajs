@@ -139,12 +139,19 @@ impl<'a> Parser<'a> {
             // asyncness (a constructor is never async).
             let saved_await =
                 std::mem::replace(&mut self.await_allowed, is_async && !is_ctor_branch);
+            let strict_outer = self.in_strict_fn;
             let mut body = Vec::new();
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                if let Err(e) = self.parse_stmt().map(|s| body.push(s)) {
-                    self.await_allowed = saved_await;
-                    self.static_this_class = saved_static_this;
-                    return Err(e);
+                match self.parse_stmt() {
+                    Ok(s) => {
+                        self.arm_strict_directive(&s, &body);
+                        body.push(s);
+                    }
+                    Err(e) => {
+                        self.await_allowed = saved_await;
+                        self.static_this_class = saved_static_this;
+                        return Err(e);
+                    }
                 }
             }
             self.await_allowed = saved_await;
@@ -164,6 +171,7 @@ impl<'a> Parser<'a> {
             }
             self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
             self.reject_use_strict_with_non_simple_params(&params, &body)?;
+            self.finish_fn_body_strict(strict_outer, &params, &mut body);
             // V3-18 wedge — prepend destr-param lets when
             // class methods used a binding pattern.
             if destr_lets.is_empty() {

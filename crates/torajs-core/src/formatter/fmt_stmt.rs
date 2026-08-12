@@ -350,6 +350,9 @@ impl<'a> Formatter<'a> {
         self.newline();
         self.indent += 1;
         for s in stmts {
+            if self.is_synth_strict_directive(s) {
+                continue;
+            }
             self.fmt_stmt(s);
             self.newline();
         }
