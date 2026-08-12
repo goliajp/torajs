@@ -19,6 +19,7 @@
 //! every arm is preserved verbatim. When adding a new wedge, pick
 //! the segment by cascade position, never by receiver family.
 
+mod any_widen;
 mod general;
 mod route_arity_widen;
 mod route_collections;
