@@ -221,6 +221,7 @@ pub use nanbox_encode::*;
 
 mod nanbox_ffi;
 pub use nanbox_ffi::*;
+mod number_ctor;
 
 // ============================================================
 // AnyView — materialized view of an AnyValue payload

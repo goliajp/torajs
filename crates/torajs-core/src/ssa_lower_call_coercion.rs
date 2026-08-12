@@ -155,10 +155,36 @@ pub(crate) fn emit_to_number(
             ctx.release_owned_temp(arg_eid, &arg_op);
             Operand::Value(v)
         }
+        // §21.1.1.1 step 3 — `Number(bigint)` is the one legal
+        // BigInt→Number face: 𝔽(ℝ(value)) via the torajs-bigint
+        // kernel. Implicit ToNumber(BigInt) keeps throwing (§7.1.4
+        // step 2) — only this explicit-call arm converts.
+        Type::BigInt => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.bigint_to_number, vec![arg_op.clone()]),
+                Type::F64,
+                None,
+            );
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            Operand::Value(v)
+        }
         // S133-2 — `Number(Any)`: tag-dispatched ToNumber via runtime
-        // helper. Returns f64 (NaN passes through). The helper borrows.
+        // helper, behind the §21.1.1.1 pre-gate that legally converts
+        // a BigInt payload (every other tag answers exactly what the
+        // generic kernel answers, Symbol reject included). Returns
+        // f64 (NaN passes through). The helper borrows.
         Type::Any => {
-            let v = ctx.coerce_any_to_number(arg_op.clone(), Type::F64);
+            let v = Operand::Value(ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.number_ctor_any, vec![arg_op.clone()]),
+                Type::F64,
+                None,
+            ));
+            // §7.1.4 can record a pending throw (Symbol reject /
+            // OrdinaryToPrimitive TypeError) — same check the
+            // coerce_any_to_number sink emits.
+            ctx.emit_throw_check(None);
             ctx.release_owned_temp(arg_eid, &arg_op);
             v
         }

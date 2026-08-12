@@ -586,6 +586,8 @@ pub(crate) fn build(
         bigint_shr: init_c.bigint.bigint_shr,
         bigint_from_str: init_c.bigint.bigint_from_str,
         bigint_from_number: init_c.bigint.bigint_from_number,
+        bigint_to_number: init_c.bigint.bigint_to_number,
+        number_ctor_any: init_c.bigint.number_ctor_any,
         number_wrapper_new: init_c.bigint.number_wrapper_new,
         string_wrapper_new: init_c.bigint.string_wrapper_new,
         boolean_wrapper_new: init_c.bigint.boolean_wrapper_new,

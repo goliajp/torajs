@@ -205,6 +205,11 @@ fn try_primitive_coercion_ctor(
                     // shapes for as long as it has run them.
                     | Type::Struct(_)
                     | Type::ClassRef(_)
+                    // §21.1.1.1 step 3 — the explicit Number() call
+                    // is the one legal BigInt→Number conversion
+                    // (𝔽(ℝ(value))); implicit ToNumber keeps
+                    // throwing.
+                    | Type::BigInt
             ),
             // S137 — `String(arr)` routes to arr_join (ES §22.1.3.30 same path
             // as `arr.toString`); `String(struct)` is the generic Object

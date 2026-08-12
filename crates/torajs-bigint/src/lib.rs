@@ -58,6 +58,7 @@ pub mod layout;
 pub mod mul;
 pub mod shift;
 pub mod str_bridge;
+pub mod to_number;
 pub mod tostring;
 
 pub use arith::{__torajs_bigint_add, __torajs_bigint_sub};

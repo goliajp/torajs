@@ -42,6 +42,11 @@ pub(crate) struct BigIntIds {
     pub bigint_shr: FuncId,
     pub bigint_from_str: FuncId,
     pub bigint_from_number: FuncId,
+    /// §21.1.1.1 step 3 — `Number(bigint)` = 𝔽(ℝ(value)).
+    pub bigint_to_number: FuncId,
+    /// The `Number(any)` pre-gate kernel (BigInt window + generic
+    /// ToNumber delegate; torajs-anyvalue `number_ctor.rs`).
+    pub number_ctor_any: FuncId,
     pub bigint_clone: FuncId,
     pub bigint_neg: FuncId,
     pub bigint_cmp: FuncId,
@@ -111,6 +116,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_bigint_from_number",
             &[Type::F64],
             Type::BigInt,
+        ),
+        bigint_to_number: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_bigint_to_number",
+            &[Type::BigInt],
+            Type::F64,
+        ),
+        number_ctor_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_number_ctor",
+            &[Type::Any],
+            Type::F64,
         ),
         bigint_clone: declare_intrinsic(
             module,
