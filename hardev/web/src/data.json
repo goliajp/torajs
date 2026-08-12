@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T21:53:33.295Z",
+  "generatedAt": "2026-08-12T22:00:16.802Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.05
   },
   "torajs": {
-    "commit": "363961a6",
-    "commitSubject": "refactor: split the arguments-rewrite recursion three ways",
+    "commit": "a781074b",
+    "commitSubject": "refactor: split the expression typing cascade in two",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "a781074b",
+      "subject": "refactor: split the expression typing cascade in two"
+    },
+    {
+      "hash": "29159729",
+      "subject": "docs: rotation 380 close - the four places `any` could not reach"
+    },
+    {
       "hash": "363961a6",
       "subject": "refactor: split the arguments-rewrite recursion three ways"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "8f24ebbe",
       "subject": "fix: the object-literal shorthand judges `let` too"
-    },
-    {
-      "hash": "4ceef3f3",
-      "subject": "feat: let reads as a name where the spec says it is one"
-    },
-    {
-      "hash": "49d3cb84",
-      "subject": "fix: a class method survives being read as a value"
     }
   ],
-  "headSha": "363961a6",
+  "headSha": "a781074b",
   "autorun": {
     "total": 683,
     "baselineTarget": 10,
