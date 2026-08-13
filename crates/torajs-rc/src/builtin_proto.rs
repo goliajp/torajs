@@ -26,7 +26,7 @@
 //! at most ~14 times per program lifetime, dwarfed by everything else.
 
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -264,137 +264,6 @@ pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64 
     -1
 }
 
-/// Method-id span of the per-tag deleted bitmask below — mirrors
-/// `torajs-anyvalue::method_value::TABLE_SIZE` (the intern-table
-/// span; ids are append-only).
-const DELETED_MASK_WORDS: usize = 4; // 256 mids / 64 bits
-
-// Per-tag deleted-method-id bitmask (RFC 20260712 chunk 3) — the
-// `FLAG_FN_NAME_DELETED` precedent generalized: `delete
-// String.prototype.small` cannot remove the immortal interned method
-// cell, so the deleted state lives here as an owner-side flag. A
-// dynobj own entry (monkey-patch / defineProperty restore) always
-// wins before any intern fallthrough consults this mask, so a re-set
-// revives without a clear call. AtomicU64 fetch_or / load per
-// design-principles §6.2 (multi-thread-ready shape).
-#[allow(clippy::declare_interior_mutable_const)]
-const MASK_INIT: [AtomicU64; DELETED_MASK_WORDS] =
-    [const { AtomicU64::new(0) }; DELETED_MASK_WORDS];
-static DELETED_MIDS: [[AtomicU64; DELETED_MASK_WORDS]; NUM_BUILTIN_PROTOS] =
-    [MASK_INIT; NUM_BUILTIN_PROTOS];
-
-/// Mark `<proto tag>`'s interned method `mid` as deleted. Idempotent;
-/// out-of-range inputs are ignored (defensive — callers gate on the
-/// family-owns check first).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_mark_deleted(tag: i64, mid: i64) {
-    let (t, m) = (tag as usize, mid as usize);
-    if t >= NUM_BUILTIN_PROTOS || m >= DELETED_MASK_WORDS * 64 {
-        return;
-    }
-    DELETED_MIDS[t][m / 64].fetch_or(1u64 << (m % 64), Ordering::AcqRel);
-}
-
-/// 1 = `<proto tag>`'s interned method `mid` was deleted (and no
-/// dynobj own entry has since shadowed the question — the caller
-/// probes entries first). Out-of-range inputs answer 0.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -> i64 {
-    let (t, m) = (tag as usize, mid as usize);
-    if t >= NUM_BUILTIN_PROTOS || m >= DELETED_MASK_WORDS * 64 {
-        return 0;
-    }
-    ((DELETED_MIDS[t][m / 64].load(Ordering::Acquire) >> (m % 64)) & 1) as i64
-}
-
-// "Some `<Ctor>.prototype` singleton exists" front gate for the
-// own-write note — set once at mint time, read on every dynobj own
-// write (RFC 20260721 刀 11 G13).
-static ANY_MINTED: AtomicU64 = AtomicU64::new(0);
-
-// Per-tag patched-method-id bitmask (RFC 20260721 刀 11 G13) — the
-// DELETED_MIDS shape mirrored for the opposite question: a user own
-// entry written onto a builtin prototype singleton under an interned
-// method name (monkey-patch / defineProperty, data or accessor) sets
-// its (tag, mid) bit, and the primitive fast arms in the any-method
-// dispatcher consult it BEFORE answering natively. Sticky: an entry
-// delete leaves the bit set — the consult's own probe then misses
-// and the fast arm keeps winning, so a stale bit costs one probe,
-// never a wrong answer.
-#[allow(clippy::declare_interior_mutable_const)]
-const PATCH_MASK_INIT: [AtomicU64; DELETED_MASK_WORDS] =
-    [const { AtomicU64::new(0) }; DELETED_MASK_WORDS];
-static PATCHED_MIDS: [[AtomicU64; DELETED_MASK_WORDS]; NUM_BUILTIN_PROTOS] =
-    [PATCH_MASK_INIT; NUM_BUILTIN_PROTOS];
-
-/// Own-entry write note — every kernel that can create an own entry
-/// on a dynobj calls here with the target and the key's name bytes.
-/// `obj` values that are not a minted builtin-prototype singleton
-/// (the overwhelmingly common case) return after one relaxed load /
-/// one O(14) address scan; a singleton hit interns the name and
-/// marks the (tag, mid) patch bit.
-///
-/// # Safety
-/// `obj` is any pointer (compared, never dereferenced); `name` /
-/// `len` describe live UTF-8 key bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
-    obj: *const c_void,
-    name: *const u8,
-    len: i64,
-) {
-    if ANY_MINTED.load(Ordering::Acquire) == 0 {
-        return;
-    }
-    let tag = unsafe { __torajs_builtin_proto_tag_of(obj) };
-    if tag < 0 || name.is_null() || len <= 0 {
-        return;
-    }
-    let bytes = unsafe { core::slice::from_raw_parts(name, len as usize) };
-    let Ok(s) = core::str::from_utf8(bytes) else {
-        return;
-    };
-    let mid = crate::any_method_id(s);
-    let (t, m) = (tag as usize, mid as usize);
-    if mid == crate::ANY_METHOD_UNKNOWN || m >= DELETED_MASK_WORDS * 64 {
-        return;
-    }
-    PATCHED_MIDS[t][m / 64].fetch_or(1u64 << (m % 64), Ordering::AcqRel);
-}
-
-/// 1 = a user own entry was written on `<proto tag>`'s singleton
-/// under interned method `mid` at some point (see the sticky note
-/// above). The primitive fast-arm pre-gate's single load.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_has_patch(tag: i64, mid: i64) -> i64 {
-    let (t, m) = (tag as usize, mid as usize);
-    if t >= NUM_BUILTIN_PROTOS || m >= DELETED_MASK_WORDS * 64 {
-        return 0;
-    }
-    ((PATCHED_MIDS[t][m / 64].load(Ordering::Acquire) >> (m % 64)) & 1) as i64
-}
-
-/// 1 = SOMETHING happened to `<proto tag>`'s method `mid` that the
-/// native arms must not answer over — a user own entry was written
-/// (`has_patch`) or the method was deleted (`is_deleted`).
-///
-/// The two are one question for a dispatcher: either way the builtin
-/// surface is no longer what a call resolves to, and the caller has
-/// to take the slow path to find out which. Keeping them as one
-/// front gate is what lets the unpatched, undeleted program pay two
-/// relaxed loads and nothing else per method call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_is_shadowed(tag: i64, mid: i64) -> i64 {
-    let (t, m) = (tag as usize, mid as usize);
-    if t >= NUM_BUILTIN_PROTOS || m >= DELETED_MASK_WORDS * 64 {
-        return 0;
-    }
-    let bit = 1u64 << (m % 64);
-    let patched = PATCHED_MIDS[t][m / 64].load(Ordering::Acquire) & bit;
-    let deleted = DELETED_MIDS[t][m / 64].load(Ordering::Acquire) & bit;
-    ((patched | deleted) != 0) as i64
-}
-
 /// §20.5 Error-family class registry — the injected `Error` /
 /// NativeError CLASS objects, keyed by a fixed family index, so the
 /// globalThis fill (torajs-anyvalue) can answer the SAME identity the
@@ -408,6 +277,19 @@ pub unsafe extern "C" fn __torajs_builtin_proto_is_shadowed(tag: i64, mid: i64) 
 /// fill's loud MISSING_KNOWN posture. The classes live in
 /// module-scope let bindings (process lifetime), so the slot holds a
 /// borrowed immediate like `CLASSES_BY_TAG_IMM` does.
+mod patch_bits;
+
+use patch_bits::ANY_MINTED;
+
+// The masks moved to the child, but callers across the workspace
+// reach them as `torajs_rc::builtin_proto::<fn>` — keep that path
+// answering so the split stays invisible outside this file.
+pub use patch_bits::{
+    __torajs_builtin_proto_has_patch, __torajs_builtin_proto_is_deleted,
+    __torajs_builtin_proto_is_shadowed, __torajs_builtin_proto_mark_deleted,
+    __torajs_builtin_proto_note_own_write,
+};
+
 pub mod native_error_class {
     use core::sync::atomic::{AtomicU64, Ordering};
 
