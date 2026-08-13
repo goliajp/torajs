@@ -314,6 +314,7 @@ fn rewrite_call(ast: &mut Ast, call: ExprId, callee: ExprId, w: &str, n: &str) {
     });
     let mut cloner = super::clone_body::BodyCloner::new(ast);
     let cloned: Vec<ExprId> = args.iter().map(|a| cloner.clone_expr(*a)).collect();
+    migrate_side_tables(&mut cloner);
     let plain = ast.add_expr(Expr::Ident(n.to_string()));
     ast.with_fallthrough_idents.insert(plain);
     let else_branch = ast.add_expr(Expr::Call {
@@ -407,6 +408,7 @@ fn rewrite_assign(ast: &mut Ast, node: ExprId, compound_lhs: Option<ExprId>, w: 
     let mut cloner = super::clone_body::BodyCloner::new(ast);
     let cloned_value = cloner.clone_expr(value);
     let cloned_lhs = compound_lhs.map(|l| cloner.map[&l]);
+    migrate_side_tables(&mut cloner);
     if let (Some(orig), Some(clone)) = (compound_lhs, cloned_lhs) {
         let obj_read = with_member(ast, w, n);
         ast.exprs[clone.0 as usize] = ast.exprs[obj_read.0 as usize].clone();
@@ -431,6 +433,23 @@ fn rewrite_assign(ast: &mut Ast, node: ExprId, compound_lhs: Option<ExprId>, w: 
         then_branch,
         else_branch,
     };
+}
+
+/// Carry the side-table entries of a cloned arm across to the clone.
+///
+/// A guard's two arms are the same source expression, so whatever a
+/// side table says about the original is true of the copy — and every
+/// one of those tables is keyed by node id, which the clone does not
+/// share. Left out, the copy is a plain tree that has forgotten what
+/// it is: a `String(sub)` the parser wrote as machinery becomes an
+/// ordinary read of the name `String`, which the NEXT `with` out is
+/// then free to answer.
+///
+/// Migrating all of them rather than the one table this pass knows
+/// about is the helper's own contract — it walks every ExprId-keyed
+/// table so a new one lands covered instead of silently missing.
+fn migrate_side_tables(cloner: &mut super::clone_body::BodyCloner<'_>) {
+    super::clone_body_tables::migrate(cloner);
 }
 
 fn has_call(ast: &mut Ast, w: &str, n: &str) -> ExprId {

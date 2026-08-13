@@ -76,6 +76,12 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_set!(await_value_reads);
     copy_set!(fn_expr_exprs);
     copy_set!(template_str_calls);
+    // Its neighbour above marks the same `String(sub)` node from the
+    // other side, and the two have to travel together: `desugar_with`
+    // clones a value expression per guard arm, so a NESTED `with` sees
+    // the clone rather than the original. Without this the clone is
+    // just a name spelled `String`, and the outer object answers it.
+    copy_set!(synth_global_refs);
     copy_set!(fnexpr_recv_faces);
     copy_set!(async_fn_value_exprs);
     copy_set!(stack_array_literals);
