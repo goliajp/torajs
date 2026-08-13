@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T14:14:34.558Z",
+  "generatedAt": "2026-08-13T18:38:29.329Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T14:04:10Z",
-    "headSha": "ae19d1f6",
-    "elapsedSec": 379.93,
+    "ranAt": "2026-08-13T18:12:59Z",
+    "headSha": "0c0910be",
+    "elapsedSec": 418.76,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24993,
+    "pass": 24998,
     "passNoOracle": 847,
     "passNegative": 4106,
-    "passTotal": 29946,
-    "bug": 12776,
-    "incompatible": 10452,
+    "passTotal": 29951,
+    "bug": 12823,
+    "incompatible": 10400,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42722,
-    "passRateInScope": 56.32,
-    "passRateTrAccepted": 70.1
+    "trAccepted": 42774,
+    "passRateInScope": 56.33,
+    "passRateTrAccepted": 70.02
   },
   "torajs": {
-    "commit": "ae19d1f6",
-    "commitSubject": "fix: do not hand instanceof's operator a value with no any-encoding",
+    "commit": "d8850420",
+    "commitSubject": "refactor: split the builtin-proto owns tables, and say where a box failed",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "d8850420",
+      "subject": "refactor: split the builtin-proto owns tables, and say where a box failed"
+    },
+    {
+      "hash": "0c0910be",
+      "subject": "feat: accept explicit type arguments at a call site"
+    },
+    {
+      "hash": "59b04508",
+      "subject": "fix: typeof JSON.stringify(x) stopped folding to \"string\""
+    },
+    {
+      "hash": "aff422ff",
+      "subject": "fix: do not read a symbol key through the string payload offsets"
+    },
+    {
+      "hash": "b98fc2a6",
+      "subject": "fix: keep instanceof's bare-name target invisible to the two passes it broke"
+    },
+    {
+      "hash": "7b2d21ed",
+      "subject": "feat: let instanceof take a general expression on the right"
+    },
+    {
+      "hash": "d9f04fba",
+      "subject": "refactor: split the builtin-prototype method-id masks into a child module"
+    },
+    {
+      "hash": "48ae2841",
+      "subject": "docs: record rotation 389's sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "ae19d1f6",
       "subject": "fix: do not hand instanceof's operator a value with no any-encoding"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "50d67968",
       "subject": "fix: let a callable's own @@hasInstance decide instanceof"
-    },
-    {
-      "hash": "9c0df588",
-      "subject": "feat: consult @@hasInstance when instanceof's right side is a value"
-    },
-    {
-      "hash": "1b686c99",
-      "subject": "docs: record rotation 388's sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "e0b3c267",
-      "subject": "fix: answer undefined for a top-level undefined or callable"
-    },
-    {
-      "hash": "d802b6fc",
-      "subject": "feat: reach `this` from inside a stringify replacer"
-    },
-    {
-      "hash": "b1194824",
-      "subject": "feat: serve the JSON.stringify array replacer"
-    },
-    {
-      "hash": "ebe418e2",
-      "subject": "fix: keep `undefined` undefined across a mixed-Any join"
-    },
-    {
-      "hash": "5268283e",
-      "subject": "feat: serve the JSON.stringify function replacer"
-    },
-    {
-      "hash": "d36db181",
-      "subject": "docs: re-run rotation 387's sweep on the final HEAD"
     }
   ],
-  "headSha": "ae19d1f6",
+  "headSha": "d8850420",
   "autorun": {
-    "total": 692,
+    "total": 693,
     "baselineTarget": 10,
-    "bySelf": 687,
+    "bySelf": 688,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786625286-6688",
-      "at": "2026-08-13T12:48:06Z",
-      "ts": 1786625286,
+      "rotationId": "r-1786630979-5873",
+      "at": "2026-08-13T14:22:59Z",
+      "ts": 1786630979,
       "trigger": "self",
-      "prevHead": "1b686c99",
-      "handoffSha": "sha256:1191a99d79e32c9beb7cb0263d7540fd0f63805a7ff75309c31810c37671070b",
-      "handoffAgeSec": 7,
+      "prevHead": "d9f04fba",
+      "handoffSha": "sha256:a95c2f14154f00e0b663d5a996c5bf238a9981d049e0385e803688a9a69f7b73",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786630979-5873",
+        "at": "2026-08-13T14:22:59Z",
+        "ts": 1786630979,
+        "trigger": "self",
+        "prevHead": "d9f04fba",
+        "handoffSha": "sha256:a95c2f14154f00e0b663d5a996c5bf238a9981d049e0385e803688a9a69f7b73",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786625286-6688",
         "at": "2026-08-13T12:48:06Z",
@@ -876,17 +887,6 @@
         "prevHead": "6808d6f1",
         "handoffSha": "sha256:25f75cbc2412820420dc993d24382b3e47621361169252726e65815a3d7fb089",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786567042-4b19",
-        "at": "2026-08-12T20:37:22Z",
-        "ts": 1786567042,
-        "trigger": "self",
-        "prevHead": "f393dc8f",
-        "handoffSha": "sha256:1c6114a4a29cee6d09ffd8fb53d269354770c8681d66475cbed991ac8e8d6b48",
-        "handoffAgeSec": 22,
         "conformanceBefore": null,
         "commitsInSession": null
       }
