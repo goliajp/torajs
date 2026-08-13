@@ -46,8 +46,14 @@ pub(super) fn try_lower_dynamic_target(
     v: Operand,
     class_name: &str,
 ) -> Option<Operand> {
+    if !has_any_encoding(ctx.operand_ty(&v)) {
+        return None;
+    }
     let target_name = dynamic_target_name(ctx, class_name)?;
     let (slot, ty) = resolve_value_binding(ctx, &target_name)?;
+    if !has_any_encoding(ty) {
+        return None;
+    }
     if matches!(ty, Type::Closure(_) | Type::FnSig(_)) {
         return None;
     }
@@ -70,6 +76,28 @@ pub(super) fn try_lower_dynamic_target(
     // Steps 1 and 4 throw, and so can the handler body.
     ctx.emit_throw_check(None);
     Some(Operand::Value(r))
+}
+
+/// Does [`LowerCtx::box_to_any`] have an encoding for this type?
+///
+/// Its match ends in a panic, and a panic in the lowerer rejects the
+/// whole program — so every operand handed to the runtime operator
+/// has to be checked first, on BOTH sides. `FnSig` is the one that
+/// bites: a bare function value that never went through the closure
+/// construction site has no any-encoding (see
+/// `ast_collect_fn_closure`'s wrap), and
+/// `genFn instanceof GeneratorFunction` is exactly that shape — the
+/// left operand, which is why checking only the target missed it.
+///
+/// Mirrors the arms of that match — keep the two in step. Distinct
+/// from `ssa_lower_boxed_entry`'s same-shaped question about the
+/// boxed-entry ABI: that one admits `Ptr` and refuses `Substr`.
+fn has_any_encoding(ty: Type) -> bool {
+    ty.is_refcounted()
+        || matches!(
+            ty,
+            Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::Str | Type::Substr | Type::Void
+        )
 }
 
 /// Which binding the runtime operator should ask, or `None` to leave
@@ -176,17 +204,53 @@ fn resolve_value_binding(ctx: &mut LowerCtx<'_>, name: &str) -> Option<(ValueId,
 /// used to call, so every answer it already gave is preserved.
 /// Boxing the cell is a pure encode (RC-neutral), leaving the
 /// `release` story below untouched.
+///
+/// The operator needs the target as an `Any`, and a `FnSig`-typed
+/// slot has no such encoding — asking for one rejects the whole
+/// program at compile time. So the boxable cells take the operator
+/// and a `FnSig` keeps the ordinary walk it always had. Recorded
+/// residue: a handler installed on a value held in such a slot is
+/// not consulted. Losing the answer is worse than losing the
+/// handler.
 pub(super) fn emit_has_instance(
     ctx: &mut LowerCtx<'_>,
     v_any: Operand,
     cell: Operand,
     release: Option<Type>,
 ) -> Operand {
+    if !has_any_encoding(ctx.operand_ty(&cell)) {
+        return emit_ordinary_walk(ctx, v_any, cell, release);
+    }
     let cell_any = ctx.box_to_any(cell.clone());
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
         InstKind::Call(ctx.intrinsics.instanceof_dynamic, vec![v_any, cell_any]),
+        Type::Bool,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    if let Some(ty) = release {
+        ctx.emit_drop_value(cell, ty);
+    }
+    Operand::Value(r)
+}
+
+/// §7.3.22 alone, for a cell the any-encoding cannot carry. Same
+/// throw check and same release story as the operator path above.
+fn emit_ordinary_walk(
+    ctx: &mut LowerCtx<'_>,
+    v_any: Operand,
+    cell: Operand,
+    release: Option<Type>,
+) -> Operand {
+    let cur_block = ctx.cur_block;
+    let r = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.instanceof_fn_value,
+            vec![v_any, cell.clone()],
+        ),
         Type::Bool,
         None,
     );
