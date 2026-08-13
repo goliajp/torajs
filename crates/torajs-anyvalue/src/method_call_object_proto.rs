@@ -270,6 +270,15 @@ pub(crate) unsafe fn arr_to_string_borrowed(recv: AnyValue) -> AnyValue {
 }
 
 pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
+    // §20.1.3.6 steps 15-16 — the object gets to name itself, and that
+    // name wins over every builtinTag below when it is a String. Steps
+    // 1-2 answer before the Get, so undefined / null skip it.
+    if !is_undefined(recv)
+        && !is_null(recv)
+        && let Some(tagged) = unsafe { crate::method_call_object_proto_tag::try_tag_badge(recv) }
+    {
+        return tagged;
+    }
     let badge: &'static [u8] = if is_undefined(recv) {
         b"Undefined"
     } else if is_null(recv) {
@@ -379,6 +388,14 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
 /// # Safety
 /// `obj` is a live heap cell.
 pub(crate) unsafe fn cell_badge_string(obj: *mut c_void, is_struct: bool) -> AnyValue {
+    // Same steps 15-16 as `object_proto_to_string` — this is the entry
+    // a builtin prototype's own `toString()` reaches, and the tag it
+    // carries is exactly what that call is asking about.
+    if let Some(tagged) = unsafe {
+        crate::method_call_object_proto_tag::try_tag_badge(crate::nanbox::box_void_ptr(obj))
+    } {
+        return tagged;
+    }
     let badge: &'static [u8] = if is_struct {
         b"Object"
     } else {
