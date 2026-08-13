@@ -33,6 +33,21 @@
 //!   Promise`, or a chain over one): a user object with its own
 //!   `then` method decides for itself how it calls the handler, and
 //!   `f.call(this)` in that method would make `undefined` wrong.
+//! * The array iteration callbacks over a SYNTACTICALLY CERTAIN
+//!   array receiver (an array literal, or a binding `lift_arrow_fns`'
+//!   sibling proves only ever holds one). Two sub-shapes, and the
+//!   difference between them is the whole reason the blanket version
+//!   was wrong:
+//!   - `sort` / `toSorted` comparators (§23.1.3.30 step 5's
+//!     `Call(comparator, undefined, «x, y»)`) and `reduce` /
+//!     `reduceRight` callbacks (§23.1.3.24 step 6's `Call(callbackfn,
+//!     undefined, …)`) take no thisArg at all, so any argument count
+//!     admits;
+//!   - `forEach` / `map` / `filter` / `some` / `every` / the `find`
+//!     family / `flatMap` DO take one (§23.1.3.{8,15,20,…}), so they
+//!     admit only when the call site passed none — with a thisArg
+//!     present the answer is that object, which is exactly the case
+//!     the blanket version got wrong.
 //!
 //! Only function expressions (`ast.fn_expr_exprs`) take the binding.
 //! An ARROW inherits its enclosing `this` (§8.3.4) and is already
@@ -49,6 +64,7 @@
 //! receiver-promoting knives live: a slot one of them claimed has no
 //! `__this` capture left by the time this looks.
 
+use super::fnexpr_this_recvs::collect_arraylit_binding_names;
 use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -68,7 +84,28 @@ const PROMISE_STATICS: [&str; 7] = [
 /// answer a promise, so a chain over them stays certain.
 const HANDLER_METHODS: [&str; 3] = ["then", "catch", "finally"];
 
+/// Array iteration methods whose callback NEVER takes a thisArg —
+/// the spec hands them `undefined` whatever the call site wrote.
+const ARRAY_NO_THISARG: [&str; 4] = ["sort", "toSorted", "reduce", "reduceRight"];
+
+/// Array iteration methods whose callback takes an OPTIONAL thisArg
+/// as the second argument: `undefined` is the answer only when the
+/// call site omitted it.
+const ARRAY_OPTIONAL_THISARG: [&str; 10] = [
+    "forEach",
+    "map",
+    "filter",
+    "some",
+    "every",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flatMap",
+];
+
 pub fn bind_fnexpr_this_default(ast: &mut Ast) {
+    let arrays = collect_arraylit_binding_names(&ast.stmts, &ast.exprs);
     let mut targets: Vec<(ExprId, String)> = Vec::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
@@ -77,15 +114,9 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
         let Expr::Member { obj, name } = &ast.exprs[callee.0 as usize] else {
             continue;
         };
-        if !HANDLER_METHODS.contains(&name.as_str()) || !promise_certain(&ast.exprs, *obj) {
-            continue;
-        }
-        // `then` takes two handler slots; `catch` / `finally` one.
-        // Anything past them is not a handler and is left alone.
-        let slots = if name == "then" { 2 } else { 1 };
-        for slot in args.iter().take(slots) {
-            if let Some(fn_name) = unclaimed_fnexpr(ast, *slot) {
-                targets.push((*slot, fn_name));
+        for slot in no_receiver_slots(ast, &arrays, *obj, name, args) {
+            if let Some(fn_name) = unclaimed_fnexpr(ast, slot) {
+                targets.push((slot, fn_name));
             }
         }
     }
@@ -149,6 +180,48 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
             );
             break;
         }
+    }
+}
+
+/// The argument positions of `recv.<name>(args…)` that the spec
+/// invokes with no receiver — empty for every call this table does
+/// not name, which is what keeps an unaudited slot on its loud
+/// reject.
+fn no_receiver_slots(
+    ast: &Ast,
+    arrays: &std::collections::HashSet<String>,
+    obj: ExprId,
+    name: &str,
+    args: &[ExprId],
+) -> Vec<ExprId> {
+    if HANDLER_METHODS.contains(&name) && promise_certain(&ast.exprs, obj) {
+        // `then` takes two handler slots; `catch` / `finally` one.
+        // Anything past them is not a handler and is left alone.
+        let slots = if name == "then" { 2 } else { 1 };
+        return args.iter().take(slots).copied().collect();
+    }
+    if !array_certain(&ast.exprs, arrays, obj) {
+        return Vec::new();
+    }
+    let admits = ARRAY_NO_THISARG.contains(&name)
+        || (ARRAY_OPTIONAL_THISARG.contains(&name) && args.len() == 1);
+    if admits {
+        args.iter().take(1).copied().collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// `true` when `eid` is syntactically certain to be an array: a
+/// literal, or a binding the knife-2 receiver census proves holds
+/// only array literals. Same bar the promote knives use — a bare
+/// binding that might hold a user object with its own `map` would
+/// let that object's method decide the callback's receiver.
+fn array_certain(exprs: &[Expr], arrays: &std::collections::HashSet<String>, eid: ExprId) -> bool {
+    match &exprs[eid.0 as usize] {
+        Expr::Array(_) => true,
+        Expr::Ident(n) => arrays.contains(n),
+        _ => false,
     }
 }
 
