@@ -10,12 +10,12 @@
 //! structs → loop / static unfold + `__torajs_str_concat` chain.
 //! No GC, single linear sweep.
 //!
-//! - **S311** — lower-and-drop `replacer` (args[1]) + `space`
-//!   (args[2]) per ES §25.5.2. Spec evaluates them left-to-right;
-//!   tora's stringify currently ignores them (replacer / space
-//!   substrate is L3b). `check.rs:5772` already handled the
-//!   typecheck-and-drop side (S272 idiom); the ssa mirror loop here
-//!   so step()-style side-effect exprs still fire.
+//! - **S311** — `replacer` (args[1]) and `space` (args[2]) are
+//!   evaluated left-to-right per ES §25.5.2 even when they turn out
+//!   to be inert, so the loop below lowers every trailing argument
+//!   for its side effects. A `space` becomes a gap Str the static
+//!   unfold splices; a callable (or `any`) `replacer` takes the call
+//!   OUT of the static unfold entirely — see `serves_as_replacer`.
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not the
 //! `JSON.stringify` Member-Ident shape, or args empty — the
@@ -59,8 +59,12 @@ pub(crate) fn try_lower(
     // The walk peels this in step with its own shape recursion.
     let arg_fe = ctx.expr_types.get(&args[0]).cloned();
     let mut space_op = None;
+    let mut replacer_op = None;
     for (n, &a) in args.iter().enumerate().skip(1) {
         let op = ctx.lower_expr(a);
+        if n == 1 && serves_as_replacer(ctx, a) {
+            replacer_op = Some(ctx.box_to_any_from_expr(a, op.clone()));
+        }
         if n == 2 {
             let ty = ctx.operand_ty(&op);
             // A pointer-shaped `space` is the `null` / `undefined`
@@ -90,9 +94,48 @@ pub(crate) fn try_lower(
         );
         Operand::Value(g)
     });
+    // A replacer can substitute ANY node's value at run time, so the
+    // shape the static unfold monomorphizes against stops being known
+    // — the whole walk moves into the kernel, with the value boxed
+    // into the any lane the kernel serializes.
+    if let Some(rep) = replacer_op {
+        let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
+        let gap_arg = gap.clone().unwrap_or(Operand::ConstPtrNull);
+        let out = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.json_stringify_full,
+                vec![boxed, rep, gap_arg, Operand::ConstI64(0)],
+            ),
+            Type::Str,
+            None,
+        );
+        if let Some(g) = gap {
+            ctx.emit_drop_value(g, Type::Str);
+        }
+        ctx.emit_throw_check(None);
+        return Some(Operand::Value(out));
+    }
     let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap.clone());
     if let Some(g) = gap {
         ctx.emit_drop_value(g, Type::Str);
     }
     Some(out)
+}
+
+/// `true` when slot 2's checked type is one §25.5.2 step 4 would
+/// actually consult — a callable, or an `Any` whose run-time shape
+/// only the kernel can test. Everything else (a string, a number,
+/// `null`, `undefined`) the spec discards outright, so the static
+/// unfold keeps serving it.
+///
+/// The checker's twin of this test is
+/// `check_type_of_call_json_stringify::serves_as_replacer`; the two
+/// must agree on `Function`, or a call the checker admitted would
+/// reach the silent-drop path again.
+fn serves_as_replacer(ctx: &LowerCtx<'_>, a: ExprId) -> bool {
+    matches!(
+        ctx.expr_types.get(&a),
+        Some(crate::check::Type::Function(_, _) | crate::check::Type::Any)
+    )
 }

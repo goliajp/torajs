@@ -18,6 +18,11 @@ pub(crate) struct JsonRawIds {
     pub json_is_raw_json: FuncId,
     pub json_parse_any: FuncId,
     pub json_parse_reviver: FuncId,
+    /// §25.5.2 with a `replacer` — value + replacer + gap + starting
+    /// depth. The static unfold cannot serve it (a replacer may
+    /// substitute any node's value at run time), so the whole walk
+    /// happens in the kernel.
+    pub json_stringify_full: FuncId,
     /// RFC 20260801-ns-object-value (JSON extension) — the `JSON`
     /// namespace singleton in a value position.
     pub ns_object_json: FuncId,
@@ -45,6 +50,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_json_parse_reviver",
             &[Type::Any, Type::Any],
             Type::Any,
+        ),
+        json_stringify_full: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_json_stringify_full",
+            &[Type::Any, Type::Any, Type::Str, Type::I64],
+            Type::Str,
         ),
         json_is_raw_json: declare_intrinsic(
             module,

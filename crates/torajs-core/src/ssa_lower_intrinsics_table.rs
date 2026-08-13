@@ -385,6 +385,7 @@ pub(crate) fn build(
         anyv_json_stringify: init_c.any_substrate.anyv_json_stringify,
         anyv_json_stringify_gap: init_c.any_substrate.anyv_json_stringify_gap,
         anyv_json_gap_str: init_c.any_substrate.anyv_json_gap_str,
+        json_stringify_full: init_c.json_raw.json_stringify_full,
         json_raw_json: init_c.json_raw.json_raw_json,
         json_is_raw_json: init_c.json_raw.json_is_raw_json,
         json_parse_any: init_c.json_raw.json_parse_any,

@@ -11,7 +11,7 @@ use super::*;
 /// `{...}` — own enumerable entries in §10.1.11.1 order (the print
 /// walker's `iter_order` contract); a key whose value serializes to
 /// nothing is omitted entirely.
-pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) {
+pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
     unsafe {
         __torajs_jsb_push_byte(sb, b'{');
         let len = __torajs_dynobj_iter_len(ptr);
@@ -28,60 +28,22 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             if __torajs_dynobj_iter_flags(ptr, i) & BUCKET_FLAG_ENUMERABLE == 0 {
                 continue;
             }
-            let mut value = __torajs_dynobj_iter_value(ptr, i);
-            // §25.5.2.2 step 1 — the serialized value is ? Get(holder,
-            // key): an accessor entry stores its AccessorPair cell, so
-            // run the getter (receiver = the holder, borrowed into the
-            // invoke) instead of serializing the pair as an empty
-            // object. The result is OWNED (len_get's box_probe_pair
-            // convention); a pending throw aborts the walk and
-            // propagates through the caller's throw-check.
-            let mut owned = accessor_pair_of(value).is_some();
-            if let Some(pair) = accessor_pair_of(value) {
-                value = __torajs_accessor_invoke_getter(
-                    pair,
-                    crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64),
-                );
-                if __torajs_throw_check() != 0 {
-                    break;
-                }
-            }
-            // §25.5.2.3 step 2 — field-level toJSON hook.
-            if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
-                if owned {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                }
-                value = r;
-                owned = true;
-                if __torajs_throw_check() != 0 {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                    break;
-                }
-            }
-            // Probe the value FIRST: an undefined / callable field
-            // drops its key, so the separator and key bytes must not
-            // be emitted speculatively. Serializing into a scratch
-            // builder would cost an alloc per field — instead take
-            // the cheap pre-check the split allows.
-            if serializes_to_nothing(value) {
-                if owned {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                }
+            let key = __torajs_dynobj_iter_key(ptr, i);
+            if key.is_null() {
                 continue;
             }
-            if emitted {
-                __torajs_jsb_push_byte(sb, b',');
+            // A replacer body runs mid-walk and may delete this very
+            // entry, which frees the key cell the emit below still has
+            // to quote — hold it across the call. The value is already
+            // a snapshot either way, the same approximation
+            // `json_reviver` documents for its own walk.
+            let pinned = st.replacer.is_some();
+            if pinned {
+                crate::payload_rc_inc(4, key as i64);
             }
-            emitted = true;
-            push_indent(sb, depth + 1, gap);
-            __torajs_jsb_push_str_quoted(sb, __torajs_dynobj_iter_key(ptr, i) as *const u8);
-            __torajs_jsb_push_byte(sb, b':');
-            if !gap.is_empty() {
-                __torajs_jsb_push_byte(sb, b' ');
-            }
-            write_value(sb, value, depth + 1, gap);
-            if owned {
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            emitted |= write_entry(sb, ptr, i, key, depth, st, emitted);
+            if pinned {
+                __torajs_str_drop(key);
             }
             if __torajs_throw_check() != 0 {
                 break;
@@ -91,9 +53,90 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             std::alloc::dealloc(order as *mut u8, order_layout);
         }
         if emitted {
-            push_indent(sb, depth, gap);
+            push_indent(sb, depth, st);
         }
         __torajs_jsb_push_byte(sb, b'}');
+    }
+}
+
+/// One own enumerable entry of [`write_object`] — §25.5.2.2
+/// SerializeJSONProperty for the dynobj lane. Answers whether it
+/// contributed text (a key whose value serializes to nothing is
+/// omitted entirely, so the caller's separator state must not
+/// advance).
+unsafe fn write_entry(
+    sb: *mut c_void,
+    ptr: *mut c_void,
+    i: u64,
+    key: *mut c_void,
+    depth: u32,
+    st: &St,
+    emitted: bool,
+) -> bool {
+    unsafe {
+        let mut value = __torajs_dynobj_iter_value(ptr, i);
+        // §25.5.2.2 step 1 — the serialized value is ? Get(holder,
+        // key): an accessor entry stores its AccessorPair cell, so
+        // run the getter (receiver = the holder, borrowed into the
+        // invoke) instead of serializing the pair as an empty
+        // object. The result is OWNED (len_get's box_probe_pair
+        // convention); a pending throw aborts the walk and
+        // propagates through the caller's throw-check.
+        let holder = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64);
+        let mut owned = accessor_pair_of(value).is_some();
+        if let Some(pair) = accessor_pair_of(value) {
+            value = __torajs_accessor_invoke_getter(pair, holder);
+            if __torajs_throw_check() != 0 {
+                return false;
+            }
+        }
+        // §25.5.2.3 step 2 — field-level toJSON hook.
+        if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+            if owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
+            value = r;
+            owned = true;
+            if __torajs_throw_check() != 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                return false;
+            }
+        }
+        // §25.5.2.2 step 3 — the replacer answers the value actually
+        // serialized, so it runs BEFORE the omit test below: an
+        // `undefined` answer is exactly how a replacer drops a key.
+        (value, owned) = replacer::apply(st, holder, key, value, owned);
+        if __torajs_throw_check() != 0 {
+            if owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
+            return false;
+        }
+        // Probe the value FIRST: an undefined / callable field
+        // drops its key, so the separator and key bytes must not
+        // be emitted speculatively. Serializing into a scratch
+        // builder would cost an alloc per field — instead take
+        // the cheap pre-check the split allows.
+        if serializes_to_nothing(value) {
+            if owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
+            return false;
+        }
+        if emitted {
+            __torajs_jsb_push_byte(sb, b',');
+        }
+        push_indent(sb, depth + 1, st);
+        __torajs_jsb_push_str_quoted(sb, key as *const u8);
+        __torajs_jsb_push_byte(sb, b':');
+        if !st.gap.is_empty() {
+            __torajs_jsb_push_byte(sb, b' ');
+        }
+        write_value(sb, value, depth + 1, st);
+        if owned {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+        }
+        true
     }
 }
 
@@ -105,7 +148,7 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32,
 /// anonymous struct interned too late to receive a `class_tag`
 /// (`class_tag == 0` → NULL layout) serializes as `{}` — matches the
 /// same coverage gap `Object.keys(anonAny)` documents.
-pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) {
+pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
     unsafe {
         __torajs_jsb_push_byte(sb, b'{');
         let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
@@ -159,6 +202,23 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                         break;
                     }
                 }
+                // §25.5.2.2 step 3 — the field name lives in the
+                // static layout table as raw bytes, so the call site
+                // mints the Str the replacer's `key` argument needs.
+                (value, hook_owned) = replacer::apply_named(
+                    st,
+                    crate::nanbox::box_void_ptr(ptr),
+                    name.ptr,
+                    name.len,
+                    value,
+                    hook_owned,
+                );
+                if __torajs_throw_check() != 0 {
+                    if hook_owned {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    }
+                    break;
+                }
                 if serializes_to_nothing(value) {
                     if hook_owned {
                         crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
@@ -169,13 +229,13 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                     __torajs_jsb_push_byte(sb, b',');
                 }
                 emitted = true;
-                push_indent(sb, depth + 1, gap);
+                push_indent(sb, depth + 1, st);
                 quote_bytes(sb, name.ptr, name.len);
                 __torajs_jsb_push_byte(sb, b':');
-                if !gap.is_empty() {
+                if !st.gap.is_empty() {
                     __torajs_jsb_push_byte(sb, b' ');
                 }
-                write_value(sb, value, depth + 1, gap);
+                write_value(sb, value, depth + 1, st);
                 if hook_owned {
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                 }
@@ -201,6 +261,10 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                 if __torajs_dynobj_iter_flags(props, pi) & BUCKET_FLAG_ENUMERABLE == 0 {
                     continue;
                 }
+                let key = __torajs_dynobj_iter_key(props, pi);
+                if key.is_null() {
+                    continue;
+                }
                 let mut value = __torajs_dynobj_iter_value(props, pi);
                 let mut owned = false;
                 if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
@@ -210,6 +274,17 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                         crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                         break;
                     }
+                }
+                // §25.5.2.2 step 3 — the holder is the STRUCT cell,
+                // not its expando props dynobj: `this` inside the
+                // replacer is the object the program sees.
+                (value, owned) =
+                    replacer::apply(st, crate::nanbox::box_void_ptr(ptr), key, value, owned);
+                if __torajs_throw_check() != 0 {
+                    if owned {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    }
+                    break;
                 }
                 if serializes_to_nothing(value) {
                     if owned {
@@ -221,13 +296,13 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                     __torajs_jsb_push_byte(sb, b',');
                 }
                 emitted = true;
-                push_indent(sb, depth + 1, gap);
-                __torajs_jsb_push_str_quoted(sb, __torajs_dynobj_iter_key(props, pi) as *const u8);
+                push_indent(sb, depth + 1, st);
+                __torajs_jsb_push_str_quoted(sb, key as *const u8);
                 __torajs_jsb_push_byte(sb, b':');
-                if !gap.is_empty() {
+                if !st.gap.is_empty() {
                     __torajs_jsb_push_byte(sb, b' ');
                 }
-                write_value(sb, value, depth + 1, gap);
+                write_value(sb, value, depth + 1, st);
                 if owned {
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                 }
@@ -237,7 +312,7 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             }
         }
         if emitted {
-            push_indent(sb, depth, gap);
+            push_indent(sb, depth, st);
         }
         __torajs_jsb_push_byte(sb, b'}');
     }

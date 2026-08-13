@@ -304,18 +304,21 @@ unsafe fn json_parse_value(argv: *const u64, argc: i64) -> u64 {
     }
 }
 
-/// §25.5.2 JSON.stringify arm — value + space through the gap
-/// kernel; `replacer` (argv[1]) rides the same recorded ignore as
-/// the typed lowering (S311). The walk answers an owned Str (or the
-/// undefined-Str sentinel), which the slot box turns back into the
-/// §25.5.2 undefined answer.
+/// §25.5.2 JSON.stringify arm — value + replacer + space through the
+/// full kernel. The walk answers an owned Str (or the undefined-Str
+/// sentinel), which the slot box turns back into the §25.5.2
+/// undefined answer.
 unsafe fn json_stringify_value(argv: *const u64, argc: i64) -> u64 {
     unsafe {
         let v = arg_at(argv, argc, 0);
-        let s = if argc >= 3 {
+        let s = if argc >= 2 {
+            // Slot 2 non-callable is the spec's own ignore (step 4),
+            // and slot 3 absent normalizes to the empty gap — so the
+            // one kernel serves every arity past the bare form.
             let gap = crate::json_stringify::gap::__torajs_anyv_json_gap_str(arg_at(argv, argc, 2));
-            let out = crate::json_stringify::gap::__torajs_anyv_json_stringify_gap(
+            let out = crate::json_stringify::replacer::__torajs_anyv_json_stringify_full(
                 v,
+                arg_at(argv, argc, 1),
                 gap.cast_const(),
                 0,
             );

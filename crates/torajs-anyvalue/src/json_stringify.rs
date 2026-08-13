@@ -13,8 +13,11 @@
 //!   writer returns a [`Wrote`] verdict instead of a bool.
 //! - Non-finite numbers serialize as `null` (§25.5.2 step 10).
 //! - `Date` answers its `toJSON` — the ISO string, quoted (bun
-//!   agrees; the general user-defined `toJSON` hook is a recorded
-//!   RFC boundary, as is a `replacer` / `space` argument).
+//!   agrees). The hook itself lives in `json_stringify_tojson`, which
+//!   every property site consults; the arm here is what a Date that
+//!   never passes one falls back to.
+//! - `space` and a FUNCTION `replacer` are both served, threaded
+//!   through the walk as the §25.5.2.1 state record (`replacer::St`).
 //! - Cycles are caught by a depth cap rather than a visited set:
 //!   the spec throws a TypeError on a cyclic structure, and a
 //!   runaway recursion would blow the native stack before any
@@ -30,6 +33,9 @@ use torajs_rc::Tag;
 
 mod composites;
 pub(crate) mod gap;
+pub(crate) mod replacer;
+
+use replacer::St;
 
 use crate::member_set::{STR_DATA_OFF, STR_LEN_OFF};
 use crate::nanbox::{
@@ -153,22 +159,36 @@ unsafe fn stringify_with_gap(v: AnyValue, gap: &[u8]) -> *mut u8 {
 /// what an any-typed member of a statically unfolded composite needs
 /// so its indentation continues its parent's instead of restarting.
 unsafe fn stringify_with_gap_at(v: AnyValue, gap: &[u8], depth: u32) -> *mut u8 {
+    unsafe { stringify_state(v, &St::plain(gap), depth) }
+}
+
+/// The walk proper — §25.5.2 step 11's root property under the state
+/// record every recursion level threads.
+unsafe fn stringify_state(v: AnyValue, st: &St, depth: u32) -> *mut u8 {
     unsafe {
         // §25.5.2.3 step 2 — the top-level value consults the user
-        // toJSON hook before walking (rotation 205).
-        let (v, hook_owned) = match crate::json_stringify_tojson::apply_tojson(v) {
+        // toJSON hook before walking (rotation 205), and step 3 then
+        // offers the result to the replacer.
+        let (v, owned) = match crate::json_stringify_tojson::apply_tojson(v) {
             Some(r) => (r, true),
             None => (v, false),
         };
         if __torajs_throw_check() != 0 {
-            if hook_owned {
+            if owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+            }
+            return __torajs_str_undef();
+        }
+        let (v, owned) = replacer::apply_root(st, v, owned);
+        if __torajs_throw_check() != 0 {
+            if owned {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
             }
             return __torajs_str_undef();
         }
         let sb = __torajs_jsb_new(64);
-        let wrote = write_value(sb, v, depth, gap);
-        if hook_owned {
+        let wrote = write_value(sb, v, depth, st);
+        if owned {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
         }
         let s = __torajs_jsb_finalize(sb);
@@ -182,7 +202,7 @@ unsafe fn stringify_with_gap_at(v: AnyValue, gap: &[u8], depth: u32) -> *mut u8 
 
 /// Append one value's serialization. See [`Wrote`] for the
 /// undefined/callable contract.
-unsafe fn write_value(sb: *mut c_void, v: AnyValue, depth: u32, gap: &[u8]) -> Wrote {
+unsafe fn write_value(sb: *mut c_void, v: AnyValue, depth: u32, st: &St) -> Wrote {
     unsafe {
         if depth > MAX_DEPTH {
             __torajs_throw_type_error(c"cyclic or too deeply nested structure".as_ptr());
@@ -218,12 +238,12 @@ unsafe fn write_value(sb: *mut c_void, v: AnyValue, depth: u32, gap: &[u8]) -> W
         if !is_cell(v) {
             return Wrote::Nothing;
         }
-        write_cell(sb, as_void_ptr(v), depth, gap)
+        write_cell(sb, as_void_ptr(v), depth, st)
     }
 }
 
 /// The heap-tag arms.
-unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) -> Wrote {
+unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) -> Wrote {
     unsafe {
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         match tag {
@@ -246,7 +266,7 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) 
                 Wrote::Value
             }
             t if t == Tag::Arr as u16 => {
-                write_array(sb, ptr, depth, gap);
+                write_array(sb, ptr, depth, st);
                 Wrote::Value
             }
             t if t == Tag::DynObj as u16 => {
@@ -262,11 +282,11 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) 
                     __torajs_jsb_push_str_raw(sb, as_void_ptr(raw) as *const u8);
                     return Wrote::Value;
                 }
-                composites::write_object(sb, ptr, depth, gap);
+                composites::write_object(sb, ptr, depth, st);
                 Wrote::Value
             }
             t if t == Tag::Obj as u16 => {
-                composites::write_struct(sb, ptr, depth, gap);
+                composites::write_struct(sb, ptr, depth, st);
                 Wrote::Value
             }
             t if t == Tag::Date as u16 => {
@@ -343,7 +363,7 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) 
 
 /// `[...]` — an element that serializes to nothing becomes `null`
 /// (§25.5.2 SerializeJSONArray step 8).
-unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) {
+unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
     unsafe {
         __torajs_jsb_push_byte(sb, b'[');
         let boxed = crate::nanbox::box_void_ptr(ptr);
@@ -352,7 +372,7 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8])
             if i > 0 {
                 __torajs_jsb_push_byte(sb, b',');
             }
-            push_indent(sb, depth + 1, gap);
+            push_indent(sb, depth + 1, st);
             let mut elem = crate::index_any::__torajs_any_index_get(boxed, i);
             // §25.5.2.3 step 2 — element-level toJSON hook.
             if let Some(r) = crate::json_stringify_tojson::apply_tojson(elem) {
@@ -363,7 +383,15 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8])
                     break;
                 }
             }
-            if write_value(sb, elem, depth + 1, gap) == Wrote::Nothing {
+            // §25.5.2.2 step 3 — an element's property key is its
+            // index; an `undefined` answer becomes `null` below, the
+            // array lane's own version of dropping the value.
+            elem = replacer::apply_index(st, boxed, i, elem);
+            if __torajs_throw_check() != 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(elem);
+                break;
+            }
+            if write_value(sb, elem, depth + 1, st) == Wrote::Nothing {
                 push_bytes(sb, b"null");
             }
             crate::nanbox_ffi::__torajs_anyv_rc_dec(elem);
@@ -372,7 +400,7 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8])
             }
         }
         if len > 0 {
-            push_indent(sb, depth, gap);
+            push_indent(sb, depth, st);
         }
         __torajs_jsb_push_byte(sb, b']');
     }
@@ -441,14 +469,14 @@ unsafe fn write_double(sb: *mut c_void, x: f64) {
 /// sits on its own line indented by one `gap` per nesting level, and
 /// the closing bracket returns to the parent's level. A no-op for
 /// the compact form, which is the whole cost this adds to it.
-unsafe fn push_indent(sb: *mut c_void, depth: u32, gap: &[u8]) {
-    if gap.is_empty() {
+unsafe fn push_indent(sb: *mut c_void, depth: u32, st: &St) {
+    if st.gap.is_empty() {
         return;
     }
     unsafe {
         __torajs_jsb_push_byte(sb, b'\n');
         for _ in 0..depth {
-            push_bytes(sb, gap);
+            push_bytes(sb, st.gap);
         }
     }
 }

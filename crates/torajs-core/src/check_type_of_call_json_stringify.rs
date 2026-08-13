@@ -6,19 +6,15 @@
 //!
 //! S311 — ES §25.5.2 silently ignores args past
 //! (value, replacer, space). `space` is implemented (the lowering
-//! computes a gap Str and the static unfold splices it); the
-//! `replacer` is NOT, and slot 2 used to be lowered-and-dropped —
-//! which made a written replacer a SILENT WRONG rather than a
-//! missing feature. Measured against bun:
-//! `JSON.stringify({a:1,b:2}, (k, v) => typeof v === "number" ? v*100 : v)`
-//! answered `{"a":1,"b":2}` instead of `{"a":100,"b":200}`, and the
-//! array form `JSON.stringify({a:1,b:2}, ["a"])` answered the
-//! unfiltered object instead of `{"a":1}`. Both looked like passes.
+//! computes a gap Str and the static unfold splices it), and so now
+//! is the FUNCTION replacer (§25.5.2.2 step 3 — the lowering routes
+//! such a call to `__torajs_anyv_json_stringify_full`).
 //!
-//! So a replacer whose CHECKED TYPE is one §25.5.2 step 4 would
-//! consult — a callable or an array — is now REFUSED here, until
-//! that step's `Call(replacerFunction, holder, «key, value»)` and
-//! §25.5.2.1's PropertyList are actually served (roadmap).
+//! What is still unserved is the ARRAY form's §25.5.2.1 step 4.b
+//! PropertyList, and it is refused here rather than ignored, because
+//! ignoring it is a SILENT WRONG: `JSON.stringify({a:1,b:2}, ["a"])`
+//! answered the unfiltered object instead of `{"a":1}`, and that
+//! output is valid JSON no gate can tell from a correct one.
 //!
 //! The bar is the checked type, not the spelling. A first attempt
 //! refused everything not syntactically `null` / `undefined` and the
@@ -61,8 +57,8 @@ pub(crate) fn try_match(
         }
         if rep_ty.is_some_and(serves_as_replacer) {
             return Some(Err(
-                "not yet supported: JSON.stringify replacer (§25.5.2.1 PropertyList / \
-                 §25.5.2.2 step 3) — pass `null` for the 2-arg and 3-arg (space) forms"
+                "not yet supported: JSON.stringify array replacer (§25.5.2.1 PropertyList) \
+                 — a function replacer and `null` both work"
                     .to_string(),
             ));
         }
@@ -71,24 +67,24 @@ pub(crate) fn try_match(
     None
 }
 
-/// `true` when slot 2's type is one §25.5.2 step 4 would actually
-/// CONSULT — a callable or an array. Everything else, `null` and
-/// `undefined` included, the spec ignores outright: step 4 only looks
-/// at the argument when it is an Object, and step 4.a only treats it
-/// as a PropertyList when it is an Array. A string or number in that
-/// slot is discarded by the spec too, so dropping it is not a wrong
-/// answer and those calls keep working.
+/// `true` when slot 2's type is the ONE §25.5.2 step 4 shape still
+/// unserved — an Array, whose §25.5.2.1 step 4.b PropertyList is not
+/// built yet. A callable is served (the lowering routes the call to
+/// `__torajs_anyv_json_stringify_full`), and everything else — `null`
+/// and `undefined` included — the spec ignores outright: step 4 only
+/// looks at the argument when it is an Object. A string or number in
+/// that slot is discarded by the spec too, so dropping it is not a
+/// wrong answer.
 ///
 /// Type-driven rather than syntactic, because the syntactic version
 /// was wrong in the other direction: it refused
 /// `JSON.stringify(42, step("t1"))`, where the argument is a string
 /// and being ignored is exactly what the spec asks for.
 ///
-/// A replacer arriving as `Any` is NOT refused, and that leaves the
-/// residual hole: an `any`-typed binding holding a function is still
-/// dropped silently. Narrowing that needs the runtime check, which
-/// arrives with the implementation itself — refusing all of `Any`
-/// here would reject far more correct programs than it protects.
+/// An `Any` here is not refused and no longer needs to be: the
+/// lowering routes it to the same kernel, which tests callability at
+/// run time — the residual silent-drop hole rotation 387 recorded is
+/// closed for the function form.
 fn serves_as_replacer(t: Type) -> bool {
-    matches!(t, Type::Function(_, _) | Type::Array(_))
+    matches!(t, Type::Array(_))
 }

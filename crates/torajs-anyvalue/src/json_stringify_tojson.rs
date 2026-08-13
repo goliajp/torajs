@@ -24,6 +24,10 @@ use crate::prop_has::key_bytes;
 const ARR_PROPS_OFF: usize = 24;
 
 unsafe extern "C" {
+    /// torajs-date §21.4.4.37 — the ISO string, or NULL for an
+    /// invalid date (whose `toJSON` answers JS `null`).
+    fn __torajs_date_to_json(d: *const c_void) -> *mut u8;
+
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
@@ -43,6 +47,20 @@ pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
         }
         let ptr = as_void_ptr(v);
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        // A Date's `toJSON` is a builtin, and it has to run HERE
+        // rather than only in the serializer's own Date arm: §25.5.2.2
+        // hands the REPLACER the step-2 result, and bun agrees —
+        // `JSON.stringify({d: new Date(0)}, (k, v) => v)` sees the ISO
+        // string in `v`, not the Date. The serializer's arm stays as
+        // the answer for a Date that never passes a property site.
+        if tag == Tag::Date as u16 {
+            let iso = __torajs_date_to_json(ptr);
+            return Some(if iso.is_null() {
+                crate::nanbox::VALUE_NULL
+            } else {
+                crate::nanbox::box_void_ptr(iso.cast())
+            });
+        }
         // A DynObj consults its own entries; an Arr consults its
         // expando props dynobj (`arr.toJSON = fn` lands there —
         // torajs_arr::layout::ARR_PROPS_OFF slot at +24).
