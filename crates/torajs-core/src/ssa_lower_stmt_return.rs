@@ -79,7 +79,24 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
         ctx.let_declared_obj_layout = None;
         v
     };
-    let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(eid) {
+    // Peel value-transparent `As` wrappers before judging ownership.
+    // `lower_as_cast` hands back the inner operand untouched for a
+    // heap source and for an already-Any one, so the INNER read is
+    // what decides who holds the stake — the same peel
+    // `expr_is_fresh_owned` (rotation 384) and
+    // `ssa_lower_object_lit::lower_regular_field` already do. Judging
+    // the `As` node instead skipped BOTH legs at once: no retain for a
+    // borrowed / boxed / global read, and no moved mark for an owned
+    // local, so `return s as any` let the fn-exit drop walk release
+    // the very cell it had just handed the caller. Two decs against
+    // one stake — `const s = "ab" + "cd"; return s as any` read back
+    // the next allocation's bytes (`x199`) on the second use, where
+    // the uncast `return s` is correct.
+    let mut src_eid = eid;
+    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
+        src_eid = *expr;
+    }
+    let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(src_eid) {
         ctx.locals
             .get(name)
             .is_some_and(|info| info.borrowed && info.ty.is_refcounted())
@@ -129,7 +146,7 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     // receiver's static Arr<Any> type — other Any-producing
     // index lanes may answer owned boxes where a retain would
     // leak.
-    if let Expr::Index { obj, index } = ctx.ast.get_expr(eid)
+    if let Expr::Index { obj, index } = ctx.ast.get_expr(src_eid)
         && let Expr::Ident(obj_name) = ctx.ast.get_expr(*obj)
         && ctx.operand_ty(&v) == Type::Any
         && ctx.locals.get(obj_name).is_some_and(|info| {
@@ -158,7 +175,7 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     // receivers alike; Str/Substr receivers never reach here
     // (s[i] answers a fresh owned Substr), and the Any-elem
     // shape took the anyv_retain arm above.
-    if let Expr::Index { obj, index } = ctx.ast.get_expr(eid) {
+    if let Expr::Index { obj, index } = ctx.ast.get_expr(src_eid) {
         let v_ty = ctx.operand_ty(&v);
         let elem_matches = matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_)))
             && v_ty.is_refcounted()
@@ -177,7 +194,7 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     // 6.37MB flat; the L3b #6 any-alias framing was refuted by
     // the typed-string variant leaking identically).
     if !ctx.operand_ty(&v).is_copy() {
-        ctx.consume_all_idents_in_return(eid);
+        ctx.consume_all_idents_in_return(src_eid);
     }
     v
 }
