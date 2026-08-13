@@ -12,6 +12,9 @@
 //! so the throw check follows the call. Result is the i64 answer
 //! compared against 0 into a Bool.
 //!
+//! Which kernel flavour answers a REFUSED delete depends on the
+//! compile goal — see [`finish`].
+//!
 //! Key ledger mirrors `lower_any_index_str_key`: the runtime borrows
 //! the key (hash probe, no storage), so a static Member name rides
 //! the interned literal cell, an Ident key keeps its stake, and an
@@ -108,19 +111,35 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
 /// the i64 answer to a Bool. `release_key` releases the cell through
 /// the kind-aware dropper — the resolved key may be a Str or a Symbol
 /// and the two do not free the same way.
+///
+/// §13.5.1.2 step 5: a refused delete (a non-configurable own
+/// property) throws only when the delete expression is STRICT — sloppy
+/// code just answers `false`. OrdinaryDelete itself never throws for
+/// it, which is why the kernel ships both flavours and the choice is
+/// made here. tr's strictness granularity is the compile goal, so a
+/// `"use strict"` function inside a `.cts` script answers `false`
+/// where the spec would throw — a narrower divergence than throwing
+/// for every sloppy program, which is what picking the throwing
+/// kernel unconditionally did.
+///
+/// The nullish-receiver TypeError is unaffected: that one is ToObject
+/// on the reference base, not the refusal, and both flavours record
+/// it. Hence the throw check stays either way.
 fn finish(
     ctx: &mut LowerCtx<'_>,
     recv: Operand,
     key_v: crate::ssa::ValueId,
     release_key: bool,
 ) -> Operand {
+    let kernel = if ctx.ast.sloppy_script_goal {
+        ctx.intrinsics.any_prop_delete_soft
+    } else {
+        ctx.intrinsics.any_prop_delete
+    };
     let cur_block = ctx.cur_block;
     let ans = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_prop_delete,
-            vec![recv, Operand::Value(key_v)],
-        ),
+        InstKind::Call(kernel, vec![recv, Operand::Value(key_v)]),
         Type::I64,
         None,
     );
