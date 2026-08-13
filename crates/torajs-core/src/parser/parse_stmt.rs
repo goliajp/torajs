@@ -113,6 +113,9 @@ impl<'a> Parser<'a> {
             return self.parse_type_decl();
         }
         self.judge_with_statement()?;
+        if self.at_with_statement() {
+            return self.parse_with();
+        }
         // V3-18 wedge — `interface X { ... }`. TS-only structural
         // typing declaration; subset desugars to `type X = { ... }`.
         // Contextual keyword: `interface` is just an Ident in the

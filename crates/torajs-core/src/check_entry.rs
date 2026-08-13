@@ -86,7 +86,16 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
     if !error_messages.is_empty() {
         return Err(error_messages.join("\n"));
     }
-    let mut undeclared: Vec<&String> = c.undeclared_reads.values().collect();
+    // A `with` fall-through read is not a diagnostic: see
+    // `Ast::with_fallthrough_idents`. The entry stays in
+    // `undeclared_reads` so lowering still emits the ReferenceError
+    // path for the case where the object does not carry the name.
+    let mut undeclared: Vec<&String> = c
+        .undeclared_reads
+        .iter()
+        .filter(|(eid, _)| !ast.with_fallthrough_idents.contains(eid))
+        .map(|(_, n)| n)
+        .collect();
     undeclared.sort();
     undeclared.dedup();
     let mut warnings: Vec<String> = undeclared

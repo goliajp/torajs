@@ -93,6 +93,15 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // SyntaxError). Before everything else, so the inlined statements
     // reach every desugar below exactly as if they had been written at
     // the call site, which is what direct eval means.
+    // RFC 20260814 — `with` first: the parser leaves a marker Block
+    // that no other pass knows, and this turns it into ordinary code
+    // before anything else looks. Ahead of `desugar_eval` so an eval
+    // inlined into a `with` body is not silently exempted from the
+    // rewrite (it is refused instead — the eval axis is its own).
+    if let Some(msg) = ast::desugar_with(ast) {
+        eprintln!("error: {msg}");
+        return Err(());
+    }
     ast::desugar_eval(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);

@@ -634,6 +634,22 @@ pub struct Ast {
     /// reads it for the sloppy `callee` / mapped-aliasing faces;
     /// every other pass keeps the strict-goal behavior regardless.
     pub sloppy_script_goal: bool,
+    /// RFC 20260814 — the parser met at least one §14.11 `with` and
+    /// emitted its `{ let __with_<n> = …; body }` shape. `desugar_with`
+    /// is the first prelude pass and would otherwise pay a whole-tree
+    /// walk for every program; `with` is sloppy-goal-only and rare, so
+    /// the flag buys the common case out of it entirely.
+    pub has_with_stmt: bool,
+    /// RFC 20260814 — the `Ident` occurrences `desugar_with` minted as
+    /// the FALL-THROUGH arm of a guarded read (`has ? w.n : n`). That
+    /// arm runs only when the object does not carry the name, and then
+    /// the §14.11 answer is exactly what an unresolved read already
+    /// does here: resolve lexically, else a runtime ReferenceError. So
+    /// the read is correct as written and must NOT also print the
+    /// `unknown identifier` diagnostic — the object usually does carry
+    /// the name, and the warning would fire on every working program
+    /// that says `with`.
+    pub with_fallthrough_idents: std::collections::HashSet<ExprId>,
     /// Byte positions where the parser admitted `yield` as an
     /// identifier (binding name or IdentifierReference) outside a
     /// generator body. §12.7.2 reserves the word under the STRICT
