@@ -243,6 +243,19 @@ impl<'a> LowerCtx<'a> {
         if self.expr_owned_shape(eid) {
             return true;
         }
+        // Peel value-transparent `As` wrappers before the two arms
+        // below. `expr_owned_shape` above already recurses through
+        // them, but these two match the raw node, so `s[0] as any`
+        // missed the fresh-Substr arm and answered "borrow" -- the
+        // consumer then took a +1 on a value nobody else holds and
+        // nobody releases. This is the LEAK direction of the same
+        // blind spot the four use-after-frees came from (rotation
+        // 385): 300k of `const t: any = s[0] as any` peaked at
+        // 16.07 MB RSS against 6.46 MB for the uncast `s[0]`.
+        let mut eid = eid;
+        while let Expr::As { expr, .. } = self.ast.get_expr(eid) {
+            eid = *expr;
+        }
         match self.ast.get_expr(eid) {
             Expr::Index { obj, .. } => {
                 matches!(self.expr_types.get(obj), Some(crate::check::Type::String))
