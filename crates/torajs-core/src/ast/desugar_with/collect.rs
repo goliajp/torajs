@@ -42,11 +42,11 @@ fn collect_stmt(
             // record — while its initialiser IS evaluated in front of
             // it. `super::var_split` has already separated the two for
             // every `var` it can reach, so an initialiser still
-            // standing here is one it deliberately left: the init slot
-            // of a `for`, where the loop's shape depends on the
-            // statement staying one statement. Loud rather than
+            // standing here is one it deliberately left: several
+            // declarators in one `for` initialiser, which arrive as a
+            // `Multi` in the loop's init slot. Loud rather than
             // silently landing on the hoisted binding.
-            refuse(err, "a `var` declaration in a `for` initialiser");
+            refuse(err, "a multi-declarator `var` in a `for` initialiser");
         }
         Stmt::ClassDecl { .. } => refuse(err, "a class declaration"),
         Stmt::FnDecl { params, body, .. } => {

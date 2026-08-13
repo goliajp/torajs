@@ -51,9 +51,10 @@
 //!
 //! Reads, bare-name calls, `typeof`, `++`/`--`, `delete`, assignment
 //! (plain and compound), `var` initialisers and nested function bodies
-//! are rewritten here. What is left — a `var` in a `for` initialiser,
-//! and a class declaration — is refused with a diagnostic naming the
-//! shape. Leaving them unrewritten would silently resolve to the
+//! are rewritten here. What is left — several declarators in one
+//! `for` initialiser, and a class declaration — is refused with a
+//! diagnostic naming the shape. Leaving them unrewritten would
+//! silently resolve to the
 //! lexical binding instead of the object, which is the one outcome
 //! this file is not allowed to produce.
 
