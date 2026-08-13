@@ -139,21 +139,19 @@ const METHOD_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 <
 /// `[Symbol.iterator]` IS, as the (family row, mid) its interned cell
 /// lives under. `None` for a prototype the spec gives no such entry.
 ///
-/// The aliases mirror the instance table above — §24.1.3.14 Map →
-/// `entries`, §24.2.3.13 Set → `values`; §22.1.3.36 String has no
-/// named alias and carries a dedicated id. Tags are
-/// `torajs-rc/builtin_proto.rs` order.
+/// The aliases mirror the instance table above — §23.1.3.40 Array →
+/// `values`, §24.1.3.14 Map → `entries`, §24.2.3.13 Set → `values`;
+/// §22.1.3.36 String has no named alias and carries a dedicated id.
+/// Tags are `torajs-rc/builtin_proto.rs` order.
 ///
-/// `Array.prototype` (§23.1.3.40, aliased to `values`) is absent
-/// again: installing it at MINT time made
-/// `test/built-ins/Iterator/zipKeyed/options-padding.js` abort with
-/// SIGTRAP inside the allocator's free, and only in a release build.
-/// Installing the very same entry from user code — the same cell,
-/// same key, same attributes — does NOT crash, so the entry itself is
-/// fine and the fault is in the mint-time path (rotation 383, L3b
-/// 383-01; the arrprops define kernel it needs is already in place).
+/// The Array row was taken back out once (rotation 383) for a SIGTRAP
+/// it was blamed for. That blame was wrong: the fault was a
+/// use-after-free already present without this row, and this row only
+/// shifted binary layout enough to make it trap. It is fixed at its
+/// source in `ssa_lower_object_lit.rs` (rotation 384).
 fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
     Some(match proto_tag {
+        2 => (2, torajs_rc::ANY_METHOD_VALUES),
         3 => (3, torajs_rc::ANY_METHOD_STR_ITERATOR),
         11 => (11, torajs_rc::ANY_METHOD_ENTRIES),
         12 => (12, torajs_rc::ANY_METHOD_VALUES),
