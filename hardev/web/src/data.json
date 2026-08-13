@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T04:05:44.004Z",
+  "generatedAt": "2026-08-13T06:00:12.510Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T04:02:07Z",
-    "headSha": "4a0d6c1e",
-    "elapsedSec": 325.73,
+    "ranAt": "2026-08-13T05:52:13Z",
+    "headSha": "98c4057a",
+    "elapsedSec": 326.56,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24975,
+    "pass": 24976,
     "passNoOracle": 843,
     "passNegative": 4106,
-    "passTotal": 29924,
-    "bug": 12789,
+    "passTotal": 29925,
+    "bug": 12788,
     "incompatible": 10461,
     "bunSkip": 6581,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.06
   },
   "torajs": {
-    "commit": "4a0d6c1e",
-    "commitSubject": "revert: take Array.prototype's mint-time @@iterator back out",
+    "commit": "98c4057a",
+    "commitSubject": "fix: peel `as` casts before calling an operand freshly owned",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "98c4057a",
+      "subject": "fix: peel `as` casts before calling an operand freshly owned"
+    },
+    {
+      "hash": "b628d4f1",
+      "subject": "chore: add a Guard Malloc scan for the class no gate can see"
+    },
+    {
+      "hash": "e8787afc",
+      "subject": "fix: put Array.prototype's mint-time @@iterator back"
+    },
+    {
+      "hash": "aad40eaf",
+      "subject": "fix: give an object-literal field its own share of a boxed binding"
+    },
+    {
+      "hash": "d28b055d",
+      "subject": "docs: record rotation 383's sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "4a0d6c1e",
       "subject": "revert: take Array.prototype's mint-time @@iterator back out"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "e0714d92",
       "subject": "docs: refresh the dashboard snapshot for rotation 382 close"
-    },
-    {
-      "hash": "c41997f9",
-      "subject": "fix: give Reflect.ownKeys the symbol bucket"
-    },
-    {
-      "hash": "fba0dc1d",
-      "subject": "docs: record rotation 382's sweep in the dashboard snapshot"
-    },
-    {
-      "hash": "9d8c6aa9",
-      "subject": "fix: give the builtin prototypes the toStringTag their clauses give them"
-    },
-    {
-      "hash": "1c2d6ad5",
-      "subject": "fix: give the namespace objects the toStringTag their specs give them"
-    },
-    {
-      "hash": "9675dfcd",
-      "subject": "fix: let an object name itself in Object.prototype.toString"
     }
   ],
-  "headSha": "4a0d6c1e",
+  "headSha": "98c4057a",
   "autorun": {
-    "total": 686,
+    "total": 687,
     "baselineTarget": 10,
-    "bySelf": 681,
+    "bySelf": 682,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786583852-1228",
-      "at": "2026-08-13T01:17:32Z",
-      "ts": 1786583852,
+      "rotationId": "r-1786593962-7dc1",
+      "at": "2026-08-13T04:06:02Z",
+      "ts": 1786593962,
       "trigger": "self",
-      "prevHead": "e0714d92",
-      "handoffSha": "sha256:5c85b206cf41da5a9919872693325330eddf25180206a7796ca8d70570e9b8ea",
-      "handoffAgeSec": 19,
+      "prevHead": "d28b055d",
+      "handoffSha": "sha256:37bd9cf43116d5136b93eb21cea49899a5d12c9d4a0b5dd836e8435312b2ef9a",
+      "handoffAgeSec": 24,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786593962-7dc1",
+        "at": "2026-08-13T04:06:02Z",
+        "ts": 1786593962,
+        "trigger": "self",
+        "prevHead": "d28b055d",
+        "handoffSha": "sha256:37bd9cf43116d5136b93eb21cea49899a5d12c9d4a0b5dd836e8435312b2ef9a",
+        "handoffAgeSec": 24,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786583852-1228",
         "at": "2026-08-13T01:17:32Z",
@@ -876,17 +887,6 @@
         "prevHead": "469056d9",
         "handoffSha": "sha256:cfe53a97ff98283946a95f4a3b962a70b39f069365453fbd509b2f5ec2a1514e",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786515480-772e",
-        "at": "2026-08-12T06:18:00Z",
-        "ts": 1786515480,
-        "trigger": "self",
-        "prevHead": "cd75ce29",
-        "handoffSha": "sha256:1375c7d7ef1a13536fb1a189323fcf442ce7a3708cce730d3164787875a3e967",
-        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       }
