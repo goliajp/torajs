@@ -44,6 +44,7 @@ pub mod obj_own_values;
 pub mod object_group_by;
 pub mod object_proto_install;
 pub mod own_names;
+pub mod proto_tostringtag_install;
 pub mod reflect;
 pub mod reflect_descriptors;
 pub mod reflect_get_property_descriptor;

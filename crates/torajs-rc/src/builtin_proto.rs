@@ -35,6 +35,7 @@ unsafe extern "C" {
     fn __torajs_object_proto_install(proto: *mut c_void);
     fn __torajs_function_proto_install(proto: *mut c_void);
     fn __torajs_iterator_proto_install(proto: *mut c_void);
+    fn __torajs_proto_tostringtag_install(proto: *mut c_void, idx: i64);
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
@@ -212,6 +213,11 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     if idx == ITERATOR_PROTO_TAG {
         unsafe { __torajs_iterator_proto_install(fresh) };
     }
+    // Eight prototypes carry a §20.4.3.5-shaped `@@toStringTag` own
+    // entry (Symbol / BigInt / Promise / Map / Set / WeakMap /
+    // WeakSet / WeakRef); the install is a no-op for the rest, which
+    // the spec gives no tag. Same pre-CAS posture as the three above.
+    unsafe { __torajs_proto_tostringtag_install(fresh, idx as i64) };
     let fresh_addr = fresh as usize;
     // Cheap front gate for the own-write note below — a program that
     // never touched any `<Ctor>.prototype` skips the singleton scan
@@ -460,6 +466,11 @@ unsafe fn __torajs_object_proto_install(_proto: *mut c_void) {}
 
 #[cfg(test)]
 unsafe fn __torajs_function_proto_install(_proto: *mut c_void) {}
+
+// The @@toStringTag install lives in torajs-meta (linked into `tr`);
+// same posture as the stubs above.
+#[cfg(test)]
+unsafe fn __torajs_proto_tostringtag_install(_proto: *mut c_void, _idx: i64) {}
 
 // The @@iterator / @@dispose install lives in torajs-anyvalue
 // (linked into `tr`); same posture as the two stubs above.

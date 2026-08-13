@@ -594,6 +594,8 @@ mod tests {
     pub unsafe extern "C" fn __torajs_object_proto_install(_proto: *mut c_void) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_function_proto_install(_proto: *mut c_void) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_proto_tostringtag_install(_proto: *mut c_void, _idx: i64) {}
     // RFC 20260721 刀 4 — the Gopd dispatch arm delegates to the
     // meta descriptor kernel (shipped binary resolves
     // libtorajs_meta.a).

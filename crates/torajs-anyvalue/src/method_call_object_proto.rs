@@ -304,17 +304,20 @@ pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
 /// # Safety
 /// `ptr` is a live heap cell whose header tag is `tag`.
 pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
-    // A builtin prototype answers for what it IS, which the cell tag
-    // alone cannot always say: `Number.prototype` is a dynobj in tr
-    // but a Number object per §21.1.3, and the five container
-    // prototypes carry a well-known `Symbol.toStringTag`. (The ones
-    // that are genuinely ordinary objects — Object / RegExp / Date /
-    // Error, none of which has the well-known tag — keep "Object",
-    // matching bun.)
-    // The four namespace singletons (Math / JSON / Reflect / console)
-    // used to be recognised here by pointer identity. They now carry
-    // the real @@toStringTag their specs give them, so step 15 answers
-    // for them before this walk ever runs.
+    // What remains here is builtinTag only — a prototype that IS an
+    // instance of its own kind, which the cell tag alone cannot say
+    // because tr mints these as dynobjs: `Number.prototype` has a
+    // [[NumberData]] slot per §21.1.3, `Array.prototype` is an Array,
+    // and so on down to `Function.prototype`'s [[Call]].
+    //
+    // The prototypes whose badge came from a well-known
+    // `Symbol.toStringTag` instead (Symbol / BigInt / Promise / Map /
+    // Set / the three weak collections) are NOT listed: they carry the
+    // real property now, so step 15 answers for them before this walk
+    // runs. Same for the four namespace singletons, which used to be
+    // recognised here by pointer identity. Object / RegExp / Date /
+    // Error are absent because the spec gives them no tag at all —
+    // they keep "Object", matching bun.
     let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
     if proto_tag >= 0 {
         return match proto_tag {
@@ -322,11 +325,6 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
             2 => b"Array",
             3 => b"String",
             4 => b"Boolean",
-            5 => b"Symbol",
-            6 => b"BigInt",
-            10 => b"Promise",
-            11 => b"Map",
-            12 => b"Set",
             13 => b"Function",
             _ => b"Object",
         };
