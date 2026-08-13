@@ -178,6 +178,20 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
             Expr::Member { obj, name } if name == "toJSON" => {
                 matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Date))
             }
+            // §25.5.2 — `JSON.stringify` answers undefined for a value
+            // with no JSON representation (undefined itself, a
+            // callable, a symbol), and the value lane already returns
+            // it. Its static type stays `String` on purpose: that is
+            // what TS's lib.d.ts declares, and a stricter one would
+            // refuse `JSON.stringify(x).length`, which bun runs. So the
+            // undefined-ness is carried HERE — the consumers that
+            // cannot be answered from the static type alone (typeof,
+            // eq, `.length`) take their identity-aware branch, and
+            // `typeof JSON.stringify(undefined)` stops folding to
+            // "string".
+            Expr::Member { obj, name } if name == "stringify" => {
+                matches!(ctx.ast.get_expr(*obj), Expr::Ident(n) if n == "JSON")
+            }
             // rotation 216 — `pop` / `shift` on an empty array answer
             // undefined too (§23.1.3.20 step 4.a / §23.1.3.25 step 3.a),
             // and the Str slot spells that as the same immortal cell.
