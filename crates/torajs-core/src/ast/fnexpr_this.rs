@@ -239,8 +239,8 @@ fn collect_position_faces(
             // checks, fall-through-safe: no later arm matches these
             // member names) live in sibling `fnexpr_this_cb_slots.rs`
             // (file-size split, rotation 375).
-            Expr::Member { obj, name } if name == "parse" => {
-                super::fnexpr_this_cb_slots::collect_json_parse_face(
+            Expr::Member { obj, name } if name == "parse" || name == "stringify" => {
+                super::fnexpr_this_cb_slots::collect_json_face(
                     stmts,
                     exprs,
                     fn_expr_exprs,

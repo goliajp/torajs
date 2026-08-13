@@ -14,7 +14,15 @@ use super::{Expr, ExprId, Stmt};
 /// `invoke_with_this`, which reads the closure's RECV flag and seeds
 /// the holder into the promoted `__this` slot. Inline fn-expr only —
 /// zero aliases.
-pub(super) fn collect_json_parse_face(
+///
+/// `JSON.stringify(value, <fn-expr>)`'s replacer slot is the same
+/// shape and shares this collector: §25.5.2.2 step 3 calls it with
+/// the holder as `this` (the synthetic `{ "": value }` wrapper at the
+/// root), through the same `invoke_with_this`. Every admitted
+/// spelling routes to that kernel — the lowering's
+/// `serves_as_replacer` takes a `Function` or an `Any` out of the
+/// static unfold — so the promotion can never outrun the seeding.
+pub(super) fn collect_json_face(
     stmts: &[Stmt],
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
