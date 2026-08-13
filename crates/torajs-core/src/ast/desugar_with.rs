@@ -37,16 +37,25 @@
 //! when `o` has `v` — a classic, and the reason var names stay in the
 //! free set.
 //!
-//! # Loud, not wrong (刀 1 boundary)
+//! # Nested functions
 //!
-//! Reads, bare-name calls, `typeof`, `++`/`--` and assignment (plain
-//! and compound) are rewritten here. What is left — `delete`, a `var`
-//! declaration's initialiser, and any nested function body (whose
-//! names resolve when it is CALLED, so the object has to be captured)
-//! — is refused with a diagnostic naming the shape.
-//! Leaving them unrewritten would silently resolve to the lexical
-//! binding instead of the object, which is the one outcome this file
-//! is not allowed to produce.
+//! A function written inside the body resolves its free names when it
+//! is CALLED, which can be long after the block has been left. Nothing
+//! special is needed for that: the binding is an ordinary block-scoped
+//! `let`, so the guards grown inside the function body capture it the
+//! way any closure captures any outer binding — and because the
+//! membership test lives at the reference rather than at the head of
+//! the block, a call made later sees the object as it is THEN.
+//!
+//! # Loud, not wrong
+//!
+//! Reads, bare-name calls, `typeof`, `++`/`--`, assignment (plain and
+//! compound) and nested function bodies are rewritten here. What is
+//! left — `delete`, a `var` declaration's initialiser in the body
+//! itself, and a class declaration — is refused with a diagnostic
+//! naming the shape. Leaving them unrewritten would silently resolve
+//! to the lexical binding instead of the object, which is the one
+//! outcome this file is not allowed to produce.
 
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -168,11 +177,8 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
     }
     let w = name.clone();
     let body: Vec<Stmt> = items.drain(1..).collect();
-    let mut bound = std::collections::HashSet::new();
     let mut sites: Vec<(ExprId, Position)> = Vec::new();
-    for st in &body {
-        collect_stmt(ast, st, &mut bound, &mut sites, err);
-    }
+    collect_body(ast, &body, &mut sites, err);
     // Writes last: the then-arm CLONES the value expression, and the
     // clone has to carry the guards the read rewrites put there. A
     // clone taken before those ran would resolve its own free names
@@ -183,7 +189,10 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
             continue;
         };
         let n = n.clone();
-        if bound.contains(&n) || n.starts_with("__") {
+        // Compiler-minted names are never the user's free names — the
+        // shadowing question (`__with_<n>` itself, the helpers, the
+        // loop temporaries) is settled by their spelling.
+        if n.starts_with("__") {
             continue;
         }
         match pos {
@@ -404,6 +413,7 @@ pub(crate) enum Position {
 }
 
 mod collect;
+mod scope;
 mod walk;
-pub(crate) use collect::collect_stmt;
-pub(crate) use walk::{arrow_nodes, stmt_children};
+use collect::collect_body;
+use walk::{arrow_nodes, stmt_children};

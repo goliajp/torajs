@@ -1,129 +1,96 @@
-//! The two walks the `with` desugar runs over a body: which names the
-//! body binds LEXICALLY (those shadow the object), and where every
-//! remaining identifier occurrence sits (which decides its rewrite).
+//! Where every FREE identifier of a `with` body sits — which is what
+//! decides its rewrite. The shadowing question is [`super::scope`]'s;
+//! this file asks the position question and records the answer.
 //!
-//! Both are deliberately conservative in the same direction: a shape
-//! this file does not recognise becomes a `Position::Refused`, so an
-//! unhandled corner is a diagnostic rather than a name that quietly
-//! resolved to the lexical binding.
-
-use std::collections::HashSet;
+//! The walk is deliberately conservative in one direction: a shape it
+//! does not recognise becomes a `Position::Refused`, so an unhandled
+//! corner is a diagnostic rather than a name that quietly resolved to
+//! the lexical binding.
 
 use super::Position;
-use super::walk::{expr_children, stmt_children_ref};
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use super::scope::Scope;
+use super::walk::{expr_children, stmt_children_ref, stmt_exprs};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
-/// Collect the body's lexical binders into `bound` and every
-/// identifier occurrence into `sites`.
-///
-/// `var` names are NOT collected: they hoist past the object record,
-/// so `with (o) { var v = 1 }` still means `o.v` when `o` has `v`.
-/// `let` / `const` / `class` / catch parameters are, because their
-/// records sit in front of the object's.
-pub(crate) fn collect_stmt(
+/// Entry point: record every free identifier occurrence of one `with`
+/// body, nested function bodies included.
+pub(crate) fn collect_body(
+    ast: &Ast,
+    body: &[Stmt],
+    sites: &mut Vec<(ExprId, Position)>,
+    err: &mut Option<String>,
+) {
+    let scope = Scope::with_body(body);
+    for s in body {
+        collect_stmt(ast, s, &scope, sites, err);
+    }
+}
+
+fn collect_stmt(
     ast: &Ast,
     s: &Stmt,
-    bound: &mut HashSet<String>,
+    scope: &Scope,
     sites: &mut Vec<(ExprId, Position)>,
     err: &mut Option<String>,
 ) {
     match s {
-        Stmt::LetDecl {
-            name, init, is_var, ..
-        } => {
-            if *is_var {
-                // `var` does NOT shadow the object — it hoists to the
-                // function scope, which sits BEHIND the object record.
-                // So `with (o) { var v = 2 }` writes `o.v` when `o`
-                // carries `v`, and leaves the hoisted binding
-                // undefined (bun: `2 undefined`; the unrewritten
-                // reading is `1 2`). The initialiser is an assignment
-                // evaluated in the with scope, so it belongs to the
-                // write knife — refused until then rather than
-                // silently landing on the hoisted binding.
-                refuse(err, "a `var` declaration");
-            } else {
-                bound.insert(name.clone());
-            }
-            collect_expr(ast, *init, sites, err);
+        Stmt::LetDecl { is_var: true, .. } if !scope.in_nested_fn() => {
+            // `var` does NOT shadow the object — it hoists to the
+            // enclosing function's scope, which sits BEHIND the object
+            // record. So `with (o) { var v = 2 }` writes `o.v` when
+            // `o` carries `v`, and leaves the hoisted binding
+            // undefined (bun: `2 undefined`; the unrewritten reading
+            // is `1 2`). The initialiser is an assignment evaluated in
+            // the with scope, so it belongs to the write knife —
+            // refused until then rather than silently landing on the
+            // hoisted binding. Inside a NESTED function the same `var`
+            // is an ordinary local, already a binder, and needs none
+            // of this.
+            refuse(err, "a `var` declaration");
         }
-        Stmt::ClassDecl { name, .. } => {
-            bound.insert(name.clone());
-            refuse(err, "a class declaration");
+        Stmt::ClassDecl { .. } => refuse(err, "a class declaration"),
+        Stmt::FnDecl { params, body, .. } => {
+            collect_fn(ast, params, body, scope, sites, err);
+            return;
         }
-        Stmt::FnDecl { name, .. } => {
-            bound.insert(name.clone());
-            // §14.11 with a function inside it: the body's free names
-            // resolve when the function is CALLED, so the object has
-            // to be captured by the closure — RFC 20260814 刀 4.
-            refuse(err, "a nested function body");
-        }
-        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => collect_expr(ast, *e, sites, err),
-        Stmt::Return(o) => {
-            if let Some(e) = o {
-                collect_expr(ast, *e, sites, err);
-            }
-        }
-        Stmt::YieldInto { value, .. } => collect_expr(ast, *value, sites, err),
-        Stmt::If { cond, .. } | Stmt::While { cond, .. } | Stmt::DoWhile { cond, .. } => {
-            collect_expr(ast, *cond, sites, err);
-        }
-        Stmt::Switch {
-            scrutinee, cases, ..
-        } => {
-            collect_expr(ast, *scrutinee, sites, err);
-            for c in cases {
-                collect_expr(ast, c.value, sites, err);
-            }
-        }
-        Stmt::For { cond, step, .. } => {
-            if let Some(c) = cond {
-                collect_expr(ast, *c, sites, err);
-            }
-            if let Some(st) = step {
-                collect_expr(ast, *st, sites, err);
-            }
-        }
-        Stmt::ForOf {
-            var_name,
-            src_ident,
-            i_ident,
-            elem_expr,
-            ..
-        } => {
-            // The parser already hoisted the source to `src_ident`
-            // and minted the counter, so all three names are the
-            // loop's own — bound, not free.
-            bound.insert(var_name.clone());
-            bound.insert(src_ident.clone());
-            bound.insert(i_ident.clone());
-            collect_expr(ast, *elem_expr, sites, err);
-        }
-        Stmt::ForOfSplitIter {
-            var_name,
-            parent,
-            sep,
-            ..
-        } => {
-            bound.insert(var_name.clone());
-            collect_expr(ast, *parent, sites, err);
-            collect_expr(ast, *sep, sites, err);
-        }
-        Stmt::Try { catch_param, .. } => {
-            if let Some(p) = catch_param {
-                bound.insert(p.clone());
-            }
-        }
-        Stmt::UsingDecl { name, init, .. } => {
-            bound.insert(name.clone());
-            collect_expr(ast, *init, sites, err);
-        }
-        Stmt::Block(_) | Stmt::Multi(_) | Stmt::Labeled { .. } => {}
-        Stmt::Break(_) | Stmt::Continue(_) | Stmt::TypeDecl { .. } => {}
-        Stmt::ImportDecl { .. } | Stmt::ExportDecl { .. } => {}
+        _ => {}
+    }
+    for e in stmt_exprs(s) {
+        collect_expr(ast, e, scope, sites, err);
     }
     for child in stmt_children_ref(s) {
-        collect_stmt(ast, child, bound, sites, err);
+        collect_stmt(ast, child, scope, sites, err);
+    }
+}
+
+/// A function nested in the body: its free names resolve when it is
+/// CALLED, so they are guarded exactly like the body's own and the
+/// `with` binding is captured by the closure — which works because the
+/// binding is an ordinary block-scoped `let` that the capture analysis
+/// downstream has no reason to treat specially.
+///
+/// A parameter default is walked in the FUNCTION's scope, not the
+/// body's, even though tr evaluates defaults at the call site: the
+/// guard it grows names the with binding, so a default is only
+/// well-formed while that call site is still inside the block. One
+/// that escapes the block fails loudly on the unknown binding rather
+/// than answering the wrong name.
+fn collect_fn(
+    ast: &Ast,
+    params: &[Param],
+    body: &[Stmt],
+    scope: &Scope,
+    sites: &mut Vec<(ExprId, Position)>,
+    err: &mut Option<String>,
+) {
+    let child = scope.nested_fn(params, body);
+    for p in params {
+        if let Some(d) = p.default {
+            collect_expr(ast, d, &child, sites, err);
+        }
+    }
+    for s in body {
+        collect_stmt(ast, s, &child, sites, err);
     }
 }
 
@@ -152,31 +119,41 @@ fn refuse(err: &mut Option<String>, what: &'static str) {
 fn collect_expr(
     ast: &Ast,
     eid: ExprId,
+    scope: &Scope,
     sites: &mut Vec<(ExprId, Position)>,
     err: &mut Option<String>,
 ) {
     match ast.get_expr(eid) {
-        Expr::Ident(_) => {
-            sites.push((eid, Position::Read));
+        Expr::Ident(n) => {
+            if !scope.shadows(n) {
+                sites.push((eid, Position::Read));
+            }
             return;
         }
         Expr::Call { callee, args } => {
-            if matches!(ast.get_expr(*callee), Expr::Ident(_)) {
-                sites.push((*callee, Position::Callee(eid)));
-            } else {
-                collect_expr(ast, *callee, sites, err);
+            match ast.get_expr(*callee) {
+                Expr::Ident(n) => {
+                    if !scope.shadows(n) {
+                        sites.push((*callee, Position::Callee(eid)));
+                    }
+                }
+                _ => collect_expr(ast, *callee, scope, sites, err),
             }
             for a in args {
-                collect_expr(ast, *a, sites, err);
+                collect_expr(ast, *a, scope, sites, err);
             }
             return;
         }
         Expr::Assign { target, value } => {
             let Expr::Ident(tn) = ast.get_expr(*target) else {
-                collect_expr(ast, *target, sites, err);
-                collect_expr(ast, *value, sites, err);
+                collect_expr(ast, *target, scope, sites, err);
+                collect_expr(ast, *value, scope, sites, err);
                 return;
             };
+            if scope.shadows(tn) {
+                collect_expr(ast, *value, scope, sites, err);
+                return;
+            }
             // `n op= v` reaches here as `n = n op v` with a CLONED
             // left operand (the parser's compound desugar). That clone
             // is the same reference the write resolves, not a second
@@ -193,46 +170,67 @@ fn collect_expr(
             sites.push((*target, Position::Assign(eid, compound_lhs)));
             match (compound_lhs, ast.get_expr(*value)) {
                 (Some(_), Expr::BinOp { right, .. }) => {
-                    collect_expr(ast, *right, sites, err);
+                    collect_expr(ast, *right, scope, sites, err);
                 }
-                _ => collect_expr(ast, *value, sites, err),
+                _ => collect_expr(ast, *value, scope, sites, err),
             }
             return;
         }
         Expr::PostIncr { target, .. } => {
-            if matches!(ast.get_expr(*target), Expr::Ident(_)) {
-                sites.push((*target, Position::Wrapping(eid)));
-            } else {
-                collect_expr(ast, *target, sites, err);
-            }
+            wrapping_operand(ast, eid, *target, scope, sites, err);
             return;
         }
         Expr::TypeOf { expr } => {
-            if matches!(ast.get_expr(*expr), Expr::Ident(_)) {
-                sites.push((*expr, Position::Wrapping(eid)));
-            } else {
-                collect_expr(ast, *expr, sites, err);
-            }
+            wrapping_operand(ast, eid, *expr, scope, sites, err);
             return;
         }
         Expr::Delete { expr } => {
-            if matches!(ast.get_expr(*expr), Expr::Ident(_)) {
-                sites.push((*expr, Position::Refused("`delete`")));
-            } else {
-                collect_expr(ast, *expr, sites, err);
+            match ast.get_expr(*expr) {
+                Expr::Ident(n) => {
+                    if !scope.shadows(n) {
+                        sites.push((*expr, Position::Refused("`delete`")));
+                    }
+                }
+                _ => collect_expr(ast, *expr, scope, sites, err),
             }
             return;
         }
-        Expr::ArrowFn { .. } | Expr::Closure { .. } => {
-            // Same reason as a nested `function`: the body's names
-            // resolve at call time, so the object has to be captured
-            // (RFC 20260814 刀 4).
-            refuse(err, "a nested function body");
+        Expr::ArrowFn { params, body, .. } => {
+            // A function EXPRESSION (the parser gives `function () {}`
+            // and `() => {}` the same node): its free names resolve at
+            // call time, through the object captured by the closure.
+            collect_fn(ast, params, body, scope, sites, err);
+            return;
+        }
+        Expr::Closure { .. } => {
+            // Post-`lift_arrow_fns` shape. This pass runs long before
+            // that, so reaching one means the pipeline order moved.
+            refuse(err, "an already-lifted closure");
             return;
         }
         _ => {}
     }
     for c in expr_children(ast, eid) {
-        collect_expr(ast, c, sites, err);
+        collect_expr(ast, c, scope, sites, err);
+    }
+}
+
+/// The sole operand of `typeof` / `++` / `--`, whose WRAPPING node is
+/// what gets replaced.
+fn wrapping_operand(
+    ast: &Ast,
+    outer: ExprId,
+    operand: ExprId,
+    scope: &Scope,
+    sites: &mut Vec<(ExprId, Position)>,
+    err: &mut Option<String>,
+) {
+    match ast.get_expr(operand) {
+        Expr::Ident(n) => {
+            if !scope.shadows(n) {
+                sites.push((operand, Position::Wrapping(outer)));
+            }
+        }
+        _ => collect_expr(ast, operand, scope, sites, err),
     }
 }
