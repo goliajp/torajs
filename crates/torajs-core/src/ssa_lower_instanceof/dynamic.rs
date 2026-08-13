@@ -23,23 +23,17 @@
 //! declining to route a shape here never loses an answer, it only
 //! keeps the faster fold.
 
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 use super::builtin_type_tag;
 
-/// §13.10.2 for `x instanceof N` where `N` names a plain VALUE — not
-/// a declared class, not a builtin constructor. Those two keep their
-/// compile-time tag folds (a class's own `@@hasInstance` is the next
-/// knife; a builtin's is the one after). Everything else that has a
-/// binding is handed to the runtime operator, which reads the
-/// handler through the same symbol face `N[Symbol.hasInstance]`
-/// resolves — so an object literal's computed key and a
-/// `defineProperty` install both answer, where the empty
-/// descendant-tag set used to constant-fold `false`.
+/// §13.10.2 for the shapes whose answer the parent's folds cannot
+/// know — see [`dynamic_target_name`] for which those are.
 ///
 /// A Closure binding is declined here and handled by
-/// [`try_lower_fn_value`] below — not because it lacks a handler
+/// [`super::try_lower_fn_value`] — not because it lacks a handler
 /// (the symbol face serves callables fine), but because that lane
 /// already resolves the canonical `__fncell_*` cell every channel
 /// shares and owns the stake story for it. It calls the same runtime
@@ -52,13 +46,8 @@ pub(super) fn try_lower_dynamic_target(
     v: Operand,
     class_name: &str,
 ) -> Option<Operand> {
-    if ctx.ast.class_parents.contains_key(class_name)
-        || builtin_type_tag(class_name).is_some()
-        || matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
-    {
-        return None;
-    }
-    let (slot, ty) = resolve_value_binding(ctx, class_name)?;
+    let target_name = dynamic_target_name(ctx, class_name)?;
+    let (slot, ty) = resolve_value_binding(ctx, &target_name)?;
     if matches!(ty, Type::Closure(_) | Type::FnSig(_)) {
         return None;
     }
@@ -81,6 +70,78 @@ pub(super) fn try_lower_dynamic_target(
     // Steps 1 and 4 throw, and so can the handler body.
     ctx.emit_throw_check(None);
     Some(Operand::Value(r))
+}
+
+/// Which binding the runtime operator should ask, or `None` to leave
+/// the answer to the parent's compile-time ladder.
+///
+/// - A **declared class** normally keeps its descendant-tag fold —
+///   that fold IS the spec answer, and it is the fast one. The
+///   exception is a class that declares `static [Symbol.hasInstance]`
+///   (§15.7): the handler then decides, for any operand, so the
+///   target becomes the class object binding `__class_<C>` that
+///   `class_globals` emits. Only a member written with that computed
+///   key lands in `class_computed_keys`, so this costs one side-table
+///   scan and never fires for an ordinary class.
+/// - A **builtin constructor** keeps its fold. Installing a handler
+///   onto `Array` / `Map` / … is possible but nothing here can see
+///   it; recorded residue rather than a fold worth losing.
+/// - **Everything else with a binding** goes to the operator: an
+///   object literal's computed key and a `defineProperty` install
+///   both answer through the same symbol face `N[Symbol.hasInstance]`
+///   resolves, where the empty descendant-tag set used to
+///   constant-fold `false`.
+fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
+    if ctx.ast.class_parents.contains_key(class_name) {
+        return class_declares_has_instance(ctx, class_name)
+            .then(|| format!("__class_{class_name}"));
+    }
+    if builtin_type_tag(class_name).is_some()
+        || matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
+    {
+        return None;
+    }
+    Some(class_name.to_string())
+}
+
+/// Does this class — or anything it extends — write a member under
+/// the computed key `[Symbol.hasInstance]`? The parser folds only
+/// `Symbol.iterator` to a synthetic name; every other `Symbol.<x>`
+/// member key is stashed as the key expression itself, so the test
+/// is on its shape.
+///
+/// The walk up `class_parents` is what makes `x instanceof Sub`
+/// answer through a handler `Sub` inherits: a derived constructor's
+/// [[Prototype]] is its base, so GetMethod finds the base's handler
+/// even though the subclass declares nothing. The depth cap mirrors
+/// [`super::compute_descendant_tags`] — a malformed cycle in the
+/// side table must not hang the compiler.
+fn class_declares_has_instance(ctx: &LowerCtx<'_>, class_name: &str) -> bool {
+    let mut cur = Some(class_name.to_string());
+    let mut depth = 0u32;
+    while let Some(name) = cur {
+        if depth > 64 {
+            return false;
+        }
+        if ctx
+            .ast
+            .class_computed_keys
+            .iter()
+            .any(|((c, _), &key)| *c == name && is_symbol_has_instance(ctx, key))
+        {
+            return true;
+        }
+        cur = ctx.ast.class_parents.get(&name).and_then(|p| p.clone());
+        depth += 1;
+    }
+    false
+}
+
+fn is_symbol_has_instance(ctx: &LowerCtx<'_>, key: ExprId) -> bool {
+    let Expr::Member { obj, name } = ctx.ast.get_expr(key) else {
+        return false;
+    };
+    name == "hasInstance" && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n) if n == "Symbol")
 }
 
 /// The name's storage slot — a local binding directly, a module
