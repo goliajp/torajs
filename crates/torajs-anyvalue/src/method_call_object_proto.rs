@@ -311,26 +311,10 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
     // that are genuinely ordinary objects — Object / RegExp / Date /
     // Error, none of which has the well-known tag — keep "Object",
     // matching bun.)
-    // RFC 20260801-ns-object-value — the Math namespace singleton
-    // answers its §21.3.1.9 @@toStringTag badge by pointer identity
-    // (it is an ordinary dynobj otherwise).
-    if crate::method_value::ns_object::is_math_object(ptr) {
-        return b"Math";
-    }
-    // §25.5.3 — the JSON namespace singleton's @@toStringTag.
-    if crate::method_value::ns_object::is_json_object(ptr) {
-        return b"JSON";
-    }
-    // §28.1.14 — the Reflect namespace singleton's @@toStringTag.
-    if crate::method_value::ns_object::is_reflect_object(ptr) {
-        return b"Reflect";
-    }
-    // Web IDL namespace-object @@toStringTag — the console
-    // singleton answers `[object console]` (bun-verified;
-    // RFC 20260812-console-sink knife 4).
-    if crate::method_value::ns_object::is_console_object(ptr) {
-        return b"console";
-    }
+    // The four namespace singletons (Math / JSON / Reflect / console)
+    // used to be recognised here by pointer identity. They now carry
+    // the real @@toStringTag their specs give them, so step 15 answers
+    // for them before this walk ever runs.
     let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
     if proto_tag >= 0 {
         return match proto_tag {

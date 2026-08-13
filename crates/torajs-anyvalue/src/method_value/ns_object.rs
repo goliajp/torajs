@@ -22,9 +22,13 @@
 //! `Math.PI` kept reading its compile-time constant.
 //!
 //! `Object.prototype.toString.call(Math)` answers "[object Math]"
-//! per §21.3.1.9 through the pointer-identity probe below (the
-//! badge walk in `method_call_object_proto::cell_badge` checks it
-//! before the generic dynobj fallback).
+//! per §21.3.1.9 because the object carries the `@@toStringTag`
+//! that clause gives it, which `Object.prototype.toString`'s step 15
+//! reads like any other. It used to be a pointer-identity probe
+//! inside the badge walk instead — one special case per namespace,
+//! and four ways for the answer to outlive the property, since the
+//! tag is configurable and `delete Math[Symbol.toStringTag]` is
+//! supposed to take the badge away with it.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -51,6 +55,8 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
+    /// torajs-str — the idx-th §6.1.5.1 well-known symbol (owned +1).
+    fn __torajs_symbol_well_known(idx: i64) -> *mut c_void;
 }
 
 /// Flag-byte mirror of `torajs_dynobj::layout::DEFINE_*` (same shape
@@ -82,6 +88,45 @@ const MATH_METHOD_FLAGS: u64 = DEFINE_FLAG_WRITABLE
     | DEFINE_PRESENT_ENUMERABLE
     | DEFINE_PRESENT_CONFIGURABLE
     | DEFINE_PRESENT_VALUE;
+
+/// §21.3.1.9 / §25.5.3 / §28.1.14 (and Web IDL for `console`) — a
+/// namespace object's `@@toStringTag` is
+/// `{ [[Writable]]: false, [[Enumerable]]: false,
+/// [[Configurable]]: true }`. Configurable, so `delete Math[tag]`
+/// really does take the badge away; that is exactly why the badge has
+/// to come from this entry rather than from the object's identity.
+const NS_TAG_FLAGS: u64 = DEFINE_FLAG_CONFIGURABLE
+    | DEFINE_PRESENT_WRITABLE
+    | DEFINE_PRESENT_ENUMERABLE
+    | DEFINE_PRESENT_CONFIGURABLE
+    | DEFINE_PRESENT_VALUE;
+
+/// Index of `Symbol.toStringTag` in torajs-str's alphabetical
+/// well-known table.
+const WK_TO_STRING_TAG: i64 = 13;
+
+/// DEFINE the namespace's `@@toStringTag`. The well-known symbol is a
+/// process-lifetime singleton, so the reference this takes is never
+/// given back — the same shape the string keys above already have.
+///
+/// # Safety
+/// `obj` points at a live dynobj slot.
+unsafe fn define_ns_tag(obj: &mut *mut c_void, tag: &[u8]) {
+    unsafe {
+        let key = __torajs_symbol_well_known(WK_TO_STRING_TAG);
+        if key.is_null() {
+            return;
+        }
+        let value = mint_immortal_str(tag);
+        __torajs_dynobj_define(
+            obj,
+            key,
+            AnySlotTag::Heap as u64,
+            value as u64,
+            NS_TAG_FLAGS,
+        );
+    }
+}
 
 /// The interned Math singleton — 0 until first minted.
 static MATH_OBJECT: AtomicU64 = AtomicU64::new(0);
@@ -160,6 +205,7 @@ pub(crate) fn math_object_ptr() -> *mut c_void {
                 MATH_CONST_FLAGS,
             );
         }
+        define_ns_tag(&mut obj, b"Math");
         obj
     })
 }
@@ -173,6 +219,7 @@ pub(crate) fn json_object_ptr() -> *mut c_void {
     intern_singleton(&JSON_OBJECT, || unsafe {
         let mut obj = __torajs_dynobj_alloc();
         fill_ns_methods(&mut obj, "JSON");
+        define_ns_tag(&mut obj, b"JSON");
         obj
     })
 }
@@ -188,6 +235,7 @@ pub(crate) fn console_object_ptr() -> *mut c_void {
     intern_singleton(&CONSOLE_OBJECT, || unsafe {
         let mut obj = __torajs_dynobj_alloc();
         fill_ns_methods(&mut obj, "console");
+        define_ns_tag(&mut obj, b"console");
         obj
     })
 }
@@ -202,6 +250,7 @@ pub(crate) fn reflect_object_ptr() -> *mut c_void {
     intern_singleton(&REFLECT_OBJECT, || unsafe {
         let mut obj = __torajs_dynobj_alloc();
         fill_ns_methods(&mut obj, "Reflect");
+        define_ns_tag(&mut obj, b"Reflect");
         obj
     })
 }
@@ -238,32 +287,4 @@ pub extern "C" fn __torajs_ns_object_console() -> AnyValue {
 pub extern "C" fn __torajs_global_eval_value() -> AnyValue {
     let id = torajs_rc::ns_static::ns_static_id("globalThis", "eval");
     box_void_ptr(ns_static_cell(id).cast())
-}
-
-/// Identity probe for the toString badge — true only for the minted
-/// singleton (0-compare before any mint, so a plain dynobj never
-/// false-positives).
-pub(crate) fn is_math_object(ptr: *const c_void) -> bool {
-    let p = MATH_OBJECT.load(Ordering::Relaxed);
-    p != 0 && p == ptr as u64
-}
-
-/// [`is_math_object`]'s JSON twin — the §25.5.3 @@toStringTag badge.
-pub(crate) fn is_json_object(ptr: *const c_void) -> bool {
-    let p = JSON_OBJECT.load(Ordering::Relaxed);
-    p != 0 && p == ptr as u64
-}
-
-/// [`is_math_object`]'s Reflect twin — the §28.1.14 @@toStringTag
-/// badge.
-pub(crate) fn is_reflect_object(ptr: *const c_void) -> bool {
-    let p = REFLECT_OBJECT.load(Ordering::Relaxed);
-    p != 0 && p == ptr as u64
-}
-
-/// [`is_math_object`]'s console twin — the Web IDL namespace-object
-/// @@toStringTag badge (`[object console]`, bun-verified).
-pub(crate) fn is_console_object(ptr: *const c_void) -> bool {
-    let p = CONSOLE_OBJECT.load(Ordering::Relaxed);
-    p != 0 && p == ptr as u64
 }
