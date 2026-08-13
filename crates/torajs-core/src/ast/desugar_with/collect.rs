@@ -274,7 +274,7 @@ fn collect_expr(
         }
         Expr::PostIncr { target, .. } => {
             if matches!(ast.get_expr(*target), Expr::Ident(_)) {
-                sites.push((*target, Position::Refused("an increment / decrement")));
+                sites.push((*target, Position::Wrapping(eid)));
             } else {
                 collect_expr(ast, *target, sites, err);
             }
@@ -282,7 +282,7 @@ fn collect_expr(
         }
         Expr::TypeOf { expr } => {
             if matches!(ast.get_expr(*expr), Expr::Ident(_)) {
-                sites.push((*expr, Position::Refused("`typeof`")));
+                sites.push((*expr, Position::Wrapping(eid)));
             } else {
                 collect_expr(ast, *expr, sites, err);
             }

@@ -16,6 +16,8 @@
 //!
 //! read  n      ->   (__torajs_with_has(w, "n") ? w.n : n)
 //! call  n(a…)  ->   (__torajs_with_has(w, "n") ? w.n(a…) : n(a…))
+//! typeof n     ->   (has ? typeof w.n : typeof n)
+//! n++          ->   (has ? w.n++ : n++)
 //! ```
 //!
 //! The membership test is re-run at every reference on purpose: the
@@ -36,11 +38,11 @@
 //!
 //! # Loud, not wrong (刀 1 boundary)
 //!
-//! Only reads and bare-name calls are rewritten here. Every other way
-//! a free name can be reached — assignment, compound assignment,
-//! `++`/`--`, `typeof`, `delete`, and any nested function body (whose
-//! names resolve when it is CALLED, so the object has to be captured)
-//! — is refused with a diagnostic naming the knife that will land it.
+//! Reads, bare-name calls, `typeof` and `++`/`--` are rewritten here.
+//! Every other way a free name can be reached — assignment, compound
+//! assignment, `delete`, and any nested function body (whose names
+//! resolve when it is CALLED, so the object has to be captured) — is
+//! refused with a diagnostic naming the knife that will land it.
 //! Leaving them unrewritten would silently resolve to the lexical
 //! binding instead of the object, which is the one outcome this file
 //! is not allowed to produce.
@@ -156,6 +158,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
         match pos {
             Position::Read => rewrite_read(ast, eid, &w, &n),
             Position::Callee(call) => rewrite_call(ast, call, eid, &w, &n),
+            Position::Wrapping(outer) => rewrite_wrapping(ast, outer, &w, &n),
             Position::Refused(what) => {
                 err.get_or_insert(format!(
                     "`{n}` is reached by {what} inside a `with` body — not yet supported \
@@ -216,6 +219,53 @@ fn rewrite_call(ast: &mut Ast, call: ExprId, callee: ExprId, w: &str, n: &str) {
     };
 }
 
+/// `typeof n` / `n++` / `n--`: the whole WRAPPING node is replaced with
+/// a guard whose two arms are the same operator applied to `w.n` and to
+/// `n`. Nothing has to be cloned — the operand is the only child, and
+/// each arm mints its own — so unlike a compound assignment this shape
+/// keeps §9.1.1.2.1 HasBinding evaluated exactly ONCE, which is what
+/// the spec's single ResolveBinding does.
+///
+/// `typeof` is the shape that must not answer through the fall-through
+/// alone: §13.5.3 answers `"undefined"` for an unresolvable name
+/// instead of throwing, and the object arm has to be consulted before
+/// that rule applies.
+fn rewrite_wrapping(ast: &mut Ast, outer: ExprId, w: &str, n: &str) {
+    let cond = has_call(ast, w, n);
+    let obj_operand = with_member(ast, w, n);
+    let plain_operand = ast.add_expr(Expr::Ident(n.to_string()));
+    ast.with_fallthrough_idents.insert(plain_operand);
+    let (then_branch, else_branch) = match ast.get_expr(outer) {
+        Expr::TypeOf { .. } => (
+            Expr::TypeOf { expr: obj_operand },
+            Expr::TypeOf {
+                expr: plain_operand,
+            },
+        ),
+        Expr::PostIncr { is_inc, .. } => {
+            let is_inc = *is_inc;
+            (
+                Expr::PostIncr {
+                    target: obj_operand,
+                    is_inc,
+                },
+                Expr::PostIncr {
+                    target: plain_operand,
+                    is_inc,
+                },
+            )
+        }
+        _ => return,
+    };
+    let then_branch = ast.add_expr(then_branch);
+    let else_branch = ast.add_expr(else_branch);
+    ast.exprs[outer.0 as usize] = Expr::Ternary {
+        cond,
+        then_branch,
+        else_branch,
+    };
+}
+
 fn has_call(ast: &mut Ast, w: &str, n: &str) -> ExprId {
     let f = ast.add_expr(Expr::Ident(WITH_HAS_FN.to_string()));
     let obj = ast.add_expr(Expr::Ident(w.to_string()));
@@ -241,6 +291,9 @@ pub(crate) enum Position {
     Read,
     /// The callee of this `Call`.
     Callee(ExprId),
+    /// The sole operand of this single-child node (`typeof` / `++` /
+    /// `--`), which is replaced whole.
+    Wrapping(ExprId),
     Refused(&'static str),
 }
 
