@@ -166,6 +166,10 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     ast::rewrite_split_for_i_to_iter(ast);
     ast::escape_analyze_array_literals(ast);
     ast::desugar_implicit_generics(ast);
+    // After it, because the receiver-promoting knives live inside it —
+    // what still carries a `__this` capture by now is a fn-expr nobody
+    // supplies a receiver for, and gets the plain-call answer.
+    ast::bind_fnexpr_this_default(ast);
     ast::apply_default_args(ast);
     ast::apply_rest_args(ast);
     ast::apply_spread_args(ast);

@@ -26,6 +26,23 @@
 use super::{Expr, ExprId, Stmt};
 use crate::lexer::Span;
 
+/// `true` when `body`'s directive prologue — the leading run of
+/// string-literal expression statements — says `"use strict"`. Shared
+/// with [`crate::ast::fnexpr_this_default`], which owes the same
+/// per-function strict answer for its no-receiver binding.
+pub(crate) fn has_use_strict_directive(body: &[Stmt], exprs: &[Expr]) -> bool {
+    for s in body.iter() {
+        let Stmt::Expr(e) = s else { return false };
+        let Expr::String(v) = &exprs[e.0 as usize] else {
+            return false;
+        };
+        if v == "use strict" {
+            return true;
+        }
+    }
+    false
+}
+
 /// Insert the prologue at the head of `body`, unless the body is
 /// strict or already carries it.
 ///
@@ -53,14 +70,8 @@ pub(crate) fn insert_sloppy_this_prologue(
     // that are strict only by INHERITANCE carry a directive too — the
     // parser writes one in (`parser::strict_directive`), which is what
     // makes this one probe answer for both.
-    for s in body.iter() {
-        let Stmt::Expr(e) = s else { break };
-        let Expr::String(v) = &exprs[e.0 as usize] else {
-            break;
-        };
-        if v == "use strict" {
-            return;
-        }
+    if has_use_strict_directive(body, exprs) {
+        return;
     }
     // Idempotent by shape probe: a body whose first stmt already
     // assigns `__this` was patched by an earlier round — the

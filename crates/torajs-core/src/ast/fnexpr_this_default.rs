@@ -1,0 +1,191 @@
+//! Function-expression `this` in a slot the spec calls with NO
+//! receiver — bind it the way a plain function binds it.
+//!
+//! `bind_this_param` gives every top-level `function` mentioning
+//! `this` a `__this` param, and the fn-to-closure wrap
+//! (`__forward_<name>`) hardwires `undefined` into it, so a NAMED
+//! callback reading `this` works today. The same body spelled as an
+//! EXPRESSION does not: `lift_arrow_fns` lists the body's `__this` as
+//! a capture and the checker rejects (`closure __closure_N references
+//! unknown identifier __this`). The answer therefore depended on
+//! whether the callback was written `function cb() {…}` or
+//! `function () {…}` — measured on `Promise.resolve(1).then(…)`:
+//! the named spelling answered `undefined`, the expression spelling
+//! refused to compile.
+//!
+//! **The admitted set is a SLOT TABLE, not "whatever is left".** A
+//! blanket binding was written first and reverted in-knife: it turned
+//! `arr.forEach(function () { … this … }, obj)` from today's loud
+//! reject into `this === undefined` (the knife-4 promote declines an
+//! `any[]`-typed receiver binding, L3b), and it would do the same to
+//! `JSON.stringify(v, function (k, v) { … this … })`, whose replacer
+//! is called with the HOLDER as `this` (§25.5.2.2). Over-refusal
+//! keeps the loud reject; a wrong `undefined` is the silent wrong the
+//! design principles rank worst. So each slot is admitted only after
+//! reading what the spec passes there.
+//!
+//! Admitted so far:
+//!
+//! * `p.then(f)` / `p.then(f, g)` / `p.catch(f)` / `p.finally(f)` —
+//!   §27.2.5.4 step 9's `Call(handler, undefined, «argument»)`, and
+//!   the same in §27.2.5.1 / §27.2.5.3. The receiver has to be a
+//!   SYNTACTICALLY CERTAIN promise (a `Promise` static call, `new
+//!   Promise`, or a chain over one): a user object with its own
+//!   `then` method decides for itself how it calls the handler, and
+//!   `f.call(this)` in that method would make `undefined` wrong.
+//!
+//! Only function expressions (`ast.fn_expr_exprs`) take the binding.
+//! An ARROW inherits its enclosing `this` (§8.3.4) and is already
+//! correct through the capture chain; an object-literal method binds
+//! the receiver and is `objlit_nominal`'s to claim.
+//!
+//! Nothing about the closure's ABI moves — the binding is a
+//! body-local declaration, so arity, the boxed dual entry, and the
+//! argv face are untouched. The `__env` annotation is rewritten
+//! alongside the capture list, since it spells the env layout the
+//! lowering packs.
+//!
+//! Runs after `desugar_implicit_generics`, which is where the
+//! receiver-promoting knives live: a slot one of them claimed has no
+//! `__this` capture left by the time this looks.
+
+use super::sloppy_this_prologue::has_use_strict_directive;
+use super::{Ast, Expr, ExprId, Stmt};
+
+/// The `Promise` statics whose result is a promise — the roots of a
+/// syntactically certain promise chain.
+const PROMISE_STATICS: [&str; 7] = [
+    "resolve",
+    "reject",
+    "all",
+    "allSettled",
+    "any",
+    "race",
+    "try",
+];
+
+/// The prototype methods that both take no-receiver handlers and
+/// answer a promise, so a chain over them stays certain.
+const HANDLER_METHODS: [&str; 3] = ["then", "catch", "finally"];
+
+pub fn bind_fnexpr_this_default(ast: &mut Ast) {
+    let mut targets: Vec<(ExprId, String)> = Vec::new();
+    for i in 0..ast.exprs.len() {
+        let Expr::Call { callee, args } = &ast.exprs[i] else {
+            continue;
+        };
+        let Expr::Member { obj, name } = &ast.exprs[callee.0 as usize] else {
+            continue;
+        };
+        if !HANDLER_METHODS.contains(&name.as_str()) || !promise_certain(&ast.exprs, *obj) {
+            continue;
+        }
+        // `then` takes two handler slots; `catch` / `finally` one.
+        // Anything past them is not a handler and is left alone.
+        let slots = if name == "then" { 2 } else { 1 };
+        for slot in args.iter().take(slots) {
+            if let Some(fn_name) = unclaimed_fnexpr(ast, *slot) {
+                targets.push((*slot, fn_name));
+            }
+        }
+    }
+    if targets.is_empty() {
+        return;
+    }
+    for (eid, _) in &targets {
+        if let Expr::Closure { captures, .. } = &mut ast.exprs[eid.0 as usize] {
+            captures.retain(|c| c != "__this");
+        }
+    }
+    for (eid, fn_name) in targets {
+        let caps = match &ast.exprs[eid.0 as usize] {
+            Expr::Closure { captures, .. } => captures.clone(),
+            _ => continue,
+        };
+        // The goal answer is read before the mutable walk: the mint
+        // needs an `&mut Ast` and the directive probe an `&Ast`.
+        let global_this = ast.sloppy_script_goal
+            && ast.stmts.iter().any(|s| {
+                matches!(s, Stmt::FnDecl { name, body, .. }
+                    if name == &fn_name && !has_use_strict_directive(body, &ast.exprs))
+            });
+        let init = if global_this {
+            // §10.2.1.2 step 4's ToObject over step 6's global
+            // object, spelled the way `sloppy_this_prologue` spells
+            // it for the promoted bodies.
+            let object = ast.add_expr(Expr::Ident("Object".into()));
+            let global = ast.add_expr(Expr::Ident("globalThis".into()));
+            ast.add_expr(Expr::Call {
+                callee: object,
+                args: vec![global],
+            })
+        } else {
+            ast.add_expr(Expr::Ident("undefined".into()))
+        };
+        for s in ast.stmts.iter_mut() {
+            let Stmt::FnDecl {
+                name, params, body, ..
+            } = s
+            else {
+                continue;
+            };
+            if name != &fn_name {
+                continue;
+            }
+            if let Some(env) = params.first_mut()
+                && env.name == "__env"
+            {
+                env.type_ann = Some(format!("__env({})", caps.join("|")));
+            }
+            body.insert(
+                0,
+                Stmt::LetDecl {
+                    mutable: false,
+                    name: "__this".into(),
+                    type_ann: Some("any".into()),
+                    init,
+                    is_var: false,
+                },
+            );
+            break;
+        }
+    }
+}
+
+/// The lifted name of a function expression still carrying an
+/// unbound `__this`, or `None` for everything else — an arrow, an
+/// object-literal method, a closure a promote already claimed, or a
+/// plain value.
+fn unclaimed_fnexpr(ast: &Ast, eid: ExprId) -> Option<String> {
+    let Expr::Closure { fn_name, captures } = &ast.exprs[eid.0 as usize] else {
+        return None;
+    };
+    if !captures.iter().any(|c| c == "__this") {
+        return None;
+    }
+    if !ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid) {
+        return None;
+    }
+    Some(fn_name.clone())
+}
+
+/// `true` when `eid` is syntactically certain to be a real promise:
+/// a `Promise` static call, `new Promise(…)`, or a handler-method
+/// chain over one of those. A bare binding does not qualify even if
+/// it holds a promise at runtime — the point of the check is that no
+/// USER-written `then` can be reached.
+fn promise_certain(exprs: &[Expr], eid: ExprId) -> bool {
+    match &exprs[eid.0 as usize] {
+        Expr::New { class_name, .. } => class_name == "Promise",
+        Expr::Call { callee, .. } => match &exprs[callee.0 as usize] {
+            Expr::Member { obj, name } if PROMISE_STATICS.contains(&name.as_str()) => {
+                matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
+            }
+            Expr::Member { obj, name } if HANDLER_METHODS.contains(&name.as_str()) => {
+                promise_certain(exprs, *obj)
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}

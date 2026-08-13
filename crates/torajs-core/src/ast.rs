@@ -85,6 +85,7 @@ mod fnexpr_bind_this;
 pub(crate) mod fnexpr_this;
 pub(crate) mod fnexpr_this_args;
 pub(crate) mod fnexpr_this_cb_slots;
+mod fnexpr_this_default;
 pub(crate) mod fnexpr_this_faces;
 pub(crate) mod fnexpr_this_recvs;
 pub(crate) mod fnexpr_this_routed;
@@ -167,6 +168,7 @@ pub use fn_constructor::synthesize_fn_constructors;
 pub use fnexpr_bind_this::{
     normalize_function_bind_call, promote_bind_receiver_this, register_bind_receiver_recv_fns,
 };
+pub use fnexpr_this_default::bind_fnexpr_this_default;
 pub use fold_fromentries::fold_fromentries;
 pub use forwarders::synthesize_forwarders;
 pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};
