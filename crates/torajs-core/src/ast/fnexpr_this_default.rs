@@ -60,6 +60,16 @@
 //! receiver expression itself — `const p = Promise.resolve(1);
 //! p.then(…)` is the ordinary spelling. See [`certain_bindings`].
 //!
+//! A call to an `async function` is a certain promise too, which is
+//! how `asyncFn().then(…)` — the spelling most real code actually
+//! writes — reaches the table. §27.7.5.1 builds the result with the
+//! intrinsic `%Promise%` capability whatever the body returns, so no
+//! user-written `then` is reachable through it, which is the same bar
+//! the `Promise` statics clear. Async GENERATORS are deliberately not
+//! in that set: calling one answers the generator object, not a
+//! promise (§27.6), and the parser keeps them in a separate table for
+//! exactly this reason — see [`async_promise_fns`].
+//!
 //! Only function expressions (`ast.fn_expr_exprs`) take the binding.
 //! An ARROW inherits its enclosing `this` (§8.3.4) and is already
 //! correct through the capture chain; an object-literal method binds
@@ -134,15 +144,52 @@ fn collect_const_decls(
     }
 }
 
+/// The declarations whose CALL answers an intrinsic promise: the
+/// `async function`s, minus the async generators.
+///
+/// The parser records the two in separate tables precisely because
+/// they differ here — `desugar_async` must not Promise-wrap a
+/// generator factory, since calling an async generator answers the
+/// generator object and only its `next` / `return` / `throw` answer
+/// promises (§27.6). Subtracting is belt-and-braces: `desugar_
+/// generators` later registers the mangled `__cm___Gen_*__next`
+/// step methods into `async_fns`, and those names are reachable as a
+/// member call rather than the bare `Expr::Ident` this consults.
+///
+/// A name ever ASSIGNED to is dropped: a function declaration's
+/// binding is writable, so `async function f() {}; f = userThenable;`
+/// would leave the name certain while the call answers whatever the
+/// user object's `then` decides. That is the silent wrong this module
+/// exists to avoid, and the guard costs only a loud reject — the same
+/// deliberately coarse, name-keyed bar [`certain_bindings`] uses.
+fn async_promise_fns(ast: &Ast) -> std::collections::HashSet<String> {
+    let mut names: std::collections::HashSet<String> = ast
+        .async_fns
+        .difference(&ast.async_generator_fns)
+        .cloned()
+        .collect();
+    for e in &ast.exprs {
+        if let Expr::Assign { target, .. } = e
+            && let Expr::Ident(n) = &ast.exprs[target.0 as usize]
+        {
+            names.remove(n);
+        }
+    }
+    names
+}
+
 /// The promise-binding census, run to a fixed point: `const b = a.then(…)`
 /// only qualifies once `a` has, so one pass would stop at the first
 /// link of a chain written across statements.
-fn certain_promise_bindings(ast: &Ast) -> std::collections::HashSet<String> {
+fn certain_promise_bindings(
+    ast: &Ast,
+    async_fns: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
     let mut bound: std::collections::HashSet<String> = std::collections::HashSet::new();
     loop {
         let snapshot = bound.clone();
         let next = certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
-            promise_expr(exprs, e, &snapshot)
+            promise_expr(exprs, e, &snapshot, async_fns)
         });
         if next == bound {
             return bound;
@@ -255,11 +302,13 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
 /// Every unclaimed function expression sitting in a no-receiver slot,
 /// paired with the name of the FnDecl `lift_arrow_fns` made of it.
 fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
+    let async_fns = async_promise_fns(ast);
     let certain = Certain {
         arrays: certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
             matches!(&exprs[e.0 as usize], Expr::Array(_))
         }),
-        promises: certain_promise_bindings(ast),
+        promises: certain_promise_bindings(ast, &async_fns),
+        async_fns,
     };
     let mut targets: Vec<(ExprId, String)> = Vec::new();
     for i in 0..ast.exprs.len() {
@@ -322,6 +371,7 @@ fn no_receiver_slots(
 struct Certain {
     arrays: std::collections::HashSet<String>,
     promises: std::collections::HashSet<String>,
+    async_fns: std::collections::HashSet<String>,
 }
 
 impl Certain {
@@ -334,7 +384,7 @@ impl Certain {
     }
 
     fn promise(&self, exprs: &[Expr], eid: ExprId) -> bool {
-        promise_expr(exprs, eid, &self.promises)
+        promise_expr(exprs, eid, &self.promises, &self.async_fns)
     }
 }
 
@@ -360,7 +410,12 @@ fn unclaimed_fnexpr(ast: &Ast, eid: ExprId) -> Option<String> {
 /// chain over one of those. A bare binding does not qualify even if
 /// it holds a promise at runtime — the point of the check is that no
 /// USER-written `then` can be reached.
-fn promise_expr(exprs: &[Expr], eid: ExprId, bound: &std::collections::HashSet<String>) -> bool {
+fn promise_expr(
+    exprs: &[Expr],
+    eid: ExprId,
+    bound: &std::collections::HashSet<String>,
+    async_fns: &std::collections::HashSet<String>,
+) -> bool {
     if let Expr::Ident(n) = &exprs[eid.0 as usize] {
         return bound.contains(n);
     }
@@ -372,12 +427,12 @@ fn promise_expr(exprs: &[Expr], eid: ExprId, bound: &std::collections::HashSet<S
         // `Expr::New`: the prelude's `rewrite_promise_new` turns it
         // into a call to this synthesized helper, whose return is
         // `__pr.promise` (§27.2.4.8's cell).
-        Expr::Ident(n) => n == "__promise_from_executor",
+        Expr::Ident(n) => n == "__promise_from_executor" || async_fns.contains(n),
         Expr::Member { obj, name } if PROMISE_STATICS.contains(&name.as_str()) => {
             matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
         }
         Expr::Member { obj, name } if HANDLER_METHODS.contains(&name.as_str()) => {
-            promise_expr(exprs, *obj, bound)
+            promise_expr(exprs, *obj, bound, async_fns)
         }
         _ => false,
     }
