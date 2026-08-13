@@ -152,6 +152,16 @@ fn seed_objlit_aliases(
 ///   construct-channel builtin args (any lane / construct kernel);
 /// * an equality operand (`r.constructor === C`) compares the cell
 ///   pointer — no call lane at all;
+/// * rotation 391 — the bare name on the right of `instanceof`
+///   (`result instanceof C`). Same class as the equality operand,
+///   and even weaker: §7.3.22 reads `C.prototype` (or hands the
+///   LEFT operand to `C[@@hasInstance]`) and never enters C's own
+///   body, so no call lane observes the reshaped argc/argv. The
+///   target used to be a `String` field — invisible to this arena
+///   scan — so every `x instanceof f` written after rotation 390
+///   generalised it silently killed `f`'s chain. Sibling
+///   `fnexpr_this_routed` took the same shape as its seventh
+///   receiver-safe use;
 /// * rotation 362 — array-literal ELEMENT positions (the
 ///   container-store shape): every call reached back out of the
 ///   array dispatches any-lane through the boxed dual entry;
@@ -166,6 +176,7 @@ fn collect_boxed_arg_sites(ast: &Ast) -> std::collections::HashSet<ExprId> {
         &ast.exprs,
     ));
     boxed_arg_sites.extend(super::fnexpr_this_args::eq_operand_idents(&ast.exprs));
+    boxed_arg_sites.extend(super::fnexpr_this_args::instanceof_name_idents(&ast.exprs));
     for e in &ast.exprs {
         if let Expr::Array(elems) = e {
             boxed_arg_sites.extend(elems.iter().copied());

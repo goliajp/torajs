@@ -122,6 +122,22 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
                 operands.insert(*left);
                 operands.insert(*right);
             }
+            // `instanceof` is an operator like the ones above, plus
+            // its right operand is a read-through position: §7.3.22
+            // reads `C.prototype` off it (or hands the LEFT operand
+            // to `C[@@hasInstance]`) and hands `C` itself to nobody.
+            // Rotation 390 generalised the right side from a plain
+            // `String` field to an ordinary expression, which is what
+            // made `x instanceof Object` start reading as an escape
+            // of the whole Object family — every program saying it
+            // lost its typed tier there (`.then` fell to the any lane
+            // and a bare fn-name argument stopped being wrappable:
+            // "box_to_any element type FnSig not supported").
+            Expr::InstanceOf { expr, rhs } => {
+                operands.insert(*expr);
+                operands.insert(*rhs);
+                consumed.insert(*rhs);
+            }
             Expr::Assign { target, .. } => {
                 assign_targets.insert(*target);
             }
@@ -165,35 +181,56 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
     // so this widens one family rather than reaching for `all`. Being
     // wrong here (a mention that could not have led to a patch) costs
     // that family its typed tier in that program — a slower program,
-    // never a wrong one. `new Array(n)` and `x instanceof Array` are
-    // not affected at all: both spell the constructor as a plain
-    // String in the AST, not as an `Ident` expression.
+    // never a wrong one. `new Array(n)` is not affected at all: it
+    // spells the constructor as a plain String in the AST, not as an
+    // `Ident` expression. `x instanceof Array` used to say the same,
+    // and stopped being true in rotation 390 — it is now a real
+    // `Ident` and earns its exemption from the arm above instead.
     for (eid, family) in &ctor_idents {
         if !consumed.contains(eid) {
             set.widen(family);
         }
     }
 
-    // An opaque `.constructor` read — one whose receiver family is not
-    // syntactic — hands back a constructor this scan cannot name, so
-    // any write reaching a prototype through it is unattributable and
-    // every family has to stand down.
-    //
-    // Which makes it worth being exact about what "reaching a
-    // prototype through it" means, because escalating on sight was
-    // measured and it is far too much: `assert.js` says
-    // `thrown.constructor !== expectedErrorConstructor`, and that one
-    // comparison is included by every test262 case, so a whole suite
-    // stood its typed tier down and 156 cases that used to build
-    // stopped building. A comparison cannot install anything, and
-    // neither can reading some other property off the constructor.
-    //
-    // So the value is harmless when every use of it is one that
-    // cannot lead to a prototype: an operand of an operator, or a
-    // named read of something that is not `prototype`. Anything else
-    // — a `.prototype` read, a computed read, or no use at all (it
-    // went into a binding, an argument, a return) — escalates.
-    for eid in &opaque_ctors {
+    escalate_opaque_ctors(&mut set, &opaque_ctors, &operands, &bases);
+    attribute_proto_writes(
+        &mut set,
+        &proto_exprs,
+        &define_calls,
+        &bases,
+        &assign_targets,
+        &delete_targets,
+    );
+
+    set
+}
+
+/// An opaque `.constructor` read — one whose receiver family is not
+/// syntactic — hands back a constructor this scan cannot name, so any
+/// write reaching a prototype through it is unattributable and every
+/// family has to stand down.
+///
+/// Which makes it worth being exact about what "reaching a prototype
+/// through it" means, because escalating on sight was measured and it
+/// is far too much: `assert.js` says `thrown.constructor !==
+/// expectedErrorConstructor`, and that one comparison is included by
+/// every test262 case, so a whole suite stood its typed tier down and
+/// 156 cases that used to build stopped building. A comparison cannot
+/// install anything, and neither can reading some other property off
+/// the constructor.
+///
+/// So the value is harmless when every use of it is one that cannot
+/// lead to a prototype: an operand of an operator, or a named read of
+/// something that is not `prototype`. Anything else — a `.prototype`
+/// read, a computed read, or no use at all (it went into a binding, an
+/// argument, a return) — escalates.
+fn escalate_opaque_ctors(
+    set: &mut ShadowSet,
+    opaque_ctors: &HashSet<ExprId>,
+    operands: &HashSet<ExprId>,
+    bases: &HashMap<ExprId, Vec<Access>>,
+) {
+    for eid in opaque_ctors {
         if operands.contains(eid) {
             continue;
         }
@@ -207,11 +244,25 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
             set.all = true;
         }
     }
+}
 
-    for (&proto, &family) in &proto_exprs {
+/// Resolve each `<builtin>.prototype` occurrence against what its
+/// parent does with it: a member write or delete names the patched
+/// method exactly, a `defineProperty` call attributes through its key
+/// argument, and anything else means the prototype went where this
+/// pass cannot follow, so its family stands down whole.
+fn attribute_proto_writes(
+    set: &mut ShadowSet,
+    proto_exprs: &HashMap<ExprId, Family>,
+    define_calls: &[(ExprId, Option<String>)],
+    bases: &HashMap<ExprId, Vec<Access>>,
+    assign_targets: &HashSet<ExprId>,
+    delete_targets: &HashSet<ExprId>,
+) {
+    for (&proto, &family) in proto_exprs {
         let mut attributed = false;
 
-        for (target, key) in &define_calls {
+        for (target, key) in define_calls {
             if *target == proto {
                 attributed = true;
                 match key {
@@ -247,8 +298,6 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
             set.widen(family);
         }
     }
-
-    set
 }
 
 /// One access naming some expression as its object.
