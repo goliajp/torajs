@@ -68,7 +68,7 @@ use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
 
 mod dynamic;
 
-use dynamic::{emit_has_instance, lower_general_rhs, try_lower_dynamic_target};
+use dynamic::{emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target};
 
 /// Which of the two lanes the right-hand side takes.
 ///
@@ -323,7 +323,13 @@ fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str
             || ctx
                 .fn_table
                 .contains_key(format!("__forward_{class_name}").as_str());
-        if is_fn_binding {
+        // `box_to_any`'s match ends in a panic and a panic in the
+        // lowerer rejects the whole program, so the operand is checked
+        // before it is handed over — same gate the runtime lane
+        // applies. A bare `FnSig` receiver (a function value that
+        // never went through the closure construction site) has no
+        // encoding, and `rest instanceof Object` on one reached here.
+        if is_fn_binding && has_any_encoding(ctx.operand_ty(&v)) {
             let v_any = ctx.box_to_any(v);
             if let Some(r) = try_lower_fn_value(ctx, v_any, class_name) {
                 return r;

@@ -23,6 +23,7 @@ impl<'a> LowerCtx<'a> {
     /// (both lower to ConstPtrNull); the per-tag rules in
     /// any_typeof / any_to_str / any_to_bool / etc. then preserve
     /// the spec distinction downstream.
+    #[track_caller]
     pub(crate) fn box_to_any_from_expr(&mut self, eid: ExprId, val: Operand) -> Operand {
         let is_undef = matches!(
             self.expr_types.get(&eid),
@@ -289,6 +290,7 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    #[track_caller]
     pub(crate) fn box_to_any(&mut self, val: Operand) -> Operand {
         let val_ty = self.operand_ty(&val);
         let (tag, value_op): (i64, Operand) = match val_ty {
@@ -386,7 +388,10 @@ impl<'a> LowerCtx<'a> {
             // Nothing that works today can regress through this arm:
             // what it replaces is a panic.
             Type::Void => (5, Operand::ConstI64(0)),
-            other => panic!("ssa-lower: box_to_any element type {other:?} not supported"),
+            other => panic!(
+                "ssa-lower: box_to_any element type {other:?} not supported (from {})",
+                core::panic::Location::caller()
+            ),
         };
         let v = self.f.append_inst(
             self.cur_block,

@@ -156,7 +156,7 @@ pub(super) fn try_lower_dynamic_target(
 /// Mirrors the arms of that match — keep the two in step. Distinct
 /// from `ssa_lower_boxed_entry`'s same-shaped question about the
 /// boxed-entry ABI: that one admits `Ptr` and refuses `Substr`.
-fn has_any_encoding(ty: Type) -> bool {
+pub(super) fn has_any_encoding(ty: Type) -> bool {
     ty.is_refcounted()
         || matches!(
             ty,
