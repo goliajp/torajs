@@ -15,19 +15,19 @@
 //! array form `JSON.stringify({a:1,b:2}, ["a"])` answered the
 //! unfiltered object instead of `{"a":1}`. Both looked like passes.
 //!
-//! So a replacer that is not syntactically `null` / `undefined` is
-//! now REFUSED here, until §25.5.2.1's PropertyList and §25.5.2.2
-//! step 3's `Call(replacerFunction, holder, «key, value»)` are
-//! actually served (roadmap). The refusal is deliberately coarse —
-//! a variable that merely happens to hold `null` is refused too,
-//! because nothing at compile time distinguishes it from one holding
-//! a function. Over-refusal costs one loud message; the answer it
-//! replaces was wrong output the caller had no way to notice, which
-//! the design principles rank worst.
+//! So a replacer whose CHECKED TYPE is one §25.5.2 step 4 would
+//! consult — a callable or an array — is now REFUSED here, until
+//! that step's `Call(replacerFunction, holder, «key, value»)` and
+//! §25.5.2.1's PropertyList are actually served (roadmap).
+//!
+//! The bar is the checked type, not the spelling. A first attempt
+//! refused everything not syntactically `null` / `undefined` and the
+//! gate caught it: `JSON.stringify(42, step("t1"))` passes a STRING
+//! there, which step 4 discards, so ignoring it is the correct
+//! answer and refusing it broke a program tr had right.
 //!
 //! `JSON.stringify(v, null, 2)` / `(v, undefined, 2)` — the ordinary
-//! way to reach `space` — keep working, which is why the gate's
-//! stringify fixtures are untouched.
+//! way to reach `space` — keep working.
 //!
 //! Returns `Some(Ok(String))` on match; `Some(Err(_))` on
 //! arg typecheck failure or an unserved replacer; `None` when callee
@@ -48,14 +48,18 @@ pub(crate) fn try_match(
         && name == "stringify"
         && !args.is_empty()
     {
-        for &aid in args {
-            if let Err(e) = checker.type_of(ast, aid) {
-                return Some(Err(e));
+        let mut rep_ty = None;
+        for (n, &aid) in args.iter().enumerate() {
+            match checker.type_of(ast, aid) {
+                Err(e) => return Some(Err(e)),
+                Ok(t) => {
+                    if n == 1 {
+                        rep_ty = Some(t);
+                    }
+                }
             }
         }
-        if let Some(&rep) = args.get(1)
-            && !is_absent_replacer(ast, rep)
-        {
+        if rep_ty.is_some_and(serves_as_replacer) {
             return Some(Err(
                 "not yet supported: JSON.stringify replacer (§25.5.2.1 PropertyList / \
                  §25.5.2.2 step 3) — pass `null` for the 2-arg and 3-arg (space) forms"
@@ -67,15 +71,24 @@ pub(crate) fn try_match(
     None
 }
 
-/// `true` when slot 2 spells "no replacer" — §25.5.2 step 4 only
-/// consults the argument when it is an object, so `null` and
-/// `undefined` mean the plain serialization the static unfold
-/// already produces byte-identically.
+/// `true` when slot 2's type is one §25.5.2 step 4 would actually
+/// CONSULT — a callable or an array. Everything else, `null` and
+/// `undefined` included, the spec ignores outright: step 4 only looks
+/// at the argument when it is an Object, and step 4.a only treats it
+/// as a PropertyList when it is an Array. A string or number in that
+/// slot is discarded by the spec too, so dropping it is not a wrong
+/// answer and those calls keep working.
 ///
-/// Syntactic on purpose: this is the one shape that can be proven
-/// absent without running the program, and admitting anything else
-/// would re-open the silent wrong.
-fn is_absent_replacer(ast: &Ast, rep: ExprId) -> bool {
-    matches!(ast.get_expr(rep), Expr::Null)
-        || matches!(ast.get_expr(rep), Expr::Ident(n) if n == "undefined")
+/// Type-driven rather than syntactic, because the syntactic version
+/// was wrong in the other direction: it refused
+/// `JSON.stringify(42, step("t1"))`, where the argument is a string
+/// and being ignored is exactly what the spec asks for.
+///
+/// A replacer arriving as `Any` is NOT refused, and that leaves the
+/// residual hole: an `any`-typed binding holding a function is still
+/// dropped silently. Narrowing that needs the runtime check, which
+/// arrives with the implementation itself — refusing all of `Any`
+/// here would reject far more correct programs than it protects.
+fn serves_as_replacer(t: Type) -> bool {
+    matches!(t, Type::Function(_, _) | Type::Array(_))
 }

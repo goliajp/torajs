@@ -15,3 +15,10 @@ console.log(JSON.stringify(o, null, 2));
 console.log(JSON.stringify(o, undefined, 2));
 console.log(JSON.stringify(o, null, "\t"));
 console.log(JSON.stringify([1, [2, [3]]], null, 1));
+
+// A non-object replacer is discarded by §25.5.2 step 4 itself, so
+// ignoring it is the correct answer, not a silent wrong -- these
+// keep working rather than being refused.
+console.log(JSON.stringify(42, "ignored"));
+console.log(JSON.stringify("abc", 7, 2));
+console.log(JSON.stringify(o, true, 2));
