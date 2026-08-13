@@ -6,7 +6,7 @@
 //! The `[Symbol.iterator]` fact is asked from two directions and both
 //! live here so they cannot drift apart: [`builtin_symbol_method_lookup`]
 //! answers it off an INSTANCE's heap tag (`m[Symbol.iterator]`), and
-//! [`__torajs_proto_iterator_install`] writes it as a real own entry on
+//! [`__torajs_proto_symbol_keys_install`] writes it as a real own entry on
 //! the PROTOTYPE singleton (`Map.prototype[Symbol.iterator]`). Both
 //! hand out the same interned cell, which is what §24.1.3.14's "the
 //! initial value is the entries function" requires: the two reads and
@@ -124,6 +124,15 @@ unsafe extern "C" {
         value: i64,
         flags_byte: u64,
     );
+    /// torajs-dynobj — the §23.1.3.44 unscopables object's mint pair,
+    /// plus the null-[[Prototype]] mark that clause requires.
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
+    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    /// torajs-str — mint / release a Str cell for one of those keys
+    /// (the entry takes its own share on insert).
+    fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// `ANY_HEAP` slot tag (torajs-dynobj `layout.rs` mirror).
@@ -159,9 +168,86 @@ fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
     })
 }
 
-/// Define `[Symbol.iterator]` on a freshly minted builtin prototype
-/// as a REAL own entry, if its spec clause gives it one — a no-op
-/// for the rest.
+/// §23.1.3.44 — the method names a `with` block must NOT bring into
+/// scope, in the clause's creation order. `Object.keys` on the
+/// unscopables object answers that order, so it is observable and this
+/// list is not free to be sorted.
+const UNSCOPABLE_KEYS: [&str; 16] = [
+    "at",
+    "copyWithin",
+    "entries",
+    "fill",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flat",
+    "flatMap",
+    "includes",
+    "keys",
+    "toReversed",
+    "toSorted",
+    "toSpliced",
+    "values",
+];
+
+/// Entry attrs {W:0, E:0, C:1} — §23.1.3.44 gives the unscopables
+/// entry itself a NON-writable face, unlike the method entries above.
+/// Same flag-byte encoding with the writable value bit cleared.
+const UNSCOPABLES_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 << 2);
+
+/// Build §23.1.3.44's unscopables object and define it on
+/// `Array.prototype`. Every entry is `true` with the default data
+/// attributes CreateDataPropertyOrThrow gives, on an object whose
+/// [[Prototype]] is null.
+///
+/// Pre-fix the property simply did not exist: reading
+/// `Array.prototype[Symbol.unscopables]` answered undefined and
+/// `getOwnPropertySymbols(Array.prototype)` listed one symbol where bun
+/// lists two. Same "behaviour right, property absent" shape rotation
+/// 382 closed for `@@toStringTag` and 383 for the `@@iterator` alias --
+/// except here there is no behaviour either, since `with` is the only
+/// consumer and tr has no `with`.
+///
+/// # Safety
+/// `proto` is the freshly allocated `Array.prototype` Arr cell.
+unsafe fn install_unscopables(proto: *mut c_void) {
+    // Index 14 = "unscopables" in the alphabetical well-known table.
+    let key = symbol_static::well_known_singleton(14);
+    if key.is_null() {
+        return;
+    }
+    let obj = unsafe { __torajs_dynobj_alloc() };
+    if obj.is_null() {
+        return;
+    }
+    unsafe { __torajs_dynobj_mark_null_proto(obj) };
+    let mut slot = obj;
+    for name in UNSCOPABLE_KEYS {
+        let k = unsafe { __torajs_str_alloc(name.as_ptr(), name.len() as i64) };
+        // Tag 1 = AnySlotTag::Bool, value 1 = `true`. The entry takes
+        // its own share of the key, so the mint's stake is ours to
+        // give back.
+        unsafe { __torajs_dynobj_set(&mut slot, k as *mut c_void, 1, 1) };
+        unsafe { __torajs_str_drop(k as *mut c_void) };
+    }
+    // The define consumes the fresh object's only stake, and the key
+    // is the immortal well-known singleton.
+    unsafe {
+        __torajs_arrprops_define(
+            proto,
+            key,
+            ANY_HEAP as i64,
+            slot as i64,
+            UNSCOPABLES_ENTRY_FLAGS,
+        )
+    };
+}
+
+/// Define the well-known-symbol own entries a freshly minted builtin
+/// prototype's spec clause gives it — `[Symbol.iterator]` for the four
+/// iterable families, plus `[Symbol.unscopables]` on `Array.prototype`
+/// — and nothing for the rest.
 ///
 /// `Array.prototype` takes the other kernel: §23.1.3 makes it an
 /// array exotic object, so its own entries live in the Arr side props
@@ -174,6 +260,10 @@ fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
 /// "behaviour right, property absent" shape rotation 382 closed for
 /// `@@toStringTag`.
 ///
+/// Entries go in SPEC CLAUSE ORDER, because §10.1.11.1 lists own symbol
+/// keys in creation order: §23.1.3.40 `@@iterator` before §23.1.3.44
+/// `@@unscopables`, which is what `getOwnPropertySymbols` must answer.
+///
 /// Called from the builtin-proto mint before the CAS install, so a
 /// race loser leaks a fully-formed dynobj (the posture every sibling
 /// install shares).
@@ -181,10 +271,11 @@ fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
 /// # Safety
 /// FFI face; `proto` is NULL or the freshly allocated dynobj.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_proto_iterator_install(proto: *mut c_void, idx: i64) {
+pub unsafe extern "C" fn __torajs_proto_symbol_keys_install(proto: *mut c_void, idx: i64) {
     if proto.is_null() {
         return;
     }
+    let is_array = idx == torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64;
     let Some((family, mid)) = proto_tag_iterator_alias(idx) else {
         return;
     };
@@ -197,10 +288,11 @@ pub unsafe extern "C" fn __torajs_proto_iterator_install(proto: *mut c_void, idx
     // process-lifetime immortals (the well-known symbol singleton and
     // the interned method cell), so neither stake is ever given back.
     let cell = builtin_method_cell(family, mid);
-    if idx == torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64 {
+    if is_array {
         unsafe {
             __torajs_arrprops_define(proto, key, ANY_HEAP as i64, cell as i64, METHOD_ENTRY_FLAGS)
         };
+        unsafe { install_unscopables(proto) };
         return;
     }
     let mut slot = proto;
