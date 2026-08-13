@@ -10,64 +10,8 @@
 use std::collections::HashSet;
 
 use super::Position;
+use super::walk::{expr_children, stmt_children_ref};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
-
-/// The `&mut Stmt` children the depth-first rewrite descends into,
-/// so an inner `with` is finished before the outer one starts.
-pub(crate) fn stmt_children(s: &mut Stmt) -> Vec<&mut Stmt> {
-    match s {
-        Stmt::Block(v) | Stmt::Multi(v) => v.iter_mut().collect(),
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            let mut v: Vec<&mut Stmt> = vec![then_branch.as_mut()];
-            if let Some(e) = else_branch.as_mut() {
-                v.push(e.as_mut());
-            }
-            v
-        }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::Labeled { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::ForOfSplitIter { body, .. } => vec![body.as_mut()],
-        Stmt::For { init, body, .. } => {
-            let mut v: Vec<&mut Stmt> = Vec::new();
-            if let Some(i) = init.as_mut() {
-                v.push(i.as_mut());
-            }
-            v.push(body.as_mut());
-            v
-        }
-        Stmt::Switch { cases, default, .. } => {
-            let mut v: Vec<&mut Stmt> = Vec::new();
-            for c in cases.iter_mut() {
-                v.extend(c.body.iter_mut());
-            }
-            if let Some(d) = default.as_mut() {
-                v.extend(d.iter_mut());
-            }
-            v
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            let mut v: Vec<&mut Stmt> = body.iter_mut().collect();
-            v.extend(catch_body.iter_mut());
-            if let Some(f) = finally_body.as_mut() {
-                v.extend(f.iter_mut());
-            }
-            v
-        }
-        Stmt::FnDecl { body, .. } => body.iter_mut().collect(),
-        _ => Vec::new(),
-    }
-}
 
 /// Collect the body's lexical binders into `bound` and every
 /// identifier occurrence into `sites`.
@@ -183,62 +127,6 @@ pub(crate) fn collect_stmt(
     }
 }
 
-/// Read-only twin of [`super::stmt_children`] — the collect walk needs
-/// the same shape without the mutable borrow.
-fn stmt_children_ref(s: &Stmt) -> Vec<&Stmt> {
-    match s {
-        Stmt::Block(v) | Stmt::Multi(v) => v.iter().collect(),
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            let mut v: Vec<&Stmt> = vec![then_branch.as_ref()];
-            if let Some(e) = else_branch.as_ref() {
-                v.push(e.as_ref());
-            }
-            v
-        }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::Labeled { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::ForOfSplitIter { body, .. } => vec![body.as_ref()],
-        Stmt::For { init, body, .. } => {
-            let mut v: Vec<&Stmt> = Vec::new();
-            if let Some(i) = init.as_ref() {
-                v.push(i.as_ref());
-            }
-            v.push(body.as_ref());
-            v
-        }
-        Stmt::Switch { cases, default, .. } => {
-            let mut v: Vec<&Stmt> = Vec::new();
-            for c in cases {
-                v.extend(c.body.iter());
-            }
-            if let Some(d) = default.as_ref() {
-                v.extend(d.iter());
-            }
-            v
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            let mut v: Vec<&Stmt> = body.iter().collect();
-            v.extend(catch_body.iter());
-            if let Some(f) = finally_body.as_ref() {
-                v.extend(f.iter());
-            }
-            v
-        }
-        _ => Vec::new(),
-    }
-}
-
 fn refuse(err: &mut Option<String>, what: &'static str) {
     err.get_or_insert(format!(
         "{what} inside a `with` body is not yet supported \
@@ -248,19 +136,30 @@ fn refuse(err: &mut Option<String>, what: &'static str) {
 
 /// Walk one expression subtree, recording each `Ident` with the
 /// position that decides its rewrite.
+///
+/// A bare `Ident` records ITSELF as a read, rather than being recorded
+/// by whoever passed it down. 刀 1 did the latter, and so never saw an
+/// identifier that is a statement's whole expression: `with (o) {
+/// return x }`, `if (x)`, `throw x` all left `x` resolving lexically
+/// while the object carried it. A node that owns its own site cannot
+/// be missed by a caller that forgets to announce it.
+///
+/// The positions that are NOT plain reads (callee, assignment target,
+/// the sole operand of `typeof` / `++`) are still recorded by the
+/// parent, which is the only node that knows which one applies — and
+/// the parent does not then descend into that child, so no site is
+/// recorded twice.
 fn collect_expr(
     ast: &Ast,
     eid: ExprId,
     sites: &mut Vec<(ExprId, Position)>,
     err: &mut Option<String>,
 ) {
-    let push_read = |e: ExprId, sites: &mut Vec<(ExprId, Position)>| {
-        if matches!(ast.get_expr(e), Expr::Ident(_)) {
-            sites.push((e, Position::Read));
-        }
-    };
     match ast.get_expr(eid) {
-        Expr::Ident(_) => {}
+        Expr::Ident(_) => {
+            sites.push((eid, Position::Read));
+            return;
+        }
         Expr::Call { callee, args } => {
             if matches!(ast.get_expr(*callee), Expr::Ident(_)) {
                 sites.push((*callee, Position::Callee(eid)));
@@ -268,7 +167,6 @@ fn collect_expr(
                 collect_expr(ast, *callee, sites, err);
             }
             for a in args {
-                push_read(*a, sites);
                 collect_expr(ast, *a, sites, err);
             }
             return;
@@ -276,7 +174,6 @@ fn collect_expr(
         Expr::Assign { target, value } => {
             let Expr::Ident(tn) = ast.get_expr(*target) else {
                 collect_expr(ast, *target, sites, err);
-                push_read(*value, sites);
                 collect_expr(ast, *value, sites, err);
                 return;
             };
@@ -296,14 +193,9 @@ fn collect_expr(
             sites.push((*target, Position::Assign(eid, compound_lhs)));
             match (compound_lhs, ast.get_expr(*value)) {
                 (Some(_), Expr::BinOp { right, .. }) => {
-                    let right = *right;
-                    push_read(right, sites);
-                    collect_expr(ast, right, sites, err);
+                    collect_expr(ast, *right, sites, err);
                 }
-                _ => {
-                    push_read(*value, sites);
-                    collect_expr(ast, *value, sites, err);
-                }
+                _ => collect_expr(ast, *value, sites, err),
             }
             return;
         }
@@ -341,64 +233,6 @@ fn collect_expr(
         _ => {}
     }
     for c in expr_children(ast, eid) {
-        push_read(c, sites);
         collect_expr(ast, c, sites, err);
-    }
-}
-
-/// Every child ExprId of one node. Written here rather than borrowed
-/// from a sibling walk because no shared one exists: the passes that
-/// walk expressions each carry their own arm set, tuned to what they
-/// are looking for.
-fn expr_children(ast: &Ast, eid: ExprId) -> Vec<ExprId> {
-    match ast.get_expr(eid) {
-        Expr::BinOp { left, right, .. }
-        | Expr::Sequence { left, right }
-        | Expr::Index {
-            obj: left,
-            index: right,
-        }
-        | Expr::OptIndex {
-            obj: left,
-            index: right,
-        }
-        | Expr::Nullish {
-            lhs: left,
-            rhs: right,
-        }
-        | Expr::InstanceOf {
-            expr: left,
-            rhs: right,
-        }
-        | Expr::Assign {
-            target: left,
-            value: right,
-        } => vec![*left, *right],
-        Expr::Unary { expr, .. }
-        | Expr::As { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Delete { expr }
-        | Expr::Spread { expr } => vec![*expr],
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => vec![*obj],
-        Expr::PostIncr { target, .. } => vec![*target],
-        Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            let mut v = vec![*callee];
-            v.extend(args.iter().copied());
-            v
-        }
-        Expr::NewDynamic { callee, args, .. } => {
-            let mut v = vec![*callee];
-            v.extend(args.iter().copied());
-            v
-        }
-        Expr::New { args, .. } | Expr::Super { args, .. } => args.clone(),
-        Expr::Array(items) => items.clone(),
-        Expr::ObjectLit { fields } => fields.iter().map(|(_, e)| *e).collect(),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => vec![*cond, *then_branch, *else_branch],
-        _ => Vec::new(),
     }
 }

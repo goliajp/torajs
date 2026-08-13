@@ -156,6 +156,9 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
     for child in stmt_children(s) {
         rewrite_stmt(ast, child, err);
     }
+    for arrow in arrow_nodes(ast, s) {
+        rewrite_arrow_body(ast, arrow, err);
+    }
     let Stmt::Block(items) = s else { return };
     let Some(Stmt::LetDecl { name, .. }) = items.first() else {
         return;
@@ -197,6 +200,26 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
         }
     }
     items.extend(body);
+}
+
+/// Re-enter the statement rewrite on a function expression's body,
+/// which hangs off an arena expression rather than off a statement and
+/// so is invisible to `stmt_children` (see [`arrow_nodes`]).
+///
+/// The body is taken out of the arena for the duration: the rewrite
+/// needs `&mut Ast` to mint its guard nodes, and the body it is
+/// rewriting would otherwise be borrowed out of that same arena.
+fn rewrite_arrow_body(ast: &mut Ast, arrow: ExprId, err: &mut Option<String>) {
+    let Expr::ArrowFn { body, .. } = &mut ast.exprs[arrow.0 as usize] else {
+        return;
+    };
+    let mut body = std::mem::take(body);
+    for s in &mut body {
+        rewrite_stmt(ast, s, err);
+    }
+    if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[arrow.0 as usize] {
+        *slot = body;
+    }
 }
 
 /// `n` -> `(__torajs_with_has(w, "n") ? w.n : n)`, written OVER the
@@ -381,4 +404,6 @@ pub(crate) enum Position {
 }
 
 mod collect;
-pub(crate) use collect::{collect_stmt, stmt_children};
+mod walk;
+pub(crate) use collect::collect_stmt;
+pub(crate) use walk::{arrow_nodes, stmt_children};
