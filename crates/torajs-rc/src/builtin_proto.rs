@@ -36,6 +36,7 @@ unsafe extern "C" {
     fn __torajs_function_proto_install(proto: *mut c_void);
     fn __torajs_iterator_proto_install(proto: *mut c_void);
     fn __torajs_proto_tostringtag_install(proto: *mut c_void, idx: i64);
+    fn __torajs_proto_iterator_install(proto: *mut c_void, idx: i64);
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
@@ -217,6 +218,18 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     // entry (Symbol / BigInt / Promise / Map / Set / WeakMap /
     // WeakSet / WeakRef); the install is a no-op for the rest, which
     // the spec gives no tag. Same pre-CAS posture as the three above.
+    // Map / Set / String carry `[Symbol.iterator]` as a real own
+    // entry aliased to a named method of theirs (§24.1.3.14 entries /
+    // §24.2.3.13 values / §22.1.3.36); the install is a no-op for the
+    // rest, Array.prototype included (its Arr side props take no
+    // attribute-carrying define). Same pre-CAS posture as above.
+    //
+    // BEFORE the tag install, not after: §10.1.11.1 lists own symbol
+    // keys in creation order, and the spec clauses run @@iterator
+    // first (§24.1.3.14 before §24.1.3.15, §24.2.3.13 before
+    // §24.2.3.14), which is the order `getOwnPropertySymbols` must
+    // answer in.
+    unsafe { __torajs_proto_iterator_install(fresh, idx as i64) };
     unsafe { __torajs_proto_tostringtag_install(fresh, idx as i64) };
     let fresh_addr = fresh as usize;
     // Cheap front gate for the own-write note below — a program that
@@ -476,6 +489,11 @@ unsafe fn __torajs_proto_tostringtag_install(_proto: *mut c_void, _idx: i64) {}
 // (linked into `tr`); same posture as the two stubs above.
 #[cfg(test)]
 unsafe fn __torajs_iterator_proto_install(_proto: *mut c_void) {}
+
+// The prototype-side @@iterator alias install is torajs-anyvalue's
+// too (it hands out that crate's interned method cells); same posture.
+#[cfg(test)]
+unsafe fn __torajs_proto_iterator_install(_proto: *mut c_void, _idx: i64) {}
 
 #[cfg(test)]
 mod tests {

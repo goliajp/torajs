@@ -53,7 +53,7 @@ console.log(ts.call({}));
 
 // the property is non-enumerable, and it is the only symbol-keyed own
 // property on these two (Map / Set additionally carry a real
-// @@iterator in bun, which tr still reifies rather than owns)
+// @@iterator -- see proto-symbol-iterator-001)
 console.log(Object.keys(Map.prototype).length);
 console.log(Object.getOwnPropertySymbols(WeakMap.prototype).length);
 console.log(Object.getOwnPropertySymbols(Promise.prototype).length);
