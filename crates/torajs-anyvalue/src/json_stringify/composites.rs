@@ -13,6 +13,11 @@ use super::*;
 /// nothing is omitted entirely.
 pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
     unsafe {
+        // §25.5.2.4 step 5 — an array replacer replaces the own-name
+        // list wholesale, so that walk takes over entirely.
+        if st.property_list.is_some() {
+            return replacer::write_object_list(sb, box_void_ptr(ptr), depth, st);
+        }
         __torajs_jsb_push_byte(sb, b'{');
         let len = __torajs_dynobj_iter_len(ptr);
         let order_layout = core::alloc::Layout::from_size_align(len as usize * 8, 8).unwrap();
@@ -150,6 +155,11 @@ unsafe fn write_entry(
 /// same coverage gap `Object.keys(anonAny)` documents.
 pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
     unsafe {
+        // Same §25.5.2.4 step 5 hand-off as the dynobj lane — the
+        // list's `Get` reaches declared fields and expandos alike.
+        if st.property_list.is_some() {
+            return replacer::write_object_list(sb, box_void_ptr(ptr), depth, st);
+        }
         __torajs_jsb_push_byte(sb, b'{');
         let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
         let layout = __torajs_struct_layout_lookup(class_tag);

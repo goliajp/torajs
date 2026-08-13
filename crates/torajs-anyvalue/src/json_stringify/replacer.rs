@@ -37,6 +37,11 @@ use crate::nanbox::box_void_ptr;
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    /// The generic `? Get(holder, P)` pair channel — the PropertyList
+    /// walk reads keys the holder may not own, including inherited
+    /// ones, which is what the spec's Get asks for.
+    fn __torajs_any_member_get_tag(recv: AnyValue, key: *const c_void) -> u64;
+    fn __torajs_any_member_get_value(recv: AnyValue, key: *const c_void) -> u64;
 }
 
 /// The ES §25.5.2.1 serializer state this runtime carries. `Indent`
@@ -51,6 +56,12 @@ pub(crate) struct St<'a> {
     /// absent or not callable, which is exactly when the spec
     /// ignores it.
     pub replacer: Option<(*mut c_void, u64)>,
+    /// §25.5.2.1 step 4.b `[[PropertyList]]` — the owned Str keys an
+    /// ARRAY replacer names, in list order. Mutually exclusive with
+    /// [`Self::replacer`] (step 4 takes the callable branch first),
+    /// and consulted only by the OBJECT walks: SerializeJSONArray
+    /// never looks at it.
+    pub property_list: Option<Vec<*mut c_void>>,
 }
 
 impl<'a> St<'a> {
@@ -61,6 +72,17 @@ impl<'a> St<'a> {
         St {
             gap,
             replacer: None,
+            property_list: None,
+        }
+    }
+}
+
+impl Drop for St<'_> {
+    fn drop(&mut self) {
+        if let Some(list) = self.property_list.take() {
+            for key in list {
+                unsafe { __torajs_str_drop(key) };
+            }
         }
     }
 }
@@ -87,15 +109,139 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify_full(
             let len = (gap.add(STR_LEN_OFF) as *const u32).read() as usize;
             core::slice::from_raw_parts(gap.add(STR_DATA_OFF), len)
         };
+        // §25.5.2 step 4 — only an Object is consulted; step 4.a
+        // takes a callable, step 4.b an Array. A string / number /
+        // null in that slot is discarded by the spec, so answering
+        // neither is the spec's own answer, not a shortcut.
+        let fun = closure_boxed_entry(replacer);
         let st = St {
             gap: bytes,
-            // §25.5.2 step 4 — only an Object is consulted, and step
-            // 4.a only a callable one. A string / number / null in
-            // that slot is discarded by the spec, so `None` here is
-            // the spec's own answer, not a shortcut.
-            replacer: closure_boxed_entry(replacer),
+            property_list: if fun.is_none() {
+                property_list(replacer)
+            } else {
+                None
+            },
+            replacer: fun,
         };
         stringify_state(v, &st, depth.max(0) as u32)
+    }
+}
+
+/// §25.5.2.1 step 4.b — the PropertyList an Array replacer names.
+/// Only String and Number elements (and their wrapper objects)
+/// contribute, each converted with ToString and appended once;
+/// everything else is skipped. `None` for a non-Array.
+unsafe fn property_list(replacer: AnyValue) -> Option<Vec<*mut c_void>> {
+    unsafe {
+        if !is_cell(replacer)
+            || (as_void_ptr(replacer).cast::<u8>().add(4) as *const u16).read() != Tag::Arr as u16
+        {
+            return None;
+        }
+        let len = crate::index_any::__torajs_any_iter_len(replacer);
+        let mut out: Vec<*mut c_void> = Vec::new();
+        for i in 0..len {
+            let elem = crate::index_any::__torajs_any_index_get(replacer, i);
+            let name = property_name(elem);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(elem);
+            let Some(name) = name else { continue };
+            // Step 4.b.iv.f — "PropertyList does not contain prop".
+            if out.iter().any(|&k| same_key(k, name)) {
+                __torajs_str_drop(name);
+                continue;
+            }
+            out.push(name);
+        }
+        Some(out)
+    }
+}
+
+/// One PropertyList element's contribution — an OWNED Str for a
+/// String / Number (or a String / Number wrapper object), `None` for
+/// every other shape, which step 4.b leaves out of the list entirely
+/// (a `null` or a plain object names no property).
+unsafe fn property_name(elem: AnyValue) -> Option<*mut c_void> {
+    unsafe {
+        let named = is_short_str(elem)
+            || is_int32(elem)
+            || is_double(elem)
+            || (is_cell(elem) && {
+                let t = (as_void_ptr(elem).cast::<u8>().add(4) as *const u16).read();
+                t == Tag::Str as u16
+                    || t == Tag::StringWrapper as u16
+                    || t == Tag::NumberWrapper as u16
+            });
+        if !named {
+            return None;
+        }
+        Some(crate::nanbox_ffi::__torajs_anyv_to_str(elem))
+    }
+}
+
+/// Byte equality of two Str cells — the list's dedup test.
+unsafe fn same_key(a: *mut c_void, b: *mut c_void) -> bool {
+    unsafe {
+        let (ap, alen) = crate::prop_has::key_bytes(a);
+        let (bp, blen) = crate::prop_has::key_bytes(b);
+        alen == blen
+            && core::slice::from_raw_parts(ap, alen as usize)
+                == core::slice::from_raw_parts(bp, blen as usize)
+    }
+}
+
+/// §25.5.2.4 SerializeJSONObject step 5 under a PropertyList — the
+/// keys come from the list instead of the holder's own enumerable
+/// names, and each one is read with a full `? Get(holder, P)`. A key
+/// the holder does not have reads `undefined` and is omitted, which
+/// is how the spec expresses "the list may name absent properties".
+pub(super) unsafe fn write_object_list(sb: *mut c_void, holder: AnyValue, depth: u32, st: &St) {
+    unsafe {
+        __torajs_jsb_push_byte(sb, b'{');
+        let mut emitted = false;
+        for &key in st.property_list.as_deref().unwrap_or(&[]) {
+            let tag = __torajs_any_member_get_tag(holder, key);
+            let raw = __torajs_any_member_get_value(holder, key);
+            let mut value = crate::len_get::box_probe_pair(tag, raw, holder);
+            if __torajs_throw_check() != 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                break;
+            }
+            // §25.5.2.2 step 2 — the toJSON hook, exactly as the
+            // own-name walks apply it. Step 3 is unreachable here:
+            // step 4 makes a PropertyList and a ReplacerFunction
+            // mutually exclusive.
+            if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                value = r;
+                if __torajs_throw_check() != 0 {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    break;
+                }
+            }
+            if serializes_to_nothing(value) {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                continue;
+            }
+            if emitted {
+                __torajs_jsb_push_byte(sb, b',');
+            }
+            emitted = true;
+            push_indent(sb, depth + 1, st);
+            __torajs_jsb_push_str_quoted(sb, key as *const u8);
+            __torajs_jsb_push_byte(sb, b':');
+            if !st.gap.is_empty() {
+                __torajs_jsb_push_byte(sb, b' ');
+            }
+            write_value(sb, value, depth + 1, st);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            if __torajs_throw_check() != 0 {
+                break;
+            }
+        }
+        if emitted {
+            push_indent(sb, depth, st);
+        }
+        __torajs_jsb_push_byte(sb, b'}');
     }
 }
 

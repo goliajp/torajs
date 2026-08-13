@@ -124,18 +124,18 @@ pub(crate) fn try_lower(
 }
 
 /// `true` when slot 2's checked type is one §25.5.2 step 4 would
-/// actually consult — a callable, or an `Any` whose run-time shape
-/// only the kernel can test. Everything else (a string, a number,
-/// `null`, `undefined`) the spec discards outright, so the static
-/// unfold keeps serving it.
-///
-/// The checker's twin of this test is
-/// `check_type_of_call_json_stringify::serves_as_replacer`; the two
-/// must agree on `Function`, or a call the checker admitted would
-/// reach the silent-drop path again.
+/// actually consult — a callable (step 4.a), an array (step 4.b's
+/// PropertyList), or an `Any` whose run-time shape only the kernel
+/// can test. Everything else (a string, a number, `null`,
+/// `undefined`) the spec discards outright, so the static unfold
+/// keeps serving it and its instruction sequence is untouched.
 fn serves_as_replacer(ctx: &LowerCtx<'_>, a: ExprId) -> bool {
     matches!(
         ctx.expr_types.get(&a),
-        Some(crate::check::Type::Function(_, _) | crate::check::Type::Any)
+        Some(
+            crate::check::Type::Function(_, _)
+                | crate::check::Type::Array(_)
+                | crate::check::Type::Any
+        )
     )
 }
