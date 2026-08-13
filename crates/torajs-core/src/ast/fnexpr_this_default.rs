@@ -33,6 +33,9 @@
 //! the receiver-less answer):
 //!
 //! * `Object.groupBy(items, cb)` / `Map.groupBy` — §7.3.35 step 4.c.
+//! * `Array.fromAsync(items, mapfn)` — proposal-array-from-async
+//!   §2.1.1 step 5.e, and only when the call site omitted the third
+//!   argument, since that one is the thisArg.
 //! * `p.then(f)` / `p.then(f, g)` / `p.catch(f)` / `p.finally(f)` —
 //!   §27.2.5.4 step 9's `Call(handler, undefined, «argument»)`, and
 //!   the same in §27.2.5.1 / §27.2.5.3. The receiver has to be a
@@ -344,6 +347,23 @@ fn no_receiver_slots(
         && matches!(&ast.exprs[obj.0 as usize], Expr::Ident(n) if n == "Object" || n == "Map")
     {
         return args.iter().skip(1).take(1).copied().collect();
+    }
+    // proposal-array-from-async §2.1.1 step 5.e — `Call(mapfn,
+    // thisArg, «v, k»)`, where thisArg is the THIRD argument. So
+    // `undefined` is the answer only when the call site omitted it,
+    // the same arity rule the optional-thisArg array methods use. A
+    // WRITTEN thisArg keeps the loud reject: the map kernel
+    // (`__torajs_array_from_async_map_dyn`) takes `(items, mapfn)`
+    // and the lowering eval-and-drops args[2..], so there is nothing
+    // to thread the object through yet (L3b). `Array.from`'s mapFn is
+    // not here — `collect_array_from_face` promotes that one, thisArg
+    // and all, and it gates on the method name.
+    if name == "fromAsync" && matches!(&ast.exprs[obj.0 as usize], Expr::Ident(n) if n == "Array") {
+        return if args.len() == 2 {
+            args.iter().skip(1).take(1).copied().collect()
+        } else {
+            Vec::new()
+        };
     }
     if HANDLER_METHODS.contains(&name) && certain.promise(&ast.exprs, obj) {
         // `then` takes two handler slots; `catch` / `finally` one.
