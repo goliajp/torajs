@@ -364,11 +364,24 @@ fn lower_regular_field(
             // nested fn freed the captured promise on the first call
             // (the interleave knife's then-override probe read a
             // scrubbed props slot on the second element).
-            Expr::Ident(name) => ctx
-                .locals
-                .get(name)
-                .map(|info| info.borrowed || !info.moved)
-                .unwrap_or(true),
+            //
+            // An escape-BOXED binding in its owning frame reads
+            // through the box, so the load answers the box's payload
+            // as a borrow while the frame exit still releases the
+            // whole box — the field owes its own share. The
+            // capture-box preamble registers exactly `moved: true,
+            // borrowed: false`, which the two clauses above read as
+            // "already transferred into this field", so the store
+            // went bare and the struct drop walk released a stake
+            // nobody took. Twin of the `ssa_lower_stmt_return.rs`
+            // arm (rotation 326) — same fact, other consumer.
+            Expr::Ident(name) => {
+                ctx.locals
+                    .get(name)
+                    .map(|info| info.borrowed || !info.moved)
+                    .unwrap_or(true)
+                    || ctx.boxed_noncopy_lets.contains(name)
+            }
             Expr::Member { .. } | Expr::Index { .. } => true,
             // Hoisted regex-literal singleton (fn-scope LICM) — the
             // field takes a share; see apply_borrow_rc_inc mirror.
