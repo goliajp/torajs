@@ -140,9 +140,12 @@ fn lower_iterator_instanceof(ctx: &mut LowerCtx<'_>, v: Operand, actual_ty: Type
 /// `defineProperty` install both answer, where the empty
 /// descendant-tag set used to constant-fold `false`.
 ///
-/// A Closure binding stays on the existing OrdinaryHasInstance walk:
-/// the symbol face does not serve callables yet, so routing it here
-/// would trade a right answer for a missing one.
+/// A Closure binding is declined here and handled by
+/// [`try_lower_fn_value`] below — not because it lacks a handler
+/// (the symbol face serves callables fine), but because that lane
+/// already resolves the canonical `__fncell_*` cell every channel
+/// shares and owns the stake story for it. It calls the same runtime
+/// operator.
 ///
 /// `None` = not this shape; the caller continues down the static
 /// ladder.
@@ -321,23 +324,30 @@ fn try_lower_fn_value(ctx: &mut LowerCtx<'_>, v_any: Operand, class_name: &str) 
     Some(emit_has_instance(ctx, v_any, cell, Some(closure_ty)))
 }
 
-/// The §7.3.22 runtime call + throw check; `release` carries the
+/// The §13.10.2 runtime call + throw check; `release` carries the
 /// cell's type when the operand arrived OWNED (the canonical mint's
 /// +1 per use) and needs a post-call drop — the binding lane's Load
 /// answers a borrow and passes `None`.
+///
+/// The operator, not the bare §7.3.22 walk: a callable can carry its
+/// own `@@hasInstance` (installed by `defineProperty` — the property
+/// on `Function.prototype` is non-writable, so assignment is not the
+/// spelling), and the walk alone would ignore it. When no handler is
+/// installed the operator falls through to exactly the walk this
+/// used to call, so every answer it already gave is preserved.
+/// Boxing the cell is a pure encode (RC-neutral), leaving the
+/// `release` story below untouched.
 fn emit_has_instance(
     ctx: &mut LowerCtx<'_>,
     v_any: Operand,
     cell: Operand,
     release: Option<Type>,
 ) -> Operand {
+    let cell_any = ctx.box_to_any(cell.clone());
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.instanceof_fn_value,
-            vec![v_any, cell.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.instanceof_dynamic, vec![v_any, cell_any]),
         Type::Bool,
         None,
     );
