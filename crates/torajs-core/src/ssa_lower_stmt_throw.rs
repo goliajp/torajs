@@ -49,12 +49,24 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     let v = ctx.lower_expr(eid);
     let v_ty = ctx.operand_ty(&v);
+    // Peel value-transparent `As` wrappers before judging ownership —
+    // the twin of the return site's peel, and for the same reason:
+    // `lower_as_cast` answers the inner operand untouched for a heap
+    // source, so the inner read decides who holds the stake. Judging
+    // the `As` node skipped both legs, so `throw s as any` over an
+    // owned local left it unmarked for the fn-exit drop walk while the
+    // throw slot still held it. The catch read back the next
+    // allocation's bytes (`y199`); the uncast `throw s` is correct.
+    let mut src_eid = eid;
+    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
+        src_eid = *expr;
+    }
     // Chunk 752 — same Copy-result gate as the Return site: a thrown
     // scalar packs by value into the throw slot and cannot alias any
     // local's heap (`throw v.length` stranded v — probe vT 15.97MB
     // vs 6.37MB flat).
     if !v_ty.is_copy() {
-        ctx.consume_all_idents_in_return(eid);
+        ctx.consume_all_idents_in_return(src_eid);
     }
     let is_undef = matches!(
         ctx.expr_types.get(&eid),
@@ -122,7 +134,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                 (Operand::ConstI64(0), Operand::ConstI64(0))
             }
             _ if v_ty.is_refcounted() => {
-                let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(eid) {
+                let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(src_eid) {
                     ctx.locals.get(name).is_some_and(|info| info.borrowed)
                 } else {
                     false
