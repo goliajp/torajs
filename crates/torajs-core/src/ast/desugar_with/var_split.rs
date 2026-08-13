@@ -69,15 +69,17 @@ fn split_in_stmt(ast: &mut Ast, s: &mut Stmt) {
 
 /// `for (var i = 0; …)` — the same split, except the two halves cannot
 /// stay where they are: the init slot holds ONE statement and the loop
-/// lowering has never seen a `Multi` there. So the declaration is
+/// lowering has never seen a `Multi` there. So the declarations are
 /// lifted out in front of the loop and the slot keeps only the
-/// assignment, which is a shape the loop already accepts (`for (i = 0;
+/// assignments, which is a shape the loop already accepts (`for (i = 0;
 /// …)`). The loop's own structure is untouched.
 ///
 /// Several declarators (`for (var i = 0, j = 1; …)`) arrive as a
-/// `Multi` in the slot and are left alone — the collect walk still
-/// refuses them by name rather than this guessing at a shape it has
-/// not seen.
+/// `Multi` in the slot and take the same route, with the assignments
+/// joined by the comma operator — `for (i = 0, j = 1; …)`, which is
+/// both what the source means and a single statement, so the slot's
+/// one-statement shape is preserved without the loop lowering learning
+/// anything new.
 fn split_for_init(ast: &mut Ast, s: &mut Stmt) {
     let Stmt::For {
         init: Some(init_stmt),
@@ -86,28 +88,57 @@ fn split_for_init(ast: &mut Ast, s: &mut Stmt) {
     else {
         return;
     };
-    let Stmt::LetDecl {
-        name,
-        init,
-        is_var: true,
-        ..
-    } = init_stmt.as_ref()
-    else {
-        return;
+    // The parser emits one `LetDecl` per declarator, wrapped in a
+    // `Multi` once there are several (§14.3.1).
+    let declarators: Vec<&Stmt> = match init_stmt.as_ref() {
+        Stmt::Multi(v) => v.iter().collect(),
+        one => vec![one],
     };
-    if matches!(ast.get_expr(*init), Expr::Uninit) {
+    let mut split: Vec<(String, Option<crate::ast::ExprId>)> = Vec::new();
+    for d in declarators {
+        let Stmt::LetDecl {
+            name,
+            init,
+            is_var: true,
+            ..
+        } = d
+        else {
+            // A shape this does not recognise — a `let` head, a
+            // destructuring pattern. Left whole rather than guessed
+            // at; the collect walk refuses what it must.
+            return;
+        };
+        let value = (!matches!(ast.get_expr(*init), Expr::Uninit)).then_some(*init);
+        split.push((name.clone(), value));
+    }
+    // `for (var i; …)` writes nothing, so there is no assignment to put
+    // in front of the object record and nothing to gain by moving the
+    // declaration.
+    if split.iter().all(|(_, v)| v.is_none()) {
         return;
     }
-    let name = name.clone();
-    let value = *init;
-    let decl = uninit_decl(ast, &name);
-    let assign = assign_to_name(ast, &name, value);
+    let mut decls: Vec<Stmt> = Vec::new();
+    let mut assigned: Option<crate::ast::ExprId> = None;
+    for (name, value) in &split {
+        decls.push(uninit_decl(ast, name));
+        let Some(value) = *value else { continue };
+        let assign = assign_to_name(ast, name, value);
+        assigned = Some(match assigned {
+            None => assign,
+            // Left-associated, so the arms evaluate in source order.
+            Some(left) => ast.add_expr(Expr::Sequence {
+                left,
+                right: assign,
+            }),
+        });
+    }
     let Stmt::For { init: slot, .. } = s else {
         return;
     };
-    *slot = Some(Box::new(Stmt::Expr(assign)));
+    *slot = assigned.map(|e| Box::new(Stmt::Expr(e)));
     let loop_stmt = std::mem::replace(s, Stmt::Multi(Vec::new()));
-    *s = Stmt::Multi(vec![decl, loop_stmt]);
+    decls.push(loop_stmt);
+    *s = Stmt::Multi(decls);
 }
 
 /// The declaration half: `var <name>;`.

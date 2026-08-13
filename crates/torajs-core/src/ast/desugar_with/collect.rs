@@ -48,11 +48,13 @@ fn collect_stmt(
             // record — while its initialiser IS evaluated in front of
             // it. `super::var_split` has already separated the two for
             // every `var` it can reach, so an initialiser still
-            // standing here is one it deliberately left: several
-            // declarators in one `for` initialiser, which arrive as a
-            // `Multi` in the loop's init slot. Loud rather than
-            // silently landing on the hoisted binding.
-            refuse(err, "a multi-declarator `var` in a `for` initialiser");
+            // standing here is one it declined: a declarator shape it
+            // does not recognise. Loud rather than silently landing on
+            // the hoisted binding.
+            refuse(
+                err,
+                "a `var` initialiser that could not be split from its declaration",
+            );
         }
         Stmt::ClassDecl { .. } => {
             collect_class(ast, s, scope, err);
