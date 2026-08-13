@@ -274,13 +274,37 @@ fn collect_expr(
             return;
         }
         Expr::Assign { target, value } => {
-            if matches!(ast.get_expr(*target), Expr::Ident(_)) {
-                sites.push((*target, Position::Refused("an assignment")));
-            } else {
+            let Expr::Ident(tn) = ast.get_expr(*target) else {
                 collect_expr(ast, *target, sites, err);
+                push_read(*value, sites);
+                collect_expr(ast, *value, sites, err);
+                return;
+            };
+            // `n op= v` reaches here as `n = n op v` with a CLONED
+            // left operand (the parser's compound desugar). That clone
+            // is the same reference the write resolves, not a second
+            // one, so it must not get a guard of its own — the assign
+            // rewrite fills it in per branch and §9.1.1.2.1 HasBinding
+            // stays evaluated once, as the spec's single
+            // ResolveBinding requires.
+            let compound_lhs = match ast.get_expr(*value) {
+                Expr::BinOp { left, .. } if matches!(ast.get_expr(*left), Expr::Ident(ln) if ln == tn) => {
+                    Some(*left)
+                }
+                _ => None,
+            };
+            sites.push((*target, Position::Assign(eid, compound_lhs)));
+            match (compound_lhs, ast.get_expr(*value)) {
+                (Some(_), Expr::BinOp { right, .. }) => {
+                    let right = *right;
+                    push_read(right, sites);
+                    collect_expr(ast, right, sites, err);
+                }
+                _ => {
+                    push_read(*value, sites);
+                    collect_expr(ast, *value, sites, err);
+                }
             }
-            push_read(*value, sites);
-            collect_expr(ast, *value, sites, err);
             return;
         }
         Expr::PostIncr { target, .. } => {

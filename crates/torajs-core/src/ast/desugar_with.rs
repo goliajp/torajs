@@ -18,6 +18,7 @@
 //! call  n(a…)  ->   (__torajs_with_has(w, "n") ? w.n(a…) : n(a…))
 //! typeof n     ->   (has ? typeof w.n : typeof n)
 //! n++          ->   (has ? w.n++ : n++)
+//! n = v        ->   (has ? (w.n = v) : (n = v))
 //! ```
 //!
 //! The membership test is re-run at every reference on purpose: the
@@ -38,11 +39,11 @@
 //!
 //! # Loud, not wrong (刀 1 boundary)
 //!
-//! Reads, bare-name calls, `typeof` and `++`/`--` are rewritten here.
-//! Every other way a free name can be reached — assignment, compound
-//! assignment, `delete`, and any nested function body (whose names
-//! resolve when it is CALLED, so the object has to be captured) — is
-//! refused with a diagnostic naming the knife that will land it.
+//! Reads, bare-name calls, `typeof`, `++`/`--` and assignment (plain
+//! and compound) are rewritten here. What is left — `delete`, a `var`
+//! declaration's initialiser, and any nested function body (whose
+//! names resolve when it is CALLED, so the object has to be captured)
+//! — is refused with a diagnostic naming the shape.
 //! Leaving them unrewritten would silently resolve to the lexical
 //! binding instead of the object, which is the one outcome this file
 //! is not allowed to produce.
@@ -147,6 +148,11 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
     for st in &body {
         collect_stmt(ast, st, &mut bound, &mut sites, err);
     }
+    // Writes last: the then-arm CLONES the value expression, and the
+    // clone has to carry the guards the read rewrites put there. A
+    // clone taken before those ran would resolve its own free names
+    // lexically — the silent-wrong this whole pass exists to avoid.
+    sites.sort_by_key(|(_, p)| u8::from(matches!(p, Position::Assign(..))));
     for (eid, pos) in sites {
         let Expr::Ident(n) = ast.get_expr(eid) else {
             continue;
@@ -159,6 +165,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
             Position::Read => rewrite_read(ast, eid, &w, &n),
             Position::Callee(call) => rewrite_call(ast, call, eid, &w, &n),
             Position::Wrapping(outer) => rewrite_wrapping(ast, outer, &w, &n),
+            Position::Assign(node, lhs) => rewrite_assign(ast, node, lhs, &w, &n),
             Position::Refused(what) => {
                 err.get_or_insert(format!(
                     "`{n}` is reached by {what} inside a `with` body — not yet supported \
@@ -266,6 +273,55 @@ fn rewrite_wrapping(ast: &mut Ast, outer: ExprId, w: &str, n: &str) {
     };
 }
 
+/// `n = v` -> `(has ? (w.n = v) : (n = v))`, and the compound form
+/// `n op= v` (which reaches here as `n = n op v`) with the cloned left
+/// operand filled in per branch: `w.n` on the object side, the plain
+/// name on the fall-through side.
+///
+/// Filling it in rather than guarding it is what keeps §9.1.1.2.1
+/// HasBinding evaluated ONCE for the whole compound. The spec resolves
+/// the reference a single time and then does GetValue + PutValue on
+/// it; two independent tests would disagree if evaluating `v` added or
+/// removed the property between them.
+///
+/// The value expression is cloned for the object arm rather than
+/// shared: only one arm ever runs, but the arena is a tree everywhere
+/// else and a shared node is a shape no other pass expects.
+fn rewrite_assign(ast: &mut Ast, node: ExprId, compound_lhs: Option<ExprId>, w: &str, n: &str) {
+    let Expr::Assign { value, .. } = ast.get_expr(node) else {
+        return;
+    };
+    let value = *value;
+    let cond = has_call(ast, w, n);
+    let mut cloner = super::clone_body::BodyCloner::new(ast);
+    let cloned_value = cloner.clone_expr(value);
+    let cloned_lhs = compound_lhs.map(|l| cloner.map[&l]);
+    if let (Some(orig), Some(clone)) = (compound_lhs, cloned_lhs) {
+        let obj_read = with_member(ast, w, n);
+        ast.exprs[clone.0 as usize] = ast.exprs[obj_read.0 as usize].clone();
+        // The fall-through arm keeps the plain name, which is already
+        // what the node holds — it only needs the diagnostic
+        // exemption every fall-through read gets.
+        ast.with_fallthrough_idents.insert(orig);
+    }
+    let then_target = with_member(ast, w, n);
+    let then_branch = ast.add_expr(Expr::Assign {
+        target: then_target,
+        value: cloned_value,
+    });
+    let else_target = ast.add_expr(Expr::Ident(n.to_string()));
+    ast.with_fallthrough_idents.insert(else_target);
+    let else_branch = ast.add_expr(Expr::Assign {
+        target: else_target,
+        value,
+    });
+    ast.exprs[node.0 as usize] = Expr::Ternary {
+        cond,
+        then_branch,
+        else_branch,
+    };
+}
+
 fn has_call(ast: &mut Ast, w: &str, n: &str) -> ExprId {
     let f = ast.add_expr(Expr::Ident(WITH_HAS_FN.to_string()));
     let obj = ast.add_expr(Expr::Ident(w.to_string()));
@@ -294,6 +350,11 @@ pub(crate) enum Position {
     /// The sole operand of this single-child node (`typeof` / `++` /
     /// `--`), which is replaced whole.
     Wrapping(ExprId),
+    /// The target of this `Assign`. The second field is the compound
+    /// desugar's cloned left operand when there is one (`n op= v`
+    /// arrives as `n = n op v`), which the rewrite fills in per branch
+    /// instead of guarding separately.
+    Assign(ExprId, Option<ExprId>),
     Refused(&'static str),
 }
 
