@@ -138,6 +138,26 @@ pub(crate) fn lower(
                     )
                 }
             }
+            // §14.12.4 selects a clause with IsStrictlyEqual, which is
+            // what `===` means — so an `any` on either side has to take
+            // the same runtime path `===` takes. A raw `ICmp` compares
+            // a boxed word against a bare one and is never equal, so
+            // every case fell through to `default`: a wrong answer
+            // where the checker used to raise a loud one.
+            _ if scrut_ty == Type::Any || ctx.operand_ty(&v) == Type::Any => {
+                match crate::ssa_lower_binop_inner_strict_eq::try_lower(
+                    ctx,
+                    crate::ast::BinOp::Eq,
+                    scrut_val.clone(),
+                    v.clone(),
+                ) {
+                    Some(Operand::Value(vid)) => vid,
+                    // That helper folds to a constant only when BOTH
+                    // sides are concrete, which this guard has already
+                    // ruled out; the Any path always emits a call.
+                    _ => unreachable!("strict-eq Any path returns a value"),
+                }
+            }
             _ => ctx.f.append_inst(
                 cmp_blk,
                 InstKind::ICmp(IPred::Eq, scrut_val, v),

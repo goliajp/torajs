@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId, Stmt, SwitchCase};
-use crate::check::{Checker, DiagPush};
+use crate::check::{Checker, DiagPush, Type};
 
 pub(crate) fn check_switch(
     checker: &mut Checker,
@@ -41,6 +41,19 @@ pub(crate) fn check_switch(
     for c in cases {
         match checker.type_of(ast, c.value) {
             Ok(t) if t == scrut_ty => {}
+            // §14.12.4 selects a clause with IsStrictlyEqual, which is
+            // total — it answers false across types rather than being
+            // undefined for them. So the only thing worth refusing is
+            // a pair that can never be equal, and `any` is never that
+            // pair: it is exactly the type whose runtime value is
+            // unknown. TypeScript agrees ("not comparable" is its
+            // wording, and `any` is comparable to everything).
+            //
+            // Which the `with` desugar makes routine rather than
+            // exotic: a guarded read is a conditional over the object,
+            // so `switch (x)` in a `with` body has an `any` scrutinee
+            // and every ordinary `case 1:` was refused.
+            Ok(t) if t == Type::Any || scrut_ty == Type::Any => {}
             Ok(t) => checker.errors.push_err(format!(
                 "switch case value type {t:?} differs from scrutinee {scrut_ty:?}"
             )),
