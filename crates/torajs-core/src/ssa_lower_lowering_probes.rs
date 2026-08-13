@@ -60,6 +60,22 @@ impl<'a> LowerCtx<'a> {
     /// clobbers caller-saved X0 and silently destroyed `n + "x"`-style
     /// ret values). Used by Expr::BinOp's post-call drop pass.
     pub(crate) fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
+        // Peel value-transparent `As` wrappers before judging: the
+        // cast is IDENTITY for an Any source, a fresh IMMEDIATE box
+        // for a primitive (whose drop is a payload-gated no-op), and
+        // a bare pass-through for a heap source — in all three the
+        // INNER read decides who owns the heap. `ssa_lower_object_lit
+        // ::lower_regular_field` peels for exactly this reason.
+        // Unpeeled, an `Ident as any` answered fresh-owned and the
+        // BinOp drop pass released the binding's only stake:
+        // `a === (b as any)` over two symbols freed `b` before its
+        // scope drop, and the scope drop then read the dead header
+        // (rotation 384; `symbol-wrapper-object-coerce-001.ts` was
+        // the fixture, green on the gate the whole time).
+        let mut eid = eid;
+        while let Expr::As { expr, .. } = self.ast.get_expr(eid) {
+            eid = *expr;
+        }
         // Chunk 637 — a Member read whose owned-receiver lowering
         // detached the result (see `ssa_lower_member::lower`) IS
         // fresh-owned; every other Member stays a borrow. Chunk 717
