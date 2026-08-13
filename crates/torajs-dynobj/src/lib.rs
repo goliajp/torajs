@@ -101,6 +101,17 @@ pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
 ) {
 }
 
+// Faithful double for the same reason: no unit test mints a
+// `<Ctor>.prototype` singleton, so the real probe answers 0 here too.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
+    _obj: *const core::ffi::c_void,
+    _key: *const core::ffi::c_void,
+) -> u64 {
+    0
+}
+
 // Faithful Closure-arm double for unit tests (mirrors the faithful
 // rc_dec stub below): `accessor::tests` legitimately exercises the
 // pair teardown, which routes each held closure ref through this

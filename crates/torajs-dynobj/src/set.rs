@@ -8,7 +8,10 @@
 //! Fresh inserts append to the dense entry array (insertion order) and
 //! point the probed index slot (first tombstone, else first empty) at
 //! the new entry: rc-bump the key (entry owns its share) + write
-//! default flags (writable / enumerable / configurable all true).
+//! default flags (writable / enumerable / configurable all true) —
+//! except on a builtin `<Ctor>.prototype` singleton, where a key the
+//! prototype already owns synthetically is an OVERWRITE per §10.1.9.2
+//! step 2 and keeps the method attributes {W:1, E:0, C:1}.
 //! Existing entry overwrite: drop the old heap value if ANY_HEAP,
 //! preserve the existing flag bits, swap only the NaN-box value.
 
@@ -16,8 +19,8 @@ use core::ffi::c_void;
 
 use crate::accessor::{__torajs_accessor_invoke_setter, value_is_accessor};
 use crate::layout::{
-    ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK,
-    DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
+    ANY_HEAP, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT,
+    BUCKET_TAG_MASK, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
 };
 use crate::probe::{
     Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
@@ -51,6 +54,13 @@ unsafe extern "C" {
     /// 20260721 刀 11 G13): marks the (proto tag, mid) patch bit the
     /// any-method dispatcher's primitive fast arms pre-gate on.
     fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
+
+    /// torajs-anyvalue — non-zero when `obj` is a builtin
+    /// `<Ctor>.prototype` singleton and `key` names a method it owns
+    /// (the same probe gOPD synthesizes its descriptor from). Used
+    /// only to pick the attributes of a fresh insert; the cell it
+    /// answers is ignored here.
+    fn __torajs_builtin_proto_own_method_cell(obj: *const c_void, key: *const c_void) -> u64;
 }
 
 /// `__torajs_dynobj_set(obj_slot, key, tag, value)` — implicit-set entry.
@@ -202,13 +212,28 @@ unsafe fn dynobj_set_impl(
             }
             return 0;
         }
+        // §10.1.9.2 step 2 — assigning over an EXISTING own data
+        // property keeps its attributes. A builtin prototype's methods
+        // are own properties that live in no dict (the synthesized
+        // surface `proto_tag_owns` answers reads and gOPDs from), so
+        // this insert IS that overwrite and must land with the method
+        // attributes {W:1, E:0, C:1} rather than a plain assignment's
+        // enumerable default. Without this `Map.prototype.get = f`
+        // made `get` show up in `Object.keys(Map.prototype)` and
+        // for-in — a monkey-patch is not supposed to be visible there.
+        let attrs =
+            if unsafe { __torajs_builtin_proto_own_method_cell(obj, key as *const c_void) } != 0 {
+                BUCKET_FLAG_WRITABLE | BUCKET_FLAG_CONFIGURABLE
+            } else {
+                BUCKET_FLAGS_DEFAULT
+            };
         // Fresh insert: append to the dense array (insertion order),
         // point the probed slot (tombstone reuse or empty) at it.
         let e_idx = unsafe { entries_len(obj) };
         unsafe {
             __torajs_rc_inc(key);
             *ent.add(e_idx as usize) = Entry {
-                key_ptr_tagged: bucket_make_key_tagged(key, BUCKET_FLAGS_DEFAULT),
+                key_ptr_tagged: bucket_make_key_tagged(key, attrs),
                 value_anyv: __torajs_anyv_box_from_pair(
                     (tag & BUCKET_TAG_MASK) as i64,
                     value as i64,
