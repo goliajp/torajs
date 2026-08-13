@@ -344,8 +344,20 @@ fn lower_no_spread_elements(
         // ref and the array's death freed it — UAF, probe-proven;
         // 564 apply_borrow_rc_inc mirror), moved bindings included
         // (their cell is alive under the canonical owner).
+        // Peel value-transparent `As` wrappers first, for the reason
+        // the objlit field / assign-target / return siblings all peel:
+        // `lower_as_cast` answers the inner operand untouched for a
+        // heap source, so the inner read decides whether the slot owes
+        // a share. Unpeeled, `[src as string]` stored the binding's
+        // pointer bare and the array outlived the source's scope drop
+        // (`return [src as string]` read back the churn string;
+        // `[src]` is correct).
+        let mut src_eid = *eid;
+        while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
+            src_eid = *expr;
+        }
         let needs_inc = v_ty.is_refcounted()
-            && match ctx.ast.get_expr(*eid) {
+            && match ctx.ast.get_expr(src_eid) {
                 Expr::Ident(name) => {
                     ctx.locals.contains_key(name) || ctx.globals.contains_key(name)
                 }

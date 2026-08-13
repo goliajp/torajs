@@ -330,6 +330,20 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
     if !v_is_refcounted {
         return;
     }
+    // Peel value-transparent `As` wrappers before judging the rhs
+    // shape — `lower_as_cast` answers the inner operand untouched for
+    // a heap source and for an already-Any one, so the inner read is
+    // what decides whether the target owes a share. Unpeeled, the
+    // `As` node fell to `_ => false` ("a fresh value that transfers")
+    // and the target stored the source binding's pointer bare:
+    // `dst = src as any; return dst` handed the caller a cell the
+    // source's scope drop then released, and 400 allocations later the
+    // read came back as the churn string. The uncast `dst = src` is
+    // correct, which is exactly what makes this shape easy to miss.
+    let mut value = value;
+    while let Expr::As { expr, .. } = ctx.ast.get_expr(value) {
+        value = *expr;
+    }
     let needs_inc = match ctx.ast.get_expr(value) {
         // String indexing emits a fresh owned Substr view, not an
         // element borrow — inc'ing it here left the extra reference
