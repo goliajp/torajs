@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T01:15:55.872Z",
+  "generatedAt": "2026-08-13T04:05:44.004Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T01:14:57Z",
-    "headSha": "c41997f9",
-    "elapsedSec": 326.01,
+    "ranAt": "2026-08-13T04:02:07Z",
+    "headSha": "4a0d6c1e",
+    "elapsedSec": 325.73,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24953,
-    "passNoOracle": 842,
+    "pass": 24975,
+    "passNoOracle": 843,
     "passNegative": 4106,
-    "passTotal": 29901,
-    "bug": 12787,
-    "incompatible": 10486,
+    "passTotal": 29924,
+    "bug": 12789,
+    "incompatible": 10461,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42688,
-    "passRateInScope": 56.23,
-    "passRateTrAccepted": 70.05
+    "trAccepted": 42713,
+    "passRateInScope": 56.28,
+    "passRateTrAccepted": 70.06
   },
   "torajs": {
-    "commit": "c41997f9",
-    "commitSubject": "fix: give Reflect.ownKeys the symbol bucket",
+    "commit": "4a0d6c1e",
+    "commitSubject": "revert: take Array.prototype's mint-time @@iterator back out",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "4a0d6c1e",
+      "subject": "revert: take Array.prototype's mint-time @@iterator back out"
+    },
+    {
+      "hash": "ea980801",
+      "subject": "fix: let the namespace objects take a symbol key and a delete"
+    },
+    {
+      "hash": "8020d88d",
+      "subject": "fix: give Array.prototype the @@iterator its clause gives it"
+    },
+    {
+      "hash": "7b1d8b6e",
+      "subject": "fix: keep the method attributes when a builtin prototype is patched"
+    },
+    {
+      "hash": "aad78917",
+      "subject": "fix: let a builtin prototype enumerate the methods it already owns"
+    },
+    {
+      "hash": "0bbc2f0c",
+      "subject": "fix: give Map/Set/String.prototype the @@iterator their clauses give them"
+    },
+    {
+      "hash": "e0714d92",
+      "subject": "docs: refresh the dashboard snapshot for rotation 382 close"
+    },
+    {
       "hash": "c41997f9",
       "subject": "fix: give Reflect.ownKeys the symbol bucket"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "9675dfcd",
       "subject": "fix: let an object name itself in Object.prototype.toString"
-    },
-    {
-      "hash": "f7f8ccef",
-      "subject": "fix: let the property helpers take a symbol key"
-    },
-    {
-      "hash": "055032b4",
-      "subject": "docs: record rotation 381's sixth knife in the dashboard snapshot"
-    },
-    {
-      "hash": "eec17894",
-      "subject": "fix: stop advising integer divide for a non-numeric slot mismatch"
-    },
-    {
-      "hash": "bf517bb8",
-      "subject": "docs: refresh the dashboard snapshot for rotation 381 close"
-    },
-    {
-      "hash": "47ee7e3d",
-      "subject": "fix: an asserted array element keeps the repr its value really has"
-    },
-    {
-      "hash": "fa39e038",
-      "subject": "fix: extend the as-cast peel to the container widen wedge"
-    },
-    {
-      "hash": "77238620",
-      "subject": "fix: an as-cast over any must not buy a call argument past the repr gate"
     }
   ],
-  "headSha": "c41997f9",
+  "headSha": "4a0d6c1e",
   "autorun": {
-    "total": 685,
+    "total": 686,
     "baselineTarget": 10,
-    "bySelf": 680,
+    "bySelf": 681,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786577975-02a3",
-      "at": "2026-08-12T23:39:35Z",
-      "ts": 1786577975,
+      "rotationId": "r-1786583852-1228",
+      "at": "2026-08-13T01:17:32Z",
+      "ts": 1786583852,
       "trigger": "self",
-      "prevHead": "055032b4",
-      "handoffSha": "sha256:fc8bd4fce14835ec0b8d37dc92f2666a7996ef1a33cef5c4abaf48ddbad03006",
-      "handoffAgeSec": 0,
+      "prevHead": "e0714d92",
+      "handoffSha": "sha256:5c85b206cf41da5a9919872693325330eddf25180206a7796ca8d70570e9b8ea",
+      "handoffAgeSec": 19,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786583852-1228",
+        "at": "2026-08-13T01:17:32Z",
+        "ts": 1786583852,
+        "trigger": "self",
+        "prevHead": "e0714d92",
+        "handoffSha": "sha256:5c85b206cf41da5a9919872693325330eddf25180206a7796ca8d70570e9b8ea",
+        "handoffAgeSec": 19,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786577975-02a3",
         "at": "2026-08-12T23:39:35Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "cd75ce29",
         "handoffSha": "sha256:1375c7d7ef1a13536fb1a189323fcf442ce7a3708cce730d3164787875a3e967",
-        "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786506305-701b",
-        "at": "2026-08-12T03:45:05Z",
-        "ts": 1786506305,
-        "trigger": "self",
-        "prevHead": "1e305571",
-        "handoffSha": "sha256:7770ede27e3808354c6947c55d06558bd4e19da70a7c8f9a01e568dc3dbfb5e7",
         "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null

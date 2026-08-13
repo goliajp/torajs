@@ -1528,9 +1528,38 @@ case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ a3f0ce09`, never as a constant.
+snapshot stamped `@ 4a0d6c1e`, never as a constant.
 
-**Latest @ `b60b6dbe`** (2026-08-12, rotation 377 — the strict-code
+**Latest @ `4a0d6c1e`** (2026-08-13, rotation 383 — the own-property
+surface a builtin prototype was answering one key at a time but could
+not enumerate. `Map.prototype.hasOwnProperty("entries")` said true while
+`getOwnPropertyNames(Map.prototype)` said nothing; the ownership table
+only had the "does it own THIS key" direction, which is all a read or a
+gOPD needs. Adding the other direction moved Map 0 → 13, Set 0 → 17,
+Array 1 → 40, Date 0 → 47, Object 1 → 12 — bun-identical once sorted.
+Around it: `[Symbol.iterator]` installed as a REAL entry on Map / Set /
+String prototypes, aliased to the same interned cell the instance table
+hands out (§24.1.3.14's "the initial value IS the entries function");
+`Map.prototype.get = f` no longer lands enumerable (§10.1.9.2 step 2 —
+it is an overwrite of a synthesized own property, not a creation); and
+the namespace stand-ins joined the two receiver tables that admit a
+symbol key and a delete. Sweep: passTotal 29901 → **29924 (+23)**,
+pass **+22**, passNoOracle **+1**, passNegative **0**; bug **+2**,
+incompatible **−25**, trAccepted **+25**, conservation exact
+(+25 = +23 + 2). **Zero pass regressions**; 33 verdict movements, all
+forward. Gate predicate **243 unattributed clusters / 3183 cases /
+register 2 · 630 / residue 763 · 985 / core 4798** — every one of the
+five improves on rotation 382's 244 / 3204 / 2 · 633 / 763 · 986 /
+4823. Build determinism 44/44, N=12. The lesson worth carrying: a
+release-only SIGTRAP rode in on the Array.prototype leg and the
+conformance gate could not see it — `target/iter/tr` ran the same source
+exit 0. Only the sweep's per-case verdict diff caught it, as a single
+`pass-no-oracle → exit 133`. The narrowing showed the ENTRY is fine
+(installing the identical one from user code crashes nothing) and the
+MINT-TIME path is not, so that one wire came back out and the kernel it
+needed stayed in.)
+
+**Previous @ `b60b6dbe`** (2026-08-12, rotation 377 — the strict-code
 refusals rotation 376's per-function bit made answerable, plus the
 position that bit was never armed in. §13.1.1 `eval` / `arguments` in
 every binding position (declarations, parameter lists — which also
