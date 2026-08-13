@@ -4,8 +4,8 @@
 //! SyntaxError under the STRICT goal only, and the goal bit
 //! (`ast.sloppy_script_goal`, keyed on the `.cts` extension per the
 //! bun mapping) is stamped after parsing. So the parser now emits a
-//! plain `Delete { Ident }` node and this raw-AST gate — run in the
-//! prelude right after the redeclaration early errors — resolves it
+//! plain `Delete { Ident }` node and this gate — run in the prelude
+//! right after the eval inline and the `with` desugar — resolves it
 //! per goal:
 //!
 //! - **strict** (every `.ts` module): the same SyntaxError text the
@@ -25,6 +25,25 @@
 //!
 //! Both goals leave zero `Delete { Ident }` nodes behind, so no
 //! downstream pass ever meets the shape.
+//!
+//! # Why it runs where it does (rotation 392)
+//!
+//! It folds a site to a constant from what the program DECLARES, so
+//! it has to run after every pass that can change either the set of
+//! sites or what a site means. It used to run first, before the eval
+//! inline and the `with` desugar, and both were wrong:
+//!
+//! - a `delete` inlined out of an eval was minted after this gate had
+//!   already run, so it survived to the checker and died there on
+//!   "delete target must be a property reference";
+//! - inside a `with` body §14.11 resolves the reference through the
+//!   object, so the site is a PROPERTY reference — `with (o) { delete
+//!   x }` must remove `o.x`. Folding it first answered `true` and
+//!   removed nothing, silently.
+//!
+//! Nothing between the parse and here declares or removes a binding
+//! this gate reads, and the desugars that follow do not mint a bare
+//! `delete`, so the raw-AST property it wants still holds.
 
 use super::{Ast, Expr, Stmt};
 

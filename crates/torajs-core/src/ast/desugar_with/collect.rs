@@ -185,14 +185,7 @@ fn collect_expr(
             return;
         }
         Expr::Delete { expr } => {
-            match ast.get_expr(*expr) {
-                Expr::Ident(n) => {
-                    if !scope.shadows(n) {
-                        sites.push((*expr, Position::Refused("`delete`")));
-                    }
-                }
-                _ => collect_expr(ast, *expr, scope, sites, err),
-            }
+            wrapping_operand(ast, eid, *expr, scope, sites, err);
             return;
         }
         Expr::ArrowFn { params, body, .. } => {

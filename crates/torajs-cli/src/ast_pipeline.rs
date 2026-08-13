@@ -79,14 +79,6 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         }
         return Err(());
     }
-    // `delete <bare name>` goal triage (rotation 372) — strict is
-    // the §13.5.1.1 SyntaxError, sloppy resolves §13.5.1.2
-    // statically. Wants the raw AST (declaration names pre-desugar)
-    // and the goal bit, which the caller stamped before the prelude.
-    if let Some(msg) = ast::triage_delete_bare_names(ast) {
-        eprintln!("parse error: {msg}");
-        return Err(());
-    }
     // After the redeclaration early errors, which want the raw AST —
     // and a declaration inlined out of an eval is not an early error
     // anyway (§19.2.1.1 makes an eval-introduced conflict a runtime
@@ -110,6 +102,25 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // which is what §14.11 wants of them anyway.
     if let Some(msg) = ast::desugar_with(ast) {
         eprintln!("error: {msg}");
+        return Err(());
+    }
+    // `delete <bare name>` goal triage (rotation 372) — strict is the
+    // §13.5.1.1 SyntaxError, sloppy resolves §13.5.1.2 statically.
+    //
+    // AFTER the eval inline and the `with` desugar, not before. It
+    // folds each site to a constant from what the program declares,
+    // and both of those passes change what a site MEANS:
+    //   - a `delete` inlined out of an eval never reached the triage
+    //     at all and died downstream on "delete target must be a
+    //     property reference";
+    //   - inside a `with` body the reference resolves through the
+    //     object, so `with (o) { delete x }` has to delete `o.x` —
+    //     folding it first answered `true` and removed nothing.
+    // What reaches it now is only the fall-through arm of the `with`
+    // rewrite plus every ordinary site, which is exactly the set
+    // §13.5.1.2 decides statically.
+    if let Some(msg) = ast::triage_delete_bare_names(ast) {
+        eprintln!("parse error: {msg}");
         return Err(());
     }
     ast::unwrap_exports(ast);

@@ -49,9 +49,9 @@
 //!
 //! # Loud, not wrong
 //!
-//! Reads, bare-name calls, `typeof`, `++`/`--`, assignment (plain and
-//! compound) and nested function bodies are rewritten here. What is
-//! left — `delete`, a `var` declaration's initialiser in the body
+//! Reads, bare-name calls, `typeof`, `++`/`--`, `delete`, assignment
+//! (plain and compound) and nested function bodies are rewritten here.
+//! What is left — a `var` declaration's initialiser in the body
 //! itself, and a class declaration — is refused with a diagnostic
 //! naming the shape. Leaving them unrewritten would silently resolve
 //! to the lexical binding instead of the object, which is the one
@@ -200,12 +200,6 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
             Position::Callee(call) => rewrite_call(ast, call, eid, &w, &n),
             Position::Wrapping(outer) => rewrite_wrapping(ast, outer, &w, &n),
             Position::Assign(node, lhs) => rewrite_assign(ast, node, lhs, &w, &n),
-            Position::Refused(what) => {
-                err.get_or_insert(format!(
-                    "`{n}` is reached by {what} inside a `with` body — not yet supported \
-                     (RFC 20260814, ES §14.11)"
-                ));
-            }
         }
     }
     items.extend(body);
@@ -280,17 +274,20 @@ fn rewrite_call(ast: &mut Ast, call: ExprId, callee: ExprId, w: &str, n: &str) {
     };
 }
 
-/// `typeof n` / `n++` / `n--`: the whole WRAPPING node is replaced with
-/// a guard whose two arms are the same operator applied to `w.n` and to
-/// `n`. Nothing has to be cloned — the operand is the only child, and
-/// each arm mints its own — so unlike a compound assignment this shape
-/// keeps §9.1.1.2.1 HasBinding evaluated exactly ONCE, which is what
-/// the spec's single ResolveBinding does.
+/// `typeof n` / `n++` / `n--` / `delete n`: the whole WRAPPING node is
+/// replaced with a guard whose two arms are the same operator applied
+/// to `w.n` and to `n`. Nothing has to be cloned — the operand is the
+/// only child, and each arm mints its own — so unlike a compound
+/// assignment this shape keeps §9.1.1.2.1 HasBinding evaluated exactly
+/// ONCE, which is what the spec's single ResolveBinding does.
 ///
 /// `typeof` is the shape that must not answer through the fall-through
 /// alone: §13.5.3 answers `"undefined"` for an unresolvable name
 /// instead of throwing, and the object arm has to be consulted before
-/// that rule applies.
+/// that rule applies. `delete` is the same argument one step further:
+/// §13.5.1.2 evaluates the reference first, and a reference the object
+/// supplies is a PROPERTY reference, so the object arm must really
+/// remove `w.n` where the fall-through only answers a boolean.
 fn rewrite_wrapping(ast: &mut Ast, outer: ExprId, w: &str, n: &str) {
     let cond = has_call(ast, w, n);
     let obj_operand = with_member(ast, w, n);
@@ -300,6 +297,12 @@ fn rewrite_wrapping(ast: &mut Ast, outer: ExprId, w: &str, n: &str) {
         Expr::TypeOf { .. } => (
             Expr::TypeOf { expr: obj_operand },
             Expr::TypeOf {
+                expr: plain_operand,
+            },
+        ),
+        Expr::Delete { .. } => (
+            Expr::Delete { expr: obj_operand },
+            Expr::Delete {
                 expr: plain_operand,
             },
         ),
@@ -395,21 +398,21 @@ fn with_member(ast: &mut Ast, w: &str, n: &str) -> ExprId {
 }
 
 /// Where an `Ident` occurrence sits, which is what decides its
-/// rewrite. Everything not yet handled carries the phrase the
-/// diagnostic uses, so a refusal names the shape rather than the pass.
+/// rewrite. A shape with no position of its own is refused by the
+/// collect walk itself (statement-level: a `var` initialiser, a class
+/// declaration), so this enum carries only the forms that ARE handled.
 pub(crate) enum Position {
     Read,
     /// The callee of this `Call`.
     Callee(ExprId),
     /// The sole operand of this single-child node (`typeof` / `++` /
-    /// `--`), which is replaced whole.
+    /// `--` / `delete`), which is replaced whole.
     Wrapping(ExprId),
     /// The target of this `Assign`. The second field is the compound
     /// desugar's cloned left operand when there is one (`n op= v`
     /// arrives as `n = n op v`), which the rewrite fills in per branch
     /// instead of guarding separately.
     Assign(ExprId, Option<ExprId>),
-    Refused(&'static str),
 }
 
 mod collect;
