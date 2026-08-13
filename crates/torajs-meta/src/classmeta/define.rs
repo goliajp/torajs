@@ -179,6 +179,13 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
 /// attribute set. `is_static != 0` lands the entry on the class
 /// object instead of the prototype.
 ///
+/// `this_free != 0` — the S2.38 verdict ssa_lower proved for a static
+/// body (never reads a runtime receiver, lossless argv face), so the
+/// cell admits a detached bare call. It used to be hardcoded 0 here,
+/// which is why `const f = C[Symbol.hasInstance]; f(4)` threw "class
+/// method called without a receiver" while the identically shaped
+/// `C.named` ran fine.
+///
 /// # Safety
 /// `key` is a live Str / Symbol cell (caller-owned; the define takes
 /// its own key reference); `adapter` is a live boxed-adapter code
@@ -189,6 +196,7 @@ pub unsafe extern "C" fn __torajs_class_computed_method_define(
     key: *const u8,
     adapter: u64,
     is_static: u64,
+    this_free: u64,
 ) {
     if !in_range(tag) || key.is_null() || adapter == 0 {
         return;
@@ -211,7 +219,7 @@ pub unsafe extern "C" fn __torajs_class_computed_method_define(
     unsafe {
         // tag 0 / twin 0 — this runtime-define mint site has no
         // class-tag context; the blade-3 guard stays disarmed.
-        let cell = __torajs_class_method_cell_new(adapter, 0, 0, 0);
+        let cell = __torajs_class_method_cell_new(adapter, this_free, 0, 0);
         let mut slot = target_anyv as *mut c_void;
         __torajs_dynobj_define(
             &mut slot,

@@ -90,39 +90,7 @@ pub(super) fn try_lower_static_method_reify(
     let Some(&(adapter_fid, adapter_sig)) = ctx.boxed_entries.get(&body_fid) else {
         return Some(Operand::ConstI64(0));
     };
-    // S2.38 — a static body never reads a runtime receiver (its
-    // `this` resolves to the class object at parse time), so the
-    // face may run a detached bare call IF the adapter-visible
-    // argument surface is lossless: every param `Any` (a typed slot
-    // would silently unbox an undefined argv box to 0) and no
-    // caller-side-injected default a runtime call would bypass.
-    let ast_params = ctx.ast.stmts.iter().find_map(|s| match s {
-        crate::ast::Stmt::FnDecl { name, params, .. } if *name == body => Some(params),
-        _ => None,
-    });
-    let this_free = ctx
-        .fn_sig_ids
-        .get(&body_fid)
-        .zip(ast_params)
-        .is_some_and(|(sid, ps)| {
-            let tys = &ctx.fn_sigs[sid.0 as usize].0;
-            // Mirror of the instance-side verdict (S2.38/S2.39, see
-            // `ssa_lower_module_metadata`): an undefaulted param must
-            // be Any; an adapter-substituted literal default
-            // (Number/Bool) admits any scalar slot; an expression
-            // default refuses.
-            tys.len() == ps.len()
-                && tys.iter().zip(ps.iter()).all(|(ty, p)| match &p.default {
-                    None => *ty == Type::Any,
-                    Some(d) => {
-                        matches!(ctx.ast.get_expr(*d), Expr::Number(_) | Expr::Bool(_))
-                            && matches!(
-                                ty,
-                                Type::Any | Type::I64 | Type::I32 | Type::F64 | Type::Bool
-                            )
-                    }
-                })
-        });
+    let this_free = static_this_free(ctx, &body, body_fid);
     let name_op = ctx.lower_expr(args[1]);
     let cur_block = ctx.cur_block;
     let adapter = ctx.f.append_inst(
@@ -226,6 +194,48 @@ pub(super) fn try_lower_static_field_reify(
 /// the define (same posture as the sibling reifies) — but the key
 /// STILL evaluates: its side effects and throws are spec-observable
 /// (accessor-name computed-err-* family).
+/// S2.38 — a static body never reads a runtime receiver (its `this`
+/// resolves to the class object at parse time), so its face may run a
+/// detached bare call IF the adapter-visible argument surface is
+/// lossless: every undefaulted param `Any` (a typed slot would
+/// silently unbox an undefined argv box to 0) and no
+/// caller-side-injected default a runtime call would bypass.
+///
+/// Mirror of the instance-side verdict (S2.38/S2.39, see
+/// `ssa_lower_module_metadata`): an adapter-substituted literal
+/// default (Number/Bool) admits any scalar slot; an expression
+/// default refuses.
+///
+/// Shared by the named-static reify and the computed-key one. The
+/// computed path used to hardcode `this_free = 0`, so a
+/// symbol-keyed static that met every criterion still refused a
+/// detached call — `const f = C[Symbol.hasInstance]; f(4)` threw
+/// "class method called without a receiver" where the identically
+/// shaped `C.named` ran fine.
+fn static_this_free(ctx: &LowerCtx<'_>, body: &str, body_fid: crate::ssa::FuncId) -> bool {
+    let ast_params = ctx.ast.stmts.iter().find_map(|s| match s {
+        crate::ast::Stmt::FnDecl { name, params, .. } if name == body => Some(params),
+        _ => None,
+    });
+    ctx.fn_sig_ids
+        .get(&body_fid)
+        .zip(ast_params)
+        .is_some_and(|(sid, ps)| {
+            let tys = &ctx.fn_sigs[sid.0 as usize].0;
+            tys.len() == ps.len()
+                && tys.iter().zip(ps.iter()).all(|(ty, p)| match &p.default {
+                    None => *ty == Type::Any,
+                    Some(d) => {
+                        matches!(ctx.ast.get_expr(*d), Expr::Number(_) | Expr::Bool(_))
+                            && matches!(
+                                ty,
+                                Type::Any | Type::I64 | Type::I32 | Type::F64 | Type::Bool
+                            )
+                    }
+                })
+        })
+}
+
 pub(super) fn try_lower_class_computed_reify(
     ctx: &mut LowerCtx<'_>,
     args: &[ExprId],
@@ -268,6 +278,18 @@ pub(super) fn try_lower_class_computed_reify(
         1 => adapter("_get"),
         _ => adapter("_set"),
     };
+    // Statics only. The instance-side verdict needs the
+    // `fn_ignores_receiver` proof that lives in
+    // `ssa_lower_module_metadata`, which this site cannot see, so a
+    // computed instance method keeps today's conservative 0.
+    let body_name = format!("{prefix}{cname}__{sentinel}");
+    let this_free = kind == 0
+        && is_static != 0
+        && ctx
+            .fn_table
+            .get(body_name.as_str())
+            .copied()
+            .is_some_and(|fid| static_this_free(ctx, &body_name, fid));
     if let (Some(tag), Some((fid, sig))) = (tag, resolved) {
         let cur_block = ctx.cur_block;
         let vaddr = ctx
@@ -281,6 +303,7 @@ pub(super) fn try_lower_class_computed_reify(
                     key_op.clone(),
                     Operand::Value(vaddr),
                     Operand::ConstI64(is_static),
+                    Operand::ConstI64(i64::from(this_free)),
                 ],
             )
         } else {
