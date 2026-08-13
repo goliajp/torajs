@@ -1530,7 +1530,45 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 4a0d6c1e`, never as a constant.
 
-**Latest @ `4a0d6c1e`** (2026-08-13, rotation 383 — the own-property
+**Latest @ `4628f815`** (2026-08-13, rotation 387 — a silent wrong found
+while extending the `__this` slot table. `JSON.stringify`'s lowering
+evaluated slot 2 and dropped it, so a written replacer did not fail: it
+produced the unfiltered serialization and looked like a pass. Measured
+against bun, `stringify({a:1,b:2}, (k,v)=>typeof v==="number"?v*100:v)`
+answered `{"a":1,"b":2}` for `{"a":100,"b":200}`, and `["a"]` answered
+the whole object. Invisible to every gate we run — the output is
+well-formed JSON, and an identity replacer agrees with it exactly. A
+replacer whose CHECKED TYPE is one §25.5.2 step 4 would consult (a
+callable or an array) is now refused until §25.5.2.1's PropertyList and
+§25.5.2.2 step 3's `Call(replacerFunction, holder, «key, value»)` are
+served. The first cut refused everything not syntactically
+`null`/`undefined` and the gate priced it immediately:
+`stringify(42, step("t1"))` passes a STRING there, which step 4
+discards, so ignoring it is the spec's own answer — the bar had to move
+from the spelling to the type. Also: `asyncFn().then(fn-expr)` and the
+`Array.fromAsync` mapfn joined the no-receiver slot table. Sweep:
+passTotal 29932 → **29929 (−3)**, and the sign is the point —
+**+2 genuine forward** (`fromAsync/thisarg-omitted-{sloppy,strict}`)
+against **5 coincidence-passes removed**. All five were verified case by
+case, not assumed: each ran on data where the replacer is a no-op
+(`stringify(o,["p"])` where `p` is the only key; three more where
+applying vs ignoring produce byte-identical strings), and
+`stringify-replacer-with-array-indexes` never ran its in-replacer
+assertions at all. **True pass regressions: 0.** bug −22, incompatible
++25, trAccepted −25, conservation exact (−25 = −3 + −22). Gate predicate
+**244 unattributed clusters / 3207 cases / register 2 · 626 / residue
+762 · 985 / core 4818** — the cluster count went UP by one against
+rotation 386's 243 / 3180, which is the "先涨后跌" shape the protocol
+warns about: refusing the replacer turned an invisible hole into a named
+29-case cluster. Build determinism 44/44 N=12; Guard Malloc 2545/2548
+clean, 0 true hits. Second finding, from measuring before writing: the
+21 `test/language/statements/with` cases filed under `unknown ident
+__this` are MISFILED — `with` has no `Stmt` variant at all, and in
+sloppy `.cts` the parser reads it as an identifier, so the `__this`
+message is just the first error. Binding `this` there would not move one
+of them.)
+
+**Previous @ `4a0d6c1e`** (2026-08-13, rotation 383 — the own-property
 surface a builtin prototype was answering one key at a time but could
 not enumerate. `Map.prototype.hasOwnProperty("entries")` said true while
 `getOwnPropertyNames(Map.prototype)` said nothing; the ownership table
