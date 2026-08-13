@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T12:46:19.875Z",
+  "generatedAt": "2026-08-13T14:14:34.558Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T12:35:28Z",
-    "headSha": "e0b3c267",
-    "elapsedSec": 379.38,
+    "ranAt": "2026-08-13T14:04:10Z",
+    "headSha": "ae19d1f6",
+    "elapsedSec": 379.93,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24991,
+    "pass": 24993,
     "passNoOracle": 847,
     "passNegative": 4106,
-    "passTotal": 29944,
-    "bug": 12778,
+    "passTotal": 29946,
+    "bug": 12776,
     "incompatible": 10452,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 42722,
-    "passRateInScope": 56.31,
-    "passRateTrAccepted": 70.09
+    "passRateInScope": 56.32,
+    "passRateTrAccepted": 70.1
   },
   "torajs": {
-    "commit": "e0b3c267",
-    "commitSubject": "fix: answer undefined for a top-level undefined or callable",
+    "commit": "ae19d1f6",
+    "commitSubject": "fix: do not hand instanceof's operator a value with no any-encoding",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "ae19d1f6",
+      "subject": "fix: do not hand instanceof's operator a value with no any-encoding"
+    },
+    {
+      "hash": "548996ad",
+      "subject": "feat: let a class's own @@hasInstance decide instanceof"
+    },
+    {
+      "hash": "e3352034",
+      "subject": "refactor: move instanceof's runtime lane into a child module"
+    },
+    {
+      "hash": "50d67968",
+      "subject": "fix: let a callable's own @@hasInstance decide instanceof"
+    },
+    {
+      "hash": "9c0df588",
+      "subject": "feat: consult @@hasInstance when instanceof's right side is a value"
+    },
+    {
+      "hash": "1b686c99",
+      "subject": "docs: record rotation 388's sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "e0b3c267",
       "subject": "fix: answer undefined for a top-level undefined or callable"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d36db181",
       "subject": "docs: re-run rotation 387's sweep on the final HEAD"
-    },
-    {
-      "hash": "de2b9387",
-      "subject": "feat: reach the no-receiver handler slot through a const name"
-    },
-    {
-      "hash": "b880bb96",
-      "subject": "docs: record rotation 387's sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "4628f815",
-      "subject": "fix: gate the stringify replacer refusal on the checked type"
-    },
-    {
-      "hash": "3508eb66",
-      "subject": "fix: refuse the JSON.stringify replacer instead of ignoring it"
-    },
-    {
-      "hash": "ed5cf745",
-      "subject": "feat: admit the fromAsync mapfn slot when no thisArg is written"
-    },
-    {
-      "hash": "a8129f68",
-      "subject": "feat: treat an async function's call as a certain promise receiver"
     }
   ],
-  "headSha": "e0b3c267",
+  "headSha": "ae19d1f6",
   "autorun": {
-    "total": 691,
+    "total": 692,
     "baselineTarget": 10,
-    "bySelf": 686,
+    "bySelf": 687,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786617866-1916",
-      "at": "2026-08-13T10:44:26Z",
-      "ts": 1786617866,
+      "rotationId": "r-1786625286-6688",
+      "at": "2026-08-13T12:48:06Z",
+      "ts": 1786625286,
       "trigger": "self",
-      "prevHead": "d36db181",
-      "handoffSha": "sha256:a84f96f8da30f944a9fd0093291e7a21f2f39f71b9ff399ba4b6ea1ed4003cf4",
-      "handoffAgeSec": 563,
+      "prevHead": "1b686c99",
+      "handoffSha": "sha256:1191a99d79e32c9beb7cb0263d7540fd0f63805a7ff75309c31810c37671070b",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786625286-6688",
+        "at": "2026-08-13T12:48:06Z",
+        "ts": 1786625286,
+        "trigger": "self",
+        "prevHead": "1b686c99",
+        "handoffSha": "sha256:1191a99d79e32c9beb7cb0263d7540fd0f63805a7ff75309c31810c37671070b",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786617866-1916",
         "at": "2026-08-13T10:44:26Z",
@@ -876,17 +887,6 @@
         "prevHead": "f393dc8f",
         "handoffSha": "sha256:1c6114a4a29cee6d09ffd8fb53d269354770c8681d66475cbed991ac8e8d6b48",
         "handoffAgeSec": 22,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786552494-10ad",
-        "at": "2026-08-12T16:34:54Z",
-        "ts": 1786552494,
-        "trigger": "self",
-        "prevHead": "d74982ee",
-        "handoffSha": "sha256:967180c6e20a384367e2e103197efb11df1d82ebedf3d49b654f8dae5831be03",
-        "handoffAgeSec": 1189,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1528,9 +1528,47 @@ case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ e0b3c267`, never as a constant.
+snapshot stamped `@ ae19d1f6`, never as a constant.
 
-**Latest @ `e0b3c267`** (2026-08-13, rotation 388 — the replacer rotation
+**Latest @ `ae19d1f6`** (2026-08-13, rotation 389 — `instanceof` never
+asked `@@hasInstance`. §13.10.2 step 2 is a lookup the compile-time lane
+structurally cannot do: it answers class membership from a heap tag, so
+a target that names no class folded to `false` while its handler sat
+unread. Measuring nine spellings against bun split the gap along two
+orthogonal axes — the target's VALUE shape (class / callable / plain
+object) against its SYNTAX shape (bare name / general expression) — and
+every silent wrong landed in the bare-name column, so the parser did not
+have to move at all. Four knives: a kernel running the operator in spec
+order (non-object throws, GetMethod, Call with `this` bound to the
+target, ToBoolean, and the existing OrdinaryHasInstance walk when no
+handler is found), placed ahead of every static fold **including the
+operand-type early-outs**, since a handler decides the answer for a
+primitive V too; the callable lane, whose handler can only be installed
+by `defineProperty` because `Function.prototype[Symbol.hasInstance]` is
+non-writable; a child-module split to make room; and a class's own
+`static [Symbol.hasInstance]` (§15.7), gated on a compile-time check that
+never fires for an ordinary class and walks `class_parents` so an
+inherited handler answers too. **A fifth knife fixed a regression only
+the sweep could see**: all four gates were green, but `box_to_any`'s
+match ends in a panic, and a panic in the lowerer rejects the whole
+program — handing it a `FnSig` operand turned four cases from `bug` into
+`incompatible`, i.e. tr stopped compiling programs it used to run. The
+check has to be on both sides; `genFn instanceof GeneratorFunction`
+fails on the LEFT one. Sweep: passTotal 29944 → **29946 (+2)**, bug −2,
+incompatible and trAccepted both back to baseline, conservation exact
+(0 = +2 + −2). The verdict diff moves **four cases total**: three
+`bug → pass` on the target surface, and one `pass → bug:exit 138` that
+was **proven pre-existing** by rebuilding rotation 388's HEAD — the
+guarded run was already 139 there, so the layout change only made a
+latent UAF surface on the `tr run` path. Gate predicate **243
+unattributed clusters / 3177 cases / register 2 · 626 / residue 763 ·
+986 / core 4789** — identical to 388, as it should be: these knives
+moved `bug`↔`pass`, not the incompatible face. The syntax half — the
+right-hand side accepting a general expression — is measured and filed
+as `.claude/rfcs/20260813-instanceof-general-rhs/rfc.md`, and needs no
+new runtime code.)
+
+**Previous @ `e0b3c267`** (2026-08-13, rotation 388 — the replacer rotation
 387 refused, actually built, plus a wider `undefined` fold it turned up.
 §25.5.2.2 step 3's `Call(replacerFunction, holder, «key, value»)` and
 §25.5.2.1 step 4.b's PropertyList are both served now: the walk threads
