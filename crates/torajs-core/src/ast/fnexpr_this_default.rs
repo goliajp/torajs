@@ -33,11 +33,6 @@
 //! the receiver-less answer):
 //!
 //! * `Object.groupBy(items, cb)` / `Map.groupBy` — §7.3.35 step 4.c.
-//!
-//! Receiver certainty reads through a `const` binding as well as the
-//! receiver expression itself (`const p = Promise.resolve(1);
-//! p.then(…)` is the ordinary spelling) — see [`certain_bindings`].
-//!
 //! * `p.then(f)` / `p.then(f, g)` / `p.catch(f)` / `p.finally(f)` —
 //!   §27.2.5.4 step 9's `Call(handler, undefined, «argument»)`, and
 //!   the same in §27.2.5.1 / §27.2.5.3. The receiver has to be a
@@ -60,6 +55,10 @@
 //!     admit only when the call site passed none — with a thisArg
 //!     present the answer is that object, which is exactly the case
 //!     the blanket version got wrong.
+//!
+//! Receiver certainty reads through a `const` binding as well as the
+//! receiver expression itself — `const p = Promise.resolve(1);
+//! p.then(…)` is the ordinary spelling. See [`certain_bindings`].
 //!
 //! Only function expressions (`ast.fn_expr_exprs`) take the binding.
 //! An ARROW inherits its enclosing `this` (§8.3.4) and is already
