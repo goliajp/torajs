@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T00:56:45.661Z",
+  "generatedAt": "2026-08-13T01:15:55.872Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T00:55:05Z",
-    "headSha": "9d8c6aa9",
-    "elapsedSec": 337.02,
+    "ranAt": "2026-08-13T01:14:57Z",
+    "headSha": "c41997f9",
+    "elapsedSec": 326.01,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 24950,
+    "pass": 24953,
     "passNoOracle": 842,
     "passNegative": 4106,
-    "passTotal": 29898,
-    "bug": 12790,
+    "passTotal": 29901,
+    "bug": 12787,
     "incompatible": 10486,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 42688,
     "passRateInScope": 56.23,
-    "passRateTrAccepted": 70.04
+    "passRateTrAccepted": 70.05
   },
   "torajs": {
-    "commit": "9d8c6aa9",
-    "commitSubject": "fix: give the builtin prototypes the toStringTag their clauses give them",
+    "commit": "c41997f9",
+    "commitSubject": "fix: give Reflect.ownKeys the symbol bucket",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "c41997f9",
+      "subject": "fix: give Reflect.ownKeys the symbol bucket"
+    },
+    {
+      "hash": "fba0dc1d",
+      "subject": "docs: record rotation 382's sweep in the dashboard snapshot"
+    },
+    {
       "hash": "9d8c6aa9",
       "subject": "fix: give the builtin prototypes the toStringTag their clauses give them"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "77238620",
       "subject": "fix: an as-cast over any must not buy a call argument past the repr gate"
-    },
-    {
-      "hash": "f97a948c",
-      "subject": "fix: nest angle brackets when splitting a marker annotation's parts"
-    },
-    {
-      "hash": "33ebb2a3",
-      "subject": "fix: join a container argument onto an object-literal method's param class"
     }
   ],
-  "headSha": "9d8c6aa9",
+  "headSha": "c41997f9",
   "autorun": {
     "total": 685,
     "baselineTarget": 10,
