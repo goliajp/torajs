@@ -314,6 +314,7 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
         async_fns,
     };
     let mut targets: Vec<(ExprId, String)> = Vec::new();
+    let mut admitted: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
             continue;
@@ -322,11 +323,17 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
             continue;
         };
         for slot in no_receiver_slots(ast, &certain, *obj, name, args) {
+            admitted.insert(slot);
             if let Some(fn_name) = unclaimed_fnexpr(ast, slot) {
                 targets.push((slot, fn_name));
             }
         }
     }
+    // The same slots reached through a `const` name instead of written
+    // in place — see `fnexpr_this_default_alias`.
+    targets.extend(super::fnexpr_this_default_alias::alias_targets(
+        ast, &admitted,
+    ));
     targets
 }
 
@@ -412,7 +419,7 @@ impl Certain {
 /// unbound `__this`, or `None` for everything else — an arrow, an
 /// object-literal method, a closure a promote already claimed, or a
 /// plain value.
-fn unclaimed_fnexpr(ast: &Ast, eid: ExprId) -> Option<String> {
+pub(super) fn unclaimed_fnexpr(ast: &Ast, eid: ExprId) -> Option<String> {
     let Expr::Closure { fn_name, captures } = &ast.exprs[eid.0 as usize] else {
         return None;
     };
