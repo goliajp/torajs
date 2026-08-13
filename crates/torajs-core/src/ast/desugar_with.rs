@@ -93,6 +93,28 @@ pub fn desugar_with(ast: &mut Ast) -> Option<String> {
     if !ast.has_with_stmt {
         return None;
     }
+    if !ast.sloppy_script_goal {
+        // §14.11.1 — a WithStatement is a SyntaxError in strict code,
+        // and a module always is. A parser-level one never reaches
+        // here (`judge_with_statement` refuses it inside a strict
+        // function, `triage_strict_reserved_idents` at the goal), so
+        // what does is one the EVAL inline brought in.
+        //
+        // Whose strictness governs it is the eval's own, not the
+        // module's — `Function("…")` makes a sloppy function even from
+        // strict code (t262 12.10.1-5-s), while a direct `eval` in a
+        // strict function inherits strict and must raise SyntaxError
+        // (12.10.1-10-s). `desugar_eval` does not currently hand that
+        // verdict down, so this refuses both rather than RUN a `with`
+        // that strict code forbids. Loud costs 12.10.1-5-s its pass;
+        // running it would be a semantic wrong, which costs more.
+        return Some(
+            "`with` is not allowed in strict code (ES §14.11.1) — reached here through an \
+             eval / Function inline, whose own strictness this pass cannot yet see \
+             (RFC 20260814)"
+                .to_string(),
+        );
+    }
     inject_helpers(ast);
     let mut stmts = std::mem::take(&mut ast.stmts);
     let mut err = None;

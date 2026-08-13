@@ -93,16 +93,25 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // SyntaxError). Before everything else, so the inlined statements
     // reach every desugar below exactly as if they had been written at
     // the call site, which is what direct eval means.
-    // RFC 20260814 — `with` first: the parser leaves a marker Block
-    // that no other pass knows, and this turns it into ordinary code
-    // before anything else looks. Ahead of `desugar_eval` so an eval
-    // inlined into a `with` body is not silently exempted from the
-    // rewrite (it is refused instead — the eval axis is its own).
+    ast::desugar_eval(ast);
+    // RFC 20260814 — `with` right after the eval inline, and before
+    // everything else: the parser leaves a marker Block that no other
+    // pass knows, and this turns it into ordinary code before anything
+    // else looks.
+    //
+    // AFTER `desugar_eval`, not before. A `with` can arrive from the
+    // eval'd source itself (`Function("var o = {}; with (o) {}")`),
+    // and running first meant the marker block was minted after this
+    // pass had already decided the program had no `with` in it — so
+    // the helpers were never injected and the program died on
+    // `unknown identifier __torajs_with_obj` (t262
+    // statements/with/12.10.1-5-s and -10-s). Running after also makes
+    // eval-inlined statements INSIDE a `with` body get rewritten,
+    // which is what §14.11 wants of them anyway.
     if let Some(msg) = ast::desugar_with(ast) {
         eprintln!("error: {msg}");
         return Err(());
     }
-    ast::desugar_eval(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
     ast::desugar_using(ast);
