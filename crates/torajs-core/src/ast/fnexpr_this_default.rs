@@ -34,6 +34,10 @@
 //!
 //! * `Object.groupBy(items, cb)` / `Map.groupBy` — §7.3.35 step 4.c.
 //!
+//! Receiver certainty reads through a `const` binding as well as the
+//! receiver expression itself (`const p = Promise.resolve(1);
+//! p.then(…)` is the ordinary spelling) — see [`certain_bindings`].
+//!
 //! * `p.then(f)` / `p.then(f, g)` / `p.catch(f)` / `p.finally(f)` —
 //!   §27.2.5.4 step 9's `Call(handler, undefined, «argument»)`, and
 //!   the same in §27.2.5.1 / §27.2.5.3. The receiver has to be a
@@ -72,9 +76,81 @@
 //! receiver-promoting knives live: a slot one of them claimed has no
 //! `__this` capture left by the time this looks.
 
-use super::fnexpr_this_recvs::collect_arraylit_binding_names;
 use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
+
+/// The `const` bindings whose initializer satisfies `pred` and whose
+/// name is declared nowhere else — the receiver-certainty bar, one
+/// step wider than reading the receiver expression itself.
+///
+/// `const` is what makes this sound: the binding cannot be reassigned,
+/// so proving the initializer proves every read. A `let` / `var` of
+/// the same name anywhere disqualifies the name outright (the census
+/// is name-keyed, not scope-keyed — deliberately coarse, since an
+/// over-refusal only costs a loud reject).
+///
+/// This is `fnexpr_this_recvs`'s array census generalized over the
+/// predicate, and it deliberately does NOT share code with it: that
+/// one gates the receiver PROMOTES, where a wrong admission shifts a
+/// call's arguments. Widening it (this version also admits an
+/// explicitly annotated `const xs: number[] = […]`) belongs here
+/// first, where a wrong admission is a body-local binding.
+fn certain_bindings(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    pred: &dyn Fn(&[Expr], ExprId) -> bool,
+) -> std::collections::HashSet<String> {
+    let mut decls: Vec<(String, bool)> = Vec::new();
+    collect_const_decls(stmts, exprs, pred, &mut decls);
+    // A name declared more than once anywhere is out, whichever
+    // declaration would have qualified: the census is name-keyed and
+    // an over-refusal only costs a loud reject.
+    let mut names = std::collections::HashSet::new();
+    for (name, qualifies) in &decls {
+        if *qualifies && decls.iter().filter(|(n, _)| n == name).count() == 1 {
+            names.insert(name.clone());
+        }
+    }
+    names
+}
+
+fn collect_const_decls(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    pred: &dyn Fn(&[Expr], ExprId) -> bool,
+    out: &mut Vec<(String, bool)>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                mutable,
+                name,
+                init,
+                ..
+            } => out.push((name.clone(), !*mutable && pred(exprs, *init))),
+            Stmt::FnDecl { body, .. } => collect_const_decls(body, exprs, pred, out),
+            Stmt::Block(inner) | Stmt::Multi(inner) => collect_const_decls(inner, exprs, pred, out),
+            _ => {}
+        }
+    }
+}
+
+/// The promise-binding census, run to a fixed point: `const b = a.then(…)`
+/// only qualifies once `a` has, so one pass would stop at the first
+/// link of a chain written across statements.
+fn certain_promise_bindings(ast: &Ast) -> std::collections::HashSet<String> {
+    let mut bound: std::collections::HashSet<String> = std::collections::HashSet::new();
+    loop {
+        let snapshot = bound.clone();
+        let next = certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
+            promise_expr(exprs, e, &snapshot)
+        });
+        if next == bound {
+            return bound;
+        }
+        bound = next;
+    }
+}
 
 /// The `Promise` statics whose result is a promise — the roots of a
 /// syntactically certain promise chain.
@@ -180,7 +256,12 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
 /// Every unclaimed function expression sitting in a no-receiver slot,
 /// paired with the name of the FnDecl `lift_arrow_fns` made of it.
 fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
-    let arrays = collect_arraylit_binding_names(&ast.stmts, &ast.exprs);
+    let certain = Certain {
+        arrays: certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
+            matches!(&exprs[e.0 as usize], Expr::Array(_))
+        }),
+        promises: certain_promise_bindings(ast),
+    };
     let mut targets: Vec<(ExprId, String)> = Vec::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
@@ -189,7 +270,7 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
         let Expr::Member { obj, name } = &ast.exprs[callee.0 as usize] else {
             continue;
         };
-        for slot in no_receiver_slots(ast, &arrays, *obj, name, args) {
+        for slot in no_receiver_slots(ast, &certain, *obj, name, args) {
             if let Some(fn_name) = unclaimed_fnexpr(ast, slot) {
                 targets.push((slot, fn_name));
             }
@@ -204,7 +285,7 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
 /// reject.
 fn no_receiver_slots(
     ast: &Ast,
-    arrays: &std::collections::HashSet<String>,
+    certain: &Certain,
     obj: ExprId,
     name: &str,
     args: &[ExprId],
@@ -216,13 +297,13 @@ fn no_receiver_slots(
     {
         return args.iter().skip(1).take(1).copied().collect();
     }
-    if HANDLER_METHODS.contains(&name) && promise_certain(&ast.exprs, obj) {
+    if HANDLER_METHODS.contains(&name) && certain.promise(&ast.exprs, obj) {
         // `then` takes two handler slots; `catch` / `finally` one.
         // Anything past them is not a handler and is left alone.
         let slots = if name == "then" { 2 } else { 1 };
         return args.iter().take(slots).copied().collect();
     }
-    if !array_certain(&ast.exprs, arrays, obj) {
+    if !certain.array(&ast.exprs, obj) {
         return Vec::new();
     }
     let admits = ARRAY_NO_THISARG.contains(&name)
@@ -239,11 +320,22 @@ fn no_receiver_slots(
 /// only array literals. Same bar the promote knives use — a bare
 /// binding that might hold a user object with its own `map` would
 /// let that object's method decide the callback's receiver.
-fn array_certain(exprs: &[Expr], arrays: &std::collections::HashSet<String>, eid: ExprId) -> bool {
-    match &exprs[eid.0 as usize] {
-        Expr::Array(_) => true,
-        Expr::Ident(n) => arrays.contains(n),
-        _ => false,
+struct Certain {
+    arrays: std::collections::HashSet<String>,
+    promises: std::collections::HashSet<String>,
+}
+
+impl Certain {
+    fn array(&self, exprs: &[Expr], eid: ExprId) -> bool {
+        match &exprs[eid.0 as usize] {
+            Expr::Array(_) => true,
+            Expr::Ident(n) => self.arrays.contains(n),
+            _ => false,
+        }
+    }
+
+    fn promise(&self, exprs: &[Expr], eid: ExprId) -> bool {
+        promise_expr(exprs, eid, &self.promises)
     }
 }
 
@@ -269,7 +361,10 @@ fn unclaimed_fnexpr(ast: &Ast, eid: ExprId) -> Option<String> {
 /// chain over one of those. A bare binding does not qualify even if
 /// it holds a promise at runtime — the point of the check is that no
 /// USER-written `then` can be reached.
-fn promise_certain(exprs: &[Expr], eid: ExprId) -> bool {
+fn promise_expr(exprs: &[Expr], eid: ExprId, bound: &std::collections::HashSet<String>) -> bool {
+    if let Expr::Ident(n) = &exprs[eid.0 as usize] {
+        return bound.contains(n);
+    }
     let Expr::Call { callee, .. } = &exprs[eid.0 as usize] else {
         return false;
     };
@@ -283,7 +378,7 @@ fn promise_certain(exprs: &[Expr], eid: ExprId) -> bool {
             matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
         }
         Expr::Member { obj, name } if HANDLER_METHODS.contains(&name.as_str()) => {
-            promise_certain(exprs, *obj)
+            promise_expr(exprs, *obj, bound)
         }
         _ => false,
     }
