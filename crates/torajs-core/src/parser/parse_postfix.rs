@@ -55,6 +55,41 @@ impl<'a> Parser<'a> {
                     let args = self.parse_call_args()?;
                     node = self.add_expr_at(start_pos, Expr::Call { callee: node, args });
                 }
+                // `f<T>(x)` — explicit type arguments at a call site.
+                // The grammar is genuinely ambiguous with `f < T > (x)`
+                // and TS resolves it the same way this does: try to
+                // parse a type-argument list, and only commit if a `(`
+                // follows. Anything else rewinds and leaves the `<` to
+                // the relational parser, so ordinary comparisons are
+                // untouched.
+                //
+                // The spellings land in `call_type_args`, the side
+                // table generic inference already reads for
+                // `new Box<number>()` — so nothing downstream needed
+                // to change.
+                Token::Lt => {
+                    let save_pos = self.pos;
+                    let save_peel = self.type_close_peel;
+                    self.pos += 1;
+                    let parsed = self.parse_type_args_list();
+                    match parsed {
+                        Ok(type_args) if matches!(self.peek(), Token::LParen) => {
+                            self.pos += 1;
+                            let args = self.parse_call_args()?;
+                            let eid =
+                                self.add_expr_at(start_pos, Expr::Call { callee: node, args });
+                            if !type_args.is_empty() {
+                                self.ast.call_type_args.insert(eid, type_args);
+                            }
+                            node = eid;
+                        }
+                        _ => {
+                            self.pos = save_pos;
+                            self.type_close_peel = save_peel;
+                            return Ok(node);
+                        }
+                    }
+                }
                 Token::LBracket => {
                     node = self.parse_postfix_index(node, start_pos)?;
                 }
