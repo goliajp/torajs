@@ -94,7 +94,7 @@ impl<'a> Parser<'a> {
         };
         let src_ref = self.ast.add_expr(Expr::Ident(var_name.to_string()));
         let mut pre: Vec<Stmt> = Vec::new();
-        self.emit_pattern_binds(pat, src_ref, false, &mut pre);
+        self.emit_pattern_binds(pat, src_ref, false, false, &mut pre);
         pre.push(body);
         Stmt::Block(pre)
     }

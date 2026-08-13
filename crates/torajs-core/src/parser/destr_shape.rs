@@ -285,14 +285,15 @@ impl<'a> Parser<'a> {
         pat: &PatShape,
         src_expr: ExprId,
         mutable: bool,
+        is_var: bool,
         out: &mut Vec<Stmt>,
     ) {
         match pat {
             PatShape::Ary { elems, rest } => {
-                self.emit_ary_binds(elems, rest, src_expr, mutable, out)
+                self.emit_ary_binds(elems, rest, src_expr, mutable, is_var, out)
             }
             PatShape::Obj { fields, rest } => {
-                self.emit_obj_binds(fields, rest, src_expr, mutable, out)
+                self.emit_obj_binds(fields, rest, src_expr, mutable, is_var, out)
             }
         }
     }
@@ -303,6 +304,7 @@ impl<'a> Parser<'a> {
         rest: &Option<RestShape>,
         src_expr: ExprId,
         mutable: bool,
+        is_var: bool,
         out: &mut Vec<Stmt>,
     ) {
         // RFC 20260714-dstr-residual blade 3 — array patterns always
@@ -337,12 +339,12 @@ impl<'a> Parser<'a> {
                         name: name.clone(),
                         type_ann: None,
                         init,
-                        is_var: false,
+                        is_var,
                     });
                 }
                 AryElem::Nested { pat, default } => {
                     let loaded = self.dstra_elem_load(&src_name, i, *default);
-                    self.emit_pattern_binds(pat, loaded, mutable, out);
+                    self.emit_pattern_binds(pat, loaded, mutable, is_var, out);
                 }
             }
         }
@@ -364,14 +366,14 @@ impl<'a> Parser<'a> {
                         name: rest_name.clone(),
                         type_ann: None,
                         init: tail,
-                        is_var: false,
+                        is_var,
                     });
                 }
                 // `[...[x, y]]` — the collected tail array is itself
                 // the nested pattern's source; the recursion hoists
                 // it into its own group temp like any other source.
                 RestShape::Nested(pat) => {
-                    self.emit_pattern_binds(pat, tail, mutable, out);
+                    self.emit_pattern_binds(pat, tail, mutable, is_var, out);
                 }
             }
         }
@@ -383,6 +385,7 @@ impl<'a> Parser<'a> {
         rest: &Option<String>,
         src_expr: ExprId,
         mutable: bool,
+        is_var: bool,
         out: &mut Vec<Stmt>,
     ) {
         // Ident sources stay the owner (no temp); everything else
@@ -418,18 +421,18 @@ impl<'a> Parser<'a> {
                         name: name.clone(),
                         type_ann: None,
                         init,
-                        is_var: false,
+                        is_var,
                     });
                 }
                 ObjBinding::Nested { pat, default } => {
                     let loaded = self.dstra_field_load(&src_name, field, *default);
-                    self.emit_pattern_binds(pat, loaded, mutable, out);
+                    self.emit_pattern_binds(pat, loaded, mutable, is_var, out);
                 }
             }
         }
         if let Some(rest_name) = rest {
             let omit: Vec<&str> = fields.iter().map(|f| f.field.as_str()).collect();
-            let bind = self.emit_obj_rest_let(&src_name, &omit, rest_name, mutable);
+            let bind = self.emit_obj_rest_let(&src_name, &omit, rest_name, mutable, is_var);
             out.push(bind);
         }
     }
@@ -449,6 +452,7 @@ impl<'a> Parser<'a> {
         omit: &[&str],
         rest_name: &str,
         mutable: bool,
+        is_var: bool,
     ) -> Stmt {
         let obj = self.emit_obj_rest_expr(src_name, omit);
         Stmt::LetDecl {
@@ -456,7 +460,7 @@ impl<'a> Parser<'a> {
             name: rest_name.to_string(),
             type_ann: None,
             init: obj,
-            is_var: false,
+            is_var,
         }
     }
 
@@ -464,7 +468,11 @@ impl<'a> Parser<'a> {
     /// pattern kinds (parse_stmt dispatches here on `let [` /
     /// `let {`). Replaces the flat parse_array_destructuring /
     /// parse_object_destructuring pair.
-    pub(super) fn parse_destructuring_decl(&mut self, mutable: bool) -> Result<Stmt, String> {
+    pub(super) fn parse_destructuring_decl(
+        &mut self,
+        mutable: bool,
+        is_var: bool,
+    ) -> Result<Stmt, String> {
         let pat = self.read_pattern_shape()?;
         // Optional `: T` annotation on the whole pattern — the
         // desugared bindings get their types from the source via
@@ -487,7 +495,7 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         let mut stmts: Vec<Stmt> = Vec::new();
-        self.emit_pattern_binds(&pat, src, mutable, &mut stmts);
+        self.emit_pattern_binds(&pat, src, mutable, is_var, &mut stmts);
         // Stmt::Multi flattens at lowering time, so the user-visible
         // lets join the surrounding scope rather than a fresh frame.
         Ok(Stmt::Multi(stmts))

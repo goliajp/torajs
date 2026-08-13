@@ -355,7 +355,7 @@ impl<'a> Parser<'a> {
                     };
                     self.pos += 1;
                     let omit: Vec<&str> = seen_fields.iter().map(String::as_str).collect();
-                    let bind = self.emit_obj_rest_let(&src_name, &omit, &rest_name, false);
+                    let bind = self.emit_obj_rest_let(&src_name, &omit, &rest_name, false, false);
                     lets.push(bind);
                     // §14.3.3.1 — a rest element is always last; the
                     // pattern must close here.

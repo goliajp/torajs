@@ -285,7 +285,13 @@ impl<'a> Parser<'a> {
         // forms desugar to `let __t = src; let <field>...; ...` so the
         // backend never sees a destructuring pattern.
         if matches!(self.peek(), Token::LBracket | Token::LBrace) {
-            return self.parse_destructuring_decl(mutable);
+            // `is_var` travels with `mutable`. Dropping it made every
+            // `var { a } = src` bind block-scoped, so `{ var { a } =
+            // src } a` answered `unknown identifier` where §14.3.2
+            // hoists the binding to the enclosing function — and
+            // inside a `with` body the same mistake made the name
+            // SHADOW the object, which a `var` never does.
+            return self.parse_destructuring_decl(mutable, is_var);
         }
         // V3-18 m1.h.5 — multi-decl `let a, b = 1, c` per spec
         // §14.3.1. Each binding can have its own type ann and
