@@ -236,13 +236,22 @@ fn widen_branches(
         *else_end = ctx.cur_block;
         return (t, e, Type::Any, true, true);
     }
+    // The box is expr-AWARE here for the same reason S2.27 above is:
+    // an `undefined` branch is a compile-time ConstPtrNull, and the
+    // plain `box_to_any` tags that as ANY_NULL. The wedge above only
+    // covers the case where NEITHER side is already Any, so
+    // `cond ? undefined : anyValue` fell through to here and answered
+    // `null` — `typeof (b ? undefined : v)` printed "object", and a
+    // `JSON.stringify` replacer written the MDN way
+    // (`(k, v) => k === drop ? undefined : v`) emitted `"k":null`
+    // instead of dropping the key.
     if tt == Type::Any || et == Type::Any {
         if tt != Type::Any {
             ctx.cur_block = *then_end;
             if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
                 ctx.emit_rc_inc(then_val.clone());
             }
-            let t = ctx.box_to_any(then_val);
+            let t = ctx.box_to_any_from_expr(then_branch, then_val);
             *then_end = ctx.cur_block;
             return (t, else_val, Type::Any, true, false);
         }
@@ -251,7 +260,7 @@ fn widen_branches(
             if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
                 ctx.emit_rc_inc(else_val.clone());
             }
-            let e = ctx.box_to_any(else_val);
+            let e = ctx.box_to_any_from_expr(else_branch, else_val);
             *else_end = ctx.cur_block;
             return (then_val, e, Type::Any, false, true);
         }

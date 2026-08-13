@@ -56,11 +56,15 @@ impl LowerCtx<'_> {
         // decoded garbage. Right's check-time type is peeked
         // before lowering since lowering b is observable (it
         // happens inside the eval_b block); detecting the mix
-        // up-front keeps the slot alloca uniform.
+        // up-front keeps the slot alloca uniform. The box is
+        // expr-AWARE: an `undefined` operand is a compile-time
+        // ConstPtrNull that the plain `box_to_any` tags as ANY_NULL,
+        // so `anyVal && undefined` answered `null` (`typeof` printed
+        // "object") — the same hole the ternary's mixed-Any join had.
         let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
         let slot_ty = if widen_to_any { Type::Any } else { a_ty };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
-            self.box_to_any(a)
+            self.box_to_any_from_expr(left, a)
         } else {
             a
         };
@@ -87,7 +91,7 @@ impl LowerCtx<'_> {
         }
         let b = self.lower_expr(right);
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
-            self.box_to_any(b)
+            self.box_to_any_from_expr(right, b)
         } else {
             b
         };
@@ -169,7 +173,7 @@ impl LowerCtx<'_> {
         let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
         let slot_ty = if widen_to_any { Type::Any } else { a_ty };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
-            self.box_to_any(a)
+            self.box_to_any_from_expr(left, a)
         } else {
             a
         };
@@ -203,7 +207,7 @@ impl LowerCtx<'_> {
         }
         let b = self.lower_expr(right);
         let b_for_slot = if widen_to_any && self.operand_ty(&b) != Type::Any {
-            self.box_to_any(b)
+            self.box_to_any_from_expr(right, b)
         } else {
             b
         };
