@@ -41,6 +41,7 @@ mod class_self_heritage;
 mod cursor;
 mod delete_expr;
 mod destr_defaults;
+mod destr_emit;
 mod destr_helpers;
 mod destr_shape;
 mod dstr_assign;
