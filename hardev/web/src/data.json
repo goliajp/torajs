@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T10:16:55.020Z",
+  "generatedAt": "2026-08-13T10:32:07.595Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T10:05:04Z",
-    "headSha": "4628f815",
-    "elapsedSec": 325.27,
+    "ranAt": "2026-08-13T10:30:52Z",
+    "headSha": "de2b9387",
+    "elapsedSec": 325.22,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.1
   },
   "torajs": {
-    "commit": "4628f815",
-    "commitSubject": "fix: gate the stringify replacer refusal on the checked type",
+    "commit": "de2b9387",
+    "commitSubject": "feat: reach the no-receiver handler slot through a const name",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "de2b9387",
+      "subject": "feat: reach the no-receiver handler slot through a const name"
+    },
+    {
+      "hash": "b880bb96",
+      "subject": "docs: record rotation 387's sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "4628f815",
       "subject": "fix: gate the stringify replacer refusal on the checked type"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "fb32a68c",
       "subject": "feat: bind a promise handler's function-expression this to the no-receiver answer"
-    },
-    {
-      "hash": "e7a2baef",
-      "subject": "docs: re-run rotation 385's sweep on the final HEAD"
-    },
-    {
-      "hash": "15b6e8dd",
-      "subject": "fix: give a computed-key static method the this-free face it qualifies for"
     }
   ],
-  "headSha": "4628f815",
+  "headSha": "de2b9387",
   "autorun": {
     "total": 690,
     "baselineTarget": 10,

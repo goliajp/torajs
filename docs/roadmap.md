@@ -1530,7 +1530,7 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 4a0d6c1e`, never as a constant.
 
-**Latest @ `4628f815`** (2026-08-13, rotation 387 — a silent wrong found
+**Latest @ `de2b9387`** (2026-08-13, rotation 387 — a silent wrong found
 while extending the `__this` slot table. `JSON.stringify`'s lowering
 evaluated slot 2 and dropped it, so a written replacer did not fail: it
 produced the unfiltered serialization and looked like a pass. Measured
@@ -1566,7 +1566,12 @@ clean, 0 true hits. Second finding, from measuring before writing: the
 __this` are MISFILED — `with` has no `Stmt` variant at all, and in
 sloppy `.cts` the parser reads it as an identifier, so the `__this`
 message is just the first error. Binding `this` there would not move one
-of them.)
+of them. A fifth knife let the handler slot be reached through a `const`
+name (`const f = function () {…this…}; p.then(f)`), and its sweep moved
+**zero** cases with every verdict byte-identical — predicted before it
+ran, because those test262 cases spell the binding `var` and the census
+requires `const`. It is recorded as a real-code improvement, not a
+metric one.)
 
 **Previous @ `4a0d6c1e`** (2026-08-13, rotation 383 — the own-property
 surface a builtin prototype was answering one key at a time but could
