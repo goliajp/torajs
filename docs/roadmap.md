@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `0a2fcd56`** (2026-08-14, rotation 392 — `with` (§14.11) closed
+**Latest @ `23c828d4`** (2026-08-14, rotation 393 — the rotation where the
+probe refuted the task. The plan said "`with` body class declarations —
+write a probe first"; the first probe, `{ let a = 7; class K { m() {
+return a } } }` with **no `with` in it**, answered `internal: ClassDecl
+reached check.rs`. The real blocker is that a nested class cannot capture
+a local at all — `hoist_nested_classes` lifts only capture-free ones —
+and the `with` binding is a block-scoped `let`. So the class face landed
+as an EXACT verdict rather than a lifted refusal: a closed class runs,
+anything reading a name the object could supply is refused naming the
+part that carries it. Six of the eight knives fixed **existing wrong
+answers**, three of them silent, and half were not `with` bugs at all:
+a class body is strict code so `with` inside one is a §14.11.1
+SyntaxError (bun cannot even transpile that shape — node was the
+oracle); the globals the parser writes as machinery
+(`Object.__forinKeys`, `String(sub)` for `${…}`, `Promise.resolve(ns)`)
+were being answered by the `with` object, which made every template
+substitution in a `with` body hijackable and every for-in in one throw;
+a guard arm's clone was losing every side-table marker it copied; a
+destructuring `var` was not a `var` (`{ var { a } = src } a` answered
+`unknown identifier`); and a `switch` on an `any` scrutinee was refused
+by the checker — where widening the checker ALONE turned the loud
+refusal into a silent wrong answer, because the per-case compare was a
+raw integer compare of a boxed word against a bare one. Sweep: passTotal
+30014 → **30035 (+21)**, pass +19, bug +2, incompatible −23, trAccepted
++23, conservation exact, **zero pass regressions**. The 12 cases that
+moved `incompatible → bug` are programs tr now ACCEPTS and which fail on
+the real gap behind the spurious refusal — five on `Proxy`, the rest on
+eval semantics. Gate predicate **241 unattributed clusters / 3123 cases
+/ register 2 · 619 / residue 772 · 1001 / core 4743** — clusters and
+cases both down.)
+
+**Previous @ `0a2fcd56`** (2026-08-14, rotation 392 — `with` (§14.11) closed
 out, and with it three silent wrongs of one shape: **the rule the pass
 wrote down was not the rule the pass implemented, because its walk did
 not reach every place the shape can sit.** A function EXPRESSION's body

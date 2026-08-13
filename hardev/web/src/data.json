@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T22:02:27.585Z",
+  "generatedAt": "2026-08-13T23:39:23.665Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T21:54:46Z",
-    "headSha": "0a2fcd56",
-    "elapsedSec": 325.91,
+    "ranAt": "2026-08-13T23:36:10Z",
+    "headSha": "23c828d4",
+    "elapsedSec": 327.82,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25059,
-    "passNoOracle": 849,
+    "pass": 25078,
+    "passNoOracle": 851,
     "passNegative": 4106,
-    "passTotal": 30014,
-    "bug": 12762,
-    "incompatible": 10398,
+    "passTotal": 30035,
+    "bug": 12764,
+    "incompatible": 10375,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42776,
-    "passRateInScope": 56.44,
-    "passRateTrAccepted": 70.17
+    "trAccepted": 42799,
+    "passRateInScope": 56.48,
+    "passRateTrAccepted": 70.18
   },
   "torajs": {
-    "commit": "0a2fcd56",
-    "commitSubject": "fix: a refused `with` printed as a runtime error, so it counted as one",
+    "commit": "23c828d4",
+    "commitSubject": "refactor: split the destructuring emitter out of destr_shape",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "23c828d4",
+      "subject": "refactor: split the destructuring emitter out of destr_shape"
+    },
+    {
+      "hash": "d2b58dc0",
+      "subject": "fix: a `switch` on an `any` scrutinee"
+    },
+    {
+      "hash": "c5256dcc",
+      "subject": "fix: a destructuring `var` is a `var`"
+    },
+    {
+      "hash": "fce835c6",
+      "subject": "fix: a guard arm's clone has to keep the markers of what it copied"
+    },
+    {
+      "hash": "f5f9677d",
+      "subject": "feat: several `var` declarators in a `with` body's `for` head"
+    },
+    {
+      "hash": "24fc8aaa",
+      "subject": "fix: a `with` object must not answer the globals the parser wrote"
+    },
+    {
+      "hash": "42d6c926",
+      "subject": "feat: a class in a `with` body is answered exactly, not refused wholesale"
+    },
+    {
+      "hash": "ebe8ec08",
+      "subject": "fix: a class body is strict code, so `with` inside one is a SyntaxError"
+    },
+    {
+      "hash": "27c9da85",
+      "subject": "chore: record rotation 392 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "0a2fcd56",
       "subject": "fix: a refused `with` printed as a runtime error, so it counted as one"
     },
@@ -723,170 +759,134 @@
     {
       "hash": "17b3e390",
       "subject": "fix: a refused `delete` throws only in strict code (ES §13.5.1.2 step 5)"
-    },
-    {
-      "hash": "4af7c554",
-      "subject": "feat: a `var` in a `with` body lands on both sides of the object (ES §14.11)"
-    },
-    {
-      "hash": "743c6a71",
-      "subject": "fix: `delete <bare name>` was resolved before `with` and eval could speak"
-    },
-    {
-      "hash": "eea26e0b",
-      "subject": "feat: `with` reaches nested function bodies (ES §14.11, RFC 20260814 刀 4)"
-    },
-    {
-      "hash": "042b7536",
-      "subject": "fix: the `with` walk did not reach two places a free name can sit"
-    },
-    {
-      "hash": "93fe497a",
-      "subject": "chore: record rotation 391 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "55180c35",
-      "subject": "fix: a `with` can arrive from the eval inline, and strict code must refuse it"
-    },
-    {
-      "hash": "c33e714c",
-      "subject": "feat: `with` reaches assignment, plain and compound (ES §14.11)"
-    },
-    {
-      "hash": "8320d13f",
-      "subject": "fix: a `var` initialiser inside a `with` body was landing on the wrong binding"
-    },
-    {
-      "hash": "0d9e6561",
-      "subject": "feat: `with` reaches `typeof` and postfix `++` / `--` (ES §14.11)"
     }
   ],
-  "headSha": "0a2fcd56",
+  "headSha": "23c828d4",
   "autorun": {
-    "total": 511,
+    "total": 696,
     "baselineTarget": 10,
-    "bySelf": 506,
+    "bySelf": 691,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784931424-3ed7",
-      "at": "2026-07-24T22:17:04Z",
-      "ts": 1784931424,
+      "rotationId": "r-1786658705-4b44",
+      "at": "2026-08-13T22:05:05Z",
+      "ts": 1786658705,
       "trigger": "self",
-      "prevHead": "6caee759",
-      "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
-      "handoffAgeSec": 4,
+      "prevHead": "27c9da85",
+      "handoffSha": "sha256:7c62a76f621f8f531991feb938b00612df31acb3f1bff2c502ae17513ec9a056",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
       {
-        "rotationId": "r-1784931424-3ed7",
-        "at": "2026-07-24T22:17:04Z",
-        "ts": 1784931424,
+        "rotationId": "r-1786658705-4b44",
+        "at": "2026-08-13T22:05:05Z",
+        "ts": 1786658705,
         "trigger": "self",
-        "prevHead": "6caee759",
-        "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
+        "prevHead": "27c9da85",
+        "handoffSha": "sha256:7c62a76f621f8f531991feb938b00612df31acb3f1bff2c502ae17513ec9a056",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1786652708-3b24",
+        "at": "2026-08-13T20:25:08Z",
+        "ts": 1786652708,
+        "trigger": "self",
+        "prevHead": "93fe497a",
+        "handoffSha": "sha256:b97cff1605c49e142f935db35cb91d948bb48a075d2a2d4b59637c249556ae9a",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784922574-192b",
-        "at": "2026-07-24T19:49:35Z",
-        "ts": 1784922575,
+        "rotationId": "r-1786646341-2e47",
+        "at": "2026-08-13T18:39:01Z",
+        "ts": 1786646341,
         "trigger": "self",
-        "prevHead": "d347bdc2",
-        "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
-        "handoffAgeSec": 4,
+        "prevHead": "d6e1345e",
+        "handoffSha": "sha256:b8b15857729d8733076fc9272c94a13f5ef403365d4264f4e2b7ea812f5887f2",
+        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784916735-40ca",
-        "at": "2026-07-24T18:12:15Z",
-        "ts": 1784916735,
+        "rotationId": "r-1786630979-5873",
+        "at": "2026-08-13T14:22:59Z",
+        "ts": 1786630979,
         "trigger": "self",
-        "prevHead": "f0464206",
-        "handoffSha": "sha256:b9ecf50b244ecaf63c2525e3c0b79036a5fc0ca8267e00d81fc058d2473c4c32",
-        "handoffAgeSec": 216,
+        "prevHead": "d9f04fba",
+        "handoffSha": "sha256:a95c2f14154f00e0b663d5a996c5bf238a9981d049e0385e803688a9a69f7b73",
+        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784911321-73e6",
-        "at": "2026-07-24T16:42:01Z",
-        "ts": 1784911321,
+        "rotationId": "r-1786625286-6688",
+        "at": "2026-08-13T12:48:06Z",
+        "ts": 1786625286,
         "trigger": "self",
-        "prevHead": "afa46564",
-        "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784902951-3e83",
-        "at": "2026-07-24T14:22:31Z",
-        "ts": 1784902951,
-        "trigger": "self",
-        "prevHead": "995dce57",
-        "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
+        "prevHead": "1b686c99",
+        "handoffSha": "sha256:1191a99d79e32c9beb7cb0263d7540fd0f63805a7ff75309c31810c37671070b",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784897109-063d",
-        "at": "2026-07-24T12:45:09Z",
-        "ts": 1784897109,
+        "rotationId": "r-1786617866-1916",
+        "at": "2026-08-13T10:44:26Z",
+        "ts": 1786617866,
         "trigger": "self",
-        "prevHead": "cf93f4ac",
-        "handoffSha": "sha256:14c61e5b1fe723711e14f1ca892d1a681055610f12496e65aa96513a5b1bb7cd",
+        "prevHead": "d36db181",
+        "handoffSha": "sha256:a84f96f8da30f944a9fd0093291e7a21f2f39f71b9ff399ba4b6ea1ed4003cf4",
+        "handoffAgeSec": 563,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1786612459-4a29",
+        "at": "2026-08-13T09:14:19Z",
+        "ts": 1786612459,
+        "trigger": "self",
+        "prevHead": "1d30db15",
+        "handoffSha": "sha256:ab8a145a8ff9e0231fc0ff808e02a8690f24fafa4df79ed939e2330d7c0f22e9",
+        "handoffAgeSec": 18,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1786606608-15b6",
+        "at": "2026-08-13T07:36:48Z",
+        "ts": 1786606608,
+        "trigger": "self",
+        "prevHead": "e7a2baef",
+        "handoffSha": "sha256:cee95350b7fc22ac56be01d3b4141c73b4982de89d370bed08d7c60baa4f0136",
         "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784890738-6e31",
-        "at": "2026-07-24T10:58:58Z",
-        "ts": 1784890738,
+        "rotationId": "r-1786600913-529e",
+        "at": "2026-08-13T06:01:53Z",
+        "ts": 1786600913,
         "trigger": "self",
-        "prevHead": "afd510a4",
-        "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
+        "prevHead": "1d9a2243",
+        "handoffSha": "sha256:1a5fa89182fcfdc4f392f691091a4db373caf910b19baabbe34fbe224761dbf8",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784878903-5f45",
-        "at": "2026-07-24T07:41:43Z",
-        "ts": 1784878903,
+        "rotationId": "r-1786593962-7dc1",
+        "at": "2026-08-13T04:06:02Z",
+        "ts": 1786593962,
         "trigger": "self",
-        "prevHead": "71520e66",
-        "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
-        "handoffAgeSec": 73,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784871854-6136",
-        "at": "2026-07-24T05:44:14Z",
-        "ts": 1784871854,
-        "trigger": "self",
-        "prevHead": "ca912d11",
-        "handoffSha": "sha256:68ab650b8dc42563ad78be2b23e93fb853b38372d9f87077f20423b71f3c7927",
-        "handoffAgeSec": 77,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784832173-7644",
-        "at": "2026-07-23T18:42:53Z",
-        "ts": 1784832173,
-        "trigger": "self",
-        "prevHead": "31e6b3a3",
-        "handoffSha": "sha256:9acb3bf9041b0b339eaf324094560765c34b20ffb05cf631be0a492b5779f519",
-        "handoffAgeSec": 928,
+        "prevHead": "d28b055d",
+        "handoffSha": "sha256:37bd9cf43116d5136b93eb21cea49899a5d12c9d4a0b5dd836e8435312b2ef9a",
+        "handoffAgeSec": 24,
         "conformanceBefore": null,
         "commitsInSession": null
       }
