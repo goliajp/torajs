@@ -100,8 +100,13 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // statements/with/12.10.1-5-s and -10-s). Running after also makes
     // eval-inlined statements INSIDE a `with` body get rewritten,
     // which is what §14.11 wants of them anyway.
-    if let Some(msg) = ast::desugar_with(ast) {
-        eprintln!("error: {msg}");
+    // The reject carries its own prefix: a `with` in strict code is a
+    // §14.11.1 SyntaxError (`parse error:`), an uncovered shape is
+    // `not yet supported:`. Printing both as a bare `error:` made every
+    // refusal read to a stderr-classifying harness like an uncaught
+    // runtime throw — so a program tr DECLINED counted as one tr ran.
+    if let Some(reject) = ast::desugar_with(ast) {
+        eprintln!("{}", reject.message());
         return Err(());
     }
     // `delete <bare name>` goal triage (rotation 372) — strict is the

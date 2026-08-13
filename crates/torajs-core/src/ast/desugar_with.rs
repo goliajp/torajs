@@ -98,8 +98,37 @@ function __torajs_with_has(w: any, k: any): boolean {
 }
 "#;
 
-/// `Some(msg)` = a shape 刀 1 refuses; the caller reports it and stops.
-pub fn desugar_with(ast: &mut Ast) -> Option<String> {
+/// Why this pass stopped. The two reasons are not the same kind of
+/// thing and must not read as the same kind of thing: one is the
+/// program being ill-formed, the other is tr not covering a shape yet.
+///
+/// Which matters beyond wording — every harness that reads tr's
+/// stderr classifies by the FIRST LINE's prefix, so a refusal printed
+/// as a bare `error:` is indistinguishable from an uncaught runtime
+/// throw. That is how every refused `with` program spent this chapter
+/// counted as "tr ran it and it failed" instead of "tr declined it".
+pub enum WithReject {
+    /// §14.11.1 — a `with` in strict code. The program is invalid, and
+    /// tr recognising that is a correct answer, not a gap.
+    SyntaxError(String),
+    /// A shape this desugar does not cover yet.
+    Unsupported(String),
+}
+
+impl WithReject {
+    /// The line to print, prefix included. The prefixes are the ones
+    /// every other early gate in the prelude uses.
+    pub fn message(&self) -> String {
+        match self {
+            WithReject::SyntaxError(m) => format!("parse error: {m}"),
+            WithReject::Unsupported(m) => format!("not yet supported: {m}"),
+        }
+    }
+}
+
+/// `Some(_)` = this pass stopped; the caller prints
+/// [`WithReject::message`] and returns an error.
+pub fn desugar_with(ast: &mut Ast) -> Option<WithReject> {
     if !ast.has_with_stmt {
         return None;
     }
@@ -118,12 +147,12 @@ pub fn desugar_with(ast: &mut Ast) -> Option<String> {
         // verdict down, so this refuses both rather than RUN a `with`
         // that strict code forbids. Loud costs 12.10.1-5-s its pass;
         // running it would be a semantic wrong, which costs more.
-        return Some(
+        return Some(WithReject::SyntaxError(
             "`with` is not allowed in strict code (ES §14.11.1) — reached here through an \
              eval / Function inline, whose own strictness this pass cannot yet see \
              (RFC 20260814)"
                 .to_string(),
-        );
+        ));
     }
     inject_helpers(ast);
     let mut stmts = std::mem::take(&mut ast.stmts);
@@ -132,7 +161,7 @@ pub fn desugar_with(ast: &mut Ast) -> Option<String> {
         rewrite_stmt(ast, s, &mut err);
     }
     ast.stmts = stmts;
-    err
+    err.map(WithReject::Unsupported)
 }
 
 fn inject_helpers(ast: &mut Ast) {

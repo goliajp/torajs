@@ -205,8 +205,8 @@ pub use stmt::{
 };
 pub(crate) use stmt::{GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM};
 pub(crate) mod desugar_with;
-pub use desugar_with::desugar_with;
 pub(crate) use desugar_with::{WITH_OBJ_FN, WITH_OBJ_PREFIX};
+pub use desugar_with::{WithReject, desugar_with};
 pub use stmt_flat::toplevel_stmts_flat;
 pub use strict_reserved_goal::triage_strict_reserved_idents;
 pub use this_param::bind_this_param;
