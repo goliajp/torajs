@@ -65,6 +65,19 @@ impl Parser<'_> {
     /// form must have next. Nothing is consumed — sloppy code keeps
     /// today's answer, and `with` being a ReservedWord in the grammar
     /// means no legal program can spell a call this way.
+    ///
+    /// Strictness has a source here that the per-function bit does not
+    /// carry: §11.2.2 makes every part of a class strict code whatever
+    /// the goal and whatever the enclosing function said, so
+    /// `class_stack` counts alongside it — the same third source
+    /// `note_strict_reference` and the `yield` admission sites already
+    /// read. Without it `class K { m() { with (o) { x } } }` parsed,
+    /// and then nothing downstream owned the shape either: the marker
+    /// block sits in a method body, which no walk of this desugar
+    /// reaches, so `x` resolved lexically and the program died on an
+    /// `unknown identifier` at run time. A wrong answer where the
+    /// spec's answer is a SyntaxError — and a refusal a stderr-
+    /// classifying harness reads as tr having RUN the program.
     pub(super) fn judge_with_statement(&mut self) -> Result<(), String> {
         let is_with = matches!(self.peek(), Token::Ident(s) if s == "with")
             && self
@@ -74,7 +87,7 @@ impl Parser<'_> {
         if !is_with {
             return Ok(());
         }
-        if self.in_strict_fn {
+        if self.in_strict_fn || !self.class_stack.is_empty() {
             return Err(format!(
                 "`with` is not allowed in strict code at {} (ES §14.11.1)",
                 self.at()
@@ -286,5 +299,50 @@ impl Parser<'_> {
         self.ast.synth_strict_directives.insert(e);
         body.insert(0, Stmt::Expr(e));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lexer::tokenize;
+    use crate::parser::parse;
+
+    /// The parse verdict for `src`: `Ok` or the error text.
+    fn verdict(src: &str) -> Result<(), String> {
+        let tokens = tokenize(src).expect("tokenize");
+        parse(src, &tokens).map(|_| ())
+    }
+
+    /// §11.2.2 — every part of a class is strict code, so §14.11.1
+    /// applies inside one even when the goal is sloppy. Each member
+    /// position is listed on its own: they are parsed by different
+    /// entry points, and the shared gate has to be reached from all of
+    /// them.
+    #[test]
+    fn with_inside_a_class_body_is_a_syntax_error() {
+        for src in [
+            "var o = {};\nclass K { m() { with (o) { } } }\n",
+            "var o = {};\nclass K { constructor() { with (o) { } } }\n",
+            "var o = {};\nclass K { static s() { with (o) { } } }\n",
+            "var o = {};\nclass K { static { with (o) { } } }\n",
+            "var o = {};\nconst C = class { m() { with (o) { } } };\n",
+            // Strictness is inherited by anything nested in the body,
+            // so an ordinary function written there is strict too.
+            "var o = {};\nclass K { m() { function f() { with (o) { } } } }\n",
+        ] {
+            let err = verdict(src).expect_err(src);
+            assert!(
+                err.contains("§14.11.1"),
+                "expected the §14.11.1 refusal for {src:?}, got {err}"
+            );
+        }
+    }
+
+    /// The control: a sloppy `with` outside any class still parses.
+    /// Without it the assertion above passes just as well when the
+    /// gate refuses every `with` there is.
+    #[test]
+    fn with_outside_a_class_still_parses_in_sloppy_code() {
+        verdict("var o = {};\nwith (o) { }\n").expect("sloppy with");
     }
 }
