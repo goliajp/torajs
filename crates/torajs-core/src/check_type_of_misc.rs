@@ -105,6 +105,14 @@ fn receiver_admits_delete(obj_ty: &Type) -> bool {
         // refusal throw or an absent-key true. The kernel's Str arm
         // expresses both; nothing is ever removed.
         Type::String => true,
+        // A namespace stand-in (`Type::Object` — Math / JSON /
+        // Reflect / console …) is a real dynobj at runtime whose
+        // entries carry attributes, so a slot CAN say no-longer-here.
+        // Load-bearing since rotation 382 gave those objects real
+        // `@@toStringTag` entries: the spec makes that one
+        // configurable, so `delete Math[Symbol.toStringTag]` has to
+        // both succeed and take the badge with it.
+        Type::Object(_) => true,
         _ => false,
     }
 }

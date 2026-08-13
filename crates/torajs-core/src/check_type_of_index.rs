@@ -120,6 +120,18 @@ pub(crate) fn check(
                 idx_ty,
                 Type::String | Type::Symbol | Type::Any | Type::Undefined
             ))
+        // A NAMESPACE receiver (`Type::Object` — the hardcoded global
+        // stand-ins: Math / JSON / Reflect / console …) joins for the
+        // same §7.1.19 reason, and it is now load-bearing: rotation
+        // 382 gave those objects real `@@toStringTag` entries, so
+        // `Math[Symbol.toStringTag]` reads a property that exists.
+        // A NUMBER key stays the loud reject — a namespace carries no
+        // indexed elements.
+        && !(matches!(obj_ty, Type::Object(_))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
@@ -172,9 +184,9 @@ pub(crate) fn check(
         // keep the loud reject in `check_assign_target` (a typed
         // slot store needs a static field type — recorded boundary).
         Type::Struct(_) => Ok(Type::Any),
-        // See the Map/Set/RegExp notes on the reject above — property
-        // reads over the prototype surface answer Any.
-        Type::Map | Type::Set | Type::RegExp => Ok(Type::Any),
+        // See the Map/Set/RegExp/namespace notes on the reject above —
+        // property reads over the prototype surface answer Any.
+        Type::Map | Type::Set | Type::RegExp | Type::Object(_) => Ok(Type::Any),
         // RC-4 F1a — un-narrowed Nullable<Array<T>> (exec/match
         // result) decays for indexing; null is a runtime
         // TypeError at the lowering-side guard.
