@@ -3,9 +3,9 @@
 //! this file asks the position question and records the answer.
 //!
 //! The walk is deliberately conservative in one direction: a shape it
-//! does not recognise becomes a `Position::Refused`, so an unhandled
-//! corner is a diagnostic rather than a name that quietly resolved to
-//! the lexical binding.
+//! does not recognise sets `err` instead of being skipped, so an
+//! unhandled corner is a diagnostic rather than a name that quietly
+//! resolved to the lexical binding.
 
 use super::Position;
 use super::scope::Scope;
@@ -34,19 +34,19 @@ fn collect_stmt(
     err: &mut Option<String>,
 ) {
     match s {
-        Stmt::LetDecl { is_var: true, .. } if !scope.in_nested_fn() => {
+        Stmt::LetDecl {
+            init, is_var: true, ..
+        } if !scope.in_nested_fn() && !matches!(ast.get_expr(*init), Expr::Uninit) => {
             // `var` does NOT shadow the object — it hoists to the
             // enclosing function's scope, which sits BEHIND the object
-            // record. So `with (o) { var v = 2 }` writes `o.v` when
-            // `o` carries `v`, and leaves the hoisted binding
-            // undefined (bun: `2 undefined`; the unrewritten reading
-            // is `1 2`). The initialiser is an assignment evaluated in
-            // the with scope, so it belongs to the write knife —
-            // refused until then rather than silently landing on the
-            // hoisted binding. Inside a NESTED function the same `var`
-            // is an ordinary local, already a binder, and needs none
-            // of this.
-            refuse(err, "a `var` declaration");
+            // record — while its initialiser IS evaluated in front of
+            // it. `super::var_split` has already separated the two for
+            // every `var` it can reach, so an initialiser still
+            // standing here is one it deliberately left: the init slot
+            // of a `for`, where the loop's shape depends on the
+            // statement staying one statement. Loud rather than
+            // silently landing on the hoisted binding.
+            refuse(err, "a `var` declaration in a `for` initialiser");
         }
         Stmt::ClassDecl { .. } => refuse(err, "a class declaration"),
         Stmt::FnDecl { params, body, .. } => {

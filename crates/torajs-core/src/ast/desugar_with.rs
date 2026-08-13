@@ -50,12 +50,12 @@
 //! # Loud, not wrong
 //!
 //! Reads, bare-name calls, `typeof`, `++`/`--`, `delete`, assignment
-//! (plain and compound) and nested function bodies are rewritten here.
-//! What is left — a `var` declaration's initialiser in the body
-//! itself, and a class declaration — is refused with a diagnostic
-//! naming the shape. Leaving them unrewritten would silently resolve
-//! to the lexical binding instead of the object, which is the one
-//! outcome this file is not allowed to produce.
+//! (plain and compound), `var` initialisers and nested function bodies
+//! are rewritten here. What is left — a `var` in a `for` initialiser,
+//! and a class declaration — is refused with a diagnostic naming the
+//! shape. Leaving them unrewritten would silently resolve to the
+//! lexical binding instead of the object, which is the one outcome
+//! this file is not allowed to produce.
 
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -176,7 +176,12 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
         return;
     }
     let w = name.clone();
-    let body: Vec<Stmt> = items.drain(1..).collect();
+    let mut body: Vec<Stmt> = items.drain(1..).collect();
+    // Before the sites are collected: a `var` initialiser is an
+    // assignment in the with scope even though its declaration belongs
+    // to the enclosing function, and splitting the two turns it into
+    // an ordinary write site.
+    split_var_inits(ast, &mut body);
     let mut sites: Vec<(ExprId, Position)> = Vec::new();
     collect_body(ast, &body, &mut sites, err);
     // Writes last: the then-arm CLONES the value expression, and the
@@ -417,6 +422,8 @@ pub(crate) enum Position {
 
 mod collect;
 mod scope;
+mod var_split;
 mod walk;
 use collect::collect_body;
+use var_split::split_var_inits;
 use walk::{arrow_nodes, stmt_children};
