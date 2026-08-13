@@ -181,7 +181,10 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
         Expr::TypeOf { expr } | Expr::Delete { expr } => {
             sfi_expr_x_safe(ast, *expr, x_name, i_name)
         }
-        Expr::InstanceOf { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
+        Expr::InstanceOf { expr, rhs } => {
+            sfi_expr_x_safe(ast, *expr, x_name, i_name)
+                && sfi_expr_x_safe(ast, *rhs, x_name, i_name)
+        }
         Expr::As { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
         Expr::Sequence { left, right } => {
             sfi_expr_x_safe(ast, *left, x_name, i_name)

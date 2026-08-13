@@ -50,12 +50,26 @@ pub(crate) fn check_typeof(checker: &mut Checker, ast: &Ast, expr: ExprId) -> Re
     Ok(Type::String)
 }
 
+/// ES §13.10.2 — `x instanceof T` answers Boolean whatever the
+/// operands are.
+///
+/// The target is typechecked only when it is something larger than a
+/// bare name. A bare name here is usually a CLASS, and a class is not
+/// a value binding the checker can type — asking it for one would
+/// refuse `x instanceof Foo`, the overwhelmingly common spelling.
+/// Names keep being resolved where they always were: the lowering's
+/// static ladder, which knows the class hierarchy. Anything larger IS
+/// an ordinary value expression and is checked like one.
 pub(crate) fn check_instanceof(
     checker: &mut Checker,
     ast: &Ast,
     expr: ExprId,
+    rhs: ExprId,
 ) -> Result<Type, String> {
     let _ = checker.type_of(ast, expr)?;
+    if !matches!(ast.get_expr(rhs), Expr::Ident(_)) {
+        let _ = checker.type_of(ast, rhs)?;
+    }
     Ok(Type::Boolean)
 }
 

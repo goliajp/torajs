@@ -1,6 +1,6 @@
 //! α-rename walker: rewrite every reference to `old` inside a
-//! statement subtree to `new` — `Ident`, `New { class_name }`,
-//! `InstanceOf { class_name }` and sibling `extends` clauses. The
+//! statement subtree to `new` — `Ident`, `New { class_name }` and
+//! sibling `extends` clauses. The
 //! walk mirrors the free-vars traversal's coverage but mutates the
 //! arena in place; ArrowFn bodies are taken out and re-seated so the
 //! arena borrow never overlaps the recursion.
@@ -173,12 +173,10 @@ fn rename_in_expr(ast: &mut Ast, eid: ExprId, old: &str, new: &str) {
             }
             Kids::Many(args.clone())
         }
-        Expr::InstanceOf { expr, class_name } => {
-            if class_name == old {
-                *class_name = new.to_string();
-            }
-            Kids::One(*expr)
-        }
+        // The target is an expression now, so a bare class name in it
+        // is an `Expr::Ident` the arm above already renames — nothing
+        // to do here beyond descending into both children.
+        Expr::InstanceOf { expr, rhs } => Kids::Two(*expr, *rhs),
         Expr::Elision
         | Expr::String(_)
         | Expr::Number(_)

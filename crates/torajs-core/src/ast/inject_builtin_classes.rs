@@ -304,12 +304,12 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         ast.exprs.iter().any(|e| {
             matches!(e, Expr::Ident(x) | Expr::New { class_name: x, .. } if x == n)
                 || matches!(e, Expr::Member { name, .. } if name == n)
-                // P7.4-a-2 — `x instanceof <N>` is a genuine reference
-                // to <N>; without this `catch (e) { e instanceof
-                // TypeError }` wouldn't inject TypeError and the
-                // runtime native-error throw couldn't build a real
-                // instance for it.
-                || matches!(e, Expr::InstanceOf { class_name, .. } if class_name == n)
+            // P7.4-a-2 — `x instanceof <N>` is a genuine reference to
+            // <N> (without it `catch (e) { e instanceof TypeError }`
+            // would not inject TypeError and the runtime native-error
+            // throw could not build a real instance). It needs no arm
+            // of its own: the target is an expression, so the name
+            // arrives as the `Expr::Ident` the first line matches.
         }) || ast.stmts.iter().any(|s| {
             matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == n)
                 // P7.4-a-2 — `catch (e: <N>)` annotates the class and

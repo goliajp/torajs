@@ -341,8 +341,11 @@ fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, mode: Mode, owned: &mut [bool]
         | Expr::As { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::Spread { expr } => mark_expr(ast, *expr, in_fn, mode, owned),
+        Expr::InstanceOf { expr, rhs } => {
+            mark_expr(ast, *expr, in_fn, mode, owned);
+            mark_expr(ast, *rhs, in_fn, mode, owned);
+        }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             mark_expr(ast, *obj, in_fn, mode, owned)
         }

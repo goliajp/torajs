@@ -156,10 +156,10 @@ impl<'a> Formatter<'a> {
                 self.write("delete ");
                 self.fmt_expr(*expr);
             }
-            Expr::InstanceOf { expr, class_name } => {
+            Expr::InstanceOf { expr, rhs } => {
                 self.fmt_expr(*expr);
                 self.write(" instanceof ");
-                self.write(class_name);
+                self.fmt_expr(*rhs);
             }
             Expr::Nullish { lhs, rhs } => {
                 self.fmt_expr(*lhs);

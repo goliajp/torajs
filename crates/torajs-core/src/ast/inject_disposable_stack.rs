@@ -264,7 +264,6 @@ fn referenced(ast: &Ast, n: &str) -> bool {
     ast.exprs.iter().any(|e| {
         matches!(e, Expr::Ident(x) | Expr::New { class_name: x, .. } if x == n)
             || matches!(e, Expr::Member { name, .. } if name == n)
-            || matches!(e, Expr::InstanceOf { class_name, .. } if class_name == n)
     }) || ast.stmts.iter().any(|s| {
         matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == n)
             || matches!(s, Stmt::Try { catch_type: Some(t), .. } if t == n)

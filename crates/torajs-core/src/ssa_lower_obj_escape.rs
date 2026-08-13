@@ -238,8 +238,12 @@ fn collect_escape_obj_let_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSe
             collect_escape_obj_let_names_in_expr(ast, *left, out);
             collect_escape_obj_let_names_in_expr(ast, *right, out);
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::InstanceOf { expr, .. } => {
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } => {
             collect_escape_obj_let_names_in_expr(ast, *expr, out);
+        }
+        Expr::InstanceOf { expr, rhs } => {
+            collect_escape_obj_let_names_in_expr(ast, *expr, out);
+            collect_escape_obj_let_names_in_expr(ast, *rhs, out);
         }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             collect_escape_obj_let_names_in_expr(ast, *obj, out);

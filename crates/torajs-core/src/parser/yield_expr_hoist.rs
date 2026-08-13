@@ -276,9 +276,12 @@ fn expr_events(ast: &Ast, eid: ExprId, evs: &mut Vec<Ev>) {
         | Expr::TypeOf { expr }
         | Expr::Spread { expr }
         | Expr::As { expr, .. }
-        | Expr::InstanceOf { expr, .. }
         | Expr::Member { obj: expr, .. }
         | Expr::OptChain { obj: expr, .. } => expr_events(ast, *expr, evs),
+        Expr::InstanceOf { expr, rhs } => {
+            expr_events(ast, *expr, evs);
+            expr_events(ast, *rhs, evs);
+        }
         Expr::Delete { expr } => {
             expr_events(ast, *expr, evs);
             evs.push(Ev::SideEffect);

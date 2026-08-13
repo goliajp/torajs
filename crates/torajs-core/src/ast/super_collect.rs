@@ -218,8 +218,11 @@ fn collect_supercall_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Stri
         Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => collect_supercall_in_expr(ast, *expr, out),
+        Expr::InstanceOf { expr, rhs } => {
+            collect_supercall_in_expr(ast, *expr, out);
+            collect_supercall_in_expr(ast, *rhs, out);
+        }
         Expr::Sequence { left, right } => {
             collect_supercall_in_expr(ast, *left, out);
             collect_supercall_in_expr(ast, *right, out);
@@ -434,8 +437,11 @@ fn collect_super_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Vec<Expr
         Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => collect_super_in_expr(ast, *expr, out),
+        Expr::InstanceOf { expr, rhs } => {
+            collect_super_in_expr(ast, *expr, out);
+            collect_super_in_expr(ast, *rhs, out);
+        }
         Expr::Sequence { left, right } => {
             collect_super_in_expr(ast, *left, out);
             collect_super_in_expr(ast, *right, out);

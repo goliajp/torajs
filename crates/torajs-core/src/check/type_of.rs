@@ -187,10 +187,10 @@ impl Checker {
                 // [`crate::check_type_of_misc::check_typeof`].
                 crate::check_type_of_misc::check_typeof(self, ast, *expr)
             }
-            Expr::InstanceOf { expr, .. } => {
+            Expr::InstanceOf { expr, rhs } => {
                 // `x instanceof C` → Boolean. See
                 // [`crate::check_type_of_misc::check_instanceof`].
-                crate::check_type_of_misc::check_instanceof(self, ast, *expr)
+                crate::check_type_of_misc::check_instanceof(self, ast, *expr, *rhs)
             }
             Expr::Delete { expr } => {
                 // ES §13.5.1 — `delete obj.k` / `delete obj[k]` →

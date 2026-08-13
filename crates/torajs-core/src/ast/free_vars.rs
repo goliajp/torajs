@@ -442,8 +442,11 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
         Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => walk_expr(ast, *expr, bound, out),
+        Expr::InstanceOf { expr, rhs } => {
+            walk_expr(ast, *expr, bound, out);
+            walk_expr(ast, *rhs, bound, out);
+        }
         Expr::Sequence { left, right } => {
             walk_expr(ast, *left, bound, out);
             walk_expr(ast, *right, bound, out);

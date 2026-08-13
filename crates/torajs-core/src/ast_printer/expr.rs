@@ -125,9 +125,10 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
             println!("{pad}Delete");
             print_expr(ast, *expr, indent + 1);
         }
-        Expr::InstanceOf { expr, class_name } => {
-            println!("{pad}InstanceOf {class_name}");
+        Expr::InstanceOf { expr, rhs } => {
+            println!("{pad}InstanceOf");
             print_expr(ast, *expr, indent + 1);
+            print_expr(ast, *rhs, indent + 1);
         }
         Expr::Spread { expr } => {
             println!("{pad}Spread");

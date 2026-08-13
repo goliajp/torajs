@@ -219,10 +219,12 @@ fn expr_assigns_matching(ast: &Ast, eid: ExprId, hit: HitFn) -> bool {
                 || expr_assigns_matching(ast, *then_branch, hit)
                 || expr_assigns_matching(ast, *else_branch, hit)
         }
-        Expr::TypeOf { expr }
-        | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
-        | Expr::As { expr, .. } => expr_assigns_matching(ast, *expr, hit),
+        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::As { expr, .. } => {
+            expr_assigns_matching(ast, *expr, hit)
+        }
+        Expr::InstanceOf { expr, rhs } => {
+            expr_assigns_matching(ast, *expr, hit) || expr_assigns_matching(ast, *rhs, hit)
+        }
         Expr::Sequence { left, right }
         | Expr::Nullish {
             lhs: left,

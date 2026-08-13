@@ -80,11 +80,20 @@ pub unsafe extern "C" fn __torajs_instanceof_dynamic(v: AnyValue, target: AnyVal
         // Steps 4-5 — no handler: the target must itself be callable,
         // and then the answer is the ordinary prototype walk.
         let cell = as_void_ptr(target);
-        if cell_tag(cell) != Tag::Closure as u16 {
-            __torajs_throw_type_error(c"Right-hand side of 'instanceof' is not callable".as_ptr());
-            return false;
+        if cell_tag(cell) == Tag::Closure as u16 {
+            return crate::construct::__torajs_instanceof_fn_value(v, cell);
         }
-        crate::construct::__torajs_instanceof_fn_value(v, cell)
+        // A CLASS object is callable in the spec sense — `typeof C`
+        // answers "function" — but tr models it as a dynobj, so the
+        // closure walk above cannot read its `.prototype`. Reached
+        // whenever a class is used as a VALUE (`const T: any = C`,
+        // `{ cls: C }`, a call returning one) rather than named, which
+        // is exactly what a general right-hand side allows.
+        if let Some(r) = crate::construct::class_ctor_has_instance(v, cell) {
+            return r;
+        }
+        __torajs_throw_type_error(c"Right-hand side of 'instanceof' is not callable".as_ptr());
+        false
     }
 }
 

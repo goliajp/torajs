@@ -228,9 +228,12 @@ fn idents_in_expr(ast: &Ast, eid: ExprId, shadow: &HashSet<String>, out: &mut Ha
         Expr::Unary { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. }
         | Expr::Delete { expr } => idents_in_expr(ast, *expr, shadow, out),
+        Expr::InstanceOf { expr, rhs } => {
+            idents_in_expr(ast, *expr, shadow, out);
+            idents_in_expr(ast, *rhs, shadow, out);
+        }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             idents_in_expr(ast, *obj, shadow, out)
         }

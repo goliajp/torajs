@@ -295,12 +295,12 @@ pub(crate) fn deep_clone_expr(
                     .collect(),
             }
         }
-        Expr::InstanceOf { expr, class_name } => {
+        Expr::InstanceOf { expr, rhs } => {
             let e = *expr;
-            let cn = class_name.clone();
+            let r = *rhs;
             Expr::InstanceOf {
                 expr: deep_clone_expr(ast, map, e),
-                class_name: cn,
+                rhs: deep_clone_expr(ast, map, r),
             }
         }
         Expr::Spread { expr } => {

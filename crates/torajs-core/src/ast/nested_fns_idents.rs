@@ -210,8 +210,9 @@ pub(super) fn rewrite_idents_in_expr(
                     stack.push(a);
                 }
             }
-            Expr::InstanceOf { expr, .. } => {
+            Expr::InstanceOf { expr, rhs } => {
                 stack.push(expr);
+                stack.push(rhs);
             }
             // An arrow body is a separate scope, but a nested scope
             // SEES its enclosing bindings — and renaming a nested

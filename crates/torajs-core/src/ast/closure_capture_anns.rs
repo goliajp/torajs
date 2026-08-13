@@ -327,8 +327,11 @@ impl<'a> Ctx<'a> {
             | Expr::TypeOf { expr }
             | Expr::Delete { expr }
             | Expr::Spread { expr }
-            | Expr::InstanceOf { expr, .. }
             | Expr::As { expr, .. } => self.walk_expr(*expr, binds),
+            Expr::InstanceOf { expr, rhs } => {
+                self.walk_expr(*expr, binds);
+                self.walk_expr(*rhs, binds);
+            }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj, binds),
             Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
                 self.walk_expr(*obj, binds);

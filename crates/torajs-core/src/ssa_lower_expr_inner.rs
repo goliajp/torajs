@@ -299,13 +299,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // [`crate::ssa_lower_delete::lower`].
             crate::ssa_lower_delete::lower(ctx, *expr)
         }
-        Expr::InstanceOf { expr, class_name } => {
+        Expr::InstanceOf { expr, rhs } => {
             // Phase H.1.c — runtime class membership via the
             // header tag at OBJ_CLASS_TAG_OFF (compile-time static
             // fold + Type::Any runtime dispatch + Type::Obj
-            // descendant_tags OR-chain). See
+            // descendant_tags OR-chain), with a general right-hand
+            // side taking the §13.10.2 runtime operator. See
             // [`crate::ssa_lower_instanceof::lower`].
-            crate::ssa_lower_instanceof::lower(ctx, *expr, class_name)
+            crate::ssa_lower_instanceof::lower(ctx, *expr, *rhs)
         }
         Expr::Nullish { lhs, rhs } => {
             // `lhs ?? rhs` (ES §13.4.2) — 4-layer dispatch

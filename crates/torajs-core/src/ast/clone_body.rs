@@ -134,9 +134,9 @@ impl<'a> BodyCloner<'a> {
             Expr::Delete { expr } => Expr::Delete {
                 expr: self.clone_expr(expr),
             },
-            Expr::InstanceOf { expr, class_name } => Expr::InstanceOf {
+            Expr::InstanceOf { expr, rhs } => Expr::InstanceOf {
                 expr: self.clone_expr(expr),
-                class_name,
+                rhs: self.clone_expr(rhs),
             },
             Expr::Spread { expr } => Expr::Spread {
                 expr: self.clone_expr(expr),

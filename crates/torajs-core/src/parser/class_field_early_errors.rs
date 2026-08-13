@@ -68,10 +68,10 @@ fn expr_contains(ast: &Ast, eid: ExprId) -> bool {
         | Expr::Delete { expr }
         | Expr::Spread { expr }
         | Expr::As { expr, .. }
-        | Expr::InstanceOf { expr, .. }
         | Expr::PostIncr { target: expr, .. }
         | Expr::Member { obj: expr, .. }
         | Expr::OptChain { obj: expr, .. } => expr_contains(ast, *expr),
+        Expr::InstanceOf { expr, rhs } => expr_contains(ast, *expr) || expr_contains(ast, *rhs),
         Expr::Call { callee, args }
         | Expr::OptCall { callee, args }
         | Expr::NewDynamic { callee, args } => {

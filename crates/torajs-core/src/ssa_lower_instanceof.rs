@@ -1,6 +1,12 @@
-//! `Expr::InstanceOf { expr, class_name }` lowering pulled out of
+//! `Expr::InstanceOf { expr, rhs }` lowering pulled out of
 //! [`crate::ssa_lower::lower_expr_inner`]'s match arm as chunk-72
 //! of the decomp (chunks 1-71 = ... + `Expr::TypeOf` 6-layer fold).
+//!
+//! The target is an expression, and only the shape that names
+//! something — an `Expr::Ident` — takes the compile-time ladder below.
+//! Everything else goes straight to the §13.10.2 operator in
+//! [`dynamic::lower_general_rhs`], which needs no new runtime code:
+//! the kernel behind it already implements the whole operator.
 //!
 //! Phase H.1.c — runtime class membership via the header tag stored
 //! at `OBJ_CLASS_TAG_OFF`. Compile-time we compute the closure of
@@ -56,15 +62,32 @@
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::InstanceOf` match arm bottoms out here).
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
 
 mod dynamic;
 
-use dynamic::{emit_has_instance, try_lower_dynamic_target};
+use dynamic::{emit_has_instance, lower_general_rhs, try_lower_dynamic_target};
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operand {
+/// Which of the two lanes the right-hand side takes.
+///
+/// A bare name keeps the whole compile-time ladder below — the class
+/// hierarchy IS the spec answer for it, and folding is what makes
+/// `instanceof` free in the typed tier. Anything larger is a value
+/// nobody can name at compile time, so it goes to the §13.10.2
+/// operator, which the runtime lane already implements in full.
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, rhs: ExprId) -> Operand {
+    match ctx.ast.get_expr(rhs) {
+        Expr::Ident(n) => {
+            let name = n.clone();
+            lower_named(ctx, expr, &name)
+        }
+        _ => lower_general_rhs(ctx, expr, rhs),
+    }
+}
+
+fn lower_named(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operand {
     // RFC 20260713 blade 5 — `x instanceof g` where g is a generator
     // factory: §27.5.3 [[HasInstance]] walks g.prototype, which IS
     // the desugared __Gen class's prototype object, so the class

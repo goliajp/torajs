@@ -344,12 +344,33 @@ unsafe fn construct_plain_fn(cell: *mut c_void, argv: *const u64, argc: i64) -> 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void) -> bool {
     unsafe {
+        // §7.3.22 step 2 — a bound function has no `.prototype` of
+        // its own; the question is asked of the target it was bound
+        // from, and a bound-over-bound chain recurses to the bottom
+        // (the same walk [`is_constructor_cell`] does).
+        if let Some((1, target, _)) = crate::method_bind::bound_cell_meta(cell) {
+            return __torajs_instanceof_fn_value(v, target as *mut c_void);
+        }
         let Some((_ptag, pval)) = crate::closure_proto::fn_prototype_pair(cell) else {
             __torajs_throw_type_error(
                 c"Function has non-object prototype in instanceof check".as_ptr(),
             );
             return false;
         };
+        proto_chain_reaches(v, pval)
+    }
+}
+
+/// §7.3.22 steps 3 and 6-7 — is `pval` on O's [[Prototype]] chain?
+///
+/// O must be an Object (step 3, non-objects answer false); the walk
+/// compares cell identity (the proto getter answers borrows /
+/// immortal singletons — nothing to release).
+///
+/// # Safety
+/// `v` is a valid AnyValue; `pval` is a heap cell address.
+pub(crate) unsafe fn proto_chain_reaches(v: AnyValue, pval: u64) -> bool {
+    unsafe {
         if !is_heap_object(v) {
             return false;
         }
@@ -361,6 +382,38 @@ pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void)
             cur = __torajs_anyv_get_proto_of_any(cur);
         }
         false
+    }
+}
+
+/// §7.3.22 for a target that is one of tr's CLASS objects.
+///
+/// A class constructor is a function object in the spec, but tr models
+/// it as a dynobj carrying `FLAG_DYNOBJ_CLASS_CTOR` (the bit that
+/// makes `typeof C` answer `"function"`) — so the closure-shaped walk
+/// above cannot read its `.prototype`. That property is an ordinary
+/// own entry on the class dynobj itself, pointing at the very object
+/// every instance's [[Prototype]] links to.
+///
+/// `None` when the cell is not a class object, or carries no
+/// object-shaped `prototype` — the caller decides which spec step
+/// that is.
+///
+/// # Safety
+/// `cell` is a live heap cell.
+pub(crate) unsafe fn class_ctor_has_instance(v: AnyValue, cell: *mut c_void) -> Option<bool> {
+    unsafe {
+        let hdr = &*(cell as *const HeapHeader);
+        if hdr.type_tag != Tag::DynObj as u16 || hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR == 0
+        {
+            return None;
+        }
+        let (ptag, pval) = crate::closure_proto::class_prototype_pair(cell)?;
+        // Tag 4 is `AnySlotTag::Heap` in the member-pair protocol;
+        // anything else is not an Object and step 6 rejects it.
+        if ptag != 4 {
+            return None;
+        }
+        Some(proto_chain_reaches(v, pval))
     }
 }
 

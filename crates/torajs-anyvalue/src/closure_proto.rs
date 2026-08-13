@@ -90,6 +90,24 @@ const CTOR_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 << 
 static PROTO_KEY_CELL: AtomicU64 = AtomicU64::new(0);
 static CTOR_KEY_CELL: AtomicU64 = AtomicU64::new(0);
 
+/// The own `prototype` entry of a CLASS object, which unlike a
+/// closure's keeps no separate props cell — the class dynobj carries
+/// it directly (`class_globals` emits
+/// `{ name, prototype: __proto_<C>, length }`). `None` when absent.
+///
+/// # Safety
+/// `cell` is a live class-object dynobj.
+pub(crate) unsafe fn class_prototype_pair(cell: *mut c_void) -> Option<(u64, u64)> {
+    unsafe {
+        let key = interned_key(&PROTO_KEY_CELL, b"prototype");
+        let tag = __torajs_dynobj_get_tag(cell, key);
+        if tag == 5 {
+            return None;
+        }
+        Some((tag, __torajs_dynobj_get_value(cell, key)))
+    }
+}
+
 fn interned_key(slot: &AtomicU64, name: &[u8]) -> *mut c_void {
     let p = slot.load(Ordering::Relaxed);
     if p != 0 {

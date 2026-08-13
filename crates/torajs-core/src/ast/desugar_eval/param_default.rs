@@ -231,8 +231,11 @@ fn mark_subtree(ast: &Ast, eid: ExprId, owned: &mut [bool]) {
         | Expr::As { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::Spread { expr } => mark_subtree(ast, *expr, owned),
+        Expr::InstanceOf { expr, rhs } => {
+            mark_subtree(ast, *expr, owned);
+            mark_subtree(ast, *rhs, owned);
+        }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => mark_subtree(ast, *obj, owned),
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
             mark_subtree(ast, *callee, owned);

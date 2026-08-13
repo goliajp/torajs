@@ -233,8 +233,11 @@ impl Walker<'_> {
             | Expr::TypeOf { expr }
             | Expr::Spread { expr }
             | Expr::As { expr, .. }
-            | Expr::InstanceOf { expr, .. }
             | Expr::Delete { expr } => self.walk_expr(*expr),
+            Expr::InstanceOf { expr, rhs } => {
+                self.walk_expr(*expr);
+                self.walk_expr(*rhs);
+            }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj),
             Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
                 self.walk_expr(*callee);

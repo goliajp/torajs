@@ -249,15 +249,22 @@ pub enum Expr {
     Delete {
         expr: ExprId,
     },
-    /// `expr instanceof ClassName` — compile-time class membership check.
-    /// tr is statically typed: if `expr`'s declared type is the named
-    /// class (or a subclass via `extends`), this lowers to ConstBool(true);
-    /// otherwise ConstBool(false). The check itself never runs at
-    /// runtime — desugar_classes records the class hierarchy, and check.rs
-    /// resolves the answer during typechecking.
+    /// `expr instanceof rhs` (ES §13.10.2) — both operands are
+    /// expressions, as the grammar has them.
+    ///
+    /// The right-hand side used to be a `String` because the answer was
+    /// read off the class hierarchy at compile time. That fold is still
+    /// the fast path and still runs, but it is now an OPTIMISATION the
+    /// lowering applies when `rhs` happens to be an `Expr::Ident`, not
+    /// the shape of the node: a target can be any value, and §13.10.2
+    /// step 2 lets it answer for itself through `@@hasInstance`.
+    ///
+    /// A bare name still arrives here as `Expr::Ident` carrying the
+    /// same class-value alias the parser applied before, so every
+    /// static fold keyed on the name reads back exactly what it did.
     InstanceOf {
         expr: ExprId,
-        class_name: String,
+        rhs: ExprId,
     },
     /// `...expr` — array spread. Only valid as a child of `Expr::Array`.
     /// ssa_lower's Array arm pre-computes total length (sum of spread

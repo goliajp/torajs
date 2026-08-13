@@ -192,8 +192,11 @@ fn collect_expr(ast: &Ast, eid: ExprId, out: &mut Vec<ExprId>) {
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::Spread { expr }
-        | Expr::As { expr, .. }
-        | Expr::InstanceOf { expr, .. } => collect_expr(ast, *expr, out),
+        | Expr::As { expr, .. } => collect_expr(ast, *expr, out),
+        Expr::InstanceOf { expr, rhs } => {
+            collect_expr(ast, *expr, out);
+            collect_expr(ast, *rhs, out);
+        }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => collect_expr(ast, *obj, out),
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
             collect_expr(ast, *callee, out);

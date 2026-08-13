@@ -379,8 +379,11 @@ impl<'a> Analysis<'a> {
             Expr::Unary { expr, .. }
             | Expr::TypeOf { expr }
             | Expr::Spread { expr }
-            | Expr::InstanceOf { expr, .. }
             | Expr::As { expr, .. } => self.walk_expr(*expr, scope),
+            Expr::InstanceOf { expr, rhs } => {
+                self.walk_expr(*expr, scope);
+                self.walk_expr(*rhs, scope);
+            }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj, scope),
             Expr::OptIndex { obj, index } | Expr::Index { obj, index } => {
                 self.seed_index_read_elem(*obj, scope);

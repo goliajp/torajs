@@ -206,10 +206,13 @@ impl<'a> FnToClosureCollector<'a> {
                 let (op, left, right) = (*op, *left, *right);
                 self.walk_binop(&op, &left, &right);
             }
-            Expr::Unary { expr, .. }
-            | Expr::TypeOf { expr }
-            | Expr::Spread { expr }
-            | Expr::InstanceOf { expr, .. } => self.walk_expr(*expr),
+            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
+                self.walk_expr(*expr)
+            }
+            Expr::InstanceOf { expr, rhs } => {
+                self.walk_expr(*expr);
+                self.walk_expr(*rhs);
+            }
             // `fn as any` — the cast IS an any-boxing position (the
             // widened box has no FnSig arm), so a bare top-FnDecl
             // Ident wraps to its canonical forwarder cell right here;

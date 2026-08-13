@@ -228,9 +228,12 @@ fn collect_expr_jobs(
         Expr::Unary { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => {
             collect_expr_jobs(ast, *expr, env, fn_params, jobs);
+        }
+        Expr::InstanceOf { expr, rhs } => {
+            collect_expr_jobs(ast, *expr, env, fn_params, jobs);
+            collect_expr_jobs(ast, *rhs, env, fn_params, jobs);
         }
         Expr::PostIncr { target, .. } => {
             collect_expr_jobs(ast, *target, env, fn_params, jobs);

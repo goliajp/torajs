@@ -335,7 +335,9 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
         }
         Expr::PostIncr { target, .. } => eal_expr_safe(ast, *target, x_name),
         Expr::TypeOf { expr } | Expr::Delete { expr } => eal_expr_safe(ast, *expr, x_name),
-        Expr::InstanceOf { expr, .. } => eal_expr_safe(ast, *expr, x_name),
+        Expr::InstanceOf { expr, rhs } => {
+            eal_expr_safe(ast, *expr, x_name) && eal_expr_safe(ast, *rhs, x_name)
+        }
         Expr::As { expr, .. } => eal_expr_safe(ast, *expr, x_name),
         Expr::Sequence { left, right } => {
             eal_expr_safe(ast, *left, x_name) && eal_expr_safe(ast, *right, x_name)

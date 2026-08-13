@@ -212,9 +212,12 @@ fn rewrite_params_in_expr(
         Expr::Unary { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Spread { expr }
-        | Expr::As { expr, .. }
-        | Expr::InstanceOf { expr, .. } => {
+        | Expr::As { expr, .. } => {
             rewrite_params_in_expr(ast, expr, pset, visited);
+        }
+        Expr::InstanceOf { expr, rhs } => {
+            rewrite_params_in_expr(ast, expr, pset, visited);
+            rewrite_params_in_expr(ast, rhs, pset, visited);
         }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             rewrite_params_in_expr(ast, obj, pset, visited);

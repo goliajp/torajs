@@ -74,9 +74,12 @@ pub(crate) fn collect<'a>(ast: &'a Ast, eid: ExprId, out: &mut Vec<&'a str>) {
         | Expr::As { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::Spread { expr }
         | Expr::PostIncr { target: expr, .. } => collect(ast, *expr, out),
+        Expr::InstanceOf { expr, rhs } => {
+            collect(ast, *expr, out);
+            collect(ast, *rhs, out);
+        }
         Expr::Call { callee, args }
         | Expr::NewDynamic { callee, args }
         | Expr::OptCall { callee, args } => {

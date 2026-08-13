@@ -293,8 +293,11 @@ fn walk_expr(ast: &Ast, eid: ExprId, out: &mut SuperPropSites, stmt_pos: bool) {
         Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => walk_expr(ast, *expr, out, false),
+        Expr::InstanceOf { expr, rhs } => {
+            walk_expr(ast, *expr, out, false);
+            walk_expr(ast, *rhs, out, false);
+        }
         Expr::Sequence { left, right } => {
             walk_expr(ast, *left, out, false);
             walk_expr(ast, *right, out, false);

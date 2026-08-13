@@ -258,20 +258,13 @@ impl<'a> Parser<'a> {
         }
         let mut left = self.parse_shift()?;
         loop {
-            // `expr instanceof ClassName` — relational-precedence operator.
-            // Right-hand side is a single bare identifier (the class name),
-            // not a general expression — tr resolves the class statically.
+            // `expr instanceof rhs` (ES §13.10.2) — relational-precedence
+            // operator whose right-hand side is a general expression, so
+            // it parses at shift level exactly like the `in` operator
+            // below.
             if matches!(self.peek(), Token::InstanceOf) {
                 self.pos += 1;
-                let class_name = match self.peek() {
-                    Token::Ident(s) => s.clone(),
-                    other => {
-                        return Err(format!(
-                            "expected class name after `instanceof`, got {other:?}"
-                        ));
-                    }
-                };
-                self.pos += 1;
+                let rhs = self.parse_shift()?;
                 // `x instanceof F` where F binds a class expression
                 // (`const F = class ... {}`) — resolve through the
                 // parse-order alias map to the synth class name
@@ -280,15 +273,22 @@ impl<'a> Parser<'a> {
                 // The lowering's descendant-tag set is keyed on real
                 // class names; the raw binding name would miss and
                 // constant-fold to false.
-                let class_name = self
-                    .class_value_aliases
-                    .get(&class_name)
-                    .cloned()
-                    .unwrap_or(class_name);
-                left = self.ast.add_expr(Expr::InstanceOf {
-                    expr: left,
-                    class_name,
-                });
+                //
+                // Only a BARE name can be aliased: the map is keyed on
+                // binding names, and anything larger (`box.cls`,
+                // `(C as any)`, a call) is a value the runtime operator
+                // resolves for itself.
+                let rhs = match self.ast.get_expr(rhs) {
+                    Expr::Ident(n) => match self.class_value_aliases.get(n) {
+                        Some(a) => {
+                            let a = a.clone();
+                            self.ast.add_expr(Expr::Ident(a))
+                        }
+                        None => rhs,
+                    },
+                    _ => rhs,
+                };
+                left = self.ast.add_expr(Expr::InstanceOf { expr: left, rhs });
                 continue;
             }
             // T-45 — binary `in` operator. JS contextual keyword:

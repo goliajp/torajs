@@ -83,11 +83,12 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
-                Expr::Unary { expr, .. }
-                | Expr::TypeOf { expr }
-                | Expr::Spread { expr }
-                | Expr::InstanceOf { expr, .. } => {
+                Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
                     stack.push(expr);
+                }
+                Expr::InstanceOf { expr, rhs } => {
+                    stack.push(expr);
+                    stack.push(rhs);
                 }
                 Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
                     // Chunk 752 — an any-member read answers an OWNED

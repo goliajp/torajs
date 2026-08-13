@@ -29,6 +29,70 @@ use crate::ssa_lower::LowerCtx;
 
 use super::builtin_type_tag;
 
+/// `x instanceof <expression>` — the target is a value nobody can name
+/// at compile time, so there is no ladder to try first: evaluate both
+/// operands in source order and hand them to the operator.
+///
+/// The left operand is boxed here; the right one goes through
+/// [`emit_has_instance`], which already knows to keep a cell the
+/// any-encoding cannot carry on the plain §7.3.22 walk. Neither
+/// operand is owned by us (both are plain sub-expression values), so
+/// there is no release to thread — `None`.
+pub(super) fn lower_general_rhs(ctx: &mut LowerCtx<'_>, expr: ExprId, rhs: ExprId) -> Operand {
+    let Some((v_any, owned)) = lower_left_boxed(ctx, expr) else {
+        // No encoding and no cell to mint — the operand has no value
+        // identity at all, so nothing was ever constructed through it
+        // either and `false` is the right answer. Same recorded
+        // residue as [`super::try_lower_fn_value`]'s.
+        return Operand::ConstBool(false);
+    };
+    let target = ctx.lower_expr(rhs);
+    let r = emit_has_instance(ctx, v_any, target, None);
+    // The canonical mint answers +1 per use and boxing is a pure
+    // encode, so the cell itself is what needs releasing.
+    if let Some((cell, ty)) = owned {
+        ctx.emit_drop_value(cell, ty);
+    }
+    r
+}
+
+/// The left operand as an `Any` plus, when it arrived OWNED, the cell
+/// the caller has to release afterwards — or `None` when the operand
+/// has no encoding at all.
+///
+/// `box_to_any`'s match ends in a panic and a panic in the lowerer
+/// rejects the whole program, so the operand is checked before it is
+/// handed over. The one shape that fails is a bare `FnSig` — a
+/// function value that never went through the closure construction
+/// site. When it is named, the canonical `__fncell_*` cell every
+/// channel shares is the value the spec means, and
+/// [`super::try_lower_fn_value`] already knows how to mint it; the
+/// discarded probe Load is dead and DCE'd.
+///
+/// A function with no forwarder at all keeps the constant-false answer
+/// — same recorded residue as the named lane: nothing was constructed
+/// through it either, so `false` is the right answer anyway.
+fn lower_left_boxed(
+    ctx: &mut LowerCtx<'_>,
+    expr: ExprId,
+) -> Option<(Operand, Option<(Operand, Type)>)> {
+    let v = ctx.lower_expr(expr);
+    if has_any_encoding(ctx.operand_ty(&v)) {
+        return Some((ctx.box_to_any(v), None));
+    }
+    let Expr::Ident(n) = ctx.ast.get_expr(expr) else {
+        return None;
+    };
+    let fwd = format!("__forward_{n}");
+    let fid = ctx.fn_table.get(&fwd).copied()?;
+    let closure_ty = crate::ssa_lower_closure::closure_value_ty(ctx, &fwd);
+    let cell = crate::ssa_lower_closure_canonical::try_lower_canonical_cell(
+        ctx, &fwd, fid, closure_ty, false,
+    )?;
+    let boxed = ctx.box_to_any(cell.clone());
+    Some((boxed, Some((cell, closure_ty))))
+}
+
 /// §13.10.2 for the shapes whose answer the parent's folds cannot
 /// know — see [`dynamic_target_name`] for which those are.
 ///

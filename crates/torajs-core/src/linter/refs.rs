@@ -251,7 +251,10 @@ pub(super) fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String,
         Expr::TypeOf { expr } | Expr::Delete { expr } | Expr::PostIncr { target: expr, .. } => {
             count_refs_expr(ast, *expr, refs)
         }
-        Expr::InstanceOf { expr, .. } => count_refs_expr(ast, *expr, refs),
+        Expr::InstanceOf { expr, rhs } => {
+            count_refs_expr(ast, *expr, refs);
+            count_refs_expr(ast, *rhs, refs);
+        }
         Expr::As { expr, .. } => count_refs_expr(ast, *expr, refs),
         Expr::Sequence { left, right } => {
             count_refs_expr(ast, *left, refs);

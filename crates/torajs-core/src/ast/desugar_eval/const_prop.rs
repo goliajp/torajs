@@ -215,8 +215,8 @@ fn expr_calls_out(eid: ExprId, ast: &Ast) -> bool {
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::Spread { expr }
-        | Expr::As { expr, .. }
-        | Expr::InstanceOf { expr, .. } => rec(expr),
+        | Expr::As { expr, .. } => rec(expr),
+        Expr::InstanceOf { expr, rhs } => rec(expr) || rec(rhs),
         Expr::PostIncr { target, .. } => rec(target),
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => rec(obj),
         Expr::Index { obj, index } | Expr::OptIndex { obj, index } => rec(obj) || rec(index),

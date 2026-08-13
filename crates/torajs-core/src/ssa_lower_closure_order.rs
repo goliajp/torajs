@@ -236,8 +236,11 @@ fn closures_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
         | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => closures_in_expr(ast, *expr, out),
+        Expr::InstanceOf { expr, rhs } => {
+            closures_in_expr(ast, *expr, out);
+            closures_in_expr(ast, *rhs, out);
+        }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => closures_in_expr(ast, *obj, out),
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
             closures_in_expr(ast, *callee, out);

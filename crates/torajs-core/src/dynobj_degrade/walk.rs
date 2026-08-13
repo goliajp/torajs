@@ -285,8 +285,11 @@ impl Walker<'_> {
             Expr::Unary { expr, .. }
             | Expr::TypeOf { expr }
             | Expr::Spread { expr }
-            | Expr::As { expr, .. }
-            | Expr::InstanceOf { expr, .. } => self.walk_expr(*expr),
+            | Expr::As { expr, .. } => self.walk_expr(*expr),
+            Expr::InstanceOf { expr, rhs } => {
+                self.walk_expr(*expr);
+                self.walk_expr(*rhs);
+            }
             Expr::Delete { expr } => {
                 self.scan_delete(*expr);
                 self.walk_expr(*expr);

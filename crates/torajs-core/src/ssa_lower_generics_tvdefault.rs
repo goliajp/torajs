@@ -132,11 +132,12 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
             rewrite_tvdefault_in_expr(ast, left, subst);
             rewrite_tvdefault_in_expr(ast, right, subst);
         }
-        Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. } => {
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
             rewrite_tvdefault_in_expr(ast, expr, subst);
+        }
+        Expr::InstanceOf { expr, rhs } => {
+            rewrite_tvdefault_in_expr(ast, expr, subst);
+            rewrite_tvdefault_in_expr(ast, rhs, subst);
         }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             rewrite_tvdefault_in_expr(ast, obj, subst);
