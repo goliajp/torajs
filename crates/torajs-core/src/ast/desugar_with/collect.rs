@@ -87,7 +87,18 @@ pub(crate) fn collect_stmt(
         Stmt::LetDecl {
             name, init, is_var, ..
         } => {
-            if !*is_var {
+            if *is_var {
+                // `var` does NOT shadow the object — it hoists to the
+                // function scope, which sits BEHIND the object record.
+                // So `with (o) { var v = 2 }` writes `o.v` when `o`
+                // carries `v`, and leaves the hoisted binding
+                // undefined (bun: `2 undefined`; the unrewritten
+                // reading is `1 2`). The initialiser is an assignment
+                // evaluated in the with scope, so it belongs to the
+                // write knife — refused until then rather than
+                // silently landing on the hoisted binding.
+                refuse(err, "a `var` declaration");
+            } else {
                 bound.insert(name.clone());
             }
             collect_expr(ast, *init, sites, err);
