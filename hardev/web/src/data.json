@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T20:24:47.440Z",
+  "generatedAt": "2026-08-13T22:02:27.585Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T20:15:19Z",
-    "headSha": "55180c35",
-    "elapsedSec": 373.82,
+    "ranAt": "2026-08-13T21:54:46Z",
+    "headSha": "0a2fcd56",
+    "elapsedSec": 325.91,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25032,
-    "passNoOracle": 850,
+    "pass": 25059,
+    "passNoOracle": 849,
     "passNegative": 4106,
-    "passTotal": 29988,
-    "bug": 12838,
-    "incompatible": 10348,
+    "passTotal": 30014,
+    "bug": 12762,
+    "incompatible": 10398,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42826,
-    "passRateInScope": 56.4,
-    "passRateTrAccepted": 70.02
+    "trAccepted": 42776,
+    "passRateInScope": 56.44,
+    "passRateTrAccepted": 70.17
   },
   "torajs": {
-    "commit": "55180c35",
-    "commitSubject": "fix: a `with` can arrive from the eval inline, and strict code must refuse it",
+    "commit": "0a2fcd56",
+    "commitSubject": "fix: a refused `with` printed as a runtime error, so it counted as one",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "0a2fcd56",
+      "subject": "fix: a refused `with` printed as a runtime error, so it counted as one"
+    },
+    {
+      "hash": "f6ee98f4",
+      "subject": "feat: `for (var i = …)` in a `with` body drives the object's counter"
+    },
+    {
+      "hash": "17b3e390",
+      "subject": "fix: a refused `delete` throws only in strict code (ES §13.5.1.2 step 5)"
+    },
+    {
+      "hash": "4af7c554",
+      "subject": "feat: a `var` in a `with` body lands on both sides of the object (ES §14.11)"
+    },
+    {
+      "hash": "743c6a71",
+      "subject": "fix: `delete <bare name>` was resolved before `with` and eval could speak"
+    },
+    {
+      "hash": "eea26e0b",
+      "subject": "feat: `with` reaches nested function bodies (ES §14.11, RFC 20260814 刀 4)"
+    },
+    {
+      "hash": "042b7536",
+      "subject": "fix: the `with` walk did not reach two places a free name can sit"
+    },
+    {
+      "hash": "93fe497a",
+      "subject": "chore: record rotation 391 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "55180c35",
       "subject": "fix: a `with` can arrive from the eval inline, and strict code must refuse it"
     },
@@ -727,41 +759,9 @@
     {
       "hash": "0d9e6561",
       "subject": "feat: `with` reaches `typeof` and postfix `++` / `--` (ES §14.11)"
-    },
-    {
-      "hash": "bdffdb81",
-      "subject": "feat: `with` reads and bare-name calls (ES §14.11)"
-    },
-    {
-      "hash": "51121f0e",
-      "subject": "fix: instanceof's right operand is not an escape of the name it holds"
-    },
-    {
-      "hash": "d6e1345e",
-      "subject": "docs: record rotation 390's sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "d8850420",
-      "subject": "refactor: split the builtin-proto owns tables, and say where a box failed"
-    },
-    {
-      "hash": "0c0910be",
-      "subject": "feat: accept explicit type arguments at a call site"
-    },
-    {
-      "hash": "59b04508",
-      "subject": "fix: typeof JSON.stringify(x) stopped folding to \"string\""
-    },
-    {
-      "hash": "aff422ff",
-      "subject": "fix: do not read a symbol key through the string payload offsets"
-    },
-    {
-      "hash": "b98fc2a6",
-      "subject": "fix: keep instanceof's bare-name target invisible to the two passes it broke"
     }
   ],
-  "headSha": "55180c35",
+  "headSha": "0a2fcd56",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,

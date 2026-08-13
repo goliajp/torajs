@@ -1528,9 +1528,48 @@ case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ ae19d1f6`, never as a constant.
+snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `ae19d1f6`** (2026-08-13, rotation 389 — `instanceof` never
+**Latest @ `0a2fcd56`** (2026-08-14, rotation 392 — `with` (§14.11) closed
+out, and with it three silent wrongs of one shape: **the rule the pass
+wrote down was not the rule the pass implemented, because its walk did
+not reach every place the shape can sit.** A function EXPRESSION's body
+is a `Vec<Stmt>` hanging off an arena expression, not a statement child,
+so a `with` written there was never rewritten at all; an identifier that
+IS a statement's whole expression (`return x` / `if (x)` / `throw x`) had
+no parent to announce it, because `collect_expr` recorded only children;
+and `delete <bare name>` never reached the desugar because the triage
+that folds it to a constant ran FIRST in the prelude — its refusal arm
+was dead code while `with (o) { delete x }` answered `true` and removed
+nothing. **None of the three is visible to the conformance gate**: the
+programs ran and printed a wrong answer. 刀 4 (nested function bodies)
+then cost nothing where the RFC predicted machinery — the binding is an
+ordinary block-scoped `let`, so the guards capture it like any closure
+captures any outer binding — and everything where it did not: a nested
+function's `var` / params / `arguments` shadow while the with body's own
+`var` does not, so one flat binder set could not answer both and `bound`
+became a `Scope` chain. The `var` initialiser and `for (var i = …)` both
+needed only for the statement to stop being ONE statement. Two fixes with
+no `with` in them fell out of writing the fixtures: a refused `delete`
+throws only in strict code (§13.5.1.2 step 5 — the kernel had shipped
+both flavours all along and the lowering always picked the throwing one),
+and **a refused `with` printed a bare `error:`, which every
+stderr-classifying harness reads as an uncaught throw** — so each
+declined program was counted in `trAccepted`. Sweep: passTotal 29988 →
+**30014 (+26)**, pass +27, bug −76, incompatible +50, trAccepted −50,
+conservation exact. **The −50 is water leaving, not a regression**: 56
+cases moved `bug → incompatible` because the mis-prefixed refusals were
+replaced by real downstream verdicts that carry a prefix. One pass
+regression, the registered per-function-strictness divergence (a
+`"use strict"` function inside a sloppy script now answers `false` for a
+refused delete). Gate predicate **242 unattributed clusters / 3149 cases
+/ register 2 · 620 / residue 769 · 997 / core 4766**. The rotation also
+made the next gap visible: cluster #7, **60 cases in one directory**,
+is `delete` on a `Struct` receiver — the real blocker behind the
+compound-assignment `with` family, which the mis-prefixed refusal had
+been hiding.)
+
+**Previous @ `ae19d1f6`** (2026-08-13, rotation 389 — `instanceof` never
 asked `@@hasInstance`. §13.10.2 step 2 is a lookup the compile-time lane
 structurally cannot do: it answers class membership from a heap tag, so
 a target that names no class folded to `false` while its handler sat
