@@ -259,6 +259,19 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
     if tag < 0 {
         return 0;
     }
+    // Every probe below reads the key as a STRING, and a symbol cell
+    // has different bytes at those offsets — a 16-byte cell read
+    // through the Str payload offsets answers a garbage length and
+    // data pointer, and the compare walks off the end of the heap.
+    // The sibling hook `__torajs_builtin_proto_note_own_write` guards
+    // the same way (its caller in `torajs-dynobj`'s set path only
+    // calls it behind `key_str_bytes`); this one was reachable with a
+    // symbol key through the same insert, which is how
+    // `p[Symbol()] = v` on any `<Ctor>.prototype` read freed memory.
+    // A symbol names no builtin method, so there is nothing to answer.
+    if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
+        return 0;
+    }
     // `constructor` is an own property of every builtin prototype
     // (§20.x.3.1 family) — one interned identity per tag, so gOPD's
     // desc.value and a member read answer the SAME cell. Probed
