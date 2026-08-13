@@ -20,6 +20,7 @@
 use core::ffi::c_void;
 
 use crate::obj_own_keys_key_shape::{key_bytes_are, key_is_canonical_index};
+use crate::obj_own_keys_proto_names::push_synthesized_proto_names;
 // The key-shape predicates moved to a sibling for the file-size cap;
 // re-exported so every `crate::obj_own_keys::` consumer face (for-in,
 // values/entries) stays unchanged.
@@ -160,6 +161,9 @@ unsafe fn dynobj_keys_walk(obj: *const c_void, include_nonenum: i64) -> *mut c_v
             }
         }
     }
+    if include_nonenum != 0 {
+        arr = unsafe { push_synthesized_proto_names(obj, arr, false) };
+    }
     unsafe { dynobj_keys_append(obj, include_nonenum, arr, false, false) as *mut c_void }
 }
 
@@ -270,11 +274,17 @@ unsafe fn arr_cell_keys(cell: *const c_void, include_nonenum: i64) -> *mut c_voi
     // exotic-aware helpers: keys filters per-index enumerable, gOPN
     // keeps non-enumerable indices but skips deleted (hole) ones
     // (RFC 20260713 chunk C).
-    let out = if include_nonenum == 0 {
+    let mut out = if include_nonenum == 0 {
         unsafe { crate::own_names::__torajs_arr_keys_only_of(cell) }
     } else {
         unsafe { crate::own_names::__torajs_arr_index_strs_of(cell) }
     };
+    // §23.1.3 makes `Array.prototype` an Arr cell rather than a
+    // dynobj, so its synthesized method names come through here
+    // instead of the walk above — same surface, other cell shape.
+    if include_nonenum != 0 {
+        out = unsafe { push_synthesized_proto_names(cell, out as *mut u8, true) as *mut c_void };
+    }
     let props =
         unsafe { (cell.cast::<u8>().add(ARR_PROPS_OFF) as *const u64).read() } as *const c_void;
     if props.is_null() {

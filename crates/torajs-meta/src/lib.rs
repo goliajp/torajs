@@ -39,6 +39,7 @@ pub mod obj_own_descriptors;
 pub mod obj_own_keys;
 pub(crate) mod obj_own_keys_key_shape;
 mod obj_own_keys_layout;
+pub(crate) mod obj_own_keys_proto_names;
 pub(crate) mod obj_own_keys_struct;
 pub mod obj_own_values;
 pub mod object_group_by;

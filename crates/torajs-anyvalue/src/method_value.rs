@@ -240,7 +240,7 @@ pub(crate) use accessor_getter::proto_accessor_getter_cell;
 /// The interned `.name` Str cell for a method id — lazily
 /// allocated, immortal (`FLAG_STATIC_LITERAL`), Latin-1 payload
 /// (method names are ASCII).
-fn builtin_method_name_cell(mid: i64, name: &'static str) -> *mut u8 {
+pub(crate) fn builtin_method_name_cell(mid: i64, name: &'static str) -> *mut u8 {
     let slot = &METHOD_NAME_CELLS[mid as usize];
     let p = slot.load(Ordering::Relaxed);
     if p != 0 {

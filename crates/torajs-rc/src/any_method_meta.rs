@@ -209,6 +209,11 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §27.1.4.1 — %Iterator.prototype%[Symbol.dispose] (own id,
         // never interns back; RFC 20260809 B6).
         m if m == crate::any_method_iter::ANY_METHOD_ITER_DISPOSE => ("[Symbol.dispose]", 0),
+        // §26.1.3.2 — WeakRef.prototype.deref. Missing until rotation
+        // 383: the dispatch arm resolved it, so calls worked, but the
+        // reflection faces reading this table (`.name` / `.length` /
+        // the own-name enumeration) could not see it.
+        m if m == crate::any_method_iter::ANY_METHOD_DEREF => ("deref", 0),
         _ => return None,
     })
 }
