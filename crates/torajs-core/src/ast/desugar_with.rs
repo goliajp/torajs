@@ -51,12 +51,23 @@
 //!
 //! Reads, bare-name calls, `typeof`, `++`/`--`, `delete`, assignment
 //! (plain and compound), `var` initialisers and nested function bodies
-//! are rewritten here. What is left — several declarators in one
-//! `for` initialiser, and a class declaration — is refused with a
-//! diagnostic naming the shape. Leaving them unrewritten would
-//! silently resolve to the
-//! lexical binding instead of the object, which is the one outcome
-//! this file is not allowed to produce.
+//! are rewritten here. What is left is refused with a diagnostic
+//! naming the shape: several declarators in one `for` initialiser, and
+//! a class — declaration or expression — that reads any name the
+//! object could supply. Leaving them unrewritten would silently
+//! resolve to the lexical binding instead of the object, which is the
+//! one outcome this file is not allowed to produce.
+//!
+//! # Classes
+//!
+//! A class is strict code throughout (§11.2.2), which forbids WRITING
+//! a `with` inside one but does not take the object environment record
+//! out of the chain around one: a class written in the body still
+//! resolves its free names through the object. A CLOSED class needs no
+//! guard and is accepted; anything else is refused, because a guard
+//! names the `with` binding and `hoist_nested_classes` lifts a nested
+//! class only when its bodies resolve at top level. See
+//! [`collect::collect_class`].
 
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -155,12 +166,20 @@ pub fn desugar_with(ast: &mut Ast) -> Option<WithReject> {
         ));
     }
     inject_helpers(ast);
-    let mut stmts = std::mem::take(&mut ast.stmts);
     let mut err = None;
-    for s in &mut stmts {
-        rewrite_stmt(ast, s, &mut err);
+    // One statement at a time rather than taking the whole list. The
+    // walk needs `&mut Ast` to mint its guard nodes, so the statement
+    // being rewritten has to come out — but only that one: a class
+    // EXPRESSION's declaration was spliced at top level by the parser,
+    // and `collect` goes to find it there by name. Taking the whole
+    // list left `ast.stmts` empty for the duration, so that lookup
+    // answered "no such class" for every program and the refusal it
+    // exists to raise never fired.
+    for i in 0..ast.stmts.len() {
+        let mut s = std::mem::replace(&mut ast.stmts[i], Stmt::Multi(Vec::new()));
+        rewrite_stmt(ast, &mut s, &mut err);
+        ast.stmts[i] = s;
     }
-    ast.stmts = stmts;
     err.map(WithReject::Unsupported)
 }
 
@@ -434,8 +453,9 @@ fn with_member(ast: &mut Ast, w: &str, n: &str) -> ExprId {
 
 /// Where an `Ident` occurrence sits, which is what decides its
 /// rewrite. A shape with no position of its own is refused by the
-/// collect walk itself (statement-level: a `var` initialiser, a class
-/// declaration), so this enum carries only the forms that ARE handled.
+/// collect walk itself (statement-level: a multi-declarator `var` in a
+/// `for` initialiser, a class that reads a name the object could
+/// supply), so this enum carries only the forms that ARE handled.
 pub(crate) enum Position {
     Read,
     /// The callee of this `Call`.

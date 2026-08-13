@@ -10,7 +10,13 @@
 use super::Position;
 use super::scope::Scope;
 use super::walk::{expr_children, stmt_children_ref, stmt_exprs};
-use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Param, StaticInit, Stmt};
+
+/// The synth name the parser leaves at a class EXPRESSION's use site.
+/// Both spellings get one — an anonymous `class {}` and a named
+/// `class Inner {}` alike — so this prefix identifies every one of
+/// them.
+const CLASS_EXPR_PREFIX: &str = "__ClassExpr_";
 
 /// Entry point: record every free identifier occurrence of one `with`
 /// body, nested function bodies included.
@@ -48,7 +54,10 @@ fn collect_stmt(
             // silently landing on the hoisted binding.
             refuse(err, "a multi-declarator `var` in a `for` initialiser");
         }
-        Stmt::ClassDecl { .. } => refuse(err, "a class declaration"),
+        Stmt::ClassDecl { .. } => {
+            collect_class(ast, s, scope, err);
+            return;
+        }
         Stmt::FnDecl { params, body, .. } => {
             collect_fn(ast, params, body, scope, sites, err);
             return;
@@ -94,6 +103,115 @@ fn collect_fn(
     }
 }
 
+/// A class declared in the body.
+///
+/// Every part of a class is strict code (§11.2.2), but strictness does
+/// not take the object environment record out of the scope chain: the
+/// class's free names still resolve through the object and would each
+/// need a guard, exactly like a nested function's.
+///
+/// They cannot get one. A guard names the `with` binding, and
+/// `hoist_nested_classes` lifts a nested class only when its bodies
+/// resolve against TOP-LEVEL names — one that captured the binding
+/// would stay nested and abort in `check.rs` as `internal: ClassDecl
+/// reached check.rs (desugar didn't run?)`, which reads as a compiler
+/// bug rather than as a shape tr does not cover. That is a gap in the
+/// nested-class machinery, not in this pass, and it is the same gap an
+/// ordinary `{ let a = 1; class K { m() { return a } } }` hits with no
+/// `with` anywhere in sight.
+///
+/// So the answer here is exact rather than approximate: a CLOSED class
+/// needs no guard, hoists, and runs — that is the whole set tr can
+/// express — and everything else is refused naming the part that
+/// carries the free name.
+fn collect_class(ast: &Ast, s: &Stmt, scope: &Scope, err: &mut Option<String>) {
+    let Stmt::ClassDecl {
+        name,
+        type_params,
+        parent,
+        ctor,
+        methods,
+        static_methods,
+        static_init,
+        ..
+    } = s
+    else {
+        return;
+    };
+    if let Some(p) = parent
+        && !scope.shadows(p)
+    {
+        // §15.7.14 evaluates the heritage in THIS scope, so the object
+        // can supply the parent — including for a name that is
+        // otherwise a global, since `with (o)` over an `o` carrying
+        // `Error` shadows the real one. tr models a parent as a name
+        // resolved statically, which leaves nowhere to put a guard.
+        refuse(err, "an `extends` clause the object could supply");
+        return;
+    }
+    // Recorded into a scratch list, not the body's: a class that needs
+    // any of these guards is refused, so its sites must never reach
+    // the rewrite.
+    let mut probe: Vec<(ExprId, Position)> = Vec::new();
+    let inner = scope.class_body(name, type_params);
+    if let Some(c) = ctor {
+        // Instance field initialisers are folded into the constructor
+        // body by the parser (`finalize_class_field_inits`), so this
+        // walk covers them too.
+        collect_fn(ast, &c.params, &c.body, &inner, &mut probe, err);
+    }
+    for m in methods.iter().chain(static_methods.iter()) {
+        collect_fn(ast, &m.params, &m.body, &inner, &mut probe, err);
+    }
+    for si in static_init {
+        match si {
+            StaticInit::Field(f) => collect_expr(ast, f.init, &inner, &mut probe, err),
+            StaticInit::Block(v) => {
+                for st in v {
+                    collect_stmt(ast, st, &inner, &mut probe, err);
+                }
+            }
+        }
+    }
+    // Computed member keys do not hang off the statement — the parser
+    // stashes them in side tables under a `__ccm_<n>__` sentinel keyed
+    // by the class name. Walking only the statement tree would miss
+    // `with (o) { class K { [k]() {} } }` entirely, which is the shape
+    // of every silent error this chapter has produced.
+    for ((cls, _), key) in &ast.class_computed_keys {
+        if cls == name {
+            collect_expr(ast, *key, &inner, &mut probe, err);
+        }
+    }
+    for (cls, _, init) in &ast.class_computed_static_fields {
+        if cls == name {
+            collect_expr(ast, *init, &inner, &mut probe, err);
+        }
+    }
+    if probe.iter().any(|(eid, _)| free_user_name(ast, *eid)) {
+        refuse(err, "a class body reading a name the object could supply");
+    }
+}
+
+/// Whether this recorded site is a name the USER wrote — compiler
+/// minted spellings (`__supercall__m` for `super.m()`, a lifted class
+/// expression's `__ClassExpr_<n>`) are never names the object can
+/// supply, and are settled by their spelling the same way the rewrite
+/// settles them.
+fn free_user_name(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Ident(n) if !n.starts_with("__"))
+}
+
+/// The top-level declaration a class-expression use site names. Absent
+/// only for the one shape the parser declines to buffer (`class x
+/// extends x {}`, whose use site throws a TDZ ReferenceError), which
+/// carries no body to ask about.
+fn find_class_decl<'a>(ast: &'a Ast, name: &str) -> Option<&'a Stmt> {
+    ast.stmts
+        .iter()
+        .find(|s| matches!(s, Stmt::ClassDecl { name: n, .. } if n == name))
+}
+
 fn refuse(err: &mut Option<String>, what: &'static str) {
     err.get_or_insert(format!(
         "{what} inside a `with` body is not yet supported \
@@ -125,6 +243,26 @@ fn collect_expr(
 ) {
     match ast.get_expr(eid) {
         Expr::Ident(n) => {
+            // A class EXPRESSION written in the body is not HERE. The
+            // parser buffers it to `synth_classes` and splices it at
+            // TOP LEVEL, leaving only this name hop at the use site —
+            // so by the time this pass runs its body already sits
+            // outside the block, where no walk of the body can reach
+            // it. Left alone, every free name in that body resolved
+            // lexically and the program died on `unknown identifier`
+            // at run time: a wrong answer, and one a stderr-
+            // classifying harness reads as tr having RUN the program.
+            //
+            // Going to find the declaration is what makes the verdict
+            // exact instead of a blanket refusal — a closed class
+            // expression needed no guard in the first place and keeps
+            // working.
+            if n.starts_with(CLASS_EXPR_PREFIX) {
+                if let Some(decl) = find_class_decl(ast, n) {
+                    collect_class(ast, decl, scope, err);
+                }
+                return;
+            }
             if !scope.shadows(n) {
                 sites.push((eid, Position::Read));
             }

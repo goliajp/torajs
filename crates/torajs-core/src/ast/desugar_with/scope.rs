@@ -64,6 +64,26 @@ impl Scope {
         Scope { bound, in_fn: true }
     }
 
+    /// A class body. Every part of a class is strict code (§11.2.2),
+    /// but strictness does not remove the object environment record
+    /// from the chain — a member body's free names still resolve
+    /// through the object, so this is an ordinary nested-function
+    /// scope plus the two bindings a class introduces over its own
+    /// body: its name (§15.7.13 puts the class in scope inside
+    /// itself) and its type parameters.
+    ///
+    /// `in_fn` is set for the same reason `nested_fn` sets it: a
+    /// member body and a static block each own a variable
+    /// environment, created in FRONT of the object record, so their
+    /// `var`s are ordinary locals rather than the hoisted-past-the-
+    /// object shape.
+    pub(crate) fn class_body(&self, name: &str, type_params: &[String]) -> Self {
+        let mut s = self.nested_fn(&[], &[]);
+        s.bound.insert(name.to_string());
+        s.bound.extend(type_params.iter().cloned());
+        s
+    }
+
     pub(crate) fn shadows(&self, n: &str) -> bool {
         self.bound.contains(n)
     }
