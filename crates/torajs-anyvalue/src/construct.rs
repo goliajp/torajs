@@ -367,7 +367,7 @@ pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void)
 /// Is this completion value an Object in the spec sense — a heap cell
 /// that is not one of the heap-shaped primitives (Str / Symbol /
 /// BigInt)?
-unsafe fn is_heap_object(av: AnyValue) -> bool {
+pub(crate) unsafe fn is_heap_object(av: AnyValue) -> bool {
     if !is_cell(av) {
         return false;
     }

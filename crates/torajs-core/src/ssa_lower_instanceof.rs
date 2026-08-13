@@ -85,6 +85,15 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> O
     if class_name == "Iterator" {
         return lower_iterator_instanceof(ctx, v, actual_ty);
     }
+    // §13.10.2 step 2 — a name bound to a plain VALUE can carry an
+    // `@@hasInstance` handler, which every fold below is blind to.
+    // Ahead of them all: the handler decides the answer for ANY V,
+    // so the operand-type early-outs (`3 instanceof Odd` is not an
+    // object, so step 3 of the ordinary walk would say false) must
+    // not pre-empt it either.
+    if let Some(op) = try_lower_dynamic_target(ctx, v.clone(), class_name) {
+        return op;
+    }
     if let Some(r) = try_compile_time_fold(actual_ty, class_name) {
         return Operand::ConstBool(r);
     }
@@ -119,6 +128,77 @@ fn lower_iterator_instanceof(ctx: &mut LowerCtx<'_>, v: Operand, actual_ty: Type
         None,
     );
     Operand::Value(r)
+}
+
+/// §13.10.2 for `x instanceof N` where `N` names a plain VALUE — not
+/// a declared class, not a builtin constructor. Those two keep their
+/// compile-time tag folds (a class's own `@@hasInstance` is the next
+/// knife; a builtin's is the one after). Everything else that has a
+/// binding is handed to the runtime operator, which reads the
+/// handler through the same symbol face `N[Symbol.hasInstance]`
+/// resolves — so an object literal's computed key and a
+/// `defineProperty` install both answer, where the empty
+/// descendant-tag set used to constant-fold `false`.
+///
+/// A Closure binding stays on the existing OrdinaryHasInstance walk:
+/// the symbol face does not serve callables yet, so routing it here
+/// would trade a right answer for a missing one.
+///
+/// `None` = not this shape; the caller continues down the static
+/// ladder.
+fn try_lower_dynamic_target(
+    ctx: &mut LowerCtx<'_>,
+    v: Operand,
+    class_name: &str,
+) -> Option<Operand> {
+    if ctx.ast.class_parents.contains_key(class_name)
+        || builtin_type_tag(class_name).is_some()
+        || matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
+    {
+        return None;
+    }
+    let (slot, ty) = resolve_value_binding(ctx, class_name)?;
+    if matches!(ty, Type::Closure(_) | Type::FnSig(_)) {
+        return None;
+    }
+    let cur_block = ctx.cur_block;
+    let target = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(ty, Operand::Value(slot), 0),
+        ty,
+        None,
+    );
+    let target_any = ctx.box_to_any(Operand::Value(target));
+    let v_any = ctx.box_to_any(v);
+    let cur_block = ctx.cur_block;
+    let r = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.instanceof_dynamic, vec![v_any, target_any]),
+        Type::Bool,
+        None,
+    );
+    // Steps 1 and 4 throw, and so can the handler body.
+    ctx.emit_throw_check(None);
+    Some(Operand::Value(r))
+}
+
+/// The name's storage slot — a local binding directly, a module
+/// global through a `GlobalRef` (the shape
+/// [`crate::ssa_lower_call_closure_local::resolve_closure_binding`]
+/// uses for the callable case).
+fn resolve_value_binding(ctx: &mut LowerCtx<'_>, name: &str) -> Option<(ValueId, Type)> {
+    if let Some(i) = ctx.locals.get(name).copied() {
+        return Some((i.slot, i.ty));
+    }
+    let ty = *ctx.globals.get(name)?;
+    let cur_block = ctx.cur_block;
+    let g = ctx.f.append_inst(
+        cur_block,
+        InstKind::GlobalRef(name.to_string()),
+        Type::Ptr,
+        None,
+    );
+    Some((g, ty))
 }
 
 fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {

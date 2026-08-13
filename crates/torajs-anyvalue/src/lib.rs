@@ -110,6 +110,7 @@ pub(crate) mod index_any;
 mod index_any_keyed;
 mod index_any_method_call;
 mod index_any_set;
+mod instanceof_dynamic;
 mod iter_any;
 mod iter_any_array_like;
 mod iter_any_await;
