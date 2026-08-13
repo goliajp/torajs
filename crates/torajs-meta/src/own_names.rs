@@ -393,7 +393,33 @@ pub unsafe extern "C" fn __torajs_anyv_own_enum_symbols(obj_any: u64) -> *mut c_
 /// # Safety
 /// `obj_any` carries a valid AnyValue bit pattern.
 unsafe fn own_symbols_arr(obj_any: u64, include_nonenum: i64) -> *mut c_void {
-    let mut out = unsafe { __torajs_arr_alloc(0) };
+    let out = unsafe { __torajs_arr_alloc(0) };
+    unsafe { append_own_symbols(out, obj_any, include_nonenum) }
+}
+
+/// §10.1.11.1 OrdinaryOwnPropertyKeys — the string buckets followed by
+/// the symbol bucket, which is the order `Reflect.ownKeys` (§28.1.11)
+/// hands back. `getOwnPropertyNames` stops after the strings and
+/// `getOwnPropertySymbols` takes only the tail; ownKeys is the one
+/// surface that needs both, and it used to alias the names walk on the
+/// premise that tr had no symbol-keyed properties — a premise that a
+/// plain `o[Symbol()] = 1` already broke, and that the builtin
+/// prototypes now break too.
+///
+/// # Safety
+/// `obj_any` carries a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_own_keys_all(obj_any: u64) -> *mut c_void {
+    let names = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(obj_any, 1) };
+    unsafe { append_own_symbols(names as *mut u8, obj_any, 1) }
+}
+
+/// Push this receiver's own symbol keys onto `out`, each `+1`-rc'd for
+/// its slot. Shared by the symbols-only face and the ownKeys tail.
+///
+/// # Safety
+/// `out` owns a live `Arr`; `obj_any` carries a valid AnyValue.
+unsafe fn append_own_symbols(mut out: *mut u8, obj_any: u64, include_nonenum: i64) -> *mut c_void {
     let Some(dict) = (unsafe { own_symbol_dict_borrowed(obj_any) }) else {
         return out as *mut c_void;
     };

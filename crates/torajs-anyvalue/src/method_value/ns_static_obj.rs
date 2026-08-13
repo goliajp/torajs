@@ -9,9 +9,9 @@ use crate::nanbox::VALUE_UNDEFINED;
 use super::ns_static::{arg_at, own};
 use super::ns_static_table::{
     __torajs_anyv_assign, __torajs_anyv_own_entries, __torajs_anyv_own_keys,
-    __torajs_anyv_own_symbols, __torajs_anyv_own_values, __torajs_arr_mark_kind, __torajs_str_drop,
-    __torajs_symbol_for, __torajs_symbol_key_for, __torajs_throw_check, __torajs_throw_type_error,
-    OwnKind,
+    __torajs_anyv_own_keys_all, __torajs_anyv_own_symbols, __torajs_anyv_own_values,
+    __torajs_arr_mark_kind, __torajs_str_drop, __torajs_symbol_for, __torajs_symbol_key_for,
+    __torajs_throw_check, __torajs_throw_type_error, OwnKind,
 };
 
 use core::ffi::c_void;
@@ -55,14 +55,25 @@ pub(super) unsafe fn own_enum(kind: &OwnKind, recv: u64) -> u64 {
     }
 }
 
-/// §20.1.2.10 — the kernel answers a fresh (owned) empty `Arr<Str>`
-/// (tr has no symbol-keyed props, the W-N-c truth); a nullish
-/// receiver's ToObject TypeError is pending-recorded, the caller's
-/// throw check surfaces it. Stamped like the own-keys arm: slots
-/// (if the symbol surface ever lands) are heap pointers.
+/// §20.1.2.10 — the own symbol keys as a fresh owned `Arr`; a nullish
+/// receiver's ToObject TypeError is pending-recorded and the caller's
+/// throw check surfaces it. Stamped like the own-keys arm: the slots
+/// are heap pointers.
 pub(super) unsafe fn own_symbols_value(recv: u64) -> u64 {
     unsafe {
         let a = __torajs_anyv_own_symbols(recv);
+        __torajs_arr_mark_kind(a, KIND_HEAP_CHAIN);
+        a as u64
+    }
+}
+
+/// §28.1.11 — the string buckets followed by the symbol bucket, which
+/// is what `Reflect.ownKeys` answers and what neither of the two
+/// narrower faces gives on its own. Same stamp: every slot is a heap
+/// pointer (Str cells then Symbol cells).
+pub(super) unsafe fn own_keys_all_value(recv: u64) -> u64 {
+    unsafe {
+        let a = __torajs_anyv_own_keys_all(recv);
         __torajs_arr_mark_kind(a, KIND_HEAP_CHAIN);
         a as u64
     }

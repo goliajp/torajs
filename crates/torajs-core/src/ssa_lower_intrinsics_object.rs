@@ -85,6 +85,10 @@ pub(crate) struct ObjectIds {
     pub obj_own_keys: FuncId,
     /// RC-4 F1c — any-receiver keys/gOPN: DynObj walk or struct arm.
     pub anyv_own_keys: FuncId,
+    /// §28.1.11 — the string buckets AND the symbol bucket, the one
+    /// walk `Reflect.ownKeys` needs; the two narrower faces each give
+    /// only half of it.
+    pub anyv_own_keys_all: FuncId,
     /// chunk B2 — for-in keys source: `anyv_own_keys` enumerable
     /// surface, but null / undefined enumerates nothing (§14.7.5).
     pub anyv_forin_keys: FuncId,
@@ -227,6 +231,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         str_keys_only: decl!("__torajs_str_keys_only", [Ptr], Ptr),
         obj_own_keys: decl!("__torajs_obj_own_keys", [Ptr, Ptr, I64], Ptr),
         anyv_own_keys: decl!("__torajs_anyv_own_keys", [Any, I64], Ptr),
+        anyv_own_keys_all: decl!("__torajs_anyv_own_keys_all", [Any], Ptr),
         anyv_forin_keys: decl!("__torajs_anyv_forin_keys", [Any], Ptr),
         anyv_own_symbols: decl!("__torajs_anyv_own_symbols", [Any], Ptr),
         str_to_char_arr: decl!("__torajs_str_to_char_arr", [Ptr], Ptr),

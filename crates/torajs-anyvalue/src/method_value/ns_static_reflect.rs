@@ -260,18 +260,17 @@ pub(super) unsafe fn reflect_has(argv: *const u64, argc: i64) -> u64 {
 }
 
 /// §28.1.11 Reflect.ownKeys as a detached call — strict gate, then
-/// the include-nonenum own-keys walk (`OwnKind::Names`'s kernel; tr
-/// has no symbol-keyed props, so the symbol tail is empty).
+/// the §10.1.11.1 walk in full: the string buckets AND the symbol
+/// bucket. It used to stop at `OwnKind::Names` on the premise that tr
+/// had no symbol-keyed properties, which `o[Symbol()] = 1` already
+/// disproved.
 pub(super) unsafe fn reflect_own_keys(argv: *const u64, argc: i64) -> u64 {
     unsafe {
         __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
         }
-        super::ns_static_obj::own_enum(
-            &super::ns_static_table::OwnKind::Names,
-            arg_at(argv, argc, 0),
-        )
+        super::ns_static_obj::own_keys_all_value(arg_at(argv, argc, 0))
     }
 }
 

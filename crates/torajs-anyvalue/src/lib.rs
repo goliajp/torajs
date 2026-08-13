@@ -443,6 +443,10 @@ mod tests {
         core::ptr::null_mut()
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_own_keys_all(_v: u64) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_assign(_target: u64, _source: u64) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_arr_mark_kind(_arr: *mut c_void, _chain: u64) {}

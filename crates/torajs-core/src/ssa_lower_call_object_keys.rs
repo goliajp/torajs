@@ -174,6 +174,12 @@ pub(crate) fn try_lower(
         // TypeError `Object.keys` raises.
         let call = if m_name == "__forinKeys" {
             InstKind::Call(ctx.intrinsics.anyv_forin_keys, vec![arg_op])
+        } else if m_name == "ownKeys" {
+            // §28.1.11 wants the symbol bucket too, and an Any
+            // receiver is the only route that can carry one — the
+            // typed arms above are Arr / Str / struct, none of which
+            // holds symbol-keyed properties.
+            InstKind::Call(ctx.intrinsics.anyv_own_keys_all, vec![arg_op])
         } else {
             InstKind::Call(
                 ctx.intrinsics.anyv_own_keys,
