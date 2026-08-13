@@ -650,6 +650,27 @@ pub struct Ast {
     /// the name, and the warning would fire on every working program
     /// that says `with`.
     pub with_fallthrough_idents: std::collections::HashSet<ExprId>,
+    /// RFC 20260814 — `Ident` nodes the PARSER wrote to name a global
+    /// as machinery rather than because the program said the name:
+    /// `Object.__forinKeys(src)` for a for-in head, `String(sub)` for a
+    /// template substitution, `Promise.resolve(ns)` for a dynamic
+    /// import.
+    ///
+    /// Every one of them spells a name a `with` object can carry, and
+    /// `desugar_with` guarded them like any other free name — so
+    /// `with ({ String: f }) { \`${v}\` }` called `f`, where §13.2.8.6
+    /// runs the ToString abstract operation and never touches the
+    /// `String` binding. Silently: a plausible wrong value with no
+    /// diagnostic at all, which is the one outcome that pass is not
+    /// allowed to produce. (The for-in shape failed louder but for the
+    /// same reason — a guarded receiver is no longer the bare `Ident`
+    /// its lowering recognises, so the call fell through to a dynamic
+    /// member lookup of `__forinKeys`.)
+    ///
+    /// Keyed by NODE, not by spelling: the whole point is to tell the
+    /// compiler's `Object` apart from the user's, and they are spelled
+    /// the same.
+    pub synth_global_refs: std::collections::HashSet<ExprId>,
     /// Byte positions where the parser admitted `yield` as an
     /// identifier (binding name or IdentifierReference) outside a
     /// generator body. §12.7.2 reserves the word under the STRICT

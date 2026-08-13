@@ -117,6 +117,10 @@ impl<'a> Parser<'a> {
         // statement-position dispatch fix).
         let ns_ident = self.ast.add_expr(Expr::Ident(ns_name));
         let promise_ident = self.ast.add_expr(Expr::Ident("Promise".to_string()));
+        // §13.3.10 builds the promise through the intrinsic, not
+        // through whatever the name `Promise` resolves to here, so no
+        // `with` object may supply this one.
+        self.ast.synth_global_refs.insert(promise_ident);
         let resolve = self.ast.add_expr(Expr::Member {
             obj: promise_ident,
             name: "resolve".to_string(),

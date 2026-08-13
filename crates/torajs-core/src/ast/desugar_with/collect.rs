@@ -263,7 +263,7 @@ fn collect_expr(
                 }
                 return;
             }
-            if !scope.shadows(n) {
+            if object_may_supply(ast, eid, n, scope) {
                 sites.push((eid, Position::Read));
             }
             return;
@@ -271,7 +271,7 @@ fn collect_expr(
         Expr::Call { callee, args } => {
             match ast.get_expr(*callee) {
                 Expr::Ident(n) => {
-                    if !scope.shadows(n) {
+                    if object_may_supply(ast, *callee, n, scope) {
                         sites.push((*callee, Position::Callee(eid)));
                     }
                 }
@@ -288,7 +288,7 @@ fn collect_expr(
                 collect_expr(ast, *value, scope, sites, err);
                 return;
             };
-            if scope.shadows(tn) {
+            if !object_may_supply(ast, *target, tn, scope) {
                 collect_expr(ast, *value, scope, sites, err);
                 return;
             }
@@ -358,10 +358,33 @@ fn wrapping_operand(
 ) {
     match ast.get_expr(operand) {
         Expr::Ident(n) => {
-            if !scope.shadows(n) {
+            if object_may_supply(ast, operand, n, scope) {
                 sites.push((operand, Position::Wrapping(outer)));
             }
         }
         _ => collect_expr(ast, operand, scope, sites, err),
     }
+}
+
+/// The single gate every recorded site passes through: is this `Ident`
+/// occurrence one the `with` object is allowed to answer?
+///
+/// Two ways it is not. A name bound in front of the object record is
+/// [`Scope`]'s question. The other is a global the PARSER named as
+/// machinery rather than because the program said it — the exemptions
+/// elsewhere in this pass are settled by SPELLING (`__`-prefixed names
+/// are never the user's), which cannot work for these: they are
+/// spelled `Object` / `String` / `Promise`, exactly what a user would
+/// write and exactly what an object can carry. So they are keyed by
+/// node.
+///
+/// One gate rather than a check at each site because the four
+/// recording positions do not funnel: the callee, assignment-target
+/// and sole-operand arms each recognise their own `Ident` without
+/// going through the read arm. An exemption written in one of them
+/// silently applies to a quarter of the pass — which is how the first
+/// version of this shipped, exempting `String` in read position while
+/// `String(sub)` (a CALLEE) went on being hijacked.
+fn object_may_supply(ast: &Ast, eid: ExprId, n: &str, scope: &Scope) -> bool {
+    !scope.shadows(n) && !ast.synth_global_refs.contains(&eid)
 }

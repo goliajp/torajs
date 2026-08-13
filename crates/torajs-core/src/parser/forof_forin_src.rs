@@ -12,6 +12,10 @@ impl<'a> Parser<'a> {
     /// instead of throwing.
     pub(super) fn wrap_forin_keys_src(&mut self, raw_src: ExprId) -> ExprId {
         let object_id = self.ast.add_expr(Expr::Ident("Object".into()));
+        // §14.7.5 head evaluation is the EnumerateObjectProperties
+        // abstract operation — it never reads a binding called
+        // `Object`, so no `with` object may supply this one.
+        self.ast.synth_global_refs.insert(object_id);
         let keys_member = self.ast.add_expr(Expr::Member {
             obj: object_id,
             name: "__forinKeys".into(),

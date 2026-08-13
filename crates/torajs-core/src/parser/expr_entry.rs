@@ -168,6 +168,10 @@ impl<'a> Parser<'a> {
                     // *_to_str intrinsics elsewhere), not a real
                     // call, so primitive substitutions cost nothing.
                     let callee = self.ast.add_expr(Expr::Ident("String".to_string()));
+                    // §13.2.8.6 runs the ToString abstract operation,
+                    // not a lookup of the name `String`, so no `with`
+                    // object may supply this one.
+                    self.ast.synth_global_refs.insert(callee);
                     // §13.2.8.6 — a substitution runs the IMPLICIT
                     // ToString (a Symbol throws TypeError), while the
                     // `String(...)` spelling below is the one explicit
