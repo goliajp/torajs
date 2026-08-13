@@ -116,6 +116,25 @@ pub(crate) fn try_lower(
         ctx.emit_throw_check(None);
         return Some(Operand::Value(out));
     }
+    // §25.5.2 step 12 — a top-level `undefined` or callable
+    // serializes to NOTHING, so the CALL answers the undefined value
+    // rather than any text. SSA folds `undefined` into the same Ptr
+    // slot as `null`, which does print "null", so the verdict rides
+    // down from the checker's type the way the composite arms take
+    // it; a Closure has no static walk at all and used to be a loud
+    // reject. Deliberately AFTER the replacer branch: with a function
+    // replacer the root is still offered to it and can come back as
+    // anything (`JSON.stringify(undefined, () => 42)` is "42").
+    if (matches!(arg_fe, Some(crate::check::Type::Undefined))
+        || matches!(arg_ty, Type::Closure(_) | Type::FnSig(_)))
+        && let Some(sentinel) = ctx.str_undef_sentinel_for(Type::Str)
+    {
+        ctx.release_owned_temp(args[0], &arg_op);
+        if let Some(g) = gap {
+            ctx.emit_drop_value(g, Type::Str);
+        }
+        return Some(sentinel);
+    }
     let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap.clone());
     if let Some(g) = gap {
         ctx.emit_drop_value(g, Type::Str);
