@@ -114,6 +114,16 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
+    /// torajs-arr — the same define against an array's side props
+    /// (`Array.prototype` is an Arr cell, §23.1.3), allocating the
+    /// props dynobj on first write.
+    fn __torajs_arrprops_define(
+        arr: *mut c_void,
+        key: *const c_void,
+        tag: i64,
+        value: i64,
+        flags_byte: u64,
+    );
 }
 
 /// `ANY_HEAP` slot tag (torajs-dynobj `layout.rs` mirror).
@@ -129,18 +139,13 @@ const METHOD_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 <
 /// `[Symbol.iterator]` IS, as the (family row, mid) its interned cell
 /// lives under. `None` for a prototype the spec gives no such entry.
 ///
-/// The aliases mirror the instance table above — §24.1.3.14 Map →
-/// `entries`, §24.2.3.13 Set → `values`; §22.1.3.36 String has no
-/// named alias and carries a dedicated id. Tags are
-/// `torajs-rc/builtin_proto.rs` order.
-///
-/// `Array.prototype` (§23.1.3.40, aliased to `values`) is absent on
-/// purpose: tag 2 is an Arr cell whose side props have no
-/// attribute-carrying define kernel, only a plain `set`. Its entry
-/// waits on one rather than landing here as a `{W:1,E:1,C:1}`
-/// approximation.
+/// The aliases mirror the instance table above — §23.1.3.40 Array →
+/// `values`, §24.1.3.14 Map → `entries`, §24.2.3.13 Set → `values`;
+/// §22.1.3.36 String has no named alias and carries a dedicated id.
+/// Tags are `torajs-rc/builtin_proto.rs` order.
 fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
     Some(match proto_tag {
+        2 => (2, torajs_rc::ANY_METHOD_VALUES),
         3 => (3, torajs_rc::ANY_METHOD_STR_ITERATOR),
         11 => (11, torajs_rc::ANY_METHOD_ENTRIES),
         12 => (12, torajs_rc::ANY_METHOD_VALUES),
@@ -150,7 +155,11 @@ fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
 
 /// Define `[Symbol.iterator]` on a freshly minted builtin prototype
 /// as a REAL own entry, if its spec clause gives it one — a no-op
-/// for the rest (see the alias table for why Array is among them).
+/// for the rest.
+///
+/// `Array.prototype` takes the other kernel: §23.1.3 makes it an
+/// array exotic object, so its own entries live in the Arr side props
+/// rather than in a dynobj.
 ///
 /// Before this the fact only existed on the instance side: reading
 /// `Map.prototype[Symbol.iterator]` answered undefined while
@@ -182,6 +191,12 @@ pub unsafe extern "C" fn __torajs_proto_iterator_install(proto: *mut c_void, idx
     // process-lifetime immortals (the well-known symbol singleton and
     // the interned method cell), so neither stake is ever given back.
     let cell = builtin_method_cell(family, mid);
+    if idx == torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64 {
+        unsafe {
+            __torajs_arrprops_define(proto, key, ANY_HEAP as i64, cell as i64, METHOD_ENTRY_FLAGS)
+        };
+        return;
+    }
     let mut slot = proto;
     unsafe {
         __torajs_dynobj_define(

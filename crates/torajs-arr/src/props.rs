@@ -36,6 +36,17 @@ unsafe extern "C" {
     /// takes a `&mut *mut c_void` to write back the new pointer.
     fn __torajs_dynobj_set(dynobj_ptr: *mut *mut c_void, key: *const c_void, tag: u64, value: u64);
 
+    /// Cross-tier — §10.1.6.3 define with explicit W/E/C flags
+    /// (`flags_byte` low 3 = values, bits 3-5 = present, bit 6 =
+    /// value present). Consumes one rc of a heap `value`.
+    fn __torajs_dynobj_define(
+        dynobj_ptr: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
+
     /// Cross-tier — read the tag (or ANY_UNDEF=5 on miss).
     fn __torajs_dynobj_get_tag(dynobj: *mut c_void, key: *const c_void) -> u64;
 
@@ -110,6 +121,43 @@ pub unsafe extern "C" fn __torajs_arrprops_set(
             *slot = __torajs_dynobj_alloc();
         }
         __torajs_dynobj_set(slot, key, tag as u64, value as u64);
+    }
+}
+
+/// `arr.key = (tag, value)` with explicit attributes — the
+/// attribute-carrying twin of [`__torajs_arrprops_set`], which can
+/// only write a plain assignment's `{W:1, E:1, C:1}`.
+///
+/// `Array.prototype` is the one builtin prototype the spec makes an
+/// array exotic object (§23.1.3), so its own entries land in these
+/// side props rather than in a dynobj — and a spec own property such
+/// as §23.1.3.40's `[Symbol.iterator]` needs its real attributes,
+/// which the plain set could not express.
+///
+/// # Safety
+/// `arr_ptr` is an array heap pointer (lifetime ≥ the calling scope);
+/// `key` is a live Str or Symbol heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arrprops_define(
+    arr_ptr: *mut c_void,
+    key: *const c_void,
+    tag: i64,
+    value: i64,
+    flags_byte: u64,
+) {
+    unsafe {
+        note_builtin_proto_write(arr_ptr, key);
+        let slot = props_slot_ptr(arr_ptr);
+        if (*slot).is_null() {
+            *slot = __torajs_dynobj_alloc();
+        }
+        __torajs_dynobj_define(
+            slot,
+            key as *mut c_void,
+            tag as u64,
+            value as u64,
+            flags_byte,
+        );
     }
 }
 
