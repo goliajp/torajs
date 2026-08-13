@@ -445,6 +445,13 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
         | Expr::As { expr, .. } => walk_expr(ast, *expr, bound, out),
         Expr::InstanceOf { expr, rhs } => {
             walk_expr(ast, *expr, bound, out);
+            // A BARE name on the right is resolved by the lowering's
+            // static ladder, from the NAME — no value is ever
+            // materialised, so it is not a free variable and must not
+            // become a capture. (It could not be one before either:
+            // the target used to be a `String`, invisible here.) A
+            // larger target IS an expression and walks normally, which
+            // is the whole point of widening this node.
             walk_expr(ast, *rhs, bound, out);
         }
         Expr::Sequence { left, right } => {

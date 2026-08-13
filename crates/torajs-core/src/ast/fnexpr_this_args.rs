@@ -93,6 +93,32 @@ pub(super) fn eq_operand_idents(exprs: &[Expr]) -> std::collections::HashSet<Exp
         .collect()
 }
 
+/// The seventh receiver-safe use shape: the BARE NAME on the right of
+/// `instanceof`.
+///
+/// Safer than the `.prototype` read above — that one at least reads a
+/// property off the cell, while this position materialises no value at
+/// all. `Expr::InstanceOf`'s target used to be a `String` field, so
+/// this use was invisible to the parity scan; once it became an
+/// ordinary `Expr::Ident` (rotation 390) every `x instanceof f` in a
+/// program silently un-promoted `f`'s binding, and the `__this` the
+/// promotion was there to bind went back to being a capture the
+/// checker rejects.
+///
+/// Only the bare-name spelling qualifies: a larger target IS a value
+/// expression and takes the runtime operator, which calls a handler.
+pub(super) fn instanceof_name_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::InstanceOf { rhs, .. } if matches!(&exprs[rhs.0 as usize], Expr::Ident(_)) => {
+                Some(*rhs)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The sixth receiver-safe use shape (RFC 20260808-construct-channel
 /// B2 knife, rotation 345): an Ident standing as an argument to a
 /// program-local FnDecl whose matching param is EXPLICITLY `any`,

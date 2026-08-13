@@ -80,7 +80,16 @@ use dynamic::{emit_has_instance, lower_general_rhs, try_lower_dynamic_target};
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, rhs: ExprId) -> Operand {
     match ctx.ast.get_expr(rhs) {
         Expr::Ident(n) => {
-            let name = n.clone();
+            // `class_globals` rewrites every `Ident("C")` in the arena
+            // to the class-object binding `Ident("__class_C")`, and the
+            // target is an ordinary Ident now, so it gets rewritten
+            // too — where it used to be a `String` field the pass could
+            // not see. The ladder below is written against the class
+            // NAME (its hierarchy, its descendant tags), so the prefix
+            // comes back off. `__class_C` and `C` denote the same
+            // class; the runtime lane re-derives the binding name for
+            // the shapes that need the object.
+            let name = n.strip_prefix("__class_").unwrap_or(n).to_string();
             lower_named(ctx, expr, &name)
         }
         _ => lower_general_rhs(ctx, expr, rhs),

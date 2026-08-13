@@ -4,7 +4,7 @@
 //! stays in the parent, which hands its Ident candidates here.
 
 use super::fnexpr_this_args::{
-    any_param_arg_idents, construct_channel_arg_idents, eq_operand_idents,
+    any_param_arg_idents, construct_channel_arg_idents, eq_operand_idents, instanceof_name_idents,
 };
 use super::fnexpr_this_faces::FacePatch;
 use super::fnexpr_this_recvs::{
@@ -124,6 +124,9 @@ pub(super) fn promote_variable_routed(
     // Sixth shape — explicit-`any` param argument positions (doc on
     // the free fn above).
     let any_arg_idents = any_param_arg_idents(stmts, exprs);
+    // Seventh shape — the bare name right of `instanceof` (doc on the
+    // free fn).
+    let instanceof_idents = instanceof_name_idents(exprs);
     for (name, face_eids) in &faces_by_name {
         let use_eids: Vec<ExprId> = exprs
             .iter()
@@ -142,6 +145,7 @@ pub(super) fn promote_variable_routed(
                 || construct_arg_idents.contains(e)
                 || eq_operand_idents.contains(e)
                 || any_arg_idents.contains(e)
+                || instanceof_idents.contains(e)
         }) {
             continue;
         }
