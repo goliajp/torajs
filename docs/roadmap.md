@@ -1528,9 +1528,45 @@ case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 4a0d6c1e`, never as a constant.
+snapshot stamped `@ e0b3c267`, never as a constant.
 
-**Latest @ `de2b9387`** (2026-08-13, rotation 387 — a silent wrong found
+**Latest @ `e0b3c267`** (2026-08-13, rotation 388 — the replacer rotation
+387 refused, actually built, plus a wider `undefined` fold it turned up.
+§25.5.2.2 step 3's `Call(replacerFunction, holder, «key, value»)` and
+§25.5.2.1 step 4.b's PropertyList are both served now: the walk threads
+the spec's state record instead of a bare gap slice, and applies the
+replacer at every property position — the synthetic `{ "": value }`
+root wrapper, array elements under their index, dynobj entries, both
+struct field lanes. Measured order: step 2's toJSON runs FIRST (bun
+hands a `Date` field to the replacer as its ISO string), so the Date leg
+moved into the shared hook. A slot-2 callable, array, or `any` takes the
+call out of the static unfold into a new kernel — which also closes the
+`Any` residual hole 387 recorded, since callability is now tested at run
+time instead of the value being dropped. `this` inside a replacer
+resolves too (the kernel was already passing the holder; the compile-time
+census entry was missing). **The second finding is not a JSON bug**:
+verifying the MDN spelling of a key-dropping replacer showed
+`cond ? undefined : anyValue` answering `null` — an `undefined` branch is
+a compile-time ConstPtrNull and the mixed-Any widen boxed it with the
+non-expr-aware box. The ternary's own wedge exists for exactly this but
+only fires when NEITHER side is Any; the same plain box sits in `&&`/`||`.
+The contrast that pinned it: the statement spelling of the same function
+was already right. A fifth knife made a top-level `undefined` or callable
+answer the undefined VALUE (`JSON.stringify(undefined)` had been the
+STRING "null"; a callable was a loud reject). Sweep: passTotal 29929 →
+**29944 (+15)**, bug +14, incompatible −29, trAccepted +29, conservation
+exact (+29 = +15 + +14). All 29 moved cases came out of
+`incompatible:type error` — **15 to pass, 14 to bug (they run now and
+fail deeper), zero pass regressions**. Gate predicate **243 unattributed
+clusters / 3177 cases / register 2 · 626 / residue 763 · 986 / core
+4789** — both numbers DOWN against 387's 244 / 3207, and the 29-case
+replacer cluster 387 named is gone. Build determinism 44/44 N=12.
+Recorded unfixed: `typeof JSON.stringify(x)` still const-folds to
+"string" and `=== undefined` to false, because the checker types the call
+`String` and cannot yet spell "string or undefined" — the value is right
+everywhere, only the static type is not.)
+
+**Previous @ `de2b9387`** (2026-08-13, rotation 387 — a silent wrong found
 while extending the `__this` slot table. `JSON.stringify`'s lowering
 evaluated slot 2 and dropped it, so a written replacer did not fail: it
 produced the unfiltered serialization and looked like a pass. Measured
