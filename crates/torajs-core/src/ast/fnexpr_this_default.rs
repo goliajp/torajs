@@ -24,7 +24,15 @@
 //! design principles rank worst. So each slot is admitted only after
 //! reading what the spec passes there.
 //!
-//! Admitted so far:
+//! Admitted so far (each entry read off the spec text that invokes
+//! it, and each MEASURED against HEAD first — a slot that already
+//! answered `undefined` needs no arm here. The Promise executor and
+//! Map / Set `forEach` were written and removed for exactly that
+//! reason: their callbacks reach the callee through a plain user-fn
+//! argument position, where the `__forward_` shim already supplies
+//! the receiver-less answer):
+//!
+//! * `Object.groupBy(items, cb)` / `Map.groupBy` — §7.3.35 step 4.c.
 //!
 //! * `p.then(f)` / `p.then(f, g)` / `p.catch(f)` / `p.finally(f)` —
 //!   §27.2.5.4 step 9's `Call(handler, undefined, «argument»)`, and
@@ -105,21 +113,7 @@ const ARRAY_OPTIONAL_THISARG: [&str; 10] = [
 ];
 
 pub fn bind_fnexpr_this_default(ast: &mut Ast) {
-    let arrays = collect_arraylit_binding_names(&ast.stmts, &ast.exprs);
-    let mut targets: Vec<(ExprId, String)> = Vec::new();
-    for i in 0..ast.exprs.len() {
-        let Expr::Call { callee, args } = &ast.exprs[i] else {
-            continue;
-        };
-        let Expr::Member { obj, name } = &ast.exprs[callee.0 as usize] else {
-            continue;
-        };
-        for slot in no_receiver_slots(ast, &arrays, *obj, name, args) {
-            if let Some(fn_name) = unclaimed_fnexpr(ast, slot) {
-                targets.push((slot, fn_name));
-            }
-        }
-    }
+    let targets = collect_targets(ast);
     if targets.is_empty() {
         return;
     }
@@ -183,6 +177,27 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
     }
 }
 
+/// Every unclaimed function expression sitting in a no-receiver slot,
+/// paired with the name of the FnDecl `lift_arrow_fns` made of it.
+fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
+    let arrays = collect_arraylit_binding_names(&ast.stmts, &ast.exprs);
+    let mut targets: Vec<(ExprId, String)> = Vec::new();
+    for i in 0..ast.exprs.len() {
+        let Expr::Call { callee, args } = &ast.exprs[i] else {
+            continue;
+        };
+        let Expr::Member { obj, name } = &ast.exprs[callee.0 as usize] else {
+            continue;
+        };
+        for slot in no_receiver_slots(ast, &arrays, *obj, name, args) {
+            if let Some(fn_name) = unclaimed_fnexpr(ast, slot) {
+                targets.push((slot, fn_name));
+            }
+        }
+    }
+    targets
+}
+
 /// The argument positions of `recv.<name>(args…)` that the spec
 /// invokes with no receiver — empty for every call this table does
 /// not name, which is what keeps an unaudited slot on its loud
@@ -194,6 +209,13 @@ fn no_receiver_slots(
     name: &str,
     args: &[ExprId],
 ) -> Vec<ExprId> {
+    // §7.3.35 GroupBy step 4.c — `Call(callback, undefined, «value,
+    // key»)`, reached through `Object.groupBy` / `Map.groupBy`.
+    if name == "groupBy"
+        && matches!(&ast.exprs[obj.0 as usize], Expr::Ident(n) if n == "Object" || n == "Map")
+    {
+        return args.iter().skip(1).take(1).copied().collect();
+    }
     if HANDLER_METHODS.contains(&name) && promise_certain(&ast.exprs, obj) {
         // `then` takes two handler slots; `catch` / `finally` one.
         // Anything past them is not a handler and is left alone.
@@ -248,17 +270,21 @@ fn unclaimed_fnexpr(ast: &Ast, eid: ExprId) -> Option<String> {
 /// it holds a promise at runtime — the point of the check is that no
 /// USER-written `then` can be reached.
 fn promise_certain(exprs: &[Expr], eid: ExprId) -> bool {
-    match &exprs[eid.0 as usize] {
-        Expr::New { class_name, .. } => class_name == "Promise",
-        Expr::Call { callee, .. } => match &exprs[callee.0 as usize] {
-            Expr::Member { obj, name } if PROMISE_STATICS.contains(&name.as_str()) => {
-                matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
-            }
-            Expr::Member { obj, name } if HANDLER_METHODS.contains(&name.as_str()) => {
-                promise_certain(exprs, *obj)
-            }
-            _ => false,
-        },
+    let Expr::Call { callee, .. } = &exprs[eid.0 as usize] else {
+        return false;
+    };
+    match &exprs[callee.0 as usize] {
+        // `new Promise(executor)` never survives to this pass as an
+        // `Expr::New`: the prelude's `rewrite_promise_new` turns it
+        // into a call to this synthesized helper, whose return is
+        // `__pr.promise` (§27.2.4.8's cell).
+        Expr::Ident(n) => n == "__promise_from_executor",
+        Expr::Member { obj, name } if PROMISE_STATICS.contains(&name.as_str()) => {
+            matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
+        }
+        Expr::Member { obj, name } if HANDLER_METHODS.contains(&name.as_str()) => {
+            promise_certain(exprs, *obj)
+        }
         _ => false,
     }
 }
