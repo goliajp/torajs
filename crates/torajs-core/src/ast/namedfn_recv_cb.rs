@@ -33,6 +33,12 @@
 //! else — direct calls, plain `__forward_` value uses, and
 //! thisArg-less callback positions are untouched.
 //!
+//! The callback slot admits the bare Ident and its `cb as any`
+//! spelling (398-10) — the cast erases nothing at runtime, and the
+//! typed-receiver route for that spelling is the any-lane wedge
+//! (`check_type_of_call_arr_hof_any_cb`), whose kernels honor the
+//! same header flag.
+//!
 //! Receiver gates mirror `fnexpr_this`'s knife-4 exactly (a
 //! promoted closure must only reach receiver-aware call paths — a
 //! struct-field or sibling-collision method named `every` would call
@@ -134,7 +140,14 @@ fn collect_sites(
         if !is_hof_method(mname) || args.len() < 2 {
             continue;
         }
-        let cb = args[0];
+        // 398-10 — `cb as any` spells the same intent (the cast
+        // erases nothing at runtime); peel it so the inner Ident
+        // rewrites while the As shell keeps the checker's any-lane
+        // routing (`check_type_of_call_arr_hof_any_cb`).
+        let cb = match ast.get_expr(args[0]) {
+            Expr::As { expr, ty_ann } if ty_ann == "any" => *expr,
+            _ => args[0],
+        };
         let Expr::Ident(cbname) = ast.get_expr(cb) else {
             continue;
         };

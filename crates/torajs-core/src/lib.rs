@@ -74,6 +74,7 @@ pub(crate) mod check_type_of_call;
 pub(crate) mod check_type_of_call_arr_flat;
 pub(crate) mod check_type_of_call_arr_flat_map_hetero;
 pub(crate) mod check_type_of_call_arr_flat_map_scalar;
+pub(crate) mod check_type_of_call_arr_hof_any_cb;
 pub(crate) mod check_type_of_call_arr_hof_argv_cb;
 pub(crate) mod check_type_of_call_arr_map_hetero;
 pub(crate) mod check_type_of_call_arr_pred_void_cb;

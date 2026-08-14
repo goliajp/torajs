@@ -120,5 +120,13 @@ pub(crate) fn check(
     if let Some(r) = route_collections::try_route(checker, ast, callee, args) {
         return r;
     }
+    // 398-10 — an Array-receiver HOF whose callback types `any` routes
+    // to the runtime any-method lane (after every narrower route so
+    // the verified typed lanes keep their claims; before the general
+    // tail whose per-arg loop rejects the Any callback).
+    if let Some(r) = crate::check_type_of_call_arr_hof_any_cb::try_match(checker, ast, callee, args)
+    {
+        return r;
+    }
     general::general_call(checker, ast, eid, callee, args)
 }
