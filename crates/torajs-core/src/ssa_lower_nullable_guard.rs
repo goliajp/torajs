@@ -272,6 +272,26 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// `ctx.undefable_heap_lets` (let-init of those shapes,
 /// alias-propagated). Over-broad for hit-path reads — one
 /// well-predicted cmp, never wrong.
+/// 403-03 — does `callee` name a FnDecl whose declared fn-typed
+/// return got the `effective_ret_ty` any-binding upgrade? Such a fn
+/// can hand back the undefined sentinel (`coerce_to_ret`'s
+/// Any→Closure arm), so its call result is an undefable-heap source.
+/// Same predicate pair the upgrade itself uses — the two sites must
+/// answer alike or the guard misses exactly the returns that need it.
+fn ret_upgraded_from_any_binding(ctx: &LowerCtx<'_>, callee: ExprId) -> bool {
+    let Expr::Ident(n) = ctx.ast.get_expr(callee) else {
+        return false;
+    };
+    ctx.ast.stmts.iter().any(|s| {
+        matches!(s,
+            crate::ast::Stmt::FnDecl { name, params, return_type, body, .. }
+            if name == n
+                && return_type.as_deref().is_some_and(crate::ast::is_fn_like_ann)
+                && crate::ssa_lower_body_returns_closure::body_returns_any_binding(
+                    ctx.ast, params, body))
+    })
+}
+
 pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     if callee_falls_through(ctx, eid) {
         return true;
@@ -291,16 +311,23 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
         // does — the mirror of `is_undef_f64_source`'s Index arm, for
         // the element families that have a cell to answer with.
         Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => heap_elem_array(ctx, *obj),
-        Expr::Call { callee, .. } => matches!(
-            ctx.ast.get_expr(*callee),
-            // `pop` / `shift` on an empty array answer undefined the
-            // same way a miss does, and `at` is here because it takes
-            // the same out-of-range exit under another spelling. A
-            // pointer-shaped element slot spells it with the generic
-            // immortal cell.
-            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift" | "at")
-                && heap_elem_array(ctx, *obj)
-        ),
+        Expr::Call { callee, .. } => {
+            matches!(
+                ctx.ast.get_expr(*callee),
+                // `pop` / `shift` on an empty array answer undefined the
+                // same way a miss does, and `at` is here because it takes
+                // the same out-of-range exit under another spelling. A
+                // pointer-shaped element slot spells it with the generic
+                // immortal cell.
+                Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift" | "at")
+                    && heap_elem_array(ctx, *obj)
+            )
+            // 403-03 — a call whose callee's fn-typed return was
+            // upgraded from an `any` binding (`effective_ret_ty`):
+            // coerce_to_ret answers the sentinel for a non-callable
+            // box, so calling the RESULT must arm the guard.
+            || ret_upgraded_from_any_binding(ctx, *callee)
+        }
         // A field read. The class factory seeds a field of one of these
         // types with that same immortal cell (`default_init_for_type`),
         // and it stays there until something writes the field — so a

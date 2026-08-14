@@ -207,6 +207,12 @@ fn try_lower_call_or_closure_callee(
                 }
                 _ => ClosureThis::None,
             };
+            // 403-03 — an fn-typed boundary can hand back the
+            // undefined sentinel (coerce_to_ret's Any→Closure arm);
+            // calling it must be a catchable TypeError, not a jump
+            // through bytes past the sentinel header. No-op unless
+            // the callee source can spell the sentinel.
+            crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, callee, &callee_op);
             Some(emit_closure_callee_with_this(
                 ctx,
                 eid,

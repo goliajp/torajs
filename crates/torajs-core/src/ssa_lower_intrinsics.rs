@@ -574,6 +574,7 @@ pub(crate) struct Intrinsics {
     pub(crate) accessor_face_from_any: FuncId,
     pub(crate) closure_call_variadic: FuncId,
     pub(crate) closure_call_with_this: FuncId,
+    pub(crate) anyv_to_callable_cell: FuncId,
     pub(crate) any_method_call: FuncId,
     pub(crate) any_method_call_opt: FuncId,
     pub(crate) any_index_method_call: FuncId,

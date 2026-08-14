@@ -311,6 +311,24 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
         return ctx.coerce_any_to_number(op, ctx.f.ret);
     }
+    if actual == Type::Any && matches!(ctx.f.ret, Type::Closure(_)) {
+        // 403-03 — an Any box crossing a fn-typed return boundary
+        // (`effective_ret_ty`'s any-binding upgrade). The kernel
+        // passes a Closure cell through with the box's stake riding
+        // the pointer, and answers the undefined sentinel for
+        // anything else — the call site's undefable-heap guard turns
+        // calling THAT into a catchable TypeError (right phase: the
+        // return itself never throws). Pre-fix the raw box bits were
+        // handed over as a pointer: a cell box happened to work, a
+        // number box was a SIGSEGV.
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_to_callable_cell, vec![op]),
+            ctx.f.ret,
+            None,
+        );
+        return Operand::Value(v);
+    }
     if actual == Type::Any && ctx.f.ret == Type::Bool {
         // Cluster-`values` follow-up (rotation 253) — a promoted bool
         // read (`return flags[1]` off a boolean[] global: the index

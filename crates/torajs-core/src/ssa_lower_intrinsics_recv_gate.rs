@@ -15,6 +15,12 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct RecvGateIds {
     pub closure_call_with_this: FuncId,
+    /// 403-03 — `anyv_to_callable_cell(box) -> ptr`: the fn-typed
+    /// return boundary's Any→Closure coercion (Closure cell passes
+    /// through, stake riding the pointer; anything else settles its
+    /// stake and answers the undefined sentinel the call site's
+    /// undefable guard turns into a catchable TypeError).
+    pub anyv_to_callable_cell: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> RecvGateIds {
@@ -25,6 +31,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_closure_call_with_this",
             &[Type::Ptr, Type::Any, Type::Ptr, Type::I64],
             Type::Any,
+        ),
+        anyv_to_callable_cell: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_to_callable_cell",
+            &[Type::Any],
+            Type::Ptr,
         ),
     }
 }

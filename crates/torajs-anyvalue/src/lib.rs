@@ -204,6 +204,7 @@ mod struct_field_ffi;
 mod struct_probe;
 mod struct_proto_has;
 mod to_bigint;
+mod to_callable;
 mod to_object;
 mod to_primitive;
 mod wrapper_view_through;
