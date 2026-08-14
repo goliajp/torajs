@@ -231,7 +231,41 @@ fn predeclare_self_ref_closure(
     init: ExprId,
 ) -> bool {
     let Expr::Closure { fn_name, captures } = ast.get_expr(init) else {
-        return false;
+        // 400-01 — a closure minted DEEPER in a composite init
+        // self-capturing the binding (`const s: any = { f: function
+        // () { … s … } }`): without the pre-declare the capture
+        // resolved "unknown", the prune dropped it, and the body's
+        // read fell to the dynamic-global lane (runtime
+        // ReferenceError). The lowering half is the recursive lane's
+        // ordinary-binding box (fn_name: None), which takes the
+        // binding's ANNOTATED slot type — so only an annotated
+        // binding admits here, typed off that same annotation.
+        let mut nested: Vec<&str> = Vec::new();
+        crate::ast::nested_closure_captures::collect(ast, init, &mut nested);
+        if !nested.iter().any(|c| *c == name) {
+            return false;
+        }
+        let Some(ann) = type_ann else {
+            return false;
+        };
+        let Some(ty) =
+            resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls)
+        else {
+            return false;
+        };
+        return checker
+            .declare(
+                name.to_string(),
+                LocalInfo {
+                    ty,
+                    mutable: true,
+                    moved: false,
+                    borrowed: false,
+                    declared_class: None,
+                    builtin_mv: false,
+                },
+            )
+            .is_ok();
     };
     if !captures.iter().any(|c| c == name) {
         return false;

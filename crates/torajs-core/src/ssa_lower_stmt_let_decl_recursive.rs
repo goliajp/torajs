@@ -192,7 +192,8 @@ fn collect<'s>(
                     Expr::Closure { fn_name, captures } => Some((fn_name.clone(), captures)),
                     _ => None,
                 };
-                if seen_captures.contains(name) {
+                let planned = seen_captures.contains(name);
+                if planned {
                     plan.push(Planned {
                         name: name.clone(),
                         type_ann: type_ann.clone(),
@@ -213,6 +214,26 @@ fn collect<'s>(
                     // at top level, rides the data-global lane).
                     let mut nested: Vec<&str> = Vec::new();
                     crate::ast::nested_closure_captures::collect(ctx.ast, *init, &mut nested);
+                    // 400-01 — a closure nested in THIS init capturing
+                    // THIS binding (`const a: any = [function () { …
+                    // a … }]`). The membership check above ran before
+                    // the init's captures were seen, so a
+                    // self-capture never planned and the mint later
+                    // panicked ("closure capture not in scope"). The
+                    // ordinary-binding arm (fn_name: None) is exactly
+                    // right for it: the box goes up first, the mint
+                    // captures the box, the declaration fills it. A
+                    // BARE closure init's self-capture stays with
+                    // `try_lower`'s inline case, untouched.
+                    if !planned && nested.iter().any(|c| *c == name) {
+                        plan.push(Planned {
+                            name: name.clone(),
+                            type_ann: type_ann.clone(),
+                            init: *init,
+                            fn_name: None,
+                            mutable: *mutable,
+                        });
+                    }
                     for c in nested {
                         seen_captures.insert(c.to_string());
                     }
