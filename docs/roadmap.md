@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `5bc04618`** (2026-08-15, rotation 402 — the name-keyed
+**Latest @ `ad6b3067`** (2026-08-15, rotation 405 — three fronts moved.
+The capturing-nested-class lane took `extends` for a static-free routed
+sibling (RFC 20260814 blade 5 knife 1: ES5 inheritance shape, implicit
+rest-forwarding ctor, the static-init wrapper's receiver argument
+joining the receiver-safe use shapes). A GENERIC class's instances
+became first-class on the any lane (404-01: the named class_layouts
+walk no longer SKIPS a class with no alias sid — that skip had shifted
+every later row one slot left; each mono factory mints its own tag so
+two same-shaped generic classes stay two classes; method rows
+re-target at the `__cmany_` twin-any instance under a new recv-first
+flags bit; `instanceof` ORs a runtime row-name identity check into the
+constant descendant chain). And the stage-3 upsert family landed on
+both lanes (383-04: `Map.prototype.getOrInsertComputed` +
+`WeakMap.prototype.getOrInsert`/`getOrInsertComputed` as the
+peek→call→set composition that IS the spec's late-set semantics).
+Sweep: passTotal 30085 → **30114 (+29)**, bug −28, incompatible −1,
+trAccepted +1 — conservation exact; all 36 verdict moves are the
+upsert family, two of them pass→bug de-inflation (the pre-existing
+passes rode "method missing → TypeError" coincidence; the real gap is
+the brand check on rebound collection methods, registered 405-06).
+Gate predicate **240 unattributed clusters / 3078 cases / register
+2 · 617 / residue 774 · 1004 / core 4699**.
+
+**Prior @ `5bc04618`** (2026-08-15, rotation 402 — the name-keyed
 promotion census went scope-paired, and three class-surface gaps closed.
 399-03: a multiply-declared this-fnexpr name no longer takes a blanket
 refusal — `fnexpr_this_pairing.rs` pairs every reachable use to its
