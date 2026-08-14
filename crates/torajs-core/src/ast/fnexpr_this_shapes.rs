@@ -78,6 +78,9 @@ pub(super) struct UseShapes {
     /// The `<name> as any` callback slot of an any-lane-certain array
     /// HOF call (401-03) — see [`hof_any_cb_arg_idents`].
     pub(super) hof_cb_arg: std::collections::HashSet<ExprId>,
+    /// An ELEMENT of an array literal initializing an exactly-`any`
+    /// binding (397-01) — see [`any_arraylit_elem_idents`].
+    pub(super) any_arraylit_elem: std::collections::HashSet<ExprId>,
 }
 
 impl UseShapes {
@@ -120,6 +123,7 @@ impl UseShapes {
             define_target: define_property_target_idents(exprs),
             any_ann_names,
             hof_cb_arg: hof_any_cb_arg_idents(stmts, exprs),
+            any_arraylit_elem: any_arraylit_elem_idents(stmts, exprs),
         }
     }
 
@@ -133,8 +137,49 @@ impl UseShapes {
             || self.instanceof_name.contains(&e)
             || self.define_target.contains(&e)
             || self.hof_cb_arg.contains(&e)
+            || self.any_arraylit_elem.contains(&e)
             || (self.any_return.contains(&e) && self.any_ann_names.contains(name))
     }
+}
+
+/// 397-01 — an element of an array literal that initializes an
+/// exactly-`any` binding: `const arr: any = [g]`.
+///
+/// Escaping proof family (the explicit-`any` argument / any-boundary
+/// return shapes): the binding is `any`, so the whole array lives in
+/// the any world and every read of an element stays there — an
+/// `arr[0](7)` rides the any-index call lane, whose closure leg
+/// dispatches through `invoke_with_this` (the 399-05 fix), and a
+/// detached read's plain call seeds `undefined`; both shift argv on
+/// FLAG_CLOSURE_RECV_FIRST. The annotation must be spelled on the
+/// binding itself — an inferred array type rides the typed lanes,
+/// whose element calls do not shift.
+///
+/// Bare Ident elements and their `as` shells both admit (the shell
+/// changes the checker's view, never the value, and the binding's
+/// own `any` is what decides the lane).
+fn any_arraylit_elem_idents(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    fn walk(stmts: &[Stmt], exprs: &[Expr], out: &mut std::collections::HashSet<ExprId>) {
+        for s in stmts {
+            if let Stmt::LetDecl { type_ann, init, .. } = s
+                && type_ann.as_deref() == Some("any")
+            {
+                let init = peel_as(exprs, *init);
+                if let Expr::Array(elems) = &exprs[init.0 as usize] {
+                    for e in elems {
+                        let inner = peel_as(exprs, *e);
+                        if matches!(&exprs[inner.0 as usize], Expr::Ident(_)) {
+                            out.insert(inner);
+                        }
+                    }
+                }
+            }
+            super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| walk(inner, exprs, out));
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    walk(stmts, exprs, &mut out);
+    out
 }
 
 /// The `<name> as any` callback slot of an array HOF call whose
