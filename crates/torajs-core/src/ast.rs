@@ -102,6 +102,7 @@ mod hoist_gen_fn_exprs;
 mod hoist_nested_classes;
 mod hoist_nested_classes_rename;
 mod implicit_generics_infer;
+mod implicit_generics_value_return;
 mod infer_closure_lets;
 mod infer_closure_params;
 mod infer_closure_params_apply;
@@ -180,9 +181,9 @@ pub use gen_fn_expr::{GenFnExprInfo, GenFnExprKind};
 pub use globalthis_member::desugar_globalthis_members;
 pub use hoist_gen_fn_exprs::hoist_gen_fn_exprs;
 pub(crate) use implicit_generics_infer::{
-    AstExprsView, binds_to_params, body_has_value_return, infer_expr_ann_with, infer_return_ann,
-    infer_return_ann_seeded,
+    AstExprsView, binds_to_params, infer_expr_ann_with, infer_return_ann, infer_return_ann_seeded,
 };
+pub(crate) use implicit_generics_value_return::body_has_value_return;
 pub use infer_closure_params::infer_anonymous_closure_params;
 pub(crate) use inject_builtin_classes::class_reaches_error;
 pub use inject_builtin_classes::inject_builtin_classes;

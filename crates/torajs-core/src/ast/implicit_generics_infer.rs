@@ -18,12 +18,13 @@
 //!   * `infer_expr_ann_with` — main expression annotation sniff
 //!     (literals + BinOp + Ident + Call/Member method whitelist +
 //!     Ternary + Array + Member/length + Index + ObjectLit).
-//!   * `body_has_value_return` — Stmt-tree walker asking whether any
-//!     reachable path has a value-carrying `Stmt::Return`.
 //!
 //! Private helpers: `collect_let_binding_anns(_stmt)`,
-//! `collect_return_anns(_stmt)`, `is_typevar_ann`,
-//! `stmt_has_value_return`.
+//! `collect_return_anns(_stmt)`, `is_typevar_ann`.
+//!
+//! `body_has_value_return` — the control-flow question of whether an
+//! inferred return type is wanted at all — lives in the
+//! `implicit_generics_value_return` sibling.
 
 use super::{BinOp, Expr, ExprId, Param, Stmt, UnaryOp, retag_field_fn_ann};
 
@@ -443,53 +444,30 @@ pub(crate) fn infer_expr_ann_with(
         // return { f: () => 7 } }` interned a bare-fn-ptr slot while
         // the literal stored a closure env block, and the field call
         // CallIndirect'd into the env header (SIGBUS).
-        Expr::ObjectLit { fields } => fields
-            .iter()
-            .map(|(n, eid)| recur(*eid).map(|t| format!("{n}:{}", retag_field_fn_ann(&t))))
-            .collect::<Option<Vec<_>>>()
-            .map(|p| format!("__inlobj({})", p.join("|"))),
+        Expr::ObjectLit { fields } => {
+            // A computed key has no static name: the parser left a
+            // `__computed_<n>__` sentinel where the name goes and
+            // parked the key expression in a side table, and only the
+            // dynobj lane can ToPropertyKey it. Spelling the sentinel
+            // into an `__inlobj(` shape hands the caller a struct
+            // whose fields are neither the ones the object has nor in
+            // the order it has them, while the value itself lowers
+            // through the dynobj lane — `function mk(k: string) {
+            // return { [k]: 1, z: 0 } }` answered `r["a"] === 1` and
+            // `Object.keys(r) === ["a","z"]` but serialized as
+            // `{"__computed_0__":0,"z":0}`, a wrong answer with
+            // nothing loud about it. `any` is the same exit the
+            // checker takes for such a literal at every other
+            // position.
+            if fields.iter().any(|(n, _)| n.starts_with("__computed_")) {
+                return Some("any".to_string());
+            }
+            fields
+                .iter()
+                .map(|(n, eid)| recur(*eid).map(|t| format!("{n}:{}", retag_field_fn_ann(&t))))
+                .collect::<Option<Vec<_>>>()
+                .map(|p| format!("__inlobj({})", p.join("|")))
+        }
         _ => None,
-    }
-}
-
-pub(crate) fn body_has_value_return(body: &[Stmt]) -> bool {
-    for s in body {
-        if stmt_has_value_return(s) {
-            return true;
-        }
-    }
-    false
-}
-
-fn stmt_has_value_return(s: &Stmt) -> bool {
-    match s {
-        Stmt::Return(Some(_)) => true,
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            stmt_has_value_return(then_branch)
-                || else_branch.as_deref().is_some_and(stmt_has_value_return)
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stmt_has_value_return(body),
-        Stmt::Labeled { body, .. } => stmt_has_value_return(body),
-        Stmt::For { init, body, .. } => {
-            init.as_deref().is_some_and(stmt_has_value_return) || stmt_has_value_return(body)
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => body_has_value_return(stmts),
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            body_has_value_return(body)
-                || body_has_value_return(catch_body)
-                || finally_body.as_deref().is_some_and(body_has_value_return)
-        }
-        // Nested FnDecl returns are scoped to the inner fn — skip.
-        Stmt::FnDecl { .. } => false,
-        _ => false,
     }
 }
