@@ -389,6 +389,20 @@ pub struct Ast {
     /// fields ride `field_inits` under their sentinel name instead
     /// (the ctor-prefix injection rewrites them to keyed writes).
     pub class_computed_static_fields: Vec<(String, String, ExprId)>,
+    /// RFC 20260814-capturing-nested-class blade 3 — why the
+    /// capturing-nested-class lane turned a given class down,
+    /// recorded WHERE THE DECISION IS MADE (the nested-class hoist),
+    /// in declaration order.
+    ///
+    /// The checker is what finally reports it, and by then the tree
+    /// has moved: a static method's `this` is gone from the body it
+    /// was declined for, so recomputing the reason at that point
+    /// answered a different one — or none, which printed the
+    /// "the class desugar did not claim it" fallback at someone who
+    /// wrote ordinary TypeScript. Keyed by class name, which is not
+    /// unique; two declined classes sharing a name can trade reasons
+    /// (a message, never a semantic).
+    pub unclaimed_class_reasons: Vec<(String, &'static str)>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

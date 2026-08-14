@@ -75,7 +75,13 @@ pub(super) fn try_rewrite_capturing_class(
     idx: usize,
     counter: &mut u32,
 ) -> bool {
-    if !routes(ast, &stmts[idx]) {
+    if let Some(why) = decline_reason(ast, &stmts[idx]) {
+        // Record it HERE, where the decision is made. The checker is
+        // what finally reports it, and by then the tree has moved.
+        if let Stmt::ClassDecl { name, .. } = &stmts[idx] {
+            let name = name.clone();
+            ast.unclaimed_class_reasons.push((name, why));
+        }
         return false;
     }
     let Stmt::ClassDecl { name, .. } = &stmts[idx] else {
@@ -90,10 +96,6 @@ pub(super) fn try_rewrite_capturing_class(
     true
 }
 
-fn routes(ast: &Ast, s: &Stmt) -> bool {
-    decline_reason(ast, s).is_none()
-}
-
 /// What to say about a `ClassDecl` that reached the checker.
 ///
 /// Exactly one shape gets there, and it is ordinary code: a class
@@ -103,12 +105,25 @@ fn routes(ast: &Ast, s: &Stmt) -> bool {
 /// only part of the class surface. Calling that "internal" and asking
 /// "desugar didn't run?" reads as a compiler bug report to someone who
 /// wrote perfectly good TypeScript; name what is actually missing.
+///
+/// The reason comes from the side table the hoist filled, not from
+/// re-deciding here: the tree has moved since. A static method's
+/// `this` is gone from the body it was turned down for by the time
+/// this runs, so re-deciding answered a DIFFERENT reason — or none at
+/// all, which printed the "the class desugar did not claim it"
+/// fallback at code that was turned down for a nameable reason.
 pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
     let name = match s {
         Stmt::ClassDecl { name, .. } => name.as_str(),
         _ => "?",
     };
-    let why = decline_reason(ast, s).unwrap_or("the class desugar did not claim it");
+    let why = ast
+        .unclaimed_class_reasons
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, why)| *why)
+        .or_else(|| decline_reason(ast, s))
+        .unwrap_or("the class desugar did not claim it");
     format!(
         "class `{name}` is declared inside a block or a function body and reads a \
          binding from around it, which is not supported yet because {why}"
