@@ -27,6 +27,11 @@ const ARR_FLAG_ARGUMENTS: u16 = 1 << 1;
 /// header-flags bit 3, RFC 20260721 刀 2).
 const FLAG_FN_GENERATOR_BIT: u16 = 1 << 3;
 
+/// Closure-cell lazy props slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_PROPS_OFF` (405-01: the expando dynobj is
+/// what carries a re-parented function value's [[Prototype]] link).
+const CLOSURE_PROPS_OFF: usize = 24;
+
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_drop(s: *mut u8);
@@ -294,6 +299,21 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         // the genfn trio singleton (already owned on return); every
         // other closure keeps %Function.prototype% below.
         if tag == TAG_CLOSURE {
+            // 405-01 substrate — a re-parented function value answers
+            // its user [[Prototype]] link from the expando carrier
+            // (the `\x00proto` entry `setPrototypeOf` wrote there);
+            // an explicit null answers null. Untouched closures fall
+            // to the builtin faces below.
+            let props = unsafe { *(dynobj.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) }
+                as *const c_void;
+            if !props.is_null() {
+                if unsafe { dynobj_is_null_proto(props) } {
+                    return VALUE_NULL_IMM;
+                }
+                if let Some(own) = unsafe { dynobj_entry(props, PROTO_SLOT_KEY) } {
+                    return own;
+                }
+            }
             let flags = unsafe { dynobj.cast::<u8>().add(6).cast::<u16>().read() };
             if flags & FLAG_FN_GENERATOR_BIT != 0 {
                 return unsafe { crate::genfn::__torajs_genfn_proto(0) };

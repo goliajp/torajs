@@ -185,6 +185,15 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             {
                 return tag;
             }
+            // 405-01 substrate — a re-parented function value answers
+            // through its user [[Prototype]] before the implicit
+            // %Function.prototype% chain (§10.1.8.1; the link lives on
+            // the expando dynobj). An explicit null ends the chain.
+            match crate::member_get_own::closure_user_proto(ptr) {
+                Some(Some(parent)) => return __torajs_any_member_get_tag(parent, key),
+                Some(None) => return 5,
+                None => {}
+            }
             // Inherited Function.prototype expando (monkey-patches
             // land in the tag-13 singleton dynobj).
             let fp = function_proto_props();

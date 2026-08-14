@@ -322,6 +322,25 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
             return false;
         }
     }
+    // 405-01 substrate — a re-parented FUNCTION value carries its
+    // user [[Prototype]] link on the lazy expando dynobj at +24 (the
+    // same `\x00proto` simulation entry), so `"s" in D` after
+    // `Object.setPrototypeOf(D, P)` walks up like the dynobj arm.
+    // An explicit null ends the chain before the builtin face.
+    if type_tag == crate::Tag::Closure as u16 {
+        let props = unsafe { *((ptr as *const u8).add(24) as *const u64) } as *mut c_void;
+        if !props.is_null() {
+            let parent = unsafe { __torajs_dynobj_user_proto(props) };
+            if !parent.is_null() {
+                return unsafe { __torajs_in_op_any_str(parent as i64, key) };
+            }
+            if unsafe { *((props as *const u8).add(6) as *const u16) } & DYNOBJ_HDR_FLAG_NULL_PROTO
+                != 0
+            {
+                return false;
+            }
+        }
+    }
     // §6.1.7 — the two faces below are name-keyed: a class prototype's
     // members and a builtin prototype's interned family methods are all
     // spelled with strings, and both probes read the key's Str payload.
@@ -466,8 +485,11 @@ mod tests {
     use crate::Tag;
 
     fn make_heap_block(type_tag: u16) -> Vec<u8> {
-        // 16 bytes: 4B refcount + 2B type_tag + 2B flags + 8B payload.
-        let mut block = vec![0u8; 16];
+        // 32 bytes: 4B refcount + 2B type_tag + 2B flags + payload.
+        // A Tag::Closure receiver's chain probe reads the props slot
+        // at +24 (405-01), so the mock must be at least that wide; a
+        // zero slot there means "no expando" and skips the walk.
+        let mut block = vec![0u8; 32];
         block[4..6].copy_from_slice(&type_tag.to_ne_bytes());
         block
     }

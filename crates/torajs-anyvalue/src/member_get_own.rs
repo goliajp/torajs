@@ -86,6 +86,34 @@ unsafe fn proto_slot_key_cell() -> *mut u8 {
     cell
 }
 
+/// A FUNCTION value's user [[Prototype]] link (405-01 substrate).
+/// The link lives on the closure's lazy expando dynobj — the same
+/// [`PROTO_SLOT_KEY`] simulation entry a dynobj receiver carries —
+/// so the closure cell itself grows no new slot and
+/// `Object.setPrototypeOf(D, P)` re-parents the function through the
+/// machinery the dynobj lane already exercises.
+///
+/// Three states, because the read paths act differently on each:
+/// `None` = never re-parented (the implicit %Function.prototype%
+/// chain — the builtin fallthrough owns it); `Some(None)` = an
+/// explicit null (the chain ENDS — falling through to the builtin
+/// surface would resurrect what the user severed); `Some(Some(cell))`
+/// = the parent.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` heap pointer.
+pub(crate) unsafe fn closure_user_proto(ptr: *mut c_void) -> Option<Option<u64>> {
+    let props = unsafe { crate::member_get_layout::closure_props(ptr) };
+    if props.is_null() {
+        return None;
+    }
+    let flags = unsafe { props.cast::<u8>().add(6).cast::<u16>().read() };
+    if flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+        return Some(None);
+    }
+    unsafe { user_proto_cell(props) }.map(Some)
+}
+
 /// C face of [`user_proto_cell`] for sibling runtime crates (the
 /// for-in chain walk in torajs-meta, the `in` HasProperty chain in
 /// torajs-rc) — NULL when the receiver carries no user

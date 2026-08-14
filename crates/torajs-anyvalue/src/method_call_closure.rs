@@ -185,6 +185,17 @@ pub(crate) unsafe fn closure_method(
                 {
                     return dispatch(&target, VALUE_UNDEFINED, argv, argc);
                 }
+                // 405-01 substrate — a re-parented function value
+                // resolves inherited methods through its user
+                // [[Prototype]] chain (the ES5 extends lane's
+                // `Object.setPrototypeOf(D, P)` static face).
+                if !name_str.is_null()
+                    && let Some(r) = crate::method_call_closure_expando::proto_chain_method(
+                        ptr, mid, name_str, argv, argc,
+                    )
+                {
+                    return r;
+                }
                 method_no_such()
             }
         }

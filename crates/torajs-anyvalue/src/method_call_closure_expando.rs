@@ -7,6 +7,8 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::Tag;
+
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 
 unsafe extern "C" {
@@ -73,5 +75,57 @@ pub(crate) unsafe fn expando_this_is_the_function(
             argv,
             argc,
         ))
+    }
+}
+
+/// A method resolved through a re-parented function value's user
+/// [[Prototype]] chain (405-01 substrate): `Object.setPrototypeOf(D,
+/// P)` puts `P` on `D`'s chain, so `D.s()` walks up until some
+/// ancestor's expando bag owns the name — and invokes it with `D` as
+/// the receiver, which is what §10.1.8.1 GetV + §13.3.6 EvaluateCall
+/// compose to. Per hop the entry resolves exactly like an own
+/// expando: a receiver-first closure takes the ORIGINAL receiver,
+/// anything else goes through the props-bag dispatch unchanged (the
+/// same approximation the own-entry path makes).
+///
+/// A non-closure ancestor ends the walk (recorded boundary — the
+/// extends lane only ever links function values); so does an
+/// explicit-null or never-re-parented link. The set path refuses
+/// cycles, so the walk terminates.
+pub(crate) unsafe fn proto_chain_method(
+    recv: *mut c_void,
+    mid: i64,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let mut cur = recv;
+        loop {
+            let parent = crate::member_get_own::closure_user_proto(cur)??;
+            if !is_cell(parent) {
+                return None;
+            }
+            let pp = as_void_ptr(parent);
+            let (_, t) = crate::member_get::recv_cell(parent)?;
+            if t != Tag::Closure as u16 {
+                return None;
+            }
+            let props = crate::member_get_layout::closure_props(pp);
+            if !props.is_null() && __torajs_dynobj_get_tag(props, name_str as *const c_void) != 5 {
+                if let Some(r) = expando_this_is_the_function(recv, props, name_str, argv, argc) {
+                    return Some(r);
+                }
+                return Some(crate::method_call_dynobj::dynobj_method(
+                    props as *mut c_void,
+                    mid,
+                    name_str,
+                    core::ptr::null_mut(),
+                    argv,
+                    argc,
+                ));
+            }
+            cur = pp;
+        }
     }
 }

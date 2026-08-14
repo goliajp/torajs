@@ -25,10 +25,11 @@ use core::ffi::{c_char, c_void};
 
 use crate::reflect::{
     ANY_HEAP, DYNOBJ_HDR_FLAG_NULL_PROTO, OBJECT_PROTO_TAG, PROTO_SLOT_ATTRS, PROTO_SLOT_KEY,
-    TAG_DYNOBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
+    TAG_CLOSURE, TAG_DYNOBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
 };
 
 unsafe extern "C" {
+    fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const u8) -> bool;
@@ -58,6 +59,28 @@ fn is_null_any(v: u64) -> bool {
 
 /// `DYNOBJ_HDR_FLAG_NON_EXTENSIBLE` mirror (torajs-dynobj layout).
 const HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
+
+/// Closure-cell lazy props slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
+const CLOSURE_PROPS_OFF: usize = 24;
+
+/// The expando dynobj that CARRIES a function value's user
+/// [[Prototype]] link (405-01 substrate) — the closure cell grows no
+/// new slot; the `\x00proto` simulation entry lands in the same lazy
+/// props bag every other expando uses. First touch allocates and
+/// parks it back at +24 (the dynobj cell itself never relocates, so
+/// no later writeback is needed).
+unsafe fn closure_proto_carrier(cell: *mut c_void) -> *mut c_void {
+    unsafe {
+        let slot = cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *mut u64;
+        let mut props = *slot as *mut c_void;
+        if props.is_null() {
+            props = __torajs_dynobj_alloc();
+            *slot = props as u64;
+        }
+        props
+    }
+}
 
 /// The receiver's current user-proto link: the own `__proto__` cell
 /// entry, or null for the null-proto shape / an absent entry (the
@@ -137,12 +160,23 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
             return false;
         }
         // Steps 6-8 — walk the would-be parent chain; finding the
-        // receiver itself is the cycle refusal. A non-dynobj link
-        // ends the walk (builtin implicit chains cannot reach a
-        // user dynobj).
+        // receiver itself is the cycle refusal. A closure link hops
+        // through its expando props bag — the dynobj that CARRIES its
+        // user [[Prototype]] entry (405-01), and also the cell this
+        // fn is asked to write when the receiver is a function value,
+        // so the ptr_eq probe catches closure cycles too. Any other
+        // non-dynobj link ends the walk (builtin implicit chains
+        // cannot reach a user object).
         let mut cur_p = proto;
         while is_cell_imm(cur_p) {
-            let cell = cur_p as *mut c_void;
+            let mut cell = cur_p as *mut c_void;
+            if heap_type_tag(cell) == TAG_CLOSURE {
+                let props = *(cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64);
+                if props == 0 {
+                    break;
+                }
+                cell = props as *mut c_void;
+            }
             if core::ptr::eq(cell, obj) {
                 __torajs_str_drop(key);
                 return false;
@@ -195,6 +229,16 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
         }
         let cell = obj as *mut c_void;
         if heap_type_tag(cell) != TAG_DYNOBJ {
+            // 405-01 substrate — a FUNCTION value re-parents through
+            // its expando props bag (the extends lane's
+            // `Object.setPrototypeOf(D, P)` static face).
+            if heap_type_tag(cell) == TAG_CLOSURE {
+                let carrier = closure_proto_carrier(cell);
+                if !ordinary_set_prototype_of(carrier, proto) {
+                    __torajs_throw_type_error(c"Cannot set prototype of this object".as_ptr());
+                }
+                return;
+            }
             // A static-layout struct has no __proto__ simulation
             // slot — the write CANNOT take effect, and the silent
             // return read as success (rotation 154 probe:
@@ -208,8 +252,8 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
                 );
                 return;
             }
-            // Recorded boundary — exotic receivers (Arr / Closure /
-            // wrapper) keep their builtin [[Prototype]].
+            // Recorded boundary — exotic receivers (Arr / wrapper)
+            // keep their builtin [[Prototype]].
             return;
         }
         if !ordinary_set_prototype_of(cell, proto) {
@@ -240,7 +284,13 @@ pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64)
         }
         let cell = obj as *mut c_void;
         if heap_type_tag(cell) != TAG_DYNOBJ {
-            // Fixed-layout struct / exotic (Arr / Closure / wrapper)
+            // 405-01 substrate — function values re-parent through
+            // the expando carrier, same as the Object flavor.
+            if heap_type_tag(cell) == TAG_CLOSURE {
+                let carrier = closure_proto_carrier(cell);
+                return i64::from(ordinary_set_prototype_of(carrier, proto));
+            }
+            // Fixed-layout struct / exotic (Arr / wrapper)
             // receivers cannot take a new [[Prototype]] in tr — the
             // Object flavor throws / silently keeps; the honest
             // Reflect spelling of "the write cannot take effect" is
@@ -269,6 +319,14 @@ pub unsafe extern "C" fn __torajs_anyv_proto_member_set(obj: u64, proto: u64) {
         }
         let cell = obj as *mut c_void;
         if heap_type_tag(cell) != TAG_DYNOBJ {
+            // 405-01 substrate — `D.__proto__ = P` on a function
+            // value routes through the same expando carrier.
+            if heap_type_tag(cell) == TAG_CLOSURE {
+                let carrier = closure_proto_carrier(cell);
+                if !ordinary_set_prototype_of(carrier, proto) {
+                    __torajs_throw_type_error(c"Cannot set prototype of this object".as_ptr());
+                }
+            }
             return;
         }
         if !ordinary_set_prototype_of(cell, proto) {

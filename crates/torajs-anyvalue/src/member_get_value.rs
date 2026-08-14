@@ -117,6 +117,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             {
                 return val;
             }
+            // 405-01 substrate — user [[Prototype]] chain, tag twin
+            // above.
+            match crate::member_get_own::closure_user_proto(ptr) {
+                Some(Some(parent)) => return __torajs_any_member_get_value(parent, key),
+                Some(None) => return 0,
+                None => {}
+            }
             // Inherited Function.prototype expando — tag twin above.
             let fp = function_proto_props();
             if !fp.is_null() {
