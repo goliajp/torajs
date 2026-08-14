@@ -155,10 +155,23 @@ fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     if !static_init.is_empty() {
         return Some("it has a static field or a static block");
     }
-    // A computed member name parses into a `__ccm_` sentinel field
-    // whose initializer is a keyed write into an expando dict — a
-    // shape this lane does not reproduce.
-    if fields.iter().any(|(f, _)| f.starts_with("__ccm_")) {
+    // A computed member name parses into a `__ccm_<n>__` sentinel,
+    // and where the sentinel then LIVES depends on what it named: a
+    // method keeps it as the member name, an instance field turns it
+    // into a keyed write inside the constructor, a static field goes
+    // to its own side table. Asking the side table the parser filled
+    // answers all three at once — reading the sentinel back out of
+    // whichever place it landed would answer each of them differently,
+    // which is how two of these shapes used to report as "a generator
+    // or otherwise compiler-rewritten method" and "a body names
+    // something the compiler minted".
+    if ast.class_computed_keys.keys().any(|(c, _)| c == name)
+        || ast
+            .class_computed_static_fields
+            .iter()
+            .any(|(c, _, _)| c == name)
+        || fields.iter().any(|(f, _)| f.starts_with("__ccm_"))
+    {
         return Some("it has a computed member name");
     }
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
