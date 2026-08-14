@@ -120,9 +120,20 @@ unsafe fn str_keyed_call(
 /// Resolve a string-lane `ANY_METHOD_NO_SUCH` float: properties the
 /// method-dispatch surface cannot see (an Array element under a
 /// canonical-index key, a string-keyed slot only the indexed read
-/// serves) get the §13.3.6.2 fallback — keyed property read, then
-/// the bare any-call on the value (`arr[0](x)` calls the element;
-/// a non-callable read keeps the standard TypeError).
+/// serves) get the §13.3.6.2 fallback — keyed property read, then the
+/// call on the value with THE BASE AS RECEIVER (`arr[0](x)` is a
+/// method call on `arr`; a non-callable read keeps the standard
+/// TypeError).
+///
+/// The receiver half was missing while every other leg had it: a
+/// dynobj property (`o[0]()`), an array's named expando (`arr.m()`)
+/// and a string-keyed read (`o[k]()`) all answered the base, and only
+/// the ARRAY ELEMENT — the one property this fallback exists for —
+/// bare-called its value, so `this` read `undefined`. Same shape as
+/// the symbol leg below: a receiver-first closure (a promoted fn-expr
+/// body that says `this`) carries FLAG_CLOSURE_RECV_FIRST, and
+/// `invoke_with_this` is what puts the receiver in argv[0]; a closure
+/// without the flag ignores it, so nothing else moves.
 unsafe fn settle_str_lane(
     r: AnyValue,
     recv: AnyValue,
@@ -135,9 +146,43 @@ unsafe fn settle_str_lane(
     }
     // Owned read (+1 for cells); the call borrows the callee.
     let v = unsafe { crate::index_any_keyed::__torajs_any_index_get_keyed(recv, key) };
-    let out = unsafe { crate::method_call_closure_dispatch::__torajs_any_call(v, argv, argc) };
+    let out = unsafe { call_with_base(v, recv, argv, argc) };
     unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(v) };
     out
+}
+
+/// Call `v` with `base` as its `this` — the §13.3.6.2 method-call
+/// convention for a property-reference callee.
+///
+/// Only a user closure carrying a boxed entry can be handed a receiver
+/// through this path; everything else (builtin reified cells,
+/// non-callables) keeps the bare-call answer it had, which is where
+/// their own dispatch decides the receiver.
+unsafe fn call_with_base(v: AnyValue, base: AnyValue, argv: *const u64, argc: i64) -> AnyValue {
+    if is_cell(v) {
+        let cell = as_void_ptr(v);
+        // SAFETY: is_cell guarantees a live header.
+        let ct = unsafe { (cell.cast::<u8>().add(4) as *const u16).read() };
+        if ct == Tag::Closure as u16
+            && unsafe { crate::method_value::builtin_method_mid(cell) }.is_none()
+        {
+            // SAFETY: the closure layout carries the boxed dual entry.
+            let entry = unsafe { *(cell.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+            if entry != 0 {
+                let raw = unsafe {
+                    crate::method_call_closure_dispatch::invoke_with_this(
+                        cell, entry, base, argv, argc,
+                    )
+                };
+                return if raw == crate::method_call::ANY_METHOD_NO_SUCH {
+                    VALUE_UNDEFINED
+                } else {
+                    raw
+                };
+            }
+        }
+    }
+    unsafe { crate::method_call_closure_dispatch::__torajs_any_call(v, argv, argc) }
 }
 
 /// The symbol-key leg — resolve through the symbol face (dict /
