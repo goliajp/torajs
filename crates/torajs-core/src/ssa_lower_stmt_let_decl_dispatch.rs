@@ -47,7 +47,7 @@ pub(crate) fn try_sub_siblings(
         return true;
     }
     // K.3 / K.4 — top-level data global.
-    if crate::ssa_lower_stmt_let_decl_global::try_lower_global_let(ctx, name, init) {
+    if crate::ssa_lower_stmt_let_decl_global::try_lower_global_let(ctx, name, type_ann, init) {
         return true;
     }
     // M2 Phase B Stage 4 — `let f = global_fn`.

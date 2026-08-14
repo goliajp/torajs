@@ -52,8 +52,9 @@ use crate::ssa_lower::LowerCtx;
 // Conversion crossings live in the convert sibling; the re-export
 // keeps the pre-split call face (`ssa_lower_stmt_let_decl::…`) for
 // the return-boundary and global-lane callers.
-use crate::ssa_lower_stmt_let_decl_convert::maybe_any_to_typed_scalar;
-pub(crate) use crate::ssa_lower_stmt_let_decl_convert::maybe_arr_any_to_typed;
+pub(crate) use crate::ssa_lower_stmt_let_decl_convert::{
+    maybe_any_to_typed_scalar, maybe_arr_any_to_typed,
+};
 
 pub(crate) fn lower(
     ctx: &mut LowerCtx,

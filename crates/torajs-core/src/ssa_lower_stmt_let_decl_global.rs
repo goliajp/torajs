@@ -15,12 +15,17 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
 
-use crate::ssa_lower_stmt_let_decl::maybe_arr_any_to_typed;
+use crate::ssa_lower_stmt_let_decl::{maybe_any_to_typed_scalar, maybe_arr_any_to_typed};
 
 /// K.3 / K.4 — top-level data global: main fn + name in `globals` emits
 /// GlobalRef + Store (K.6 empty-array fast path; refcount slots require
 /// fresh-heap init). Returns false when `name` is not a module global.
-pub(crate) fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
+pub(crate) fn try_lower_global_let(
+    ctx: &mut LowerCtx,
+    name: &str,
+    type_ann: Option<&String>,
+    init: ExprId,
+) -> bool {
     if !ctx.is_main_fn {
         return false;
     }
@@ -103,6 +108,21 @@ pub(crate) fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId)
         (sentinel, true)
     } else {
         (init_val, converted)
+    };
+    // The scalar mirror of the chunk-698 crossing above, and the same
+    // one the fn-scope lane has always made: an `any` init under a
+    // `number` / `string` / `boolean` annotation decodes at the binding
+    // boundary. Missing here, a Call-shaped init (not a borrow shape,
+    // so the gate below waved it through) stored the BOX BITS into a
+    // `str` global and the next read deref'd them as a Str pointer —
+    // `function g(): any { return "lit" }` + `const s: string = g()`
+    // was a silent SIGSEGV, while the same line spelled `let` (fn-scope
+    // lane) printed `lit`. Runs after the sentinel arm: `undefined`
+    // must bind the immortal cell, not ToString into "undefined".
+    let (init_val, converted) = if converted {
+        (init_val, converted)
+    } else {
+        maybe_any_to_typed_scalar(ctx, type_ann, slot_ty, init, init_val)
     };
     // Chunk 809 — an Any slot boxes a concrete init value: a
     // borrowed source rc_incs first (`box_to_any` TRANSFERS the
