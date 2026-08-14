@@ -110,12 +110,27 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
     // tracked). The filtered list drives the env layout everywhere:
     // this side channel feeds both the body preamble and the
     // env-drop synthesis, so all three stay in agreement.
+    //
+    // A class SENTINEL is filtered for the same reason and was missing:
+    // `__class_<C>` / `__proto_<C>` are not bindings at all, they are
+    // names `ssa_lower_ident` answers by calling `class_get(tag)`, so a
+    // body reads one wherever it stands. An arrow in a static member
+    // body is how they end up in a capture list — an arrow has no
+    // `this` of its own, so the static-`this` mint reaches inside it
+    // and `lift_arrow_fns` then sees a free `__class_<C>`:
+    //
+    //     class C { static u() { const f = () => this; return f() === C } }
+    //
+    // died on `closure capture __class_C not in scope`. (A function
+    // EXPRESSION in the same position was the other half of this and is
+    // fixed on the parser side: it binds its own `this`, so the mint
+    // must not reach it at all — `parser/fn_expr.rs`.)
     let eff_captures: Vec<(String, Type)> = captures
         .iter()
         .filter_map(|c| {
             if let Some(l) = ctx.locals.get(c) {
                 Some((c.clone(), l.ty))
-            } else if ctx.globals.contains_key(c) {
+            } else if ctx.globals.contains_key(c) || class_sentinel_name(ctx, c) {
                 None
             } else {
                 panic!("ssa-lower: closure capture `{c}` not in scope")
@@ -443,4 +458,17 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
             );
         }
     }
+}
+
+/// Is `name` a class sentinel — `__class_<C>` or `__proto_<C>` for a
+/// class the program actually declared?
+///
+/// The tag lookup is the load-bearing half: a user-written identifier
+/// that merely starts with `__class_` names nothing, and answering
+/// `true` for it would drop a genuinely-unresolvable capture silently
+/// instead of failing loud.
+fn class_sentinel_name(ctx: &LowerCtx<'_>, name: &str) -> bool {
+    name.strip_prefix("__class_")
+        .or_else(|| name.strip_prefix("__proto_"))
+        .is_some_and(|c| ctx.class_name_to_tag.contains_key(c))
 }
