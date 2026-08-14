@@ -43,18 +43,54 @@ fn proto_tag_accessors(tag: i64) -> &'static [(i64, &'static str)] {
     }
 }
 
+/// §B.2.2.15/16 — `String.prototype`'s Annex B aliases, own
+/// properties in their own right: distinct KEYS over the same
+/// reified function cells (the intern table maps all four spellings
+/// onto two mids, which is what already makes `trimLeft ===
+/// trimStart` true and `hasOwnProperty("trimLeft")` answer yes).
+/// The enumeration walks mids — one name per mid — so the alias
+/// keys need their own rows or the two faces disagree (probed:
+/// `getOwnPropertyNames` said no while `hasOwnProperty` said yes).
+/// The mid rides along for the ownership/tombstone gate: a
+/// `delete` tombstones the MID, taking both spellings with it —
+/// the granularity the whole surface shares.
+fn proto_tag_alias_names(tag: i64) -> &'static [(i64, &'static AtomicU64, &'static [u8])] {
+    static TRIM_LEFT_CELL: AtomicU64 = AtomicU64::new(0);
+    static TRIM_RIGHT_CELL: AtomicU64 = AtomicU64::new(0);
+    static STR_ALIASES: [(i64, &AtomicU64, &[u8]); 2] = [
+        (
+            torajs_rc::ANY_METHOD_TRIM_START,
+            &TRIM_LEFT_CELL,
+            b"trimLeft",
+        ),
+        (
+            torajs_rc::ANY_METHOD_TRIM_END,
+            &TRIM_RIGHT_CELL,
+            b"trimRight",
+        ),
+    ];
+    match tag {
+        3 => &STR_ALIASES,
+        _ => &[],
+    }
+}
+
 /// Interned `"constructor"` name cell — every builtin prototype owns
 /// one (§20.x.3.1 family), and it has no method id to intern under.
 static CONSTRUCTOR_NAME_CELL: AtomicU64 = AtomicU64::new(0);
 
-fn constructor_name_cell() -> *mut u8 {
-    let p = CONSTRUCTOR_NAME_CELL.load(Ordering::Relaxed);
+fn interned_name_cell(slot: &AtomicU64, name: &[u8]) -> *mut u8 {
+    let p = slot.load(Ordering::Relaxed);
     if p != 0 {
         return p as *mut u8;
     }
-    let cell = mint_immortal_str(b"constructor");
-    CONSTRUCTOR_NAME_CELL.store(cell as u64, Ordering::Relaxed);
+    let cell = mint_immortal_str(name);
+    slot.store(cell as u64, Ordering::Relaxed);
     cell
+}
+
+fn constructor_name_cell() -> *mut u8 {
+    interned_name_cell(&CONSTRUCTOR_NAME_CELL, b"constructor")
 }
 
 /// Run `f` over every synthesized own string key of the builtin
@@ -69,6 +105,11 @@ fn for_each_own_name(tag: i64, mut f: impl FnMut(*mut u8)) {
             continue;
         };
         f(builtin_method_name_cell(mid, name));
+    }
+    for &(mid, slot, name) in proto_tag_alias_names(tag) {
+        if proto_tag_owns(tag, mid) {
+            f(interned_name_cell(slot, name));
+        }
     }
     for &(mid, name) in proto_tag_accessors(tag) {
         // An accessor id is in no family's `*_supports` table, so
