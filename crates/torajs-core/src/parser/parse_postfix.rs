@@ -278,6 +278,17 @@ impl<'a> Parser<'a> {
     /// spec §13.3.6 / ES2017: `f(a, b,)`), through the closing `)`,
     /// then the P5.5 static-spread fold.
     fn parse_call_args(&mut self) -> Result<Vec<ExprId>, String> {
+        // §13.3.8 — every Arguments entry is
+        // AssignmentExpression[+In]: the for-head [In] restriction
+        // does not reach inside a call (401-04, the literal reset's
+        // sibling — `for (x = f("a" in o);;)` is legal).
+        let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
+        let r = self.parse_call_args_inner();
+        self.in_for_init = saved_in_for_init;
+        r
+    }
+
+    fn parse_call_args_inner(&mut self) -> Result<Vec<ExprId>, String> {
         let mut args = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             args.push(self.parse_call_arg()?);
@@ -341,7 +352,13 @@ impl<'a> Parser<'a> {
         start_pos: usize,
     ) -> Result<ExprId, String> {
         self.pos += 1;
-        let index = self.parse_expr()?;
+        // §13.3.2 — a bracketed member expression re-enters at
+        // Expression[+In] (401-04): `for (x = o["a" in o];;)` is
+        // legal.
+        let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
+        let index = self.parse_expr();
+        self.in_for_init = saved_in_for_init;
+        let index = index?;
         match self.peek() {
             Token::RBracket => self.pos += 1,
             t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
@@ -369,7 +386,11 @@ impl<'a> Parser<'a> {
     /// OptChain shape and rides every field-resolve path.
     fn parse_optchain_index(&mut self, node: ExprId, start_pos: usize) -> Result<ExprId, String> {
         self.pos += 1;
-        let index = self.parse_expr()?;
+        // §13.3.2 [+In] re-entry — the postfix-index twin above.
+        let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
+        let index = self.parse_expr();
+        self.in_for_init = saved_in_for_init;
+        let index = index?;
         match self.peek() {
             Token::RBracket => self.pos += 1,
             t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
