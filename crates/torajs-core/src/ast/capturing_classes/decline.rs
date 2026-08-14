@@ -88,16 +88,14 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     // excludes `.call` / `.apply` / `.bind` by NAME, three names a
     // runtime key defeats).
     //
-    // A computed name on an INSTANCE accessor stays declined. It has
-    // no such blocker left — the key is the same `__ccmk_<C>_<n>`
-    // binding a computed method already uses — but the pair has not
-    // been measured, and this list is a whitelist.
-    if methods
-        .iter()
-        .any(|m| m.accessor_kind.is_some() && sentinel_index(&m.name).is_some())
-    {
-        return Some("it has a getter or a setter with a computed name");
-    }
+    // A computed name on an accessor rode along once the key stopped
+    // being the obstacle: it is the same `__ccmk_<C>_<n>` binding a
+    // computed method already reads, and `descriptor_fields` does not
+    // care whether the name it is installing under was written out or
+    // evaluated. A getter and a setter sharing one key are two
+    // MethodDefinitions and so evaluate their key twice, which is the
+    // spec's own shape — the second call keeps the first half
+    // (§10.1.6.3 step 4).
     // A body naming a compiler-minted global is not ordinary user
     // nesting: `__cm_gen_<C>__<m>` is the top-level generator method
     // the parser hoisted out (it cannot capture either), and
