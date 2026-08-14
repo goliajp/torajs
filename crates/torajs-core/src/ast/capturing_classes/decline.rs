@@ -8,7 +8,7 @@
 
 use super::super::free_vars::free_vars_of_body;
 use super::super::{Ast, Param, Stmt, Visibility};
-use super::{body_says_this, key_binding, own_computed_members, sentinel_index};
+use super::{key_binding, own_computed_members, sentinel_index};
 
 /// Why this class stays off the lane, phrased for the person who wrote
 /// it. `None` means it routes.
@@ -78,14 +78,6 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
         } else {
             "it has a generator or otherwise compiler-rewritten method"
         });
-    }
-    // A static method saying `this` means the class object, and
-    // reaching it through `K.s = function () { … this … }` needs the
-    // receiver channel that only an object receiver arranges today —
-    // the store promotes, but the binding on the left is a function
-    // value, and the body's `this` stays an unbound capture.
-    if static_methods.iter().any(|m| body_says_this(ast, &m.body)) {
-        return Some("a static method in it uses `this`");
     }
     // A computed name on a static member lowers to `K[<key>] = …`,
     // and the object position of a KEYED member cannot join the

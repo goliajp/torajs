@@ -44,8 +44,8 @@
 //! Only a shape this lane reproduces faithfully, and only one that is
 //! REJECTED today — a whitelist, so no program that currently answers
 //! correctly can be pulled in. Constructor, plain public instance
-//! methods, and plain public static methods that do not say `this`
-//! and are named outright; instance members may carry a computed
+//! methods, and plain public static methods named outright; a static
+//! body may say `this`, and instance members may carry a computed
 //! name. No `extends`, no static fields or static blocks, no
 //! accessors, no type params, and no compiler-minted free name in a
 //! body (`__cm_gen_*` forwarders to a hoisted generator method,
@@ -132,33 +132,35 @@ pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
     )
 }
 
-/// Does anything in `body` say `this`? A nested `function` expression
-/// binds its own, so descending into one over-answers — which is the
-/// safe direction: over-answering keeps a shape on the lane it is
-/// already on.
-fn body_says_this(ast: &Ast, body: &[Stmt]) -> bool {
+/// Every `this` node in `body`. A nested `function` expression binds
+/// its own, so descending into one over-answers — the safe direction
+/// for both callers: a decline that over-answers keeps a shape on the
+/// lane it is already on, and a registration cleared one time too many
+/// only sends that `this` down the same channel a function expression
+/// would have used anyway.
+fn this_sites(ast: &Ast, body: &[Stmt]) -> Vec<ExprId> {
+    let mut out = Vec::new();
     let mut pending: Vec<&Stmt> = body.iter().collect();
     while let Some(s) = pending.pop() {
-        if stmt_exprs(s).into_iter().any(|e| expr_says_this(ast, e)) {
-            return true;
+        for e in stmt_exprs(s) {
+            this_sites_in_expr(ast, e, &mut out);
         }
         pending.extend(stmt_children_ref(s));
     }
-    false
+    out
 }
 
-fn expr_says_this(ast: &Ast, root: ExprId) -> bool {
+fn this_sites_in_expr(ast: &Ast, root: ExprId, out: &mut Vec<ExprId>) {
     let mut pending = vec![root];
     while let Some(eid) = pending.pop() {
         match ast.get_expr(eid) {
-            Expr::This => return true,
+            Expr::This => out.push(eid),
             // An arrow's body is a statement list, not a child expr.
-            Expr::ArrowFn { body, .. } if body_says_this(ast, body) => return true,
+            Expr::ArrowFn { body, .. } => out.extend(this_sites(ast, body)),
             _ => {}
         }
         pending.extend(expr_children(ast, eid));
     }
-    false
 }
 
 /// The declaration index a `__ccm_<n>__` sentinel carries. The parser
@@ -272,6 +274,20 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     else {
         unreachable!("routes() matched a ClassDecl");
     };
+    // The parser recorded, at the token, that every `this` in a static
+    // member body means the class object, and `desugar_classes` pass 2
+    // turns each recorded site into the class NAME. That mint is wrong
+    // twice over here: the name has been α-renamed away, and what the
+    // renamed binding holds is a function value rather than a class.
+    // Drop the registration and those reads become ordinary function
+    // `this` — which is what `K.s = function () { … }` invoked as
+    // `K.s()` delivers anyway, and it is the same object §10.2.1.2
+    // asked for.
+    for m in &static_methods {
+        for eid in this_sites(ast, &m.body) {
+            ast.static_this_sites.remove(&eid);
+        }
+    }
     // §15.7.14 evaluates every ComputedPropertyName once, in element
     // order, at class-definition time — ahead of anything a method or
     // an initializer does, because those run later (on call, on
