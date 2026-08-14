@@ -158,9 +158,18 @@ pub(crate) fn run(
             // ES-spec `Function.length` — leading params before
             // the first default / rest (§10.2.10), synthetic
             // `__env` excluded (chunk 716 contract).
+            //
+            // `__this` is synthetic too: it is the receiver channel a
+            // promoted fn-expr / object-literal method got, not a
+            // parameter the user wrote, so §10.2.10 must not count it
+            // either. The class-method row already filters both names
+            // (`body_passes`); this row kept only `__env`, so every
+            // promoted face read one too high — `{ f: function (n)
+            // { this.n = n } }.f.length` answered 2, and an
+            // object-literal getter answered 1 where the spec says 0.
             let arity = params
                 .iter()
-                .filter(|p| p.name != "__env")
+                .filter(|p| p.name != "__env" && p.name != "__this")
                 .take_while(|p| p.default.is_none() && !p.is_rest)
                 .count() as u32;
             // B3b — lifted closure decls carry the user arrow /
