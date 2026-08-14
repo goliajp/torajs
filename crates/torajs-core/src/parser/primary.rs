@@ -24,7 +24,13 @@ impl<'a> Parser<'a> {
             return self.parse_primary_paren();
         }
         if matches!(self.peek(), Token::LBracket) {
-            return self.parse_array_literal();
+            // §13.2.4 — every ArrayLiteral element is
+            // AssignmentExpression[+In]: the for-head restriction does
+            // not reach inside a literal (the paren reset's sibling).
+            let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
+            let r = self.parse_array_literal();
+            self.in_for_init = saved_in_for_init;
+            return r;
         }
         if matches!(self.peek(), Token::LBrace) {
             // `{` in expression position is an object literal. Block
@@ -32,7 +38,15 @@ impl<'a> Parser<'a> {
             // reaching here, so the only path that lands at LBrace in
             // primary is an expression context (let-init, fn arg, return
             // value, etc.).
-            return self.parse_object_literal();
+            //
+            // §13.2.5 — every PropertyDefinition value and every
+            // ComputedPropertyName key is [+In] (the
+            // accessor-name-computed-in regression: `for (o = { get
+            // ['x' in e]() {} };;)` is legal).
+            let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
+            let r = self.parse_object_literal();
+            self.in_for_init = saved_in_for_init;
+            return r;
         }
         // Function expression — `function (params): R { body }` or
         // `function NAME(params): R { body }` in expression position.
