@@ -313,6 +313,34 @@ pub(crate) unsafe fn generic_builtin_this(
             crate::method_call_arraylike_concat::prim_method(this_arg, argv, argc)
         });
     }
+    // §24.1.3 / §24.2.3 / §24.3.3 / §24.4.3 — every own method of the
+    // Map / Set / WeakMap / WeakSet prototypes brand-checks its
+    // receiver's internal slot ([[MapData]] and kin). The ordinary
+    // re-dispatch routes by RECEIVER family, so a cell minted for one
+    // of these prototypes rebound onto another collection ran the
+    // receiver's semantics silently (405-06:
+    // `WeakMap.prototype.getOrInsert.call(new Map(), k, v)` upserted
+    // into the Map). Inherited mids intern to the Object row, so
+    // borrowed Object.prototype surface never trips this.
+    let brand_tag = match fam {
+        11 => Some(Tag::Map as u16),
+        12 => Some(Tag::Set as u16),
+        16 => Some(Tag::WeakMap as u16),
+        17 => Some(Tag::WeakSet as u16),
+        _ => None,
+    };
+    if let Some(want) = brand_tag {
+        let ok = is_cell(this_arg)
+            && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() } == want;
+        if !ok {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"builtin prototype method requires |this| to match its brand".as_ptr(),
+                );
+            }
+            return Some(VALUE_UNDEFINED);
+        }
+    }
     // §21.1.3 thisNumberValue / §20.3.3 thisBooleanValue — a Number-
     // or Boolean-prototype-minted toString / valueOf borrowed onto a
     // receiver of the wrong brand is a TypeError (rotation 204,
