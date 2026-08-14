@@ -53,8 +53,9 @@ use super::fnexpr_this_faces::{
     FacePatch, collect_face, collect_ident_face, collect_store_face, literal_desc_faces,
 };
 use super::fnexpr_this_recvs::{
-    collect_any_binding_names, collect_arraylit_binding_names, collect_gen_iter_binding_names,
-    collect_mapset_binding_names, collect_props_receiver_binding_names,
+    collect_any_arraylit_inits, collect_any_binding_names, collect_arraylit_binding_names,
+    collect_gen_iter_binding_names, collect_mapset_binding_names,
+    collect_props_receiver_binding_names,
 };
 use super::fnexpr_this_routed::promote_variable_routed;
 use super::{Expr, ExprId, Stmt};
@@ -162,7 +163,20 @@ fn collect_position_faces(
     let props_recvs = collect_props_receiver_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     let any_this_fields = super::fnexpr_this_faces::any_typed_this_fields(stmts);
+    let mut any_arraylit_inits = std::collections::HashSet::new();
+    collect_any_arraylit_inits(stmts, exprs, &any_recvs, &mut any_arraylit_inits);
     for i in 0..exprs.len() {
+        // 399-02 — the array-literal ELEMENT position, when the
+        // literal initializes an `: any` binding (doc on the
+        // collector). Non-fn-expr elements fall out of collect_face.
+        if let Expr::Array(elems) = &exprs[i] {
+            if any_arraylit_inits.contains(&ExprId(i as u32)) {
+                for el in elems {
+                    collect_face(stmts, exprs, *el, fn_expr_exprs, patches);
+                }
+            }
+            continue;
+        }
         if let Expr::Assign { target, value } = &exprs[i] {
             collect_store_face(
                 stmts,

@@ -4,7 +4,7 @@
 //! stays in the parent, which hands its Ident candidates here.
 
 use super::fnexpr_this_faces::FacePatch;
-use super::fnexpr_this_recvs::{
+use super::fnexpr_this_names::{
     collect_this_fnexpr_decl_names, fn_has_rest_param, name_shadowed_elsewhere, peel_as,
 };
 use super::fnexpr_this_shapes::UseShapes;

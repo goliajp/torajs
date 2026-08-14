@@ -51,9 +51,9 @@
 //! top-level by then).
 
 use super::fnexpr_this::is_hof_method;
+use super::fnexpr_this_names::{collect_decls_by_name, name_shadowed_elsewhere};
 use super::fnexpr_this_recvs::{
-    collect_any_binding_names, collect_arraylit_binding_names, collect_decls_by_name,
-    collect_mapset_binding_names, name_shadowed_elsewhere,
+    collect_any_binding_names, collect_arraylit_binding_names, collect_mapset_binding_names,
 };
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;

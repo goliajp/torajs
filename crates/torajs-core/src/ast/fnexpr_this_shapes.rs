@@ -37,7 +37,7 @@ use super::fnexpr_this_args::{
     any_param_arg_idents, construct_channel_arg_idents, define_property_target_idents,
     eq_operand_idents, instanceof_name_idents,
 };
-use super::fnexpr_this_recvs::peel_as;
+use super::fnexpr_this_names::peel_as;
 use super::{Expr, ExprId, Stmt};
 
 /// Every receiver-safe position in the program, by kind.
