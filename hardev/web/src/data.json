@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T10:39:41.589Z",
+  "generatedAt": "2026-08-14T12:22:03.404Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T10:12:29Z",
-    "headSha": "16256297",
-    "elapsedSec": 325.69,
+    "ranAt": "2026-08-14T12:01:02Z",
+    "headSha": "989d4b7b",
+    "elapsedSec": 329.52,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25105,
+    "pass": 25108,
     "passNoOracle": 851,
-    "passNegative": 4120,
-    "passTotal": 30076,
-    "bug": 12757,
-    "incompatible": 10341,
+    "passNegative": 4119,
+    "passTotal": 30078,
+    "bug": 12759,
+    "incompatible": 10337,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42833,
-    "passRateInScope": 56.56,
+    "trAccepted": 42837,
+    "passRateInScope": 56.57,
     "passRateTrAccepted": 70.22
   },
   "torajs": {
-    "commit": "9850a1b1",
-    "commitSubject": "refactor: the call-position arms of the face walk get their own function",
+    "commit": "50b780bf",
+    "commitSubject": "fix: the relational in operator refuses a for-head init at parse time",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "50b780bf",
+      "subject": "fix: the relational in operator refuses a for-head init at parse time"
+    },
+    {
+      "hash": "989d4b7b",
+      "subject": "test: pin the class-nested mixed-scalar ternary that used to segfault"
+    },
+    {
+      "hash": "3193245b",
+      "subject": "feat: a ternary over two different concrete scalars joins to any"
+    },
+    {
+      "hash": "9923640f",
+      "subject": "fix: a static method called through the any lane rides the twin with its receiver"
+    },
+    {
+      "hash": "00c553f7",
+      "subject": "style: fmt-drift fix in fnexpr_this_routed"
+    },
+    {
+      "hash": "b86b8c79",
+      "subject": "fix: the no-receiver slot censuses count a method's const once, not twice"
+    },
+    {
+      "hash": "813141c1",
+      "subject": "feat: a bare class member returning only marked fn-exprs seeds its return ann to any"
+    },
+    {
+      "hash": "52ca9a4a",
+      "subject": "feat: an fn-expr element of an any-bound array literal gets its call-site this"
+    },
+    {
+      "hash": "11e8491b",
+      "subject": "chore: record the closing refactor and refresh the dashboard snapshot"
+    },
+    {
       "hash": "9850a1b1",
       "subject": "refactor: the call-position arms of the face walk get their own function"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "016835a1",
       "subject": "fix: an array element called through its index gets the array as this"
-    },
-    {
-      "hash": "23e6801a",
-      "subject": "chore: record the rotation 399 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "16256297",
-      "subject": "fix: an undeclared private name is refused at parse, not by the receiver's type"
-    },
-    {
-      "hash": "cce58322",
-      "subject": "feat: a function expression stored into an any field gets its receiver"
-    },
-    {
-      "hash": "da172886",
-      "subject": "refactor: the member-store face collector moves in with the other faces"
-    },
-    {
-      "hash": "a565a352",
-      "subject": "feat: a function expression returned from a class member gets its receiver"
-    },
-    {
-      "hash": "2061b412",
-      "subject": "fix: a const inside a method is one declaration, not two"
-    },
-    {
-      "hash": "b441ac74",
-      "subject": "chore: record the rotation 398 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "9c46623a",
-      "subject": "feat: a capturing class may declare a static field that never says this"
-    },
-    {
-      "hash": "7a27c650",
-      "subject": "fix: a promoted function expression stops counting its receiver"
     }
   ],
-  "headSha": "9850a1b1",
+  "headSha": "50b780bf",
   "autorun": {
-    "total": 702,
+    "total": 703,
     "baselineTarget": 10,
-    "bySelf": 697,
+    "bySelf": 698,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786698265-433e",
-      "at": "2026-08-14T09:04:25Z",
-      "ts": 1786698265,
+      "rotationId": "r-1786704001-2c88",
+      "at": "2026-08-14T10:40:01Z",
+      "ts": 1786704001,
       "trigger": "self",
-      "prevHead": "b441ac74",
-      "handoffSha": "sha256:a7ffa100db9bea1f8556162717e0e4dd935a5260a148f7e04e7e061c15df03a2",
-      "handoffAgeSec": 16,
+      "prevHead": "11e8491b",
+      "handoffSha": "sha256:2ec835cd8d22e34d3c0274d544b12f0bded95b169ebb7fa48b8931f92194dd17",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786704001-2c88",
+        "at": "2026-08-14T10:40:01Z",
+        "ts": 1786704001,
+        "trigger": "self",
+        "prevHead": "11e8491b",
+        "handoffSha": "sha256:2ec835cd8d22e34d3c0274d544b12f0bded95b169ebb7fa48b8931f92194dd17",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786698265-433e",
         "at": "2026-08-14T09:04:25Z",
@@ -876,17 +887,6 @@
         "prevHead": "d6e1345e",
         "handoffSha": "sha256:b8b15857729d8733076fc9272c94a13f5ef403365d4264f4e2b7ea812f5887f2",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786630979-5873",
-        "at": "2026-08-13T14:22:59Z",
-        "ts": 1786630979,
-        "trigger": "self",
-        "prevHead": "d9f04fba",
-        "handoffSha": "sha256:a95c2f14154f00e0b663d5a996c5bf238a9981d049e0385e803688a9a69f7b73",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }

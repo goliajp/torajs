@@ -1530,7 +1530,42 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `16256297`** (2026-08-14, rotation 399 — four receiver-promoting
+**Latest @ `989d4b7b`** (2026-08-14, rotation 400 — the rotation that worked
+through the 398/399 registry: six entries closed across five substrate
+knives. The fn-expr receiver channel gained the array-literal element
+position and the bare (unannotated) class-member return — the latter fixed
+at the root by SEEDING the return annotation to `any` (the FnDecl's
+`return_type` is the single source every downstream reader consumes)
+rather than widening the collector, which rotation 399 had measured wrong.
+The twin double-count was then audited across every by-name census:
+two were count-sensitive and fixed (`certain_bindings` — a method-scope
+`p.then(handler)` silently took the method's receiver — and the alias
+census, which needed the source-vs-copy split because the twin's clone is
+a DISTINCT lifted closure), three were proven insensitive (bool existence,
+`is_empty`, set dedup). A static method reached through the any lane now
+rides its `__smany_` twin with the receiver — the miss was in the dynobj
+own-entry and [[Prototype]]-chain arms, where an INHERITED static
+resolves. And a ternary over two different concrete scalars joins to Any,
+landed as the checker/lowering pair after the checker half alone measured
+silently wrong (raw pointer bits through the other branch's slot type) —
+which also un-crashed the class-nested spelling. Sweep @ `989d4b7b`:
+passTotal 30076 → **30078 (+2)**, pass +3, `passNegative` −1, bug +2,
+incompatible 10341 → **10337 (−4)**, trAccepted +4 — conservation exact
+(`+4 == 2 + 2`). Verdicts joined: 53174 vs 53174, **5 differing, zero
+only on one side**: 3 forward (the ternary knife), 1 newly-running-but-
+wrong, and exactly 1 regression — `conditional/in-branch-2`,
+`pass-negative → bug`, which is WATER SURFACING, not a loss: the §13.13
+`[In]` grammar parameter was never implemented on the ordinary `in` arm,
+and that negative case was being caught by the ternary TYPE reject, by
+coincidence and in the wrong phase. Fixed the same rotation
+(`50b780bf`, after the sweep, gate-verified): the `in_for_init` gate the
+private-name arm already consulted now guards the ordinary arm, the
+ternary THEN branch lifts to `[+In]` per spec, and the reject happens at
+parse where it belongs. Gate predicate **240 unattributed clusters / 3084
+cases / register 2 · 619 / residue 773 · 1002 / core 4705** — core down 4
+with every case nameable.)
+
+**Previous @ `16256297`** (2026-08-14, rotation 399 — four receiver-promoting
 knives on the fnexpr-`this` channel, and then the regression they caused,
 which is the part worth reading. A function expression binds `this` at the
 call site (§10.2.1.2); inside a class it was being handed the enclosing
