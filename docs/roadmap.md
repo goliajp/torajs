@@ -1530,7 +1530,39 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `23c828d4`** (2026-08-14, rotation 393 — the rotation where the
+**Latest @ `2948bf6b`** (2026-08-14, rotation 395 — computed class member
+names reach the capturing-nested-class lane, plus three defects the
+probes turned up that were not the task. §15.7.14 evaluates each
+ComputedPropertyName once, in element order, at class-definition time,
+so the ES5 lowering emits the keys first and the members read the
+binding — the same `__ccmk_<C>_<n>` name the parser had already baked
+into the constructor prefix for a computed instance FIELD. The
+prerequisite was a hole of its own: the hoist's capture check walked the
+constructor, the methods and the static inits, and a computed key is in
+none of them (it lives in a side table), so `{ const k = "z"; class K {
+[k]() {…} } }` read as capture-free, lifted to the top level, and
+answered a warning plus a wrong answer at run time. The fixture — not
+the probe — then refuted the implementation: `class_computed_keys` is
+keyed by class NAME, and three functions each declaring `class K` share
+one entry set, so ownership had to be read back off the class itself.
+Two more, unrelated to the lane and both hand-written source: a computed
+key has no static name to put in an inferred return shape, so
+`JSON.stringify(mk("a"))` serialized `{"__computed_0__":0,"z":0}` while
+`r["a"]` answered 1 (silent); and an `as` suffix hid a fn-expr from
+receiver promotion on both the declaration and the use side. One
+widening was measured and REVERTED — routing static methods whose `this`
+only reads turned a loud refusal into a wrong answer. Sweep: passTotal
+30035 → **30041 (+6)**, pass +6, `passNoOracle` unmoved (so the gain is
+oracle-backed, not water), bug +4, incompatible −10, trAccepted +10,
+conservation exact, **zero pass regressions**; two cases LOST acceptance
+(`class/accessor-name-{inst,static}/computed-err-unresolvable`, from
+`bug:exit 1` to a loud refusal — they were wrong answers before, and the
+capture check now sees their computed key). Gate predicate **240
+unattributed clusters / 3108 cases / register 2 · 619 / residue 777 ·
+1006 / core 4733** — clusters and cases both down, and this time from
+capability rather than from wording.)
+
+**Previous @ `23c828d4`** (2026-08-14, rotation 393 — the rotation where the
 probe refuted the task. The plan said "`with` body class declarations —
 write a probe first"; the first probe, `{ let a = 7; class K { m() {
 return a } } }` with **no `with` in it**, answered `internal: ClassDecl
