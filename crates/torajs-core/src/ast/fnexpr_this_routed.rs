@@ -215,9 +215,8 @@ fn collect_decls_split(
                 mono.push((*mutable, *init));
             }
         }
-        let nested_twin =
-            in_twin
-                || matches!(s, Stmt::FnDecl { name: f, .. }
+        let nested_twin = in_twin
+            || matches!(s, Stmt::FnDecl { name: f, .. }
                     if super::fnexpr_this_names::is_twin_body_name(f));
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
             collect_decls_split(inner, name, nested_twin, mono, twin)
