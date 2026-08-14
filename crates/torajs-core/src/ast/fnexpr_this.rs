@@ -84,6 +84,12 @@ pub(crate) fn run(
     if fn_expr_exprs.is_empty() && objlit_method_exprs.is_empty() {
         return;
     }
+    // 399-01 — bare class members whose every value-return is a marked
+    // fn-expr get their return annotation seeded to `any` first, so the
+    // class-member collector below (which demands exactly `any`) sees
+    // them and every downstream reader of the FnDecl agrees (doc on the
+    // seeder).
+    super::fnexpr_this_member_ret::seed_bare_member_return_ann(stmts, exprs, fn_expr_exprs);
     let mut patches: Vec<FacePatch> = Vec::new();
     let mut ident_cands: Vec<(String, ExprId)> = Vec::new();
     let mut call_faces: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
@@ -118,7 +124,7 @@ pub(crate) fn run(
     // The same position spelled on a CLASS — flattened to a top-level
     // FnDecl by `desugar_classes`, so the collector above cannot see it
     // (doc on the collector).
-    super::fnexpr_this_faces::collect_class_method_return_faces(
+    super::fnexpr_this_member_ret::collect_class_method_return_faces(
         stmts,
         exprs,
         fn_expr_exprs,
