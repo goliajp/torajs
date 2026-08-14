@@ -1,0 +1,218 @@
+//! The receiver-safe USE SHAPES of a knife-2 promotion candidate,
+//! collected in one place.
+//!
+//! A `this`-using function expression only gets its receiver promoted
+//! when every use of its binding program-wide is a shape the promoted
+//! ABI survives — the promoted body carries an extra leading `__this`
+//! parameter, so a receiver-unaware call path would shift every
+//! argument. This module answers "which nodes are those", and
+//! [`super::fnexpr_this_routed`] answers "does this binding qualify".
+//!
+//! There are two kinds of proof behind the list, and keeping them
+//! apart is what makes adding a shape a decidable question rather than
+//! a hunch:
+//!
+//! 1. **It never calls the binding.** A member's object, the right of
+//!    `instanceof`, an equality operand, the target of
+//!    `Object.defineProperty` — these consume the cell as a value and
+//!    enter no call lane at all.
+//! 2. **The value crosses into the any lane and stays there.** An
+//!    explicitly-`any` parameter slot, and a `return` across an
+//!    any-typed boundary. The cell escapes, so the proof has to cover
+//!    every downstream path — which holds because every any-lane call
+//!    path shifts argv on `FLAG_CLOSURE_RECV_FIRST`, while a typed
+//!    indirect call does not.
+//!
+//! A direct call is the one member of neither kind: it is receiver-safe
+//! because the CALL SITE is rewritten to seed `undefined` into the
+//! promoted slot (§10.2.1.2), not because of anything about the value.
+//!
+//! Split out of `fnexpr_this_routed.rs` in rotation 397 under the
+//! function-size rule: `promote_variable_routed` had grown to 187 lines
+//! as the confluence of nine shapes, and every shape added a few more.
+//! The move is what the file-size debt table asked the next
+//! shape-adder to do first.
+
+use super::fnexpr_this_args::{
+    any_param_arg_idents, construct_channel_arg_idents, define_property_target_idents,
+    eq_operand_idents, instanceof_name_idents,
+};
+use super::fnexpr_this_recvs::peel_as;
+use super::{Expr, ExprId, Stmt};
+
+/// Every receiver-safe position in the program, by kind.
+pub(super) struct UseShapes {
+    /// Direct-call callee (`h(args)`) — receiver-safe because
+    /// `ssa_lower_call_closure_local` seeds `undefined` into the
+    /// promoted `__this` slot at the site.
+    pub(super) callee: std::collections::HashSet<ExprId>,
+    /// A member's OBJECT, `.call` / `.apply` / `.bind` excepted:
+    /// those read the binding in order to invoke it, so they would
+    /// see the shifted-args ABI (they ride the `call_faces` replay bar
+    /// instead). `Ctor.prototype` was the first consumer; since
+    /// rotation 394 the whole shape admits, which is how a static
+    /// method is spelled once a class lowers to the ES5 constructor
+    /// pattern — `Ctor.s()` calls what the property HOLDS.
+    pub(super) member_obj: std::collections::HashSet<ExprId>,
+    /// An argument to a construct-channel builtin, and the
+    /// `NewDynamic` callee.
+    pub(super) construct_arg: std::collections::HashSet<ExprId>,
+    /// An equality operand.
+    pub(super) eq_operand: std::collections::HashSet<ExprId>,
+    /// An argument in an explicitly-`any` (or proven-safe generic)
+    /// parameter slot of a program-local FnDecl.
+    pub(super) any_arg: std::collections::HashSet<ExprId>,
+    /// The bare name on the right of `instanceof`.
+    pub(super) instanceof_name: std::collections::HashSet<ExprId>,
+    /// `return <bare name>` out of a function whose return type is
+    /// inferred or spelled exactly `any`. Admits only together with
+    /// [`Self::any_ann_names`] — see [`any_boundary_return_idents`].
+    pub(super) any_return: std::collections::HashSet<ExprId>,
+    /// The target argument of `Object.defineProperty` /
+    /// `defineProperties`.
+    pub(super) define_target: std::collections::HashSet<ExprId>,
+    /// Names a `LetDecl` annotates exactly `any` — the binding half of
+    /// the return-shape proof.
+    pub(super) any_ann_names: std::collections::HashSet<String>,
+}
+
+impl UseShapes {
+    pub(super) fn collect(stmts: &[Stmt], exprs: &[Expr]) -> Self {
+        let mut any_ann_names = std::collections::HashSet::new();
+        collect_any_ann_decl_names(stmts, &mut any_ann_names);
+        Self {
+            callee: exprs
+                .iter()
+                .filter_map(|e| match e {
+                    Expr::Call { callee, .. }
+                        if matches!(&exprs[callee.0 as usize], Expr::Ident(_)) =>
+                    {
+                        Some(*callee)
+                    }
+                    _ => None,
+                })
+                .collect(),
+            member_obj: exprs
+                .iter()
+                .filter_map(|e| match e {
+                    // Peeling the `as` suffix changes nothing about the
+                    // `.call` / `.apply` / `.bind` exclusion — that
+                    // reads the member NAME, which the wrapper does not
+                    // touch.
+                    Expr::Member { obj, name }
+                        if !matches!(name.as_str(), "call" | "apply" | "bind") =>
+                    {
+                        let obj = peel_as(exprs, *obj);
+                        matches!(&exprs[obj.0 as usize], Expr::Ident(_)).then_some(obj)
+                    }
+                    _ => None,
+                })
+                .collect(),
+            construct_arg: construct_channel_arg_idents(exprs),
+            eq_operand: eq_operand_idents(exprs),
+            any_arg: any_param_arg_idents(stmts, exprs),
+            instanceof_name: instanceof_name_idents(exprs),
+            any_return: any_boundary_return_idents(stmts, exprs),
+            define_target: define_property_target_idents(exprs),
+            any_ann_names,
+        }
+    }
+
+    /// Is this use of `name` receiver-safe?
+    pub(super) fn admits(&self, e: ExprId, name: &str) -> bool {
+        self.callee.contains(&e)
+            || self.member_obj.contains(&e)
+            || self.construct_arg.contains(&e)
+            || self.eq_operand.contains(&e)
+            || self.any_arg.contains(&e)
+            || self.instanceof_name.contains(&e)
+            || self.define_target.contains(&e)
+            || (self.any_return.contains(&e) && self.any_ann_names.contains(name))
+    }
+}
+
+/// `return <bare name>` out of a function whose return type is
+/// inferred or spelled exactly `any`.
+///
+/// Returning the name never CALLS the binding — the same one-liner that
+/// admits a member's object and the right of `instanceof`. What makes
+/// this one different is that the cell ESCAPES, so the proof it needs
+/// is the explicit-`any` argument shape's rather than theirs: the value
+/// has to cross into the any lane and STAY there, because every
+/// any-lane call path honors the receiver channel (`__torajs_any_call`
+/// / `invoke_with_this` / the NewDynamic kernel all shift argv on
+/// FLAG_CLOSURE_RECV_FIRST) while a typed indirect call does not.
+///
+/// Two things have to hold for that crossing, and this classifier only
+/// checks the second — the caller pairs it with the binding's own `any`
+/// annotation, which is what makes the RETURNED expression an any-lane
+/// cell in the first place:
+///
+/// 1. the binding is annotated `any`, and
+/// 2. the boundary does not re-type it — an absent return annotation
+///    infers the `any` straight through, and an explicit `any` says it
+///    outright. A concrete signature (`function take(f: any): (a:
+///    number) => string`) is what this rejects: it hands the caller a
+///    typed callee, whose call path never reads the flag.
+///
+/// The excluded halves stay loud, which is where they already are:
+/// every program that returns a `this`-using binding is rejected today,
+/// so nothing that answers correctly can be pulled in.
+///
+/// Bare Ident only, like the `instanceof` shape — `return C as any` is
+/// a different node and is not measured here.
+fn any_boundary_return_idents(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    fn walk(
+        stmts: &[Stmt],
+        exprs: &[Expr],
+        admits: bool,
+        out: &mut std::collections::HashSet<ExprId>,
+    ) {
+        for s in stmts {
+            if let Stmt::Return(Some(eid)) = s
+                && admits
+                && matches!(&exprs[eid.0 as usize], Expr::Ident(_))
+            {
+                out.insert(*eid);
+            }
+            // A `return` belongs to the nearest enclosing function, so
+            // the FnDecl arm re-derives `admits` while every other
+            // compound form carries it through. Top level starts false:
+            // a `return` cannot appear there, and guessing in the
+            // admitting direction is the unsafe one.
+            match s {
+                Stmt::FnDecl {
+                    return_type, body, ..
+                } => walk(
+                    body,
+                    exprs,
+                    return_type.as_deref().is_none_or(|a| a == "any"),
+                    out,
+                ),
+                _ => super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+                    walk(inner, exprs, admits, out)
+                }),
+            }
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    walk(stmts, exprs, false, &mut out);
+    out
+}
+
+/// Every name a `LetDecl` annotates exactly `any` — the binding half of
+/// the return-shape proof above. A name declared twice lands here off
+/// either decl, and the `decls.len() != 1` guard is what turns that
+/// away.
+fn collect_any_ann_decl_names(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
+    for s in stmts {
+        if let Stmt::LetDecl { name, type_ann, .. } = s
+            && type_ann.as_deref() == Some("any")
+        {
+            out.insert(name.clone());
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_any_ann_decl_names(inner, out)
+        });
+    }
+}

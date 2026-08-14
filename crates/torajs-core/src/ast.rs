@@ -91,6 +91,7 @@ mod fnexpr_this_default_alias;
 pub(crate) mod fnexpr_this_faces;
 pub(crate) mod fnexpr_this_recvs;
 pub(crate) mod fnexpr_this_routed;
+mod fnexpr_this_shapes;
 mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;

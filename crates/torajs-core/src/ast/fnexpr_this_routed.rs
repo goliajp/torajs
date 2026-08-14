@@ -3,15 +3,12 @@
 //! past the 500-line hard limit. Verbatim move; the position walk
 //! stays in the parent, which hands its Ident candidates here.
 
-use super::fnexpr_this_args::{
-    any_param_arg_idents, construct_channel_arg_idents, define_property_target_idents,
-    eq_operand_idents, instanceof_name_idents,
-};
 use super::fnexpr_this_faces::FacePatch;
 use super::fnexpr_this_recvs::{
     collect_decls_by_name, collect_this_fnexpr_decl_names, fn_has_rest_param,
     name_shadowed_elsewhere, peel_as,
 };
+use super::fnexpr_this_shapes::UseShapes;
 use super::{Expr, ExprId, Stmt};
 
 /// Knife 2 — variable-routed faces: a face-position Ident promotes
@@ -79,72 +76,10 @@ pub(super) fn promote_variable_routed(
     for name in call_only {
         faces_by_name.entry(name).or_default();
     }
-    // Knife 2W cut 2 — every Ident node standing in direct-call
-    // callee position (`h(args)`). A mixed binding's non-face uses
-    // must ALL be members of this set: a direct call of a promoted
-    // closure seeds `undefined` into the `__this` argv slot (the
-    // closure-local call arm, driven by `fnexpr_recv_locals`), so it
-    // is the second — and last — use shape with a receiver-correct
-    // call path. Any other use (an alias init, an argument position,
-    // a container store, a comparison) has no such path and keeps
-    // the whole binding unpromoted (loud).
-    let callee_idents: std::collections::HashSet<ExprId> = exprs
-        .iter()
-        .filter_map(|e| match e {
-            Expr::Call { callee, .. } if matches!(&exprs[callee.0 as usize], Expr::Ident(_)) => {
-                Some(*callee)
-            }
-            _ => None,
-        })
-        .collect();
-    // RFC 20260808-construct-channel B2 — naming the binding as a
-    // member's OBJECT is the third receiver-safe use shape: it never
-    // calls the closure. `Ctor.prototype` was the first consumer (a
-    // promoted plain fn-expr answers the canonical fnprops cell the
-    // construct kernel links, §10.2.5 fn_prototype_pair — the
-    // create-species assert `Object.getPrototypeOf(thisValue) ===
-    // Ctor.prototype`), and the whole shape admits since rotation 394:
-    // `Ctor.s = function () {…}` is how a static method is spelled once
-    // a class is lowered to the ES5 constructor pattern, and `Ctor.s()`
-    // calls what the property HOLDS, not the binding.
-    //
-    // `.call` / `.apply` / `.bind` are the exception and stay out:
-    // those read the binding in order to invoke it, so they would see
-    // the shifted-args closure ABI. `.call` / `.apply` ride their own
-    // `call_faces` replay bar instead.
-    let member_obj_idents: std::collections::HashSet<ExprId> = exprs
-        .iter()
-        .filter_map(|e| match e {
-            // Peeling the `as` suffix changes nothing about the
-            // `.call` / `.apply` / `.bind` exclusion — that reads the
-            // member NAME, which the wrapper does not touch.
-            Expr::Member { obj, name } if !matches!(name.as_str(), "call" | "apply" | "bind") => {
-                let obj = peel_as(exprs, *obj);
-                matches!(&exprs[obj.0 as usize], Expr::Ident(_)).then_some(obj)
-            }
-            _ => None,
-        })
-        .collect();
-    // Fourth shape — construct-channel builtin arguments (doc on the
-    // free fn below).
-    let construct_arg_idents = construct_channel_arg_idents(exprs);
-    // Fifth shape — equality operands (doc on the free fn below).
-    let eq_operand_idents = eq_operand_idents(exprs);
-    // Sixth shape — explicit-`any` param argument positions (doc on
-    // the free fn above).
-    let any_arg_idents = any_param_arg_idents(stmts, exprs);
-    // Seventh shape — the bare name right of `instanceof` (doc on the
-    // free fn).
-    let instanceof_idents = instanceof_name_idents(exprs);
-    // Eighth shape — `return <bare name>` across an any-typed boundary
-    // (doc on the two free fns below). Admits only in company with the
-    // binding's own `any` annotation, so it is checked as a pair.
-    let return_idents = any_boundary_return_idents(stmts, exprs);
-    let mut any_ann_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    collect_any_ann_decl_names(stmts, &mut any_ann_names);
-    // Ninth shape — the target argument of `Object.defineProperty` /
-    // `defineProperties` (doc on the free fn).
-    let define_target_idents = define_property_target_idents(exprs);
+    // Every receiver-safe use POSITION in the program, by kind, with
+    // the two proof families documented on the module. A binding
+    // promotes only if all of its non-face uses land in one of them.
+    let shapes = UseShapes::collect(stmts, exprs);
     for (name, face_eids) in &faces_by_name {
         let use_eids: Vec<ExprId> = exprs
             .iter()
@@ -157,16 +92,7 @@ pub(super) fn promote_variable_routed(
             .filter(|e| !face_eids.contains(e))
             .copied()
             .collect();
-        if !mixed_calls.iter().all(|e| {
-            callee_idents.contains(e)
-                || member_obj_idents.contains(e)
-                || construct_arg_idents.contains(e)
-                || eq_operand_idents.contains(e)
-                || any_arg_idents.contains(e)
-                || instanceof_idents.contains(e)
-                || (return_idents.contains(e) && any_ann_names.contains(name.as_str()))
-                || define_target_idents.contains(e)
-        }) {
+        if !mixed_calls.iter().all(|e| shapes.admits(*e, name)) {
             continue;
         }
         let mut decls: Vec<(bool, ExprId)> = Vec::new();
@@ -206,7 +132,7 @@ pub(super) fn promote_variable_routed(
             // all, and the store-face + argv combination is exactly
             // the escape-store profile whose adapter order the
             // rotation-338 knife fixed.
-            if (mixed_calls.iter().any(|e| callee_idents.contains(e))
+            if (mixed_calls.iter().any(|e| shapes.callee.contains(e))
                 || face_eids.iter().any(|e| call_faces.contains(e)))
                 && (closure_argc_locals.contains(name)
                     || closure_argv_locals.contains(name)
@@ -230,92 +156,5 @@ pub(super) fn promote_variable_routed(
             // has none of.
             fnexpr_recv_locals.insert(name.clone());
         }
-    }
-}
-
-/// The eighth receiver-safe use shape: `return <bare name>` out of a
-/// function whose return type is inferred or spelled exactly `any`.
-///
-/// Returning the name never CALLS the binding — the same one-liner
-/// that admits a member's object and the right of `instanceof`. What
-/// makes this one different from those is that the cell ESCAPES, so
-/// the proof it needs is [`any_param_arg_idents`]'s rather than
-/// theirs: the value has to cross into the any lane and STAY there,
-/// because every any-lane call path honors the receiver channel
-/// (`__torajs_any_call` / `invoke_with_this` / the NewDynamic kernel
-/// all shift argv on FLAG_CLOSURE_RECV_FIRST) while a typed indirect
-/// call does not.
-///
-/// Two things have to hold for that crossing, and this classifier
-/// only checks the second — the caller pairs it with the binding's own
-/// `any` annotation ([`collect_any_ann_decl_names`]), which is what
-/// makes the RETURNED expression an any-lane cell in the first place:
-///
-/// 1. the binding is annotated `any` (caller's half), and
-/// 2. the boundary does not re-type it — an absent return annotation
-///    infers the `any` straight through, and an explicit `any` says
-///    it outright. A concrete signature (`function take(f: any):
-///    (a: number) => string`) is what this rejects: it hands the
-///    caller a typed callee, whose call path never reads the flag.
-///
-/// The excluded halves stay loud, which is where they already are:
-/// every program that returns a `this`-using binding is rejected
-/// today, so nothing that answers correctly can be pulled in.
-///
-/// Bare Ident only, like the `instanceof` shape — `return C as any`
-/// is a different node and is not measured here.
-fn any_boundary_return_idents(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
-    fn walk(
-        stmts: &[Stmt],
-        exprs: &[Expr],
-        admits: bool,
-        out: &mut std::collections::HashSet<ExprId>,
-    ) {
-        for s in stmts {
-            if let Stmt::Return(Some(eid)) = s
-                && admits
-                && matches!(&exprs[eid.0 as usize], Expr::Ident(_))
-            {
-                out.insert(*eid);
-            }
-            // A `return` belongs to the nearest enclosing function, so
-            // the FnDecl arm re-derives `admits` while every other
-            // compound form carries it through. Top level starts
-            // false: a `return` cannot appear there, and guessing in
-            // the admitting direction is the unsafe one.
-            match s {
-                Stmt::FnDecl {
-                    return_type, body, ..
-                } => walk(
-                    body,
-                    exprs,
-                    return_type.as_deref().is_none_or(|a| a == "any"),
-                    out,
-                ),
-                _ => super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-                    walk(inner, exprs, admits, out)
-                }),
-            }
-        }
-    }
-    let mut out = std::collections::HashSet::new();
-    walk(stmts, exprs, false, &mut out);
-    out
-}
-
-/// Every name a `LetDecl` annotates exactly `any` — the caller's half
-/// of the return-shape proof above. A name declared twice lands here
-/// off either decl, and the `decls.len() != 1` guard is what turns
-/// that away.
-fn collect_any_ann_decl_names<'a>(stmts: &'a [Stmt], out: &mut std::collections::HashSet<&'a str>) {
-    for s in stmts {
-        if let Stmt::LetDecl { name, type_ann, .. } = s
-            && type_ann.as_deref() == Some("any")
-        {
-            out.insert(name.as_str());
-        }
-        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_any_ann_decl_names(inner, out)
-        });
     }
 }
