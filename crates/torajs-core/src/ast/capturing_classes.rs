@@ -134,11 +134,13 @@ pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
 
 /// Every `this` node in `body`. A nested `function` expression binds
 /// its own, so descending into one over-answers — the safe direction
-/// for both callers: a decline that over-answers keeps a shape on the
-/// lane it is already on, and a registration cleared one time too many
-/// only sends that `this` down the same channel a function expression
-/// would have used anyway.
-fn this_sites(ast: &Ast, body: &[Stmt]) -> Vec<ExprId> {
+/// for both callers: a registration cleared one time too many only
+/// sends that `this` down the same channel a function expression would
+/// have used anyway, and the hoist's remap (what makes this
+/// `pub(super)`) moves only sites still registered under the name it is
+/// renaming. It does not descend into a nested class body, so a class
+/// inside one of these keeps its own registrations either way.
+pub(super) fn this_sites(ast: &Ast, body: &[Stmt]) -> Vec<ExprId> {
     let mut out = Vec::new();
     let mut pending: Vec<&Stmt> = body.iter().collect();
     while let Some(s) = pending.pop() {

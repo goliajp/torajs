@@ -136,6 +136,31 @@ fn walk_container(
         if collides {
             let new_name = format!("__hc{}_{}", *counter, old_name);
             *counter += 1;
+            // The parser recorded, at the token, that a `this` in a
+            // static body means THIS class — and it recorded it as the
+            // NAME the source used, which `desugar_classes` pass 2
+            // later mints. Renaming without remapping leaves those
+            // sites naming a binding that no longer exists, and
+            // `typeof` of an unresolvable name answers "undefined"
+            // rather than saying so: the class renamed for a collision
+            // starts answering wrong QUIETLY. Only the sites still
+            // registered under the old name move, so a class nested
+            // inside one of these bodies keeps its own.
+            if let Stmt::ClassDecl { static_methods, .. } = &stmts[idx] {
+                let sites: Vec<ExprId> = static_methods
+                    .iter()
+                    .flat_map(|m| super::capturing_classes::this_sites(ast, &m.body))
+                    .collect();
+                for eid in sites {
+                    if ast
+                        .static_this_sites
+                        .get(&eid)
+                        .is_some_and(|c| *c == old_name)
+                    {
+                        ast.static_this_sites.insert(eid, new_name.clone());
+                    }
+                }
+            }
             super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old_name, &new_name);
             top_names.push(new_name);
         } else {
