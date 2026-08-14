@@ -1530,7 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `a9cfa97d`** (2026-08-14, rotation 401 — the any-lane
+**Latest @ `5bc04618`** (2026-08-15, rotation 402 — the name-keyed
+promotion census went scope-paired, and three class-surface gaps closed.
+399-03: a multiply-declared this-fnexpr name no longer takes a blanket
+refusal — `fnexpr_this_pairing.rs` pairs every reachable use to its
+lexically binding `LetDecl` (block pre-scan through `Multi`, for-head
+covers the whole `for`, function bodies do not thread the outer binding),
+and the routed evaluation proves every group and promotes ALL or none
+(the downstream consumers are name-keyed, so partial promotion would
+shift argv on an unpromoted binding's call sites). Two more use shapes
+joined the receiver-safe list: the element slot of an `: any`-annotated
+array literal (397-01 — `arr[0](7)` binds `this = arr` through the
+399-05 `invoke_with_this` leg), and the alias-init transitive closure
+(397-02 — `const B = K` admits when every use of `B` is safe, greatest
+fixpoint; the motivating alias is the for-in head's `__forin_obj_N`
+snapshot, whose only use is the never-calling `Object.__forinKeys`
+argument). Class methods parse and monomorphize their own type
+parameters (398-01 — `pair<T>(v: T)` concatenates after the class-level
+list on the desugared FnDecl; the generic-value × any-lane residue is
+registered 402-01). A typed for-head `var` hoists to the fn-level domain
+(401-05), and a capturing class's static fields and blocks route through
+`(function () { … }).call(K)` wrappers (394-05; 394-04 found already
+fixed by rotation 397's blade 3). Sweep: passTotal 30083 → **30084
+(+1)**, pass +1, bug ±0, incompatible 10335 → **10334 (−1)**, trAccepted
++1 — conservation exact (`+1 == 1 + 0`). Verdicts joined: exactly ONE
+differing line — `accessor-name-computed-in` incompatible → pass, the
+rotation-401 [In] literal fix landing precisely as predicted. Zero
+regressions, zero new timeouts/crashes. Gate predicate **240
+unattributed clusters / 3083 cases / register 2 · 619 / residue 772 ·
+1002 / core 4704**.)
+
+**Previous @ `a9cfa97d`** (2026-08-14, rotation 401 — the any-lane
 this/receiver channel closed out as a group: six registry entries
 (398-10 / 398-05 / 400-01 / 401-01..03) across six knives, every one the
 same pairing shape — a checker admit whose record the lowering side
