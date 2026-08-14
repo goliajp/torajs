@@ -1530,7 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `ec85557b`** (2026-08-14, rotation 395 — computed class member
+**Latest @ `20229614`** (2026-08-14, rotation 396 — the rotation that moved
+test262 by exactly nothing, and says so. Six knives on the
+capturing-nested-class lane and the parser's `this` scoping: a static
+method saying `this` now routes, a class the hoist renames takes its
+static-`this` recording with it, an instance accessor rides the lane, an
+instance member of a lowered class is non-enumerable, and a `function`
+nested in a static body binds its own `this`. Sweep: **every bucket
+identical to the previous one** — passTotal 30041, pass 25084, bug 12768,
+incompatible 10365, trAccepted 42809, conservation trivially exact.
+Identical aggregates do not prove nothing moved, so the verdicts were
+joined line by line: **53174 vs 53174, zero differing lines** — no
+forward, no regression, no cancelling pair. The knives land on surfaces
+test262 barely exercises (nested classes that capture, and the lane's own
+lowered shape); the gain is recorded on conformance instead, 2870 →
+**2875**, five bun-exact fixtures, two of which fix SILENT wrong answers
+(a renamed class's `typeof this` answered `"undefined"`; a lowered
+instance method was enumerable, so `for…in` listed it). Gate predicate
+**240 unattributed clusters / 3106 cases / register 2 · 619 / residue 777
+· 1008 / core 4733** — the 2-case shift is wording, not capability: the
+verdicts are identical and the new decline message
+(`it has a static getter or setter`) simply re-clusters.)
+
+**Previous @ `ec85557b`** (2026-08-14, rotation 395 — computed class member
 names reach the capturing-nested-class lane, plus three defects the
 probes turned up that were not the task. §15.7.14 evaluates each
 ComputedPropertyName once, in element order, at class-definition time,

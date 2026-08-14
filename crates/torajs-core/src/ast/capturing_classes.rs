@@ -53,8 +53,9 @@
 //! `__supercall__*`). Everything else keeps today's loud abort.
 //!
 //! Recorded deviations are in the RFC: the binding is `const`, `.name`
-//! is empty, a declare-only field does not materialize, and the class
-//! name is no longer a type name.
+//! is empty, a declare-only field does not materialize, the class name
+//! is no longer a type name, and a STATIC member stays enumerable
+//! (an instance one does not — see `descriptor_fields`).
 
 mod decline;
 
