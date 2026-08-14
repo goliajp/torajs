@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T02:36:33.305Z",
+  "generatedAt": "2026-08-14T03:04:50.104Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T02:27:39Z",
-    "headSha": "2948bf6b",
-    "elapsedSec": 327.96,
+    "ranAt": "2026-08-14T02:56:32Z",
+    "headSha": "ec85557b",
+    "elapsedSec": 325.59,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.17
   },
   "torajs": {
-    "commit": "2948bf6b",
-    "commitSubject": "fix: report why the class was turned down, not why it would be now",
+    "commit": "ec85557b",
+    "commitSubject": "fix: a method stored on a function gets the function as `this`",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "ec85557b",
+      "subject": "fix: a method stored on a function gets the function as `this`"
+    },
+    {
+      "hash": "9c52feb5",
+      "subject": "chore: record the rotation 395 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "2948bf6b",
       "subject": "fix: report why the class was turned down, not why it would be now"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "039df6ad",
       "subject": "fix: a runtime-construct receiver demotes the speculative class-method rewrite"
-    },
-    {
-      "hash": "73af7398",
-      "subject": "feat: static methods on a nested class that captures"
-    },
-    {
-      "hash": "2b3c060d",
-      "subject": "fix: naming a this-using fn-expr as a member's object keeps it promoted"
     }
   ],
-  "headSha": "2948bf6b",
+  "headSha": "ec85557b",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,

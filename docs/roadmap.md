@@ -1530,7 +1530,7 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `2948bf6b`** (2026-08-14, rotation 395 — computed class member
+**Latest @ `ec85557b`** (2026-08-14, rotation 395 — computed class member
 names reach the capturing-nested-class lane, plus three defects the
 probes turned up that were not the task. §15.7.14 evaluates each
 ComputedPropertyName once, in element order, at class-definition time,
@@ -1551,7 +1551,12 @@ key has no static name to put in an inferred return shape, so
 `r["a"]` answered 1 (silent); and an `as` suffix hid a fn-expr from
 receiver promotion on both the declaration and the use side. One
 widening was measured and REVERTED — routing static methods whose `this`
-only reads turned a loud refusal into a wrong answer. Sweep: passTotal
+only reads turned a loud refusal into a wrong answer; chasing WHY found
+the fourth defect, also silent and also hand-written source: a method
+stored on a FUNCTION value was invoked with the function's props bag as
+`this`, so `K.self() === K` answered false and `typeof` answered
+`"object"` while every `this.<name>` read answered correctly, because
+the properties are in that bag. Sweep: passTotal
 30035 → **30041 (+6)**, pass +6, `passNoOracle` unmoved (so the gain is
 oracle-backed, not water), bug +4, incompatible −10, trAccepted +10,
 conservation exact, **zero pass regressions**; two cases LOST acceptance
