@@ -60,7 +60,7 @@
 mod decline;
 
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, StaticInit, Stmt};
 use decline::decline_reason;
 
 /// Rewrite the class at `stmts[idx]` when this lane covers it.
@@ -152,6 +152,18 @@ pub(super) fn this_sites(ast: &Ast, body: &[Stmt]) -> Vec<ExprId> {
         pending.extend(stmt_children_ref(s));
     }
     out
+}
+
+/// Does this expression say `this` anywhere under it — arrow bodies
+/// included? Asked of a static field's initializer, which runs at
+/// class-evaluation time with `this` bound to the class object: a
+/// `this`-free one has nothing to lose by being inlined at the store,
+/// while one that reads `this` would silently pick up the ENCLOSING
+/// receiver there (see [`decline::decline_reason`]).
+pub(super) fn expr_says_this(ast: &Ast, root: ExprId) -> bool {
+    let mut sites = Vec::new();
+    this_sites_in_expr(ast, root, &mut sites);
+    !sites.is_empty()
 }
 
 fn this_sites_in_expr(ast: &Ast, root: ExprId, out: &mut Vec<ExprId>) {
@@ -273,6 +285,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         ctor,
         methods,
         static_methods,
+        static_init,
         ..
     } = class
     else {
@@ -375,6 +388,27 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         };
         let fields = descriptor_fields(ast, m.accessor_kind, eid);
         out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
+    }
+    // Static fields last, and in source order: §15.7.14 runs their
+    // initializers at class-definition time, after every member is
+    // installed, which is what lets one read the class it belongs to
+    // (`static f = K.base + 2`). A plain assignment is the right shape
+    // here where a method needed `defineProperty` — CreateDataProperty
+    // is what the spec performs for a field, so writable / enumerable /
+    // configurable all come out true on their own. `decline_reason` has
+    // already refused blocks, computed names, and any initializer that
+    // says `this`.
+    for si in static_init {
+        let StaticInit::Field(sf) = si else { continue };
+        let recv = ast.add_expr(Expr::Ident(name.clone()));
+        let target = ast.add_expr(Expr::Member {
+            obj: recv,
+            name: sf.name.clone(),
+        });
+        out.push(Stmt::Expr(ast.add_expr(Expr::Assign {
+            target,
+            value: sf.init,
+        })));
     }
     Stmt::Multi(out)
 }

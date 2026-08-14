@@ -52,16 +52,38 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     // function () { … this … }` called as `K.s()` binds `this` to K,
     // which is what §10.2.1.2 wants.
     //
+    // That concern is about the word `this`, not about static members
+    // as such — so a field whose initializer never says it routes, and
+    // the store is the plain assignment §15.7.14 asks for anyway (a
+    // static field is writable, enumerable and configurable, unlike a
+    // method). `static base = b; static f = K.base + 2` is the ordinary
+    // shape and both halves are answerable here: `b` is the captured
+    // local the lane exists for, and `K` is the α-renamed binding the
+    // stores are emitted after.
+    //
     // A static field with a COMPUTED name parks in its own side table
     // instead of in `static_init`, so it has to be asked about
-    // separately — but it is a static field and declines as one.
-    if !static_init.is_empty()
-        || ast
-            .class_computed_static_fields
-            .iter()
-            .any(|(c, _, _)| c == name)
+    // separately — its key is one more expression evaluated at
+    // class-definition time, and nothing has taught the key-binding
+    // walk about it yet.
+    if ast
+        .class_computed_static_fields
+        .iter()
+        .any(|(c, _, _)| c == name)
     {
-        return Some("it has a static field or a static block");
+        return Some("it has a static field with a computed name");
+    }
+    if static_init
+        .iter()
+        .any(|si| matches!(si, super::super::StaticInit::Block(_)))
+    {
+        return Some("it has a static block");
+    }
+    if static_init.iter().any(|si| match si {
+        super::super::StaticInit::Field(sf) => super::expr_says_this(ast, sf.init),
+        super::super::StaticInit::Block(_) => false,
+    }) {
+        return Some("one of its static field initializers reads `this`");
     }
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract
