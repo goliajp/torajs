@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T06:45:14.433Z",
+  "generatedAt": "2026-08-14T09:03:47.541Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T06:38:41Z",
-    "headSha": "8216cbdc",
-    "elapsedSec": 325.8,
+    "ranAt": "2026-08-14T08:55:09Z",
+    "headSha": "9c46623a",
+    "elapsedSec": 330.59,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25104,
+    "pass": 25105,
     "passNoOracle": 851,
     "passNegative": 4106,
-    "passTotal": 30061,
-    "bug": 12772,
+    "passTotal": 30062,
+    "bug": 12771,
     "incompatible": 10341,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 42833,
-    "passRateInScope": 56.53,
+    "passRateInScope": 56.54,
     "passRateTrAccepted": 70.18
   },
   "torajs": {
-    "commit": "8216cbdc",
-    "commitSubject": "fix: an arrow in a static body may read the class object",
+    "commit": "9c46623a",
+    "commitSubject": "feat: a capturing class may declare a static field that never says this",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "9c46623a",
+      "subject": "feat: a capturing class may declare a static field that never says this"
+    },
+    {
+      "hash": "7a27c650",
+      "subject": "fix: a promoted function expression stops counting its receiver"
+    },
+    {
+      "hash": "b4166994",
+      "subject": "feat: an inherited static method is called on the class that names it"
+    },
+    {
+      "hash": "b8ff395d",
+      "subject": "fix: a top-level const decodes an any init at its annotation"
+    },
+    {
+      "hash": "5403c884",
+      "subject": "chore: record the rotation 397 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "8216cbdc",
       "subject": "fix: an arrow in a static body may read the class object"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "e5269947",
       "subject": "chore: record the rotation 396 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "20229614",
-      "subject": "fix: a function nested in a static body binds its own `this`"
-    },
-    {
-      "hash": "900247b0",
-      "subject": "fix: an instance member of a lowered class is non-enumerable"
-    },
-    {
-      "hash": "8bb38ed7",
-      "subject": "feat: an instance accessor rides the capturing-class lane"
-    },
-    {
-      "hash": "00159521",
-      "subject": "fix: a renamed class takes its static-`this` sites with it"
-    },
-    {
-      "hash": "c953012c",
-      "subject": "feat: a static method's `this` no longer keeps a capturing class off the lane"
     }
   ],
-  "headSha": "8216cbdc",
+  "headSha": "9c46623a",
   "autorun": {
-    "total": 700,
+    "total": 701,
     "baselineTarget": 10,
-    "bySelf": 695,
+    "bySelf": 696,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786684336-3021",
-      "at": "2026-08-14T05:12:16Z",
-      "ts": 1786684336,
+      "rotationId": "r-1786690237-7158",
+      "at": "2026-08-14T06:50:37Z",
+      "ts": 1786690237,
       "trigger": "self",
-      "prevHead": "e5269947",
-      "handoffSha": "sha256:a52608967109cf5fe5c1d5faae92493e840a580ca68073784350fd65ffac867c",
-      "handoffAgeSec": 25,
+      "prevHead": "5403c884",
+      "handoffSha": "sha256:c9aa1aba578846f7baf8b7345128ec5d4ae07f6b578234e2df72d85f8132e429",
+      "handoffAgeSec": 24,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786690237-7158",
+        "at": "2026-08-14T06:50:37Z",
+        "ts": 1786690237,
+        "trigger": "self",
+        "prevHead": "5403c884",
+        "handoffSha": "sha256:c9aa1aba578846f7baf8b7345128ec5d4ae07f6b578234e2df72d85f8132e429",
+        "handoffAgeSec": 24,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786684336-3021",
         "at": "2026-08-14T05:12:16Z",
@@ -876,17 +887,6 @@
         "prevHead": "1b686c99",
         "handoffSha": "sha256:1191a99d79e32c9beb7cb0263d7540fd0f63805a7ff75309c31810c37671070b",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786617866-1916",
-        "at": "2026-08-13T10:44:26Z",
-        "ts": 1786617866,
-        "trigger": "self",
-        "prevHead": "d36db181",
-        "handoffSha": "sha256:a84f96f8da30f944a9fd0093291e7a21f2f39f71b9ff399ba4b6ea1ed4003cf4",
-        "handoffAgeSec": 563,
         "conformanceBefore": null,
         "commitsInSession": null
       }
