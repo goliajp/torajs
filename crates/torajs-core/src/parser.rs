@@ -159,6 +159,8 @@ pub fn parse_into_super_prop(
         super_prop_allowed: super_prop_ok,
         current_class_has_parent: false,
         synth_classes: Vec::new(),
+        synth_classes_local: Vec::new(),
+        stmt_depth: 0,
         class_value_aliases: std::collections::HashMap::new(),
         // Seeded like `desugar_id`: a lib file's own dynamic imports
         // must mint `__dyn_ns_<n>` names that can't collide with the
@@ -393,6 +395,21 @@ struct Parser<'a> {
     /// rarely collides; if it does, lift to a scope stack). The full
     /// dynamic-ctor-dispatch substrate is parked as an L3b follow-up.
     class_value_aliases: std::collections::HashMap<String, String>,
+    /// Class expressions minted OUTSIDE a class body (393-01). Unlike
+    /// `synth_classes` these land NEXT TO their use site — the
+    /// `parse_stmt` wrapper drains them in front of the finished
+    /// statement — so one inside a nested scope stays a nested
+    /// ClassDecl and `hoist_nested_classes` gets to ask its real
+    /// question (capture-free → lift; capturing → the ES5 lane).
+    /// Splicing to the top level, which `synth_classes` still does for
+    /// the class-body case, LOSES that question: the class body's
+    /// free names stop resolving anywhere, silently.
+    synth_classes_local: Vec<Stmt>,
+    /// Depth of the `parse_stmt` call currently on the stack. 0 after
+    /// the outermost call returns — that one belongs to
+    /// `parse_program`, whose own splice keeps top-level behavior
+    /// byte-identical, so the wrapper only wraps when deeper.
+    stmt_depth: u32,
     /// P13-S5 — counter for synthetic namespace bindings minted by
     /// `parse_primary` when it encounters a dynamic `import("./y")`
     /// expression. Each occurrence prepends a synthetic

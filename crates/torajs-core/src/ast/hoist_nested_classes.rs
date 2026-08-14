@@ -102,6 +102,26 @@ fn walk_container(
     hoisted: &mut Vec<Stmt>,
     counter: &mut u32,
 ) {
+    // A `Multi` holding a ClassDecl is the parse_stmt wrapper's
+    // use-site splice of a class EXPRESSION (393-01). Flatten it into
+    // this list before anything else: `Multi` is a transparent
+    // sequence (no scope), and the capturing lane's α-rename runs
+    // over THE LIST THAT HOLDS THE CLASS — left inside the Multi, the
+    // rename would miss the sibling statements the parser already
+    // rewrote to the synth name (`new F()` → `new __ClassExpr_<id>()`).
+    let mut i = 0;
+    while i < stmts.len() {
+        let has_class = matches!(&stmts[i], Stmt::Multi(v)
+            if v.iter().any(|s| matches!(s, Stmt::ClassDecl { .. })));
+        if has_class {
+            let Stmt::Multi(v) = std::mem::replace(&mut stmts[i], Stmt::Multi(Vec::new())) else {
+                unreachable!("matched Multi above");
+            };
+            stmts.splice(i..i + 1, v);
+            continue; // re-examine i — the flattened head may nest again
+        }
+        i += 1;
+    }
     // Sibling class names count as resolvable during the capture
     // check: they either hoist together or the straggler fails loud
     // in desugar's parent validation.

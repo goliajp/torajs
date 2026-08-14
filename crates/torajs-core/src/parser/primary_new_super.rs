@@ -229,7 +229,16 @@ impl<'a> Parser<'a> {
                     Stmt::ClassDecl { name, .. } => name.clone(),
                     _ => unreachable!(),
                 };
-                self.synth_classes.push(stmt);
+                // 393-01 — same buffer split as parse_primary_class_expr:
+                // outside a class body the decl lands next to its use
+                // site so a capturing `new class { … }()` reaches the
+                // nested-class machinery instead of silently losing its
+                // scope to the top-level splice.
+                if !self.class_stack.is_empty() {
+                    self.synth_classes.push(stmt);
+                } else {
+                    self.synth_classes_local.push(stmt);
+                }
                 NewHead::Named(cls_name)
             }
             // P8.5 — `new (expr)(args)` per ES spec §13.3.5

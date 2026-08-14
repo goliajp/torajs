@@ -174,8 +174,20 @@ impl<'a> Parser<'a> {
     }
 
     /// Drain wrapper around the statement dispatcher — see module doc.
+    ///
+    /// Also drains `synth_classes_local` (393-01): a class expression
+    /// minted while THIS statement parsed lands right in front of it,
+    /// so one written in a nested scope stays a nested ClassDecl and
+    /// the nested-class machinery gets to decide its fate. A watermark
+    /// rather than a full drain because an outer statement's
+    /// condition may already have minted (`if ((class {…}).f) { … }`
+    /// — the body statements must not adopt the condition's class).
+    /// At depth 0 the statement belongs to `parse_program`, whose own
+    /// splice keeps top-level behavior byte-identical — hand over.
     pub(super) fn parse_stmt(&mut self) -> Result<Stmt, String> {
         let outer_buf = std::mem::take(&mut self.yield_hoist_buf);
+        let synth_mark = self.synth_classes_local.len();
+        self.stmt_depth += 1;
         // A fresh statement is an unconditional evaluation position
         // even when the ENCLOSING expression was conditional (an
         // arrow body inside a ternary): re-allow, restore after. The
@@ -184,15 +196,23 @@ impl<'a> Parser<'a> {
         let saved_allowed = std::mem::replace(&mut self.yield_hoist_allowed, true);
         let saved_params = std::mem::replace(&mut self.in_formal_params, false);
         let result = self.parse_stmt_dispatch();
+        self.stmt_depth -= 1;
         self.in_formal_params = saved_params;
         self.yield_hoist_allowed = saved_allowed;
         let my_buf = std::mem::replace(&mut self.yield_hoist_buf, outer_buf);
         let stmt = result?;
-        if my_buf.is_empty() {
+        let mut synths = self.synth_classes_local.split_off(synth_mark);
+        if self.stmt_depth == 0 {
+            self.synth_classes.append(&mut synths);
+        }
+        if my_buf.is_empty() && synths.is_empty() {
             return Ok(stmt);
         }
-        check_hoist_eval_order(self, &stmt)?;
-        let mut v = my_buf;
+        if !my_buf.is_empty() {
+            check_hoist_eval_order(self, &stmt)?;
+        }
+        let mut v = synths;
+        v.extend(my_buf);
         v.push(stmt);
         Ok(Stmt::Multi(v))
     }

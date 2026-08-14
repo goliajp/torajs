@@ -116,6 +116,11 @@ impl<'a> Parser<'a> {
                         pending_async_fn_expr: false,
                         current_class_has_parent: self.current_class_has_parent,
                         synth_classes: Vec::new(),
+                        synth_classes_local: Vec::new(),
+                        // Inherited so a block-bodied arrow inside the
+                        // interpolation wraps its class expressions at
+                        // the right nesting (0 would read as top level).
+                        stmt_depth: self.stmt_depth,
                         // Sub-parser sees outer aliases so a template
                         // interpolation can do `${new F()}` where F is
                         // an outer const-class binding. Sub-parser
@@ -149,6 +154,10 @@ impl<'a> Parser<'a> {
                     // outer parser so they flush at the enclosing
                     // stmt boundary.
                     self.synth_classes.append(&mut sub.synth_classes);
+                    // 393-01 — likewise for the use-site-local buffer:
+                    // these drain at the enclosing stmt's wrapper.
+                    self.synth_classes_local
+                        .append(&mut sub.synth_classes_local);
                     // Expression-position yields hoisted inside the
                     // interpolation drain at the ENCLOSING statement.
                     self.yield_hoist_buf.append(&mut sub.yield_hoist_buf);

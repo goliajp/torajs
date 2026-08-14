@@ -61,6 +61,7 @@
 //! attributes §15.7.14 gives it (see `descriptor_fields`) — statics
 //! included, since rotation 397.
 
+mod alias;
 mod decline;
 mod extends;
 
@@ -118,6 +119,7 @@ pub(super) fn try_rewrite_capturing_class(
         ast.es5_parent_classes.insert(new.clone());
     }
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
+    alias::mint_unique_aliases(ast, stmts, &new, counter);
     let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
     stmts[idx] = lower_to_es5(ast, taken, &old);
     true
@@ -151,8 +153,19 @@ pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
         .map(|(_, why)| *why)
         .or_else(|| decline_reason(ast, s))
         .unwrap_or("the class desugar did not claim it");
+    // A `__ClassExpr_<id>` here is a class EXPRESSION the parser
+    // spliced next to its use site (393-01) — that spelling means
+    // nothing to whoever wrote it, but the binding name might.
+    let shown = if name.starts_with("__ClassExpr_") {
+        match ast.class_expr_display_names.get(name) {
+            Some(d) => format!("the class expression bound to `{d}`"),
+            None => "an anonymous class expression".to_string(),
+        }
+    } else {
+        format!("class `{name}`")
+    };
     format!(
-        "class `{name}` is declared inside a block or a function body and reads a \
+        "{shown} is declared inside a block or a function body and reads a \
          binding from around it, which is not supported yet because {why}"
     )
 }

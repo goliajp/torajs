@@ -211,8 +211,16 @@ impl<'a> Parser<'a> {
         // signal the private-name machinery already maintains.
         if !self.class_stack.is_empty() {
             self.ast.class_expr_deferred.insert(cls_name.clone());
+            self.synth_classes.push(stmt);
+        } else {
+            // 393-01 — outside a class body the decl lands NEXT TO its
+            // use site (the parse_stmt wrapper drains this buffer), so
+            // a class expression in a nested scope keeps its scope and
+            // the nested-class machinery decides its fate. The
+            // class-body case stays on the top-level splice: its
+            // deferral contract above is written against that.
+            self.synth_classes_local.push(stmt);
         }
-        self.synth_classes.push(stmt);
         return Ok(self.ast.add_expr(Expr::Ident(cls_name)));
     }
 
