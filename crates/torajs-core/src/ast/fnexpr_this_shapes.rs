@@ -119,6 +119,18 @@ impl UseShapes {
                         let obj = peel_as(exprs, *obj);
                         matches!(&exprs[obj.0 as usize], Expr::Ident(_)).then_some(obj)
                     }
+                    // An INDEX read joins (406-02: `C[10]` is how a
+                    // numeric computed static is read back). The
+                    // by-name exclusion above cannot screen a runtime
+                    // key, and does not need to: a dynamic-key invoke
+                    // (`C["call"](x)`) rides the any-lane method
+                    // dispatch, which shifts argv on
+                    // FLAG_CLOSURE_RECV_FIRST — the same receiver
+                    // channel every other admitted escape uses.
+                    Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => {
+                        let obj = peel_as(exprs, *obj);
+                        matches!(&exprs[obj.0 as usize], Expr::Ident(_)).then_some(obj)
+                    }
                     _ => None,
                 })
                 .collect(),

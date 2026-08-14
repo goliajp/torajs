@@ -136,6 +136,25 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     if tag == Tag::DynObj as u16 {
         return unsafe { dynobj_index_get(ptr, idx) };
     }
+    // 406-02 — a FUNCTION value's numeric-keyed read: a computed
+    // static class field with a numeric key installs into the
+    // closure's expando bag (`C[10]` is how it reads back), and a
+    // re-parented function value inherits through its user
+    // [[Prototype]] chain. A miss stays the ordinary undefined —
+    // the builtin Function surface owns no numeric keys.
+    if tag == Tag::Closure as u16 {
+        let props = unsafe { crate::member_get_layout::closure_props(ptr) };
+        if !props.is_null() {
+            let out = unsafe { dynobj_index_get(props as *mut c_void, idx) };
+            if out != VALUE_UNDEFINED {
+                return out;
+            }
+        }
+        match unsafe { crate::member_get_own::closure_user_proto(ptr) } {
+            Some(Some(parent)) => return unsafe { __torajs_any_index_get(parent, idx) },
+            _ => return VALUE_UNDEFINED,
+        }
+    }
     // Chunk 744 — struct cell: ToPropertyKey the index and probe the
     // class layout (`{0:"a"} as any` boxes as an anon-struct whose
     // field NAME is the decimal spelling; pre-fix `e[0]` answered a

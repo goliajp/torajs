@@ -84,6 +84,49 @@ pub(super) fn call_bound_to_class(ast: &mut Ast, body: Vec<Stmt>, class_binding:
     })
 }
 
+/// Computed STATIC fields, last (406-02) — CreateDataProperty's
+/// attributes through `defineProperty(K, <key binding>, …)`, whose
+/// target and key positions are receiver-safe. The side table holds
+/// them apart from `static_init`, so their order relative to the
+/// explicit statics is sentinel order, not declaration order
+/// (recorded approximation). `decline_reason` admits them only for a
+/// program-unique class name, so the rows are provably this class's.
+pub(super) fn install_computed_static_fields(
+    ast: &mut Ast,
+    static_cf: Vec<(usize, ExprId)>,
+    name: &str,
+    parent: Option<&str>,
+    src_name: &str,
+    out: &mut Vec<Stmt>,
+) {
+    for (n, init) in static_cf {
+        // Super rewrite BEFORE the `this` probe — the rewrite mints
+        // `this` as the call receiver, which is what routes the
+        // initializer into the `.call(K)` wrapper below.
+        if let Some(p) = parent {
+            super::extends::rewrite_super_sites(ast, &[Stmt::Expr(init)], p, true);
+        }
+        let value = if super::expr_says_this(ast, init) {
+            let body = vec![Stmt::Return(Some(init))];
+            call_bound_to_class(ast, body, name)
+        } else {
+            init
+        };
+        let recv = ast.add_expr(Expr::Ident(name.to_string()));
+        let key = ast.add_expr(Expr::Ident(super::key_binding(src_name, n)));
+        let yes1 = ast.add_expr(Expr::Bool(true));
+        let yes2 = ast.add_expr(Expr::Bool(true));
+        let yes3 = ast.add_expr(Expr::Bool(true));
+        let fields = vec![
+            ("value".to_string(), value),
+            ("writable".to_string(), yes1),
+            ("enumerable".to_string(), yes2),
+            ("configurable".to_string(), yes3),
+        ];
+        out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
+    }
+}
+
 /// The descriptor a class member gets in §15.7.14: an accessor half is
 /// `{ get|set, configurable }`, an ordinary method is
 /// `{ value, writable, configurable }`. Neither says `enumerable`,

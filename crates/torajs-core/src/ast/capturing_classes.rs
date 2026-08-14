@@ -87,8 +87,13 @@ pub(super) fn try_rewrite_capturing_class(
     stmts: &mut [Stmt],
     idx: usize,
     counter: &mut u32,
+    name_counts: &std::collections::HashMap<String, u32>,
 ) -> bool {
-    if let Some(why) = decline_reason(ast, &stmts[idx]) {
+    let name_unique = match &stmts[idx] {
+        Stmt::ClassDecl { name, .. } => name_counts.get(name).copied().unwrap_or(0) <= 1,
+        _ => false,
+    };
+    if let Some(why) = decline_reason(ast, &stmts[idx], name_unique) {
         // Record it HERE, where the decision is made. The checker is
         // what finally reports it, and by then the tree has moved.
         if let Stmt::ClassDecl { name, .. } = &stmts[idx] {
@@ -159,7 +164,10 @@ pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
         .iter()
         .find(|(n, _)| n == name)
         .map(|(_, why)| *why)
-        .or_else(|| decline_reason(ast, s))
+        // Fallback re-decision has no census in hand — `false` takes
+        // the conservative arm, and the recorded reason above is the
+        // normal path anyway.
+        .or_else(|| decline_reason(ast, s, false))
         .unwrap_or("the class desugar did not claim it");
     // A `__ClassExpr_<id>` here is a class EXPRESSION the parser
     // spliced next to its use site (393-01) — that spelling means
@@ -362,7 +370,19 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         .chain(static_methods.iter())
         .map(|m| m.name.as_str())
         .collect();
-    let own = own_computed_members(ast, src_name, ctor_body, &member_names);
+    // Computed STATIC fields (406-02) — their sentinels come from the
+    // side table by class name; `decline_reason` admits them only for
+    // a program-unique name, so the rows are provably this class's.
+    let static_cf: Vec<(usize, ExprId)> = ast
+        .class_computed_static_fields
+        .iter()
+        .filter(|(c, _, _)| c == src_name)
+        .filter_map(|(_, sent, init)| sentinel_index(sent).map(|n| (n, *init)))
+        .collect();
+    let mut own = own_computed_members(ast, src_name, ctor_body, &member_names);
+    own.extend(static_cf.iter().map(|(n, _)| *n));
+    own.sort_unstable();
+    own.dedup();
     let mut out: Vec<Stmt> = Vec::new();
     for (n, key) in keys_of(ast, src_name, &own) {
         let key_any = ast.add_expr(Expr::As {
@@ -458,5 +478,13 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
     }
     install::install_static_inits(ast, static_init, &name, parent.as_deref(), &mut out);
+    install::install_computed_static_fields(
+        ast,
+        static_cf,
+        &name,
+        parent.as_deref(),
+        src_name,
+        &mut out,
+    );
     Stmt::Multi(out)
 }

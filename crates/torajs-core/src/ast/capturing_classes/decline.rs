@@ -17,7 +17,7 @@ use super::{key_binding, own_computed_members, sentinel_index};
 /// and the hoist declines exactly the ones that read something from
 /// around them — so whoever asks this question already knows the class
 /// captures, and what is missing is the SECOND half of the sentence.
-pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
+pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&'static str> {
     let Stmt::ClassDecl {
         name,
         type_params,
@@ -74,16 +74,25 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     // like every other function this lane mints). So neither declines
     // anymore.
     //
-    // A static field with a COMPUTED name still does: it parks in its
-    // own side table instead of in `static_init`, its key is one more
-    // expression evaluated at class-definition time, and nothing has
-    // taught the key-binding walk about it yet.
-    if ast
-        .class_computed_static_fields
-        .iter()
-        .any(|(c, _, _)| c == name)
+    // A static field with a COMPUTED name routes since 406-02 — its
+    // key rides the same `__ccmk_<C>_<n>` binding a computed method
+    // reads, and the store is `Object.defineProperty(K, key, { data
+    // descriptor })` (CreateDataProperty's attributes), whose target
+    // and key are receiver-safe positions. What still gates it is
+    // OWNERSHIP: the side-table rows match by class NAME and the
+    // field leaves no trace on the class itself, so a name shared by
+    // two ClassDecls could install a sibling's fields — the silent
+    // direction. The hoist's program-wide census answers uniqueness.
+    if !name_unique
+        && ast
+            .class_computed_static_fields
+            .iter()
+            .any(|(c, _, _)| c == name)
     {
-        return Some("it has a static field with a computed name");
+        return Some(
+            "it has a static field with a computed name and shares its class name \
+             with another class",
+        );
     }
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract

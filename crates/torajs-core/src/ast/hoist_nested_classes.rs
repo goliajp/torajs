@@ -42,6 +42,24 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
         collect_decl_name(s, &mut top_names);
     }
 
+    // Program-wide ClassDecl name census (406-02). A computed STATIC
+    // field leaves no trace on the class — its side-table rows match
+    // by NAME — so the capturing lane may install them only when the
+    // name provably has one owner. Counted once here, where the whole
+    // tree is still in hand; the lane mints fresh fn-exprs, never
+    // fresh ClassDecls, so the census cannot go stale mid-walk.
+    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for s in &ast.stmts {
+        super::hoist_nested_classes_census::count_class_decl_names(s, &mut name_counts);
+    }
+    for e in &ast.exprs {
+        if let super::Expr::ArrowFn { body, .. } = e {
+            for s in body {
+                super::hoist_nested_classes_census::count_class_decl_names(s, &mut name_counts);
+            }
+        }
+    }
+
     let mut hoisted: Vec<Stmt> = Vec::new();
     let mut counter: u32 = 0;
 
@@ -49,7 +67,14 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
     // only nested containers are scanned.
     let mut stmts = std::mem::take(&mut ast.stmts);
     for s in &mut stmts {
-        walk_child(ast, s, &mut top_names, &mut hoisted, &mut counter);
+        walk_child(
+            ast,
+            s,
+            &mut top_names,
+            &mut hoisted,
+            &mut counter,
+            &name_counts,
+        );
     }
     ast.stmts = stmts;
 
@@ -68,7 +93,14 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
                 continue;
             }
         };
-        walk_container(ast, &mut body, &mut top_names, &mut hoisted, &mut counter);
+        walk_container(
+            ast,
+            &mut body,
+            &mut top_names,
+            &mut hoisted,
+            &mut counter,
+            &name_counts,
+        );
         if let Expr::ArrowFn { body: b, .. } = &mut ast.exprs[i] {
             *b = body;
         }
@@ -101,6 +133,7 @@ fn walk_container(
     top_names: &mut Vec<String>,
     hoisted: &mut Vec<Stmt>,
     counter: &mut u32,
+    name_counts: &std::collections::HashMap<String, u32>,
 ) {
     // A `Multi` holding a ClassDecl is the parse_stmt wrapper's
     // use-site splice of a class EXPRESSION (393-01). Flatten it into
@@ -141,7 +174,13 @@ fn walk_container(
             // cannot be lifted, and takes the runtime-value lane
             // instead (RFC 20260814-capturing-nested-class). Whatever
             // that lane declines stays here and stays loud.
-            super::capturing_classes::try_rewrite_capturing_class(ast, stmts, idx, counter);
+            super::capturing_classes::try_rewrite_capturing_class(
+                ast,
+                stmts,
+                idx,
+                counter,
+                name_counts,
+            );
             continue;
         }
         let old_name = match &stmts[idx] {
@@ -191,7 +230,7 @@ fn walk_container(
     }
 
     for s in stmts.iter_mut() {
-        walk_child(ast, s, top_names, hoisted, counter);
+        walk_child(ast, s, top_names, hoisted, counter, name_counts);
     }
 }
 
@@ -205,37 +244,44 @@ fn walk_child(
     top_names: &mut Vec<String>,
     hoisted: &mut Vec<Stmt>,
     counter: &mut u32,
+    name_counts: &std::collections::HashMap<String, u32>,
 ) {
     match s {
-        Stmt::FnDecl { body, .. } => walk_container(ast, body, top_names, hoisted, counter),
-        Stmt::Block(v) | Stmt::Multi(v) => walk_container(ast, v, top_names, hoisted, counter),
+        Stmt::FnDecl { body, .. } => {
+            walk_container(ast, body, top_names, hoisted, counter, name_counts)
+        }
+        Stmt::Block(v) | Stmt::Multi(v) => {
+            walk_container(ast, v, top_names, hoisted, counter, name_counts)
+        }
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            walk_child(ast, then_branch, top_names, hoisted, counter);
+            walk_child(ast, then_branch, top_names, hoisted, counter, name_counts);
             if let Some(eb) = else_branch {
-                walk_child(ast, eb, top_names, hoisted, counter);
+                walk_child(ast, eb, top_names, hoisted, counter, name_counts);
             }
         }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
         | Stmt::ForOfSplitIter { body, .. }
         | Stmt::ForOf { body, .. }
-        | Stmt::Labeled { body, .. } => walk_child(ast, body, top_names, hoisted, counter),
+        | Stmt::Labeled { body, .. } => {
+            walk_child(ast, body, top_names, hoisted, counter, name_counts)
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                walk_child(ast, i, top_names, hoisted, counter);
+                walk_child(ast, i, top_names, hoisted, counter, name_counts);
             }
-            walk_child(ast, body, top_names, hoisted, counter);
+            walk_child(ast, body, top_names, hoisted, counter, name_counts);
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
-                walk_container(ast, &mut c.body, top_names, hoisted, counter);
+                walk_container(ast, &mut c.body, top_names, hoisted, counter, name_counts);
             }
             if let Some(d) = default {
-                walk_container(ast, d, top_names, hoisted, counter);
+                walk_container(ast, d, top_names, hoisted, counter, name_counts);
             }
         }
         Stmt::Try {
@@ -244,10 +290,10 @@ fn walk_child(
             finally_body,
             ..
         } => {
-            walk_container(ast, body, top_names, hoisted, counter);
-            walk_container(ast, catch_body, top_names, hoisted, counter);
+            walk_container(ast, body, top_names, hoisted, counter, name_counts);
+            walk_container(ast, catch_body, top_names, hoisted, counter, name_counts);
             if let Some(fb) = finally_body {
-                walk_container(ast, fb, top_names, hoisted, counter);
+                walk_container(ast, fb, top_names, hoisted, counter, name_counts);
             }
         }
         Stmt::ClassDecl {
@@ -258,20 +304,20 @@ fn walk_child(
             ..
         } => {
             if let Some(c) = ctor {
-                walk_container(ast, &mut c.body, top_names, hoisted, counter);
+                walk_container(ast, &mut c.body, top_names, hoisted, counter, name_counts);
             }
             for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-                walk_container(ast, &mut m.body, top_names, hoisted, counter);
+                walk_container(ast, &mut m.body, top_names, hoisted, counter, name_counts);
             }
             for si in static_init {
                 if let StaticInit::Block(v) = si {
-                    walk_container(ast, v, top_names, hoisted, counter);
+                    walk_container(ast, v, top_names, hoisted, counter, name_counts);
                 }
             }
         }
         Stmt::ExportDecl {
             inner: Some(inner), ..
-        } => walk_child(ast, inner, top_names, hoisted, counter),
+        } => walk_child(ast, inner, top_names, hoisted, counter, name_counts),
         _ => {}
     }
 }
@@ -366,7 +412,15 @@ fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
             ast.class_computed_static_fields
                 .iter()
                 .filter(|(c, _, _)| c == name)
-                .map(|(_, _, init)| *init),
+                .flat_map(|(c, sent, init)| {
+                    // The KEY too (406-02) — it lives only under the
+                    // side-table sentinel, so walking just the init
+                    // read `{ let k = 5; class C { static [k] = … } }`
+                    // as capture-free and hoisted it away from `k` —
+                    // a warning plus a wrong answer at run time.
+                    let key = ast.class_computed_keys.get(&(c.clone(), sent.clone()));
+                    key.copied().into_iter().chain([*init])
+                }),
         );
     for e in side_exprs {
         if !body_free(&[], &[Stmt::Expr(e)]) {
