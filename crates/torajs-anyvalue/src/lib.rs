@@ -162,6 +162,7 @@ mod method_call_cell;
 mod method_call_closure;
 mod method_call_closure_apply_like;
 mod method_call_closure_dispatch;
+mod method_call_closure_expando;
 mod method_call_date;
 mod method_call_dynobj;
 mod method_call_dynobj_chain;

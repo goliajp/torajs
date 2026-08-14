@@ -92,6 +92,13 @@ pub(crate) unsafe fn closure_method(
             && !name_str.is_null()
             && __torajs_dynobj_get_tag(props, name_str as *const c_void) != 5
         {
+            // A closure stored here takes the FUNCTION as its `this`,
+            // not the bag the property happens to live in.
+            if let Some(r) = crate::method_call_closure_expando::expando_this_is_the_function(
+                ptr, props, name_str, argv, argc,
+            ) {
+                return r;
+            }
             // NULL recv_slot — the props side-table cell is not the
             // caller's variable (no relocation writeback target).
             return crate::method_call_dynobj::dynobj_method(
