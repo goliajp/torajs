@@ -216,18 +216,11 @@ fn collect_decls_split(
             }
         }
         let nested_twin =
-            in_twin || matches!(s, Stmt::FnDecl { name: f, .. } if is_twin_body_name(f));
+            in_twin
+                || matches!(s, Stmt::FnDecl { name: f, .. }
+                    if super::fnexpr_this_names::is_twin_body_name(f));
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
             collect_decls_split(inner, name, nested_twin, mono, twin)
         });
     }
-}
-
-/// Is this the name of a receiver-polymorphic clone?
-///
-/// Both prefixes are synthesized — no source can spell one — which is
-/// the same test the boxed-adapter synthesis and the module-metadata
-/// method walk already read them by.
-fn is_twin_body_name(name: &str) -> bool {
-    name.starts_with("__cmany_") || name.starts_with("__smany_")
 }

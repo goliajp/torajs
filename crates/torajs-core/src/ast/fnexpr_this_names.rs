@@ -14,6 +14,19 @@
 
 use super::{Expr, Stmt};
 
+/// Is this the name of a receiver-polymorphic clone?
+///
+/// Both prefixes are synthesized — no source can spell one — which is
+/// the same test the boxed-adapter synthesis and the module-metadata
+/// method walk already read them by. Every by-name census that COUNTS
+/// declarations must treat a declaration inside one of these bodies
+/// as a copy of its mono-body source, not a second declaration
+/// (399-04; the walk pattern is `collect_decls_split` in
+/// [`super::fnexpr_this_routed`]).
+pub(super) fn is_twin_body_name(name: &str) -> bool {
+    name.starts_with("__cmany_") || name.starts_with("__smany_")
+}
+
 /// Rotation 328 — every binding whose init is a marked fn-expr
 /// Closure still carrying `__this` in its capture list. These are the
 /// zero-face candidates for the all-direct-call profile: a name never

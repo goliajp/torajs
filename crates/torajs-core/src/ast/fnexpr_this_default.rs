@@ -113,7 +113,7 @@ fn certain_bindings(
     pred: &dyn Fn(&[Expr], ExprId) -> bool,
 ) -> std::collections::HashSet<String> {
     let mut decls: Vec<(String, bool)> = Vec::new();
-    collect_const_decls(stmts, exprs, pred, &mut decls);
+    collect_const_decls(stmts, exprs, pred, false, &mut decls);
     // A name declared more than once anywhere is out, whichever
     // declaration would have qualified: the census is name-keyed and
     // an over-refusal only costs a loud reject.
@@ -126,10 +126,20 @@ fn certain_bindings(
     names
 }
 
+/// The census counts SOURCES: a declaration inside a `__cmany_` /
+/// `__smany_` twin body is `desugar_classes_generic_twin`'s copy of
+/// the mono body's declaration, not a second same-name binding
+/// (399-04 — the twin double-count read `const p = Promise.resolve(1);
+/// p.then(function () { …this… })` at method scope as a re-declared
+/// name, dropped `p` from the certainty set, and the handler silently
+/// kept the METHOD's receiver where top level answered `undefined`).
+/// Skipping the copy is sound because the set is name-keyed: the twin
+/// body's cloned slot admits through the same name the source proves.
 fn collect_const_decls(
     stmts: &[Stmt],
     exprs: &[Expr],
     pred: &dyn Fn(&[Expr], ExprId) -> bool,
+    in_twin: bool,
     out: &mut Vec<(String, bool)>,
 ) {
     for s in stmts {
@@ -139,9 +149,18 @@ fn collect_const_decls(
                 name,
                 init,
                 ..
-            } => out.push((name.clone(), !*mutable && pred(exprs, *init))),
-            Stmt::FnDecl { body, .. } => collect_const_decls(body, exprs, pred, out),
-            Stmt::Block(inner) | Stmt::Multi(inner) => collect_const_decls(inner, exprs, pred, out),
+            } => {
+                if !in_twin {
+                    out.push((name.clone(), !*mutable && pred(exprs, *init)));
+                }
+            }
+            Stmt::FnDecl { name, body, .. } => {
+                let t = in_twin || super::fnexpr_this_names::is_twin_body_name(name);
+                collect_const_decls(body, exprs, pred, t, out);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_const_decls(inner, exprs, pred, in_twin, out)
+            }
             _ => {}
         }
     }
