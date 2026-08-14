@@ -118,6 +118,16 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         {
             Some(Type::Any)
         }
+        // rotation 400 (398-07) — two DIFFERENT concrete scalars join
+        // to ANY, the S129-1 posture (`x === undefined ? "undef" : 1`;
+        // TS spells the join `"undef" | 1`, a union tr approximates as
+        // Any). Both branches ride the ternary lowering's both-sides
+        // box, so every consumer reads a tagged AnyValue — the same
+        // lane the Undefined arm above already exercises for each of
+        // these types individually.
+        (Type::String, Type::Number | Type::Boolean)
+        | (Type::Number, Type::String | Type::Boolean)
+        | (Type::Boolean, Type::String | Type::Number) => Some(Type::Any),
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {

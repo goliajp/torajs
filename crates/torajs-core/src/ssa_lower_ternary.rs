@@ -218,7 +218,33 @@ fn widen_branches(
     // consumer's any lanes see tagged values whichever branch runs.
     let heap_mixed_join = (matches!(tt, Type::Arr(_)) && matches!(et, Type::Obj(_)))
         || (matches!(tt, Type::Obj(_)) && matches!(et, Type::Arr(_)));
-    if (struct_join || arr_join || heap_mixed_join || then_undef != else_undef || null_join)
+    // rotation 400 (398-07) — two DIFFERENT concrete scalars the
+    // checker joined to Any (`x === undefined ? "undef" : 1`): box
+    // both sides expr-aware, mirroring the unify_ternary arm exactly
+    // — the gate reads the CHECKER types, not the SSA reprs, so a
+    // same-checker-type width split (I64 × I32 Number) never
+    // matches. Without the box the Str branch's pointer bits read
+    // back through the other branch's slot type (probe: printed the
+    // raw pointer as a number).
+    let scalar_ck = |e: &ExprId| {
+        matches!(
+            ctx.expr_types.get(e),
+            Some(
+                crate::check::Type::String
+                    | crate::check::Type::Number
+                    | crate::check::Type::Boolean
+            )
+        )
+    };
+    let scalar_mixed_join = scalar_ck(&then_branch)
+        && scalar_ck(&else_branch)
+        && ctx.expr_types.get(&then_branch) != ctx.expr_types.get(&else_branch);
+    if (struct_join
+        || arr_join
+        || heap_mixed_join
+        || scalar_mixed_join
+        || then_undef != else_undef
+        || null_join)
         && tt != Type::Any
         && et != Type::Any
     {
