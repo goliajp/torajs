@@ -361,7 +361,10 @@ fn prepare_closure_call(
     }
     abi_params.extend(user_params.iter().copied());
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, abi_params, ret_ty.clone());
-    let recv_gate = if takes_recv {
+    // With no promoted closure anywhere the flag can never be set —
+    // keep the single-path emit (398-06 knife-2 whole-program kill,
+    // doc on the closure_local twin).
+    let recv_gate = if takes_recv || ctx.ast.fnexpr_recv_fns.is_empty() {
         None
     } else {
         Some((Operand::Value(closure_env), recv_op.clone()))

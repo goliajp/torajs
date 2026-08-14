@@ -102,6 +102,15 @@ pub(crate) fn try_lower_with_this(
     // skip), so a direct call re-inserts the slot with a boxed
     // `undefined` (strict-mode call-site `this`, §10.2.1.2).
     let needs_this = ctx.ast.fnexpr_recv_locals.contains(callee_name);
+    // 398-06 knife 2 — a whole-program fact kills the gate: with no
+    // promoted closure anywhere (`fnexpr_recv_fns` empty) the header
+    // flag can never be set, so the receiverless call keeps the
+    // single-path emit byte-for-byte. Load-bearing beyond cost: the
+    // egraph self-tail-call rewrite matches the EXACT single-call
+    // shape, and gating a self-recursive named fn expression broke
+    // the match — 1M-deep recursion ran on the real stack
+    // (tco-self-001, exit 139).
+    let gate_reachable = !ctx.ast.fnexpr_recv_fns.is_empty();
 
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
     let mut env_first_params = Vec::with_capacity(user_params.len() + 3);
@@ -201,9 +210,10 @@ pub(crate) fn try_lower_with_this(
     // argv is shorter than env_first_sig and the callee reads
     // garbage registers (RC-4 arguments-object SIGSEGV).
     crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
-    let result = if needs_this {
-        // Statically promoted — the single-path emit, exactly as
-        // before the gate existed.
+    let result = if needs_this || !gate_reachable {
+        // Statically promoted, or no promoted closure exists in the
+        // whole program — the single-path emit, exactly as before
+        // the gate existed.
         emit_static_indirect_call(ctx, env_first_sig, fn_ptr, argv, ret_ty)
     } else {
         // 398-06 — the slot may still HOLD a promoted closure (the

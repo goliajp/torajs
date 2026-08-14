@@ -289,7 +289,10 @@ pub(crate) fn emit_closure_callee_with_this(
     // promoted closure at runtime (a field read, an alias, a slot the
     // value flowed through), so the receiverless call runs behind the
     // FLAG_CLOSURE_RECV_FIRST gate (doc on `ssa_lower_call_recv_gate`).
-    let recv_gated = matches!(this_arg, ClosureThis::None);
+    // With no promoted closure anywhere the flag can never be set —
+    // keep the single-path emit (knife-2 whole-program kill, doc on
+    // the closure_local twin).
+    let recv_gated = matches!(this_arg, ClosureThis::None) && !ctx.ast.fnexpr_recv_fns.is_empty();
     let user_params = ctx.fn_sigs[user_sig_id.0 as usize].0.clone();
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
     argv.push(Operand::Value(env_ptr));
