@@ -65,19 +65,37 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     }
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract
-            || m.accessor_kind.is_some()
             || m.visibility != Visibility::Public
             || (m.name.starts_with("__") && sentinel_index(&m.name).is_none())
     }) {
-        return Some(if m.accessor_kind.is_some() {
-            "it has a getter or a setter"
-        } else if m.is_abstract {
+        return Some(if m.is_abstract {
             "it has an abstract method"
         } else if m.visibility != Visibility::Public {
             "it has a private or protected member"
         } else {
             "it has a generator or otherwise compiler-rewritten method"
         });
+    }
+    // An accessor lowers to `Object.defineProperty(<recv>, …)`, which
+    // puts `<recv>` in an ARGUMENT position. On the prototype that is
+    // fine — the binding still stands under `.prototype`, a named
+    // member — but a STATIC accessor would pass the binding itself,
+    // and a bare occurrence outside a member's object position is
+    // exactly what the receiver-safe use list refuses. Measured: the
+    // instance pair answers with bun; adding one static accessor turns
+    // the whole class back into `unknown identifier __this`.
+    //
+    // A computed name on an accessor is declined for the same reason
+    // the computed-static case below is: `defineProperty` wants the
+    // key as an argument, and the sentinel is not one.
+    if static_methods.iter().any(|m| m.accessor_kind.is_some()) {
+        return Some("it has a static getter or setter");
+    }
+    if methods
+        .iter()
+        .any(|m| m.accessor_kind.is_some() && sentinel_index(&m.name).is_some())
+    {
+        return Some("it has a getter or a setter with a computed name");
     }
     // A computed name on a static member lowers to `K[<key>] = …`,
     // and the object position of a KEYED member cannot join the

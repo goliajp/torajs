@@ -45,9 +45,10 @@
 //! REJECTED today — a whitelist, so no program that currently answers
 //! correctly can be pulled in. Constructor, plain public instance
 //! methods, and plain public static methods named outright; a static
-//! body may say `this`, and instance members may carry a computed
-//! name. No `extends`, no static fields or static blocks, no
-//! accessors, no type params, and no compiler-minted free name in a
+//! body may say `this`, instance members may carry a computed name,
+//! and an instance accessor may be named outright. No `extends`, no
+//! static fields or static blocks, no static or computed-name
+//! accessor, no type params, and no compiler-minted free name in a
 //! body (`__cm_gen_*` forwarders to a hoisted generator method,
 //! `__supercall__*`). Everything else keeps today's loud abort.
 //!
@@ -355,6 +356,10 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
                 name: "prototype".to_string(),
             });
         }
+        if let Some(kind) = m.accessor_kind {
+            out.push(Stmt::Expr(define_accessor(ast, recv, &m.name, kind, eid)));
+            continue;
+        }
         let target = match sentinel_index(&m.name) {
             Some(n) => {
                 let recv_any = ast.add_expr(Expr::As {
@@ -376,4 +381,47 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         out.push(Stmt::Expr(assign));
     }
     Stmt::Multi(out)
+}
+
+/// `Object.defineProperty(<recv>, "<name>", { get|set: <fn>,
+/// configurable: true } as any)` — how §15.7.14 defines an accessor
+/// member, down to the attributes: an accessor on a class is
+/// configurable and NOT enumerable, which is exactly what a fresh
+/// `defineProperty` gives it.
+///
+/// A getter and a setter of the same name arrive as two members and so
+/// emit two calls. That is the spec's own shape (each MethodDefinition
+/// is its own DefinePropertyOrThrow), and the second call keeps the
+/// first half: a descriptor naming only `[[Set]]` leaves an existing
+/// `[[Get]]` alone (§10.1.6.3 step 4).
+fn define_accessor(
+    ast: &mut Ast,
+    recv: ExprId,
+    name: &str,
+    kind: super::AccessorKind,
+    func: ExprId,
+) -> ExprId {
+    let half = match kind {
+        super::AccessorKind::Getter => "get",
+        super::AccessorKind::Setter => "set",
+    };
+    let yes = ast.add_expr(Expr::Bool(true));
+    // The descriptor stays a BARE object literal. Wrapping it in
+    // `as any` reads fine and even runs when hand-written, but the
+    // fnexpr-this face walk requires an inline `ObjectLit` at exactly
+    // this argument — an `As` in between hands it zero faces, and the
+    // getter's `this` stays a capture nobody binds.
+    let desc = ast.add_expr(Expr::ObjectLit {
+        fields: vec![(half.to_string(), func), ("configurable".to_string(), yes)],
+    });
+    let key = ast.add_expr(Expr::String(name.to_string()));
+    let object = ast.add_expr(Expr::Ident("Object".to_string()));
+    let callee = ast.add_expr(Expr::Member {
+        obj: object,
+        name: "defineProperty".to_string(),
+    });
+    ast.add_expr(Expr::Call {
+        callee,
+        args: vec![recv, key, desc],
+    })
 }
