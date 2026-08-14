@@ -45,15 +45,18 @@ pub struct AnonStampPool {
     /// from both named + snapshot anon tags + class_layouts is grown
     /// without renumbering.
     next_tag: u32,
-    /// 404-01 — alloc sids that are a GENERIC class's instances, by
-    /// the base class name. Recorded at the stamp site
-    /// (`write_class_tag`: a `__new_<C>$$<mono>` factory whose full
-    /// name is not itself a class), because the alloc's sid is the
-    /// factory ObjectLit's STRUCTURAL intern — `inst_memo`'s
-    /// annotation-keyed sid is a different table and misses it. The
-    /// row emitters read this back to dress the per-specialization
-    /// row with the class's name and method table.
-    generic_class_sids: HashMap<ssa::StructId, String>,
+    /// 404-01 / 405-03 — one row PER GENERIC MONO FACTORY:
+    /// `(tag, layout sid, base class name)`, keyed for dedup by the
+    /// factory's name. The alloc sid is the factory ObjectLit's
+    /// STRUCTURAL intern, and two different generic classes with the
+    /// same field shape share it (`G<number>` / `H<number>` both
+    /// intern `{k: i64}`) — so a sid-keyed tag cannot carry class
+    /// identity, the same lesson the named tags learned ("keyed by
+    /// class name (not sid)"). Each factory therefore mints its OWN
+    /// tag off the shared counter; the plain anon row of the sid
+    /// stays untouched for plain object literals of that shape.
+    generic_rows: Vec<(u32, ssa::StructId, String)>,
+    generic_by_factory: HashMap<String, u32>,
 }
 
 impl AnonStampPool {
@@ -65,20 +68,29 @@ impl AnonStampPool {
             sid_to_tag: snapshot,
             fresh_sids: Vec::new(),
             next_tag: next_tag_start,
-            generic_class_sids: HashMap::new(),
+            generic_rows: Vec::new(),
+            generic_by_factory: HashMap::new(),
         }
     }
 
-    /// 404-01 — record that `sid` is an instance shape of generic
-    /// class `base` (see the field doc).
-    pub fn record_generic_class_sid(&mut self, sid: ssa::StructId, base: String) {
-        self.generic_class_sids.insert(sid, base);
+    /// 404-01 / 405-03 — the tag a generic mono factory's instances
+    /// wear (see the field doc). One tag per factory, minted off the
+    /// shared counter on first ask.
+    pub fn assign_generic(&mut self, factory: &str, sid: ssa::StructId, base: String) -> u32 {
+        if let Some(&t) = self.generic_by_factory.get(factory) {
+            return t;
+        }
+        let tag = self.next_tag;
+        self.next_tag = self.next_tag.saturating_add(1);
+        self.generic_by_factory.insert(factory.to_string(), tag);
+        self.generic_rows.push((tag, sid, base));
+        tag
     }
 
-    /// The recorded generic-instance sids, cloned out for the row
-    /// emitters (the pool cell stays borrowed only momentarily).
-    pub fn generic_class_sids(&self) -> &HashMap<ssa::StructId, String> {
-        &self.generic_class_sids
+    /// The recorded generic factory rows, for the merged fresh-row
+    /// append.
+    pub fn generic_rows(&self) -> &[(u32, ssa::StructId, String)] {
+        &self.generic_rows
     }
 
     /// Look up an existing tag for `sid` or allocate a fresh one. Fresh
@@ -151,21 +163,34 @@ pub fn build_snapshot_pool(
     RefCell::new(AnonStampPool::from_snapshot(snapshot, next_tag_start))
 }
 
-/// Append a `ClassLayoutMeta` row per Pass 2 fresh sid recorded in
-/// `pool` to `class_layouts`. Mirrors the Pass 1.5 anonymous-snapshot
-/// emit loop in `ssa_lower::lower_module` (W-J Phase A0) so the
-/// runtime indexed view stays dense (`class_tag - 1` keeps holding).
+/// Append a `ClassLayoutMeta` row per Pass 2 fresh tag recorded in
+/// `pool` to `class_layouts` — plain anon sids and generic-factory
+/// rows (405-03) share one tag counter, so the two lists merge
+/// sorted by tag to keep the runtime indexed view dense
+/// (`class_tag - 1` keeps holding).
 ///
 /// `struct_layouts` is the post-Pass-2 vec — every fresh sid index
-/// is now in-range.
+/// is now in-range. `generic_methods` maps a generic class to its
+/// re-targeted method table (built by `populate_class_layouts`).
 pub fn append_fresh_class_layouts(
     pool: &AnonStampPoolCell,
     struct_layouts: &[Vec<(String, crate::ssa::Type)>],
-    inst_rows: &HashMap<ssa::StructId, (String, Vec<crate::ssa::MethodMetaSpec>)>,
+    generic_methods: &HashMap<String, Vec<crate::ssa::MethodMetaSpec>>,
     class_layouts: &mut Vec<crate::ssa::ClassLayoutMeta>,
 ) {
-    let fresh = pool.borrow().fresh_sids().to_vec();
-    for sid in fresh {
+    let p = pool.borrow();
+    let mut rows: Vec<(u32, ssa::StructId, Option<&String>)> = p
+        .fresh_sids()
+        .iter()
+        .map(|sid| (p.sid_to_tag[sid], *sid, None))
+        .chain(
+            p.generic_rows()
+                .iter()
+                .map(|(tag, sid, base)| (*tag, *sid, Some(base))),
+        )
+        .collect();
+    rows.sort_by_key(|(tag, _, _)| *tag);
+    for (_, sid, base) in rows {
         let sid_idx = sid.0 as usize;
         let layout = &struct_layouts[sid_idx];
         let mut child_offsets: Vec<u32> = Vec::new();
@@ -181,11 +206,14 @@ pub fn append_fresh_class_layouts(
                 type_tag: crate::ssa::field_type_tag_of(*fty),
             });
         }
-        // 404-01 — a Pass-2 fresh generic-class instantiation keeps
-        // its per-specialization LAYOUT but wears the class identity
-        // (name + method table), mirroring the Pass-1.5 snapshot walk.
-        let (class_name, methods) = match inst_rows.get(&sid) {
-            Some((base, methods)) => (base.clone(), methods.clone()),
+        // 404-01 / 405-03 — a generic factory's row keeps its
+        // per-specialization LAYOUT but wears the class identity
+        // (name + re-targeted method table).
+        let (class_name, methods) = match base {
+            Some(base) => (
+                base.clone(),
+                generic_methods.get(base).cloned().unwrap_or_default(),
+            ),
             None => (format!("__anon_struct_{sid_idx}"), Vec::new()),
         };
         class_layouts.push(crate::ssa::ClassLayoutMeta {

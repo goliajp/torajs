@@ -65,21 +65,18 @@ pub(crate) fn populate_vtables(
     }
 }
 
-/// Returns the specialization rows map (`sid → (base class name,
-/// method table)`) so `append_fresh_class_layouts` can dress Pass-2
-/// fresh instantiation sids the same way the snapshot walk below
-/// dresses Pass-1.5 ones. `generic_inst_sids` is the stamp-site
-/// record from [`crate::ssa_lower_anon_stamp::AnonStampPool`].
+/// Returns each GENERIC class's re-targeted method table (base name
+/// → specs) so `append_fresh_class_layouts` can dress the
+/// per-factory rows the pool recorded (405-03).
 pub(crate) fn populate_class_layouts(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
-    generic_inst_sids: &HashMap<ssa::StructId, String>,
     module: &mut Module,
     struct_layouts_pass15_len: usize,
-) -> HashMap<ssa::StructId, (String, Vec<ssa::MethodMetaSpec>)> {
+) -> HashMap<String, Vec<ssa::MethodMetaSpec>> {
     // T-26.C — named-class metadata, walked in `class_name_to_tag`
     // order so the resulting Vec lines up with the runtime's index
     // arithmetic (cycle collector indexes class_layouts via
@@ -163,25 +160,27 @@ pub(crate) fn populate_class_layouts(
             ),
         });
     }
-    // 404-01 — a generic-class instantiation sid rides the anonymous
-    // machinery for its LAYOUT (per-specialization field types: a
-    // `G<number>` k is a raw i64, a `G<string>` k a refcounted ptr —
-    // the cycle collector and reflection must see the right one), but
-    // its IDENTITY is the class: the row gets the base class's name
-    // and method table so the any-lane method dispatch reading
-    // `class_tag@+8` answers on these instances.
-    let inst_rows: HashMap<ssa::StructId, (String, Vec<ssa::MethodMetaSpec>)> = generic_inst_sids
+    // 404-01 / 405-03 — each GENERIC class's re-targeted method
+    // table, for the per-factory rows `append_fresh_class_layouts`
+    // emits: a factory row keeps the specialization's LAYOUT
+    // (per-specialization field types — a `G<number>` k is a raw
+    // i64, a `G<string>` k a refcounted ptr, and the cycle collector
+    // / reflection must see the right one) but wears the class's
+    // identity, which is what the any-lane method dispatch reading
+    // `class_tag@+8` answers through.
+    let generic_methods: HashMap<String, Vec<ssa::MethodMetaSpec>> = class_names_by_tag
         .iter()
-        .map(|(sid, base)| {
+        .filter(|(cname, _)| !matches!(aliases.get(*cname), Some(Type::Obj(_))))
+        .map(|(cname, _)| {
             let row = generic_class_placeholder_row(
                 ast,
                 fn_table,
                 boxed_entries,
                 &own_methods,
                 &this_free_fids,
-                base,
+                cname,
             );
-            (*sid, (base.clone(), row.methods))
+            ((*cname).clone(), row.methods)
         })
         .collect();
     // W-J Phase A0 — anonymous ObjectLit structs get their own
@@ -189,11 +188,10 @@ pub(crate) fn populate_class_layouts(
     register_anonymous_struct_layouts(
         class_name_to_tag,
         aliases,
-        &inst_rows,
         module,
         struct_layouts_pass15_len,
     );
-    inst_rows
+    generic_methods
 }
 
 /// S2.38 — the receiver-free / bare-call-safe verdict per `__cm_`
@@ -298,9 +296,9 @@ fn collect_this_free_fids(
 /// fields (no instance ever wears its tag — instances live on
 /// per-specialization sids), but the class name and the method table,
 /// re-targeted at the receiver-polymorphic twin instances. The same
-/// row shape dresses each specialization sid's anonymous row, which
-/// is why this builder serves both the named walk's placeholder and
-/// the `inst_rows` map.
+/// method table dresses each generic FACTORY row (405-03), which is
+/// why this builder serves both the named walk's placeholder and
+/// the `generic_methods` map.
 fn generic_class_placeholder_row(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
@@ -338,7 +336,6 @@ fn generic_class_placeholder_row(
 fn register_anonymous_struct_layouts(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
-    inst_rows: &HashMap<ssa::StructId, (String, Vec<ssa::MethodMetaSpec>)>,
     module: &mut Module,
     struct_layouts_pass15_len: usize,
 ) {
@@ -396,18 +393,12 @@ fn register_anonymous_struct_layouts(
                 type_tag: ssa::field_type_tag_of(*fty),
             });
         }
-        // 404-01 — a generic-class instantiation keeps this row's
-        // per-specialization LAYOUT but wears the class's identity.
-        let (class_name, methods) = match inst_rows.get(&sid) {
-            Some((base, methods)) => (base.clone(), methods.clone()),
-            None => (format!("__anon_struct_{sid_idx}"), Vec::new()),
-        };
         module.class_layouts.push(ClassLayoutMeta {
-            class_name,
+            class_name: format!("__anon_struct_{sid_idx}"),
             child_offsets,
             field_metadata,
             is_named: false,
-            methods,
+            methods: Vec::new(),
         });
     }
 }

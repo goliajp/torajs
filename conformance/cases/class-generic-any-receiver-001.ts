@@ -24,3 +24,12 @@ console.log(h.get());
 // an any boundary in between changes nothing
 function take(x: any) { return x.get() }
 console.log(take(new G<number>(1)), take(new G<string>("s")));
+// instanceof answers by class identity, per specialization (405-03)
+console.log(g instanceof G, s instanceof G, tg instanceof G);
+// two generic classes sharing one field SHAPE stay two classes —
+// the structural intern must not merge their identities
+class H<K> { k: K; constructor(k: K) { this.k = k } who(): string { return "H" } }
+class W<K> { k: K; constructor(k: K) { this.k = k } who(): string { return "W" } }
+const hh: any = new H<number>(1);
+const ww: any = new W<number>(2);
+console.log(hh.who(), ww.who(), hh instanceof H, hh instanceof W, ({}) instanceof H);

@@ -294,6 +294,8 @@ pub(crate) fn build(
         get_builtin_prototype: init_b.object.get_builtin_prototype,
         instanceof_class_any_tag: init_b.object.instanceof_class_any_tag,
         instanceof_builtin_any_tag: init_b.object.instanceof_builtin_any_tag,
+        instanceof_generic_any: init_b.object.instanceof_generic_any,
+        instanceof_generic_tag: init_b.object.instanceof_generic_tag,
         instanceof_fn_value: init_b.object.instanceof_fn_value,
         instanceof_dynamic: init_b.object.instanceof_dynamic,
         instanceof_object_any: init_b.object.instanceof_object_any,

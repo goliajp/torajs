@@ -344,6 +344,8 @@ pub(crate) struct Intrinsics {
     pub(crate) instanceof_fn_value: FuncId,
     pub(crate) instanceof_dynamic: FuncId,
     pub(crate) instanceof_object_any: FuncId,
+    pub(crate) instanceof_generic_any: FuncId,
+    pub(crate) instanceof_generic_tag: FuncId,
     pub(crate) in_op_any_num: FuncId,
     pub(crate) in_op_any_str: FuncId,
     pub(crate) any_is_arr: FuncId,

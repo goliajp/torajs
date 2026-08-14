@@ -243,7 +243,39 @@ fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> O
         }
         return Operand::ConstBool(false);
     }
-    emit_any_class_or_chain(ctx, v, &descendant_tags)
+    let r = emit_any_class_or_chain(ctx, v, &descendant_tags);
+    // 405-03 — a GENERIC class's instances wear per-specialization
+    // anon tags minted during Pass 2, which the constant chain above
+    // can never list; the runtime half answers by row-name identity.
+    if let Some(base_tag) = generic_class_tag(ctx, class_name) {
+        let cur_block = ctx.cur_block;
+        let g = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.instanceof_generic_any,
+                vec![v, Operand::ConstI64(base_tag)],
+            ),
+            Type::Bool,
+            None,
+        );
+        let Operand::Value(rv) = r else {
+            return Operand::Value(g);
+        };
+        return Operand::Value(or_chain_step(ctx, Some(rv), g));
+    }
+    r
+}
+
+/// 405-03 — the runtime tag of a GENERIC class (a name in
+/// `class_name_to_tag` that also has a generic struct decl). Its
+/// instances never wear this tag — the placeholder row it names is
+/// what the specialization rows copy their identity from, and the
+/// name comparison in `__torajs_generic_tag_match` is keyed off it.
+fn generic_class_tag(ctx: &LowerCtx<'_>, class_name: &str) -> Option<i64> {
+    if !ctx.generic_struct_decls.contains_key(class_name) {
+        return None;
+    }
+    ctx.class_name_to_tag.get(class_name).map(|t| *t as i64)
 }
 
 /// Rotation 345 (RFC 20260808-construct-channel) — `o instanceof C`
@@ -344,7 +376,26 @@ fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str
         Type::I64,
         None,
     );
-    emit_obj_tag_or_chain(ctx, tag_v, &descendant_tags)
+    let r = emit_obj_tag_or_chain(ctx, tag_v, &descendant_tags);
+    // 405-03 — same generic-class half as the any dispatch; the tag
+    // is already loaded here, so only the name comparison is left.
+    if let Some(base_tag) = generic_class_tag(ctx, class_name) {
+        let cur_block = ctx.cur_block;
+        let g = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.instanceof_generic_tag,
+                vec![Operand::Value(tag_v), Operand::ConstI64(base_tag)],
+            ),
+            Type::Bool,
+            None,
+        );
+        let Operand::Value(rv) = r else {
+            return Operand::Value(g);
+        };
+        return Operand::Value(or_chain_step(ctx, Some(rv), g));
+    }
+    r
 }
 
 fn compute_descendant_tags(ctx: &LowerCtx<'_>, class_name: &str) -> Vec<u32> {
