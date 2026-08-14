@@ -81,13 +81,17 @@ pub(super) struct UseShapes {
     /// An ELEMENT of an array literal initializing an exactly-`any`
     /// binding (397-01) — see [`any_arraylit_elem_idents`].
     pub(super) any_arraylit_elem: std::collections::HashSet<ExprId>,
+    /// The init site of a PROVEN-SAFE alias declaration (397-02) —
+    /// see [`super::fnexpr_this_alias`]. Filled in a second pass of
+    /// `collect`, since the fixpoint consults the base shapes.
+    pub(super) safe_alias_init: std::collections::HashSet<ExprId>,
 }
 
 impl UseShapes {
     pub(super) fn collect(stmts: &[Stmt], exprs: &[Expr]) -> Self {
         let mut any_ann_names = std::collections::HashSet::new();
         collect_any_ann_decl_names(stmts, &mut any_ann_names);
-        Self {
+        let mut shapes = Self {
             callee: exprs
                 .iter()
                 .filter_map(|e| match e {
@@ -124,7 +128,11 @@ impl UseShapes {
             any_ann_names,
             hof_cb_arg: hof_any_cb_arg_idents(stmts, exprs),
             any_arraylit_elem: any_arraylit_elem_idents(stmts, exprs),
-        }
+            safe_alias_init: std::collections::HashSet::new(),
+        };
+        shapes.safe_alias_init =
+            super::fnexpr_this_alias::safe_alias_init_sites(stmts, exprs, &shapes);
+        shapes
     }
 
     /// Is this use of `name` receiver-safe?
@@ -138,6 +146,7 @@ impl UseShapes {
             || self.define_target.contains(&e)
             || self.hof_cb_arg.contains(&e)
             || self.any_arraylit_elem.contains(&e)
+            || self.safe_alias_init.contains(&e)
             || (self.any_return.contains(&e) && self.any_ann_names.contains(name))
     }
 }
