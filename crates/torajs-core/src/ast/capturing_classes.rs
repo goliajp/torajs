@@ -62,6 +62,7 @@
 //! included, since rotation 397.
 
 mod decline;
+mod extends;
 
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, Expr, ExprId, StaticInit, Stmt};
@@ -101,6 +102,21 @@ pub(super) fn try_rewrite_capturing_class(
     let old = name.clone();
     let new = format!("__cc{}_{}", *counter, old);
     *counter += 1;
+    // A static-free class is a faithful `extends` target for a later
+    // sibling: nothing lives on the class object, so the prototype
+    // link alone covers the contract (blade 5). Recorded under the
+    // minted name — the rename below writes that same spelling into
+    // every sibling's `parent` field.
+    if let Stmt::ClassDecl {
+        static_methods,
+        static_init,
+        ..
+    } = &stmts[idx]
+        && static_methods.is_empty()
+        && static_init.is_empty()
+    {
+        ast.es5_parent_classes.insert(new.clone());
+    }
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
     let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
     stmts[idx] = lower_to_es5(ast, taken, &old);
@@ -290,6 +306,7 @@ pub(super) fn keys_of(ast: &Ast, cname: &str, ns: &[usize]) -> Vec<(usize, ExprI
 fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     let Stmt::ClassDecl {
         name,
+        parent,
         ctor,
         methods,
         static_methods,
@@ -339,10 +356,20 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
             is_var: false,
         });
     }
+    // A derived class with no ctor gets the implicit forwarding one
+    // §15.7.14 hands it; an explicit body has its super sites lowered
+    // against the parent BINDING (blade 5 — the α-rename already put
+    // the lane's minted spelling into `parent`).
     let (params, body) = match ctor {
         Some(c) => (c.params, c.body),
-        None => (Vec::new(), Vec::new()),
+        None => match &parent {
+            Some(p) => extends::implicit_derived_ctor(ast, p),
+            None => (Vec::new(), Vec::new()),
+        },
     };
+    if let Some(p) = &parent {
+        extends::rewrite_super_sites(ast, &body, p);
+    }
     let ctor_eid = ast.add_expr(Expr::ArrowFn {
         params,
         return_type: None,
@@ -356,11 +383,23 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         init: ctor_eid,
         is_var: false,
     });
+    // The prototype link goes in BEFORE any member lands: members
+    // install on the linked prototype, not the one the function was
+    // born with.
+    if let Some(p) = &parent {
+        extends::proto_chain_stmts(ast, &name, p, &mut out);
+    }
     for (m, on_prototype) in methods
         .into_iter()
         .map(|m| (m, true))
         .chain(static_methods.into_iter().map(|m| (m, false)))
     {
+        // `super.m(…)` in an instance body reads through the parent's
+        // prototype; a static body saying super was declined, so this
+        // rewrite only ever fires on the instance half.
+        if let Some(p) = &parent {
+            extends::rewrite_super_sites(ast, &m.body, p);
+        }
         let eid = ast.add_expr(Expr::ArrowFn {
             params: m.params,
             return_type: m.return_type,

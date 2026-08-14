@@ -30,7 +30,7 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
         fields: _,
         // Static init routes since 394-05 — the emit wraps `this`
         // readers and blocks into `(function () { … }).call(K)`.
-        static_init: _,
+        static_init,
         ctor,
         methods,
         static_methods,
@@ -38,8 +38,23 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     else {
         return Some("it is not a class declaration");
     };
-    if parent.is_some() {
-        return Some("it extends another class");
+    // `extends` admits exactly one parent shape (blade 5): a binding
+    // this lane minted for a STATIC-FREE sibling — by the time this
+    // class asks, the α-rename has written that `__cc<N>_…` spelling
+    // into its `parent` field. Anything else stays out: a parent with
+    // static members needs a class-side prototype link the any lane
+    // does not answer reads through (probe e5), and a parent that is
+    // not a lane binding (a hoisted or top-level class) is a static
+    // entity whose `.call` / `.prototype` faces this pattern was
+    // never probed against.
+    if let Some(p) = parent
+        && !ast.es5_parent_classes.contains(p)
+    {
+        return Some(if p.starts_with("__cc") {
+            "it extends a class that has static members"
+        } else {
+            "it extends another class"
+        });
     }
     if *is_abstract {
         return Some("it is abstract");
@@ -101,14 +116,40 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     // MethodDefinitions and so evaluate their key twice, which is the
     // spec's own shape — the second call keeps the first half
     // (§10.1.6.3 step 4).
+    // A static body saying super has no lowering here: it runs with
+    // `this` bound to the class FUNCTION, and neither `P.call` nor
+    // `P.prototype.m.call` is what §13.3.7.1 resolves super to in
+    // that home object. The instance half rewrites instead.
+    if parent.is_some() {
+        let static_super = static_methods
+            .iter()
+            .any(|m| super::extends::body_says_super(ast, &m.body))
+            || static_init.iter().any(|si| match si {
+                super::super::StaticInit::Field(f) => {
+                    super::extends::body_says_super(ast, &[Stmt::Expr(f.init)])
+                }
+                super::super::StaticInit::Block(v) => super::extends::body_says_super(ast, v),
+            });
+        if static_super {
+            return Some("a static member of it calls super");
+        }
+    }
     // A body naming a compiler-minted global is not ordinary user
     // nesting: `__cm_gen_<C>__<m>` is the top-level generator method
-    // the parser hoisted out (it cannot capture either), and
-    // `__supercall__*` belongs to a parent link rejected above. The
-    // caller already decided this class captures; the walk here only
-    // screens for those names, so the prebound set need cover no more
-    // than what would otherwise report a `__` name spuriously.
+    // the parser hoisted out (it cannot capture either), and a
+    // `__supercall__*` either belongs to a parent link rejected above
+    // or — parent admitted — is the marker the emit rewrites, so it
+    // is exempt below. The caller already decided this class
+    // captures; the walk here only screens for those names, so the
+    // prebound set need cover no more than what would otherwise
+    // report a `__` name spuriously. The admitted parent's minted
+    // binding is a real name in scope, so a body reading it (`P.x`
+    // spelled with the source name, α-renamed by now) is prebound
+    // rather than "compiler minted".
     let mut prebound = vec![name.clone(), "arguments".to_string()];
+    if let Some(p) = parent {
+        prebound.push(p.clone());
+    }
     // The ctor prefix a computed instance field turns into reads the
     // evaluated key out of `__ccmk_<C>_<n>`; this lane declares those
     // (see `lower_to_es5`), so they are bound, not minted-and-free.
@@ -123,12 +164,13 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
             .into_iter()
             .map(|n| key_binding(name, n)),
     );
+    let allow_supercall = parent.is_some();
     let synthetic_free = |params: &[Param], body: &[Stmt]| -> bool {
         let mut bound = prebound.clone();
         bound.extend(params.iter().map(|p| p.name.clone()));
         free_vars_of_body(ast, &bound, body)
             .iter()
-            .any(|n| n.starts_with("__"))
+            .any(|n| n.starts_with("__") && !(allow_supercall && n.starts_with("__supercall__")))
     };
     let ctor_synthetic = ctor
         .as_ref()

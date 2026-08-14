@@ -411,6 +411,16 @@ pub struct Ast {
     /// unique; two declined classes sharing a name can trade reasons
     /// (a message, never a semantic).
     pub unclaimed_class_reasons: Vec<(String, &'static str)>,
+    /// Bindings the capturing-class lane lowered whose class carried
+    /// no static face (no static methods, no static init) — the ones a
+    /// later sibling may `extends` faithfully without a class-side
+    /// prototype link: the class object owns nothing to inherit, so
+    /// `D.prototype = Object.create(P.prototype)` covers the whole
+    /// contract (RFC 20260814 blade 5). Keyed by the lane's minted
+    /// `__cc<N>_<name>` binding name, which the α-rename has already
+    /// written into a routed sibling's `parent` field by the time that
+    /// sibling asks.
+    pub es5_parent_classes: std::collections::HashSet<String>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

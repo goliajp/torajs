@@ -85,6 +85,9 @@ pub(super) struct UseShapes {
     /// see [`super::fnexpr_this_alias`]. Filled in a second pass of
     /// `collect`, since the fixpoint consults the base shapes.
     pub(super) safe_alias_init: std::collections::HashSet<ExprId>,
+    /// An argument of `.call` on an INLINE function expression —
+    /// see [`inline_fnexpr_call_arg_idents`].
+    pub(super) inline_call_arg: std::collections::HashSet<ExprId>,
 }
 
 impl UseShapes {
@@ -129,6 +132,7 @@ impl UseShapes {
             hof_cb_arg: hof_any_cb_arg_idents(stmts, exprs),
             any_arraylit_elem: any_arraylit_elem_idents(stmts, exprs),
             safe_alias_init: std::collections::HashSet::new(),
+            inline_call_arg: inline_fnexpr_call_arg_idents(exprs),
         };
         shapes.safe_alias_init =
             super::fnexpr_this_alias::safe_alias_init_sites(stmts, exprs, &shapes);
@@ -147,8 +151,59 @@ impl UseShapes {
             || self.hof_cb_arg.contains(&e)
             || self.any_arraylit_elem.contains(&e)
             || self.safe_alias_init.contains(&e)
+            || self.inline_call_arg.contains(&e)
             || (self.any_return.contains(&e) && self.any_ann_names.contains(name))
     }
+}
+
+/// An argument of `.call` on an INLINE function expression — the
+/// static-init wrapper the capturing-class lane mints:
+/// `(function () { … }).call(K)` (394-05).
+///
+/// Never-calls proof family (a member's object, the right of
+/// `instanceof`): the thing being invoked is the inline literal, and
+/// the binding rides along as DATA — the wrapper's receiver, or a
+/// plain argument. Inside the wrapper it arrives as an untyped `this`
+/// or parameter, both of which live in the any world, whose every
+/// call path shifts argv on FLAG_CLOSURE_RECV_FIRST.
+///
+/// The `.call` exclusion on [`UseShapes::member_obj`] is about the
+/// OTHER position — the binding as the `.call` target, where the
+/// promoted cell itself is what gets invoked. An inline-literal
+/// callee cannot be the promoted binding — a binding is read through
+/// its NAME, and both matched shapes are literal values at the site
+/// (`lift_arrow_fns` has replaced the still-inline fn expressions
+/// with `Expr::Closure` by the time this collector runs, so both
+/// spellings appear). Only the spelled `.call` — the wrapper never
+/// mints `.apply` / `.bind`, and widening to them would need their
+/// own reading.
+fn inline_fnexpr_call_arg_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    let mut out = std::collections::HashSet::new();
+    for e in exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Member { obj, name } = &exprs[callee.0 as usize] else {
+            continue;
+        };
+        if name != "call" {
+            continue;
+        }
+        let obj = peel_as(exprs, *obj);
+        if !matches!(
+            &exprs[obj.0 as usize],
+            Expr::ArrowFn { .. } | Expr::Closure { .. }
+        ) {
+            continue;
+        }
+        for a in args {
+            let inner = peel_as(exprs, *a);
+            if matches!(&exprs[inner.0 as usize], Expr::Ident(_)) {
+                out.insert(inner);
+            }
+        }
+    }
+    out
 }
 
 /// 397-01 — an element of an array literal that initializes an
