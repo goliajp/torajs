@@ -59,14 +59,34 @@ use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::free_vars::free_vars_of_body;
 use super::{Ast, Expr, ExprId, Stmt, Visibility};
 
-/// Rewrite `slot` in place when it is a capturing nested class this
-/// lane covers. Returns whether it did.
-pub(super) fn try_rewrite_capturing_class(ast: &mut Ast, slot: &mut Stmt) -> bool {
-    if !routes(ast, slot) {
+/// Rewrite the class at `stmts[idx]` when this lane covers it.
+/// Returns whether it did.
+///
+/// The binding is α-renamed first, over the statement list that holds
+/// it. Receiver promotion — the thing that gives the constructor's
+/// `this` somewhere to come from — pairs a binding to its uses by
+/// NAME, and refuses when the name is declared more than once in the
+/// program: two functions each declaring `class K` would mint two
+/// `let K` and take each other down. A minted name is unique by
+/// construction, so the question never arises.
+pub(super) fn try_rewrite_capturing_class(
+    ast: &mut Ast,
+    stmts: &mut [Stmt],
+    idx: usize,
+    counter: &mut u32,
+) -> bool {
+    if !routes(ast, &stmts[idx]) {
         return false;
     }
-    let taken = std::mem::replace(slot, Stmt::Multi(Vec::new()));
-    *slot = lower_to_es5(ast, taken);
+    let Stmt::ClassDecl { name, .. } = &stmts[idx] else {
+        unreachable!("routes() matched a ClassDecl");
+    };
+    let old = name.clone();
+    let new = format!("__cc{}_{}", *counter, old);
+    *counter += 1;
+    super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
+    let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
+    stmts[idx] = lower_to_es5(ast, taken);
     true
 }
 

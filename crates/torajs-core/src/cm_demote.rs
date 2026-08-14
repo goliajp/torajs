@@ -141,11 +141,24 @@ impl Checker {
         // Call arm already probes safely; without it the speculative
         // `__cm___Gen_*__next(recv)` rewrite survived and rejected at
         // "expected ClassRef(__Gen_…), got Any".
+        // Runtime-construct receivers (rotation 394): `new K().m()`
+        // where `K` holds a value rather than naming a class. The
+        // result is `Any` by construction (§7.2.4 IsConstructor is a
+        // run-time question), so it demotes — and it MUST, or the
+        // speculative `__cm_<C>__m(recv)` survives and the call
+        // silently answers some unrelated class's method body just
+        // because that class is the only one owning the name. The
+        // probe walks the same sub-expressions an `Expr::Call`
+        // receiver does, under the same double-probe reasoning.
+        // `Expr::New` stays out: it types as `ClassRef`, which never
+        // demotes, and probing it would re-walk constructor arguments
+        // for no decision.
         if !matches!(
             ast.get_expr(recv_eid),
             Expr::Ident(_)
                 | Expr::Member { .. }
                 | Expr::Call { .. }
+                | Expr::NewDynamic { .. }
                 | Expr::As { .. }
                 | Expr::Number(_)
                 | Expr::String(_)

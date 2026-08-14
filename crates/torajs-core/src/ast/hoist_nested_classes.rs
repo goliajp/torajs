@@ -121,7 +121,7 @@ fn walk_container(
             // cannot be lifted, and takes the runtime-value lane
             // instead (RFC 20260814-capturing-nested-class). Whatever
             // that lane declines stays here and stays loud.
-            super::capturing_classes::try_rewrite_capturing_class(ast, &mut stmts[idx]);
+            super::capturing_classes::try_rewrite_capturing_class(ast, stmts, idx, counter);
             continue;
         }
         let old_name = match &stmts[idx] {
