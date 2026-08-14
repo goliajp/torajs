@@ -201,3 +201,51 @@ pub unsafe extern "C" fn __torajs_map_get_or_insert(
         *out_payload = default_payload;
     }
 }
+
+/// Non-consuming lookup for the upsert-computed composition (383-04):
+/// the key is BORROWED (no stake changes hands — the caller keeps its
+/// own for a possible insert after the callback), and a hit's value
+/// is rc-bumped for the caller. `out_found` distinguishes a present
+/// `undefined` from a miss, which `get`'s sentinel cannot.
+///
+/// # Safety
+/// `p` is null (answers not-found) or a live Map; `out_*` are
+/// writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_map_peek(
+    p: *mut c_void,
+    key_tag: i64,
+    key_payload: i64,
+    out_found: *mut i64,
+    out_tag: *mut i64,
+    out_payload: *mut i64,
+) {
+    unsafe {
+        *out_found = 0;
+        *out_tag = 5;
+        *out_payload = 0;
+        if p.is_null() {
+            return;
+        }
+        let m = p as *mut Map;
+        let mut kp = key_payload as u64;
+        // §24.1.3.9 -0 → +0 key normalization (matches map_set).
+        if key_tag as u8 == ANY_F64 && kp == (-0.0f64).to_bits() {
+            kp = 0;
+        }
+        let lr = map_lookup_slot(m, key_tag as u8, kp);
+        if !lr.found {
+            return;
+        }
+        let e = (*m).entries.add(lr.entry_idx as usize);
+        let v_anyv = (*e).value_anyv;
+        let vt = __torajs_anyv_unbox_tag(v_anyv);
+        let vp = __torajs_anyv_unbox_value(v_anyv);
+        if vt as u8 == ANY_HEAP && vp != 0 {
+            __torajs_rc_inc(vp as *mut c_void);
+        }
+        *out_found = 1;
+        *out_tag = vt;
+        *out_payload = vp;
+    }
+}

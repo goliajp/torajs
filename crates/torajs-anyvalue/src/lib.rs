@@ -177,6 +177,7 @@ mod method_call_proto_patch;
 mod method_call_regexp;
 mod method_call_str;
 mod method_call_subclass;
+pub mod method_call_upsert;
 mod method_call_weak;
 pub(crate) mod method_call_wrapper_expando;
 mod method_support;
@@ -1714,6 +1715,7 @@ mod tests {
         __torajs_map_iter_create_values,
         __torajs_map_iter_next,
         __torajs_map_iter_step,
+        __torajs_map_peek,
         __torajs_map_set,
         __torajs_map_size,
         __torajs_num_to_exp_f,

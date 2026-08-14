@@ -43,6 +43,7 @@ pub(crate) struct MapSetIds {
     pub map_set: FuncId,
     pub map_get: FuncId,
     pub map_get_or_insert: FuncId,
+    pub map_get_or_insert_computed: FuncId,
     pub map_has: FuncId,
     pub map_delete: FuncId,
     pub map_clear: FuncId,
@@ -154,6 +155,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
                 Type::Ptr,
             ],
             Type::Void,
+        ),
+        map_get_or_insert_computed: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_map_get_or_insert_computed",
+            &[Type::Map, Type::I64, Type::I64, Type::Any],
+            Type::Any,
         ),
         map_has: declare_intrinsic(
             module,

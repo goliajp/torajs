@@ -107,7 +107,10 @@ fn try_lower_weak_collection_method(
         return None;
     };
     let m_name = name.clone();
-    let weakmap_method = matches!(m_name.as_str(), "set" | "get" | "has" | "delete");
+    let weakmap_method = matches!(
+        m_name.as_str(),
+        "set" | "get" | "has" | "delete" | "getOrInsert" | "getOrInsertComputed"
+    );
     let weakset_method = matches!(m_name.as_str(), "add" | "has" | "delete");
     if !weakmap_method && !weakset_method {
         return None;
@@ -136,6 +139,44 @@ fn try_lower_weak_collection_method(
     }
     let recv_op = ctx.lower_expr(recv_id);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
+    // 383-04 — the stage-3 upsert pair takes its own leg: the key is
+    // setter-shaped (an illegal key throws, so `lower_weak_key`
+    // records the pending TypeError), the second argument rides as a
+    // borrowed AnyValue box (a default value, or the callbackfn the
+    // kernel invokes on a miss), and the kernel answers +1-owned Any.
+    if do_weakmap && matches!(m_name.as_str(), "getOrInsert" | "getOrInsertComputed") {
+        let (key_op, key_raw) = lower_weak_key(ctx, args[0], true);
+        let (tag, val) = if args.len() >= 2 {
+            ctx.lower_to_tag_value(args[1])
+        } else {
+            (Operand::ConstI64(5), Operand::ConstI64(0))
+        };
+        let cur_block = ctx.cur_block;
+        let av = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.any_box, vec![tag, val]),
+            Type::Any,
+            None,
+        );
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        let target = if m_name == "getOrInsert" {
+            ctx.intrinsics.weakmap_get_or_insert
+        } else {
+            ctx.intrinsics.weakmap_get_or_insert_computed
+        };
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(target, vec![recv_op, key_op, Operand::Value(av)]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        settle_owned_key(ctx, args[0], &key_raw);
+        return Some(Operand::Value(v));
+    }
     let useful = if do_weakmap && m_name == "set" { 2 } else { 1 };
     let is_setter = (do_weakmap && m_name == "set") || (do_weakset && m_name == "add");
 

@@ -69,6 +69,7 @@ pub fn any_method_id(name: &str) -> i64 {
         "toDateString" => ANY_METHOD_TO_DATE_STRING,
         "toTimeString" => ANY_METHOD_TO_TIME_STRING,
         "getOrInsert" => ANY_METHOD_GET_OR_INSERT,
+        "getOrInsertComputed" => ANY_METHOD_GET_OR_INSERT_COMPUTED,
         "toLocaleString" => ANY_METHOD_TO_LOCALE_STRING,
         "toLocaleDateString" => ANY_METHOD_TO_LOCALE_DATE_STRING,
         "toLocaleTimeString" => ANY_METHOD_TO_LOCALE_TIME_STRING,

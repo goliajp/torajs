@@ -160,6 +160,7 @@ pub(crate) fn map_supports(mid: i64) -> bool {
         mid,
         ANY_METHOD_GET
             | ANY_METHOD_GET_OR_INSERT
+            | torajs_rc::ANY_METHOD_GET_OR_INSERT_COMPUTED
             | ANY_METHOD_SET
             | ANY_METHOD_HAS
             | ANY_METHOD_DELETE
@@ -205,7 +206,12 @@ pub(crate) fn regexp_supports(mid: i64) -> bool {
 pub(crate) fn weakmap_supports(mid: i64) -> bool {
     matches!(
         mid,
-        ANY_METHOD_GET | ANY_METHOD_SET | ANY_METHOD_HAS | ANY_METHOD_DELETE
+        ANY_METHOD_GET
+            | ANY_METHOD_GET_OR_INSERT
+            | torajs_rc::ANY_METHOD_GET_OR_INSERT_COMPUTED
+            | ANY_METHOD_SET
+            | ANY_METHOD_HAS
+            | ANY_METHOD_DELETE
     )
 }
 

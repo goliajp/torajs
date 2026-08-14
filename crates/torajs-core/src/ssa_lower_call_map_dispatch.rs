@@ -40,6 +40,7 @@ pub(crate) fn try_lower(
         "set"
             | "get"
             | "getOrInsert"
+            | "getOrInsertComputed"
             | "has"
             | "delete"
             | "clear"
@@ -108,6 +109,9 @@ fn dispatch_map_method(
         }
         "get" => emit_map_get(ctx, recv_op, args),
         "getOrInsert" => crate::ssa_lower_call_map_goi::emit_map_get_or_insert(ctx, recv_op, args),
+        "getOrInsertComputed" => {
+            crate::ssa_lower_call_map_goi::emit_map_get_or_insert_computed(ctx, recv_op, args)
+        }
         "clear" => {
             // S264/S300 — trailing args ignored per spec §23.1.3.3 + S272
             // lower-and-drop so step()-style side-effect exprs fire per ES

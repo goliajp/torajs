@@ -403,6 +403,8 @@ pub const ANY_METHOD_FINALLY: i64 = 159;
 pub const ANY_METHOD_TO_TIME_STRING: i64 = 160;
 /// `Map.prototype.getOrInsert` (stage-3 upsert — RFC 20260721 刀 6).
 pub const ANY_METHOD_GET_OR_INSERT: i64 = 161;
+/// `Map.prototype.getOrInsertComputed` (stage-3 upsert, 383-04).
+pub const ANY_METHOD_GET_OR_INSERT_COMPUTED: i64 = 171;
 /// The reified `Array.prototype.toString` cell's OWN id (§23.1.3.36
 /// — RFC 20260721 刀 11 G12): borrowed onto a non-Array receiver it
 /// falls back to the %Object.prototype.toString% badge when the

@@ -39,6 +39,17 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             vec![Type::Any],
             Box::new(Type::Nullable(Box::new(Type::Any))),
         ),
+        // 383-04 — the stage-3 upsert pair (bun ships both).
+        (Type::WeakMap, "getOrInsert") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
+        }
+        (Type::WeakMap, "getOrInsertComputed") => Type::Function(
+            vec![
+                Type::Any,
+                Type::Function(vec![Type::Any], Box::new(Type::Any)),
+            ],
+            Box::new(Type::Any),
+        ),
         (Type::WeakMap, "has") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         (Type::WeakMap, "delete") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         // T-26.B — WeakSet methods.

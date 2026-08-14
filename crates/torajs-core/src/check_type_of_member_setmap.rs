@@ -44,6 +44,15 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Map, "getOrInsert") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }
+        // 383-04 — the callback-carrying upsert half; the callback
+        // sees the key and its return is inserted and answered.
+        (Type::Map, "getOrInsertComputed") => Type::Function(
+            vec![
+                Type::Any,
+                Type::Function(vec![Type::Any], Box::new(Type::Any)),
+            ],
+            Box::new(Type::Any),
+        ),
         (Type::Map, "has") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         (Type::Map, "delete") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         (Type::Map, "clear") => Type::Function(Vec::new(), Box::new(Type::Void)),

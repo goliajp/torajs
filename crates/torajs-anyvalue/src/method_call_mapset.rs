@@ -31,7 +31,8 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_ADD, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_DIFFERENCE, ANY_METHOD_ENTRIES,
-    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_GET_OR_INSERT, ANY_METHOD_GET_SIZE,
+    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_GET_OR_INSERT,
+    ANY_METHOD_GET_OR_INSERT_COMPUTED, ANY_METHOD_GET_SIZE,
     ANY_METHOD_HAS, ANY_METHOD_INTERSECTION, ANY_METHOD_IS_DISJOINT_FROM, ANY_METHOD_IS_SUBSET_OF,
     ANY_METHOD_IS_SUPERSET_OF, ANY_METHOD_KEYS, ANY_METHOD_NEXT, ANY_METHOD_SET,
     ANY_METHOD_SYMMETRIC_DIFFERENCE, ANY_METHOD_UNION, ANY_METHOD_VALUES, Tag,
@@ -175,6 +176,13 @@ pub(crate) unsafe fn map_set_method(
                 let (mut vt, mut vp): (i64, i64) = (5, 0);
                 __torajs_map_get_or_insert(m, kt, kp, dt, dp, &mut vt, &mut vp);
                 __torajs_anyv_box_from_pair(vt, vp)
+            }
+            m2 if m2 == ANY_METHOD_GET_OR_INSERT_COMPUTED && !is_set => {
+                // 383-04 — the callback-carrying upsert; the key
+                // stake transfers to the core, the callback box is
+                // borrowed argv, the answer comes back +1-owned.
+                let (kt, kp) = pair_consumed(arg_at(0));
+                crate::method_call_upsert::map_get_or_insert_computed(m, kt, kp, arg_at(1))
             }
             m2 if m2 == ANY_METHOD_SET && !is_set => {
                 let (kt, kp) = pair_consumed(arg_at(0));

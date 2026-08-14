@@ -67,3 +67,35 @@ pub(crate) fn emit_map_get_or_insert(
     );
     Operand::Value(box_v)
 }
+
+/// `m.getOrInsertComputed(key, callbackfn)` (383-04) — key packed as
+/// an OWNED pair like `getOrInsert`; the callback rides as a
+/// borrowed AnyValue box (the kernel invokes it on a miss and
+/// inserts what it returns). The kernel answers +1-owned Any
+/// directly; a callback throw (or the non-callable gate) records the
+/// pending throw the check after the call propagates.
+pub(crate) fn emit_map_get_or_insert_computed(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    args: &[ExprId],
+) -> Operand {
+    debug_assert!(args.len() >= 2);
+    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
+    let cb = ctx.lower_expr(args[1]);
+    let cb_any = ctx.box_to_any(cb);
+    for &a in args.iter().skip(2) {
+        let _ = ctx.lower_expr(a);
+    }
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.map_get_or_insert_computed,
+            vec![recv_op, k_tag, k_val, cb_any],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.release_owned_temp(args[0], &k_raw);
+    ctx.emit_throw_check(None);
+    Operand::Value(r)
+}

@@ -74,6 +74,7 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_TO_DATE_STRING => ("toDateString", 0),
         ANY_METHOD_TO_TIME_STRING => ("toTimeString", 0),
         ANY_METHOD_GET_OR_INSERT => ("getOrInsert", 2),
+        ANY_METHOD_GET_OR_INSERT_COMPUTED => ("getOrInsertComputed", 2),
         ANY_METHOD_TO_LOCALE_STRING => ("toLocaleString", 0),
         ANY_METHOD_TO_LOCALE_DATE_STRING => ("toLocaleDateString", 0),
         ANY_METHOD_TO_LOCALE_TIME_STRING => ("toLocaleTimeString", 0),
