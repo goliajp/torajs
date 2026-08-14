@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T15:25:58.050Z",
+  "generatedAt": "2026-08-14T17:26:27.957Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T15:17:23Z",
-    "headSha": "5bc04618",
-    "elapsedSec": 333.79,
+    "ranAt": "2026-08-14T17:08:34Z",
+    "headSha": "bc276464",
+    "elapsedSec": 326.87,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.22
   },
   "torajs": {
-    "commit": "b9a8fcf6",
-    "commitSubject": "docs: fold the lt-arm note into the method dispatch comment",
+    "commit": "bc276464",
+    "commitSubject": "refactor: move the map/flatMap whitelist arm bodies to the cb-ret sibling",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "bc276464",
+      "subject": "refactor: move the map/flatMap whitelist arm bodies to the cb-ret sibling"
+    },
+    {
+      "hash": "57b3d95c",
+      "subject": "fix: return sniff peels one array layer off the flatMap callback return"
+    },
+    {
+      "hash": "1dd4d4c5",
+      "subject": "fix: return sniff reads the map callback's return for the result element"
+    },
+    {
+      "hash": "b38f9db9",
+      "subject": "feat: any bindings returned through fn-typed boundaries upgrade to closure"
+    },
+    {
+      "hash": "ac0c7452",
+      "subject": "fix: recv gate stands down when no promoted closure exists program-wide"
+    },
+    {
+      "hash": "a8840074",
+      "subject": "feat: typed indirect calls honor FLAG_CLOSURE_RECV_FIRST at runtime"
+    },
+    {
+      "hash": "3719e0db",
+      "subject": "chore: record the rotation 402 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "b9a8fcf6",
       "subject": "docs: fold the lt-arm note into the method dispatch comment"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "6da1cab8",
       "subject": "feat: class methods parse and monomorphize their own type parameters"
-    },
-    {
-      "hash": "83b0e84e",
-      "subject": "fix: a typed for-head var hoists to the fn-level domain"
-    },
-    {
-      "hash": "dc1b5584",
-      "subject": "feat: multiply-declared this-fnexpr names promote via scope-paired census"
-    },
-    {
-      "hash": "c30ddd12",
-      "subject": "fix: call arguments and index brackets re-enter at [+In]"
-    },
-    {
-      "hash": "a92210ef",
-      "subject": "chore: record the rotation 401 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "7dd4130f",
-      "subject": "fix: the for-head in restriction stops at a literal boundary"
-    },
-    {
-      "hash": "a9cfa97d",
-      "subject": "feat: findlast, findlastindex and flatmap join the any-callback lane"
-    },
-    {
-      "hash": "436273ea",
-      "subject": "feat: a closure in a composite init may capture its own binding"
     }
   ],
-  "headSha": "b9a8fcf6",
+  "headSha": "bc276464",
   "autorun": {
-    "total": 705,
+    "total": 706,
     "baselineTarget": 10,
-    "bySelf": 700,
+    "bySelf": 701,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786715806-30b7",
-      "at": "2026-08-14T13:56:46Z",
-      "ts": 1786715806,
+      "rotationId": "r-1786721210-5f79",
+      "at": "2026-08-14T15:26:50Z",
+      "ts": 1786721210,
       "trigger": "self",
-      "prevHead": "c30ddd12",
-      "handoffSha": "sha256:223c8643de92c2086dbeb30a707889eb01386c5b9630ce671ec1dbd58d0cac4f",
-      "handoffAgeSec": 15,
+      "prevHead": "3719e0db",
+      "handoffSha": "sha256:dbaa0c3c971e86ca5da0cc9f66aeaf634b1fd00edf1da3b6f8a6556efec8cdf7",
+      "handoffAgeSec": 81,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786721210-5f79",
+        "at": "2026-08-14T15:26:50Z",
+        "ts": 1786721210,
+        "trigger": "self",
+        "prevHead": "3719e0db",
+        "handoffSha": "sha256:dbaa0c3c971e86ca5da0cc9f66aeaf634b1fd00edf1da3b6f8a6556efec8cdf7",
+        "handoffAgeSec": 81,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786715806-30b7",
         "at": "2026-08-14T13:56:46Z",
@@ -876,17 +887,6 @@
         "prevHead": "db238158",
         "handoffSha": "sha256:854e719e7e95a70394e955e1ff0aba1428b490f21829cfb4c55078afbc4e11d5",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786658705-4b44",
-        "at": "2026-08-13T22:05:05Z",
-        "ts": 1786658705,
-        "trigger": "self",
-        "prevHead": "27c9da85",
-        "handoffSha": "sha256:7c62a76f621f8f531991feb938b00612df31acb3f1bff2c502ae17513ec9a056",
-        "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
       }
