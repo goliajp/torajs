@@ -30,19 +30,17 @@ use super::super::super_collect::{collect_super_in_stmt, collect_supercall_in_st
 use super::super::{Ast, Expr, ExprId, Param, Stmt};
 use super::install::define_member;
 
-/// Does any statement in `body` say `super(…)` or `super.m(…)`?
-/// Asked of static bodies, which have no lowering here: a static
-/// method runs with `this` bound to the class FUNCTION, and neither
-/// `P.call` nor `P.prototype.m.call` is what §13.3.7.1 resolves super
-/// to in that home object. They decline instead.
-pub(super) fn body_says_super(ast: &Ast, body: &[Stmt]) -> bool {
+/// Does any statement in `body` say `super(…)` — the CALL form only?
+/// Asked of static bodies (405-01 face 3): `super.m(…)` in a static
+/// home object resolves through the parent CLASS (`P.m.call(this)`)
+/// and lowers fine, but a bare `super(…)` outside a constructor is
+/// not a shape §13.3.7.1 gives a meaning to, so it stays declined.
+pub(super) fn body_says_super_call(ast: &Ast, body: &[Stmt]) -> bool {
     let mut ctor_sites = Vec::new();
-    let mut method_sites = Vec::new();
     for s in body {
         collect_super_in_stmt(ast, s, &mut ctor_sites);
-        collect_supercall_in_stmt(ast, s, &mut method_sites);
     }
-    !ctor_sites.is_empty() || !method_sites.is_empty()
+    !ctor_sites.is_empty()
 }
 
 /// Rewrite every super site in `body` against the parent BINDING.
@@ -56,9 +54,11 @@ pub(super) fn body_says_super(ast: &Ast, body: &[Stmt]) -> bool {
 /// ctor-less middle class only forwards, and its synthesized
 /// forwarder is the rest-param `this`-reader the promotion ABI bar
 /// refuses once a subclass consumes it through `.call`. The method
-/// half stays on the parent — `P.prototype.m` resolves through the
-/// `Object.create` chain at run time either way.
-pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str) {
+/// half reads through the home object's parent (§13.3.7.1): an
+/// INSTANCE body's super base is `P.prototype`, a STATIC body's is
+/// the parent class itself (405-01 face 3) — either way the runtime
+/// lookup rides the chain the lane already links.
+pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str, static_home: bool) {
     let mut ctor_sites = Vec::new();
     let mut method_sites = Vec::new();
     for s in body {
@@ -74,7 +74,14 @@ pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str) {
         };
     }
     for (eid, mname, args) in method_sites {
-        let callee = call_member(ast, parent, &["prototype", &mname]);
+        let proto_path = ["prototype", mname.as_str()];
+        let static_path = [mname.as_str()];
+        let path: &[&str] = if static_home {
+            &static_path
+        } else {
+            &proto_path
+        };
+        let callee = call_member(ast, parent, path);
         ast.exprs[eid.0 as usize] = Expr::Call {
             callee,
             args: this_first(ast, args),

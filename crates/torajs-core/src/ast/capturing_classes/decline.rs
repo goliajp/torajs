@@ -118,22 +118,24 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     // MethodDefinitions and so evaluate their key twice, which is the
     // spec's own shape — the second call keeps the first half
     // (§10.1.6.3 step 4).
-    // A static body saying super has no lowering here: it runs with
-    // `this` bound to the class FUNCTION, and neither `P.call` nor
-    // `P.prototype.m.call` is what §13.3.7.1 resolves super to in
-    // that home object. The instance half rewrites instead.
+    // A static body's `super.m(…)` lowers (405-01 face 3: the home
+    // object is the class, so the base is the parent CLASS —
+    // `P.m.call(this, …)`). What still has no meaning is a bare
+    // `super(…)` CALL outside a constructor — spec grammar confines
+    // SuperCall to derived ctors, so a static body spelling it stays
+    // declined rather than being handed an invented semantics.
     if parent.is_some() {
-        let static_super = static_methods
+        let static_super_call = static_methods
             .iter()
-            .any(|m| super::extends::body_says_super(ast, &m.body))
+            .any(|m| super::extends::body_says_super_call(ast, &m.body))
             || static_init.iter().any(|si| match si {
                 super::super::StaticInit::Field(f) => {
-                    super::extends::body_says_super(ast, &[Stmt::Expr(f.init)])
+                    super::extends::body_says_super_call(ast, &[Stmt::Expr(f.init)])
                 }
-                super::super::StaticInit::Block(v) => super::extends::body_says_super(ast, v),
+                super::super::StaticInit::Block(v) => super::extends::body_says_super_call(ast, v),
             });
-        if static_super {
-            return Some("a static member of it calls super");
+        if static_super_call {
+            return Some("a static member of it calls super()");
         }
     }
     // A body naming a compiler-minted global is not ordinary user

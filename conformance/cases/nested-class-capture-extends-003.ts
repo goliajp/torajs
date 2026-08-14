@@ -90,6 +90,48 @@ console.log(A.base(), B.base(), A.extra(), B.extra());
   console.log(new D4().m());
 }
 
+// static home-object super (405-01 face 3): a static method's,
+// a static field initializer's, and a static block's `super.m`
+// all read through the parent CLASS with `this` bound to the class
+{
+  let a = 1;
+  class P6 {
+    static m() {
+      return a + 1;
+    }
+  }
+  class D6 extends P6 {
+    static call_m() {
+      return super.m() * 10;
+    }
+    static f = super.m() + 100;
+    static {
+      (this as any).g = super.m() + 200;
+    }
+  }
+  console.log(D6.call_m(), (D6 as any).f, (D6 as any).g);
+}
+
+// instance super still reads through the prototype
+{
+  let a = 5;
+  class P7 {
+    v: any;
+    constructor() {
+      this.v = a;
+    }
+    m() {
+      return this.v * 2;
+    }
+  }
+  class D7 extends P7 {
+    m() {
+      return super.m() + 1;
+    }
+  }
+  console.log(new D7().m());
+}
+
 // explicit middle ctor: super forwards INTO it, not past it
 {
   let a = 4;

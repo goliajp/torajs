@@ -25,9 +25,21 @@ pub(super) fn install_static_inits(
     ast: &mut Ast,
     static_init: Vec<StaticInit>,
     name: &str,
+    parent: Option<&str>,
     out: &mut Vec<Stmt>,
 ) {
     for si in static_init {
+        // A static initializer's home object is the class, so a
+        // `super.m(…)` in it reads through the parent CLASS
+        // (405-01 face 3) — rewritten before the `this` probe below,
+        // because the rewrite mints `this` as the call receiver.
+        if let Some(p) = parent {
+            let body_view = match &si {
+                StaticInit::Field(sf) => vec![Stmt::Expr(sf.init)],
+                StaticInit::Block(stmts) => stmts.clone(),
+            };
+            super::extends::rewrite_super_sites(ast, &body_view, p, true);
+        }
         match si {
             StaticInit::Field(sf) => {
                 let value = if expr_says_this(ast, sf.init) {

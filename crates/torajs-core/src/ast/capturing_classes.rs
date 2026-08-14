@@ -66,11 +66,11 @@ mod decline;
 mod extends;
 
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
-use super::{Ast, Expr, ExprId, StaticInit, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 
 mod install;
 use decline::decline_reason;
-use install::{call_bound_to_class, define_member, descriptor_fields};
+use install::{define_member, descriptor_fields};
 
 /// Rewrite the class at `stmts[idx]` when this lane covers it.
 /// Returns whether it did.
@@ -389,7 +389,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         },
     };
     if let Some(p) = &parent {
-        extends::rewrite_super_sites(ast, &body, p);
+        extends::rewrite_super_sites(ast, &body, p, false);
     }
     let ctor_eid = ast.add_expr(Expr::ArrowFn {
         params,
@@ -416,10 +416,10 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         .chain(static_methods.into_iter().map(|m| (m, false)))
     {
         // `super.m(…)` in an instance body reads through the parent's
-        // prototype; a static body saying super was declined, so this
-        // rewrite only ever fires on the instance half.
+        // prototype; a static body's home object is the class itself,
+        // so its super base is the parent CLASS (405-01 face 3).
         if let Some(p) = &parent {
-            extends::rewrite_super_sites(ast, &m.body, p);
+            extends::rewrite_super_sites(ast, &m.body, p, !on_prototype);
         }
         let eid = ast.add_expr(Expr::ArrowFn {
             params: m.params,
@@ -457,6 +457,6 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         let fields = descriptor_fields(ast, m.accessor_kind, eid);
         out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
     }
-    install::install_static_inits(ast, static_init, &name, &mut out);
+    install::install_static_inits(ast, static_init, &name, parent.as_deref(), &mut out);
     Stmt::Multi(out)
 }
