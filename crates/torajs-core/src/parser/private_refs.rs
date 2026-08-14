@@ -76,14 +76,27 @@ impl Parser<'_> {
                         "private name `#{raw}` is not declared in any enclosing class"
                     ));
                 }
-                // Member references fall back to the innermost class
-                // so the checker's undeclared-private reject fires
-                // with the same class it named before this pass
-                // existed.
+                // A member reference inside a class body that no
+                // enclosing class declares is the same §13.1 early
+                // error the in-key branch raises — AllPrivateNamesValid
+                // is false, and the clause says SyntaxError at PARSE.
+                //
+                // It used to be left to the checker, which reads the
+                // mangled name off a `ClassRef`-typed receiver. That
+                // made a parse-phase early error depend on the STATIC
+                // TYPE of `this`, and rotation 399 walked straight into
+                // it: promoting a function expression's receiver types
+                // `__this` as `any`, the `ClassRef` arm stops matching,
+                // and `class C { f = function () { this.#x } }` — a
+                // test262 negative case — went from correctly refused
+                // to silently accepted. Deciding it here is both the
+                // spec phase and the only reading that no downstream
+                // typing can erase.
                 None => {
-                    if let Some(&sid) = stack.first() {
-                        let cls = &self.ast.class_private_scopes[sid as usize].0;
-                        *name = format!("__priv_{cls}__{raw}");
+                    if !stack.is_empty() {
+                        return Err(format!(
+                            "private name `#{raw}` is not declared in any enclosing class"
+                        ));
                     }
                 }
             }
