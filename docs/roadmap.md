@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `20229614`** (2026-08-14, rotation 396 — the rotation that moved
+**Latest @ `8216cbdc`** (2026-08-14, rotation 397 — one gap in one
+whitelist was holding four separate faces shut. A `this`-using function
+expression only gets its receiver promoted when every use of its binding
+is a shape the promoted ABI survives, and two positions were missing:
+`return <name>` (so a class factory — `function make(b){ class C {…}
+return C }` — was rejected whole) and the target argument of
+`Object.defineProperty` (so a static class member could not be installed
+non-enumerably, and static accessors and computed static names were
+declined outright). Both landed, then the lane consumed them, then a
+computed accessor fell out as a decline removal, then a class sentinel
+joined the capture filter. Sweep: passTotal 30041 → **30061 (+20)**, pass
++20, `passNoOracle` unmoved (external oracle on every one, so not water),
+bug 12768 → **12772 (+4)**, incompatible 10365 → **10341 (−24)**,
+trAccepted +24 — conservation exact (`24 == 20 + 4`). Verdicts joined line
+by line: 53174 vs 53174, **28 differing, zero pass regressions**. The 20
+forward name their knife: 18 are `derived-cls-direct-eval-contains-
+superproperty` variants plus `super/prop-{dot,expr}-cls-val-from-arrow`
+(the sentinel filter — `__proto_<C>` is the super base, and an arrow or an
+eval-inlined body was collecting it as a capture), 2 are
+`accessor-name-{inst,static}/computed-err-unresolvable` (the computed
+accessor). Four more now RUN and answer wrong rather than being rejected
+(three `dynamic-import/import-attributes/2nd-param-*`, one
+`Function/has-instance-jitted`) — new exposure, not regression. Gate
+predicate **240 unattributed clusters / 3084 cases / register 2 · 619 /
+residue 776 · 1006 / core 4709** — cases and core both down 22/24 with
+every case nameable; the cluster count holds because the 20 were spread
+across five existing clusters rather than emptying one.)
+
+**Previous @ `20229614`** (2026-08-14, rotation 396 — the rotation that moved
 test262 by exactly nothing, and says so. Six knives on the
 capturing-nested-class lane and the parser's `this` scoping: a static
 method saying `this` now routes, a class the hoist renames takes its

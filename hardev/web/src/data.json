@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T05:08:52.610Z",
+  "generatedAt": "2026-08-14T06:45:14.433Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T04:59:13Z",
-    "headSha": "20229614",
-    "elapsedSec": 331.45,
+    "ranAt": "2026-08-14T06:38:41Z",
+    "headSha": "8216cbdc",
+    "elapsedSec": 325.8,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25084,
+    "pass": 25104,
     "passNoOracle": 851,
     "passNegative": 4106,
-    "passTotal": 30041,
-    "bug": 12768,
-    "incompatible": 10365,
+    "passTotal": 30061,
+    "bug": 12772,
+    "incompatible": 10341,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42809,
-    "passRateInScope": 56.5,
-    "passRateTrAccepted": 70.17
+    "trAccepted": 42833,
+    "passRateInScope": 56.53,
+    "passRateTrAccepted": 70.18
   },
   "torajs": {
-    "commit": "20229614",
-    "commitSubject": "fix: a function nested in a static body binds its own `this`",
+    "commit": "8216cbdc",
+    "commitSubject": "fix: an arrow in a static body may read the class object",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "8216cbdc",
+      "subject": "fix: an arrow in a static body may read the class object"
+    },
+    {
+      "hash": "cc281996",
+      "subject": "refactor: collect the receiver-safe use shapes in one module"
+    },
+    {
+      "hash": "be3f88eb",
+      "subject": "feat: an accessor with a computed name rides the capturing-class lane"
+    },
+    {
+      "hash": "7e635bde",
+      "subject": "feat: static members of a capturing class ride the same descriptor"
+    },
+    {
+      "hash": "89451d8d",
+      "subject": "fix: defining a property on a this-using constructor keeps it promoted"
+    },
+    {
+      "hash": "7c259d91",
+      "subject": "fix: returning a this-using binding keeps it promoted"
+    },
+    {
+      "hash": "e5269947",
+      "subject": "chore: record the rotation 396 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "20229614",
       "subject": "fix: a function nested in a static body binds its own `this`"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "c953012c",
       "subject": "feat: a static method's `this` no longer keeps a capturing class off the lane"
-    },
-    {
-      "hash": "24eb0736",
-      "subject": "refactor: split the capturing-class lane's decline reasons into a child module"
-    },
-    {
-      "hash": "6abe55b3",
-      "subject": "chore: re-record the rotation 395 sweep at the final HEAD"
-    },
-    {
-      "hash": "ec85557b",
-      "subject": "fix: a method stored on a function gets the function as `this`"
-    },
-    {
-      "hash": "9c52feb5",
-      "subject": "chore: record the rotation 395 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "2948bf6b",
-      "subject": "fix: report why the class was turned down, not why it would be now"
-    },
-    {
-      "hash": "6672a3f1",
-      "subject": "fix: an `as` suffix no longer hides a fn-expr from receiver promotion"
-    },
-    {
-      "hash": "58e882a5",
-      "subject": "fix: a computed key has no static name to put in a return shape"
     }
   ],
-  "headSha": "20229614",
+  "headSha": "8216cbdc",
   "autorun": {
-    "total": 699,
+    "total": 700,
     "baselineTarget": 10,
-    "bySelf": 694,
+    "bySelf": 695,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786676793-476f",
-      "at": "2026-08-14T03:06:33Z",
-      "ts": 1786676793,
+      "rotationId": "r-1786684336-3021",
+      "at": "2026-08-14T05:12:16Z",
+      "ts": 1786684336,
       "trigger": "self",
-      "prevHead": "6abe55b3",
-      "handoffSha": "sha256:39aa75c20b89505ae911e636bd6e310183b4cc3e2bf5b1f351aa15dcc260e68b",
-      "handoffAgeSec": 26,
+      "prevHead": "e5269947",
+      "handoffSha": "sha256:a52608967109cf5fe5c1d5faae92493e840a580ca68073784350fd65ffac867c",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786684336-3021",
+        "at": "2026-08-14T05:12:16Z",
+        "ts": 1786684336,
+        "trigger": "self",
+        "prevHead": "e5269947",
+        "handoffSha": "sha256:a52608967109cf5fe5c1d5faae92493e840a580ca68073784350fd65ffac867c",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786676793-476f",
         "at": "2026-08-14T03:06:33Z",
@@ -876,17 +887,6 @@
         "prevHead": "d36db181",
         "handoffSha": "sha256:a84f96f8da30f944a9fd0093291e7a21f2f39f71b9ff399ba4b6ea1ed4003cf4",
         "handoffAgeSec": 563,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786612459-4a29",
-        "at": "2026-08-13T09:14:19Z",
-        "ts": 1786612459,
-        "trigger": "self",
-        "prevHead": "1d30db15",
-        "handoffSha": "sha256:ab8a145a8ff9e0231fc0ff808e02a8690f24fafa4df79ed939e2330d7c0f22e9",
-        "handoffAgeSec": 18,
         "conformanceBefore": null,
         "commitsInSession": null
       }
