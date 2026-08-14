@@ -492,7 +492,7 @@ pub(crate) enum Position {
 mod collect;
 mod scope;
 mod var_split;
-mod walk;
+pub(crate) mod walk;
 use collect::collect_body;
 use var_split::split_var_inits;
 use walk::{arrow_nodes, stmt_children};

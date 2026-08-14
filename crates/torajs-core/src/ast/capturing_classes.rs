@@ -39,22 +39,25 @@
 //! `new K()` routes through the runtime construct, and `instanceof`
 //! answers off the prototype link.
 //!
-//! ## What routes (blade 1)
+//! ## What routes (blades 1-2)
 //!
 //! Only a shape this lane reproduces faithfully, and only one that is
 //! REJECTED today — a whitelist, so no program that currently answers
-//! correctly can be pulled in. Constructor plus plain public instance
-//! methods; no `extends`, no statics, no accessors, no type params, no
-//! computed-key fields, and no compiler-minted free name in a body
-//! (`__cm_gen_*` forwarders to a hoisted generator method,
-//! `__supercall__*`). Everything else keeps today's loud abort.
+//! correctly can be pulled in. Constructor, plain public instance
+//! methods, and plain public static methods that do not say `this`;
+//! no `extends`, no static fields or static blocks, no accessors, no
+//! type params, no computed-key fields, and no compiler-minted free
+//! name in a body (`__cm_gen_*` forwarders to a hoisted generator
+//! method, `__supercall__*`). Everything else keeps today's loud
+//! abort.
 //!
 //! Recorded deviations are in the RFC: the binding is `const`, `.name`
 //! is empty, a declare-only field does not materialize, and the class
 //! name is no longer a type name.
 
+use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::free_vars::free_vars_of_body;
-use super::{Ast, Expr, Stmt, Visibility};
+use super::{Ast, Expr, ExprId, Stmt, Visibility};
 
 /// Rewrite `slot` in place when it is a capturing nested class this
 /// lane covers. Returns whether it did.
@@ -82,12 +85,13 @@ fn routes(ast: &Ast, s: &Stmt) -> bool {
     else {
         return false;
     };
-    if parent.is_some()
-        || *is_abstract
-        || !type_params.is_empty()
-        || !static_init.is_empty()
-        || !static_methods.is_empty()
-    {
+    // `static_init` — static fields and static blocks — stays out:
+    // both run at class-evaluation time with `this` bound to the class
+    // object, and an initializer saying `this` would read the
+    // ENCLOSING `this` once inlined at the store. A static METHOD has
+    // no such problem: `K.s = function () { … this … }` called as
+    // `K.s()` binds `this` to K, which is what §10.2.1.2 wants.
+    if parent.is_some() || *is_abstract || !type_params.is_empty() || !static_init.is_empty() {
         return false;
     }
     // A computed member name parses into a `__ccm_` sentinel field
@@ -96,12 +100,21 @@ fn routes(ast: &Ast, s: &Stmt) -> bool {
     if fields.iter().any(|(f, _)| f.starts_with("__ccm_")) {
         return false;
     }
-    if methods.iter().any(|m| {
+    if methods.iter().chain(static_methods.iter()).any(|m| {
         m.is_abstract
             || m.accessor_kind.is_some()
             || m.visibility != Visibility::Public
             || m.name.starts_with("__")
     }) {
+        return false;
+    }
+    // A static method saying `this` means the class object, and
+    // reaching it through `K.s = function () { … this … }` needs the
+    // receiver channel that only an object receiver arranges today —
+    // the store promotes, but the binding on the left is a function
+    // value, and the body's `this` stays an unbound capture. Loud
+    // either way, so the shape keeps the message it already had.
+    if static_methods.iter().any(|m| body_says_this(ast, &m.body)) {
         return false;
     }
     // A body naming a compiler-minted global is not ordinary user
@@ -124,7 +137,39 @@ fn routes(ast: &Ast, s: &Stmt) -> bool {
     {
         return false;
     }
-    !methods.iter().any(|m| synthetic_free(&m.params, &m.body))
+    !methods
+        .iter()
+        .chain(static_methods.iter())
+        .any(|m| synthetic_free(&m.params, &m.body))
+}
+
+/// Does anything in `body` say `this`? A nested `function` expression
+/// binds its own, so descending into one over-answers — which is the
+/// safe direction: over-answering keeps a shape on the lane it is
+/// already on.
+fn body_says_this(ast: &Ast, body: &[Stmt]) -> bool {
+    let mut pending: Vec<&Stmt> = body.iter().collect();
+    while let Some(s) = pending.pop() {
+        if stmt_exprs(s).into_iter().any(|e| expr_says_this(ast, e)) {
+            return true;
+        }
+        pending.extend(stmt_children_ref(s));
+    }
+    false
+}
+
+fn expr_says_this(ast: &Ast, root: ExprId) -> bool {
+    let mut pending = vec![root];
+    while let Some(eid) = pending.pop() {
+        match ast.get_expr(eid) {
+            Expr::This => return true,
+            // An arrow's body is a statement list, not a child expr.
+            Expr::ArrowFn { body, .. } if body_says_this(ast, body) => return true,
+            _ => {}
+        }
+        pending.extend(expr_children(ast, eid));
+    }
+    false
 }
 
 /// `class K { constructor(p){…} m(){…} }` →
@@ -138,6 +183,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt) -> Stmt {
         name,
         ctor,
         methods,
+        static_methods,
         ..
     } = class
     else {
@@ -160,7 +206,11 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt) -> Stmt {
         init: ctor_eid,
         is_var: false,
     }];
-    for m in methods {
+    for (m, on_prototype) in methods
+        .into_iter()
+        .map(|m| (m, true))
+        .chain(static_methods.into_iter().map(|m| (m, false)))
+    {
         let eid = ast.add_expr(Expr::ArrowFn {
             params: m.params,
             return_type: m.return_type,
@@ -168,13 +218,18 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt) -> Stmt {
         });
         ast.set_expr_span(eid, m.span);
         ast.fn_expr_exprs.insert(eid);
-        let obj = ast.add_expr(Expr::Ident(name.clone()));
-        let proto = ast.add_expr(Expr::Member {
-            obj,
-            name: "prototype".to_string(),
-        });
+        // An instance method hangs off `.prototype`; a static one hangs
+        // off the constructor itself, which is what makes `K.s()` bind
+        // `this` to K.
+        let mut recv = ast.add_expr(Expr::Ident(name.clone()));
+        if on_prototype {
+            recv = ast.add_expr(Expr::Member {
+                obj: recv,
+                name: "prototype".to_string(),
+            });
+        }
         let target = ast.add_expr(Expr::Member {
-            obj: proto,
+            obj: recv,
             name: m.name.clone(),
         });
         let assign = ast.add_expr(Expr::Assign { target, value: eid });
