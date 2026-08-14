@@ -161,6 +161,7 @@ fn collect_position_faces(
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let props_recvs = collect_props_receiver_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
+    let any_this_fields = super::fnexpr_this_faces::any_typed_this_fields(stmts);
     for i in 0..exprs.len() {
         if let Expr::Assign { target, value } = &exprs[i] {
             collect_store_face(
@@ -168,6 +169,7 @@ fn collect_position_faces(
                 exprs,
                 fn_expr_exprs,
                 &props_recvs,
+                &any_this_fields,
                 *target,
                 *value,
                 patches,

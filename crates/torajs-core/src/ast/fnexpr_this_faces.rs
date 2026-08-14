@@ -384,16 +384,34 @@ fn collect_return_faces_in(
 ///   (ArraySpeciesCreate reads it back through the arrprops bag).
 ///   Other member names on these roots stay loud until a consumer
 ///   shape needs them.
+/// * `this.m = <fn-expr>` where the field is declared `any` — the
+///   receiver is the flattened `__this`, and an `any` slot hands the
+///   value back as a NaN box, so every read of it enters the same
+///   runtime any lane the receivers above ride
+///   ([`any_typed_this_fields`] is what proves the slot).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_store_face(
     stmts: &[Stmt],
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     props_recvs: &std::collections::HashSet<String>,
+    any_this_fields: &std::collections::HashSet<String>,
     target: ExprId,
     value: ExprId,
     patches: &mut Vec<FacePatch>,
     ident_cands: &mut Vec<(String, ExprId)>,
 ) {
+    // The `this.m = fn` arm reads the member NAME, so it is decided on
+    // the target rather than on the receiver alone: a computed key
+    // (`Expr::Index`) names no field and stays out.
+    if let Expr::Member { obj, name } = &exprs[target.0 as usize]
+        && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "__this")
+        && any_this_fields.contains(name)
+    {
+        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
+        collect_ident_face(exprs, value, ident_cands);
+        return;
+    }
     let store_recv = match &exprs[target.0 as usize] {
         Expr::Member { obj, .. } => Some(*obj),
         Expr::Index { obj, .. } => Some(*obj),
@@ -420,4 +438,45 @@ pub(super) fn collect_store_face(
         collect_face(stmts, exprs, value, fn_expr_exprs, patches);
         collect_ident_face(exprs, value, ident_cands);
     }
+}
+
+/// The field names a `this.<name> = <fn-expr>` store may promote
+/// through: declared by at least one `TypeDecl`, and typed exactly
+/// `any` by EVERY `TypeDecl` that declares them.
+///
+/// `desugar_classes` flattens a class into a `TypeDecl` plus flat
+/// member FnDecls, so a field initializer and a constructor store are
+/// the same node by the time this pass looks: `Expr::Assign` onto
+/// `__this.<name>`. What the promote needs is the proof every other
+/// store receiver here carries — that no receiver-unaware call path
+/// can reach the stored closure — and an `any` slot supplies it: the
+/// value comes back out as a NaN box, and every any-lane call path
+/// shifts argv on FLAG_CLOSURE_RECV_FIRST. A slot typed with a
+/// concrete function signature is the opposite: the call goes down the
+/// typed indirect lane, which does not.
+///
+/// The census is name-keyed and deliberately coarse, like the binding
+/// censuses next door. `__this` names whatever receiver the enclosing
+/// body has, and this pass sees flat FnDecls rather than the class each
+/// came from, so one class typing `m` as `any` while another types it
+/// as a signature makes the name ambiguous — and an ambiguous name is
+/// refused for both. Over-refusal costs today's answer; a mispair would
+/// cost the argument shift.
+pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+    let mut any_typed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut other_typed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for s in stmts {
+        let Stmt::TypeDecl { fields, .. } = s else {
+            continue;
+        };
+        for (fname, fty) in fields {
+            if fty == "any" {
+                any_typed.insert(fname.clone());
+            } else {
+                other_typed.insert(fname.clone());
+            }
+        }
+    }
+    any_typed.retain(|f| !other_typed.contains(f));
+    any_typed
 }
