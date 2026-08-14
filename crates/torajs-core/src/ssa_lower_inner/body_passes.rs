@@ -310,6 +310,25 @@ fn register_fn_name(
         src_sid,
         src_len,
     });
+    // 398-05 — a STATIC method body registers a second row against
+    // its ADAPTER fid, the `__cm_` mirror: the class-object own entry
+    // (`__torajs_class_static_method_define`) is a reified cell
+    // carrying the `__sm_` adapter's vaddr, and the any-lane
+    // `.length` / `.name` / toString reads resolve through
+    // `registry_addr` = that adapter. The body-fid row above stays —
+    // the compile-time-folded `S.s` read path answers off it.
+    if name.starts_with("__sm_")
+        && let Some(&(adapter_fid, _)) = boxed_entries.get(&fid)
+    {
+        module.fn_name_globals.push(FnNameEntry {
+            fn_id: adapter_fid,
+            name: visible.to_string(),
+            name_sid,
+            arity,
+            src_sid,
+            src_len,
+        });
+    }
 }
 
 /// RFC 20260719-fn-tostring-source B3b — intern the type-erased
