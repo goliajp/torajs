@@ -398,11 +398,24 @@ pub(crate) fn infer_expr_ann_with(
                         }
                         &r
                     }
+                    // 403-01 sister — a flatMap result element is the
+                    // callback's return with ONE array layer peeled
+                    // (§23.1.3.14: depth-1 flatten).
+                    (_, Some(_), "flatMap") => {
+                        if let Some(u) = args.first().and_then(|a| {
+                            super::implicit_generics_cb_ret::callback_ret_ann(
+                                exprs, *a, params, binds, fn_sigs,
+                            )
+                        }) {
+                            let elem = u.strip_suffix("[]").unwrap_or(&u);
+                            return Some(format!("{elem}[]"));
+                        }
+                        &r
+                    }
                     (
                         _,
                         Some(_),
-                        "slice" | "reverse" | "sort" | "concat" | "fill" | "filter" | "flat"
-                        | "flatMap",
+                        "slice" | "reverse" | "sort" | "concat" | "fill" | "filter" | "flat",
                     ) => &r,
                     (_, Some(_), "every" | "some" | "includes") => "boolean",
                     (_, Some(_), "indexOf" | "lastIndexOf" | "findIndex" | "findLastIndex") => {
