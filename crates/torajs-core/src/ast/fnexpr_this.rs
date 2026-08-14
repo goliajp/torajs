@@ -112,6 +112,15 @@ pub(crate) fn run(
         objlit_method_exprs,
         &mut patches,
     );
+    // The same position spelled on a CLASS — flattened to a top-level
+    // FnDecl by `desugar_classes`, so the collector above cannot see it
+    // (doc on the collector).
+    super::fnexpr_this_faces::collect_class_method_return_faces(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        &mut patches,
+    );
     promote_variable_routed(
         stmts,
         exprs,

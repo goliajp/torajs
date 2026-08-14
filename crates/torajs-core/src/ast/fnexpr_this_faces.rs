@@ -249,6 +249,78 @@ pub(super) fn collect_method_return_faces(
     }
 }
 
+/// The CLASS-method half of the position above: a marked fn-expr
+/// returned from a class member body whose return annotation is absent
+/// or spelled exactly `any`.
+///
+/// `desugar_classes` flattens each member into a top-level FnDecl
+/// (`__cm_<C>__<m>`, plus the receiver-polymorphic `__cmany_` /
+/// `__smany_` clones and the `__sm_` statics), so the collector above —
+/// which recognizes its methods by the lifted closure names
+/// `objlit_nominal` published — never saw one. The value leaves through
+/// the same channel; what differs is that a class member states its
+/// return type, so the crossing has to be checked rather than assumed.
+///
+/// The proof is [`super::fnexpr_this_shapes`]'s any-lane one: the cell
+/// escapes, so it must cross into the any lane and STAY there, because
+/// every any-lane call path shifts argv on FLAG_CLOSURE_RECV_FIRST
+/// while a typed indirect call does not. Only an annotation spelled
+/// exactly `any` proves that crossing.
+///
+/// An ABSENT annotation does not, and admitting it was measured wrong
+/// before it was reasoned wrong: `bare() { return function () { …this… } }`
+/// has its return type inferred FROM THE RETURNED EXPRESSION, and what
+/// a function expression infers is a concrete closure type. So the
+/// caller holds a typed callee, calls it down the lane that does not
+/// shift argv, and the promoted body reads its receiver out of the
+/// slot the first argument occupies — `cannot read properties of null
+/// or undefined` where the unpromoted spelling merely answered the
+/// wrong object. The bare-annotation half therefore keeps today's
+/// answer. (The bare-name shape in `fnexpr_this_shapes` can admit an
+/// absent annotation because ITS returned expression is a binding the
+/// program annotated `any`; there is no such binding here.)
+///
+/// The constructor is excluded: `__cm_<C>__ctor` answers the instance
+/// through the construct channel, not a value the caller reads.
+///
+/// Without this, `class M { run(): any { return function () { …this… } } }`
+/// handed the returned function the METHOD's receiver — the same
+/// arrow-semantics answer the object-literal spelling used to give, and
+/// one the method's own receiver only satisfies by coincidence.
+pub(super) fn collect_class_method_return_faces(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    patches: &mut Vec<FacePatch>,
+) {
+    for s in stmts {
+        let Stmt::FnDecl {
+            name,
+            return_type,
+            body,
+            ..
+        } = s
+        else {
+            continue;
+        };
+        if !is_class_member_fn(name) || return_type.as_deref() != Some("any") {
+            continue;
+        }
+        collect_return_faces_in(body, stmts, exprs, fn_expr_exprs, patches);
+    }
+}
+
+/// The flattened class-member FnDecl names, constructor excluded. All
+/// four prefixes are synthesized — no source can spell one — the same
+/// test the boxed-adapter synthesis reads them by.
+fn is_class_member_fn(name: &str) -> bool {
+    let member = name.starts_with("__cm_")
+        || name.starts_with("__cmany_")
+        || name.starts_with("__sm_")
+        || name.starts_with("__smany_");
+    member && !name.ends_with("__ctor")
+}
+
 /// Every `return <marked fn-expr>` in the METHOD's own body — nested
 /// compound statements walk through the shared spine, but a nested
 /// `function` declaration is its own return scope and is skipped.
