@@ -76,41 +76,27 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
             "it has a generator or otherwise compiler-rewritten method"
         });
     }
-    // An accessor lowers to `Object.defineProperty(<recv>, …)`, which
-    // puts `<recv>` in an ARGUMENT position. On the prototype that is
-    // fine — the binding still stands under `.prototype`, a named
-    // member — but a STATIC accessor would pass the binding itself,
-    // and a bare occurrence outside a member's object position is
-    // exactly what the receiver-safe use list refuses. Measured: the
-    // instance pair answers with bun; adding one static accessor turns
-    // the whole class back into `unknown identifier __this`.
+    // A STATIC accessor and a computed STATIC name used to decline
+    // here, both for one reason: either lowering puts the binding
+    // itself in an argument (`Object.defineProperty(K, …)`) or under a
+    // runtime key (`K[<key>] = …`), and neither was a receiver-safe
+    // use shape, so taking them turned the whole class back into
+    // `unknown identifier __this`. Rotation 397 admitted the
+    // `defineProperty` TARGET argument — §20.1.2.4 never invokes it —
+    // and once the key is handed over as data, the keyed store is gone
+    // too, along with the reason it could not be admitted (that shape
+    // excludes `.call` / `.apply` / `.bind` by NAME, three names a
+    // runtime key defeats).
     //
-    // A computed name on an accessor is declined for the same reason
-    // the computed-static case below is: `defineProperty` wants the
-    // key as an argument, and the sentinel is not one.
-    if static_methods.iter().any(|m| m.accessor_kind.is_some()) {
-        return Some("it has a static getter or setter");
-    }
+    // A computed name on an INSTANCE accessor stays declined. It has
+    // no such blocker left — the key is the same `__ccmk_<C>_<n>`
+    // binding a computed method already uses — but the pair has not
+    // been measured, and this list is a whitelist.
     if methods
         .iter()
         .any(|m| m.accessor_kind.is_some() && sentinel_index(&m.name).is_some())
     {
         return Some("it has a getter or a setter with a computed name");
-    }
-    // A computed name on a static member lowers to `K[<key>] = …`,
-    // and the object position of a KEYED member cannot join the
-    // receiver-safe use shapes that keep the constructor's `this`
-    // promoted. That list excludes `.call` / `.apply` / `.bind`
-    // because those read the binding in order to invoke it — an
-    // exclusion spelled as three names, which a key that is only
-    // known at run time defeats. An instance member is unaffected:
-    // it lowers onto `K.prototype`, where the binding still stands
-    // under a named member.
-    if static_methods
-        .iter()
-        .any(|m| sentinel_index(&m.name).is_some())
-    {
-        return Some("a static method in it has a computed name");
     }
     // A body naming a compiler-minted global is not ordinary user
     // nesting: `__cm_gen_<C>__<m>` is the top-level generator method

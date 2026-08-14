@@ -43,19 +43,19 @@
 //!
 //! Only a shape this lane reproduces faithfully, and only one that is
 //! REJECTED today — a whitelist, so no program that currently answers
-//! correctly can be pulled in. Constructor, plain public instance
-//! methods, and plain public static methods named outright; a static
-//! body may say `this`, instance members may carry a computed name,
-//! and an instance accessor may be named outright. No `extends`, no
-//! static fields or static blocks, no static or computed-name
-//! accessor, no type params, and no compiler-minted free name in a
-//! body (`__cm_gen_*` forwarders to a hoisted generator method,
-//! `__supercall__*`). Everything else keeps today's loud abort.
+//! correctly can be pulled in. Constructor, plain public instance and
+//! static methods, and accessors; a static body may say `this`, and
+//! either kind of member may carry a computed name. No `extends`, no
+//! static fields or static blocks, no computed-name accessor, no type
+//! params, and no compiler-minted free name in a body (`__cm_gen_*`
+//! forwarders to a hoisted generator method, `__supercall__*`).
+//! Everything else keeps today's loud abort.
 //!
 //! Recorded deviations are in the RFC: the binding is `const`, `.name`
-//! is empty, a declare-only field does not materialize, the class name
-//! is no longer a type name, and a STATIC member stays enumerable
-//! (an instance one does not — see `descriptor_fields`).
+//! is empty, a declare-only field does not materialize, and the class
+//! name is no longer a type name. Every member is installed with the
+//! attributes §15.7.14 gives it (see `descriptor_fields`) — statics
+//! included, since rotation 397.
 
 mod decline;
 
@@ -359,28 +359,22 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         }
         // Every member a class declares is NON-enumerable (§15.7.14),
         // and an assignment makes an enumerable one — `for (const k in
-        // new K())` used to answer with the method names. So an
-        // instance member is installed with the attributes the class
-        // gave it. A STATIC member cannot be: `defineProperty` would
-        // take the binding itself as an argument, and a bare
-        // occurrence outside a member's object position is what the
-        // receiver-safe use list refuses — the same wall the static
-        // accessor hits. It stays an assignment, and stays enumerable.
-        if on_prototype {
-            let key = match sentinel_index(&m.name) {
-                Some(n) => ast.add_expr(Expr::Ident(key_binding(src_name, n))),
-                None => ast.add_expr(Expr::String(m.name.clone())),
-            };
-            let fields = descriptor_fields(ast, m.accessor_kind, eid);
-            out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
-            continue;
-        }
-        let target = ast.add_expr(Expr::Member {
-            obj: recv,
-            name: m.name.clone(),
-        });
-        let assign = ast.add_expr(Expr::Assign { target, value: eid });
-        out.push(Stmt::Expr(assign));
+        // new K())` used to answer with the method names. So every
+        // member is installed with the attributes the class gave it,
+        // the static ones included. That last part is new in rotation
+        // 397: a static member passes the BINDING to `defineProperty`
+        // rather than standing under `.prototype`, and until the target
+        // argument joined the receiver-safe use shapes, doing so took
+        // the constructor's `this` off the promotion lane. Statics
+        // stayed assignments and stayed wrongly enumerable, and a
+        // static accessor or a computed static name — neither of which
+        // an assignment can even spell — was declined outright.
+        let key = match sentinel_index(&m.name) {
+            Some(n) => ast.add_expr(Expr::Ident(key_binding(src_name, n))),
+            None => ast.add_expr(Expr::String(m.name.clone())),
+        };
+        let fields = descriptor_fields(ast, m.accessor_kind, eid);
+        out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
     }
     Stmt::Multi(out)
 }
