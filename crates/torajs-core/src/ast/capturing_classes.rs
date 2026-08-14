@@ -356,65 +356,78 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
                 name: "prototype".to_string(),
             });
         }
-        if let Some(kind) = m.accessor_kind {
-            out.push(Stmt::Expr(define_accessor(ast, recv, &m.name, kind, eid)));
+        // Every member a class declares is NON-enumerable (§15.7.14),
+        // and an assignment makes an enumerable one — `for (const k in
+        // new K())` used to answer with the method names. So an
+        // instance member is installed with the attributes the class
+        // gave it. A STATIC member cannot be: `defineProperty` would
+        // take the binding itself as an argument, and a bare
+        // occurrence outside a member's object position is what the
+        // receiver-safe use list refuses — the same wall the static
+        // accessor hits. It stays an assignment, and stays enumerable.
+        if on_prototype {
+            let key = match sentinel_index(&m.name) {
+                Some(n) => ast.add_expr(Expr::Ident(key_binding(src_name, n))),
+                None => ast.add_expr(Expr::String(m.name.clone())),
+            };
+            let fields = descriptor_fields(ast, m.accessor_kind, eid);
+            out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
             continue;
         }
-        let target = match sentinel_index(&m.name) {
-            Some(n) => {
-                let recv_any = ast.add_expr(Expr::As {
-                    expr: recv,
-                    ty_ann: "any".to_string(),
-                });
-                let key_ref = ast.add_expr(Expr::Ident(key_binding(src_name, n)));
-                ast.add_expr(Expr::Index {
-                    obj: recv_any,
-                    index: key_ref,
-                })
-            }
-            None => ast.add_expr(Expr::Member {
-                obj: recv,
-                name: m.name.clone(),
-            }),
-        };
+        let target = ast.add_expr(Expr::Member {
+            obj: recv,
+            name: m.name.clone(),
+        });
         let assign = ast.add_expr(Expr::Assign { target, value: eid });
         out.push(Stmt::Expr(assign));
     }
     Stmt::Multi(out)
 }
 
-/// `Object.defineProperty(<recv>, "<name>", { get|set: <fn>,
-/// configurable: true } as any)` — how §15.7.14 defines an accessor
-/// member, down to the attributes: an accessor on a class is
-/// configurable and NOT enumerable, which is exactly what a fresh
-/// `defineProperty` gives it.
+/// The descriptor a class member gets in §15.7.14: an accessor half is
+/// `{ get|set, configurable }`, an ordinary method is
+/// `{ value, writable, configurable }`. Neither says `enumerable`,
+/// which is the point — a property `defineProperty` creates without it
+/// is non-enumerable, exactly as a class declares it.
 ///
 /// A getter and a setter of the same name arrive as two members and so
 /// emit two calls. That is the spec's own shape (each MethodDefinition
 /// is its own DefinePropertyOrThrow), and the second call keeps the
 /// first half: a descriptor naming only `[[Set]]` leaves an existing
 /// `[[Get]]` alone (§10.1.6.3 step 4).
-fn define_accessor(
+fn descriptor_fields(
+    ast: &mut Ast,
+    kind: Option<super::AccessorKind>,
+    func: ExprId,
+) -> Vec<(String, ExprId)> {
+    let yes = ast.add_expr(Expr::Bool(true));
+    match kind {
+        Some(super::AccessorKind::Getter) => vec![("get".into(), func)],
+        Some(super::AccessorKind::Setter) => vec![("set".into(), func)],
+        None => {
+            let writable = ast.add_expr(Expr::Bool(true));
+            vec![("value".into(), func), ("writable".into(), writable)]
+        }
+    }
+    .into_iter()
+    .chain([("configurable".to_string(), yes)])
+    .collect()
+}
+
+/// `Object.defineProperty(<recv>, <key>, { … })`.
+///
+/// The descriptor stays a BARE object literal. Wrapping it in `as any`
+/// reads fine and even runs when hand-written, but the fnexpr-this face
+/// walk requires an inline `ObjectLit` at exactly this argument — an
+/// `As` in between hands it zero faces, and the function's `this` stays
+/// a capture nobody binds.
+fn define_member(
     ast: &mut Ast,
     recv: ExprId,
-    name: &str,
-    kind: super::AccessorKind,
-    func: ExprId,
+    key: ExprId,
+    fields: Vec<(String, ExprId)>,
 ) -> ExprId {
-    let half = match kind {
-        super::AccessorKind::Getter => "get",
-        super::AccessorKind::Setter => "set",
-    };
-    let yes = ast.add_expr(Expr::Bool(true));
-    // The descriptor stays a BARE object literal. Wrapping it in
-    // `as any` reads fine and even runs when hand-written, but the
-    // fnexpr-this face walk requires an inline `ObjectLit` at exactly
-    // this argument — an `As` in between hands it zero faces, and the
-    // getter's `this` stays a capture nobody binds.
-    let desc = ast.add_expr(Expr::ObjectLit {
-        fields: vec![(half.to_string(), func), ("configurable".to_string(), yes)],
-    });
-    let key = ast.add_expr(Expr::String(name.to_string()));
+    let desc = ast.add_expr(Expr::ObjectLit { fields });
     let object = ast.add_expr(Expr::Ident("Object".to_string()));
     let callee = ast.add_expr(Expr::Member {
         obj: object,

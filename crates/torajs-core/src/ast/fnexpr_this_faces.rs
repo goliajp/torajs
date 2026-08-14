@@ -77,16 +77,23 @@ pub(super) fn collect_ident_face(exprs: &[Expr], face: ExprId, cands: &mut Vec<(
     }
 }
 
-/// The `get:` / `set:` field values of an INLINE literal descriptor;
-/// empty for any non-ObjectLit descriptor expression (variable-routed
-/// descriptors alias their faces — knife 2).
+/// The `get:` / `set:` / `value:` field values of an INLINE literal
+/// descriptor; empty for any non-ObjectLit descriptor expression
+/// (variable-routed descriptors alias their faces — knife 2).
+///
+/// `value:` belongs here for the same reason the accessor halves do.
+/// A function installed as a data property is called as a METHOD of
+/// whatever it ends up on, so its `this` is the call receiver — not
+/// the descriptor literal it was written inside, which is what the
+/// object-literal nominal typing would otherwise hand it
+/// (`no member .x on Struct([("value", …), ("writable", …)])`).
 pub(super) fn literal_desc_faces(exprs: &[Expr], desc: ExprId) -> Vec<ExprId> {
     let Expr::ObjectLit { fields } = &exprs[desc.0 as usize] else {
         return Vec::new();
     };
     fields
         .iter()
-        .filter(|(fname, _)| fname == "get" || fname == "set")
+        .filter(|(fname, _)| fname == "get" || fname == "set" || fname == "value")
         .map(|(_, feid)| *feid)
         .collect()
 }
