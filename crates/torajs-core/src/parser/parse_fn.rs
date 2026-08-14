@@ -203,7 +203,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_fn_type_params(&mut self) -> Result<Vec<String>, String> {
+    pub(super) fn parse_fn_type_params(&mut self) -> Result<Vec<String>, String> {
         let mut type_params: Vec<String> = Vec::new();
         if matches!(self.peek(), Token::Lt) {
             // B2 — the whole `<T, U>` list is type-side syntax; record

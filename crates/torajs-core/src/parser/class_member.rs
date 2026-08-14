@@ -329,6 +329,7 @@ impl<'a> Parser<'a> {
         &mut self,
         class_name: &str,
         member_name: String,
+        type_params: Vec<String>,
         params: Vec<Param>,
         return_type: Option<String>,
         body: Vec<Stmt>,
@@ -364,6 +365,7 @@ impl<'a> Parser<'a> {
         }
         let m = ClassMethod {
             name: member_name,
+            type_params,
             params,
             return_type,
             body,

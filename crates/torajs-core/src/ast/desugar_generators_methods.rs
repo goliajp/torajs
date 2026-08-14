@@ -145,6 +145,7 @@ pub(super) fn build_return_method(
     let body: Vec<Stmt> = await_stash.into_iter().chain(body).collect();
     ClassMethod {
         name: "return".into(),
+        type_params: Vec::new(),
         params: vec![val_param],
         return_type: Some(step_ann.into()),
         body,
@@ -215,6 +216,7 @@ pub(super) fn build_throw_method(
     };
     ClassMethod {
         name: "throw".into(),
+        type_params: Vec::new(),
         params: vec![err_param],
         return_type: Some(step_ann.into()),
         body,
@@ -266,6 +268,7 @@ pub(super) fn build_next_method(
     body.extend(state_machine_body);
     ClassMethod {
         name: "next".into(),
+        type_params: Vec::new(),
         params: vec![yield_arg_param],
         return_type: Some(step_ann.into()),
         body,

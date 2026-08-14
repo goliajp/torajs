@@ -89,7 +89,13 @@ pub(super) fn emit_dispatch_method_stubs(
         body.push(Stmt::Return(Some(stub_call)));
         appended.push(Stmt::FnDecl {
             name: format!("__dispatch_{m_name}"),
-            type_params: base_tp.clone(),
+            // 398-01 — the stub copies the base signature, so its
+            // generic list is the base class's plus the method's own.
+            type_params: base_tp
+                .iter()
+                .chain(base_method.type_params.iter())
+                .cloned()
+                .collect(),
             params,
             return_type: base_method.return_type.clone(),
             body,

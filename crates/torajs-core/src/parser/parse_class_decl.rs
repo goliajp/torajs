@@ -168,7 +168,9 @@ impl<'a> Parser<'a> {
                 self.tokens.get(self.pos + 1).map(|s| &s.token)
             };
             match next_tok {
-                Some(Token::LParen) => {
+                // 398-01 — `pair<T>(v: T)` is a method with its own
+                // type-parameter list; the method parser consumes it.
+                Some(Token::LParen) | Some(Token::Lt) => {
                     // ctor or method — extracted to sub-sibling (chunk 174,
                     // 2026-06-28). Returns Ok(true) for TS overload signature
                     // (skip + continue outer loop); Ok(false) for normal flow.

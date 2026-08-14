@@ -173,6 +173,15 @@ pub(in crate::ast) fn emit_class_instance_methods(
     appended: &mut Vec<Stmt>,
 ) {
     for m in methods {
+        // 398-01 — the desugared FnDecl's generic list is the class's
+        // followed by the method's own (`pair<T>` on `class B<K>` →
+        // `[K, T]`); monomorphization reads FnDecl.type_params and
+        // needs no new machinery.
+        let fn_tp: Vec<String> = type_params
+            .iter()
+            .chain(m.type_params.iter())
+            .cloned()
+            .collect();
         if m.is_abstract {
             let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 1);
             params.push(Param {
@@ -186,7 +195,7 @@ pub(in crate::ast) fn emit_class_instance_methods(
             let trap_body = vec![Stmt::Throw(trap_eid)];
             appended.push(Stmt::FnDecl {
                 name: format!("__cm_{cname}__{}", m.name),
-                type_params: type_params.to_vec(),
+                type_params: fn_tp.clone(),
                 params,
                 return_type: rewrite_this_in_ann(&m.return_type, this_ann),
                 body: trap_body,
@@ -255,18 +264,12 @@ pub(in crate::ast) fn emit_class_instance_methods(
         // follow-up), so only plain methods mint.
         if m.accessor_kind.is_none() {
             super::desugar_classes_generic_twin::mint_generic_twin(
-                ast,
-                &fn_name,
-                &params,
-                &body,
-                type_params,
-                m.span,
-                appended,
+                ast, &fn_name, &params, &body, &fn_tp, m.span, appended,
             );
         }
         appended.push(Stmt::FnDecl {
             name: fn_name,
-            type_params: type_params.to_vec(),
+            type_params: fn_tp,
             params,
             return_type,
             body,
@@ -290,6 +293,13 @@ pub(in crate::ast) fn emit_class_static_methods(
     appended: &mut Vec<Stmt>,
 ) {
     for sm in static_methods {
+        // 398-01 — class-level list followed by the method's own
+        // (mirror of the instance emit above).
+        let fn_tp: Vec<String> = type_params
+            .iter()
+            .chain(sm.type_params.iter())
+            .cloned()
+            .collect();
         // RFC 20260718-accessor-reify 刀 3 — a static accessor's
         // faces carry `_get` / `_set` suffixes (mirror of the
         // instance emit above), so a same-name get/set pair no
@@ -338,18 +348,12 @@ pub(in crate::ast) fn emit_class_static_methods(
         // static methods mint; a this-free body mints nothing.
         if sm.accessor_kind.is_none() {
             super::desugar_classes_generic_twin::mint_static_generic_twin(
-                ast,
-                &fn_name,
-                &params,
-                &body,
-                type_params,
-                sm.span,
-                appended,
+                ast, &fn_name, &params, &body, &fn_tp, sm.span, appended,
             );
         }
         appended.push(Stmt::FnDecl {
             name: fn_name,
-            type_params: type_params.to_vec(),
+            type_params: fn_tp,
             params,
             return_type,
             body,

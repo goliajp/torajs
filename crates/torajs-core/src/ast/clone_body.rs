@@ -390,6 +390,7 @@ impl<'a> BodyCloner<'a> {
     fn clone_class_method(&mut self, m: &ClassMethod) -> ClassMethod {
         ClassMethod {
             name: m.name.clone(),
+            type_params: m.type_params.clone(),
             params: self.clone_params(m.params.clone()),
             return_type: m.return_type.clone(),
             body: self.clone_stmts(&m.body),

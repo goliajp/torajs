@@ -153,6 +153,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
     });
     let is_error = ClassMethod {
         name: "isError".to_string(),
+        type_params: Vec::new(),
         params: vec![Param {
             name: "x".to_string(),
             type_ann: Some("any".to_string()),

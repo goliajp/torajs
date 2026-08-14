@@ -67,6 +67,24 @@ impl<'a> Parser<'a> {
             self.pos += 1; // consume name
         }
         let is_ctor_branch = member_name == "constructor";
+        // 398-01 — method-level type parameters: `pair<T>(v: T)`.
+        // Parsed with the standalone-fn list parser and concatenated
+        // after the class-level list on the desugared FnDecl, so
+        // monomorphization needs no new machinery. A constructor
+        // cannot declare its own (TS 1092) — the class-level list is
+        // the ctor's.
+        let type_params = if matches!(self.peek(), Token::Lt) {
+            let tp = self.parse_fn_type_params()?;
+            if is_ctor_branch {
+                return Err(format!(
+                    "type parameters cannot appear on a constructor declaration in class `{name}` at {}",
+                    self.at()
+                ));
+            }
+            tp
+        } else {
+            Vec::new()
+        };
         let (params, promoted_props, destr_lets) = if is_ctor_branch {
             let (p, pr, dl) = self.parse_ctor_param_list()?;
             (p, pr, dl)
@@ -213,6 +231,7 @@ impl<'a> Parser<'a> {
             self.finalize_class_method(
                 name,
                 member_name,
+                type_params,
                 params,
                 return_type,
                 body,

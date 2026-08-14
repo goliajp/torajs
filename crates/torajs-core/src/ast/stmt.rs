@@ -348,6 +348,12 @@ pub struct ClassCtor {
 #[derive(Debug, Clone)]
 pub struct ClassMethod {
     pub name: String,
+    /// 398-01 — method-level generic params: `pair<T>(v: T): any`.
+    /// Concatenated after the class-level list onto the desugared
+    /// `__cm_` / `__sm_` FnDecl, so the same monomorphization
+    /// machinery that serves standalone generic fns serves methods.
+    /// Empty on every synthesized method.
+    pub type_params: Vec<String>,
     pub params: Vec<Param>,
     pub return_type: Option<String>,
     pub body: Vec<Stmt>,

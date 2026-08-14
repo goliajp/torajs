@@ -146,6 +146,7 @@ pub(super) fn assemble_generator_class_and_factory(
     let self_this = ast.add_expr(Expr::This);
     let self_iter_method = ClassMethod {
         name: "__sym_Symbol_iterator__".into(),
+        type_params: Vec::new(),
         params: Vec::new(),
         return_type: Some(class_name.clone()),
         body: vec![Stmt::Return(Some(self_this))],
