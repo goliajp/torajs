@@ -50,6 +50,14 @@ pub(super) fn body_says_super(ast: &Ast, body: &[Stmt]) -> bool {
 /// becomes `P.prototype.m.call(this, args…)` — the exact spellings the
 /// probe table proves (e1 / e2). Collection walks arrows, so a super
 /// inside one rides its lexical `this` the same way the source did.
+///
+/// The `super(…)` half calls the parent's CTOR-FORWARD target
+/// (`es5_ctor_forward`, 405-01) rather than the parent itself: a
+/// ctor-less middle class only forwards, and its synthesized
+/// forwarder is the rest-param `this`-reader the promotion ABI bar
+/// refuses once a subclass consumes it through `.call`. The method
+/// half stays on the parent — `P.prototype.m` resolves through the
+/// `Object.create` chain at run time either way.
 pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str) {
     let mut ctor_sites = Vec::new();
     let mut method_sites = Vec::new();
@@ -57,8 +65,9 @@ pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str) {
         collect_super_in_stmt(ast, s, &mut ctor_sites);
         collect_supercall_in_stmt(ast, s, &mut method_sites);
     }
+    let ctor_target = ctor_forward_target(ast, parent);
     for (eid, args) in ctor_sites {
-        let callee = call_member(ast, parent, &[]);
+        let callee = call_member(ast, &ctor_target, &[]);
         ast.exprs[eid.0 as usize] = Expr::Call {
             callee,
             args: this_first(ast, args),
@@ -71,6 +80,17 @@ pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str) {
             args: this_first(ast, args),
         };
     }
+}
+
+/// Where `super(…)` against `parent` actually lands (405-01) — the
+/// nearest ancestor with an explicit ctor, itself included; an
+/// unrecorded parent answers itself (defensive identity, not a
+/// fallback: every admitted parent is lane-claimed and recorded).
+fn ctor_forward_target(ast: &Ast, parent: &str) -> String {
+    ast.es5_ctor_forward
+        .get(parent)
+        .cloned()
+        .unwrap_or_else(|| parent.to_string())
 }
 
 /// `<parent>.<path…>.call` as a member chain.
@@ -101,9 +121,11 @@ fn this_first(ast: &mut Ast, args: Vec<ExprId>) -> Vec<ExprId> {
 /// ...args) }` (probe e8; `arguments` does not resolve in a minted
 /// fn-expr, probe e7, so the rest form is the one that works). Minted
 /// before `apply_rest_args` / `apply_spread_args` run, which is what
-/// packs the call sites.
+/// packs the call sites. Calls the ctor-forward target, not the
+/// parent — see `rewrite_super_sites`.
 pub(super) fn implicit_derived_ctor(ast: &mut Ast, parent: &str) -> (Vec<Param>, Vec<Stmt>) {
-    let callee = call_member(ast, parent, &[]);
+    let target = ctor_forward_target(ast, parent);
+    let callee = call_member(ast, &target, &[]);
     let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
     let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
     let args = this_first(ast, vec![spread]);
@@ -156,6 +178,24 @@ pub(super) fn proto_chain_stmts(
         args: vec![pproto],
     });
     out.push(Stmt::Expr(ast.add_expr(Expr::Assign { target, value })));
+
+    // Class-side static inheritance (§15.7.14 ClassDefinitionEvaluation
+    // step 7: a derived class's own [[Prototype]] is its parent) —
+    // 405-01. `D.s()` resolves inherited statics through the function
+    // value's user [[Prototype]] chain, and a static added to `P`
+    // after this line still flows down. Both argument positions are
+    // receiver-safe use shapes (`define_property_target_idents`).
+    let object = ast.add_expr(Expr::Ident("Object".to_string()));
+    let spo = ast.add_expr(Expr::Member {
+        obj: object,
+        name: "setPrototypeOf".to_string(),
+    });
+    let d = ast.add_expr(Expr::Ident(class_binding.to_string()));
+    let p = ast.add_expr(Expr::Ident(parent.to_string()));
+    out.push(Stmt::Expr(ast.add_expr(Expr::Call {
+        callee: spo,
+        args: vec![d, p],
+    })));
 
     let d = ast.add_expr(Expr::Ident(class_binding.to_string()));
     let recv = ast.add_expr(Expr::Member {

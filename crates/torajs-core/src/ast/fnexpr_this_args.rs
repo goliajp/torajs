@@ -147,20 +147,32 @@ pub(super) fn instanceof_name_idents(exprs: &[Expr]) -> std::collections::HashSe
 /// because that one excludes `.call` / `.apply` / `.bind` by NAME —
 /// three names a runtime key defeats. Handing the key to
 /// `defineProperty` as data is what dissolves that.
+///
+/// `Object.setPrototypeOf(D, P)` joins with BOTH argument positions
+/// (405-01): §20.1.2.21 validates the proto, then writes an internal
+/// slot — neither argument is ever invoked. This is the class-side
+/// static-inheritance statement the extends lane mints, and both
+/// spellings in it are lane bindings.
 pub(super) fn define_property_target_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
     exprs
         .iter()
-        .filter_map(|e| match e {
-            Expr::Call { callee, args } => match &exprs[callee.0 as usize] {
-                Expr::Member { obj, name }
-                    if (name == "defineProperty" || name == "defineProperties")
-                        && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") =>
-                {
-                    args.first().copied()
+        .flat_map(|e| -> Vec<ExprId> {
+            let Expr::Call { callee, args } = e else {
+                return Vec::new();
+            };
+            let Expr::Member { obj, name } = &exprs[callee.0 as usize] else {
+                return Vec::new();
+            };
+            if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") {
+                return Vec::new();
+            }
+            match name.as_str() {
+                "defineProperty" | "defineProperties" => {
+                    args.first().copied().into_iter().collect()
                 }
-                _ => None,
-            },
-            _ => None,
+                "setPrototypeOf" => args.iter().take(2).copied().collect(),
+                _ => Vec::new(),
+            }
         })
         .filter(|a| matches!(&exprs[a.0 as usize], Expr::Ident(_)))
         .collect()

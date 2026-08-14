@@ -103,20 +103,28 @@ pub(super) fn try_rewrite_capturing_class(
     let old = name.clone();
     let new = format!("__cc{}_{}", *counter, old);
     *counter += 1;
-    // A static-free class is a faithful `extends` target for a later
-    // sibling: nothing lives on the class object, so the prototype
-    // link alone covers the contract (blade 5). Recorded under the
-    // minted name — the rename below writes that same spelling into
-    // every sibling's `parent` field.
-    if let Stmt::ClassDecl {
-        static_methods,
-        static_init,
-        ..
-    } = &stmts[idx]
-        && static_methods.is_empty()
-        && static_init.is_empty()
-    {
-        ast.es5_parent_classes.insert(new.clone());
+    // Every class this lane claims is a faithful `extends` target for
+    // a later sibling (blade 5; 405-01 opened the static-carrying
+    // half — `Object.setPrototypeOf(D, P)` links the class side now
+    // that a function value carries a user [[Prototype]] chain).
+    // Recorded under the minted name — the rename below writes that
+    // same spelling into every sibling's `parent` field.
+    ast.es5_parent_classes.insert(new.clone());
+    // Where this class's `super(…)` lands — see the field doc: a
+    // ctor-less class forwards, and skipping it transitively keeps
+    // every hop off the rest-param promotion bar. The parent's own
+    // target is already resolved (siblings lower top-down), so one
+    // lookup composes the chain.
+    if let Stmt::ClassDecl { ctor, parent, .. } = &stmts[idx] {
+        let target = match (ctor, parent) {
+            (None, Some(p)) => ast
+                .es5_ctor_forward
+                .get(p)
+                .cloned()
+                .unwrap_or_else(|| p.clone()),
+            _ => new.clone(),
+        };
+        ast.es5_ctor_forward.insert(new.clone(), target);
     }
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
     alias::mint_unique_aliases(ast, stmts, &new, counter);
