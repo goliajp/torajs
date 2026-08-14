@@ -4,6 +4,7 @@
 //! Append-only in lockstep with the constant table.
 
 use crate::any_method::*;
+use crate::any_method_date::*;
 
 /// Compile-time name → id intern. `None`-shaped misses map to
 /// [`ANY_METHOD_UNKNOWN`] (the runtime throws with the name bytes).

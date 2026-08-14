@@ -6,6 +6,7 @@
 // The meta table references every ANY_METHOD_* constant — a glob
 // import keeps the sibling in lockstep as ids append.
 use crate::any_method::*;
+use crate::any_method_date::*;
 
 /// Method id → `(canonical name, ES-spec "length")` reflection
 /// metadata (chunk 715) — the `.name` / `.length` reads off a
