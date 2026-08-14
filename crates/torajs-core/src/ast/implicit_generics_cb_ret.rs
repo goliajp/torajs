@@ -14,7 +14,32 @@
 //! `None` keeps the historical same-`T` approximation (never a new
 //! bail — an opaque callback behaves exactly as before this file).
 
-use super::{Expr, Param};
+use super::{Expr, ExprId, Param};
+
+/// The whitelist arm bodies for `map` / `flatMap` — the callback's
+/// return ann as the result element (`map`), with one array layer
+/// peeled for the §23.1.3.14 depth-1 flatten (`flatMap`). `None`
+/// keeps the caller's historical same-`T` approximation.
+pub(super) fn hof_result_ann(
+    method: &str,
+    exprs: &[Expr],
+    args: &[ExprId],
+    params: &[Param],
+    binds: &std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let u = args
+        .first()
+        .and_then(|a| callback_ret_ann(exprs, *a, params, binds, fn_sigs))?;
+    match method {
+        "map" => Some(format!("{u}[]")),
+        "flatMap" => {
+            let elem = u.strip_suffix("[]").unwrap_or(&u);
+            Some(format!("{elem}[]"))
+        }
+        _ => None,
+    }
+}
 
 /// The callback's return annotation, when the arg is a lifted closure
 /// (`fn_sigs` holds the full `__fn(P|..)->R` under its reserved

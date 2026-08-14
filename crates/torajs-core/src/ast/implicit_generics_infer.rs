@@ -384,33 +384,17 @@ pub(crate) fn infer_expr_ann_with(
                     ("number", _, "toFixed" | "toPrecision" | "toExponential") => "string",
                     (_, Some(_), "toString" | "toLocaleString") => "string",
                     (_, Some(e), "pop" | "shift" | "at" | "find" | "findLast") => e,
-                    // 403-01 — a map result's element is the CALLBACK's
-                    // return, not the receiver's element; an opaque
-                    // callback keeps the historical same-`T`
-                    // approximation (doc on the sibling).
-                    (_, Some(_), "map") => {
-                        if let Some(u) = args.first().and_then(|a| {
-                            super::implicit_generics_cb_ret::callback_ret_ann(
-                                exprs, *a, params, binds, fn_sigs,
-                            )
-                        }) {
-                            return Some(format!("{u}[]"));
+                    // 403-01 — a map/flatMap result element is the
+                    // CALLBACK's return (doc on the sibling); an
+                    // opaque callback keeps the historical same-`T`
+                    // approximation.
+                    (_, Some(_), "map" | "flatMap") => {
+                        match super::implicit_generics_cb_ret::hof_result_ann(
+                            name, exprs, args, params, binds, fn_sigs,
+                        ) {
+                            Some(u) => return Some(u),
+                            None => &r,
                         }
-                        &r
-                    }
-                    // 403-01 sister — a flatMap result element is the
-                    // callback's return with ONE array layer peeled
-                    // (§23.1.3.14: depth-1 flatten).
-                    (_, Some(_), "flatMap") => {
-                        if let Some(u) = args.first().and_then(|a| {
-                            super::implicit_generics_cb_ret::callback_ret_ann(
-                                exprs, *a, params, binds, fn_sigs,
-                            )
-                        }) {
-                            let elem = u.strip_suffix("[]").unwrap_or(&u);
-                            return Some(format!("{elem}[]"));
-                        }
-                        &r
                     }
                     (
                         _,
