@@ -4,7 +4,8 @@
 //! stays in the parent, which hands its Ident candidates here.
 
 use super::fnexpr_this_args::{
-    any_param_arg_idents, construct_channel_arg_idents, eq_operand_idents, instanceof_name_idents,
+    any_param_arg_idents, construct_channel_arg_idents, define_property_target_idents,
+    eq_operand_idents, instanceof_name_idents,
 };
 use super::fnexpr_this_faces::FacePatch;
 use super::fnexpr_this_recvs::{
@@ -141,6 +142,9 @@ pub(super) fn promote_variable_routed(
     let return_idents = any_boundary_return_idents(stmts, exprs);
     let mut any_ann_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
     collect_any_ann_decl_names(stmts, &mut any_ann_names);
+    // Ninth shape — the target argument of `Object.defineProperty` /
+    // `defineProperties` (doc on the free fn).
+    let define_target_idents = define_property_target_idents(exprs);
     for (name, face_eids) in &faces_by_name {
         let use_eids: Vec<ExprId> = exprs
             .iter()
@@ -161,6 +165,7 @@ pub(super) fn promote_variable_routed(
                 || any_arg_idents.contains(e)
                 || instanceof_idents.contains(e)
                 || (return_idents.contains(e) && any_ann_names.contains(name.as_str()))
+                || define_target_idents.contains(e)
         }) {
             continue;
         }

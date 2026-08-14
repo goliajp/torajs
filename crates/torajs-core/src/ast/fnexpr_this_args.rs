@@ -119,6 +119,53 @@ pub(super) fn instanceof_name_idents(exprs: &[Expr]) -> std::collections::HashSe
         .collect()
 }
 
+/// The ninth receiver-safe use shape: the TARGET argument of
+/// `Object.defineProperty` / `Object.defineProperties`.
+///
+/// §20.1.2.4 does four things to `O` — reject a non-object, take a
+/// property key off the second argument, build a descriptor from the
+/// third, and DefinePropertyOrThrow into it. Not one of them invokes
+/// `O`, so this position is the "never calls the binding" kind of
+/// proof, the same one behind a member's object and the right of
+/// `instanceof` — not the escape kind, which needs the value to reach
+/// the any lane. `defineProperties` (§20.1.2.5) is the same shape with
+/// the keys in a bag.
+///
+/// Index 0 only. Standing as the DESCRIPTOR is a different question:
+/// `ToPropertyDescriptor` reads `.get` / `.set` off it and installs
+/// what it finds as an accessor, which is a call path — and the key
+/// argument is coerced, which is observable and untested here.
+///
+/// This is the wall three faces of the capturing-class lane were
+/// waiting on. A class member is non-enumerable (§15.7.14), which
+/// means `defineProperty`, which means the class binding lands in an
+/// argument — fine on `K.prototype`, where the binding still stands
+/// under a named member, but a STATIC member passes the binding
+/// itself. So static members stayed assignments (enumerable, wrongly),
+/// static accessors and computed static members were declined
+/// outright, and a keyed store could not join the member-object shape
+/// because that one excludes `.call` / `.apply` / `.bind` by NAME —
+/// three names a runtime key defeats. Handing the key to
+/// `defineProperty` as data is what dissolves that.
+pub(super) fn define_property_target_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Call { callee, args } => match &exprs[callee.0 as usize] {
+                Expr::Member { obj, name }
+                    if (name == "defineProperty" || name == "defineProperties")
+                        && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") =>
+                {
+                    args.first().copied()
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .filter(|a| matches!(&exprs[a.0 as usize], Expr::Ident(_)))
+        .collect()
+}
+
 /// The sixth receiver-safe use shape (RFC 20260808-construct-channel
 /// B2 knife, rotation 345): an Ident standing as an argument to a
 /// program-local FnDecl whose matching param is EXPLICITLY `any`,
