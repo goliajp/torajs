@@ -457,40 +457,6 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         let fields = descriptor_fields(ast, m.accessor_kind, eid);
         out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
     }
-    // Static initialization last, and in source order: §15.7.14 runs
-    // field initializers and static blocks at class-definition time,
-    // after every member is installed, which is what lets one read
-    // the class it belongs to (`static f = K.base + 2`). A plain
-    // assignment is the right shape for a field where a method needed
-    // `defineProperty` — CreateDataProperty is what the spec performs,
-    // so writable / enumerable / configurable all come out true on
-    // their own. An initializer that says `this`, and a static block
-    // (whose `this` is the class object either way), wrap into
-    // `(function () { … }).call(K)` — the same marked-fn-expr mint as
-    // every other function this lane emits, so the body's `this`
-    // rides the ordinary function-this machinery (394-05).
-    // `decline_reason` still refuses computed static names.
-    for si in static_init {
-        match si {
-            StaticInit::Field(sf) => {
-                let value = if expr_says_this(ast, sf.init) {
-                    let body = vec![Stmt::Return(Some(sf.init))];
-                    call_bound_to_class(ast, body, &name)
-                } else {
-                    sf.init
-                };
-                let recv = ast.add_expr(Expr::Ident(name.clone()));
-                let target = ast.add_expr(Expr::Member {
-                    obj: recv,
-                    name: sf.name.clone(),
-                });
-                out.push(Stmt::Expr(ast.add_expr(Expr::Assign { target, value })));
-            }
-            StaticInit::Block(stmts) => {
-                let call = call_bound_to_class(ast, stmts, &name);
-                out.push(Stmt::Expr(call));
-            }
-        }
-    }
+    install::install_static_inits(ast, static_init, &name, &mut out);
     Stmt::Multi(out)
 }
