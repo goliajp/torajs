@@ -9,7 +9,7 @@ use super::fnexpr_this_args::{
 use super::fnexpr_this_faces::FacePatch;
 use super::fnexpr_this_recvs::{
     collect_decls_by_name, collect_this_fnexpr_decl_names, fn_has_rest_param,
-    name_shadowed_elsewhere,
+    name_shadowed_elsewhere, peel_as,
 };
 use super::{Expr, ExprId, Stmt};
 
@@ -114,11 +114,12 @@ pub(super) fn promote_variable_routed(
     let member_obj_idents: std::collections::HashSet<ExprId> = exprs
         .iter()
         .filter_map(|e| match e {
-            Expr::Member { obj, name }
-                if !matches!(name.as_str(), "call" | "apply" | "bind")
-                    && matches!(&exprs[obj.0 as usize], Expr::Ident(_)) =>
-            {
-                Some(*obj)
+            // Peeling the `as` suffix changes nothing about the
+            // `.call` / `.apply` / `.bind` exclusion — that reads the
+            // member NAME, which the wrapper does not touch.
+            Expr::Member { obj, name } if !matches!(name.as_str(), "call" | "apply" | "bind") => {
+                let obj = peel_as(exprs, *obj);
+                matches!(&exprs[obj.0 as usize], Expr::Ident(_)).then_some(obj)
             }
             _ => None,
         })
@@ -171,7 +172,8 @@ pub(super) fn promote_variable_routed(
         // — the by-name Ident walk would pair the shadow's uses with
         // this binding — so those keep the loud reject for var and
         // const alike (the decls-count guard only sees LetDecls).
-        let (_mutable, init) = decls[0];
+        let (_mutable, decl_init) = decls[0];
+        let init = peel_as(exprs, decl_init);
         if fn_expr_exprs.contains(&init)
             && let Expr::Closure { fn_name, captures } = &exprs[init.0 as usize]
             && captures.iter().any(|c| c == "__this")

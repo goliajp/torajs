@@ -254,7 +254,8 @@ pub(super) fn collect_this_fnexpr_decl_names(
 ) {
     for s in stmts {
         if let Stmt::LetDecl { name, init, .. } = s {
-            if fn_expr_exprs.contains(init)
+            let init = peel_as(exprs, *init);
+            if fn_expr_exprs.contains(&init)
                 && matches!(&exprs[init.0 as usize], Expr::Closure { captures, .. }
                     if captures.iter().any(|c| c == "__this"))
             {
@@ -265,6 +266,23 @@ pub(super) fn collect_this_fnexpr_decl_names(
             collect_this_fnexpr_decl_names(inner, exprs, fn_expr_exprs, out)
         });
     }
+}
+
+/// See past an `as` suffix to the value it ascribes.
+///
+/// `const K = function () { …this… } as any` and `const K: any =
+/// function () { …this… }` declare the same thing, but only the
+/// second one used to promote: every test here asks whether the
+/// init IS the marked fn-expr, and the suffix spelling hands over an
+/// `Expr::As` wrapping it. The use side has the same shape —
+/// `(K as any).s()` hides the Ident from the member-object test —
+/// and TS asks for that spelling whenever the member is not on the
+/// declared type.
+pub(super) fn peel_as(exprs: &[Expr], mut e: super::ExprId) -> super::ExprId {
+    while let Expr::As { expr, .. } = &exprs[e.0 as usize] {
+        e = *expr;
+    }
+    e
 }
 
 pub(super) fn fn_has_rest_param(stmts: &[Stmt], fn_name: &str) -> bool {
