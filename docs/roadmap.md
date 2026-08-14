@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `8216cbdc`** (2026-08-14, rotation 397 — one gap in one
+**Latest @ `16256297`** (2026-08-14, rotation 399 — four receiver-promoting
+knives on the fnexpr-`this` channel, and then the regression they caused,
+which is the part worth reading. A function expression binds `this` at the
+call site (§10.2.1.2); inside a class it was being handed the enclosing
+method's receiver, i.e. arrow semantics. The root was not the desugar that
+rewrites `this` — three of the four host shapes were already correct — but
+the by-name census that proves a binding is declared exactly once:
+`desugar_classes` clones every `this`-using method body into a
+receiver-polymorphic `__cmany_` twin, so a `const` written ONCE was counted
+TWICE and the promote declined. Fixed, plus the class-member `return` face
+and the `this.<any field>` store face. **Then the closing sweep caught what
+five green gates could not**: §13.1's "undeclared private name" is a
+PARSE-phase early error, but tr implemented it in the checker, which
+recognizes the mangled name only on a `ClassRef`-typed receiver — so a
+parse-phase early error hung on the static type of `this`, and promoting
+`__this` to `any` erased it. Four negative cases went `pass-negative →
+bug:negative-phase-mismatch`. Moving the decision to where the reference is
+resolved (`parser/private_refs.rs`) is both the spec phase and the only
+position no downstream typing can erase. Sweep vs rotation 398: passTotal
+30062 → **30076 (+14)**, `passNegative` 4106 → **4120 (+14)**, bug 12771 →
+**12757 (−14)**, `pass` / `passNoOracle` / `incompatible` / `trAccepted` all
+unmoved — conservation exact (`0 == 14 + (−14)`). Verdicts joined line by
+line: 53174 vs 53174, **14 differing, zero only on one side, zero pass
+regressions** — every one forward, and every one nameable: the six
+`invalid-names/*-bad-reference` variants per class form plus
+`grammar-privatename-in-computed-property-missing`, all now refused at parse.
+The four cases that regressed mid-rotation are back at `pass-negative`.
+Gate predicate **240 unattributed clusters / 3084 cases / register 2 · 619 /
+residue 776 · 1006 / core 4709** — unmoved, because everything that moved
+moved inside the `bug` bucket rather than out of `incompatible`.)
+
+**Previous @ `8216cbdc`** (2026-08-14, rotation 397 — one gap in one
 whitelist was holding four separate faces shut. A `this`-using function
 expression only gets its receiver promoted when every use of its binding
 is a shape the promoted ABI survives, and two positions were missing:

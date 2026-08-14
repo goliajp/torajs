@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T09:03:47.541Z",
+  "generatedAt": "2026-08-14T10:22:03.378Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T08:55:09Z",
-    "headSha": "9c46623a",
-    "elapsedSec": 330.59,
+    "ranAt": "2026-08-14T10:12:29Z",
+    "headSha": "16256297",
+    "elapsedSec": 325.69,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
     "pass": 25105,
     "passNoOracle": 851,
-    "passNegative": 4106,
-    "passTotal": 30062,
-    "bug": 12771,
+    "passNegative": 4120,
+    "passTotal": 30076,
+    "bug": 12757,
     "incompatible": 10341,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 42833,
-    "passRateInScope": 56.54,
-    "passRateTrAccepted": 70.18
+    "passRateInScope": 56.56,
+    "passRateTrAccepted": 70.22
   },
   "torajs": {
-    "commit": "9c46623a",
-    "commitSubject": "feat: a capturing class may declare a static field that never says this",
+    "commit": "16256297",
+    "commitSubject": "fix: an undeclared private name is refused at parse, not by the receiver's type",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "16256297",
+      "subject": "fix: an undeclared private name is refused at parse, not by the receiver's type"
+    },
+    {
+      "hash": "cce58322",
+      "subject": "feat: a function expression stored into an any field gets its receiver"
+    },
+    {
+      "hash": "da172886",
+      "subject": "refactor: the member-store face collector moves in with the other faces"
+    },
+    {
+      "hash": "a565a352",
+      "subject": "feat: a function expression returned from a class member gets its receiver"
+    },
+    {
+      "hash": "2061b412",
+      "subject": "fix: a const inside a method is one declaration, not two"
+    },
+    {
+      "hash": "b441ac74",
+      "subject": "chore: record the rotation 398 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "9c46623a",
       "subject": "feat: a capturing class may declare a static field that never says this"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "8216cbdc",
       "subject": "fix: an arrow in a static body may read the class object"
-    },
-    {
-      "hash": "cc281996",
-      "subject": "refactor: collect the receiver-safe use shapes in one module"
-    },
-    {
-      "hash": "be3f88eb",
-      "subject": "feat: an accessor with a computed name rides the capturing-class lane"
-    },
-    {
-      "hash": "7e635bde",
-      "subject": "feat: static members of a capturing class ride the same descriptor"
-    },
-    {
-      "hash": "89451d8d",
-      "subject": "fix: defining a property on a this-using constructor keeps it promoted"
-    },
-    {
-      "hash": "7c259d91",
-      "subject": "fix: returning a this-using binding keeps it promoted"
-    },
-    {
-      "hash": "e5269947",
-      "subject": "chore: record the rotation 396 sweep and refresh the dashboard snapshot"
     }
   ],
-  "headSha": "9c46623a",
+  "headSha": "16256297",
   "autorun": {
-    "total": 701,
+    "total": 702,
     "baselineTarget": 10,
-    "bySelf": 696,
+    "bySelf": 697,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786690237-7158",
-      "at": "2026-08-14T06:50:37Z",
-      "ts": 1786690237,
+      "rotationId": "r-1786698265-433e",
+      "at": "2026-08-14T09:04:25Z",
+      "ts": 1786698265,
       "trigger": "self",
-      "prevHead": "5403c884",
-      "handoffSha": "sha256:c9aa1aba578846f7baf8b7345128ec5d4ae07f6b578234e2df72d85f8132e429",
-      "handoffAgeSec": 24,
+      "prevHead": "b441ac74",
+      "handoffSha": "sha256:a7ffa100db9bea1f8556162717e0e4dd935a5260a148f7e04e7e061c15df03a2",
+      "handoffAgeSec": 16,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786698265-433e",
+        "at": "2026-08-14T09:04:25Z",
+        "ts": 1786698265,
+        "trigger": "self",
+        "prevHead": "b441ac74",
+        "handoffSha": "sha256:a7ffa100db9bea1f8556162717e0e4dd935a5260a148f7e04e7e061c15df03a2",
+        "handoffAgeSec": 16,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786690237-7158",
         "at": "2026-08-14T06:50:37Z",
@@ -876,17 +887,6 @@
         "prevHead": "d9f04fba",
         "handoffSha": "sha256:a95c2f14154f00e0b663d5a996c5bf238a9981d049e0385e803688a9a69f7b73",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786625286-6688",
-        "at": "2026-08-13T12:48:06Z",
-        "ts": 1786625286,
-        "trigger": "self",
-        "prevHead": "1b686c99",
-        "handoffSha": "sha256:1191a99d79e32c9beb7cb0263d7540fd0f63805a7ff75309c31810c37671070b",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
