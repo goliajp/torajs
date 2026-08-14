@@ -348,7 +348,7 @@ pub(crate) fn infer_expr_ann_with(
         Expr::Closure { fn_name, .. } => fn_sigs.get(fn_name).cloned(),
         // Call: bare Ident → fn_sigs; Member+string/`T[]` receiver → method whitelist.
         // Omitted methods SIGSEGV/silent-wrong even with explicit annotation (L3b).
-        Expr::Call { callee, .. } => {
+        Expr::Call { callee, args } => {
             let c = exprs.get(callee.0 as usize)?;
             if let Expr::Ident(n) = c {
                 // The parser's synthetic relational calls answer Bool
@@ -384,11 +384,25 @@ pub(crate) fn infer_expr_ann_with(
                     ("number", _, "toFixed" | "toPrecision" | "toExponential") => "string",
                     (_, Some(_), "toString" | "toLocaleString") => "string",
                     (_, Some(e), "pop" | "shift" | "at" | "find" | "findLast") => e,
+                    // 403-01 — a map result's element is the CALLBACK's
+                    // return, not the receiver's element; an opaque
+                    // callback keeps the historical same-`T`
+                    // approximation (doc on the sibling).
+                    (_, Some(_), "map") => {
+                        if let Some(u) = args.first().and_then(|a| {
+                            super::implicit_generics_cb_ret::callback_ret_ann(
+                                exprs, *a, params, binds, fn_sigs,
+                            )
+                        }) {
+                            return Some(format!("{u}[]"));
+                        }
+                        &r
+                    }
                     (
                         _,
                         Some(_),
-                        "slice" | "map" | "reverse" | "sort" | "concat" | "fill" | "filter"
-                        | "flat" | "flatMap",
+                        "slice" | "reverse" | "sort" | "concat" | "fill" | "filter" | "flat"
+                        | "flatMap",
                     ) => &r,
                     (_, Some(_), "every" | "some" | "includes") => "boolean",
                     (_, Some(_), "indexOf" | "lastIndexOf" | "findIndex" | "findLastIndex") => {

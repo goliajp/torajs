@@ -106,6 +106,7 @@ mod globalthis_member;
 mod hoist_gen_fn_exprs;
 mod hoist_nested_classes;
 mod hoist_nested_classes_rename;
+mod implicit_generics_cb_ret;
 mod implicit_generics_infer;
 mod implicit_generics_value_return;
 mod infer_closure_lets;
