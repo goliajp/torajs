@@ -69,7 +69,8 @@ pub fn synthesize_recv_cb_forwarders(ast: &mut Ast) {
     if fn_sigs.is_empty() {
         return;
     }
-    let sites = collect_sites(ast, &fn_sigs);
+    let mut sites = collect_sites(ast, &fn_sigs);
+    collect_objlit_field_sites(ast, &fn_sigs, &mut sites);
     if sites.is_empty() {
         return;
     }
@@ -182,6 +183,67 @@ fn collect_sites(
         sites.push((cb, cbname.clone()));
     }
     sites
+}
+
+/// 401-02 — the object-literal FIELD sites: a promoted named fn
+/// stored as a field of an `: any`-annotated binding's literal
+/// (`const o: any = { k: 10, m: cb }`). The binding is a dynobj, so
+/// EVERY consumer of that field is an any-lane call path — the
+/// method-call arm reads `FLAG_CLOSURE_RECV_FIRST` and seeds the
+/// holder as the receiver (`o.m(1)` binds `this = o`, §13.3.6.2),
+/// while a detached read's plain call / `.call` face rides
+/// `invoke_with_this`, which shifts on the same flag. The plain
+/// `__forward_` shim hardwired `undefined` instead, so `this` was
+/// always wrong on these fields. Same shadow / re-decl / generator
+/// gates as the callback sites; the field value admits the bare
+/// Ident and its `as any` shell.
+fn collect_objlit_field_sites(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    sites: &mut Vec<(ExprId, String)>,
+) {
+    fn walk(
+        stmts: &[Stmt],
+        ast: &Ast,
+        fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+        sites: &mut Vec<(ExprId, String)>,
+    ) {
+        for s in stmts {
+            if let Stmt::LetDecl { type_ann, init, .. } = s
+                && type_ann.as_deref() == Some("any")
+            {
+                let init = super::fnexpr_this_names::peel_as(&ast.exprs, *init);
+                if let Expr::ObjectLit { fields } = ast.get_expr(init) {
+                    for (_, feid) in fields {
+                        let inner = match ast.get_expr(*feid) {
+                            Expr::As { expr, ty_ann } if ty_ann == "any" => *expr,
+                            _ => *feid,
+                        };
+                        let Expr::Ident(n) = ast.get_expr(inner) else {
+                            continue;
+                        };
+                        if !fn_sigs.contains_key(n)
+                            || ast.generator_factory_classes.contains_key(n)
+                            || ast.async_generator_fns.contains(n)
+                            || name_shadowed_elsewhere(&ast.stmts, n)
+                        {
+                            continue;
+                        }
+                        let mut decls: Vec<(bool, ExprId)> = Vec::new();
+                        collect_decls_by_name(&ast.stmts, n, &mut decls);
+                        if !decls.is_empty() {
+                            continue;
+                        }
+                        sites.push((inner, n.clone()));
+                    }
+                }
+            }
+            super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+                walk(inner, ast, fn_sigs, sites)
+            });
+        }
+    }
+    walk(&ast.stmts, ast, fn_sigs, sites);
 }
 
 /// Mint `__fwdrecv_<target>(__env, __this, ...user) { return
