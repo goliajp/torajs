@@ -70,6 +70,17 @@ pub struct MethodMeta {
 /// run it with a null receiver per ES §10.2.1.2.
 pub const METHOD_FLAG_THIS_FREE: u32 = 1;
 
+/// 404-01 — MethodMeta flags bit 1: the record's ADAPTER is the
+/// receiver-polymorphic `__cmany_` twin, whose calling convention is
+/// recv-first (the receiver box is prepended in argv[0], the env
+/// argument is dropped). Minted for a GENERIC class's rows — the
+/// mono body reads fields at one specialization's offsets and would
+/// misread another's, while the twin reads through GetV. An env-slot
+/// dispatch site must not invoke such a record; [`find_method`]
+/// therefore skips it, and only the flags-aware
+/// `__torajs_struct_method_find_flags` answers it.
+pub const METHOD_FLAG_TWIN_PRIMARY: u32 = 2;
+
 // Compile-time ABI lock against the emit side (same posture as the
 // field-meta block in lib.rs).
 const _: () = {
@@ -111,21 +122,34 @@ impl StructLayoutEntry {
         Some(unsafe { &*p })
     }
 
-    /// Linear scan for a method's boxed adapter by name. `None` if
-    /// absent (same small-count posture as `find_field`).
+    /// Linear scan for a method's record by name. `None` if absent
+    /// (same small-count posture as `find_field`).
     #[inline]
-    fn find_method(&self, name: &[u8]) -> Option<*const core::ffi::c_void> {
+    fn find_method_meta(&self, name: &[u8]) -> Option<&'static MethodMeta> {
         let n = self.n_methods();
         let mut i = 0;
         while i < n {
             if let Some(m) = self.method(i) {
                 if m.name_bytes() == name {
-                    return Some(m.adapter);
+                    return Some(m);
                 }
             }
             i += 1;
         }
         None
+    }
+
+    /// Linear scan for a method's boxed adapter by name. A
+    /// twin-primary record answers `None` here: its adapter is
+    /// recv-first-shaped, and every caller of this finder invokes
+    /// through the env slot (see [`METHOD_FLAG_TWIN_PRIMARY`]).
+    #[inline]
+    fn find_method(&self, name: &[u8]) -> Option<*const core::ffi::c_void> {
+        let m = self.find_method_meta(name)?;
+        if m.flags & METHOD_FLAG_TWIN_PRIMARY != 0 {
+            return None;
+        }
+        Some(m.adapter)
     }
 
     /// Linear scan for a CLASS accessor's boxed adapter by the property
@@ -190,6 +214,40 @@ pub unsafe extern "C" fn __torajs_struct_method_find(
     let entry = unsafe { &*layout };
     let needle = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
     entry.find_method(needle).unwrap_or(core::ptr::null())
+}
+
+/// The flags-aware variant of [`__torajs_struct_method_find`] — the
+/// ONE finder that also answers twin-primary records. Writes the
+/// record's flags word through `out_flags` on a hit (untouched on a
+/// miss); the caller reads [`METHOD_FLAG_TWIN_PRIMARY`] to pick the
+/// recv-first calling convention.
+///
+/// # Safety
+/// `layout` / `name` as in [`__torajs_struct_method_find`];
+/// `out_flags` must be NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_method_find_flags(
+    layout: *const StructLayoutEntry,
+    name: *const u8,
+    name_len: u32,
+    out_flags: *mut u32,
+) -> *const core::ffi::c_void {
+    if layout.is_null() || name.is_null() {
+        return core::ptr::null();
+    }
+    // SAFETY: caller contract above.
+    let entry = unsafe { &*layout };
+    let needle = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    match entry.find_method_meta(needle) {
+        Some(m) => {
+            if !out_flags.is_null() {
+                // SAFETY: caller contract above.
+                unsafe { out_flags.write(m.flags) };
+            }
+            m.adapter
+        }
+        None => core::ptr::null(),
+    }
 }
 
 /// Resolve a CLASS accessor's boxed adapter by the property it stands

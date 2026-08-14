@@ -45,6 +45,15 @@ pub struct AnonStampPool {
     /// from both named + snapshot anon tags + class_layouts is grown
     /// without renumbering.
     next_tag: u32,
+    /// 404-01 — alloc sids that are a GENERIC class's instances, by
+    /// the base class name. Recorded at the stamp site
+    /// (`write_class_tag`: a `__new_<C>$$<mono>` factory whose full
+    /// name is not itself a class), because the alloc's sid is the
+    /// factory ObjectLit's STRUCTURAL intern — `inst_memo`'s
+    /// annotation-keyed sid is a different table and misses it. The
+    /// row emitters read this back to dress the per-specialization
+    /// row with the class's name and method table.
+    generic_class_sids: HashMap<ssa::StructId, String>,
 }
 
 impl AnonStampPool {
@@ -56,7 +65,20 @@ impl AnonStampPool {
             sid_to_tag: snapshot,
             fresh_sids: Vec::new(),
             next_tag: next_tag_start,
+            generic_class_sids: HashMap::new(),
         }
+    }
+
+    /// 404-01 — record that `sid` is an instance shape of generic
+    /// class `base` (see the field doc).
+    pub fn record_generic_class_sid(&mut self, sid: ssa::StructId, base: String) {
+        self.generic_class_sids.insert(sid, base);
+    }
+
+    /// The recorded generic-instance sids, cloned out for the row
+    /// emitters (the pool cell stays borrowed only momentarily).
+    pub fn generic_class_sids(&self) -> &HashMap<ssa::StructId, String> {
+        &self.generic_class_sids
     }
 
     /// Look up an existing tag for `sid` or allocate a fresh one. Fresh
@@ -139,6 +161,7 @@ pub fn build_snapshot_pool(
 pub fn append_fresh_class_layouts(
     pool: &AnonStampPoolCell,
     struct_layouts: &[Vec<(String, crate::ssa::Type)>],
+    inst_rows: &HashMap<ssa::StructId, (String, Vec<crate::ssa::MethodMetaSpec>)>,
     class_layouts: &mut Vec<crate::ssa::ClassLayoutMeta>,
 ) {
     let fresh = pool.borrow().fresh_sids().to_vec();
@@ -158,12 +181,19 @@ pub fn append_fresh_class_layouts(
                 type_tag: crate::ssa::field_type_tag_of(*fty),
             });
         }
+        // 404-01 — a Pass-2 fresh generic-class instantiation keeps
+        // its per-specialization LAYOUT but wears the class identity
+        // (name + method table), mirroring the Pass-1.5 snapshot walk.
+        let (class_name, methods) = match inst_rows.get(&sid) {
+            Some((base, methods)) => (base.clone(), methods.clone()),
+            None => (format!("__anon_struct_{sid_idx}"), Vec::new()),
+        };
         class_layouts.push(crate::ssa::ClassLayoutMeta {
-            class_name: format!("__anon_struct_{sid_idx}"),
+            class_name,
             child_offsets,
             field_metadata,
             is_named: false,
-            methods: Vec::new(),
+            methods,
         });
     }
 }

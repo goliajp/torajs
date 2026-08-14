@@ -80,7 +80,12 @@ pub(crate) fn collect_own_class_methods(
             }
         }
         let Some((cname, mname)) = best else { continue };
-        if mname == "ctor" || mname.is_empty() {
+        // `ctor$$_number` / `ctor$$anywv` are a generic class's ctor
+        // mono instances — without the prefix form of the skip they
+        // registered as dispatchable methods named `ctor$$…` (and,
+        // suffix-stripped, `ctor`), handing `g.ctor(…)` a body bun
+        // answers with a TypeError for (404-01 registration audit).
+        if mname == "ctor" || mname.is_empty() || mname.starts_with("ctor$$") {
             continue;
         }
         let entry_name = match accessor_slots.get(fname.as_str()) {
@@ -104,11 +109,21 @@ pub(crate) fn collect_own_class_methods(
             },
         };
         // Blade 3 — the receiver-polymorphic twin's body fid, when
-        // blade 2 minted one for this mono.
+        // blade 2 minted one for this mono. `cmany_twins` is keyed by
+        // the DESUGAR-time decl name, so a mono row (`…$$anywv` /
+        // `…$$_number`) strips its suffix for the lookup and routes to
+        // the twin's own all-any instance — the one mono a twin has
+        // (404-01; every twin param is already `any`, so one instance
+        // serves every specialization's rebind).
         let twin_fid = ast
             .cmany_twins
             .get(fname.as_str())
-            .and_then(|twin_name| fn_table.get(twin_name.as_str()).copied());
+            .and_then(|twin_name| fn_table.get(twin_name.as_str()).copied())
+            .or_else(|| {
+                let (base, _) = fname.split_once("$$")?;
+                let twin = ast.cmany_twins.get(base)?;
+                fn_table.get(format!("{twin}$$anywv").as_str()).copied()
+            });
         own.entry(cname.to_string())
             .or_default()
             .push((entry_name, fid, twin_fid));
@@ -149,6 +164,7 @@ pub(crate) fn resolve_class_methods(
                         this_free: this_free_fids.contains(fid),
                         twin_adapter_fid: twin_fid
                             .and_then(|t| boxed_entries.get(&t).map(|&(a, _)| a)),
+                        twin_primary: false,
                     });
                 }
                 // Shadow even on adapter dropout — a child decl
@@ -162,4 +178,135 @@ pub(crate) fn resolve_class_methods(
     // Deterministic table order (HashMap iteration fed `own_methods`).
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
+}
+
+/// 404-01 — re-target a GENERIC class's method rows at the
+/// receiver-polymorphic twin's all-any instance.
+///
+/// The `$$anywv` mono body reads its receiver at ONE specialization's
+/// static offsets (its `__this` erases to `G<any>`), while an
+/// instance wears whichever specialization it was built with — a
+/// `G<number>` k is a raw i64 the mono misdecodes as a NaN box. The
+/// twin (`__cmany_…$$anywv`) reads through GetV, which honors the
+/// receiver row's per-field type tags, so it is correct under every
+/// specialization. A receiver-FREE body keeps its mono adapter (it
+/// touches no field, so no layout can betray it); a receiver-reading
+/// body whose twin was never minted (accessor slots, super-carrying
+/// bodies) drops its row — the honest no-such TypeError over a
+/// misread answer.
+pub(crate) fn retarget_generic_class_methods(
+    ast: &crate::ast::Ast,
+    fn_table: &HashMap<String, ssa::FuncId>,
+    boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
+    base: &str,
+    methods: Vec<ssa::MethodMetaSpec>,
+) -> Vec<ssa::MethodMetaSpec> {
+    methods
+        .into_iter()
+        .filter_map(|mut m| {
+            let decl = format!("__cm_{base}__{}", m.name);
+            let Some(twin) = ast.cmany_twins.get(&decl) else {
+                return m.this_free.then_some(m);
+            };
+            let fid = fn_table.get(format!("{twin}$$anywv").as_str()).copied()?;
+            let (adapter, _) = boxed_entries.get(&fid).copied()?;
+            m.adapter_fid = adapter;
+            m.twin_adapter_fid = None;
+            m.twin_primary = true;
+            Some(m)
+        })
+        .collect()
+}
+
+/// S2.38 — `true` when the function never observes its first param
+/// (the `__cm_` receiver slot). The lowerer spills every param into
+/// an alloca at entry, so a plain "no operand mentions params[0]"
+/// test refuses everything; the real predicate is two-step:
+///
+/// 1. every use of `recv` is a `Store(recv, <alloca>, _)` — the
+///    entry spill (any other use — arithmetic, call arg, return,
+///    branch — is an observation);
+/// 2. every OTHER use of each such spill slot is another one of
+///    those stores — a Load, a call arg, a re-store elsewhere, or a
+///    dyn access would let the value escape.
+///
+/// A missing param 0 answers `false` (not a method shape, nothing
+/// to prove).
+pub(crate) fn fn_ignores_receiver(f: &ssa::Function) -> bool {
+    let Some(&recv) = f.params.first() else {
+        return false;
+    };
+    let is_alloca: Vec<bool> = f
+        .values
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            f.blocks.iter().any(|b| {
+                b.insts.iter().any(|inst| {
+                    inst.result == Some(ssa::ValueId(i as u32))
+                        && matches!(
+                            inst.kind,
+                            ssa::InstKind::Alloca(_) | ssa::InstKind::AllocaBytes(_)
+                        )
+                })
+            })
+        })
+        .collect();
+    let op_is =
+        |op: &ssa::Operand, v: ssa::ValueId| matches!(op, ssa::Operand::Value(x) if *x == v);
+    // Pass 1 — every recv use must be an entry spill into an alloca.
+    let mut spill_slots: Vec<ssa::ValueId> = Vec::new();
+    for b in &f.blocks {
+        for inst in &b.insts {
+            let mut uses_recv = false;
+            ssa::visit_value_operands(&inst.kind, |v| uses_recv |= v == recv);
+            if !uses_recv {
+                continue;
+            }
+            match &inst.kind {
+                ssa::InstKind::Store(val, ptr, _)
+                    if op_is(val, recv)
+                        && matches!(ptr, ssa::Operand::Value(s)
+                            if is_alloca.get(s.0 as usize).copied().unwrap_or(false)) =>
+                {
+                    if let ssa::Operand::Value(s) = ptr {
+                        spill_slots.push(*s);
+                    }
+                }
+                _ => return false,
+            }
+        }
+        match &b.term {
+            ssa::Terminator::CondBr { cond, .. } if op_is(cond, recv) => return false,
+            ssa::Terminator::Ret(Some(op)) if op_is(op, recv) => return false,
+            _ => {}
+        }
+    }
+    // Pass 2 — the spill slots themselves must never be read or
+    // escape: their only uses are the recv spills counted above.
+    for b in &f.blocks {
+        for inst in &b.insts {
+            let mut touches_slot = false;
+            ssa::visit_value_operands(&inst.kind, |v| touches_slot |= spill_slots.contains(&v));
+            if !touches_slot {
+                continue;
+            }
+            match &inst.kind {
+                ssa::InstKind::Store(val, _, _) if op_is(val, recv) => {}
+                _ => return false,
+            }
+        }
+        match &b.term {
+            ssa::Terminator::CondBr { cond, .. } if matches!(cond, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
+            {
+                return false;
+            }
+            ssa::Terminator::Ret(Some(op)) if matches!(op, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    true
 }

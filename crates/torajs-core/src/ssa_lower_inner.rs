@@ -449,12 +449,17 @@ fn finalize_module(
     // — see [`crate::ssa_lower_module_metadata`] for the consolidated
     // builder docs.
     crate::ssa_lower_module_metadata::populate_vtables(ast, fn_table, module);
-    crate::ssa_lower_module_metadata::populate_class_layouts(
+    // 404-01 — the stamp-site record of generic-class instance sids
+    // (see `write_class_tag`), cloned out so the pool cell is free
+    // for the emitters below.
+    let generic_inst_sids = anon_stamp_pool.borrow().generic_class_sids().clone();
+    let inst_rows = crate::ssa_lower_module_metadata::populate_class_layouts(
         ast,
         fn_table,
         boxed_entries,
         class_name_to_tag,
         aliases,
+        &generic_inst_sids,
         module,
         struct_layouts_pass15_len,
     );
@@ -464,6 +469,7 @@ fn finalize_module(
     crate::ssa_lower_anon_stamp::append_fresh_class_layouts(
         anon_stamp_pool,
         &module.struct_layouts.clone(),
+        &inst_rows,
         &mut module.class_layouts,
     );
 }

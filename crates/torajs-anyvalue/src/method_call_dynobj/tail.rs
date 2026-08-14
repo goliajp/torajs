@@ -11,6 +11,11 @@ use core::ffi::c_void;
 
 use super::*;
 
+/// MethodMeta flags bit 1 — ABI mirror of torajs-structmeta's
+/// `METHOD_FLAG_TWIN_PRIMARY` (the record's adapter is the
+/// recv-first `__cmany_` twin; see 404-01).
+const METHOD_FLAG_TWIN_PRIMARY: u32 = 2;
+
 /// RFC 20260712 chunk C fix — OrdinaryToPrimitive's IsCallable
 /// probe: true iff the receiver has an OWN entry under `name_str`
 /// whose value is NOT callable. §7.1.1.1 skips such an entry and
@@ -177,12 +182,35 @@ pub(crate) unsafe fn struct_method(
                 // `o.__getter_b()` keeps the honest no-such TypeError
                 // (the property read reaches the getter, the call does
                 // not). A user method really named `b` still wins here.
+                let mut mflags: u32 = 0;
                 let adapter = if __torajs_accessor_name_kind(name_bytes, name_len) == 255 {
-                    __torajs_struct_method_find(layout, name_bytes, name_len)
+                    __torajs_struct_method_find_flags(layout, name_bytes, name_len, &mut mflags)
                 } else {
                     core::ptr::null()
                 };
                 if !adapter.is_null() {
+                    // 404-01 — a twin-primary record's adapter is the
+                    // receiver-polymorphic `__cmany_` twin: recv-first
+                    // calling convention (receiver box in argv[0], env
+                    // dropped). Minted for GENERIC classes, whose mono
+                    // bodies would misread a specialization's layout.
+                    if mflags & METHOD_FLAG_TWIN_PRIMARY != 0 {
+                        let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+                        let mut argv2: Vec<u64> = Vec::with_capacity(argc as usize + 1);
+                        argv2.push(recv);
+                        if argc > 0 {
+                            argv2.extend_from_slice(core::slice::from_raw_parts(
+                                argv,
+                                argc as usize,
+                            ));
+                        }
+                        return crate::method_call::invoke_boxed(
+                            obj,
+                            adapter as u64,
+                            argv2.as_ptr(),
+                            argc + 1,
+                        );
+                    }
                     return crate::method_call::invoke_boxed(obj, adapter as u64, argv, argc);
                 }
                 // S2.34 — getter-as-callee (mirror of the dynobj /

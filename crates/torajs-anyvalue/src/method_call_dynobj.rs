@@ -78,6 +78,15 @@ unsafe extern "C" {
         name: *const u8,
         name_len: u32,
     ) -> *const c_void;
+    /// torajs-structmeta 404-01 — the flags-aware variant, the one
+    /// finder that also answers twin-primary records (recv-first
+    /// adapters). Writes the record's flags word on a hit.
+    fn __torajs_struct_method_find_flags(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        out_flags: *mut u32,
+    ) -> *const c_void;
     /// torajs-structmeta — does a name spell an accessor SLOT
     /// (`__getter_v`)? 255 = a plain, user-callable name.
     fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;

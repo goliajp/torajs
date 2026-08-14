@@ -58,6 +58,14 @@ pub struct MethodMetaSpec {
     /// `None` bakes a 0 twin_ptr (guard fail keeps the mono path —
     /// the recorded super-route residue).
     pub twin_adapter_fid: Option<FuncId>,
+    /// 404-01 — `adapter_fid` IS the receiver-polymorphic twin
+    /// (recv-first calling convention: the receiver box rides
+    /// argv[0], the env argument is dropped). Minted for a GENERIC
+    /// class's rows, whose mono bodies read fields at one
+    /// specialization's offsets and would misread another's. Baked
+    /// as MethodMeta flags bit 1; env-slot dispatch sites must not
+    /// invoke such a record through the env channel.
+    pub twin_primary: bool,
 }
 
 #[derive(Debug, Clone)]

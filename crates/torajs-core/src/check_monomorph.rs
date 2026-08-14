@@ -110,13 +110,16 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     // minting a `$$_any`-suffixed twin the registry sides don't
     // recognize (they strip / fall back on `$$anywv` only:
     // `collect_own_class_methods`, `try_lower_static_method_reify`).
+    // `__cmany_` twins seed too (404-01): a GENERIC class's method
+    // rows dispatch through the twin-any instance — the mono body
+    // reads fields at one specialization's offsets, while the twin
+    // reads through GetV honoring the receiver row's per-field tags.
+    // `__smany_` stays out: statics bind no receiver row.
+    // (`__cmany_` is its own spelling — it does NOT match the
+    // `__cm_` prefix, the fifth byte differs.)
     let mut method_generics: Vec<String> = generics
         .keys()
-        .filter(|n| {
-            (n.starts_with("__cm_") || n.starts_with("__sm_"))
-                && !n.starts_with("__cmany_")
-                && !n.starts_with("__smany_")
-        })
+        .filter(|n| n.starts_with("__cm_") || n.starts_with("__sm_") || n.starts_with("__cmany_"))
         .cloned()
         .collect();
     method_generics.sort();

@@ -65,108 +65,21 @@ pub(crate) fn populate_vtables(
     }
 }
 
-/// S2.38 — `true` when the function never observes its first param
-/// (the `__cm_` receiver slot). The lowerer spills every param into
-/// an alloca at entry, so a plain "no operand mentions params[0]"
-/// test refuses everything; the real predicate is two-step:
-///
-/// 1. every use of `recv` is a `Store(recv, <alloca>, _)` — the
-///    entry spill (any other use — arithmetic, call arg, return,
-///    branch — is an observation);
-/// 2. every OTHER use of each such spill slot is another one of
-///    those stores — a Load, a call arg, a re-store elsewhere, or a
-///    dyn access would let the value escape.
-///
-/// A missing param 0 answers `false` (not a method shape, nothing
-/// to prove).
-fn fn_ignores_receiver(f: &ssa::Function) -> bool {
-    let Some(&recv) = f.params.first() else {
-        return false;
-    };
-    let is_alloca: Vec<bool> = f
-        .values
-        .iter()
-        .enumerate()
-        .map(|(i, _)| {
-            f.blocks.iter().any(|b| {
-                b.insts.iter().any(|inst| {
-                    inst.result == Some(ssa::ValueId(i as u32))
-                        && matches!(
-                            inst.kind,
-                            ssa::InstKind::Alloca(_) | ssa::InstKind::AllocaBytes(_)
-                        )
-                })
-            })
-        })
-        .collect();
-    let op_is =
-        |op: &ssa::Operand, v: ssa::ValueId| matches!(op, ssa::Operand::Value(x) if *x == v);
-    // Pass 1 — every recv use must be an entry spill into an alloca.
-    let mut spill_slots: Vec<ssa::ValueId> = Vec::new();
-    for b in &f.blocks {
-        for inst in &b.insts {
-            let mut uses_recv = false;
-            ssa::visit_value_operands(&inst.kind, |v| uses_recv |= v == recv);
-            if !uses_recv {
-                continue;
-            }
-            match &inst.kind {
-                ssa::InstKind::Store(val, ptr, _)
-                    if op_is(val, recv)
-                        && matches!(ptr, ssa::Operand::Value(s)
-                            if is_alloca.get(s.0 as usize).copied().unwrap_or(false)) =>
-                {
-                    if let ssa::Operand::Value(s) = ptr {
-                        spill_slots.push(*s);
-                    }
-                }
-                _ => return false,
-            }
-        }
-        match &b.term {
-            ssa::Terminator::CondBr { cond, .. } if op_is(cond, recv) => return false,
-            ssa::Terminator::Ret(Some(op)) if op_is(op, recv) => return false,
-            _ => {}
-        }
-    }
-    // Pass 2 — the spill slots themselves must never be read or
-    // escape: their only uses are the recv spills counted above.
-    for b in &f.blocks {
-        for inst in &b.insts {
-            let mut touches_slot = false;
-            ssa::visit_value_operands(&inst.kind, |v| touches_slot |= spill_slots.contains(&v));
-            if !touches_slot {
-                continue;
-            }
-            match &inst.kind {
-                ssa::InstKind::Store(val, _, _) if op_is(val, recv) => {}
-                _ => return false,
-            }
-        }
-        match &b.term {
-            ssa::Terminator::CondBr { cond, .. } if matches!(cond, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
-            {
-                return false;
-            }
-            ssa::Terminator::Ret(Some(op)) if matches!(op, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
-            {
-                return false;
-            }
-            _ => {}
-        }
-    }
-    true
-}
-
+/// Returns the specialization rows map (`sid → (base class name,
+/// method table)`) so `append_fresh_class_layouts` can dress Pass-2
+/// fresh instantiation sids the same way the snapshot walk below
+/// dresses Pass-1.5 ones. `generic_inst_sids` is the stamp-site
+/// record from [`crate::ssa_lower_anon_stamp::AnonStampPool`].
 pub(crate) fn populate_class_layouts(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
+    generic_inst_sids: &HashMap<ssa::StructId, String>,
     module: &mut Module,
     struct_layouts_pass15_len: usize,
-) {
+) -> HashMap<ssa::StructId, (String, Vec<ssa::MethodMetaSpec>)> {
     // T-26.C — named-class metadata, walked in `class_name_to_tag`
     // order so the resulting Vec lines up with the runtime's index
     // arithmetic (cycle collector indexes class_layouts via
@@ -186,6 +99,111 @@ pub(crate) fn populate_class_layouts(
         fn_table,
         &all_class_names,
     );
+    let this_free_fids = collect_this_free_fids(ast, module, &own_methods);
+    for (cname, _tag) in &class_names_by_tag {
+        let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
+            aliases.get(*cname).and_then(|t| match t {
+                Type::Obj(s) if s.0 as usize == i => Some(i),
+                _ => None,
+            })
+        }) {
+            Some(i) => i,
+            // A GENERIC class has no alias sid — its instances live on
+            // per-specialization sids (`inst_memo`), never on a class
+            // sid. It still must push a row: the runtime indexes
+            // `class_layouts` by `class_tag - 1`, so SKIPPING a tag
+            // here shifted every later row one slot left — every class
+            // sorted after the generic one answered with its
+            // neighbor's layout (404-01 root, latent since the walk
+            // was written). The row carries no fields (no instance
+            // ever wears this tag) but does carry the method table —
+            // the specialization rows below inherit it by clone.
+            None => {
+                module.class_layouts.push(generic_class_placeholder_row(
+                    ast,
+                    fn_table,
+                    boxed_entries,
+                    &own_methods,
+                    &this_free_fids,
+                    cname,
+                ));
+                continue;
+            }
+        };
+        let layout = &module.struct_layouts[sid];
+        let mut child_offsets: Vec<u32> = Vec::new();
+        let mut field_metadata: Vec<FieldMetaSpec> = Vec::new();
+        for (i, (fname, fty)) in layout.iter().enumerate() {
+            let off = OBJ_HEADER_SIZE as u32 + (i as u32) * 8;
+            if fty.is_refcounted() {
+                child_offsets.push(off);
+            }
+            // W-J Phase A3: per-field metadata for the reflection
+            // consumers (Phase B `gOPD` struct cell arm / Phase C
+            // `Object.keys`/`values`/`entries` / Phase D `inspect.rs`
+            // Tag::Obj walker). Carried through to Phase A3b's
+            // `.__class_fields_<i>` rodata emit.
+            field_metadata.push(FieldMetaSpec {
+                name: fname.clone(),
+                offset: off,
+                type_tag: ssa::field_type_tag_of(*fty),
+            });
+        }
+        module.class_layouts.push(ClassLayoutMeta {
+            class_name: (*cname).clone(),
+            child_offsets,
+            field_metadata,
+            is_named: true,
+            methods: crate::ssa_lower_module_metadata_methods::resolve_class_methods(
+                ast,
+                &own_methods,
+                boxed_entries,
+                &this_free_fids,
+                cname,
+            ),
+        });
+    }
+    // 404-01 — a generic-class instantiation sid rides the anonymous
+    // machinery for its LAYOUT (per-specialization field types: a
+    // `G<number>` k is a raw i64, a `G<string>` k a refcounted ptr —
+    // the cycle collector and reflection must see the right one), but
+    // its IDENTITY is the class: the row gets the base class's name
+    // and method table so the any-lane method dispatch reading
+    // `class_tag@+8` answers on these instances.
+    let inst_rows: HashMap<ssa::StructId, (String, Vec<ssa::MethodMetaSpec>)> = generic_inst_sids
+        .iter()
+        .map(|(sid, base)| {
+            let row = generic_class_placeholder_row(
+                ast,
+                fn_table,
+                boxed_entries,
+                &own_methods,
+                &this_free_fids,
+                base,
+            );
+            (*sid, (base.clone(), row.methods))
+        })
+        .collect();
+    // W-J Phase A0 — anonymous ObjectLit structs get their own
+    // ClassLayoutMeta entries, in [`register_anonymous_struct_layouts`].
+    register_anonymous_struct_layouts(
+        class_name_to_tag,
+        aliases,
+        &inst_rows,
+        module,
+        struct_layouts_pass15_len,
+    );
+    inst_rows
+}
+
+/// S2.38 — the receiver-free / bare-call-safe verdict per `__cm_`
+/// body, extracted verbatim from [`populate_class_layouts`] under
+/// the 200-line function rule (404-01 pushed the walk over).
+fn collect_this_free_fids(
+    ast: &crate::ast::Ast,
+    module: &Module,
+    own_methods: &HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>>,
+) -> std::collections::HashSet<ssa::FuncId> {
     // S2.38 — `__cm_` bodies proven safe to run through the boxed
     // adapter with a NULL receiver: (1) the body never observes its
     // receiver param, and (2) the adapter-visible argument surface
@@ -248,7 +266,7 @@ pub(crate) fn populate_class_layouts(
             } else {
                 (1, 1)
             };
-            fn_ignores_receiver(f)
+            crate::ssa_lower_module_metadata_methods::fn_ignores_receiver(f)
                 && f.params.len() == verdicts.len() + (ssa_skip - ast_skip)
                 && f.params[ssa_skip..]
                     .iter()
@@ -273,66 +291,54 @@ pub(crate) fn populate_class_layouts(
                     })
         })
         .collect();
-    for (cname, _tag) in &class_names_by_tag {
-        let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
-            aliases.get(*cname).and_then(|t| match t {
-                Type::Obj(s) if s.0 as usize == i => Some(i),
-                _ => None,
-            })
-        }) {
-            Some(i) => i,
-            None => continue,
-        };
-        let layout = &module.struct_layouts[sid];
-        let mut child_offsets: Vec<u32> = Vec::new();
-        let mut field_metadata: Vec<FieldMetaSpec> = Vec::new();
-        for (i, (fname, fty)) in layout.iter().enumerate() {
-            let off = OBJ_HEADER_SIZE as u32 + (i as u32) * 8;
-            if fty.is_refcounted() {
-                child_offsets.push(off);
-            }
-            // W-J Phase A3: per-field metadata for the reflection
-            // consumers (Phase B `gOPD` struct cell arm / Phase C
-            // `Object.keys`/`values`/`entries` / Phase D `inspect.rs`
-            // Tag::Obj walker). Carried through to Phase A3b's
-            // `.__class_fields_<i>` rodata emit.
-            field_metadata.push(FieldMetaSpec {
-                name: fname.clone(),
-                offset: off,
-                type_tag: ssa::field_type_tag_of(*fty),
-            });
-        }
-        module.class_layouts.push(ClassLayoutMeta {
-            class_name: (*cname).clone(),
-            child_offsets,
-            field_metadata,
-            is_named: true,
-            methods: crate::ssa_lower_module_metadata_methods::resolve_class_methods(
-                ast,
-                &own_methods,
-                boxed_entries,
-                &this_free_fids,
-                cname,
-            ),
-        });
-    }
-    // W-J Phase A0 — anonymous ObjectLit structs get their own
-    // ClassLayoutMeta entries, in [`register_anonymous_struct_layouts`].
-    register_anonymous_struct_layouts(
-        class_name_to_tag,
-        aliases,
-        module,
-        struct_layouts_pass15_len,
+    this_free_fids
+}
+
+/// 404-01 — the row a GENERIC class (no alias sid) contributes: no
+/// fields (no instance ever wears its tag — instances live on
+/// per-specialization sids), but the class name and the method table,
+/// re-targeted at the receiver-polymorphic twin instances. The same
+/// row shape dresses each specialization sid's anonymous row, which
+/// is why this builder serves both the named walk's placeholder and
+/// the `inst_rows` map.
+fn generic_class_placeholder_row(
+    ast: &crate::ast::Ast,
+    fn_table: &HashMap<String, ssa::FuncId>,
+    boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
+    own_methods: &HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>>,
+    this_free_fids: &std::collections::HashSet<ssa::FuncId>,
+    cname: &str,
+) -> ClassLayoutMeta {
+    let methods = crate::ssa_lower_module_metadata_methods::resolve_class_methods(
+        ast,
+        own_methods,
+        boxed_entries,
+        this_free_fids,
+        cname,
     );
+    ClassLayoutMeta {
+        class_name: cname.to_string(),
+        child_offsets: Vec::new(),
+        field_metadata: Vec::new(),
+        is_named: true,
+        methods: crate::ssa_lower_module_metadata_methods::retarget_generic_class_methods(
+            ast,
+            fn_table,
+            boxed_entries,
+            cname,
+            methods,
+        ),
+    }
 }
 
 /// W-J Phase A0 (RFC 20260614-w-j-struct-reflect §3) — the anonymous
 /// half of [`populate_class_layouts`], split out for file-size. It
-/// reads none of the named walk's locals: the four parameters here are
+/// reads none of the named walk's locals: the parameters here are
 /// the whole of what it needs.
 fn register_anonymous_struct_layouts(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
+    inst_rows: &HashMap<ssa::StructId, (String, Vec<ssa::MethodMetaSpec>)>,
     module: &mut Module,
     struct_layouts_pass15_len: usize,
 ) {
@@ -390,12 +396,18 @@ fn register_anonymous_struct_layouts(
                 type_tag: ssa::field_type_tag_of(*fty),
             });
         }
+        // 404-01 — a generic-class instantiation keeps this row's
+        // per-specialization LAYOUT but wears the class's identity.
+        let (class_name, methods) = match inst_rows.get(&sid) {
+            Some((base, methods)) => (base.clone(), methods.clone()),
+            None => (format!("__anon_struct_{sid_idx}"), Vec::new()),
+        };
         module.class_layouts.push(ClassLayoutMeta {
-            class_name: format!("__anon_struct_{sid_idx}"),
+            class_name,
             child_offsets,
             field_metadata,
             is_named: false,
-            methods: Vec::new(),
+            methods,
         });
     }
 }

@@ -61,6 +61,22 @@ pub(super) fn write_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::Value
         .strip_prefix("__new_")
         .and_then(|cname| ctx.class_name_to_tag.get(cname).copied());
     let tag = factory_tag.unwrap_or_else(|| ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid));
+    // 404-01 — a GENERIC class's mono factory (`__new_G$$_number` /
+    // `__new_G$$anywv`) misses the name lookup above, so its
+    // instances wear a per-specialization anon tag (correct: field
+    // layouts differ per specialization, and the cycle collector /
+    // reflection read by tag). Record the sid → base-class link here,
+    // at the one site that knows the ACTUAL alloc sid — the row
+    // emitters dress that row with the class's name + method table.
+    if factory_tag.is_none()
+        && let Some(rest) = ctx.f.name.strip_prefix("__new_")
+        && let Some((base, _mono)) = rest.split_once("$$")
+        && ctx.class_name_to_tag.contains_key(base)
+    {
+        ctx.anon_stamp_pool
+            .borrow_mut()
+            .record_generic_class_sid(sid, base.to_string());
+    }
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
