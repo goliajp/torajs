@@ -89,6 +89,10 @@ use super::{Ast, ClassCtor, ClassMethod, Expr, Param, Stmt, default_init_for_typ
 ///     fields. Same name in two scopes is an error (panic) since both
 ///     would map to the same `this.<name>` field.
 pub fn desugar_generators(ast: &mut Ast) {
+    // 393-03 — nested `function*` decls lift to the top level first;
+    // the claim walk below reads top-level FnDecls only (rationale
+    // in the `_lift` sibling's module doc).
+    super::desugar_generators_lift::lift_nested_generators(ast);
     let gen_indices = collect_generator_fn_decls(ast);
     if gen_indices.is_empty() {
         return;

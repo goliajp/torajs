@@ -11,6 +11,71 @@
 
 use super::Stmt;
 
+/// 393-03 — the mutable twin of [`for_each_nested_list`], fully
+/// recursive: every nested `Vec<Stmt>` container of `s` (same
+/// variant coverage as the read-only spine), outermost first, then
+/// each element's own containers. The callback may replace elements
+/// in place (the generator lift swaps a claimed FnDecl for an empty
+/// Block); replacements are themselves descended into afterwards.
+/// Single-Stmt positions (a bare `if (c) function f() {}` branch)
+/// are traversed through but are not themselves a list — a decl
+/// sitting directly there is not offered to the callback, matching
+/// the read-only spine's shape.
+pub(crate) fn for_each_nested_vec_mut(s: &mut Stmt, f: &mut dyn FnMut(&mut Vec<Stmt>)) {
+    fn visit_vec(v: &mut Vec<Stmt>, f: &mut dyn FnMut(&mut Vec<Stmt>)) {
+        f(v);
+        for s in v.iter_mut() {
+            for_each_nested_vec_mut(s, f);
+        }
+    }
+    match s {
+        Stmt::FnDecl { body, .. } | Stmt::Block(body) | Stmt::Multi(body) => visit_vec(body, f),
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            visit_vec(body, f);
+            visit_vec(catch_body, f);
+            if let Some(fin) = finally_body {
+                visit_vec(fin, f);
+            }
+        }
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            for_each_nested_vec_mut(then_branch, f);
+            if let Some(e) = else_branch {
+                for_each_nested_vec_mut(e, f);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+            for_each_nested_vec_mut(body, f)
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                for_each_nested_vec_mut(i, f);
+            }
+            for_each_nested_vec_mut(body, f);
+        }
+        Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+            for_each_nested_vec_mut(body, f)
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases.iter_mut() {
+                visit_vec(&mut c.body, f);
+            }
+            if let Some(d) = default {
+                visit_vec(d, f);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Every nested statement list of `s`, in syntactic order.
 pub(crate) fn for_each_nested_list<'a>(s: &'a Stmt, f: &mut dyn FnMut(&'a [Stmt])) {
     match s {
