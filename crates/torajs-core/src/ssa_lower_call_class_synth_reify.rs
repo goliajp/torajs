@@ -83,7 +83,14 @@ pub(super) fn try_lower_static_method_reify(
     let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() else {
         return Some(Operand::ConstI64(0));
     };
-    let body = format!("__sm_{cname}__{mname}");
+    // 402-01 — a GENERIC static method's original never lowers; its
+    // all-`any` mono instance (`$$anywv`, pre-seeded by
+    // `monomorphize_and_check`) is the value-lane dispatch body the
+    // class object's cell reifies instead.
+    let mut body = format!("__sm_{cname}__{mname}");
+    if !ctx.fn_table.contains_key(body.as_str()) {
+        body.push_str("$$anywv");
+    }
     let Some(&body_fid) = ctx.fn_table.get(body.as_str()) else {
         return Some(Operand::ConstI64(0));
     };

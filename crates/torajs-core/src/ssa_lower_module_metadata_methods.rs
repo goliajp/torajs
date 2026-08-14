@@ -34,6 +34,17 @@ use crate::ssa;
 /// The name is taken from `ast.accessor_getters` / `accessor_setters`
 /// (keyed by fn name), never by guessing at a `_get` suffix — a plain
 /// method really called `b_get` is a legal method.
+/// 402-01 — is `name` a generic (type-param-bearing) FnDecl in the
+/// post-mono AST? Gates the `$$anywv` suffix strip above: the
+/// generic original never lowers, but its decl stays in the AST.
+fn is_generic_method_decl(ast: &crate::ast::Ast, name: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s,
+            crate::ast::Stmt::FnDecl { name: n, type_params, .. }
+            if n == name && !type_params.is_empty())
+    })
+}
+
 pub(crate) fn collect_own_class_methods(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
@@ -74,7 +85,23 @@ pub(crate) fn collect_own_class_methods(
         }
         let entry_name = match accessor_slots.get(fname.as_str()) {
             Some(slot) => slot.clone(),
-            None => mname.to_string(),
+            // 402-01 — a generic method's all-`any` mono instance
+            // (`__cm_C__id$$anywv`, pre-seeded by
+            // `monomorphize_and_check`) IS the method's any-lane
+            // dispatch body: strip the mono suffix so the row
+            // registers under the user-visible name. `$` is a legal
+            // identifier char, so the strip is gated on the original
+            // name really being a generic decl — a user method
+            // literally called `id$$anywv` keeps its own spelling.
+            // Typed mono rows (`id$$_number`) also keep theirs: user
+            // code cannot reach them by name, and their call sites
+            // are statically retargeted anyway.
+            None => match mname.strip_suffix("$$anywv") {
+                Some(base) if is_generic_method_decl(ast, &format!("__cm_{cname}__{base}")) => {
+                    base.to_string()
+                }
+                _ => mname.to_string(),
+            },
         };
         // Blade 3 — the receiver-polymorphic twin's body fid, when
         // blade 2 minted one for this mono.

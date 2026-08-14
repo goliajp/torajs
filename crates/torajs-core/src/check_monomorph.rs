@@ -97,6 +97,43 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     let mut worklist: VecDeque<WorkItem> = VecDeque::new();
     let mut call_retargets: HashMap<ExprId, String> = HashMap::new();
 
+    // 402-01 — pre-seed an all-`any` instance (`$$anywv`) for every
+    // generic CLASS-METHOD body. Mono otherwise fires only on typed
+    // call records, and the any-lane method registry / static reify
+    // have no call site at all — so a generic method on an
+    // `any`-held instance (`const c: any = new C(); c.id(9)`) had no
+    // row to dispatch through (runtime TypeError). Non-generic
+    // method bodies always get a boxed adapter (collect_boxed_targets
+    // has no gate), so the all-any clone is parity, not a new tax.
+    // Claimed BEFORE the call-site seeds so a later all-`any` call
+    // record reuses this instance (same cache key) instead of
+    // minting a `$$_any`-suffixed twin the registry sides don't
+    // recognize (they strip / fall back on `$$anywv` only:
+    // `collect_own_class_methods`, `try_lower_static_method_reify`).
+    let mut method_generics: Vec<String> = generics
+        .keys()
+        .filter(|n| {
+            (n.starts_with("__cm_") || n.starts_with("__sm_"))
+                && !n.starts_with("__cmany_")
+                && !n.starts_with("__smany_")
+        })
+        .cloned()
+        .collect();
+    method_generics.sort();
+    for name in method_generics {
+        let Some((type_params, _, _, _)) = generics.get(&name) else {
+            continue;
+        };
+        let arg_anns = vec!["any".to_string(); type_params.len()];
+        let cache_key = (name.clone(), arg_anns.clone());
+        if cache.contains_key(&cache_key) {
+            continue;
+        }
+        let type_args = vec![Type::Any; type_params.len()];
+        cache.insert(cache_key, format!("{name}$$anywv"));
+        worklist.push_back((name, arg_anns, type_args));
+    }
+
     // Seed from the checker's top-level records. Sorted by ExprId so
     // the worklist (and thus mono-decl emission) is deterministic —
     // the source map iterates in hash order.
