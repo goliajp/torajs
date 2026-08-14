@@ -94,6 +94,7 @@ pub(crate) fn synthesize_main(
             for_of_teardown_stack: Vec::new(),
             pending_return_slot: None,
             pending_return_flag: None,
+            self_name_slot: None,
             pending_break_flag: None,
             pending_continue_flag: None,
             try_finally_loop_depth: Vec::new(),

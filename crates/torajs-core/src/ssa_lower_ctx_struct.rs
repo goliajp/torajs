@@ -157,6 +157,15 @@ pub(crate) struct LowerCtx<'a> {
     /// inside a try-with-finally, checked at finally tail to decide
     /// whether to ret vs continue normally.
     pub(crate) pending_return_flag: Option<ValueId>,
+    /// 403-02 — the named fn-expression SELF binding's slot in the fn
+    /// currently lowering (bound by `emit_closure_env_preamble`; None
+    /// when there is no self slot or a same-named param shadowed it).
+    /// The closure-local call lane compares the resolved callee slot
+    /// against this to prove the callee IS the enclosing closure —
+    /// slot identity is shadow-immune (a param / re-declared local
+    /// resolves to a different slot). Per-fn lifetime: LowerCtx is
+    /// constructed fresh for every lowered fn.
+    pub(crate) self_name_slot: Option<ValueId>,
     /// name → (alloca-ptr value, contents type, moved flag). Every local —
     /// including the function's own parameters — sits behind an alloca.
     /// mem2reg lifts them to SSA values at -O1+.

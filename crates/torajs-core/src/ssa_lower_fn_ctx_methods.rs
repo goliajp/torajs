@@ -367,6 +367,9 @@ impl<'a> LowerCtx<'a> {
                         scope_depth: 0,
                     },
                 );
+                // 403-02 — the call lane's self-recursion proof reads
+                // this slot identity (see the field doc).
+                self.self_name_slot = Some(local);
                 self.scope_stack[0].push(sn);
             }
         }
