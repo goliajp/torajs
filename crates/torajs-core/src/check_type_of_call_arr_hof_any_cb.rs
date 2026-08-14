@@ -23,13 +23,14 @@
 //! products, and a typed reader over those slots would see NaN-box
 //! bits.
 //!
-//! The allowlist is exactly the method set the any-lane
-//! `arr_method_callback` dispatcher serves MINUS `sort`: sort
-//! mutates the receiver in place, and an in-place any-lane write
-//! back into a typed `Arr<T>` block is an unaudited repr boundary
-//! (loud reject keeps it visible). `flatMap` / `findLast` /
-//! `findLastIndex` / `toSorted` are not in that dispatcher's
-//! callback set and keep the loud reject too.
+//! The allowlist is the method set the any-lane callback kernels
+//! serve MINUS `sort`: sort mutates the receiver in place, and an
+//! in-place any-lane write back into a typed `Arr<T>` block is an
+//! unaudited repr boundary (loud reject keeps it visible).
+//! `findLast` / `findLastIndex` / `flatMap` joined in rotation 401
+//! knife 6 — their kernels (`find_loop` modes 4/5, the flatMap
+//! walk) run the same recv-shifted walk, measured thisArg-correct
+//! on the any-receiver spelling. `toSorted` stays out with sort.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -52,6 +53,9 @@ pub(crate) fn try_match(
             | "some"
             | "find"
             | "findIndex"
+            | "findLast"
+            | "findLastIndex"
+            | "flatMap"
             | "reduce"
             | "reduceRight"
     ) || args.is_empty()

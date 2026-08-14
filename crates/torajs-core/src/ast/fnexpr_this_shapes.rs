@@ -156,9 +156,10 @@ impl UseShapes {
 ///    (`collect_arraylit_binding_names` / an `: any` binding) — a
 ///    user object with its own `map` method decides its own call
 ///    protocol and stays out;
-/// 3. the method set is exactly the wedge's nine — the ones whose
-///    runtime kernels (`__torajs_arr_any_map` and friends) seed
-///    argv[0] off the header flag.
+/// 3. the method set mirrors the wedge's — the ones whose runtime
+///    kernels (`__torajs_arr_any_map` and friends, `find_loop`'s
+///    backward modes, the flatMap walk) seed argv[0] off the header
+///    flag.
 ///
 /// The BARE spelling (`xs.map(cb, t)`) is deliberately not here: it
 /// types at the closure's signature and rides the typed knife-4
@@ -183,6 +184,9 @@ fn hof_any_cb_arg_idents(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::Ha
                 | "some"
                 | "find"
                 | "findIndex"
+                | "findLast"
+                | "findLastIndex"
+                | "flatMap"
                 | "reduce"
                 | "reduceRight"
         ) || args.is_empty()
