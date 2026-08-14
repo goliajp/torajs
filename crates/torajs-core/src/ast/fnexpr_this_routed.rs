@@ -96,20 +96,27 @@ pub(super) fn promote_variable_routed(
             _ => None,
         })
         .collect();
-    // RFC 20260808-construct-channel B2 — `Ctor.prototype` reads are
-    // the third receiver-safe use shape: a member READ never calls
-    // the closure, and `.prototype` on a promoted plain fn-expr
-    // answers the canonical fnprops cell the construct kernel links
-    // (§10.2.5 fn_prototype_pair — the create-species assert shape,
-    // `Object.getPrototypeOf(thisValue) === Ctor.prototype`). Only
-    // `.prototype` admits: `.call` / `.apply` reads feed an immediate
-    // call that rides its own `call_faces` replay bar, and any other
-    // member read stays loud until a consumer shape needs it.
-    let proto_read_idents: std::collections::HashSet<ExprId> = exprs
+    // RFC 20260808-construct-channel B2 — naming the binding as a
+    // member's OBJECT is the third receiver-safe use shape: it never
+    // calls the closure. `Ctor.prototype` was the first consumer (a
+    // promoted plain fn-expr answers the canonical fnprops cell the
+    // construct kernel links, §10.2.5 fn_prototype_pair — the
+    // create-species assert `Object.getPrototypeOf(thisValue) ===
+    // Ctor.prototype`), and the whole shape admits since rotation 394:
+    // `Ctor.s = function () {…}` is how a static method is spelled once
+    // a class is lowered to the ES5 constructor pattern, and `Ctor.s()`
+    // calls what the property HOLDS, not the binding.
+    //
+    // `.call` / `.apply` / `.bind` are the exception and stay out:
+    // those read the binding in order to invoke it, so they would see
+    // the shifted-args closure ABI. `.call` / `.apply` ride their own
+    // `call_faces` replay bar instead.
+    let member_obj_idents: std::collections::HashSet<ExprId> = exprs
         .iter()
         .filter_map(|e| match e {
             Expr::Member { obj, name }
-                if name == "prototype" && matches!(&exprs[obj.0 as usize], Expr::Ident(_)) =>
+                if !matches!(name.as_str(), "call" | "apply" | "bind")
+                    && matches!(&exprs[obj.0 as usize], Expr::Ident(_)) =>
             {
                 Some(*obj)
             }
@@ -141,7 +148,7 @@ pub(super) fn promote_variable_routed(
             .collect();
         if !mixed_calls.iter().all(|e| {
             callee_idents.contains(e)
-                || proto_read_idents.contains(e)
+                || member_obj_idents.contains(e)
                 || construct_arg_idents.contains(e)
                 || eq_operand_idents.contains(e)
                 || any_arg_idents.contains(e)
@@ -180,7 +187,7 @@ pub(super) fn promote_variable_routed(
             // `__this` param would eat argv[0]. All stay loud. A
             // `.call`/`.apply` face rides the same `closure_local`
             // replay, so its binding is under the same bar even with
-            // zero direct calls. A `.prototype` read is NOT under
+            // zero direct calls. A member access is NOT under
             // the bar (species key 2): it enters no call lane at
             // all, and the store-face + argv combination is exactly
             // the escape-store profile whose adapter order the
