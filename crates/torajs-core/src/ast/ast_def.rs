@@ -219,6 +219,14 @@ pub struct Ast {
     /// the boxed-adapter synthesis (blade 3), which guards on the
     /// receiver's class tag and routes foreign receivers to the twin.
     pub cmany_twins: std::collections::HashMap<String, String>,
+    /// RFC 20260804-fn-this-channel knife 3a — mono static-method name
+    /// (`__sm_<C>__<m>`) → its receiver-polymorphic twin
+    /// (`__smany_<C>__<m>`), recorded only when the mint actually
+    /// landed (a `this`-free body and a super-carrying body drop it and
+    /// keep mono behavior). Read by the inherited-static call rewrite,
+    /// which needs to know the receiver channel exists BEFORE the
+    /// `fn_sigs` table the `.call` devirtualization consults is built.
+    pub smany_twins: std::collections::HashMap<String, String>,
     /// RFC 20260724-regex-literal-syntax-error — side-channel populated
     /// by `ast_desugar_regex_syntax_error::run`. Keyed by `Expr::Regex`
     /// ExprId; value = the SyntaxError message to raise when the

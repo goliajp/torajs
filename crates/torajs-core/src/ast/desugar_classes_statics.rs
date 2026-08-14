@@ -33,9 +33,22 @@ use std::collections::HashMap;
 pub(super) type StaticAccessorRewrites =
     HashMap<(String, String), (Option<String>, Option<String>)>;
 
+/// `(accessing class, member) → owning class`, for the static-method
+/// entries the V3-18 inheritance walk aliased onto a PARENT's binding.
+/// The value is what the flat rewrite loses: `Sub.make` collapses to
+/// `Ident("__sm_Base__make")`, after which nothing downstream can tell
+/// the call was written on `Sub`. §15.7.14 makes the receiver of a
+/// `Sub.make()` call the `Sub` constructor object, so a body that reads
+/// `this` needs that name carried to the twin (RFC 20260804 knife 3d).
+pub(super) type InheritedStaticOwners = HashMap<(String, String), String>;
+
 pub(super) fn build_static_member_rewrites(
     class_index: &[ClassIndexEntry],
-) -> (HashMap<(String, String), String>, StaticAccessorRewrites) {
+) -> (
+    HashMap<(String, String), String>,
+    StaticAccessorRewrites,
+    InheritedStaticOwners,
+) {
     // M-OO.4 — collect static-member rewrite tables: keys are
     // `(ClassName, member_name)` → flat replacement ident
     // (`__sf_<C>__<n>` for fields, `__sm_<C>__<m>` for methods). After
@@ -44,6 +57,7 @@ pub(super) fn build_static_member_rewrites(
     // whose key is in the table to a plain `Expr::Ident(replacement)`.
     let mut static_member_rewrites: HashMap<(String, String), String> = HashMap::new();
     let mut accessor_rewrites: StaticAccessorRewrites = HashMap::new();
+    let mut inherited_owners: InheritedStaticOwners = HashMap::new();
     for (_, cname, _, _, _, sis, _, _, sms) in class_index {
         // P8.3-A3 — only StaticInit::Field entries are addressable as
         // `ClassName.member`; static blocks have no member name and are
@@ -145,13 +159,24 @@ pub(super) fn build_static_member_rewrites(
                 }
                 for sm_name in p_sms {
                     let key = (cname.clone(), sm_name.clone());
+                    // `or_insert_with` returning the fresh value means
+                    // the alias really landed here (the sub does not
+                    // shadow it, and no nearer ancestor already claimed
+                    // it) — the one place the owner is still known.
+                    let mut aliased = false;
                     static_member_rewrites
-                        .entry(key)
-                        .or_insert_with(|| format!("__sm_{p}__{sm_name}"));
+                        .entry(key.clone())
+                        .or_insert_with(|| {
+                            aliased = true;
+                            format!("__sm_{p}__{sm_name}")
+                        });
+                    if aliased {
+                        inherited_owners.insert(key, p.clone());
+                    }
                 }
             }
             cur = parent_map.get(&p).cloned().flatten();
         }
     }
-    (static_member_rewrites, accessor_rewrites)
+    (static_member_rewrites, accessor_rewrites, inherited_owners)
 }

@@ -167,6 +167,8 @@ pub(in crate::ast) fn mint_static_generic_twin(
         is_rest: p.is_rest,
     }));
     let twin_name = format!("__smany_{}", &mono_name["__sm_".len()..]);
+    ast.smany_twins
+        .insert(mono_name.to_string(), twin_name.clone());
     appended.push(Stmt::FnDecl {
         name: twin_name,
         type_params: type_params.to_vec(),
