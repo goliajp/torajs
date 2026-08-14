@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T12:22:03.404Z",
+  "generatedAt": "2026-08-14T13:43:46.155Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T12:01:02Z",
-    "headSha": "989d4b7b",
-    "elapsedSec": 329.52,
+    "ranAt": "2026-08-14T13:32:53Z",
+    "headSha": "a9cfa97d",
+    "elapsedSec": 330.6,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
     "pass": 25108,
     "passNoOracle": 851,
-    "passNegative": 4119,
-    "passTotal": 30078,
-    "bug": 12759,
-    "incompatible": 10337,
+    "passNegative": 4124,
+    "passTotal": 30083,
+    "bug": 12756,
+    "incompatible": 10335,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42837,
+    "trAccepted": 42839,
     "passRateInScope": 56.57,
     "passRateTrAccepted": 70.22
   },
   "torajs": {
-    "commit": "50b780bf",
-    "commitSubject": "fix: the relational in operator refuses a for-head init at parse time",
+    "commit": "7dd4130f",
+    "commitSubject": "fix: the for-head in restriction stops at a literal boundary",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "7dd4130f",
+      "subject": "fix: the for-head in restriction stops at a literal boundary"
+    },
+    {
+      "hash": "a9cfa97d",
+      "subject": "feat: findlast, findlastindex and flatmap join the any-callback lane"
+    },
+    {
+      "hash": "436273ea",
+      "subject": "feat: a closure in a composite init may capture its own binding"
+    },
+    {
+      "hash": "1623a100",
+      "subject": "feat: a static method read through the any lane answers length and name"
+    },
+    {
+      "hash": "01b0f8c3",
+      "subject": "feat: a named this-reading fn as an any-objlit field binds the holder"
+    },
+    {
+      "hash": "0b959044",
+      "subject": "feat: an as-any hof callback slot admits the routed this-promotion"
+    },
+    {
+      "hash": "85bd2b34",
+      "subject": "feat: an any-typed hof callback routes the array call to the any lane"
+    },
+    {
+      "hash": "2f82c868",
+      "subject": "chore: record the rotation 400 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "50b780bf",
       "subject": "fix: the relational in operator refuses a for-head init at parse time"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "9923640f",
       "subject": "fix: a static method called through the any lane rides the twin with its receiver"
-    },
-    {
-      "hash": "00c553f7",
-      "subject": "style: fmt-drift fix in fnexpr_this_routed"
-    },
-    {
-      "hash": "b86b8c79",
-      "subject": "fix: the no-receiver slot censuses count a method's const once, not twice"
-    },
-    {
-      "hash": "813141c1",
-      "subject": "feat: a bare class member returning only marked fn-exprs seeds its return ann to any"
-    },
-    {
-      "hash": "52ca9a4a",
-      "subject": "feat: an fn-expr element of an any-bound array literal gets its call-site this"
-    },
-    {
-      "hash": "11e8491b",
-      "subject": "chore: record the closing refactor and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "9850a1b1",
-      "subject": "refactor: the call-position arms of the face walk get their own function"
-    },
-    {
-      "hash": "708b6b92",
-      "subject": "chore: refresh the dashboard snapshot after the closing knife"
-    },
-    {
-      "hash": "016835a1",
-      "subject": "fix: an array element called through its index gets the array as this"
     }
   ],
-  "headSha": "50b780bf",
+  "headSha": "7dd4130f",
   "autorun": {
-    "total": 703,
+    "total": 704,
     "baselineTarget": 10,
-    "bySelf": 698,
+    "bySelf": 699,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786704001-2c88",
-      "at": "2026-08-14T10:40:01Z",
-      "ts": 1786704001,
+      "rotationId": "r-1786710159-05dd",
+      "at": "2026-08-14T12:22:39Z",
+      "ts": 1786710159,
       "trigger": "self",
-      "prevHead": "11e8491b",
-      "handoffSha": "sha256:2ec835cd8d22e34d3c0274d544b12f0bded95b169ebb7fa48b8931f92194dd17",
-      "handoffAgeSec": 12,
+      "prevHead": "2f82c868",
+      "handoffSha": "sha256:4b7ff49cbfe0f909572ce0649b7ae89e7b65fc1c9009dc78873acc0b2728d617",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786710159-05dd",
+        "at": "2026-08-14T12:22:39Z",
+        "ts": 1786710159,
+        "trigger": "self",
+        "prevHead": "2f82c868",
+        "handoffSha": "sha256:4b7ff49cbfe0f909572ce0649b7ae89e7b65fc1c9009dc78873acc0b2728d617",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786704001-2c88",
         "at": "2026-08-14T10:40:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "93fe497a",
         "handoffSha": "sha256:b97cff1605c49e142f935db35cb91d948bb48a075d2a2d4b59637c249556ae9a",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786646341-2e47",
-        "at": "2026-08-13T18:39:01Z",
-        "ts": 1786646341,
-        "trigger": "self",
-        "prevHead": "d6e1345e",
-        "handoffSha": "sha256:b8b15857729d8733076fc9272c94a13f5ef403365d4264f4e2b7ea812f5887f2",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }

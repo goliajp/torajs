@@ -1530,7 +1530,43 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `989d4b7b`** (2026-08-14, rotation 400 — the rotation that worked
+**Latest @ `a9cfa97d`** (2026-08-14, rotation 401 — the any-lane
+this/receiver channel closed out as a group: six registry entries
+(398-10 / 398-05 / 400-01 / 401-01..03) across six knives, every one the
+same pairing shape — a checker admit whose record the lowering side
+already keys on, with ZERO new runtime kernels. An any-typed HOF callback
+routes the typed-Array call through the any lane (the callee's `Any`
+record is the cluster-#4 pairing); the as-any spelling of a named
+this-reading callback peels to the existing `__fwdrecv_` forwarder; a
+this-reading fn-expr binding gained the `hof_cb_arg` use-shape (escaping
+proof family); an any-objlit FIELD holding a named this-reading fn now
+binds the holder (every consumer of a dynobj field is an any-lane call
+path); a static method read through the any lane answers
+`.length`/`.name` (the `__sm_` body bakes a second registry row against
+its adapter fid, the `__cm_` mirror); and a closure nested in a
+COMPOSITE initializer may capture its own binding (the recursive lane's
+ordinary-binding box + a checker pre-declare at the annotation's type).
+findLast / findLastIndex / flatMap joined the any-callback allowlist
+after a kernel audit; sort / toSorted stay loudly rejected (in-place
+any-lane write into a typed block). Sweep @ `a9cfa97d`: passTotal 30078
+→ **30083 (+5)**, pass ±0, `passNegative` +5, bug −3, incompatible 10337
+→ **10335 (−2)**, trAccepted +2 — conservation exact (`+2 == 5 − 3`).
+Verdicts joined: 14 differing, zero only on one side: 5 forward
+pass-negatives are the rotation-400 [In] knife landing (in-branch-2
+back in place as predicted, plus four siblings), `sm/class/methodName`
+went bug → pass, five bug-bucket cases started running (progress shown
+as bugs), and exactly 1 regression — `accessor-name-computed-in`, pass →
+parse error: the [In] gate refused `in` inside a literal, but §13.2.4/5
+spell every literal element, property value, and computed key as
+`[+In]`. Fixed the same rotation (`7dd4130f`, after the sweep,
+gate-verified): both literal entries reset `in_for_init` the way the
+paren reset does. The remaining [+In] re-entry surfaces (call Arguments
+/ index brackets — the `2nd-param-in` movement) are registered 401-04.
+Gate predicate **240 unattributed clusters / 3084 cases / register 2 ·
+619 / residue 772 · 1002 / core 4705** — flat, with the movement inside
+the accepted buckets.)
+
+**Previous @ `989d4b7b`** (2026-08-14, rotation 400 — the rotation that worked
 through the 398/399 registry: six entries closed across five substrate
 knives. The fn-expr receiver channel gained the array-literal element
 position and the bare (unannotated) class-member return — the latter fixed
