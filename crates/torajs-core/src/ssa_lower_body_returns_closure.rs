@@ -17,6 +17,55 @@ use std::collections::HashSet;
 
 use crate::ast::{Ast, Expr, Stmt};
 
+/// 398-11 — does the body return an Ident DECLARED `any` (a param or
+/// a local)? The fact this leans on is the one rotation 357's
+/// let-decl lane already ships: an Any box only ever carries the
+/// CELL shape of a callable, so a fn-typed declared return over an
+/// `any`-typed return expression means the runtime value is a
+/// closure cell — upgrading the slot to `Closure(sig)` routes
+/// callers down the env-first ABI instead of interpreting the box as
+/// a raw fn address (SIGBUS, `function take(f: any): (a) => R {
+/// return f }`). Safe NOW and not at the first attempt because the
+/// upgraded value's calls land in the typed indirect lanes, which
+/// run behind the runtime FLAG_CLOSURE_RECV_FIRST gate
+/// (`ssa_lower_call_recv_gate`) — the promoted-closure-through-any
+/// shape that made the first cut a measured silent wrong
+/// (`object16384`) now shifts argv like every any-lane path.
+pub(crate) fn body_returns_any_binding(
+    ast: &Ast,
+    params: &[crate::ast::Param],
+    body: &[Stmt],
+) -> bool {
+    let mut any_names: HashSet<String> = params
+        .iter()
+        .filter(|p| p.type_ann.as_deref() == Some("any"))
+        .map(|p| p.name.clone())
+        .collect();
+    collect_any_locals(ast, body, &mut any_names);
+    // `stmt_returns_closure`'s Ident arm is exactly the membership
+    // test; its Closure-literal arm answering true here is harmless
+    // (that body upgrades through `body_returns_closure` regardless).
+    body.iter()
+        .any(|s| stmt_returns_closure(ast, s, &any_names))
+}
+
+fn collect_any_locals(ast: &Ast, body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        if let Stmt::LetDecl {
+            name,
+            type_ann: Some(t),
+            ..
+        } = s
+            && t == "any"
+        {
+            out.insert(name.clone());
+        }
+        crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_any_locals(ast, inner, out)
+        });
+    }
+}
+
 pub(crate) fn body_returns_closure(ast: &Ast, body: &[Stmt]) -> bool {
     let mut closure_locals: HashSet<String> = HashSet::new();
     // Chunk 522 — top-level closure bindings count too: a lifted

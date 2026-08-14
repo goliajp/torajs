@@ -206,6 +206,7 @@ pub(crate) fn run(
                     inst_memo,
                 ),
                 ast,
+                params,
                 body,
             );
             // W1 — `(): number` ret slot widens when any return

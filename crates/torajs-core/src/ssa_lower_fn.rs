@@ -85,6 +85,7 @@ pub(crate) fn lower_fn(
                 inst_memo,
             ),
             ast,
+            params,
             body,
         ),
         return_type,

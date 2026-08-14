@@ -13,7 +13,7 @@
 //!   type annotation must be upgraded to a Closure to match the fn's
 //!   actual body (used from `ssa_lower_pass_1` and `ssa_lower_fn`).
 
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Ast, Expr, Param, Stmt};
 use crate::ssa::{self, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, CLOSURE_PROPS_OFF, Intrinsics};
 use crate::ssa_lower_body_returns_closure::body_returns_closure;
@@ -161,9 +161,12 @@ pub(crate) fn synthesize_env_drop(
 /// and the Stmt::Return arm in `lower_stmt` wraps each FnSig return
 /// in a synthesized forwarder closure (see `synthesize_forwarder` /
 /// `wrap_fnsig_into_closure_via_forwarder`).
-pub(crate) fn effective_ret_ty(parsed: Type, ast: &Ast, body: &[Stmt]) -> Type {
+pub(crate) fn effective_ret_ty(parsed: Type, ast: &Ast, params: &[Param], body: &[Stmt]) -> Type {
     if let Type::FnSig(sig_id) = parsed
-        && body_returns_closure(ast, body)
+        && (body_returns_closure(ast, body)
+            // 398-11 — a returned `any` binding is a closure cell
+            // whenever it is callable at all (doc on the predicate).
+            || crate::ssa_lower_body_returns_closure::body_returns_any_binding(ast, params, body))
     {
         return Type::Closure(sig_id);
     }
