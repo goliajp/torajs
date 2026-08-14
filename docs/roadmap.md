@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `ad6b3067`** (2026-08-15, rotation 405 — three fronts moved.
+**Latest @ `c589dbb2`** (2026-08-15, rotation 406 — the
+capturing-nested-class RFC closed out and function values grew a real
+prototype chain. Blade 6 (393-01): a class expression outside a class
+body now lands NEXT TO its use site (parse_stmt wrapper drains a
+local synth buffer; top level and class bodies keep their old
+splices), so the nested-class machinery decides its fate — the
+silent-wrong "warning + ReferenceError" shape became either a working
+ES5 lowering or a loud named decline; the user's own alias binding
+mints unique alongside the class. 405-01 all three faces: a closure
+carries a user [[Prototype]] link on its lazy expando dynobj (the
+same \x00proto simulation entry — set/get/member-get/method-dispatch/
+`in` all walk it), the extends lane links the class side with
+`Object.setPrototypeOf(D, P)` and admits static-carrying parents,
+super resolves through `es5_ctor_forward` past ctor-less middles
+(whose synthesized rest forwarders the promotion ABI bar refuses),
+and a static body's `super.m` reads through the parent class. 405-06:
+Map/Set/WeakMap/WeakSet prototype methods brand-check a rebound
+receiver (15 test262 cases forward). 406-02, the one blade-6
+regression family (4 cpn computed-property-name-from-await cases):
+computed static fields route through the lane behind a program-unique
+name census, and three adjacent holes closed (capture check now walks
+the static key; index-obj joined the receiver-safe shapes; any
+index-get grew a Closure arm). Sweep: passTotal 30114 → **30131
+(+17)**, bug −23, trAccepted −6 — conservation exact; **zero pass
+regressions** end-state (the 4 mid-rotation ones repaired same
+rotation). Gate predicate **240 unattributed clusters / 3081 cases /
+register 2 · 617 / residue 776 · 1007 / core 4705**.
+
+**Prior @ `ad6b3067`** (2026-08-15, rotation 405 — three fronts moved.
 The capturing-nested-class lane took `extends` for a static-free routed
 sibling (RFC 20260814 blade 5 knife 1: ES5 inheritance shape, implicit
 rest-forwarding ctor, the static-init wrapper's receiver argument
@@ -1553,35 +1581,6 @@ the brand check on rebound collection methods, registered 405-06).
 Gate predicate **240 unattributed clusters / 3078 cases / register
 2 · 617 / residue 774 · 1004 / core 4699**.
 
-**Prior @ `5bc04618`** (2026-08-15, rotation 402 — the name-keyed
-promotion census went scope-paired, and three class-surface gaps closed.
-399-03: a multiply-declared this-fnexpr name no longer takes a blanket
-refusal — `fnexpr_this_pairing.rs` pairs every reachable use to its
-lexically binding `LetDecl` (block pre-scan through `Multi`, for-head
-covers the whole `for`, function bodies do not thread the outer binding),
-and the routed evaluation proves every group and promotes ALL or none
-(the downstream consumers are name-keyed, so partial promotion would
-shift argv on an unpromoted binding's call sites). Two more use shapes
-joined the receiver-safe list: the element slot of an `: any`-annotated
-array literal (397-01 — `arr[0](7)` binds `this = arr` through the
-399-05 `invoke_with_this` leg), and the alias-init transitive closure
-(397-02 — `const B = K` admits when every use of `B` is safe, greatest
-fixpoint; the motivating alias is the for-in head's `__forin_obj_N`
-snapshot, whose only use is the never-calling `Object.__forinKeys`
-argument). Class methods parse and monomorphize their own type
-parameters (398-01 — `pair<T>(v: T)` concatenates after the class-level
-list on the desugared FnDecl; the generic-value × any-lane residue is
-registered 402-01). A typed for-head `var` hoists to the fn-level domain
-(401-05), and a capturing class's static fields and blocks route through
-`(function () { … }).call(K)` wrappers (394-05; 394-04 found already
-fixed by rotation 397's blade 3). Sweep: passTotal 30083 → **30084
-(+1)**, pass +1, bug ±0, incompatible 10335 → **10334 (−1)**, trAccepted
-+1 — conservation exact (`+1 == 1 + 0`). Verdicts joined: exactly ONE
-differing line — `accessor-name-computed-in` incompatible → pass, the
-rotation-401 [In] literal fix landing precisely as predicted. Zero
-regressions, zero new timeouts/crashes. Gate predicate **240
-unattributed clusters / 3083 cases / register 2 · 619 / residue 772 ·
-1002 / core 4704**.)
 
 **Previous @ `a9cfa97d`** (2026-08-14, rotation 401 — the any-lane
 this/receiver channel closed out as a group: six registry entries
