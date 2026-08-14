@@ -235,6 +235,15 @@ fn walk_child(
 /// Instance-field initializers are already folded into the ctor body
 /// by the parser (`finalize_class_field_inits`), so the ctor walk
 /// covers them.
+///
+/// A computed member name is NOT in any body — the parser puts the key
+/// expression in a side table and leaves a `__ccm_<n>__` sentinel
+/// behind (`class_computed_keys`, and `class_computed_static_fields`
+/// for a static field's initializer). Walking only the bodies made
+/// `{ const k = "z"; class K { [k]() {…} } }` read as capture-free, so
+/// it hoisted to the top level and the key no longer resolved there —
+/// a warning plus a wrong answer at run time, not the loud abort every
+/// other capturing shape gets.
 fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
     let Stmt::ClassDecl {
         name,
@@ -287,6 +296,22 @@ fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
             StaticInit::Block(v) => body_free(&[], v),
         };
         if !ok {
+            return false;
+        }
+    }
+    let side_exprs = ast
+        .class_computed_keys
+        .iter()
+        .filter(|((c, _), _)| c == name)
+        .map(|(_, key)| *key)
+        .chain(
+            ast.class_computed_static_fields
+                .iter()
+                .filter(|(c, _, _)| c == name)
+                .map(|(_, _, init)| *init),
+        );
+    for e in side_exprs {
+        if !body_free(&[], &[Stmt::Expr(e)]) {
             return false;
         }
     }
