@@ -219,6 +219,26 @@ pub(crate) unsafe fn dynobj_method(
                         crate::nanbox::as_void_ptr(cell),
                     )
                 {
+                    // 398-02 — a STATIC face (`(tag 0, twin ≠ 0)`,
+                    // knife 3b's encoding) has no receiver channel in
+                    // its mono body (a static `this` resolved to the
+                    // DECLARING class at compile time), so a member
+                    // call on a dynobj receiver — the class object is
+                    // one — must ride the `__smany_` twin with the
+                    // receiver per §13.3.6.2, or `X.make(6)` on
+                    // `const X: any = Sub` silently constructs Base.
+                    // The same verdict `invoke_with_this` applies on
+                    // the `.call` / `.apply` spellings; instance
+                    // faces keep the mono env path below.
+                    let cellp = crate::nanbox::as_void_ptr(cell);
+                    let (face_tag, twin) =
+                        crate::method_value_class::class_method_face_guard(cellp);
+                    if face_tag == 0 && twin != 0 {
+                        let recv = __torajs_anyv_box_pointer(obj);
+                        return crate::method_call_closure_dispatch::invoke_boxed_recv_first(
+                            cellp, twin, recv, argv, argc,
+                        );
+                    }
                     return crate::method_call_closure_dispatch::invoke_boxed(
                         obj, adapter, argv, argc,
                     );

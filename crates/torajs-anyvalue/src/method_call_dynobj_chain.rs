@@ -107,6 +107,26 @@ pub(crate) unsafe fn proto_chain_method(
                     crate::nanbox::as_void_ptr(cell),
                 )
             {
+                // 398-02 — a STATIC face (`(tag 0, twin ≠ 0)`) has no
+                // receiver channel in its mono body (a static `this`
+                // resolved to the DECLARING class at compile time),
+                // and the chain is exactly where an INHERITED static
+                // resolves: `X.make(6)` on `const X: any = Sub` found
+                // Base's cell here and silently constructed Base. The
+                // child (§13.3.6.2's receiver) rides the `__smany_`
+                // twin instead — the verdict `invoke_with_this`
+                // already applies to the `.call` / `.apply`
+                // spellings. Instance faces keep the mono env path.
+                let cellp = crate::nanbox::as_void_ptr(cell);
+                let (face_tag, twin) = crate::method_value_class::class_method_face_guard(cellp);
+                if face_tag == 0 && twin != 0 {
+                    let recv = __torajs_anyv_box_pointer(obj);
+                    return Some(
+                        crate::method_call_closure_dispatch::invoke_boxed_recv_first(
+                            cellp, twin, recv, argv, argc,
+                        ),
+                    );
+                }
                 return Some(crate::method_call_closure_dispatch::invoke_boxed(
                     obj, adapter, argv, argc,
                 ));
