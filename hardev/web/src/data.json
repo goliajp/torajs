@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T01:03:55.739Z",
+  "generatedAt": "2026-08-14T01:20:05.271Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T00:54:50Z",
-    "headSha": "6fdc2e98",
-    "elapsedSec": 327.26,
+    "ranAt": "2026-08-14T01:18:36Z",
+    "headSha": "25a1f454",
+    "elapsedSec": 333.68,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.18
   },
   "torajs": {
-    "commit": "6fdc2e98",
-    "commitSubject": "fix: say what is missing when a nested class reads an outer local",
+    "commit": "25a1f454",
+    "commitSubject": "fix: name the computed-member-name case as itself",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "25a1f454",
+      "subject": "fix: name the computed-member-name case as itself"
+    },
+    {
+      "hash": "0077c2e9",
+      "subject": "chore: record the rotation 394 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "6fdc2e98",
       "subject": "fix: say what is missing when a nested class reads an outer local"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "fce835c6",
       "subject": "fix: a guard arm's clone has to keep the markers of what it copied"
-    },
-    {
-      "hash": "f5f9677d",
-      "subject": "feat: several `var` declarators in a `with` body's `for` head"
-    },
-    {
-      "hash": "24fc8aaa",
-      "subject": "fix: a `with` object must not answer the globals the parser wrote"
     }
   ],
-  "headSha": "6fdc2e98",
+  "headSha": "25a1f454",
   "autorun": {
     "total": 697,
     "baselineTarget": 10,
