@@ -37,24 +37,50 @@ pub(super) fn is_twin_body_name(name: &str) -> bool {
 /// Recursion set mirrors [`collect_decls_by_name`]: a decl this walk
 /// finds in a position that walk cannot re-find fails its
 /// `decls.len() == 1` guard and stays loud — never mis-paired.
+///
+/// 398-06 — a decl carrying a CONCRETE function-type annotation
+/// (`const g: (x: number) => string = function () {…}`) collects
+/// too, into the SECOND list: it promotes like the rest, but its
+/// name must stay out of `fnexpr_recv_locals` — the static
+/// direct-call seed path calls the native entry under the
+/// annotation-derived signature, whose param widths split from the
+/// body's num_width-narrowed ABI (measured: caller `[F64, I64]` vs
+/// callee `(i64, i64)`, `typeof this + x` answering
+/// `undefined16384`). Left off the static list, its calls take the
+/// runtime `FLAG_CLOSURE_RECV_FIRST` gate
+/// (`ssa_lower_call_recv_gate`), whose taken arm re-boxes and
+/// dispatches uniform-ABI — no width question. The zero-alias use
+/// parity keeps such a binding out of every HOF face, so the
+/// `fnexpr_recv_locals` HOF consumers (rotation 260) never need it.
 pub(super) fn collect_this_fnexpr_decl_names(
     stmts: &[Stmt],
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<super::ExprId>,
     out: &mut Vec<String>,
+    annotated_out: &mut Vec<String>,
 ) {
     for s in stmts {
-        if let Stmt::LetDecl { name, init, .. } = s {
+        if let Stmt::LetDecl {
+            name,
+            init,
+            type_ann,
+            ..
+        } = s
+        {
             let init = peel_as(exprs, *init);
             if fn_expr_exprs.contains(&init)
                 && matches!(&exprs[init.0 as usize], Expr::Closure { captures, .. }
                     if captures.iter().any(|c| c == "__this"))
             {
-                out.push(name.clone());
+                if matches!(type_ann.as_deref(), None | Some("any")) {
+                    out.push(name.clone());
+                } else {
+                    annotated_out.push(name.clone());
+                }
             }
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_this_fnexpr_decl_names(inner, exprs, fn_expr_exprs, out)
+            collect_this_fnexpr_decl_names(inner, exprs, fn_expr_exprs, out, annotated_out)
         });
     }
 }

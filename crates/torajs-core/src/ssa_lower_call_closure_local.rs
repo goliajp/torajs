@@ -114,7 +114,7 @@ pub(crate) fn try_lower_with_this(
         env_first_params.push(Type::Any);
     }
     env_first_params.extend(user_params.iter().copied());
-    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
+    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty.clone());
 
     // P0.5 mirror — Type::Any param boxes the concrete arg.
     // S126-3 see direct fn-call P0.9 in ssa_lower.
@@ -125,38 +125,38 @@ pub(crate) fn try_lower_with_this(
     argv.push(Operand::ConstI64(args.len() as i64));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
+    // An explicit `.call`/`.apply` thisArg evaluates unconditionally
+    // (§20.2.3.3 step order) and boxes for the `__this` slot; the
+    // callee's param is a +0 borrow, so a fresh-owned thisArg
+    // releases after the call like every other arg (chunk-569 SHARE
+    // contract).
+    let this_box = this_arg.map(|t| {
+        let raw = ctx.lower_expr(t);
+        owned_temps.push((t, raw));
+        crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, Type::Any, t, raw, &mut coerce_owned)
+    });
+    let mut gate_recv_box: Option<Operand> = None;
     if needs_this {
-        match this_arg {
-            // `.call`/`.apply` face — the explicit thisArg boxes
-            // into the `__this` slot; the callee's param is a +0
-            // borrow, so a fresh-owned thisArg releases after the
-            // call like every other arg (chunk-569 SHARE contract).
-            Some(t) => {
-                let raw = ctx.lower_expr(t);
-                owned_temps.push((t, raw));
-                let boxed = crate::ssa_lower_call_arg_conv::emit_arg_conv(
-                    ctx,
-                    Type::Any,
-                    t,
-                    raw,
-                    &mut coerce_owned,
-                );
-                argv.push(boxed);
-            }
-            // `undefined` NaN-box into the `__this` slot.
-            None => {
-                let undef_box = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_box,
-                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                    ),
-                    Type::Any,
-                    None,
-                );
-                argv.push(Operand::Value(undef_box));
-            }
-        }
+        // Statically promoted — the box (or the `undefined` seed)
+        // rides argv directly.
+        let boxed = this_box.unwrap_or_else(|| {
+            let undef_box = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            Operand::Value(undef_box)
+        });
+        argv.push(boxed);
+    } else {
+        // 398-06 — the gate's recv arm consumes the box; the plain
+        // arm discards it (a plain body never reads `this`, so the
+        // receiver has no observable face there).
+        gate_recv_box = this_box;
     }
     // RFC 20260810-indirect-argc-abi S3.4 — the length-only tier's
     // second argc push (into an injected injected argc user
@@ -201,28 +201,31 @@ pub(crate) fn try_lower_with_this(
     // argv is shorter than env_first_sig and the callee reads
     // garbage registers (RC-4 arguments-object SIGSEGV).
     crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
-    if ret_ty == Type::Void {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
-        );
-        // bug-327 C2.5 — indirect targets are unknown statically;
-        // propagate a pending throw the same way direct user-fn calls do.
-        ctx.emit_throw_check(None);
-        for (a, op) in owned_temps {
-            ctx.release_owned_temp(a, &op);
-        }
-        for (op, ty) in coerce_owned {
-            ctx.emit_drop_value(op, ty);
-        }
-        return Some(Operand::ConstPtrNull);
-    }
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
-        ret_ty,
-        None,
-    );
+    let result = if needs_this {
+        // Statically promoted — the single-path emit, exactly as
+        // before the gate existed.
+        emit_static_indirect_call(ctx, env_first_sig, fn_ptr, argv, ret_ty)
+    } else {
+        // 398-06 — the slot may still HOLD a promoted closure (the
+        // value flowed through a field or an alias); runtime
+        // FLAG_CLOSURE_RECV_FIRST gate (doc on
+        // `ssa_lower_call_recv_gate`).
+        let seed = match gate_recv_box {
+            Some(b) => crate::ssa_lower_call_recv_gate::RecvSeed::Boxed(b),
+            None => crate::ssa_lower_call_recv_gate::RecvSeed::Undef,
+        };
+        crate::ssa_lower_call_recv_gate::emit_indirect_call_recv_gated(
+            ctx,
+            &Operand::Value(env_ptr),
+            Operand::Value(fn_ptr),
+            env_first_sig,
+            argv,
+            seed,
+            ret_ty,
+        )
+    };
+    // bug-327 C2.5 — indirect targets are unknown statically;
+    // propagate a pending throw the same way direct user-fn calls do.
     ctx.emit_throw_check(None);
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
@@ -230,7 +233,7 @@ pub(crate) fn try_lower_with_this(
     for (op, ty) in coerce_owned {
         ctx.emit_drop_value(op, ty);
     }
-    Some(Operand::Value(v))
+    Some(result.unwrap_or(Operand::ConstPtrNull))
 }
 
 /// RFC 20260708-variadic — the boxed-dual-entry call lane for a
@@ -256,6 +259,32 @@ pub(crate) fn try_lower_with_this(
 /// arg value (the knife-7 SIGSEGV shape). The locals miss is what
 /// scopes the name key: a fn-local binding of the same name shadows
 /// the global and keeps its own route.
+/// The single-path env-first `CallIndirect` — the statically-promoted
+/// emit, exactly as it read before the 398-06 recv gate split the
+/// call tail into two shapes. `None` for a `Void` return.
+fn emit_static_indirect_call(
+    ctx: &mut LowerCtx<'_>,
+    sig: crate::ssa::SigId,
+    fn_ptr: crate::ssa::ValueId,
+    argv: Vec<Operand>,
+    ret_ty: Type,
+) -> Option<Operand> {
+    if ret_ty == Type::Void {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::CallIndirect(sig, Operand::Value(fn_ptr), argv),
+        );
+        return None;
+    }
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::CallIndirect(sig, Operand::Value(fn_ptr), argv),
+        ret_ty,
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
 fn global_argv_face_binding(ctx: &LowerCtx<'_>, callee_name: &str) -> bool {
     !ctx.locals.contains_key(callee_name) && ctx.ast.closure_argv_locals.contains(callee_name)
 }
@@ -349,6 +378,18 @@ pub(crate) fn emit_variadic_call_conv(
     }
     ctx.emit_throw_check(None);
     let (_, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize];
+    coerce_any_result(ctx, result, ret_ty)
+}
+
+/// Coerce an Any-boxed call result to the callee's declared return
+/// type — shared by the boxed variadic dispatch above and the
+/// recv-gate's runtime arm ([`crate::ssa_lower_call_recv_gate`]),
+/// both of which come home through a `-> Any` kernel.
+pub(crate) fn coerce_any_result(
+    ctx: &mut LowerCtx<'_>,
+    result: crate::ssa::ValueId,
+    ret_ty: Type,
+) -> Operand {
     match ret_ty {
         // A discarded void result and a true Any consumer both take
         // the box as-is (undefined box for void bodies).

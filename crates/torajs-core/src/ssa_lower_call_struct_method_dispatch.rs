@@ -316,6 +316,12 @@ struct ClosureCallSite {
     /// Seeded with the fixed leading slots (env, and `__this` when the
     /// callee takes a receiver); the caller appends the user args.
     argv: Vec<Operand>,
+    /// 398-06 — with no static receiver slot (`takes_recv` false) the
+    /// field may still HOLD a promoted closure at runtime, so the call
+    /// runs behind the FLAG_CLOSURE_RECV_FIRST gate: the closure env
+    /// cell (for the header read) plus the method receiver (the
+    /// §13.3.6.2 seed the taken arm boxes).
+    recv_gate: Option<(Operand, Operand)>,
 }
 
 fn prepare_closure_call(
@@ -354,7 +360,12 @@ fn prepare_closure_call(
         abi_params.push(Type::Ptr);
     }
     abi_params.extend(user_params.iter().copied());
-    let env_first_sig = intern_fn_sig(ctx.fn_sigs, abi_params, ret_ty);
+    let env_first_sig = intern_fn_sig(ctx.fn_sigs, abi_params, ret_ty.clone());
+    let recv_gate = if takes_recv {
+        None
+    } else {
+        Some((Operand::Value(closure_env), recv_op.clone()))
+    };
     let mut argv: Vec<Operand> = Vec::with_capacity(user_params.len() + fixed);
     argv.push(Operand::Value(closure_env));
     argv.push(Operand::ConstI64(user_argc as i64));
@@ -369,6 +380,7 @@ fn prepare_closure_call(
         ret_ty,
         env_first_sig,
         argv,
+        recv_gate,
     }
 }
 
@@ -378,22 +390,39 @@ fn finish_closure_call(ctx: &mut LowerCtx<'_>, site: ClosureCallSite) -> Operand
         ret_ty,
         env_first_sig,
         argv,
+        recv_gate,
         ..
     } = site;
-    let result = if ret_ty == Type::Void {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::CallIndirect(env_first_sig, fn_ptr, argv),
-        );
-        Operand::ConstPtrNull
-    } else {
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::CallIndirect(env_first_sig, fn_ptr, argv),
+    let result = match recv_gate {
+        // 398-06 — runtime-fact receiver: gate on the closure header,
+        // seeding the METHOD RECEIVER (§13.3.6.2) on the taken arm.
+        Some((cell, recv_op)) => crate::ssa_lower_call_recv_gate::emit_indirect_call_recv_gated(
+            ctx,
+            &cell,
+            fn_ptr,
+            env_first_sig,
+            argv,
+            crate::ssa_lower_call_recv_gate::RecvSeed::BoxOf(recv_op),
             ret_ty,
-            None,
-        );
-        Operand::Value(v)
+        )
+        .unwrap_or(Operand::ConstPtrNull),
+        None => {
+            if ret_ty == Type::Void {
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::CallIndirect(env_first_sig, fn_ptr, argv),
+                );
+                Operand::ConstPtrNull
+            } else {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::CallIndirect(env_first_sig, fn_ptr, argv),
+                    ret_ty,
+                    None,
+                );
+                Operand::Value(v)
+            }
+        }
     };
     // bug-327 C2.5 — indirect targets are unknown statically;
     // propagate a pending throw the same way direct user-fn calls do.

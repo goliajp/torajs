@@ -374,20 +374,34 @@ pub(super) fn collect_store_face(
 /// refused for both. Over-refusal costs today's answer; a mispair would
 /// cost the argument shift.
 pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet<String> {
-    let mut any_typed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut admitted: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut other_typed: std::collections::HashSet<String> = std::collections::HashSet::new();
     for s in stmts {
         let Stmt::TypeDecl { fields, .. } = s else {
             continue;
         };
         for (fname, fty) in fields {
-            if fty == "any" {
-                any_typed.insert(fname.clone());
+            // 398-06 knife 3 — a CONCRETE fixed-arity function
+            // signature joins `any` in the admitted set: its typed
+            // indirect call lanes (closure_local / fn_indirect /
+            // struct_method_dispatch) now run receiverless calls
+            // behind the runtime FLAG_CLOSURE_RECV_FIRST gate, so a
+            // promoted closure read back out of the slot shifts argv
+            // on every path, same as the any lane always did. A class
+            // field spells its signature with the closure-repr marker
+            // (`__cls(P)->R`); a rest-tail signature and the
+            // argc-carrying repr (`__clsargc`) stay out — their calls
+            // dispatch through the boxed variadic adapter, a path
+            // this bar has not audited.
+            let fn_shaped =
+                (fty.starts_with("__fn(") || fty.starts_with("__cls(")) && !fty.contains("__rest");
+            if fty == "any" || fn_shaped {
+                admitted.insert(fname.clone());
             } else {
                 other_typed.insert(fname.clone());
             }
         }
     }
-    any_typed.retain(|f| !other_typed.contains(f));
-    any_typed
+    admitted.retain(|f| !other_typed.contains(f));
+    admitted
 }

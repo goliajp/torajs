@@ -72,8 +72,23 @@ pub(super) fn promote_variable_routed(
     // binding with an empty face list is the whole knife; any use
     // shape besides a direct call still rejects in the parity check.
     let mut call_only: Vec<String> = Vec::new();
-    collect_this_fnexpr_decl_names(stmts, exprs, fn_expr_exprs, &mut call_only);
+    // 398-06 — the annotated names promote alongside the plain ones
+    // but skip `fnexpr_recv_locals`: their calls take the runtime
+    // recv gate instead of the static seed (doc on the census).
+    let mut annotated_only: Vec<String> = Vec::new();
+    collect_this_fnexpr_decl_names(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        &mut call_only,
+        &mut annotated_only,
+    );
     for name in call_only {
+        faces_by_name.entry(name).or_default();
+    }
+    let no_static_seed: std::collections::HashSet<String> =
+        annotated_only.iter().cloned().collect();
+    for name in annotated_only {
         faces_by_name.entry(name).or_default();
     }
     // Every receiver-safe use POSITION in the program, by kind, with
@@ -187,8 +202,12 @@ pub(super) fn promote_variable_routed(
             // element box, rotation 260). The direct-call consumer
             // (`ssa_lower_call_closure_local`) still only fires on
             // an actual bare-name call, which a pure-face profile
-            // has none of.
-            fnexpr_recv_locals.insert(name.clone());
+            // has none of. 398-06 — annotated bindings stay off the
+            // static list and take the runtime recv gate instead
+            // (doc on the census).
+            if !no_static_seed.contains(name) {
+                fnexpr_recv_locals.insert(name.clone());
+            }
         }
     }
 }

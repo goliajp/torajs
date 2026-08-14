@@ -283,8 +283,13 @@ pub(crate) fn emit_closure_callee_with_this(
     if !matches!(this_arg, ClosureThis::None) {
         env_first.push(Type::Any);
     }
-    env_first.extend(user_params);
-    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty);
+    env_first.extend(user_params.iter().copied());
+    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty.clone());
+    // 398-06 — a ClosureThis::None callee VALUE may still be a
+    // promoted closure at runtime (a field read, an alias, a slot the
+    // value flowed through), so the receiverless call runs behind the
+    // FLAG_CLOSURE_RECV_FIRST gate (doc on `ssa_lower_call_recv_gate`).
+    let recv_gated = matches!(this_arg, ClosureThis::None);
     let user_params = ctx.fn_sigs[user_sig_id.0 as usize].0.clone();
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
     argv.push(Operand::Value(env_ptr));
@@ -357,26 +362,35 @@ pub(crate) fn emit_closure_callee_with_this(
     crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
     // Chunk 569 — args SHARE: no consume (the historical consume
     // orphaned live-binding stakes); owned temps release after.
-    if ret_ty == Type::Void {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
-        );
-        ctx.emit_throw_check(None);
-        for (a, op) in owned_temps {
-            ctx.release_owned_temp(a, &op);
+    let result = if !recv_gated {
+        // Static receiver slot (Expr / Undef) — single-path emit.
+        if ret_ty == Type::Void {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
+            );
+            None
+        } else {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
+                ret_ty,
+                None,
+            );
+            Some(Operand::Value(v))
         }
-        for (op, ty) in coerce_owned {
-            ctx.emit_drop_value(op, ty);
-        }
-        return Operand::ConstPtrNull;
-    }
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
-        ret_ty,
-        None,
-    );
+    } else {
+        // Receiverless — the runtime FLAG_CLOSURE_RECV_FIRST gate.
+        crate::ssa_lower_call_recv_gate::emit_indirect_call_recv_gated(
+            ctx,
+            &Operand::Value(env_ptr),
+            Operand::Value(fn_ptr),
+            env_first_sig,
+            argv,
+            crate::ssa_lower_call_recv_gate::RecvSeed::Undef,
+            ret_ty,
+        )
+    };
     ctx.emit_throw_check(None);
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
@@ -384,7 +398,7 @@ pub(crate) fn emit_closure_callee_with_this(
     for (op, ty) in coerce_owned {
         ctx.emit_drop_value(op, ty);
     }
-    Operand::Value(v)
+    result.unwrap_or(Operand::ConstPtrNull)
 }
 
 /// Emit direct CallIndirect for a `Type::FnSig` callee (no env prefix).

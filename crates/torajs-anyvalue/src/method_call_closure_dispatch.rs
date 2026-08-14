@@ -320,3 +320,29 @@ pub unsafe extern "C" fn __torajs_closure_call_variadic(
         not_callable()
     }
 }
+
+/// The explicit-`this` twin of [`__torajs_closure_call_variadic`] —
+/// 398-06's typed-lane recv arm: a call site whose static promotion
+/// answer was "no" found `FLAG_CLOSURE_RECV_FIRST` set at runtime and
+/// re-routes here with the receiver it owes the callee (the §13.3.6.2
+/// method receiver, a `.call`/`.apply` thisArg, or the §10.2.1.2
+/// strict `undefined`). [`invoke_with_this`] owns the shift/dispatch
+/// story exactly as the any lane always has.
+///
+/// # Safety
+/// `argv` points at `argc` AnyValue slots the caller keeps alive
+/// across the call; `env` is a (possibly null) closure env cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_call_with_this(
+    env: *mut c_void,
+    this_arg: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        if let Some((env, entry)) = closure_cell_entry(env) {
+            return invoke_with_this(env, entry, this_arg, argv, argc);
+        }
+        not_callable()
+    }
+}
