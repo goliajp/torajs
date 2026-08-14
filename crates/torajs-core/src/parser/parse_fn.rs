@@ -144,6 +144,10 @@ impl<'a> Parser<'a> {
         // and no [[HomeObject]], so SuperProperty inside it is the same
         // early SyntaxError (§15.4.1), even nested in a method.
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, false);
+        // Same reason (§10.2.1.2): a `function` declared inside a static
+        // member body binds its own `this`, so the "this means the class
+        // object" recording stops here too. Arrows keep it.
+        let saved_static_this = self.static_this_class.take();
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async && is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         let strict_outer = self.in_strict_fn;
@@ -158,6 +162,7 @@ impl<'a> Parser<'a> {
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
         self.super_prop_allowed = saved_super_prop;
+        self.static_this_class = saved_static_this;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => return Err(format!("expected `}}`, got {t:?} at {}", self.at())),

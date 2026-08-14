@@ -276,6 +276,14 @@ impl<'a> Parser<'a> {
         // inside is an early SyntaxError (§15.4.1) even when the
         // expression sits in a method.
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, false);
+        // Same reason, same §10.2.1.2: an ordinary function expression
+        // binds its OWN `this`, so a static member body's "this means
+        // the class object" recording must not reach inside one. It
+        // used to, and `(function () { return this })()` written in a
+        // static method died on `closure capture __class_C not in
+        // scope` — a name minted for a receiver that expression never
+        // had. Arrows keep it (an arrow has no `this` of its own).
+        let saved_static_this = self.static_this_class.take();
         let strict_outer = self.in_strict_fn;
         let mut stmts = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -288,6 +296,7 @@ impl<'a> Parser<'a> {
                     self.in_gen_class_method = saved_igcm;
                     self.gen_recv_minted = saved_minted;
                     self.super_prop_allowed = saved_super_prop;
+                    self.static_this_class = saved_static_this;
                     return Err(e);
                 }
             };
@@ -301,6 +310,7 @@ impl<'a> Parser<'a> {
         self.in_gen_class_method = saved_igcm;
         self.gen_recv_minted = saved_minted;
         self.super_prop_allowed = saved_super_prop;
+        self.static_this_class = saved_static_this;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {
