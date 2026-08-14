@@ -161,53 +161,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             dynobj_builtin_tail_tag(ptr, recv, key)
         },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { arr_arm_tag(ptr, recv, key) },
-        Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
-            let props = closure_props(ptr);
-            if !props.is_null() {
-                let tag = __torajs_dynobj_get_tag(props, key);
-                if tag != 5 {
-                    return tag;
-                }
-                // Stored-undefined expando shadows the virtual
-                // name/length pair and the builtin reify.
-                if __torajs_dynobj_has(props, key) != 0 {
-                    return 5;
-                }
-            }
-            if let Some((tag, _)) = closure_virtual_pair(ptr, key) {
-                return tag;
-            }
-            // RFC 20260721 刀 9 — plain-fn `.prototype` lazy
-            // materialization (writes into props, so the value twin
-            // and every later read hit the props probe above).
-            if crate::prop_has::key_is(key, b"prototype")
-                && let Some((tag, _)) = crate::closure_proto::fn_prototype_pair(ptr)
-            {
-                return tag;
-            }
-            // 405-01 substrate — a re-parented function value answers
-            // through its user [[Prototype]] before the implicit
-            // %Function.prototype% chain (§10.1.8.1; the link lives on
-            // the expando dynobj). An explicit null ends the chain.
-            match crate::member_get_own::closure_user_proto(ptr) {
-                Some(Some(parent)) => return __torajs_any_member_get_tag(parent, key),
-                Some(None) => return 5,
-                None => {}
-            }
-            // Inherited Function.prototype expando (monkey-patches
-            // land in the tag-13 singleton dynobj).
-            let fp = function_proto_props();
-            if !fp.is_null() {
-                let tag = __torajs_dynobj_get_tag(fp, key);
-                if tag != 5 {
-                    return tag;
-                }
-                if __torajs_dynobj_has(fp, key) != 0 {
-                    return 5;
-                }
-            }
-            reify_tag(recv, key)
-        },
+        Some((ptr, t)) if t == Tag::Closure as u16 => unsafe { closure_arm_tag(ptr, recv, key) },
         // RFC 20260810-sloppy-goal-arguments rotation 353 (plan-state
         // L3b ①) — promise-cell own-property probe via the +32 lazy
         // expando the defineProperty arm writes (rotation 352
@@ -316,6 +270,61 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             reify_tag(recv, key)
         },
         _ => unsafe { reify_tag(recv, key) },
+    }
+}
+
+/// The `Tag::Closure` arm — the lazy expando bag, the virtual
+/// name/length pair, the plain-fn `.prototype` materialization (RFC
+/// 20260721 刀 9 — writes into props, so the value twin and every
+/// later read hit the props probe), the user [[Prototype]] chain
+/// (405-01 — a re-parented function value answers through it before
+/// the implicit %Function.prototype% surface, and an explicit null
+/// ends the chain, §10.1.8.1), the inherited Function.prototype
+/// expando (monkey-patches land in the tag-13 singleton dynobj), and
+/// the reify tail. Extracted under the 200-line function rule when
+/// the chain hop landed.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell; `key` is a live Str cell;
+/// `recv` NaN-boxes the closure.
+unsafe fn closure_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
+    unsafe {
+        let props = closure_props(ptr);
+        if !props.is_null() {
+            let tag = __torajs_dynobj_get_tag(props, key);
+            if tag != 5 {
+                return tag;
+            }
+            // Stored-undefined expando shadows the virtual
+            // name/length pair and the builtin reify.
+            if __torajs_dynobj_has(props, key) != 0 {
+                return 5;
+            }
+        }
+        if let Some((tag, _)) = closure_virtual_pair(ptr, key) {
+            return tag;
+        }
+        if crate::prop_has::key_is(key, b"prototype")
+            && let Some((tag, _)) = crate::closure_proto::fn_prototype_pair(ptr)
+        {
+            return tag;
+        }
+        match crate::member_get_own::closure_user_proto(ptr) {
+            Some(Some(parent)) => return __torajs_any_member_get_tag(parent, key),
+            Some(None) => return 5,
+            None => {}
+        }
+        let fp = function_proto_props();
+        if !fp.is_null() {
+            let tag = __torajs_dynobj_get_tag(fp, key);
+            if tag != 5 {
+                return tag;
+            }
+            if __torajs_dynobj_has(fp, key) != 0 {
+                return 5;
+            }
+        }
+        reify_tag(recv, key)
     }
 }
 

@@ -97,45 +97,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             v
         },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { arr_arm_value(ptr, recv, key) },
-        Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
-            let props = closure_props(ptr);
-            if !props.is_null() {
-                if __torajs_dynobj_get_tag(props, key) != 5 {
-                    return __torajs_dynobj_get_value(props, key);
-                }
-                // Stored-undefined shadow — see the tag twin.
-                if __torajs_dynobj_has(props, key) != 0 {
-                    return 0;
-                }
-            }
-            if let Some((_, val)) = closure_virtual_pair(ptr, key) {
-                return val;
-            }
-            // Plain-fn `.prototype` materialization — tag twin above.
-            if crate::prop_has::key_is(key, b"prototype")
-                && let Some((_, val)) = crate::closure_proto::fn_prototype_pair(ptr)
-            {
-                return val;
-            }
-            // 405-01 substrate — user [[Prototype]] chain, tag twin
-            // above.
-            match crate::member_get_own::closure_user_proto(ptr) {
-                Some(Some(parent)) => return __torajs_any_member_get_value(parent, key),
-                Some(None) => return 0,
-                None => {}
-            }
-            // Inherited Function.prototype expando — tag twin above.
-            let fp = function_proto_props();
-            if !fp.is_null() {
-                if __torajs_dynobj_get_tag(fp, key) != 5 {
-                    return __torajs_dynobj_get_value(fp, key);
-                }
-                if __torajs_dynobj_has(fp, key) != 0 {
-                    return 0;
-                }
-            }
-            reify_value(recv, key)
-        },
+        Some((ptr, t)) if t == Tag::Closure as u16 => unsafe { closure_arm_value(ptr, recv, key) },
         // Promise-cell own-property value probe via the +32 lazy
         // expando — tag twin in member_get.rs (rotation 353,
         // plan-state L3b ①).
@@ -254,6 +216,55 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             reify_value(recv, key)
         },
         _ => unsafe { reify_value(recv, key) },
+    }
+}
+
+/// `Tag::Closure` value channel — arm-for-arm twin of
+/// `member_get.rs`'s `closure_arm_tag`, extracted alongside it under
+/// the 200-line function rule (the 405-01 user-[[Prototype]] chain
+/// hop tipped both).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell; `key` is a live Str cell;
+/// `recv` NaN-boxes the closure.
+unsafe fn closure_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
+    unsafe {
+        let props = closure_props(ptr);
+        if !props.is_null() {
+            if __torajs_dynobj_get_tag(props, key) != 5 {
+                return __torajs_dynobj_get_value(props, key);
+            }
+            // Stored-undefined shadow — see the tag twin.
+            if __torajs_dynobj_has(props, key) != 0 {
+                return 0;
+            }
+        }
+        if let Some((_, val)) = closure_virtual_pair(ptr, key) {
+            return val;
+        }
+        // Plain-fn `.prototype` materialization — tag twin.
+        if crate::prop_has::key_is(key, b"prototype")
+            && let Some((_, val)) = crate::closure_proto::fn_prototype_pair(ptr)
+        {
+            return val;
+        }
+        // 405-01 substrate — user [[Prototype]] chain, tag twin.
+        match crate::member_get_own::closure_user_proto(ptr) {
+            Some(Some(parent)) => return __torajs_any_member_get_value(parent, key),
+            Some(None) => return 0,
+            None => {}
+        }
+        // Inherited Function.prototype expando — tag twin.
+        let fp = function_proto_props();
+        if !fp.is_null() {
+            if __torajs_dynobj_get_tag(fp, key) != 5 {
+                return __torajs_dynobj_get_value(fp, key);
+            }
+            if __torajs_dynobj_has(fp, key) != 0 {
+                return 0;
+            }
+        }
+        reify_value(recv, key)
     }
 }
 
