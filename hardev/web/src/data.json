@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T23:39:23.665Z",
+  "generatedAt": "2026-08-14T01:03:55.739Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-13T23:36:10Z",
-    "headSha": "23c828d4",
-    "elapsedSec": 327.82,
+    "ranAt": "2026-08-14T00:54:50Z",
+    "headSha": "6fdc2e98",
+    "elapsedSec": 327.26,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.18
   },
   "torajs": {
-    "commit": "23c828d4",
-    "commitSubject": "refactor: split the destructuring emitter out of destr_shape",
+    "commit": "6fdc2e98",
+    "commitSubject": "fix: say what is missing when a nested class reads an outer local",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "6fdc2e98",
+      "subject": "fix: say what is missing when a nested class reads an outer local"
+    },
+    {
+      "hash": "039df6ad",
+      "subject": "fix: a runtime-construct receiver demotes the speculative class-method rewrite"
+    },
+    {
+      "hash": "73af7398",
+      "subject": "feat: static methods on a nested class that captures"
+    },
+    {
+      "hash": "2b3c060d",
+      "subject": "fix: naming a this-using fn-expr as a member's object keeps it promoted"
+    },
+    {
+      "hash": "7074e641",
+      "subject": "feat: a nested class that reads an outer local"
+    },
+    {
+      "hash": "db238158",
+      "subject": "chore: record the rotation 393 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "23c828d4",
       "subject": "refactor: split the destructuring emitter out of destr_shape"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "24fc8aaa",
       "subject": "fix: a `with` object must not answer the globals the parser wrote"
-    },
-    {
-      "hash": "42d6c926",
-      "subject": "feat: a class in a `with` body is answered exactly, not refused wholesale"
-    },
-    {
-      "hash": "ebe8ec08",
-      "subject": "fix: a class body is strict code, so `with` inside one is a SyntaxError"
-    },
-    {
-      "hash": "27c9da85",
-      "subject": "chore: record rotation 392 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "0a2fcd56",
-      "subject": "fix: a refused `with` printed as a runtime error, so it counted as one"
-    },
-    {
-      "hash": "f6ee98f4",
-      "subject": "feat: `for (var i = …)` in a `with` body drives the object's counter"
-    },
-    {
-      "hash": "17b3e390",
-      "subject": "fix: a refused `delete` throws only in strict code (ES §13.5.1.2 step 5)"
     }
   ],
-  "headSha": "23c828d4",
+  "headSha": "6fdc2e98",
   "autorun": {
-    "total": 696,
+    "total": 697,
     "baselineTarget": 10,
-    "bySelf": 691,
+    "bySelf": 692,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786658705-4b44",
-      "at": "2026-08-13T22:05:05Z",
-      "ts": 1786658705,
+      "rotationId": "r-1786664946-7bc5",
+      "at": "2026-08-13T23:49:06Z",
+      "ts": 1786664946,
       "trigger": "self",
-      "prevHead": "27c9da85",
-      "handoffSha": "sha256:7c62a76f621f8f531991feb938b00612df31acb3f1bff2c502ae17513ec9a056",
-      "handoffAgeSec": 20,
+      "prevHead": "db238158",
+      "handoffSha": "sha256:854e719e7e95a70394e955e1ff0aba1428b490f21829cfb4c55078afbc4e11d5",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786664946-7bc5",
+        "at": "2026-08-13T23:49:06Z",
+        "ts": 1786664946,
+        "trigger": "self",
+        "prevHead": "db238158",
+        "handoffSha": "sha256:854e719e7e95a70394e955e1ff0aba1428b490f21829cfb4c55078afbc4e11d5",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786658705-4b44",
         "at": "2026-08-13T22:05:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "1d9a2243",
         "handoffSha": "sha256:1a5fa89182fcfdc4f392f691091a4db373caf910b19baabbe34fbe224761dbf8",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786593962-7dc1",
-        "at": "2026-08-13T04:06:02Z",
-        "ts": 1786593962,
-        "trigger": "self",
-        "prevHead": "d28b055d",
-        "handoffSha": "sha256:37bd9cf43116d5136b93eb21cea49899a5d12c9d4a0b5dd836e8435312b2ef9a",
-        "handoffAgeSec": 24,
         "conformanceBefore": null,
         "commitsInSession": null
       }
