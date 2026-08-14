@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T10:30:38.415Z",
+  "generatedAt": "2026-08-14T10:39:41.589Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 70.22
   },
   "torajs": {
-    "commit": "016835a1",
-    "commitSubject": "fix: an array element called through its index gets the array as this",
+    "commit": "9850a1b1",
+    "commitSubject": "refactor: the call-position arms of the face walk get their own function",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "9850a1b1",
+      "subject": "refactor: the call-position arms of the face walk get their own function"
+    },
+    {
+      "hash": "708b6b92",
+      "subject": "chore: refresh the dashboard snapshot after the closing knife"
+    },
+    {
       "hash": "016835a1",
       "subject": "fix: an array element called through its index gets the array as this"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "7a27c650",
       "subject": "fix: a promoted function expression stops counting its receiver"
-    },
-    {
-      "hash": "b4166994",
-      "subject": "feat: an inherited static method is called on the class that names it"
-    },
-    {
-      "hash": "b8ff395d",
-      "subject": "fix: a top-level const decodes an any init at its annotation"
     }
   ],
-  "headSha": "016835a1",
+  "headSha": "9850a1b1",
   "autorun": {
     "total": 702,
     "baselineTarget": 10,
