@@ -28,7 +28,9 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
         // write in the constructor prefix. So `fields` holds only
         // ordinary declared names, and there is nothing to ask it.
         fields: _,
-        static_init,
+        // Static init routes since 394-05 — the emit wraps `this`
+        // readers and blocks into `(function () { … }).call(K)`.
+        static_init: _,
         ctor,
         methods,
         static_methods,
@@ -45,45 +47,26 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     if !type_params.is_empty() {
         return Some("it has type parameters");
     }
-    // Static fields and static blocks both run at class-evaluation
-    // time with `this` bound to the class object, and an initializer
-    // saying `this` would read the ENCLOSING `this` once inlined at
-    // the store. A static METHOD has no such problem: `K.s =
-    // function () { … this … }` called as `K.s()` binds `this` to K,
-    // which is what §10.2.1.2 wants.
+    // Static fields and static blocks run at class-evaluation time
+    // with `this` bound to the class object (§15.7.14). A plain field
+    // initializer inlines as the assignment the spec performs anyway;
+    // one that says `this` — and a static block, whose body always
+    // may — is wrapped by the emit into
+    // `(function () { … }).call(K)`, which hands the body exactly
+    // that binding (394-05; the wrapper registers in `fn_expr_exprs`
+    // like every other function this lane mints). So neither declines
+    // anymore.
     //
-    // That concern is about the word `this`, not about static members
-    // as such — so a field whose initializer never says it routes, and
-    // the store is the plain assignment §15.7.14 asks for anyway (a
-    // static field is writable, enumerable and configurable, unlike a
-    // method). `static base = b; static f = K.base + 2` is the ordinary
-    // shape and both halves are answerable here: `b` is the captured
-    // local the lane exists for, and `K` is the α-renamed binding the
-    // stores are emitted after.
-    //
-    // A static field with a COMPUTED name parks in its own side table
-    // instead of in `static_init`, so it has to be asked about
-    // separately — its key is one more expression evaluated at
-    // class-definition time, and nothing has taught the key-binding
-    // walk about it yet.
+    // A static field with a COMPUTED name still does: it parks in its
+    // own side table instead of in `static_init`, its key is one more
+    // expression evaluated at class-definition time, and nothing has
+    // taught the key-binding walk about it yet.
     if ast
         .class_computed_static_fields
         .iter()
         .any(|(c, _, _)| c == name)
     {
         return Some("it has a static field with a computed name");
-    }
-    if static_init
-        .iter()
-        .any(|si| matches!(si, super::super::StaticInit::Block(_)))
-    {
-        return Some("it has a static block");
-    }
-    if static_init.iter().any(|si| match si {
-        super::super::StaticInit::Field(sf) => super::expr_says_this(ast, sf.init),
-        super::super::StaticInit::Block(_) => false,
-    }) {
-        return Some("one of its static field initializers reads `this`");
     }
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract

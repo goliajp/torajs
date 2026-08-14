@@ -45,11 +45,15 @@
 //! REJECTED today — a whitelist, so no program that currently answers
 //! correctly can be pulled in. Constructor, plain public instance and
 //! static methods, and accessors; a static body may say `this`, and
-//! either kind of member may carry a computed name. No `extends`, no
-//! static fields or static blocks, no computed-name accessor, no type
-//! params, and no compiler-minted free name in a body (`__cm_gen_*`
-//! forwarders to a hoisted generator method, `__supercall__*`).
-//! Everything else keeps today's loud abort.
+//! either kind of member may carry a computed name. Static fields and
+//! static blocks route too (394-05): a `this`-free initializer inlines
+//! as the plain assignment, and a `this`-reading one — or a block —
+//! wraps into `(function () { … }).call(K)` (see
+//! `install::call_bound_to_class`). No `extends`, no computed-name
+//! STATIC field, no computed-name accessor, no type params, and no
+//! compiler-minted free name in a body (`__cm_gen_*` forwarders to a
+//! hoisted generator method, `__supercall__*`). Everything else keeps
+//! today's loud abort.
 //!
 //! Recorded deviations are in the RFC: the binding is `const`, `.name`
 //! is empty, a declare-only field does not materialize, and the class
@@ -61,7 +65,10 @@ mod decline;
 
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, Expr, ExprId, StaticInit, Stmt};
+
+mod install;
 use decline::decline_reason;
+use install::{call_bound_to_class, define_member, descriptor_fields};
 
 /// Rewrite the class at `stmts[idx]` when this lane covers it.
 /// Returns whether it did.
@@ -158,8 +165,9 @@ pub(super) fn this_sites(ast: &Ast, body: &[Stmt]) -> Vec<ExprId> {
 /// included? Asked of a static field's initializer, which runs at
 /// class-evaluation time with `this` bound to the class object: a
 /// `this`-free one has nothing to lose by being inlined at the store,
-/// while one that reads `this` would silently pick up the ENCLOSING
-/// receiver there (see [`decline::decline_reason`]).
+/// while one that reads `this` must wrap into the
+/// `(function () { … }).call(K)` form the emit mints (394-05) — bare
+/// at the store it would silently pick up the ENCLOSING receiver.
 pub(super) fn expr_says_this(ast: &Ast, root: ExprId) -> bool {
     let mut sites = Vec::new();
     this_sites_in_expr(ast, root, &mut sites);
@@ -389,81 +397,40 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         let fields = descriptor_fields(ast, m.accessor_kind, eid);
         out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
     }
-    // Static fields last, and in source order: §15.7.14 runs their
-    // initializers at class-definition time, after every member is
-    // installed, which is what lets one read the class it belongs to
-    // (`static f = K.base + 2`). A plain assignment is the right shape
-    // here where a method needed `defineProperty` — CreateDataProperty
-    // is what the spec performs for a field, so writable / enumerable /
-    // configurable all come out true on their own. `decline_reason` has
-    // already refused blocks, computed names, and any initializer that
-    // says `this`.
+    // Static initialization last, and in source order: §15.7.14 runs
+    // field initializers and static blocks at class-definition time,
+    // after every member is installed, which is what lets one read
+    // the class it belongs to (`static f = K.base + 2`). A plain
+    // assignment is the right shape for a field where a method needed
+    // `defineProperty` — CreateDataProperty is what the spec performs,
+    // so writable / enumerable / configurable all come out true on
+    // their own. An initializer that says `this`, and a static block
+    // (whose `this` is the class object either way), wrap into
+    // `(function () { … }).call(K)` — the same marked-fn-expr mint as
+    // every other function this lane emits, so the body's `this`
+    // rides the ordinary function-this machinery (394-05).
+    // `decline_reason` still refuses computed static names.
     for si in static_init {
-        let StaticInit::Field(sf) = si else { continue };
-        let recv = ast.add_expr(Expr::Ident(name.clone()));
-        let target = ast.add_expr(Expr::Member {
-            obj: recv,
-            name: sf.name.clone(),
-        });
-        out.push(Stmt::Expr(ast.add_expr(Expr::Assign {
-            target,
-            value: sf.init,
-        })));
-    }
-    Stmt::Multi(out)
-}
-
-/// The descriptor a class member gets in §15.7.14: an accessor half is
-/// `{ get|set, configurable }`, an ordinary method is
-/// `{ value, writable, configurable }`. Neither says `enumerable`,
-/// which is the point — a property `defineProperty` creates without it
-/// is non-enumerable, exactly as a class declares it.
-///
-/// A getter and a setter of the same name arrive as two members and so
-/// emit two calls. That is the spec's own shape (each MethodDefinition
-/// is its own DefinePropertyOrThrow), and the second call keeps the
-/// first half: a descriptor naming only `[[Set]]` leaves an existing
-/// `[[Get]]` alone (§10.1.6.3 step 4).
-fn descriptor_fields(
-    ast: &mut Ast,
-    kind: Option<super::AccessorKind>,
-    func: ExprId,
-) -> Vec<(String, ExprId)> {
-    let yes = ast.add_expr(Expr::Bool(true));
-    match kind {
-        Some(super::AccessorKind::Getter) => vec![("get".into(), func)],
-        Some(super::AccessorKind::Setter) => vec![("set".into(), func)],
-        None => {
-            let writable = ast.add_expr(Expr::Bool(true));
-            vec![("value".into(), func), ("writable".into(), writable)]
+        match si {
+            StaticInit::Field(sf) => {
+                let value = if expr_says_this(ast, sf.init) {
+                    let body = vec![Stmt::Return(Some(sf.init))];
+                    call_bound_to_class(ast, body, &name)
+                } else {
+                    sf.init
+                };
+                let recv = ast.add_expr(Expr::Ident(name.clone()));
+                let target = ast.add_expr(Expr::Member {
+                    obj: recv,
+                    name: sf.name.clone(),
+                });
+                out.push(Stmt::Expr(ast.add_expr(Expr::Assign { target, value })));
+            }
+            StaticInit::Block(stmts) => {
+                let call = call_bound_to_class(ast, stmts, &name);
+                out.push(Stmt::Expr(call));
+            }
         }
     }
-    .into_iter()
-    .chain([("configurable".to_string(), yes)])
-    .collect()
-}
-
-/// `Object.defineProperty(<recv>, <key>, { … })`.
-///
-/// The descriptor stays a BARE object literal. Wrapping it in `as any`
-/// reads fine and even runs when hand-written, but the fnexpr-this face
-/// walk requires an inline `ObjectLit` at exactly this argument — an
-/// `As` in between hands it zero faces, and the function's `this` stays
-/// a capture nobody binds.
-fn define_member(
-    ast: &mut Ast,
-    recv: ExprId,
-    key: ExprId,
-    fields: Vec<(String, ExprId)>,
-) -> ExprId {
-    let desc = ast.add_expr(Expr::ObjectLit { fields });
-    let object = ast.add_expr(Expr::Ident("Object".to_string()));
-    let callee = ast.add_expr(Expr::Member {
-        obj: object,
-        name: "defineProperty".to_string(),
-    });
-    ast.add_expr(Expr::Call {
-        callee,
-        args: vec![recv, key, desc],
-    })
+    Stmt::Multi(out)
 }
