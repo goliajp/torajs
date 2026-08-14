@@ -39,17 +39,17 @@
 //! `new K()` routes through the runtime construct, and `instanceof`
 //! answers off the prototype link.
 //!
-//! ## What routes (blades 1-2)
+//! ## What routes (blades 1-3)
 //!
 //! Only a shape this lane reproduces faithfully, and only one that is
 //! REJECTED today — a whitelist, so no program that currently answers
 //! correctly can be pulled in. Constructor, plain public instance
-//! methods, and plain public static methods that do not say `this`;
-//! no `extends`, no static fields or static blocks, no accessors, no
-//! type params, no computed-key fields, and no compiler-minted free
-//! name in a body (`__cm_gen_*` forwarders to a hoisted generator
-//! method, `__supercall__*`). Everything else keeps today's loud
-//! abort.
+//! methods, and plain public static methods that do not say `this`
+//! and are named outright; instance members may carry a computed
+//! name. No `extends`, no static fields or static blocks, no
+//! accessors, no type params, and no compiler-minted free name in a
+//! body (`__cm_gen_*` forwarders to a hoisted generator method,
+//! `__supercall__*`). Everything else keeps today's loud abort.
 //!
 //! Recorded deviations are in the RFC: the binding is `const`, `.name`
 //! is empty, a declare-only field does not materialize, and the class
@@ -86,7 +86,7 @@ pub(super) fn try_rewrite_capturing_class(
     *counter += 1;
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
     let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
-    stmts[idx] = lower_to_es5(ast, taken);
+    stmts[idx] = lower_to_es5(ast, taken, &old);
     true
 }
 
@@ -128,7 +128,11 @@ fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
         type_params,
         parent,
         is_abstract,
-        fields,
+        // A computed INSTANCE field never reaches here: the parser
+        // sends it straight to `field_inits`, which by now is a keyed
+        // write in the constructor prefix. So `fields` holds only
+        // ordinary declared names, and there is nothing to ask it.
+        fields: _,
         static_init,
         ctor,
         methods,
@@ -152,33 +156,23 @@ fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     // the store. A static METHOD has no such problem: `K.s =
     // function () { … this … }` called as `K.s()` binds `this` to K,
     // which is what §10.2.1.2 wants.
-    if !static_init.is_empty() {
-        return Some("it has a static field or a static block");
-    }
-    // A computed member name parses into a `__ccm_<n>__` sentinel,
-    // and where the sentinel then LIVES depends on what it named: a
-    // method keeps it as the member name, an instance field turns it
-    // into a keyed write inside the constructor, a static field goes
-    // to its own side table. Asking the side table the parser filled
-    // answers all three at once — reading the sentinel back out of
-    // whichever place it landed would answer each of them differently,
-    // which is how two of these shapes used to report as "a generator
-    // or otherwise compiler-rewritten method" and "a body names
-    // something the compiler minted".
-    if ast.class_computed_keys.keys().any(|(c, _)| c == name)
+    //
+    // A static field with a COMPUTED name parks in its own side table
+    // instead of in `static_init`, so it has to be asked about
+    // separately — but it is a static field and declines as one.
+    if !static_init.is_empty()
         || ast
             .class_computed_static_fields
             .iter()
             .any(|(c, _, _)| c == name)
-        || fields.iter().any(|(f, _)| f.starts_with("__ccm_"))
     {
-        return Some("it has a computed member name");
+        return Some("it has a static field or a static block");
     }
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract
             || m.accessor_kind.is_some()
             || m.visibility != Visibility::Public
-            || m.name.starts_with("__")
+            || (m.name.starts_with("__") && sentinel_index(&m.name).is_none())
     }) {
         return Some(if m.accessor_kind.is_some() {
             "it has a getter or a setter"
@@ -198,6 +192,21 @@ fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     if static_methods.iter().any(|m| body_says_this(ast, &m.body)) {
         return Some("a static method in it uses `this`");
     }
+    // A computed name on a static member lowers to `K[<key>] = …`,
+    // and the object position of a KEYED member cannot join the
+    // receiver-safe use shapes that keep the constructor's `this`
+    // promoted. That list excludes `.call` / `.apply` / `.bind`
+    // because those read the binding in order to invoke it — an
+    // exclusion spelled as three names, which a key that is only
+    // known at run time defeats. An instance member is unaffected:
+    // it lowers onto `K.prototype`, where the binding still stands
+    // under a named member.
+    if static_methods
+        .iter()
+        .any(|m| sentinel_index(&m.name).is_some())
+    {
+        return Some("a static method in it has a computed name");
+    }
     // A body naming a compiler-minted global is not ordinary user
     // nesting: `__cm_gen_<C>__<m>` is the top-level generator method
     // the parser hoisted out (it cannot capture either), and
@@ -205,7 +214,21 @@ fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     // caller already decided this class captures; the walk here only
     // screens for those names, so the prebound set need cover no more
     // than what would otherwise report a `__` name spuriously.
-    let prebound = vec![name.clone(), "arguments".to_string()];
+    let mut prebound = vec![name.clone(), "arguments".to_string()];
+    // The ctor prefix a computed instance field turns into reads the
+    // evaluated key out of `__ccmk_<C>_<n>`; this lane declares those
+    // (see `lower_to_es5`), so they are bound, not minted-and-free.
+    let ctor_body: &[Stmt] = ctor.as_ref().map_or(&[], |c| c.body.as_slice());
+    let member_names: Vec<&str> = methods
+        .iter()
+        .chain(static_methods.iter())
+        .map(|m| m.name.as_str())
+        .collect();
+    prebound.extend(
+        own_computed_members(ast, name, ctor_body, &member_names)
+            .into_iter()
+            .map(|n| key_binding(name, n)),
+    );
     let synthetic_free = |params: &[super::Param], body: &[Stmt]| -> bool {
         let mut bound = prebound.clone();
         bound.extend(params.iter().map(|p| p.name.clone()));
@@ -256,13 +279,107 @@ fn expr_says_this(ast: &Ast, root: ExprId) -> bool {
     false
 }
 
+/// The declaration index a `__ccm_<n>__` sentinel carries. The parser
+/// mints `n` off a program-wide counter, so within one class it sorts
+/// the computed members back into element order — which is the order
+/// §15.7.14 evaluates their keys in.
+fn sentinel_index(member_name: &str) -> Option<usize> {
+    member_name
+        .strip_prefix("__ccm_")?
+        .trim_end_matches('_')
+        .parse()
+        .ok()
+}
+
+/// Where the evaluated key of computed member `n` of class `cname`
+/// parks. The name is the parser's, not this module's: a computed
+/// INSTANCE field is already rewritten to `(this as any)[__ccmk_<C>_<n>]
+/// = <init>` in the constructor prefix, and that reference has to find
+/// something.
+fn key_binding(cname: &str, n: usize) -> String {
+    format!("__ccmk_{cname}_{n}")
+}
+
+/// The computed members THIS class declared, by sentinel index, in
+/// element order.
+///
+/// `class_computed_keys` is keyed by class NAME, and a name is not
+/// unique — three functions each declaring `class K { [k]() {…} }`
+/// share one entry set, so asking the table by name answers with all
+/// three. Ownership is read back off the class itself instead: a
+/// computed method keeps its `__ccm_<n>__` sentinel as the member
+/// name, and a computed instance field is by now a
+/// `(this as any)[__ccmk_<C>_<n>]` write in the constructor prefix.
+pub(super) fn own_computed_members(
+    ast: &Ast,
+    cname: &str,
+    ctor_body: &[Stmt],
+    members: &[&str],
+) -> Vec<usize> {
+    let mut ns: Vec<usize> = members.iter().filter_map(|n| sentinel_index(n)).collect();
+    let prefix = format!("__ccmk_{cname}_");
+    collect_key_refs(ast, ctor_body, &prefix, &mut ns);
+    ns.sort_unstable();
+    ns.dedup();
+    ns
+}
+
+/// Every `<prefix><n>` identifier anywhere in `body`.
+fn collect_key_refs(ast: &Ast, body: &[Stmt], prefix: &str, out: &mut Vec<usize>) {
+    let mut pending: Vec<&Stmt> = body.iter().collect();
+    while let Some(s) = pending.pop() {
+        for e in stmt_exprs(s) {
+            collect_key_refs_in_expr(ast, e, prefix, out);
+        }
+        pending.extend(stmt_children_ref(s));
+    }
+}
+
+fn collect_key_refs_in_expr(ast: &Ast, root: ExprId, prefix: &str, out: &mut Vec<usize>) {
+    let mut pending = vec![root];
+    while let Some(eid) = pending.pop() {
+        match ast.get_expr(eid) {
+            Expr::Ident(n) => {
+                if let Some(n) = n.strip_prefix(prefix).and_then(|r| r.parse::<usize>().ok()) {
+                    out.push(n);
+                }
+            }
+            // An arrow's body is a statement list, not a child expr.
+            Expr::ArrowFn { body, .. } => collect_key_refs(ast, body, prefix, out),
+            _ => {}
+        }
+        pending.extend(expr_children(ast, eid));
+    }
+}
+
+/// The key expression of each member in `ns`, dropping any the parser
+/// did not record (there is none today; a missing one would mean the
+/// sentinel outlived its side-table entry, and emitting nothing for it
+/// keeps that loud downstream rather than inventing a key).
+pub(super) fn keys_of(ast: &Ast, cname: &str, ns: &[usize]) -> Vec<(usize, ExprId)> {
+    ns.iter()
+        .filter_map(|n| {
+            let key = ast
+                .class_computed_keys
+                .get(&(cname.to_string(), format!("__ccm_{n}__")))?;
+            Some((*n, *key))
+        })
+        .collect()
+}
+
 /// `class K { constructor(p){…} m(){…} }` →
 /// `const K: any = function (p) {…}; K.prototype.m = function () {…};`
 ///
 /// The function expressions register in `fn_expr_exprs` rather than
 /// reading as arrows: that is what gives them a `.prototype` and a
 /// dynamic `this`, both of which a class body assumes.
-fn lower_to_es5(ast: &mut Ast, class: Stmt) -> Stmt {
+///
+/// `src_name` is the name the class had in the source — the α-rename
+/// that gives the binding a program-unique spelling already ran, but
+/// both the computed-key side table and the `__ccmk_<C>_<n>` reference
+/// the parser baked into the constructor prefix are keyed by the
+/// original.
+fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     let Stmt::ClassDecl {
         name,
         ctor,
@@ -273,6 +390,32 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt) -> Stmt {
     else {
         unreachable!("routes() matched a ClassDecl");
     };
+    // §15.7.14 evaluates every ComputedPropertyName once, in element
+    // order, at class-definition time — ahead of anything a method or
+    // an initializer does, because those run later (on call, on
+    // construction). So all the keys come first, and what the class
+    // body says about them is a read of the binding.
+    let ctor_body: &[Stmt] = ctor.as_ref().map_or(&[], |c| c.body.as_slice());
+    let member_names: Vec<&str> = methods
+        .iter()
+        .chain(static_methods.iter())
+        .map(|m| m.name.as_str())
+        .collect();
+    let own = own_computed_members(ast, src_name, ctor_body, &member_names);
+    let mut out: Vec<Stmt> = Vec::new();
+    for (n, key) in keys_of(ast, src_name, &own) {
+        let key_any = ast.add_expr(Expr::As {
+            expr: key,
+            ty_ann: "any".to_string(),
+        });
+        out.push(Stmt::LetDecl {
+            mutable: false,
+            name: key_binding(src_name, n),
+            type_ann: Some("any".to_string()),
+            init: key_any,
+            is_var: false,
+        });
+    }
     let (params, body) = match ctor {
         Some(c) => (c.params, c.body),
         None => (Vec::new(), Vec::new()),
@@ -283,13 +426,13 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt) -> Stmt {
         body,
     });
     ast.fn_expr_exprs.insert(ctor_eid);
-    let mut out = vec![Stmt::LetDecl {
+    out.push(Stmt::LetDecl {
         mutable: false,
         name: name.clone(),
         type_ann: Some("any".to_string()),
         init: ctor_eid,
         is_var: false,
-    }];
+    });
     for (m, on_prototype) in methods
         .into_iter()
         .map(|m| (m, true))
@@ -312,10 +455,23 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt) -> Stmt {
                 name: "prototype".to_string(),
             });
         }
-        let target = ast.add_expr(Expr::Member {
-            obj: recv,
-            name: m.name.clone(),
-        });
+        let target = match sentinel_index(&m.name) {
+            Some(n) => {
+                let recv_any = ast.add_expr(Expr::As {
+                    expr: recv,
+                    ty_ann: "any".to_string(),
+                });
+                let key_ref = ast.add_expr(Expr::Ident(key_binding(src_name, n)));
+                ast.add_expr(Expr::Index {
+                    obj: recv_any,
+                    index: key_ref,
+                })
+            }
+            None => ast.add_expr(Expr::Member {
+                obj: recv,
+                name: m.name.clone(),
+            }),
+        };
         let assign = ast.add_expr(Expr::Assign { target, value: eid });
         out.push(Stmt::Expr(assign));
     }

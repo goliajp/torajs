@@ -299,11 +299,24 @@ fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
             return false;
         }
     }
-    let side_exprs = ast
-        .class_computed_keys
+    // Which side-table rows are THIS class's is a question the name
+    // cannot answer — two fn bodies each declaring `class K` share a
+    // key set — so the computed members are read back off the class
+    // itself. A computed STATIC FIELD leaves no trace on the class at
+    // all (it is neither a member nor a ctor-prefix write), so its
+    // initializer is still matched by name: over-answering there
+    // costs a same-named sibling's static field the hoist, which is
+    // the loud direction.
+    let ctor_body: &[Stmt] = ctor.as_ref().map_or(&[], |c| c.body.as_slice());
+    let member_names: Vec<&str> = methods
         .iter()
-        .filter(|((c, _), _)| c == name)
-        .map(|(_, key)| *key)
+        .chain(static_methods.iter())
+        .map(|m| m.name.as_str())
+        .collect();
+    let own = super::capturing_classes::own_computed_members(ast, name, ctor_body, &member_names);
+    let side_exprs = super::capturing_classes::keys_of(ast, name, &own)
+        .into_iter()
+        .map(|(_, key)| key)
         .chain(
             ast.class_computed_static_fields
                 .iter()
