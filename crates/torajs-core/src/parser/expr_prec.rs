@@ -24,7 +24,13 @@ impl<'a> Parser<'a> {
         self.pos += 1;
         // Ternary branches evaluate conditionally — expression-
         // position yield may not hoist out of them.
+        // §13.13 — the THEN branch is AssignmentExpression[+In]
+        // whatever the surrounding context, so a for-head init's
+        // [~In] restriction lifts here; the ELSE branch inherits
+        // [?In] and keeps it (the relational `in` arm refuses there).
+        let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
         let then_branch = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
+        self.in_for_init = saved_in_for_init;
         if !matches!(self.peek(), Token::Colon) {
             return Err(format!(
                 "expected `:` in ternary expression, got {:?}",
@@ -190,71 +196,10 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_comparison(&mut self) -> Result<ExprId, String> {
-        // ES2022 §13.10 `RelationalExpression : PrivateIdentifier in
-        // ShiftExpression` — the ergonomic brand check (`#x in o`).
-        // Only legal lexically inside a class body (§13.1 early
-        // error otherwise). Same synthetic-Call shape as `in`
-        // (`__torajs_priv_in_op(key, obj)` — no new Expr variant for
-        // the recursive walkers), the key a deferred
-        // `__privu_<site>__<raw>` placeholder String that
-        // `resolve_private_refs` rewrites like any member reference.
-        if let Token::PrivateIdent(n) = self.peek()
-            && matches!(
-                self.tokens.get(self.pos + 1).map(|s| &s.token),
-                Some(Token::Ident(k)) if k == "in"
-            )
-        {
-            let n = n.clone();
-            if self.current_class.is_none() {
-                return Err(format!(
-                    "private name `#{n}` is only allowed within a class body (at {})",
-                    self.at()
-                ));
-            }
-            // §14.7.4 early error — the production only exists with
-            // the [In] parameter, so a C-style for-head init
-            // (`for (#x in v;;)`) refuses it (a parenthesized head
-            // resets [In]; `parse_primary_paren` clears the flag).
-            if self.in_for_init {
-                return Err(format!(
-                    "`#{n} in` is not allowed in a for-statement head (at {})",
-                    self.at()
-                ));
-            }
-            let site = self.ast.private_ref_sites.len();
-            let mut stack = self.class_stack.clone();
-            stack.reverse(); // innermost first
-            self.ast.private_ref_sites.push((n.clone(), stack));
-            self.pos += 2; // consume `#name` + `in`
-            // §13.10 — the rhs is a ShiftExpression: a BARE arrow
-            // (`#f in () => {}` / `#f in x => 1`) is a Syntax Error,
-            // while a parenthesized one (`#f in (() => {})`) reaches
-            // it through PrimaryExpression and is legal. The paren
-            // form never leaves a bare-arrow marker: its arrow parses
-            // INSIDE parse_primary_paren's recursion.
-            let bare_paren_arrow =
-                matches!(self.peek(), Token::LParen) && self.is_arrow_fn_at_lparen();
-            let right_start = self.pos;
-            let right = self.parse_shift()?;
-            if bare_paren_arrow
-                || (matches!(self.ast.get_expr(right), Expr::ArrowFn { .. })
-                    && !matches!(self.tokens[right_start].token, Token::LParen))
-            {
-                return Err(format!(
-                    "the right-hand side of `#{n} in` must be a ShiftExpression — parenthesize the arrow function (at {})",
-                    self.at()
-                ));
-            }
-            let key = self
-                .ast
-                .add_expr(Expr::String(format!("__privu_{site}__{n}")));
-            let callee = self
-                .ast
-                .add_expr(Expr::Ident("__torajs_priv_in_op".to_string()));
-            return Ok(self.ast.add_expr(Expr::Call {
-                callee,
-                args: vec![key, right],
-            }));
+        // §13.10 `PrivateIdentifier in ShiftExpression` — its own
+        // grammar arm, split to sibling `private_in.rs` (doc there).
+        if let Some(e) = self.try_parse_private_in()? {
+            return Ok(e);
         }
         let mut left = self.parse_shift()?;
         loop {
@@ -301,6 +246,21 @@ impl<'a> Parser<'a> {
             // a new Expr variant that every recursive walker would
             // need to handle exhaustively.
             if matches!(self.peek(), Token::Ident(n) if n == "in") {
+                // §14.7.4 / §13.13 — the RelationalExpression[~In]
+                // production has no `in` arm: a C-style for-head
+                // init refuses it at PARSE time (`for (true ? 0 :
+                // 0 in {};;)` — test262 conditional/in-branch-2,
+                // which the ternary type reject used to catch by
+                // coincidence, in the wrong phase). Parentheses and
+                // a ternary's THEN branch reset the restriction;
+                // the for-in statement never reaches here
+                // (try_parse_for_of claims it first).
+                if self.in_for_init {
+                    return Err(format!(
+                        "`in` is not allowed in a for-statement head (at {})",
+                        self.at()
+                    ));
+                }
                 self.pos += 1;
                 let right = self.parse_shift()?;
                 let callee = self.ast.add_expr(Expr::Ident("__torajs_in_op".to_string()));

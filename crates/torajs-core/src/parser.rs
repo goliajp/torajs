@@ -77,6 +77,7 @@ mod primary;
 mod primary_async;
 mod primary_atoms;
 mod primary_new_super;
+mod private_in;
 mod private_refs;
 mod program;
 mod ret_throw_try;
