@@ -343,3 +343,81 @@ fn collect_return_faces_in(
         });
     }
 }
+
+/// Member-store face — `anyRecv.m = <fn-expr>` (expando method
+/// on a wrapper / dynobj receiver). The stored closure is only
+/// reachable back through the receiver's props, so every call
+/// rides the runtime any-method dispatch, which reads the
+/// FLAG_CLOSURE_n header bit and seeds the receiver —
+/// zero-alias by construction for a literal fn-expr RHS. An
+/// Ident RHS (`o.m = f`) is a face POSITION for knife-2's
+/// use-shape analysis: the binding promotes only when its
+/// remaining uses are all face reads / direct calls, same bar
+/// as every other variable-routed face. (The Index-target
+/// twin `o["k"] = fn` rides this arm through the parser's
+/// Member desugar for STRING-literal keys; a computed key —
+/// `o[Symbol.match] = fn`, `o[k] = fn` — stays Expr::Index
+/// and matches the second target pattern: the stored value
+/// reaches calls only through the same runtime keyed
+/// dispatch, so the face bar is identical.)
+///
+/// Admitted store receivers:
+/// * a runtime-props binding Ident — every declaration of the name
+///   is `: any` / `T[]`-annotated, an unannotated `{}` init, or an
+///   unannotated array literal (the species-key-2 merged predicate;
+///   an array's expando members live in the arrprops bag, the same
+///   runtime keyed dispatch the dynobj lane reads);
+/// * knife 7 — `F.prototype.m = <fn-expr>` / `F.prototype[k] =
+///   <fn-expr>` (the test262 fn-constructor idiom). The prototype
+///   object is a runtime dynobj, so the stored closure is reachable
+///   only through instances' proto chains and the runtime keyed
+///   dispatch. By this pass a fn-decl name in receiver position is
+///   already a `__forward_*` Closure wrapper
+///   (`synthesize_fn_to_closure_forwarders`), so both spellings of
+///   "some named fn's .prototype" admit;
+/// * RFC 20260808-construct-channel B2 —
+///   `a.constructor[Symbol.species] = <fn>` / `a.constructor.k =
+///   <fn>` where `a` is a runtime-props binding (same merged
+///   predicate, mutability irrelevant). `.constructor` on those
+///   shapes is never a typed struct slot — the stored closure is
+///   reachable only through the runtime keyed dispatch
+///   (ArraySpeciesCreate reads it back through the arrprops bag).
+///   Other member names on these roots stay loud until a consumer
+///   shape needs them.
+pub(super) fn collect_store_face(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    props_recvs: &std::collections::HashSet<String>,
+    target: ExprId,
+    value: ExprId,
+    patches: &mut Vec<FacePatch>,
+    ident_cands: &mut Vec<(String, ExprId)>,
+) {
+    let store_recv = match &exprs[target.0 as usize] {
+        Expr::Member { obj, .. } => Some(*obj),
+        Expr::Index { obj, .. } => Some(*obj),
+        _ => None,
+    };
+    let admits = store_recv.is_some_and(|obj| match &exprs[obj.0 as usize] {
+        Expr::Ident(n) => props_recvs.contains(n),
+        Expr::Member {
+            obj: pobj,
+            name: pname,
+        } => {
+            (pname == "prototype"
+                && matches!(
+                    &exprs[pobj.0 as usize],
+                    Expr::Ident(_) | Expr::Closure { .. }
+                ))
+                || (pname == "constructor"
+                    && matches!(&exprs[pobj.0 as usize], Expr::Ident(n)
+                        if props_recvs.contains(n)))
+        }
+        _ => false,
+    });
+    if admits {
+        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
+        collect_ident_face(exprs, value, ident_cands);
+    }
+}
