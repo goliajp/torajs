@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T17:26:27.957Z",
+  "generatedAt": "2026-08-14T19:16:04.027Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-14T17:08:34Z",
-    "headSha": "bc276464",
-    "elapsedSec": 326.87,
+    "ranAt": "2026-08-14T19:06:19Z",
+    "headSha": "017c439b",
+    "elapsedSec": 327.33,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
     "pass": 25109,
     "passNoOracle": 851,
-    "passNegative": 4124,
-    "passTotal": 30084,
-    "bug": 12756,
-    "incompatible": 10334,
+    "passNegative": 4125,
+    "passTotal": 30085,
+    "bug": 12759,
+    "incompatible": 10330,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42840,
+    "trAccepted": 42844,
     "passRateInScope": 56.58,
     "passRateTrAccepted": 70.22
   },
   "torajs": {
-    "commit": "bc276464",
-    "commitSubject": "refactor: move the map/flatMap whitelist arm bodies to the cb-ret sibling",
+    "commit": "017c439b",
+    "commitSubject": "refactor: recv-gate reachability moves to a named predicate",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "017c439b",
+      "subject": "refactor: recv-gate reachability moves to a named predicate"
+    },
+    {
+      "hash": "652df246",
+      "subject": "fix: trimLeft / trimRight enumerate as own String.prototype keys"
+    },
+    {
+      "hash": "d8ffe35f",
+      "subject": "feat: nested function* declarations lift to the top level"
+    },
+    {
+      "hash": "4ce0bd24",
+      "subject": "fix: self-recursive named fn-expr keeps tco beside promoted closures"
+    },
+    {
+      "hash": "9f8fd6bf",
+      "subject": "fix: non-callable any through a fn-typed boundary throws instead of crashing"
+    },
+    {
+      "hash": "8dae7900",
+      "subject": "feat: generic values get an all-any mono instance for the any lane"
+    },
+    {
+      "hash": "fa92fb03",
+      "subject": "chore: record the rotation 403 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "bc276464",
       "subject": "refactor: move the map/flatMap whitelist arm bodies to the cb-ret sibling"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "ac0c7452",
       "subject": "fix: recv gate stands down when no promoted closure exists program-wide"
-    },
-    {
-      "hash": "a8840074",
-      "subject": "feat: typed indirect calls honor FLAG_CLOSURE_RECV_FIRST at runtime"
-    },
-    {
-      "hash": "3719e0db",
-      "subject": "chore: record the rotation 402 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "b9a8fcf6",
-      "subject": "docs: fold the lt-arm note into the method dispatch comment"
-    },
-    {
-      "hash": "5bc04618",
-      "subject": "feat: capturing-class static fields and blocks route via call-bound wrappers"
-    },
-    {
-      "hash": "dc26616c",
-      "subject": "feat: proven-safe alias inits join the receiver-safe shapes"
-    },
-    {
-      "hash": "933e023e",
-      "subject": "feat: any-arraylit element slots join the receiver-safe shapes"
-    },
-    {
-      "hash": "6da1cab8",
-      "subject": "feat: class methods parse and monomorphize their own type parameters"
     }
   ],
-  "headSha": "bc276464",
+  "headSha": "017c439b",
   "autorun": {
-    "total": 706,
+    "total": 707,
     "baselineTarget": 10,
-    "bySelf": 701,
+    "bySelf": 702,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786721210-5f79",
-      "at": "2026-08-14T15:26:50Z",
-      "ts": 1786721210,
+      "rotationId": "r-1786728422-496e",
+      "at": "2026-08-14T17:27:02Z",
+      "ts": 1786728422,
       "trigger": "self",
-      "prevHead": "3719e0db",
-      "handoffSha": "sha256:dbaa0c3c971e86ca5da0cc9f66aeaf634b1fd00edf1da3b6f8a6556efec8cdf7",
-      "handoffAgeSec": 81,
+      "prevHead": "fa92fb03",
+      "handoffSha": "sha256:6f52d621779bb5c8045ee54f0f6d5068080192cbe3068153dbb3578e58e2d5c4",
+      "handoffAgeSec": 35,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786728422-496e",
+        "at": "2026-08-14T17:27:02Z",
+        "ts": 1786728422,
+        "trigger": "self",
+        "prevHead": "fa92fb03",
+        "handoffSha": "sha256:6f52d621779bb5c8045ee54f0f6d5068080192cbe3068153dbb3578e58e2d5c4",
+        "handoffAgeSec": 35,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786721210-5f79",
         "at": "2026-08-14T15:26:50Z",
@@ -876,17 +887,6 @@
         "prevHead": "be2dc1a5",
         "handoffSha": "sha256:17886ae34b05fae3916bde1ac33efdb2f696ce03770cd9236f3b9cc332e78b6b",
         "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786664946-7bc5",
-        "at": "2026-08-13T23:49:06Z",
-        "ts": 1786664946,
-        "trigger": "self",
-        "prevHead": "db238158",
-        "handoffSha": "sha256:854e719e7e95a70394e955e1ff0aba1428b490f21829cfb4c55078afbc4e11d5",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }
