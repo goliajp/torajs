@@ -238,34 +238,36 @@ fn hoist_recurse_stmt(
             if let Some(init_box) = init.as_deref_mut() {
                 if let Stmt::LetDecl {
                     name,
-                    type_ann,
                     init: init_id,
                     is_var: true,
                     ..
                 } = init_box
                 {
-                    // Same escape hatch as the regular collect path:
-                    // typed `var i: number = 0` stays put as a let.
-                    if type_ann.is_some() {
-                        if let Stmt::LetDecl { is_var, .. } = init_box {
-                            *is_var = false;
-                        }
+                    // §14.7.4 — a for-head `var` shares the fn-level
+                    // hoist domain, annotation or not. The old typed
+                    // escape hatch mirrored the top-level one by
+                    // flipping `is_var` off in place, but the mirror
+                    // does not hold here: a top-level escape `let`
+                    // stays visible to the rest of the fn body, while
+                    // a for-head `let` is scoped to the loop — so
+                    // `for (var x: any = 1; …)` left `x` unreadable
+                    // after the loop (401-05). Same reasoning as the
+                    // rotation-264 nested-list fix: the for head IS a
+                    // nested position, and nested vars always hoist.
+                    let nm = name.clone();
+                    let init_eid = *init_id;
+                    hoisted.insert(nm.clone(), None);
+                    if !matches!(exprs[init_eid.0 as usize], Expr::Uninit) {
+                        let target_id = ExprId(exprs.len() as u32);
+                        exprs.push(Expr::Ident(nm));
+                        let assign_id = ExprId(exprs.len() as u32);
+                        exprs.push(Expr::Assign {
+                            target: target_id,
+                            value: init_eid,
+                        });
+                        *init_box = Stmt::Expr(assign_id);
                     } else {
-                        let nm = name.clone();
-                        let init_eid = *init_id;
-                        hoisted.insert(nm.clone(), None);
-                        if !matches!(exprs[init_eid.0 as usize], Expr::Uninit) {
-                            let target_id = ExprId(exprs.len() as u32);
-                            exprs.push(Expr::Ident(nm));
-                            let assign_id = ExprId(exprs.len() as u32);
-                            exprs.push(Expr::Assign {
-                                target: target_id,
-                                value: init_eid,
-                            });
-                            *init_box = Stmt::Expr(assign_id);
-                        } else {
-                            *init = None;
-                        }
+                        *init = None;
                     }
                 } else {
                     hoist_recurse_stmt(init_box, hoisted, exprs);
