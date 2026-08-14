@@ -91,6 +91,38 @@ pub(super) fn try_rewrite_capturing_class(
 }
 
 fn routes(ast: &Ast, s: &Stmt) -> bool {
+    decline_reason(ast, s).is_none()
+}
+
+/// What to say about a `ClassDecl` that reached the checker.
+///
+/// Exactly one shape gets there, and it is ordinary code: a class
+/// nested inside a block or a function body that reads a binding from
+/// the scope around it. Such a class cannot be lifted to the top level
+/// (nothing up there resolves what it reads), and this lane covers
+/// only part of the class surface. Calling that "internal" and asking
+/// "desugar didn't run?" reads as a compiler bug report to someone who
+/// wrote perfectly good TypeScript; name what is actually missing.
+pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
+    let name = match s {
+        Stmt::ClassDecl { name, .. } => name.as_str(),
+        _ => "?",
+    };
+    let why = decline_reason(ast, s).unwrap_or("the class desugar did not claim it");
+    format!(
+        "class `{name}` is declared inside a block or a function body and reads a \
+         binding from around it, which is not supported yet because {why}"
+    )
+}
+
+/// Why this class stays off the lane, phrased for the person who wrote
+/// it. `None` means it routes.
+///
+/// A nested class only reaches the checker when the hoist declined it,
+/// and the hoist declines exactly the ones that read something from
+/// around them — so whoever asks this question already knows the class
+/// captures, and what is missing is the SECOND half of the sentence.
+fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     let Stmt::ClassDecl {
         name,
         type_params,
@@ -103,39 +135,55 @@ fn routes(ast: &Ast, s: &Stmt) -> bool {
         static_methods,
     } = s
     else {
-        return false;
+        return Some("it is not a class declaration");
     };
-    // `static_init` — static fields and static blocks — stays out:
-    // both run at class-evaluation time with `this` bound to the class
-    // object, and an initializer saying `this` would read the
-    // ENCLOSING `this` once inlined at the store. A static METHOD has
-    // no such problem: `K.s = function () { … this … }` called as
-    // `K.s()` binds `this` to K, which is what §10.2.1.2 wants.
-    if parent.is_some() || *is_abstract || !type_params.is_empty() || !static_init.is_empty() {
-        return false;
+    if parent.is_some() {
+        return Some("it extends another class");
+    }
+    if *is_abstract {
+        return Some("it is abstract");
+    }
+    if !type_params.is_empty() {
+        return Some("it has type parameters");
+    }
+    // Static fields and static blocks both run at class-evaluation
+    // time with `this` bound to the class object, and an initializer
+    // saying `this` would read the ENCLOSING `this` once inlined at
+    // the store. A static METHOD has no such problem: `K.s =
+    // function () { … this … }` called as `K.s()` binds `this` to K,
+    // which is what §10.2.1.2 wants.
+    if !static_init.is_empty() {
+        return Some("it has a static field or a static block");
     }
     // A computed member name parses into a `__ccm_` sentinel field
     // whose initializer is a keyed write into an expando dict — a
     // shape this lane does not reproduce.
     if fields.iter().any(|(f, _)| f.starts_with("__ccm_")) {
-        return false;
+        return Some("it has a computed member name");
     }
-    if methods.iter().chain(static_methods.iter()).any(|m| {
+    if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract
             || m.accessor_kind.is_some()
             || m.visibility != Visibility::Public
             || m.name.starts_with("__")
     }) {
-        return false;
+        return Some(if m.accessor_kind.is_some() {
+            "it has a getter or a setter"
+        } else if m.is_abstract {
+            "it has an abstract method"
+        } else if m.visibility != Visibility::Public {
+            "it has a private or protected member"
+        } else {
+            "it has a generator or otherwise compiler-rewritten method"
+        });
     }
     // A static method saying `this` means the class object, and
     // reaching it through `K.s = function () { … this … }` needs the
     // receiver channel that only an object receiver arranges today —
     // the store promotes, but the binding on the left is a function
-    // value, and the body's `this` stays an unbound capture. Loud
-    // either way, so the shape keeps the message it already had.
+    // value, and the body's `this` stays an unbound capture.
     if static_methods.iter().any(|m| body_says_this(ast, &m.body)) {
-        return false;
+        return Some("a static method in it uses `this`");
     }
     // A body naming a compiler-minted global is not ordinary user
     // nesting: `__cm_gen_<C>__<m>` is the top-level generator method
@@ -152,15 +200,18 @@ fn routes(ast: &Ast, s: &Stmt) -> bool {
             .iter()
             .any(|n| n.starts_with("__"))
     };
-    if let Some(c) = ctor
-        && synthetic_free(&c.params, &c.body)
+    let ctor_synthetic = ctor
+        .as_ref()
+        .is_some_and(|c| synthetic_free(&c.params, &c.body));
+    if ctor_synthetic
+        || methods
+            .iter()
+            .chain(static_methods.iter())
+            .any(|m| synthetic_free(&m.params, &m.body))
     {
-        return false;
+        return Some("a body in it names something the compiler minted");
     }
-    !methods
-        .iter()
-        .chain(static_methods.iter())
-        .any(|m| synthetic_free(&m.params, &m.body))
+    None
 }
 
 /// Does anything in `body` say `this`? A nested `function` expression

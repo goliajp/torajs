@@ -211,14 +211,14 @@ impl Checker {
                 // [`crate::check_stmt_return::check`].
                 crate::check_stmt_return::check(self, ast, *maybe_expr);
             }
-            // M5.1 — desugar_classes runs before check, so by the time we
-            // walk the AST every ClassDecl has been split into a TypeDecl
-            // + a series of FnDecls. Reaching here means the desugar pass
-            // missed something — treat as an internal-error panic instead
-            // of producing a bogus "type error".
-            Stmt::ClassDecl { name, .. } => {
-                panic!("internal: ClassDecl `{name}` reached check.rs (desugar didn't run?)");
-            }
+            // M5.1 — every ClassDecl is split into a TypeDecl + a series
+            // of FnDecls before check. One shape reaches here BY DESIGN
+            // (a nested class reading an outer local), so the wording is
+            // composed where that shape is decided.
+            Stmt::ClassDecl { .. } => panic!(
+                "{}",
+                crate::ast::capturing_classes::unclaimed_class_message(ast, stmt)
+            ),
             Stmt::ImportDecl { .. } => {
                 // K.1 single-file mode: import is parse-only, no
                 // semantic effect. K.2 will add the cross-file symbol
