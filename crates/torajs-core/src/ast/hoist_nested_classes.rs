@@ -54,18 +54,25 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
     ast.stmts = stmts;
 
     // Fn-expression / arrow bodies live in the expr arena. Nested
-    // arrows are separate arena entries, so this flat loop covers
-    // arbitrarily deep nesting. The pass adds no exprs, so the
-    // length is stable.
-    for i in 0..ast.exprs.len() {
+    // arrows are separate arena entries, so this flat scan covers
+    // arbitrarily deep nesting. The arena GROWS while it runs: the
+    // capturing-class lane turns a class body into function
+    // expressions, and those bodies are themselves scan sites — hence
+    // a length re-read per step rather than a fixed range.
+    let mut i = 0;
+    while i < ast.exprs.len() {
         let mut body = match &mut ast.exprs[i] {
             Expr::ArrowFn { body, .. } => std::mem::take(body),
-            _ => continue,
+            _ => {
+                i += 1;
+                continue;
+            }
         };
         walk_container(ast, &mut body, &mut top_names, &mut hoisted, &mut counter);
         if let Expr::ArrowFn { body: b, .. } = &mut ast.exprs[i] {
             *b = body;
         }
+        i += 1;
     }
 
     ast.stmts.extend(hoisted);
@@ -110,6 +117,11 @@ fn walk_container(
             continue;
         }
         if !class_is_capture_free(ast, &stmts[idx], top_names) {
+            // The other half: a class that DOES read an outer local
+            // cannot be lifted, and takes the runtime-value lane
+            // instead (RFC 20260814-capturing-nested-class). Whatever
+            // that lane declines stays here and stays loud.
+            super::capturing_classes::try_rewrite_capturing_class(ast, &mut stmts[idx]);
             continue;
         }
         let old_name = match &stmts[idx] {
