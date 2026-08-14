@@ -102,27 +102,7 @@ pub(crate) fn try_lower_with_this(
     // skip), so a direct call re-inserts the slot with a boxed
     // `undefined` (strict-mode call-site `this`, §10.2.1.2).
     let needs_this = ctx.ast.fnexpr_recv_locals.contains(callee_name);
-    // 398-06 knife 2 — a whole-program fact kills the gate: with no
-    // promoted closure anywhere (`fnexpr_recv_fns` empty) the header
-    // flag can never be set, so the receiverless call keeps the
-    // single-path emit byte-for-byte. Load-bearing beyond cost: the
-    // egraph self-tail-call rewrite matches the EXACT single-call
-    // shape, and gating a self-recursive named fn expression broke
-    // the match — 1M-deep recursion ran on the real stack
-    // (tco-self-001, exit 139).
-    // 403-02 — per-binding narrowing on top of the whole-program
-    // kill: when the resolved callee slot IS the enclosing named
-    // fn-expression's self slot (§15.5.5 pin; slot identity is
-    // shadow-immune — a same-named param / re-declared local
-    // resolves elsewhere) and the enclosing closure is not promoted,
-    // the header flag can never be set on this value. The
-    // self-recursive call keeps the single-path emit the egraph
-    // self-tail-call rewrite matches, so a program that ALSO has
-    // promoted closures elsewhere no longer loses TCO here (the
-    // `ac0c7452` kill only saved promoted-free programs).
-    let unpromoted_self =
-        ctx.self_name_slot == Some(info.slot) && !ctx.ast.fnexpr_recv_fns.contains(&ctx.f.name);
-    let gate_reachable = !ctx.ast.fnexpr_recv_fns.is_empty() && !unpromoted_self;
+    let gate_reachable = recv_gate_reachable(ctx, info.slot);
 
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
     let mut env_first_params = Vec::with_capacity(user_params.len() + 3);
@@ -309,6 +289,32 @@ fn emit_static_indirect_call(
 
 fn global_argv_face_binding(ctx: &LowerCtx<'_>, callee_name: &str) -> bool {
     !ctx.locals.contains_key(callee_name) && ctx.ast.closure_argv_locals.contains(callee_name)
+}
+
+/// Is the runtime recv gate reachable for a callee resolved to
+/// `callee_slot`? Two kills, both proofs the header flag can never
+/// be set on this value:
+///
+/// 398-06 knife 2 — the whole-program fact: with no promoted closure
+/// anywhere (`fnexpr_recv_fns` empty) the flag has no setter, so the
+/// receiverless call keeps the single-path emit byte-for-byte.
+/// Load-bearing beyond cost: the egraph self-tail-call rewrite
+/// matches the EXACT single-call shape, and gating a self-recursive
+/// named fn expression broke the match — 1M-deep recursion ran on
+/// the real stack (tco-self-001, exit 139).
+///
+/// 403-02 — the per-binding narrowing on top: when the resolved
+/// callee slot IS the enclosing named fn-expression's self slot
+/// (§15.5.5 pin; slot identity is shadow-immune — a same-named param
+/// / re-declared local resolves elsewhere) and the enclosing closure
+/// is not promoted, the value is compile-time pinned to an ungated
+/// closure. A program that ALSO has promoted closures elsewhere no
+/// longer loses TCO on its self-recursion (the `ac0c7452` kill only
+/// saved promoted-free programs).
+fn recv_gate_reachable(ctx: &LowerCtx<'_>, callee_slot: crate::ssa::ValueId) -> bool {
+    let unpromoted_self =
+        ctx.self_name_slot == Some(callee_slot) && !ctx.ast.fnexpr_recv_fns.contains(&ctx.f.name);
+    !ctx.ast.fnexpr_recv_fns.is_empty() && !unpromoted_self
 }
 
 pub(crate) fn resolve_closure_binding(
