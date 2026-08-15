@@ -348,6 +348,20 @@ pub(crate) fn process_one_generic(
         // (mono_decls append behind everything).
         generic_fn_names.extend(closure_rename.keys().cloned());
         mono_decls.push(spec_decl);
+        // vtable completeness — a `__new_<C>` instantiation queues
+        // the class's chain-method specializations under the same
+        // suffix (sibling module doc has the full rationale).
+        crate::check_monomorph_vtable_seed::seed_class_chain_methods(
+            owned_ast,
+            generics,
+            cache,
+            worklist,
+            &name,
+            type_params.len(),
+            &spec_suffix,
+            &arg_anns,
+            &type_args,
+        );
     }
 }
 
