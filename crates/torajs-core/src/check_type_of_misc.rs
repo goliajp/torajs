@@ -187,7 +187,17 @@ pub(crate) fn check_delete(
             )?;
             let obj_ty = checker.type_of(ast, *obj)?;
             let idx_ty = checker.type_of(ast, *index)?;
-            if !receiver_admits_delete(&obj_ty) {
+            // The Index spelling of the typed-array NAMED admit
+            // (rotation 410, Member-arm mirror): a string-literal key
+            // that is not a canonical numeric string never names an
+            // element slot, so the hole argument does not gate it —
+            // `arr["length"]` is `arr.length` in brackets. A numeric
+            // spelling (or any non-literal key, which could be one at
+            // run time) keeps the element refusal.
+            let named_literal_key = matches!(&obj_ty, Type::Array(_))
+                && matches!(ast.get_expr(*index), crate::ast::Expr::String(s)
+                    if !s.bytes().all(|b| b.is_ascii_digit()) || s.is_empty());
+            if !receiver_admits_delete(&obj_ty) && !named_literal_key {
                 return Err(delete_receiver_error(&obj_ty));
             }
             // §6.1.7 — a Symbol is the other half of the property-key
