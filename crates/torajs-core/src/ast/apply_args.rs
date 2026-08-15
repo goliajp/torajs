@@ -364,6 +364,11 @@ pub fn apply_default_args(ast: &mut Ast) {
                 _ => unreachable!(),
             };
             if let Some(new_args) = defaulted_args(ast, &args, &defaults) {
+                // Keep the source-written count: the hidden argc slot
+                // the head-less tier fills reads the arg list, which
+                // this rewrite is about to lengthen (see the field
+                // doc on `Ast::default_padded_argc`).
+                ast.default_padded_argc.insert(ExprId(i as u32), args.len());
                 ast.exprs[i] = Expr::Call {
                     callee,
                     args: new_args,

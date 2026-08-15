@@ -148,7 +148,16 @@ pub(crate) fn emit(
     // readers until H2 retires that prepend, which also removes the
     // extra arg and makes this count the true user argc).
     if hidden_off == 1 {
-        let argc_op = forwarded_argc(ctx, callee).unwrap_or(Operand::ConstI64(args.len() as i64));
+        // …minus the trailing slots `apply_default_args` materialized
+        // from the callee's declared defaults: those are the callee's
+        // own values, not arguments the program passed.
+        let user_argc = ctx
+            .ast
+            .default_padded_argc
+            .get(&eid)
+            .copied()
+            .unwrap_or(args.len());
+        let argc_op = forwarded_argc(ctx, callee).unwrap_or(Operand::ConstI64(user_argc as i64));
         argv.insert(0, argc_op);
     }
     let ret_ty = ctx.f_ret_type_hint(target);

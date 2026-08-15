@@ -620,6 +620,15 @@ pub struct Ast {
     /// the family needs this side table where the env/this tiers key
     /// on param names.
     pub headless_argc_fns: std::collections::HashSet<String>,
+    /// Call ExprId → the argument count the SOURCE wrote, for calls
+    /// `apply_default_args` padded with the callee's declared
+    /// defaults. The pad rewrites the arena node, so by lowering
+    /// time the arg list no longer says how many arguments the
+    /// program passed — and the head-less tier's hidden argc slot is
+    /// filled from exactly that count, which made `a1()` on
+    /// `function a1(x?: number)` answer `arguments.length === 1`.
+    /// The face collectors are unaffected (they run before the pad).
+    pub default_padded_argc: std::collections::HashMap<ExprId, usize>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a

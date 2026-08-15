@@ -436,6 +436,19 @@ pub(crate) fn clone_spec_body(
         })
         .collect();
     owned_ast.ary_destr_groups.extend(cloned_groups);
+    // The default-pad's true-argc record rides the clone too — a
+    // padded call inside a generic body is copied verbatim, and the
+    // fresh ExprId would otherwise fall back to the padded length.
+    let cloned_argc: Vec<(ExprId, usize)> = id_map
+        .iter()
+        .filter_map(|&(old, new)| {
+            owned_ast
+                .default_padded_argc
+                .get(&old)
+                .map(|&argc| (new, argc))
+        })
+        .collect();
+    owned_ast.default_padded_argc.extend(cloned_argc);
     for s in new_body.iter_mut() {
         substitute_in_stmt(s, subst);
     }
