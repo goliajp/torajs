@@ -205,6 +205,10 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     // supplies a receiver for, and gets the plain-call answer.
     ast::bind_fnexpr_this_default(ast);
     ast::apply_default_args(ast);
+    // After the arguments/default passes (their side-tables gate the
+    // wrap), before the static expanders (whose declined spread
+    // shapes it takes) — see the pass's module doc.
+    ast::wrap_dynamic_spread_callees(ast);
     ast::apply_rest_args(ast);
     ast::apply_spread_args(ast);
     ast::fold_fromentries(ast);

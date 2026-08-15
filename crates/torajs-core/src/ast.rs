@@ -145,6 +145,7 @@ mod sfi_pass;
 mod sfi_rewrite;
 mod sfi_safe;
 pub(crate) mod sloppy_this_prologue;
+mod spread_callee_wrap;
 mod stmt;
 mod stmt_flat;
 pub(crate) mod stmt_nested_lists;
@@ -213,6 +214,7 @@ pub use ns_alias::desugar_ns_alias_members;
 pub use prop_key::{literal_prop_key, number_prop_key};
 pub use prototype_call::desugar_prototype_call;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
+pub use spread_callee_wrap::wrap_dynamic_spread_callees;
 pub use stmt::{
     AccessorKind, ClassCtor, ClassMethod, StaticField, StaticInit, Stmt, SwitchCase, Visibility,
 };

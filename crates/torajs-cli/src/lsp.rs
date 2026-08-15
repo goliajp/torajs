@@ -256,6 +256,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::escape_analyze_array_literals(&mut ast);
         torajs_core::ast::desugar_implicit_generics(&mut ast);
         torajs_core::ast::apply_default_args(&mut ast);
+        torajs_core::ast::wrap_dynamic_spread_callees(&mut ast);
         torajs_core::ast::apply_rest_args(&mut ast);
         torajs_core::ast::apply_spread_args(&mut ast);
         torajs_core::ast::fold_fromentries(&mut ast);
