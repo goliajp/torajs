@@ -31,6 +31,7 @@ pub(crate) use arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
 pub(crate) mod arguments_object_escape_store;
+mod build_factory;
 pub(crate) mod capturing_classes;
 mod class_globals;
 mod class_globals_register;
@@ -162,6 +163,7 @@ pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_rest_args::apply_rest_args;
 pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
+pub(crate) use build_factory::build_factory_body;
 pub use class_globals::synthesize_class_globals;
 pub(crate) use closure_capture_anns::{SiteAnns, collect_closure_capture_anns};
 pub(crate) use closure_capture_anns_outer::collect_outer_binds;
@@ -202,8 +204,8 @@ pub use inject_builtin_classes::inject_builtin_classes;
 pub use inject_disposable_stack::inject_disposable_stack;
 pub use lift_arrow_fns::lift_arrow_fns;
 pub(crate) use lift_arrow_fns::{
-    build_factory_body, default_init_for_field, default_init_for_type, is_fn_arr_ann,
-    is_fn_like_ann, method_owner_is_in_chain, retag_field_fn_ann, rewrite_this_in_ann,
+    default_init_for_field, default_init_for_type, is_fn_arr_ann, is_fn_like_ann,
+    method_owner_is_in_chain, retag_field_fn_ann, rewrite_this_in_ann,
 };
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
 pub(crate) use named_eval::collect_named_eval_positions;

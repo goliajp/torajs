@@ -110,12 +110,23 @@ pub(super) fn synthesize_derived_default_ctors(
             continue;
         }
         let params = found.unwrap_or_default();
-        if params.iter().any(|p| p.is_rest) {
-            continue;
-        }
         let args: Vec<ExprId> = params
             .iter()
-            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+            .map(|p| {
+                let pid = ast.add_expr(Expr::Ident(p.name.clone()));
+                // A rest param forwards as a SPREAD (the same
+                // double-wrap story as build_factory_body's ctor
+                // relay): `super(a)` against a rest-tailed ancestor
+                // would re-pack into `super([a])`. Pre-fix this
+                // shape was skipped outright, which left the derived
+                // default ctor without its super call — the base
+                // initializers silently never ran.
+                if p.is_rest {
+                    ast.add_expr(Expr::Spread { expr: pid })
+                } else {
+                    pid
+                }
+            })
             .collect();
         let super_eid = ast.add_expr(Expr::Super { args });
         match ctor {
