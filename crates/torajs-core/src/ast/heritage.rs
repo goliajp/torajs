@@ -32,9 +32,10 @@ impl Ast {
     /// + `P.call(this, …)`).
     ///
     /// `extends null` (§15.7: legal, [[Prototype]] chain null, no
-    /// super) is NOT extracted — the lane's `Object.create(P.prototype)`
-    /// read would throw the wrong error; it stays on the loud
-    /// EXPR_HERITAGE_REASON refusal until it gets its own shape.
+    /// super) extracts too since rotation 410 — the minted name joins
+    /// `es5_null_parents`, and the lane's proto link reads that set to
+    /// emit `Object.create(null)` and skip the class-side
+    /// `setPrototypeOf` (the class object keeps %Function.prototype%).
     pub(in crate::ast) fn extract_value_heritage(&mut self) {
         // A bare-Ident heritage naming NO class declaration and no
         // subclassable builtin is a VALUE binding (`{ let B = Real;
@@ -148,9 +149,14 @@ fn extract_one(
         return None;
     };
     let pid = (*parent)?;
+    let mut is_null = false;
     match ast.get_expr(pid) {
-        // `extends null` keeps its loud refusal (see the method doc).
-        Expr::Null => return None,
+        // `extends null` (§15.7: legal) extracts too — the minted
+        // binding rides the value lane like any heritage expression,
+        // and `es5_null_parents` tells the proto link to spell
+        // `Object.create(null)` (reading `null.prototype` would throw
+        // at class-definition time, which the spec does not).
+        Expr::Null => is_null = true,
         // A NAMED heritage stays put when the name means something to a
         // static path: a class declaration (the static/capturing name
         // lanes), a subclassable builtin (`strip_builtin_heritage`
@@ -173,6 +179,9 @@ fn extract_one(
     let alias = ast.add_expr(Expr::Ident(name.clone()));
     *parent = Some(alias);
     ast.es5_value_parents.insert(name.clone());
+    if is_null {
+        ast.es5_null_parents.insert(name.clone());
+    }
     Some(Stmt::LetDecl {
         mutable: false,
         name,

@@ -275,6 +275,10 @@ pub(super) fn proto_chain_stmts(
     parent: &str,
     out: &mut Vec<Stmt>,
 ) {
+    // `extends null` (rotation 410): the prototype's [[Prototype]] is
+    // null itself — reading `P.prototype` off the null binding would
+    // throw at class-definition time, which §15.7.14 does not.
+    let null_parent = ast.es5_null_parents.contains(parent);
     let d = ast.add_expr(Expr::Ident(class_binding.to_string()));
     let target = ast.add_expr(Expr::Member {
         obj: d,
@@ -285,14 +289,18 @@ pub(super) fn proto_chain_stmts(
         obj: object,
         name: "create".to_string(),
     });
-    let p = ast.add_expr(Expr::Ident(parent.to_string()));
-    let pproto = ast.add_expr(Expr::Member {
-        obj: p,
-        name: "prototype".to_string(),
-    });
+    let create_arg = if null_parent {
+        ast.add_expr(Expr::Null)
+    } else {
+        let p = ast.add_expr(Expr::Ident(parent.to_string()));
+        ast.add_expr(Expr::Member {
+            obj: p,
+            name: "prototype".to_string(),
+        })
+    };
     let value = ast.add_expr(Expr::Call {
         callee: create,
-        args: vec![pproto],
+        args: vec![create_arg],
     });
     out.push(Stmt::Expr(ast.add_expr(Expr::Assign { target, value })));
 
@@ -302,17 +310,21 @@ pub(super) fn proto_chain_stmts(
     // value's user [[Prototype]] chain, and a static added to `P`
     // after this line still flows down. Both argument positions are
     // receiver-safe use shapes (`define_property_target_idents`).
-    let object = ast.add_expr(Expr::Ident("Object".to_string()));
-    let spo = ast.add_expr(Expr::Member {
-        obj: object,
-        name: "setPrototypeOf".to_string(),
-    });
-    let d = ast.add_expr(Expr::Ident(class_binding.to_string()));
-    let p = ast.add_expr(Expr::Ident(parent.to_string()));
-    out.push(Stmt::Expr(ast.add_expr(Expr::Call {
-        callee: spo,
-        args: vec![d, p],
-    })));
+    // A null heritage skips the link: step 7's protoParent-null arm
+    // keeps constructorParent = %Function.prototype%.
+    if !null_parent {
+        let object = ast.add_expr(Expr::Ident("Object".to_string()));
+        let spo = ast.add_expr(Expr::Member {
+            obj: object,
+            name: "setPrototypeOf".to_string(),
+        });
+        let d = ast.add_expr(Expr::Ident(class_binding.to_string()));
+        let p = ast.add_expr(Expr::Ident(parent.to_string()));
+        out.push(Stmt::Expr(ast.add_expr(Expr::Call {
+            callee: spo,
+            args: vec![d, p],
+        })));
+    }
 
     let d = ast.add_expr(Expr::Ident(class_binding.to_string()));
     let recv = ast.add_expr(Expr::Member {

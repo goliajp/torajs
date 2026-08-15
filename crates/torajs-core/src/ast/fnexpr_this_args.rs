@@ -153,6 +153,12 @@ pub(super) fn instanceof_name_idents(exprs: &[Expr]) -> std::collections::HashSe
 /// slot — neither argument is ever invoked. This is the class-side
 /// static-inheritance statement the extends lane mints, and both
 /// spellings in it are lane bindings.
+///
+/// `Object.getPrototypeOf(O)` joins (rotation 410): §20.1.2.12 is a
+/// single internal-slot read — the argument is never invoked. First
+/// surfaced by `Object.getPrototypeOf(K)` on a value-shaped-parent
+/// class binding, which refuted the implicit ctor's promotion and
+/// left its `__this` capture unbound.
 pub(super) fn define_property_target_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
     exprs
         .iter()
@@ -171,6 +177,7 @@ pub(super) fn define_property_target_idents(exprs: &[Expr]) -> std::collections:
                     args.first().copied().into_iter().collect()
                 }
                 "setPrototypeOf" => args.iter().take(2).copied().collect(),
+                "getPrototypeOf" => args.first().copied().into_iter().collect(),
                 _ => Vec::new(),
             }
         })

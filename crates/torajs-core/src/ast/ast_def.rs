@@ -456,6 +456,14 @@ pub struct Ast {
     /// §10.3.1's TypeError loudly (the runtime ctor-twin dispatch is
     /// knife 2b). Filled by `extract_value_heritage`.
     pub es5_value_parents: std::collections::HashSet<String>,
+    /// Rotation 410 — the subset of [`Self::es5_value_parents`] whose
+    /// heritage was the literal `null` (§15.7: legal; the class
+    /// object's own [[Prototype]] stays %Function.prototype%, its
+    /// `prototype`'s is null, and `super(…)` / the implicit ctor
+    /// throw at `new` time). The lane's proto link reads this to
+    /// emit `Object.create(null)` instead of `Object.create(
+    /// P.prototype)` and to skip the class-side `setPrototypeOf`.
+    pub es5_null_parents: std::collections::HashSet<String>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the
