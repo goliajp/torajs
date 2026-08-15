@@ -92,12 +92,18 @@ impl Parser<'_> {
                 // to silently accepted. Deciding it here is both the
                 // spec phase and the only reading that no downstream
                 // typing can erase.
+                // An EMPTY stack is the same error, not an exemption:
+                // §13.1 AllPrivateNamesValid holds no private names at
+                // all outside every class, and the one real producer of
+                // class-free sites is a class HERITAGE (parsed in the
+                // outer private environment since rotation 409 —
+                // `class C extends function () { this.#foo } {}` must
+                // die at parse; the branch used to skip these and the
+                // program evaluated).
                 None => {
-                    if !stack.is_empty() {
-                        return Err(format!(
-                            "private name `#{raw}` is not declared in any enclosing class"
-                        ));
-                    }
+                    return Err(format!(
+                        "private name `#{raw}` is not declared in any enclosing class"
+                    ));
                 }
             }
         }

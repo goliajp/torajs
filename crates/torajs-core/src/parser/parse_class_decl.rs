@@ -47,6 +47,18 @@ impl<'a> Parser<'a> {
         // it at their own parse sites; arrows inherit. Restored with
         // `current_class` below (error paths skip, same rationale).
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
+        // Optional generic type params: `class Map<K, V> { ... }`.
+        let type_params = self.parse_class_type_params()?;
+        // The heritage parses BEFORE this class's private scope opens:
+        // §15.7.14 evaluates ClassHeritage in the class-OUTER private
+        // environment, so `class C extends (obj.#x) {}` resolves `#x`
+        // against the enclosing class (or fails the early error), never
+        // against C's own names. The test262 early-error family
+        // grammar-private-environment-on-class-heritage-* pins this —
+        // parsing the heritage inside the pushed scope silently claimed
+        // those references for C (rotation 409, surfaced when the
+        // heritage widened from a bare name to an expression).
+        let parent = self.parse_class_heritage()?;
         // Private-name lexical scope for this body (ES §15.7 — nested
         // classes see outer `#x` names, an inner redeclaration
         // shadows). Declarations fill the set as members parse;
@@ -57,9 +69,6 @@ impl<'a> Parser<'a> {
             .class_private_scopes
             .push((name.clone(), std::collections::HashSet::new()));
         self.class_stack.push(scope_id);
-        // Optional generic type params: `class Map<K, V> { ... }`.
-        let type_params = self.parse_class_type_params()?;
-        let parent = self.parse_class_heritage()?;
         // The generator-method branch keys its `super` rewrites on the
         // statically-known parent NAME; a non-Ident heritage answers
         // None there, same as no heritage (those classes are routed to

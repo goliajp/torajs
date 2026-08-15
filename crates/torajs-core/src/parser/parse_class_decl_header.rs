@@ -134,6 +134,42 @@ impl<'a> Parser<'a> {
         // level like every other LHS position.
         let parent: Option<ExprId> = if matches!(self.peek(), Token::Extends) {
             self.pos += 1;
+            // §15.7 ClassHeritage is a LeftHandSideExpression — a BARE
+            // arrow (async included) is an AssignmentExpression and a
+            // SyntaxError here; a parenthesized one is a
+            // PrimaryExpression and fine. `is_arrow_fn_at_lparen` scans
+            // to the MATCHING `)`, so `((o) => {})` answers false (the
+            // outer close is followed by the class-body `{`). The
+            // test262 class-heritage-*-arrow-heritage early errors pin
+            // the phase: parse, not evaluation.
+            let bare_arrow = match self.peek() {
+                Token::LParen => self.is_arrow_fn_at_lparen(),
+                Token::Ident(_) => matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.token),
+                    Some(Token::FatArrow)
+                ),
+                // `async` is its own token, never an Ident.
+                Token::Async => {
+                    let saved = self.pos;
+                    self.pos += 1;
+                    let is = (matches!(self.peek(), Token::LParen) && self.is_arrow_fn_at_lparen())
+                        || (matches!(self.peek(), Token::Ident(_))
+                            && matches!(
+                                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                                Some(Token::FatArrow)
+                            ));
+                    self.pos = saved;
+                    is
+                }
+                _ => false,
+            };
+            if bare_arrow {
+                return Err(format!(
+                    "class heritage is a LeftHandSideExpression; a bare arrow \
+                     function is not allowed here (at {})",
+                    self.at()
+                ));
+            }
             let rhs = self.parse_postfix()?;
             // P8.5 — a bare-name heritage over a class-expression
             // binding (`var A = class {}`) is a class VALUE under a
