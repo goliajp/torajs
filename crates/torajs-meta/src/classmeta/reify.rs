@@ -52,26 +52,32 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             if name.starts_with(b"__ccm_") {
                 continue;
             }
-            // 404-01 — bit 1 marks a twin-primary record (GENERIC
-            // class row): its adapter is recv-first-shaped, and the
-            // cell machinery here calls env-slot. Reifying it would
-            // mint a face that feeds `this` off the first argument —
-            // skip, keeping the honest miss (recorded residue: the
-            // reified prototype face of a generic class).
-            if __torajs_struct_method_flags_at(layout, i) & 2 != 0 {
-                continue;
-            }
             // S2.38 — bit 0 of the MethodMeta flags word marks a
             // receiver-free body; the face runs bare calls with a
             // null receiver instead of the this-undefined TypeError.
-            let this_free = u64::from(__torajs_struct_method_flags_at(layout, i) & 1);
+            let flags = __torajs_struct_method_flags_at(layout, i);
+            let this_free = u64::from(flags & 1);
             // Blade 3 — the face carries its owning class tag + the
             // `__cmany_` twin adapter so a re-bound receiver routes
             // through the any-lane body instead of the mono's baked
             // offsets (invoke_with_this's guard).
-            let twin = __torajs_struct_method_twin_at(layout, i);
-            let cell =
-                __torajs_class_method_cell_new(adapter as u64, this_free, tag as u64, twin as u64);
+            //
+            // 405-04 — bit 1 marks a twin-primary record (GENERIC
+            // class row): its adapter IS the receiver-polymorphic
+            // `__cmany_` twin (recv-first calling convention — the
+            // receiver rides argv[0], the env argument is dropped).
+            // Mint the face with the STATIC-face encoding `(tag 0,
+            // twin = adapter)`: every dispatch consumer routes that
+            // pair through invoke_boxed_recv_first and never the env
+            // channel, so the face is sound under every receiver.
+            // (Pre-405-04 these rows were skipped — the env-channel
+            // mint would have fed `this` off the first argument.)
+            let (cell_tag, twin) = if flags & 2 != 0 {
+                (0u64, adapter as u64)
+            } else {
+                (tag as u64, __torajs_struct_method_twin_at(layout, i) as u64)
+            };
+            let cell = __torajs_class_method_cell_new(adapter as u64, this_free, cell_tag, twin);
             let key = alloc_str_key(name);
             // The minted cell is FLAG_STATIC_LITERAL (rc no-op) — the
             // define's transferred stake is the entry's sole handle.
