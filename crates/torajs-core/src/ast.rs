@@ -87,6 +87,7 @@ mod fnexpr_bind_this;
 pub(crate) mod fnexpr_this;
 mod fnexpr_this_alias;
 pub(crate) mod fnexpr_this_args;
+mod fnexpr_this_args_valueops;
 pub(crate) mod fnexpr_this_cb_slots;
 mod fnexpr_this_default;
 mod fnexpr_this_default_alias;

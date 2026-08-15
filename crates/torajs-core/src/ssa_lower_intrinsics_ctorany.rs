@@ -17,6 +17,7 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct CtoranyIds {
     pub ctorany_register: FuncId,
     pub super_call_value: FuncId,
+    pub heritage_check: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> CtoranyIds {
@@ -34,6 +35,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_anyv_super_call",
             &[Type::Any, Type::Any, Type::Any],
             Type::Any,
+        ),
+        heritage_check: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_heritage_check",
+            &[Type::Any],
+            Type::Void,
         ),
     }
 }

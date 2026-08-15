@@ -337,6 +337,22 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     own.sort_unstable();
     own.dedup();
     let mut out: Vec<Stmt> = Vec::new();
+    // §15.7.14 step 5 (rotation 410) — a value-shaped heritage is
+    // gated at class-definition time, BEFORE any member key
+    // evaluates: null passed statically (`es5_null_parents` — a
+    // legal shape of its own), everything else asks the runtime
+    // kernel whether the value is a constructor.
+    if let Some(p) = &parent
+        && ast.es5_value_parents.contains(p)
+        && !ast.es5_null_parents.contains(p)
+    {
+        let callee = ast.add_expr(Expr::Ident("__torajs_heritage_check".to_string()));
+        let pv = ast.add_expr(Expr::Ident(p.clone()));
+        out.push(Stmt::Expr(ast.add_expr(Expr::Call {
+            callee,
+            args: vec![pv],
+        })));
+    }
     for (n, key) in keys_of(ast, src_name, &own) {
         let key_any = ast.add_expr(Expr::As {
             expr: key,

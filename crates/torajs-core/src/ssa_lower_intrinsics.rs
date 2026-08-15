@@ -579,6 +579,7 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_to_callable_cell: FuncId,
     pub(crate) ctorany_register: FuncId,
     pub(crate) super_call_value: FuncId,
+    pub(crate) heritage_check: FuncId,
     pub(crate) any_method_call: FuncId,
     pub(crate) any_method_call_opt: FuncId,
     pub(crate) any_index_method_call: FuncId,

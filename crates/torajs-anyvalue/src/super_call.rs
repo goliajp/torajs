@@ -35,7 +35,7 @@ use torajs_rc::{FLAG_DYNOBJ_CLASS_CTOR, HeapHeader, Tag};
 use crate::construct::mix;
 use crate::method_call::MAX_BOXED_ARGS;
 use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_boxed, invoke_with_this};
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
+use crate::nanbox::{AnyValue, VALUE_NULL, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
 unsafe extern "C" {
@@ -89,6 +89,42 @@ fn ctorany_entry(key: u64) -> u64 {
         i = (i + 1) & (CTORANY_SLOTS - 1);
     }
     0
+}
+
+/// §15.7.14 ClassDefinitionEvaluation step 5 — the class-definition-
+/// time heritage gate the capturing lane emits before a value-shaped
+/// parent's constructor binding: `null` passes (protoParent null is a
+/// legal shape of its own), a class object or a plain-`function` form
+/// passes (the only two constructor kinds this runtime mints —
+/// `FLAG_FN_PROTO` is the MakeConstructor mark, so arrows / async
+/// forms / methods / generator steps all lack it), and anything else
+/// records the spec's TypeError (JSC's spelling, which bun surfaces).
+///
+/// # Safety
+/// `parent` is a live AnyValue; borrowed for the check.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_heritage_check(parent: AnyValue) {
+    if parent == VALUE_NULL {
+        return;
+    }
+    if is_cell(parent) {
+        let cell = as_void_ptr(parent);
+        if !cell.is_null() {
+            // SAFETY: a live cell's header is its first HeapHeader
+            // bytes.
+            let hdr = unsafe { &*(cell as *const HeapHeader) };
+            let class_ctor =
+                hdr.type_tag == Tag::DynObj as u16 && hdr.flags & FLAG_DYNOBJ_CLASS_CTOR != 0;
+            let plain_fn =
+                hdr.type_tag == Tag::Closure as u16 && hdr.flags & torajs_rc::FLAG_FN_PROTO != 0;
+            if class_ctor || plain_fn {
+                return;
+            }
+        }
+    }
+    unsafe {
+        __torajs_throw_type_error(c"The superclass is not a constructor.".as_ptr());
+    }
 }
 
 /// `super(…args)` against a runtime parent value, `this` already

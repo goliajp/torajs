@@ -498,6 +498,7 @@ pub(crate) fn build(
         anyv_to_callable_cell: init_c.recv_gate.anyv_to_callable_cell,
         ctorany_register: init_c.ctorany.ctorany_register,
         super_call_value: init_c.ctorany.super_call_value,
+        heritage_check: init_c.ctorany.heritage_check,
         any_method_call: init_c.any_substrate.any_method_call,
         any_method_call_opt: init_c.any_substrate.any_method_call_opt,
         any_index_method_call: init_c.any_substrate.any_index_method_call,

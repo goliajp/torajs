@@ -23,6 +23,37 @@ pub(crate) fn try_lower(
     let Expr::Ident(n) = ctx.ast.get_expr(callee) else {
         return None;
     };
+    // `__torajs_heritage_check(P)` (rotation 410) — same synthetic
+    // family, one boxed operand, void kernel; the throw check
+    // surfaces §15.7.14 step 5's TypeError at definition time.
+    if n == "__torajs_heritage_check" && args.len() == 1 {
+        let raw = ctx.lower_expr(args[0]);
+        let (op, boxed) = if ctx.operand_ty(&raw) == Type::Any {
+            (raw, None)
+        } else {
+            // Same three-shape ownership rule as the dispatch below:
+            // a borrow-shape source takes a +1 before boxing, and the
+            // boxed temp is released after the kernel returns.
+            if matches!(
+                ctx.ast.get_expr(args[0]),
+                Expr::Ident(_) | Expr::Member { .. }
+            ) && ctx.operand_ty(&raw).is_refcounted()
+            {
+                ctx.emit_rc_inc(raw.clone());
+            }
+            let b = ctx.box_to_any_from_expr(args[0], raw);
+            (b.clone(), Some(b))
+        };
+        let cur_block = ctx.cur_block;
+        let kernel = ctx.intrinsics.heritage_check;
+        ctx.f
+            .append_void(cur_block, InstKind::Call(kernel, vec![op]));
+        if let Some(b) = boxed {
+            ctx.emit_drop_value(b, Type::Any);
+        }
+        ctx.emit_throw_check(None);
+        return Some(Operand::ConstPtrNull);
+    }
     if n != "__torajs_super_value" || args.len() != 3 {
         return None;
     }
