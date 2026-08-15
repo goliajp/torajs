@@ -496,6 +496,7 @@ pub(crate) struct Intrinsics {
     pub(crate) set_subclass_super: FuncId,
     pub(crate) promise_subclass_super: FuncId,
     pub(crate) regex_subclass_super: FuncId,
+    pub(crate) regex_subclass_super_flags: FuncId,
     pub(crate) string_wrapper_subclass_super: FuncId,
     pub(crate) boolean_wrapper_subclass_super: FuncId,
     pub(crate) genfn_proto: FuncId,

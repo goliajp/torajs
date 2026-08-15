@@ -69,6 +69,10 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
             let f = ctx.intrinsics.regex_subclass_super;
             lower_super_one_arg(ctx, args, f)
         }
+        "__torajs_regex_subclass_super_flags" => {
+            let f = ctx.intrinsics.regex_subclass_super_flags;
+            lower_super_two_args(ctx, args, f)
+        }
         "__torajs_weakmap_subclass_alloc_self" => {
             let f = ctx.intrinsics.weakmap_subclass_alloc;
             lower_alloc_self(ctx, args, f, false)
@@ -161,16 +165,34 @@ fn lower_super_one_arg(ctx: &mut LowerCtx<'_>, args: &[ExprId], kernel: FuncId) 
     if args.len() != 2 {
         return None;
     }
-    let this_raw = ctx.lower_expr(args[0]);
-    let this_op = ctx.box_to_any_from_expr(args[0], this_raw);
-    let val_raw = ctx.lower_expr(args[1]);
-    let val_op = ctx.box_to_any_from_expr(args[1], val_raw);
+    lower_super_boxed(ctx, args, kernel)
+}
+
+/// Ctor-side two-operand `super(a, b)` — RegExp's §22.2.4.1
+/// `(pattern, flags)` form; every operand any-world.
+fn lower_super_two_args(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    kernel: FuncId,
+) -> Option<Operand> {
+    if args.len() != 3 {
+        return None;
+    }
+    lower_super_boxed(ctx, args, kernel)
+}
+
+/// Box every operand (receiver first) and call the kernel.
+fn lower_super_boxed(ctx: &mut LowerCtx<'_>, args: &[ExprId], kernel: FuncId) -> Option<Operand> {
+    let ops: Vec<Operand> = args
+        .iter()
+        .map(|&a| {
+            let raw = ctx.lower_expr(a);
+            ctx.box_to_any_from_expr(a, raw)
+        })
+        .collect();
     let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(kernel, vec![this_op, val_op]),
-        Type::Any,
-        None,
-    );
+    let v = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(kernel, ops), Type::Any, None);
     Some(Operand::Value(v))
 }

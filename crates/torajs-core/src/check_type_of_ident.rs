@@ -61,6 +61,14 @@ fn subclass_magic_ty(name: &str) -> Option<Type> {
             Box::new(Type::Any),
         ));
     }
+    // RegExp's §22.2.4.1 two-argument form — `(this, pattern, flags)`,
+    // all any-admitted.
+    if name == "__torajs_regex_subclass_super_flags" {
+        return Some(Type::Function(
+            vec![Type::Any, Type::Any, Type::Any],
+            Box::new(Type::Any),
+        ));
+    }
     let is_super = name.strip_prefix("__torajs_").is_some_and(|r| {
         r.strip_suffix("_subclass_super")
             .is_some_and(|b| !b.is_empty())

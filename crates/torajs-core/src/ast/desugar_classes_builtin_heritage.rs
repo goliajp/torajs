@@ -215,7 +215,7 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                 "Number" | "String" | "Boolean" | "Promise" | "Array" | "RegExp" | "Date"
             )
         {
-            *ctor = Some(synthesize_exotic_rest_ctor(ast, cname, p));
+            *ctor = Some(synthesize_exotic_rest_ctor(ast, p));
         }
         if let Some(c) = ctor.as_mut() {
             let mut sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
@@ -257,6 +257,23 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                                 args: vec![this_id, arg],
                             };
                         }
+                        // RegExp's §22.2.4.1 two-argument form —
+                        // `super(pattern, flags)` rides its own
+                        // kernel. Exactly two: a 3+ form would have
+                        // to evaluate the extras for their side
+                        // effects before ignoring them, and this
+                        // rewrite has no seat for that — loud beats
+                        // a silently reordered evaluation.
+                        2 if p == "RegExp" => {
+                            let callee = ast.add_expr(Expr::Ident(
+                                "__torajs_regex_subclass_super_flags".to_string(),
+                            ));
+                            let this_id = ast.add_expr(Expr::This);
+                            ast.exprs[eid.0 as usize] = Expr::Call {
+                                callee,
+                                args: vec![this_id, args[0], args[1]],
+                            };
+                        }
                         _ => panic!(
                             "M5.N: `{cname} extends {p}` — this super(...) argument form \
                              is not yet supported for an exotic builtin parent"
@@ -289,12 +306,11 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
 /// constructor(...__superargs: any[]) {
 ///   if (__superargs.length === 0) { super(); }
 ///   else { super(__superargs[0]); }          // wrappers / Promise
-///   // RegExp / Date split the else again: 1 → super(args[0]),
-///   // 2+ → throw (their multi-argument forms carry real semantics
-///   // — §22.2.4.1 flags / §21.4.2.1 components — this seam does
-///   // not reach yet; loud beats a silently-wrong one-arg read).
-///   // Array's 2+ arm reaches: it hands the packed rest array to
-///   // the §23.1.1.3 elements kernel directly.
+///   // Array / RegExp / Date split the else again: 1 →
+///   // super(args[0]), 2+ → the multi-argument kernel (Array hands
+///   // the packed rest array to the §23.1.1.3 elements kernel,
+///   // Date to the §21.4.2.1 components kernel, RegExp its first
+///   // two slots to the §22.2.4.1 flags kernel).
 /// }
 /// ```
 ///
@@ -303,7 +319,7 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
 /// the first), so the two-arm dispatch is semantically complete for
 /// them. The `super` sites synthesized here are rewritten by the
 /// caller's rewrite loop exactly like a user-written ctor's.
-fn synthesize_exotic_rest_ctor(ast: &mut Ast, cname: &str, parent: &str) -> crate::ast::ClassCtor {
+fn synthesize_exotic_rest_ctor(ast: &mut Ast, parent: &str) -> crate::ast::ClassCtor {
     let args_len = |ast: &mut Ast| {
         let obj = ast.add_expr(Expr::Ident("__superargs".to_string()));
         ast.add_expr(Expr::Member {
@@ -356,16 +372,28 @@ fn synthesize_exotic_rest_ctor(ast: &mut Ast, cname: &str, parent: &str) -> crat
                 args: vec![this_id, rest_id],
             }))
         } else {
-            let msg = ast.add_expr(Expr::String(format!(
-                "M5.N: `new {cname}(...)` with 2+ arguments is not yet supported \
-                 for an exotic `{parent}` parent"
-            )));
-            let err = ast.add_expr(Expr::New {
-                class_name: "Error".to_string(),
-                args: vec![msg],
-                type_args: Vec::new(),
-            });
-            Stmt::Throw(err)
+            // RegExp §22.2.4.1 — `(pattern, flags)` out of the rest
+            // array's first two slots; extras were evaluated into the
+            // array already and are ignored per ordinary-call
+            // semantics. The outer dispatch admits only Array /
+            // RegExp / Date here, so this arm IS the RegExp arm
+            // (previously the loud not-yet-supported throw — RFC
+            // 20260815 residue close, the family's last loud arm).
+            let callee = ast.add_expr(Expr::Ident(
+                "__torajs_regex_subclass_super_flags".to_string(),
+            ));
+            let this_id = ast.add_expr(Expr::This);
+            let slot = |ast: &mut Ast, i: f64| {
+                let obj = ast.add_expr(Expr::Ident("__superargs".to_string()));
+                let idx = ast.add_expr(Expr::Number(i));
+                ast.add_expr(Expr::Index { obj, index: idx })
+            };
+            let a0 = slot(ast, 0.0);
+            let a1 = slot(ast, 1.0);
+            Stmt::Expr(ast.add_expr(Expr::Call {
+                callee,
+                args: vec![this_id, a0, a1],
+            }))
         };
         Stmt::If {
             cond: is_one,

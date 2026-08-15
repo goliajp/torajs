@@ -44,6 +44,8 @@ pub(crate) struct ExoticSubclassIds {
     pub set_subclass_super: FuncId,
     pub promise_subclass_super: FuncId,
     pub regex_subclass_super: FuncId,
+    /// §22.2.4.1 two-argument form: `super(pattern, flags)`.
+    pub regex_subclass_super_flags: FuncId,
     pub string_wrapper_subclass_super: FuncId,
     pub boolean_wrapper_subclass_super: FuncId,
 }
@@ -189,6 +191,12 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_regex_subclass_super",
             super_pair,
+        ),
+        regex_subclass_super_flags: d(
+            module,
+            fn_table,
+            "__torajs_regex_subclass_super_flags",
+            &[Type::Any, Type::Any, Type::Any],
         ),
         number_wrapper_subclass_super: d(
             module,

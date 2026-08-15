@@ -438,6 +438,7 @@ pub(crate) fn build(
         set_subclass_super: init_c.subclass.set_subclass_super,
         promise_subclass_super: init_c.subclass.promise_subclass_super,
         regex_subclass_super: init_c.subclass.regex_subclass_super,
+        regex_subclass_super_flags: init_c.subclass.regex_subclass_super_flags,
         string_wrapper_subclass_super: init_c.subclass.string_wrapper_subclass_super,
         boolean_wrapper_subclass_super: init_c.subclass.boolean_wrapper_subclass_super,
         genfn_proto: init_c.any_substrate.genfn_proto,

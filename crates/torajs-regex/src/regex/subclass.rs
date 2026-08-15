@@ -24,6 +24,8 @@ use super::{__torajs_throw_syntax_error, RegExp, TAG_REGEX, str_slice};
 const FLAG_SUBCLASSED: u16 = 1;
 /// `torajs_rc::AnySlotTag::Heap` mirror.
 const ANY_HEAP: i64 = 4;
+/// `torajs_rc::AnySlotTag::Undefined` mirror (`compile_any` twin).
+const ANY_UNDEF_TAG: i64 = 5;
 
 unsafe extern "C" {
     /// torajs-meta — blade-0 identity registration / classmeta proto.
@@ -38,6 +40,7 @@ unsafe extern "C" {
     /// always a real heap box.
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_cell_ptr(v: u64) -> i64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_anyv_to_str(v: u64) -> *mut c_void;
     /// torajs-str / torajs-rc — temp release + owned answer.
@@ -79,28 +82,98 @@ pub unsafe extern "C" fn __torajs_regex_subclass_super(this_av: u64, pat_av: u64
             return this_av;
         }
         // §22.2.3.1 step 5 vs step 6 — a RegExp pattern copies
-        // source + flags; everything else is ToString'd (a pending
-        // throw from ToString leaves the default innards).
-        let (pat, fl) = match pattern_as_regex(pat_av) {
-            Some(re) => ((*re).src_bytes.clone(), flag_letters((*re).flags)),
-            None => {
-                let s = __torajs_anyv_to_str(pat_av);
-                if s.is_null() {
-                    return this_av;
+        // source + flags; an undefined pattern is the empty pattern;
+        // everything else is ToString'd (a pending throw from
+        // ToString leaves the default innards).
+        let (pat, fl) = if __torajs_anyv_unbox_tag(pat_av) == ANY_UNDEF_TAG {
+            (b"(?:)".to_vec(), Vec::new())
+        } else {
+            match pattern_as_regex(pat_av) {
+                Some(re) => ((*re).src_bytes.clone(), flag_letters((*re).flags)),
+                None => {
+                    let s = __torajs_anyv_to_str(pat_av);
+                    if s.is_null() {
+                        return this_av;
+                    }
+                    let bytes = str_slice(s);
+                    __torajs_str_drop(s);
+                    (bytes, Vec::new())
                 }
-                let bytes = str_slice(s);
-                __torajs_str_drop(s);
-                (bytes, Vec::new())
             }
         };
+        recompile_into(this_av, this, pat, fl)
+    }
+}
+
+/// `super(pattern, flags)` — the §22.2.4.1 two-argument form (RFC
+/// 20260815 residue close; the last loud arm of the exotic rest
+/// ctor). Flags resolution mirrors `compile_any`: an undefined flags
+/// argument keeps a RegExp pattern's own letters (step 5), anything
+/// else is ToString'd; an unknown / duplicate letter funnels through
+/// `compile_bytes`'s rejected stub into the §22.2.3.1 SyntaxError.
+/// Same answer contract as the one-argument form.
+///
+/// # Safety
+/// `this_av` as in [`__torajs_regex_subclass_super`]; `pat_av` /
+/// `flags_av` are any boxed values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_subclass_super_flags(
+    this_av: u64,
+    pat_av: u64,
+    flags_av: u64,
+) -> u64 {
+    unsafe {
+        let this = __torajs_anyv_unbox_value(this_av) as *mut RegExp;
+        if this.is_null() {
+            return this_av;
+        }
+        let explicit_flags: Option<Vec<u8>> = if __torajs_anyv_unbox_tag(flags_av) == ANY_UNDEF_TAG
+        {
+            None
+        } else {
+            let s = __torajs_anyv_to_str(flags_av);
+            if s.is_null() {
+                return this_av;
+            }
+            let b = str_slice(s);
+            __torajs_str_drop(s);
+            Some(b)
+        };
+        let (pat, re_fl) = if __torajs_anyv_unbox_tag(pat_av) == ANY_UNDEF_TAG {
+            (b"(?:)".to_vec(), Vec::new())
+        } else if let Some(re) = pattern_as_regex(pat_av) {
+            ((*re).src_bytes.clone(), flag_letters((*re).flags))
+        } else {
+            let s = __torajs_anyv_to_str(pat_av);
+            if s.is_null() {
+                return this_av;
+            }
+            let b = str_slice(s);
+            __torajs_str_drop(s);
+            (b, Vec::new())
+        };
+        let fl = explicit_flags.unwrap_or(re_fl);
+        recompile_into(this_av, this, pat, fl)
+    }
+}
+
+/// Shared tail of the `super(…)` forms: compile, reject with the
+/// §22.2.3.1 SyntaxError (borrowed answer, un-inc'd for the
+/// throw-check to divert past), or swap the compiled innards into
+/// the instance — identity (header: rc / tag / FLAG_SUBCLASSED)
+/// stays with `this`; the discarded innards leave through the
+/// ordinary drop.
+///
+/// # Safety
+/// `this` is the live cell `this_av` boxes.
+unsafe fn recompile_into(this_av: u64, this: *mut RegExp, pat: Vec<u8>, fl: Vec<u8>) -> u64 {
+    unsafe {
         let fresh = compile_bytes(pat, fl) as *mut RegExp;
         if (*fresh).rejected != 0 {
             __torajs_throw_syntax_error(c"Invalid regular expression".as_ptr() as *const u8);
             super::lifecycle::__torajs_regex_drop(fresh as *mut c_void);
             return this_av;
         }
-        // Swap the compiled innards into the instance; identity
-        // (header: rc / tag / FLAG_SUBCLASSED) stays with `this`.
         core::ptr::swap(this, fresh);
         core::mem::swap(&mut (*this).header, &mut (*fresh).header);
         // `fresh` now holds the discarded innards and this call's
