@@ -45,9 +45,16 @@ pub(crate) fn try_accessor_read(
             )));
         }
     }
+    // Blade 2 (rotation 413) — the pair may live on an ANCESTOR
+    // (§10.1.7 walks the prototype chain). A generic declarer's
+    // accessor fn types spell its type params, so that hit stays on
+    // the any-lane until blade 4 substitutes them — gated below by
+    // generic_type_params.
     if let Some(cls) = class_name_of(obj_ty, ast)
-        && let Some(getter_fn) = ast.accessor_getters.get(&(cls.clone(), name.to_string()))
-        && let Some(Type::Function(_params, ret)) = checker.globals.get(getter_fn)
+        && let Some(getter_fn) =
+            crate::ast::accessor_lookup::accessor_getter_in_chain(ast, &cls, name)
+        && !checker.generic_type_params.contains_key(&getter_fn)
+        && let Some(Type::Function(_params, ret)) = checker.globals.get(&getter_fn)
     {
         return Some(Ok(resolve_class_ref(
             ret,

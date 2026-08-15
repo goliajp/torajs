@@ -27,11 +27,11 @@ pub(crate) fn try_lower_setter_call(
     // from the receiver's NAME, not from whichever class shares its
     // layout id.
     let cname = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, obj)?;
-    let setter_fn = ctx
-        .ast
-        .accessor_setters
-        .get(&(cname.clone(), field.to_string()))
-        .cloned()?;
+    // Blade 2 (rotation 413) — the pair may live on an ANCESTOR;
+    // walk the chain the way [[Set]] would. A generic declarer's
+    // setter has no fn_table entry under its bare name, so that hit
+    // falls through on the `?` below (blade 4).
+    let setter_fn = crate::ast::accessor_lookup::accessor_setter_in_chain(ctx.ast, &cname, field)?;
     let fid = ctx.fn_table.get(&setter_fn).copied()?;
     let v = ctx.lower_expr(value);
     // Chunk 566 — SHARE: no consume. The value passes to the setter

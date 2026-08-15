@@ -160,11 +160,11 @@ fn try_accessor_getter(
     name: &str,
 ) -> Option<Operand> {
     let cname = class_name_of_expr(ctx, obj)?;
-    let getter_fn = ctx
-        .ast
-        .accessor_getters
-        .get(&(cname, name.to_string()))
-        .cloned()?;
+    // Blade 2 (rotation 413) — the pair may live on an ANCESTOR;
+    // walk the chain the way [[Get]] would. A generic declarer's
+    // getter has no fn_table entry under its bare name, so that hit
+    // falls through to the any-lane on the `?` below (blade 4).
+    let getter_fn = crate::ast::accessor_lookup::accessor_getter_in_chain(ctx.ast, &cname, name)?;
     let fid = ctx.fn_table.get(&getter_fn).copied()?;
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;

@@ -315,13 +315,17 @@ fn try_accessor_setter(
         Type::ClassRef(n) if ast.class_parents.contains_key(n) => n.clone(),
         _ => return Ok(None),
     };
-    let Some(setter_fn) = ast
-        .accessor_setters
-        .get(&(cls.clone(), field.to_string()))
-        .cloned()
+    // Blade 2 (rotation 413) — the pair may live on an ANCESTOR
+    // (§10.1.9 walks the prototype chain). A generic declarer's
+    // setter param types spell its type params — that hit stays on
+    // the any-lane until blade 4 substitutes them.
+    let Some(setter_fn) = crate::ast::accessor_lookup::accessor_setter_in_chain(ast, &cls, field)
     else {
         return Ok(None);
     };
+    if checker.generic_type_params.contains_key(&setter_fn) {
+        return Ok(None);
+    }
     let Some(Type::Function(params, _ret)) = checker.globals.get(&setter_fn).cloned() else {
         return Ok(None);
     };

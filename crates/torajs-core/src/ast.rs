@@ -1,5 +1,6 @@
 //! AST — arena-allocated. Children referenced by `ExprId(u32)`, not Box.
 
+pub(crate) mod accessor_lookup;
 mod apply_args;
 mod apply_args_materialize;
 mod apply_args_recv;
