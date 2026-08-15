@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-15T06:20:38.672Z",
+  "generatedAt": "2026-08-15T08:55:18.684Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-15T06:12:11Z",
-    "headSha": "a77aae24",
-    "elapsedSec": 327.18,
+    "ranAt": "2026-08-15T08:37:30Z",
+    "headSha": "d2c23c8a",
+    "elapsedSec": 326.2,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25156,
+    "pass": 25173,
     "passNoOracle": 852,
     "passNegative": 4125,
-    "passTotal": 30133,
-    "bug": 12706,
-    "incompatible": 10335,
+    "passTotal": 30150,
+    "bug": 12727,
+    "incompatible": 10297,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42839,
-    "passRateInScope": 56.67,
-    "passRateTrAccepted": 70.34
+    "trAccepted": 42877,
+    "passRateInScope": 56.7,
+    "passRateTrAccepted": 70.32
   },
   "torajs": {
-    "commit": "a77aae24",
-    "commitSubject": "fix: iterator-result object check rejects primitive heap cells; proto alias gates on a generic-row bit",
+    "commit": "e42466cd",
+    "commitSubject": "refactor: extract the class-decl header sequence and the ClassDecl clone arm",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "e42466cd",
+      "subject": "refactor: extract the class-decl header sequence and the ClassDecl clone arm"
+    },
+    {
+      "hash": "d2c23c8a",
+      "subject": "fix: the class heritage parses in the outer private environment, and a bare arrow is refused there"
+    },
+    {
+      "hash": "b0cff799",
+      "subject": "feat: a with-body extends clause takes the read guard instead of a refusal"
+    },
+    {
+      "hash": "18b99b00",
+      "subject": "feat: a class heritage expression takes the capturing lane, super dispatching through the parent value"
+    },
+    {
+      "hash": "75b72443",
+      "subject": "fix: an untyped-ctor class stays reachable through the value-construct channel"
+    },
+    {
+      "hash": "4e93452c",
+      "subject": "fix: tombstone the heritage node when a class-decl is consumed"
+    },
+    {
+      "hash": "a31ccead",
+      "subject": "feat: class heritage is an expression, statically resolved when it is a bare name"
+    },
+    {
+      "hash": "57d786e4",
+      "subject": "chore: record the rotation 408 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "a77aae24",
       "subject": "fix: iterator-result object check rejects primitive heap cells; proto alias gates on a generic-row bit"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "68463714",
       "subject": "feat: struct inspect lists prototype methods and accessors"
-    },
-    {
-      "hash": "78368cab",
-      "subject": "feat: getPrototypeOf on a generic instance aliases the main registry slot"
-    },
-    {
-      "hash": "3b363dd4",
-      "subject": "feat: a generic class's prototype reifies its method faces"
-    },
-    {
-      "hash": "4c83e7d4",
-      "subject": "feat: a class expression in an expression-bodied arrow sees the arrow's params"
-    },
-    {
-      "hash": "0647126b",
-      "subject": "chore: record the rotation 407 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "713638c9",
-      "subject": "feat: a capturing class extends a top-level real class"
-    },
-    {
-      "hash": "b6ef18e6",
-      "subject": "feat: a function value's proto chain resolves statics through a real class"
-    },
-    {
-      "hash": "67ecc440",
-      "subject": "fix: prototype-object method calls guard the own-entry class face"
-    },
-    {
-      "hash": "ffb70cbd",
-      "subject": "fix: instanceof walks a dynobj receiver's proto chain on the class lane"
     }
   ],
-  "headSha": "a77aae24",
+  "headSha": "e42466cd",
   "autorun": {
-    "total": 711,
+    "total": 712,
     "baselineTarget": 10,
-    "bySelf": 706,
+    "bySelf": 707,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786758900-1b44",
-      "at": "2026-08-15T01:55:00Z",
-      "ts": 1786758900,
+      "rotationId": "r-1786774867-7c77",
+      "at": "2026-08-15T06:21:07Z",
+      "ts": 1786774867,
       "trigger": "self",
-      "prevHead": "0647126b",
-      "handoffSha": "sha256:556090f899641c0dc09f628f4f58502ac6bd629068b74e0f07b8b52e1883294a",
-      "handoffAgeSec": 17,
+      "prevHead": "57d786e4",
+      "handoffSha": "sha256:f7521ce5a56504cdbb2796c354fb8cf68ded6fa1806b6b3d9d8ffd7906035ed7",
+      "handoffAgeSec": 37,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786774867-7c77",
+        "at": "2026-08-15T06:21:07Z",
+        "ts": 1786774867,
+        "trigger": "self",
+        "prevHead": "57d786e4",
+        "handoffSha": "sha256:f7521ce5a56504cdbb2796c354fb8cf68ded6fa1806b6b3d9d8ffd7906035ed7",
+        "handoffAgeSec": 37,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786758900-1b44",
         "at": "2026-08-15T01:55:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "11e8491b",
         "handoffSha": "sha256:2ec835cd8d22e34d3c0274d544b12f0bded95b169ebb7fa48b8931f92194dd17",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786698265-433e",
-        "at": "2026-08-14T09:04:25Z",
-        "ts": 1786698265,
-        "trigger": "self",
-        "prevHead": "b441ac74",
-        "handoffSha": "sha256:a7ffa100db9bea1f8556162717e0e4dd935a5260a148f7e04e7e061c15df03a2",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }
