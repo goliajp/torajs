@@ -279,6 +279,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     ast::route_non_class_new(&mut a);
     ast::synthesize_class_globals(&mut a);
     ast::tag_struct_field_closure_types(&mut a);
+    ast::alias_arrow_arguments(&mut a);
     ast::lift_arrow_fns(&mut a);
     ast::synthesize_forwarders(&mut a);
     ast::synthesize_recv_cb_forwarders(&mut a);

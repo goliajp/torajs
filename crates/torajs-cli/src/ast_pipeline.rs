@@ -184,6 +184,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     // `lift_arrow_fns` has made it one. The pass is a fixpoint and
     // idempotent, so running it twice costs a walk that lifts nothing.
     ast::desugar_nested_fns(ast);
+    ast::alias_arrow_arguments(ast);
     ast::lift_arrow_fns(ast);
     ast::register_bind_receiver_recv_fns(ast);
     ast::infer_anonymous_closure_params(ast);

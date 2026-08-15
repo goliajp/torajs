@@ -28,6 +28,7 @@ mod arguments_object_static_argv;
 mod arguments_object_synth;
 mod arguments_object_walkers;
 mod arguments_object_walkers_return;
+mod arrow_arguments_alias;
 pub(crate) use arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
@@ -164,6 +165,7 @@ pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_rest_args::apply_rest_args;
 pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
+pub use arrow_arguments_alias::alias_arrow_arguments;
 pub(crate) use build_factory::build_factory_body;
 pub use class_globals::synthesize_class_globals;
 pub(crate) use closure_capture_anns::{SiteAnns, collect_closure_capture_anns};
