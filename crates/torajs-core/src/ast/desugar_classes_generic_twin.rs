@@ -208,6 +208,7 @@ pub(in crate::ast) fn mint_ctor_generic_twin(
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(&body);
     super::clone_body_tables::migrate(&mut cloner);
+    retarget_super_ctor_twin_calls(&mut cloner);
     if !restore_dynamic_calls(&mut cloner) {
         neutralize_clone(&mut cloner);
         return;
@@ -236,6 +237,75 @@ pub(in crate::ast) fn mint_ctor_generic_twin(
         is_generator: false,
         span: crate::lexer::Span { start: 0, end: 0 },
     });
+}
+
+/// 405-01 residue (rotation 408) — retarget the pass-1.5 `super(…)`
+/// rewrite (`__cm_<P>__ctor(this, __new_target, …user)`) inside a
+/// CTOR twin's clone at the parent's own receiver-polymorphic twin,
+/// resolved through `es5_ctor_forward` the same way the capturing
+/// lane's `super(…)` is (a silent ctor-less link in the chain is
+/// skipped — its twin would be an empty body). The args already
+/// carry `(this-read, __new_target, …user)`; the clone rebound the
+/// this-read onto the twin's own `__this` param, and the hoist's
+/// chain admit guarantees the landing is itself admitted, so its
+/// twin provably mints. Runs BEFORE `restore_dynamic_calls` so the
+/// retargeted sites no longer read as record-less `__cm_` forms (the
+/// drop condition). Deliberately ctor-twin-only: a METHOD body's
+/// `super.ctor(…)` (a user method literally named `ctor`) rewrites
+/// to the same `__cm_<P>__ctor` spelling but with no `__new_target`
+/// in its args — the method twins keep their existing drop.
+fn retarget_super_ctor_twin_calls(cloner: &mut BodyCloner<'_>) {
+    let new_ids: Vec<crate::ast::ExprId> = cloner.map.values().copied().collect();
+    for id in new_ids {
+        let Expr::Call { callee, args } = cloner.ast.get_expr(id) else {
+            continue;
+        };
+        let (callee, args) = (*callee, args.clone());
+        let Expr::Ident(f) = cloner.ast.get_expr(callee) else {
+            continue;
+        };
+        let Some(parent) = f
+            .strip_prefix("__cm_")
+            .and_then(|rest| rest.strip_suffix("__ctor"))
+        else {
+            continue;
+        };
+        let landing = cloner
+            .ast
+            .es5_ctor_forward
+            .get(parent)
+            .cloned()
+            .unwrap_or_else(|| parent.to_string());
+        let callee2 = cloner
+            .ast
+            .add_expr(Expr::Ident(format!("__ctorany_{landing}")));
+        cloner.ast.exprs[id.0 as usize] = Expr::Call {
+            callee: callee2,
+            args,
+        };
+    }
+}
+
+/// 405-01 residue (rotation 408) — close `es5_real_parents` over the
+/// heritage chain: an admitted DERIVED parent's ctor twin says
+/// `super(…)` → a direct `__ctorany_<its parent>` call (see
+/// [`retarget_super_ctor_twin_calls`]), so every real ancestor needs
+/// its twin minted too. Runs in `desugar_classes` once `parent_map`
+/// is in hand (the capturing lane's claim recorded only the direct
+/// landing — `class_parents` is not filled until here).
+pub(in crate::ast) fn close_real_parents_over_chain(
+    ast: &mut Ast,
+    parent_map: &std::collections::HashMap<String, Option<String>>,
+) {
+    let mut work: Vec<String> = ast.es5_real_parents.iter().cloned().collect();
+    while let Some(c) = work.pop() {
+        if let Some(Some(p)) = parent_map.get(&c)
+            && ast.top_root_real_classes.contains(p)
+            && ast.es5_real_parents.insert(p.clone())
+        {
+            work.push(p.clone());
+        }
+    }
 }
 
 /// Point every cloned counterpart of a static-`this` site at the

@@ -61,11 +61,17 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
     }
 
     // 405-01 face 2 — the REAL classes a capturing subclass may
-    // `extends`: top-level, root (no heritage — which is what keeps
-    // the ctor-twin mint from ever dropping on a super form),
-    // non-generic, non-abstract, and name-unique program-wide (the
-    // lane resolves the parent by NAME; a shadowed spelling could
-    // link the wrong class — the silent direction).
+    // `extends`: top-level, non-generic, non-abstract, name-unique
+    // program-wide (the lane resolves the parent by NAME; a shadowed
+    // spelling could link the wrong class — the silent direction),
+    // and whose whole `extends` chain is made of such classes. The
+    // chain condition (rotation 408, replacing the root-only admit)
+    // is what keeps the ctor-twin mint sound: a derived real class's
+    // ctor carries a `super(…)` form, which the mint rewrites into a
+    // direct `__ctorany_<parent>` call — legal only when the parent
+    // is itself admitted (its twin provably mints too).
+    let mut cand: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
     for s in &ast.stmts {
         let inner = if let Stmt::ExportDecl {
             inner: Some(inner), ..
@@ -82,11 +88,30 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
             is_abstract,
             ..
         } = inner
-            && parent.is_none()
             && type_params.is_empty()
             && !is_abstract
             && name_counts.get(name).copied() == Some(1)
         {
+            cand.insert(name.clone(), parent.clone());
+        }
+    }
+    for name in cand.keys() {
+        // Walk the heritage chain; every link must be a candidate.
+        // Legal programs cannot cycle (extends is TDZ-gated), but a
+        // bounded walk keeps a malformed tree from hanging the pass.
+        let mut cur = name.as_str();
+        let mut admitted = false;
+        for _ in 0..=cand.len() {
+            match cand.get(cur) {
+                Some(None) => {
+                    admitted = true;
+                    break;
+                }
+                Some(Some(p)) if cand.contains_key(p) => cur = p.as_str(),
+                _ => break,
+            }
+        }
+        if admitted {
             ast.top_root_real_classes.insert(name.clone());
         }
     }
