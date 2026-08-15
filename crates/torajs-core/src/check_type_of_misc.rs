@@ -162,7 +162,15 @@ pub(crate) fn check_delete(
                 Some(name.as_str()),
             )?;
             let obj_ty = checker.type_of(ast, *obj)?;
-            if receiver_admits_delete(&obj_ty) {
+            // A NAMED member on a typed array admits (rotation 410):
+            // the hole argument gates only ELEMENT slots, and a name
+            // is never an element — `length` is the permanent
+            // non-configurable refusal (§10.4.2, the String-receiver
+            // argument verbatim), an expando rides the props table
+            // the kernel already deletes from, and an absent name
+            // answers true. The Index arm below keeps the element
+            // refusal: a numeric key names an unboxed slot.
+            if receiver_admits_delete(&obj_ty) || matches!(&obj_ty, Type::Array(_)) {
                 Ok(Type::Boolean)
             } else {
                 Err(delete_receiver_error(&obj_ty))
