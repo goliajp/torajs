@@ -220,6 +220,16 @@ pub(super) fn rewrite_classdecls_pass3(
             type_params: type_params.clone(),
             fields: full_fields[cname].clone(),
         };
+        // The heritage node dies with the ClassDecl — tombstone it, or
+        // the orphan Ident reads as a use of the parent binding to
+        // every whole-arena analysis (see `Ast::tombstone_expr`).
+        if let Stmt::ClassDecl {
+            parent: Some(pid), ..
+        } = &ast.stmts[*idx]
+        {
+            let pid = *pid;
+            ast.tombstone_expr(pid);
+        }
         ast.stmts[*idx] = type_decl;
 
         // For generic classes, the `__this` type ann must reference

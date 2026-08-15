@@ -351,8 +351,15 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     // (the α-rename wrote the minted spelling into the heritage
     // Ident). `decline_reason` already refused any class whose
     // heritage is not a bare identifier, so reading the name back
-    // here cannot miss.
+    // here cannot miss. The node itself is consumed by this rewrite —
+    // tombstone it, or the orphan Ident reads as a use of the parent
+    // binding to every whole-arena analysis (see
+    // `Ast::tombstone_expr`).
+    let parent_id = parent;
     let parent: Option<String> = ast.parent_ident_name(parent).map(str::to_string);
+    if let Some(pid) = parent_id {
+        ast.tombstone_expr(pid);
+    }
     // The parser recorded, at the token, that every `this` in a static
     // member body means the class object, and `desugar_classes` pass 2
     // turns each recorded site into the class NAME. That mint is wrong
