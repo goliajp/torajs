@@ -24,7 +24,7 @@ use super::{Expr, Stmt};
 /// (399-04; the walk pattern is `collect_decls_split` in
 /// [`super::fnexpr_this_routed`]).
 pub(super) fn is_twin_body_name(name: &str) -> bool {
-    name.starts_with("__cmany_") || name.starts_with("__smany_")
+    name.starts_with("__cmany_") || name.starts_with("__smany_") || name.starts_with("__ctorany_")
 }
 
 /// Rotation 328 — every binding whose init is a marked fn-expr

@@ -430,6 +430,22 @@ pub struct Ast {
     /// middle is transitively equivalent and keeps every hop off that
     /// bar.
     pub es5_ctor_forward: std::collections::HashMap<String, String>,
+    /// Top-level REAL classes a capturing subclass may `extends`
+    /// (405-01 face 2): root (no heritage), non-generic,
+    /// non-abstract, and program-wide name-unique. Filled by the
+    /// hoist's entry scan — root-ness is what guarantees the ctor
+    /// body carries no super form, so the `__ctorany_` mint below
+    /// can never drop, and the admit decided here stays honest.
+    pub top_root_real_classes: std::collections::HashSet<String>,
+    /// The real classes some capturing subclass actually `extends`
+    /// (405-01 face 2) — the lane's admit records the parent here,
+    /// and `desugar_classes` mints the receiver-polymorphic ctor
+    /// twin `__ctorany_<C>` for exactly these (the lane's `super(…)`
+    /// spelling calls it directly: a real class's `.call` correctly
+    /// throws per §10.3.1, and the mono `__cm_<C>__ctor` reads its
+    /// receiver at baked struct offsets a dynobj instance never
+    /// has).
+    pub es5_real_parents: std::collections::HashSet<String>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

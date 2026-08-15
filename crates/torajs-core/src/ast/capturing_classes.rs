@@ -115,22 +115,9 @@ pub(super) fn try_rewrite_capturing_class(
     // Recorded under the minted name — the rename below writes that
     // same spelling into every sibling's `parent` field.
     ast.es5_parent_classes.insert(new.clone());
-    // Where this class's `super(…)` lands — see the field doc: a
-    // ctor-less class forwards, and skipping it transitively keeps
-    // every hop off the rest-param promotion bar. The parent's own
-    // target is already resolved (siblings lower top-down), so one
-    // lookup composes the chain.
-    if let Stmt::ClassDecl { ctor, parent, .. } = &stmts[idx] {
-        let target = match (ctor, parent) {
-            (None, Some(p)) => ast
-                .es5_ctor_forward
-                .get(p)
-                .cloned()
-                .unwrap_or_else(|| p.clone()),
-            _ => new.clone(),
-        };
-        ast.es5_ctor_forward.insert(new.clone(), target);
-    }
+    // Where this class's `super(…)` lands, plus the real-parent
+    // twin request (405-01) — see `extends::record_claim_tables`.
+    extends::record_claim_tables(ast, &stmts[idx], &new);
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
     alias::mint_unique_aliases(ast, stmts, &new, counter);
     let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
@@ -404,12 +391,12 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     let (params, body) = match ctor {
         Some(c) => (c.params, c.body),
         None => match &parent {
-            Some(p) => extends::implicit_derived_ctor(ast, p),
+            Some(p) => extends::implicit_derived_ctor(ast, p, &name),
             None => (Vec::new(), Vec::new()),
         },
     };
     if let Some(p) = &parent {
-        extends::rewrite_super_sites(ast, &body, p, false);
+        extends::rewrite_super_sites(ast, &body, p, false, &name);
     }
     let ctor_eid = ast.add_expr(Expr::ArrowFn {
         params,
@@ -439,7 +426,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         // prototype; a static body's home object is the class itself,
         // so its super base is the parent CLASS (405-01 face 3).
         if let Some(p) = &parent {
-            extends::rewrite_super_sites(ast, &m.body, p, !on_prototype);
+            extends::rewrite_super_sites(ast, &m.body, p, !on_prototype, &name);
         }
         let eid = ast.add_expr(Expr::ArrowFn {
             params: m.params,

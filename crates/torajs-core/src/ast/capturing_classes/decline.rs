@@ -38,19 +38,24 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     else {
         return Some("it is not a class declaration");
     };
-    // `extends` admits exactly one parent shape (blade 5): a binding
-    // this lane minted for a sibling — by the time this class asks,
-    // the α-rename has written that `__cc<N>_…` spelling into its
-    // `parent` field (405-01 opened the static-carrying half: the
+    // `extends` admits two parent shapes: a binding this lane minted
+    // for a sibling (blade 5 — by the time this class asks, the
+    // α-rename has written that `__cc<N>_…` spelling into its
+    // `parent` field; 405-01 opened the static-carrying half: the
     // class-side `Object.setPrototypeOf(D, P)` link resolves
     // inherited statics through the function value's user
-    // [[Prototype]] chain). A parent that is not a lane binding (a
-    // hoisted or top-level class) stays out: it is a static entity
-    // whose `.call` / `.prototype` faces this pattern was never
-    // probed against, and a `__cc`-spelled parent missing from the
-    // set is a sibling the lane itself declined.
+    // [[Prototype]] chain), or a top-level ROOT real class (405-01
+    // face 2 — every runtime face is probed: instance methods ride
+    // `Object.create(P.prototype)` + the twin-guarded chain
+    // dispatch, statics ride the function value's chain into the
+    // class object, `instanceof` walks the chain, and `super(…)`
+    // calls the `__ctorany_<P>` receiver-polymorphic ctor twin the
+    // admit registers below). A derived / generic / abstract /
+    // name-shadowed real class stays out — root-ness is what
+    // guarantees the ctor twin never drops its mint.
     if let Some(p) = parent
         && !ast.es5_parent_classes.contains(p)
+        && !ast.top_root_real_classes.contains(p)
     {
         return Some(if p.starts_with("__cc") {
             "it extends a class this lane could not claim"

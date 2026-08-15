@@ -30,6 +30,41 @@ use super::super::super_collect::{collect_super_in_stmt, collect_supercall_in_st
 use super::super::{Ast, Expr, ExprId, Param, Stmt};
 use super::install::define_member;
 
+/// The claim-time `extends` bookkeeping for a class this lane just
+/// took (moved verbatim from the parent's claim path at the
+/// file-size cap): where its `super(…)` lands — a ctor-less class
+/// forwards, and skipping it transitively keeps every hop off the
+/// rest-param promotion bar (the parent's own target is already
+/// resolved; siblings lower top-down, so one lookup composes the
+/// chain) — and, 405-01 face 2, the REAL-class parent record that
+/// makes `desugar_classes` mint the `__ctorany_<P>` twin the
+/// `super(…)` spelling calls. A ctor-less subclass forwards to the
+/// parent, so the forward TARGET may be the real class even when
+/// the direct parent is a lane sibling — whichever real name the
+/// chain lands on is recorded.
+pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str) {
+    let Stmt::ClassDecl { ctor, parent, .. } = s else {
+        return;
+    };
+    let target = match (ctor, parent) {
+        (None, Some(p)) => ast
+            .es5_ctor_forward
+            .get(p)
+            .cloned()
+            .unwrap_or_else(|| p.clone()),
+        _ => new.to_string(),
+    };
+    ast.es5_ctor_forward.insert(new.to_string(), target);
+    if let Some(p) = parent {
+        let landing = ast.es5_ctor_forward.get(p).cloned().unwrap_or(p.clone());
+        for n in [p, &landing] {
+            if ast.top_root_real_classes.contains(n) {
+                ast.es5_real_parents.insert(n.clone());
+            }
+        }
+    }
+}
+
 /// Does any statement in `body` say `super(…)` — the CALL form only?
 /// Asked of static bodies (405-01 face 3): `super.m(…)` in a static
 /// home object resolves through the parent CLASS (`P.m.call(this)`)
@@ -58,7 +93,13 @@ pub(super) fn body_says_super_call(ast: &Ast, body: &[Stmt]) -> bool {
 /// INSTANCE body's super base is `P.prototype`, a STATIC body's is
 /// the parent class itself (405-01 face 3) — either way the runtime
 /// lookup rides the chain the lane already links.
-pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str, static_home: bool) {
+pub(super) fn rewrite_super_sites(
+    ast: &mut Ast,
+    body: &[Stmt],
+    parent: &str,
+    static_home: bool,
+    _class_binding: &str,
+) {
     let mut ctor_sites = Vec::new();
     let mut method_sites = Vec::new();
     for s in body {
@@ -67,6 +108,25 @@ pub(super) fn rewrite_super_sites(ast: &mut Ast, body: &[Stmt], parent: &str, st
     }
     let ctor_target = ctor_forward_target(ast, parent);
     for (eid, args) in ctor_sites {
+        // A REAL-class target (405-01 face 2) calls its
+        // `__ctorany_<P>` receiver-polymorphic twin directly — the
+        // class's own `.call` correctly throws per §10.3.1, and the
+        // mono ctor reads baked struct offsets a dynobj instance
+        // never has. The twin's head is `(__this, __new_target,
+        // …user)`; the newTarget slot rides `undefined` — the true
+        // value is the subclass binding, but spelling that name in
+        // its own init expression defeats the capture census
+        // (recorded residue: `new.target` inside the parent ctor
+        // reads undefined on this lane).
+        if ast.es5_real_parents.contains(&ctor_target) {
+            let callee = ast.add_expr(Expr::Ident(format!("__ctorany_{ctor_target}")));
+            let this = ast.add_expr(Expr::This);
+            let nt = ast.add_expr(Expr::Ident("undefined".to_string()));
+            let mut full = vec![this, nt];
+            full.extend(args);
+            ast.exprs[eid.0 as usize] = Expr::Call { callee, args: full };
+            continue;
+        }
         let callee = call_member(ast, &ctor_target, &[]);
         ast.exprs[eid.0 as usize] = Expr::Call {
             callee,
@@ -130,13 +190,31 @@ fn this_first(ast: &mut Ast, args: Vec<ExprId>) -> Vec<ExprId> {
 /// before `apply_rest_args` / `apply_spread_args` run, which is what
 /// packs the call sites. Calls the ctor-forward target, not the
 /// parent — see `rewrite_super_sites`.
-pub(super) fn implicit_derived_ctor(ast: &mut Ast, parent: &str) -> (Vec<Param>, Vec<Stmt>) {
+pub(super) fn implicit_derived_ctor(
+    ast: &mut Ast,
+    parent: &str,
+    _class_binding: &str,
+) -> (Vec<Param>, Vec<Stmt>) {
     let target = ctor_forward_target(ast, parent);
-    let callee = call_member(ast, &target, &[]);
-    let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
-    let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
-    let args = this_first(ast, vec![spread]);
-    let call = ast.add_expr(Expr::Call { callee, args });
+    let call = if ast.es5_real_parents.contains(&target) {
+        // Real-class target — the `__ctorany_<P>` direct call (see
+        // `rewrite_super_sites`), spread-forwarding the rest param.
+        let callee = ast.add_expr(Expr::Ident(format!("__ctorany_{target}")));
+        let this = ast.add_expr(Expr::This);
+        let nt = ast.add_expr(Expr::Ident("undefined".to_string()));
+        let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
+        let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
+        ast.add_expr(Expr::Call {
+            callee,
+            args: vec![this, nt, spread],
+        })
+    } else {
+        let callee = call_member(ast, &target, &[]);
+        let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
+        let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
+        let args = this_first(ast, vec![spread]);
+        ast.add_expr(Expr::Call { callee, args })
+    };
     // The annotation is load-bearing: an unannotated rest lowered as
     // scalar `any` (the packing built `__empty_arr__any` instead of
     // `__empty_arr__any__` and the callee crashed reading it as an

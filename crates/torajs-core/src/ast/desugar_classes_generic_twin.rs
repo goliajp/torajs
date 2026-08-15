@@ -180,6 +180,64 @@ pub(in crate::ast) fn mint_static_generic_twin(
     });
 }
 
+/// 405-01 face 2 — the receiver-polymorphic CTOR twin
+/// `__ctorany_<C>` beside `__cm_<C>__ctor`, minted only for the
+/// real classes some capturing subclass `extends`
+/// (`Ast::es5_real_parents`). The lane's `super(…)` calls it
+/// directly: the class's own `.call` correctly throws per §10.3.1,
+/// and the mono ctor reads its receiver at baked struct offsets a
+/// dynobj instance never has. Head mirrors the mono
+/// (`__this, __new_target, …user`), every param typed `any` so
+/// field writes lower through the any-member lane.
+///
+/// The admit is confined to ROOT classes, so the body carries no
+/// super form and `restore_dynamic_calls` can only be asked to
+/// restore member-call shapes it has records for; a dropped restore
+/// still neutralizes defensively (the subclass's call then fails
+/// loudly on the missing name — never silently).
+pub(in crate::ast) fn mint_ctor_generic_twin(
+    ast: &mut Ast,
+    cname: &str,
+    ctor: &Option<super::ClassCtor>,
+    appended: &mut Vec<Stmt>,
+) {
+    let (body, user_params): (Vec<Stmt>, Vec<Param>) = match ctor {
+        Some(c) => (c.body.clone(), c.params.clone()),
+        None => (Vec::new(), Vec::new()),
+    };
+    let mut cloner = BodyCloner::new(ast);
+    let cloned_body = cloner.clone_stmts(&body);
+    super::clone_body_tables::migrate(&mut cloner);
+    if !restore_dynamic_calls(&mut cloner) {
+        neutralize_clone(&mut cloner);
+        return;
+    }
+    let mut params: Vec<Param> = Vec::with_capacity(user_params.len() + 2);
+    for head in ["__this", "__new_target"] {
+        params.push(Param {
+            name: head.into(),
+            type_ann: Some("any".into()),
+            default: None,
+            is_rest: false,
+        });
+    }
+    params.extend(user_params.iter().map(|p| Param {
+        name: p.name.clone(),
+        type_ann: Some(if p.is_rest { "any[]" } else { "any" }.to_string()),
+        default: p.default.map(|d| cloner.clone_expr(d)),
+        is_rest: p.is_rest,
+    }));
+    appended.push(Stmt::FnDecl {
+        name: format!("__ctorany_{cname}"),
+        type_params: Vec::new(),
+        params,
+        return_type: Some("void".into()),
+        body: cloned_body,
+        is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
+    });
+}
+
 /// Point every cloned counterpart of a static-`this` site at the
 /// twin's leading receiver param. `false` = the body reads no
 /// receiver at all (a `this`-free static never rebind-misbehaves, so

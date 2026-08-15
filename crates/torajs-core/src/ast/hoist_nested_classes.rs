@@ -60,6 +60,37 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
         }
     }
 
+    // 405-01 face 2 — the REAL classes a capturing subclass may
+    // `extends`: top-level, root (no heritage — which is what keeps
+    // the ctor-twin mint from ever dropping on a super form),
+    // non-generic, non-abstract, and name-unique program-wide (the
+    // lane resolves the parent by NAME; a shadowed spelling could
+    // link the wrong class — the silent direction).
+    for s in &ast.stmts {
+        let inner = if let Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } = s
+        {
+            inner.as_ref()
+        } else {
+            s
+        };
+        if let Stmt::ClassDecl {
+            name,
+            parent,
+            type_params,
+            is_abstract,
+            ..
+        } = inner
+            && parent.is_none()
+            && type_params.is_empty()
+            && !is_abstract
+            && name_counts.get(name).copied() == Some(1)
+        {
+            ast.top_root_real_classes.insert(name.clone());
+        }
+    }
+
     let mut hoisted: Vec<Stmt> = Vec::new();
     let mut counter: u32 = 0;
 

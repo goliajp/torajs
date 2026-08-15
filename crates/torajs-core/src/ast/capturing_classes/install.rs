@@ -38,7 +38,7 @@ pub(super) fn install_static_inits(
                 StaticInit::Field(sf) => vec![Stmt::Expr(sf.init)],
                 StaticInit::Block(stmts) => stmts.clone(),
             };
-            super::extends::rewrite_super_sites(ast, &body_view, p, true);
+            super::extends::rewrite_super_sites(ast, &body_view, p, true, name);
         }
         match si {
             StaticInit::Field(sf) => {
@@ -104,7 +104,7 @@ pub(super) fn install_computed_static_fields(
         // `this` as the call receiver, which is what routes the
         // initializer into the `.call(K)` wrapper below.
         if let Some(p) = parent {
-            super::extends::rewrite_super_sites(ast, &[Stmt::Expr(init)], p, true);
+            super::extends::rewrite_super_sites(ast, &[Stmt::Expr(init)], p, true, name);
         }
         let value = if super::expr_says_this(ast, init) {
             let body = vec![Stmt::Return(Some(init))];
