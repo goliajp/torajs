@@ -36,7 +36,7 @@ unsafe extern "C" {
 /// Universal object header: class_tag u32 at +8.
 const OBJ_CLASS_TAG_OFF: usize = 8;
 
-fn names_match(tag: u32, base_tag: u32) -> bool {
+pub(crate) fn names_match(tag: u32, base_tag: u32) -> bool {
     if tag == 0 || base_tag == 0 {
         return false;
     }

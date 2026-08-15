@@ -28,6 +28,7 @@ use crate::reflect::{ANY_HEAP, TAG_DYNOBJ, alloc_str_key, heap_type_tag};
 
 mod define;
 mod error_family;
+mod generic_alias;
 mod reify;
 
 unsafe extern "C" {
@@ -388,11 +389,20 @@ fn str_is(s: *const c_void, lit: &[u8]) -> bool {
 /// the returned reference.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_proto_get(tag: i64) -> u64 {
-    if !in_range(tag) {
-        return VALUE_NULL_IMM;
-    }
     // SAFETY: single-threaded JS; reading a registered slot.
-    let v = unsafe { PROTOS_BY_TAG_IMM[tag as usize] };
+    let mut v = if in_range(tag) {
+        unsafe { PROTOS_BY_TAG_IMM[tag as usize] }
+    } else {
+        0
+    };
+    if v == 0 {
+        // 405-04 knife 2 — a generic specialization tag (often beyond
+        // MAX_CLASSES) reads its class's MAIN slot; see
+        // classmeta/generic_alias.rs.
+        if let Some(main) = generic_alias::main_tag_of(tag) {
+            v = unsafe { PROTOS_BY_TAG_IMM[main] };
+        }
+    }
     if v == 0 {
         return VALUE_NULL_IMM;
     }
@@ -409,11 +419,19 @@ pub unsafe extern "C" fn __torajs_anyv_proto_get(tag: i64) -> u64 {
 /// out-of-range / unregistered class.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_class_get(tag: i64) -> u64 {
-    if !in_range(tag) {
-        return VALUE_UNDEFINED_IMM;
-    }
     // SAFETY: as above.
-    let v = unsafe { CLASSES_BY_TAG_IMM[tag as usize] };
+    let mut v = if in_range(tag) {
+        unsafe { CLASSES_BY_TAG_IMM[tag as usize] }
+    } else {
+        0
+    };
+    if v == 0 {
+        // 405-04 knife 2 — generic specialization tags alias the
+        // main slot, same as proto_get above.
+        if let Some(main) = generic_alias::main_tag_of(tag) {
+            v = unsafe { CLASSES_BY_TAG_IMM[main] };
+        }
+    }
     if v == 0 {
         return VALUE_UNDEFINED_IMM;
     }
