@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-15T01:54:43.359Z",
+  "generatedAt": "2026-08-15T06:20:38.672Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-15T01:46:30Z",
-    "headSha": "713638c9",
-    "elapsedSec": 328.08,
+    "ranAt": "2026-08-15T06:12:11Z",
+    "headSha": "a77aae24",
+    "elapsedSec": 327.18,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25154,
+    "pass": 25156,
     "passNoOracle": 852,
     "passNegative": 4125,
-    "passTotal": 30131,
-    "bug": 12708,
+    "passTotal": 30133,
+    "bug": 12706,
     "incompatible": 10335,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 42839,
-    "passRateInScope": 56.66,
+    "passRateInScope": 56.67,
     "passRateTrAccepted": 70.34
   },
   "torajs": {
-    "commit": "713638c9",
-    "commitSubject": "feat: a capturing class extends a top-level real class",
+    "commit": "a77aae24",
+    "commitSubject": "fix: iterator-result object check rejects primitive heap cells; proto alias gates on a generic-row bit",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "a77aae24",
+      "subject": "fix: iterator-result object check rejects primitive heap cells; proto alias gates on a generic-row bit"
+    },
+    {
+      "hash": "cf44e5a6",
+      "subject": "feat: a capturing class extends a derived top-level real class"
+    },
+    {
+      "hash": "5edd3ce0",
+      "subject": "feat: closure indexed writes ride the member-set route with an integrity gate"
+    },
+    {
+      "hash": "68463714",
+      "subject": "feat: struct inspect lists prototype methods and accessors"
+    },
+    {
+      "hash": "78368cab",
+      "subject": "feat: getPrototypeOf on a generic instance aliases the main registry slot"
+    },
+    {
+      "hash": "3b363dd4",
+      "subject": "feat: a generic class's prototype reifies its method faces"
+    },
+    {
+      "hash": "4c83e7d4",
+      "subject": "feat: a class expression in an expression-bodied arrow sees the arrow's params"
+    },
+    {
+      "hash": "0647126b",
+      "subject": "chore: record the rotation 407 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "713638c9",
       "subject": "feat: a capturing class extends a top-level real class"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "ffb70cbd",
       "subject": "fix: instanceof walks a dynobj receiver's proto chain on the class lane"
-    },
-    {
-      "hash": "20537712",
-      "subject": "fix: chain-dispatched class methods guard a foreign dynobj receiver"
-    },
-    {
-      "hash": "8866c604",
-      "subject": "chore: record the rotation 406 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "c589dbb2",
-      "subject": "feat: a capturing class with a computed static field routes to the es5 lane"
-    },
-    {
-      "hash": "bec5fe10",
-      "subject": "refactor: the closure member-get arms extract to per-arm fns"
-    },
-    {
-      "hash": "b3899336",
-      "subject": "fix: collection prototype methods brand-check a rebound receiver"
-    },
-    {
-      "hash": "61ab3dab",
-      "subject": "feat: a static body's super reads through the parent class"
-    },
-    {
-      "hash": "285b77bb",
-      "subject": "refactor: static-init installation moves to the install sibling"
-    },
-    {
-      "hash": "611cf2d8",
-      "subject": "feat: the es5 extends lane admits static-carrying parents and deep chains"
     }
   ],
-  "headSha": "713638c9",
+  "headSha": "a77aae24",
   "autorun": {
-    "total": 710,
+    "total": 711,
     "baselineTarget": 10,
-    "bySelf": 705,
+    "bySelf": 706,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786750455-080d",
-      "at": "2026-08-14T23:34:15Z",
-      "ts": 1786750455,
+      "rotationId": "r-1786758900-1b44",
+      "at": "2026-08-15T01:55:00Z",
+      "ts": 1786758900,
       "trigger": "self",
-      "prevHead": "8866c604",
-      "handoffSha": "sha256:e2fc1d6b98cceb4b8b80ac96c39dd61bcceba02ed1a518710080b69c51ee1906",
-      "handoffAgeSec": 12,
+      "prevHead": "0647126b",
+      "handoffSha": "sha256:556090f899641c0dc09f628f4f58502ac6bd629068b74e0f07b8b52e1883294a",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786758900-1b44",
+        "at": "2026-08-15T01:55:00Z",
+        "ts": 1786758900,
+        "trigger": "self",
+        "prevHead": "0647126b",
+        "handoffSha": "sha256:556090f899641c0dc09f628f4f58502ac6bd629068b74e0f07b8b52e1883294a",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786750455-080d",
         "at": "2026-08-14T23:34:15Z",
@@ -876,17 +887,6 @@
         "prevHead": "b441ac74",
         "handoffSha": "sha256:a7ffa100db9bea1f8556162717e0e4dd935a5260a148f7e04e7e061c15df03a2",
         "handoffAgeSec": 16,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786690237-7158",
-        "at": "2026-08-14T06:50:37Z",
-        "ts": 1786690237,
-        "trigger": "self",
-        "prevHead": "5403c884",
-        "handoffSha": "sha256:c9aa1aba578846f7baf8b7345128ec5d4ae07f6b578234e2df72d85f8132e429",
-        "handoffAgeSec": 24,
         "conformanceBefore": null,
         "commitsInSession": null
       }
