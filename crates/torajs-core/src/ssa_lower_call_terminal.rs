@@ -148,7 +148,8 @@ pub(crate) fn emit(
     // readers until H2 retires that prepend, which also removes the
     // extra arg and makes this count the true user argc).
     if hidden_off == 1 {
-        argv.insert(0, Operand::ConstI64(args.len() as i64));
+        let argc_op = forwarded_argc(ctx, callee).unwrap_or(Operand::ConstI64(args.len() as i64));
+        argv.insert(0, argc_op);
     }
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
@@ -188,6 +189,32 @@ pub(crate) fn emit(
 /// side table), the direct Ident otherwise. Non-Ident callees can't
 /// reach a head-less body (value escapes ride the `__forward_` relay,
 /// itself an env-first closure).
+/// `__forward_<f>` is a TRANSPARENT relay minted for a value escape
+/// of `f`; when its body's forwarding call reaches a head-less
+/// callee, the hidden argc slot must carry the relay's OWN runtime
+/// argc (the S1 hidden param every env-first closure receives), not
+/// the relay's declared arity — `(f as any)(1, 2, 3)` reaches `f`
+/// through the relay and `arguments.length` must answer 3. Any
+/// other caller keeps the static count (`args.len()`).
+fn forwarded_argc(ctx: &mut LowerCtx<'_>, callee: ExprId) -> Option<Operand> {
+    let crate::ast::Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    if ctx.f.name.strip_prefix("__forward_") != Some(callee_name.as_str()) {
+        return None;
+    }
+    let info = ctx.locals.get("__torajs_argc")?;
+    let (slot, ty) = (info.slot, info.ty);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(ty, Operand::Value(slot), 0),
+        ty,
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
 fn headless_hidden_off(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) -> usize {
     let name = if let Some(n) = ctx.call_retargets.get(&eid) {
         n.as_str()
