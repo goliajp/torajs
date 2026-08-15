@@ -325,47 +325,7 @@ impl<'a> BodyCloner<'a> {
                 span: *span,
             },
             Stmt::TypeDecl { .. } | Stmt::ImportDecl { .. } => s.clone(),
-            Stmt::ClassDecl {
-                name,
-                type_params,
-                parent,
-                is_abstract,
-                fields,
-                static_init,
-                ctor,
-                methods,
-                static_methods,
-            } => Stmt::ClassDecl {
-                name: name.clone(),
-                type_params: type_params.clone(),
-                // The heritage is an arena expression (RFC 20260815);
-                // a plain id copy would SHARE the node between the two
-                // bodies, so a later rename in one would leak into the
-                // other. Deep-clone like every other ExprId field.
-                parent: parent.map(|p| self.clone_expr(p)),
-                is_abstract: *is_abstract,
-                fields: fields.clone(),
-                static_init: static_init
-                    .iter()
-                    .map(|si| match si {
-                        StaticInit::Field(f) => StaticInit::Field(StaticField {
-                            name: f.name.clone(),
-                            type_ann: f.type_ann.clone(),
-                            init: self.clone_expr(f.init),
-                        }),
-                        StaticInit::Block(b) => StaticInit::Block(self.clone_stmts(b)),
-                    })
-                    .collect(),
-                ctor: ctor.as_ref().map(|c| ClassCtor {
-                    params: self.clone_params(c.params.clone()),
-                    body: self.clone_stmts(&c.body),
-                }),
-                methods: methods.iter().map(|m| self.clone_class_method(m)).collect(),
-                static_methods: static_methods
-                    .iter()
-                    .map(|m| self.clone_class_method(m))
-                    .collect(),
-            },
+            Stmt::ClassDecl { .. } => self.clone_class_decl(s),
             Stmt::Return(e) => Stmt::Return(e.map(|e| self.clone_expr(e))),
             Stmt::Yield(e) => Stmt::Yield(self.clone_expr(*e)),
             Stmt::YieldInto {
@@ -388,6 +348,54 @@ impl<'a> BodyCloner<'a> {
                 default_expr: default_expr.map(|d| self.clone_expr(d)),
                 source: source.clone(),
             },
+        }
+    }
+
+    fn clone_class_decl(&mut self, s: &Stmt) -> Stmt {
+        let Stmt::ClassDecl {
+            name,
+            type_params,
+            parent,
+            is_abstract,
+            fields,
+            static_init,
+            ctor,
+            methods,
+            static_methods,
+        } = s
+        else {
+            unreachable!("caller matched ClassDecl");
+        };
+        Stmt::ClassDecl {
+            name: name.clone(),
+            type_params: type_params.clone(),
+            // The heritage is an arena expression (RFC 20260815);
+            // a plain id copy would SHARE the node between the two
+            // bodies, so a later rename in one would leak into the
+            // other. Deep-clone like every other ExprId field.
+            parent: parent.map(|p| self.clone_expr(p)),
+            is_abstract: *is_abstract,
+            fields: fields.clone(),
+            static_init: static_init
+                .iter()
+                .map(|si| match si {
+                    StaticInit::Field(f) => StaticInit::Field(StaticField {
+                        name: f.name.clone(),
+                        type_ann: f.type_ann.clone(),
+                        init: self.clone_expr(f.init),
+                    }),
+                    StaticInit::Block(b) => StaticInit::Block(self.clone_stmts(b)),
+                })
+                .collect(),
+            ctor: ctor.as_ref().map(|c| ClassCtor {
+                params: self.clone_params(c.params.clone()),
+                body: self.clone_stmts(&c.body),
+            }),
+            methods: methods.iter().map(|m| self.clone_class_method(m)).collect(),
+            static_methods: static_methods
+                .iter()
+                .map(|m| self.clone_class_method(m))
+                .collect(),
         }
     }
 

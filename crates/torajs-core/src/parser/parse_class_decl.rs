@@ -23,6 +23,8 @@
 
 use super::*;
 
+use super::parse_class_decl_header::ClassHeader;
+
 impl<'a> Parser<'a> {
     pub(super) fn parse_class_decl_with_abstract(
         &mut self,
@@ -30,55 +32,16 @@ impl<'a> Parser<'a> {
         allow_anon: bool,
         force_synth: bool,
     ) -> Result<Stmt, String> {
-        self.pos += 1; // consume `class`
-        let name = self.parse_class_name(allow_anon, force_synth)?;
-        // P8.1 — set `current_class` so private-member parsing inside
-        // this class body can mangle `this.#x` to `__priv_<class>__x`.
-        // Saved/restored at every successful return path; on `return
-        // Err(...)` we don't restore (parse has failed; parser state
-        // is moot). Cloned for nested classes — the recursive call
-        // overwrites; we restore the outer name on its successful exit.
-        let saved_class = self.current_class.take();
-        self.current_class = Some(name.clone());
-        // r334 blade 6 — SuperProperty (`super.x` et al) is legal
-        // throughout a class body: method/accessor/ctor bodies, field
-        // initializers, static blocks (each has a [[HomeObject]], ES
-        // §15.7.14). Ordinary function bodies nested inside re-clear
-        // it at their own parse sites; arrows inherit. Restored with
-        // `current_class` below (error paths skip, same rationale).
-        let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
-        // Optional generic type params: `class Map<K, V> { ... }`.
-        let type_params = self.parse_class_type_params()?;
-        // The heritage parses BEFORE this class's private scope opens:
-        // §15.7.14 evaluates ClassHeritage in the class-OUTER private
-        // environment, so `class C extends (obj.#x) {}` resolves `#x`
-        // against the enclosing class (or fails the early error), never
-        // against C's own names. The test262 early-error family
-        // grammar-private-environment-on-class-heritage-* pins this —
-        // parsing the heritage inside the pushed scope silently claimed
-        // those references for C (rotation 409, surfaced when the
-        // heritage widened from a bare name to an expression).
-        let parent = self.parse_class_heritage()?;
-        // Private-name lexical scope for this body (ES §15.7 — nested
-        // classes see outer `#x` names, an inner redeclaration
-        // shadows). Declarations fill the set as members parse;
-        // `#x` REFERENCES defer to `resolve_private_refs`, which walks
-        // this stack once the whole file is in.
-        let scope_id = self.ast.class_private_scopes.len() as u32;
-        self.ast
-            .class_private_scopes
-            .push((name.clone(), std::collections::HashSet::new()));
-        self.class_stack.push(scope_id);
-        // The generator-method branch keys its `super` rewrites on the
-        // statically-known parent NAME; a non-Ident heritage answers
-        // None there, same as no heritage (those classes are routed to
-        // the value-shaped-parent lane before any of this matters).
-        let parent_name: Option<String> = self.ast.parent_ident_name(parent).map(str::to_string);
-        // Read only by the constructor branch below, to decide whether a
-        // `super()` in that body is the legal one (ES §15.7.1). Saved
-        // and restored like `current_class` for nested classes.
-        let saved_has_parent = self.current_class_has_parent;
-        self.current_class_has_parent = parent.is_some();
+        let h = self.parse_class_header(allow_anon, force_synth)?;
+        let ClassHeader {
+            name,
+            type_params,
+            parent,
+            parent_name,
+            saved_class,
+            saved_super_prop,
+            saved_has_parent,
+        } = h;
         let mut fields: Vec<(String, String)> = Vec::new();
         let mut static_init: Vec<StaticInit> = Vec::new();
         let mut ctor: Option<ClassCtor> = None;
