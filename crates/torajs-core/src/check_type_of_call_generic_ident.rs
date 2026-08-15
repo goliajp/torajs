@@ -219,9 +219,21 @@ pub(crate) fn try_match(
             }
             arg_tys.push(arg_ty);
         }
-        // Validate every type-param was bound.
+        // Validate every type-param was bound. A param the SIGNATURE
+        // never mentions cannot be inferred and cannot matter — bind
+        // it `any` (TS infers `unknown` there and admits the call).
+        // The shape ships on every generic class's statics: desugar
+        // threads the class's params onto `__sm_<C>__<m>` whether or
+        // not the static mentions them (a static referencing a class
+        // type param is a TS error, so it never does).
         for tp in &type_params {
             if !subst.contains_key(tp) {
+                if !typevar_appears_in_iter(&params, tp)
+                    && !crate::check_typevar::typevar_appears_in(&ret, tp)
+                {
+                    subst.insert(tp.clone(), Type::Any);
+                    continue;
+                }
                 return Some(Err(format!(
                     "could not infer type parameter `{tp}` for `{name}`"
                 )));
