@@ -289,18 +289,32 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// Phase B refcount: walk an array's element slots in [start, end)
-    /// and call `__torajs_rc_inc` on each pointer. Used right after
-    /// every Array helper that memcpy-copies element pointers (slice /
-    /// toReversed / with / concat / spread / etc.) when the element
-    /// type is non-Copy — the derived array now shares ownership of
-    /// each element with the source, so inc balances the future
-    /// element-walk drop on either array.
+    /// and inc each one. Used right after every Array helper that
+    /// memcpy-copies element pointers (slice / toReversed / with /
+    /// concat / spread / etc.) when the element type is non-Copy —
+    /// the derived array now shares ownership of each element with
+    /// the source, so inc balances the future element-walk drop on
+    /// either array.
+    ///
+    /// `elem_ty` picks the inc kernel (rotation 412 — the mirror of
+    /// `emit_arr_rc_drop_range`'s type-awareness): an `Arr<Any>`
+    /// slot holds a NaN-box ENCODING, not a header pointer, so it
+    /// must ride the payload-gated `any_box_rc_inc` (immediates
+    /// no-op). The old unconditional `__torajs_rc_inc` dereferenced
+    /// a boxed bool's payload as an address — SIGSEGV at 0x7 the
+    /// first time `Array.from(<any[]>)` ran (the ctor rest relay).
     ///
     /// `start` and `end` are i64 SSA operands (slot indices, not byte
     /// offsets). Generates an SSA `for (i = start; i < end; i++)` loop;
     /// LLVM mem2reg + loop opts collapse it to whatever the target ISA
     /// likes best.
-    pub(crate) fn emit_arr_rc_inc_range(&mut self, arr: Operand, start: Operand, end: Operand) {
+    pub(crate) fn emit_arr_rc_inc_range(
+        &mut self,
+        arr: Operand,
+        elem_ty: Type,
+        start: Operand,
+        end: Operand,
+    ) {
         let i_slot = self.alloca_in_entry(Type::I64, Some("__inc_i"));
         self.f.append_void(
             self.cur_block,
@@ -350,13 +364,19 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
+        let load_ty = if elem_ty == Type::Any {
+            Type::Any
+        } else {
+            Type::Ptr
+        };
         let elem = self.f.append_inst(
             self.cur_block,
-            InstKind::LoadDyn(Type::Ptr, data.clone(), Operand::Value(off)),
-            Type::Ptr,
+            InstKind::LoadDyn(load_ty, data.clone(), Operand::Value(off)),
+            load_ty,
             None,
         );
-        self.emit_rc_inc(Operand::Value(elem));
+        let body_blk = self.cur_block;
+        self.emit_owned_result_inc_in(body_blk, Operand::Value(elem), elem_ty);
         let i_next = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),

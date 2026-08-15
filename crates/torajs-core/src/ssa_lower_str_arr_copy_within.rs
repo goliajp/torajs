@@ -73,7 +73,7 @@ fn emit_copy_within_rc_ranges(
         Type::I64,
         None,
     );
-    ctx.emit_arr_rc_inc_range(recv_op, lo, Operand::Value(src_end));
+    ctx.emit_arr_rc_inc_range(recv_op, elem_ty, lo, Operand::Value(src_end));
     ctx.emit_arr_rc_drop_range(recv_op, elem_ty, to, Operand::Value(dst_end));
 }
 

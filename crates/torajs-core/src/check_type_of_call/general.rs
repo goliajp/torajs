@@ -149,6 +149,14 @@ pub(crate) fn general_call(
         // params bitmap retired in chunk 568: every store lane
         // takes its own +1 (chunks 564-567), so the historical
         // caller-side consume double-counted into a leak.
+        //
+        // Rotation 412 — TS contextual typing for a literal Array
+        // ARGUMENT: once admitted, its recorded type is the param's
+        // (the chunk-702 let-decl story, same helper). Without this
+        // a uniform-kind literal against an `any[]` param (the ctor
+        // rest relay's `[true]`) minted the typed flavor and the
+        // callee's Arr<Any> readers mis-decoded the slots.
+        crate::check_stmt_let_decl::apply_contextual_array_ann(checker, ast, *arg_id, param_ty);
     }
     Ok(*ret)
 }

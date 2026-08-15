@@ -334,6 +334,7 @@ fn emit_shallow_clone(ctx: &mut LowerCtx<'_>, op: Operand, ty: Type) -> Operand 
             );
             ctx.emit_arr_rc_inc_range(
                 Operand::Value(v),
+                elem_ty,
                 Operand::ConstI64(0),
                 Operand::Value(len2),
             );

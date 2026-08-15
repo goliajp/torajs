@@ -231,6 +231,7 @@ fn materialize_src(
             );
             ctx.emit_arr_rc_inc_range(
                 Operand::Value(cloned),
+                elem_ty,
                 Operand::ConstI64(0),
                 Operand::Value(cloned_len),
             );

@@ -371,7 +371,19 @@ fn pick_ary_destr_lane(
 /// non-Any annotation the contextual type matches the inference.
 /// Spread elements aren't literals — recursion simply skips them (the
 /// spread lowering keeps its own element-type derivation).
-fn apply_contextual_array_ann(checker: &mut Checker, ast: &Ast, eid: ExprId, ann: &Type) {
+///
+/// `pub(crate)` since rotation 412: a literal Array ARGUMENT against
+/// a declared `T[]` param is the same contextual-typing story
+/// ([`crate::check_type_of_call::general`] calls this per admitted
+/// arg) — without it a uniform-kind literal against an `any[]` param
+/// minted the typed flavor and the callee's Arr<Any> readers
+/// mis-decoded the slots.
+pub(crate) fn apply_contextual_array_ann(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    ann: &Type,
+) {
     let Type::Array(elem_ann) = ann else { return };
     let Expr::Array(elements) = ast.get_expr(eid) else {
         return;

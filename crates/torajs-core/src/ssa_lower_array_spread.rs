@@ -262,7 +262,11 @@ fn fill_arr_from_items(
                     ),
                 );
                 if elem_is_refcounted {
-                    ctx.emit_rc_inc(v);
+                    // Type-aware (rotation 412): an Any elem is a
+                    // NaN-box encoding, not a header ptr — the gated
+                    // inc no-ops immediates instead of dereferencing
+                    // their payload.
+                    ctx.emit_owned_result_inc(v, elem_ty);
                 }
             }
             Item::Spread(src) => {
@@ -295,6 +299,7 @@ fn fill_arr_from_items(
                     );
                     ctx.emit_arr_rc_inc_range(
                         Operand::Value(arr_ptr),
+                        elem_ty,
                         Operand::Value(old),
                         Operand::Value(new_len),
                     );

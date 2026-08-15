@@ -211,6 +211,22 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                 body: vec![Stmt::Expr(sup)],
             });
         }
+        // Rotation 412 (371-00 close) — the argument-count-sensitive
+        // families get the rest-param default ctor now that the ctor
+        // rest relay carries the true argc (the 3a143f1e fix): argc 0
+        // rides the bare `super()` rewrite (mint default; Promise's
+        // §27.2.3.1 TypeError), argc 1+ the one-argument kernel.
+        // Pre-fix these were the no-forward shape, which silently
+        // dropped the argument (`new N2(5)` valueOf'd +0).
+        if exotic
+            && ctor.is_none()
+            && matches!(
+                p.as_str(),
+                "Number" | "String" | "Boolean" | "Promise" | "Array" | "RegExp"
+            )
+        {
+            *ctor = Some(synthesize_exotic_rest_ctor(ast, cname, p));
+        }
         if let Some(c) = ctor.as_mut() {
             let mut sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
             for s in &c.body {
@@ -273,5 +289,87 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
             }
         }
         *parent = None;
+    }
+}
+
+/// The rest-param derived default ctor for a ctor-less exotic
+/// subclass whose builtin parent is NOT argument-count agnostic:
+///
+/// ```text
+/// constructor(...__superargs: any[]) {
+///   if (__superargs.length === 0) { super(); }
+///   else { super(__superargs[0]); }          // wrappers / Promise
+///   // Array / RegExp split the else again: 1 → super(args[0]),
+///   // 2+ → throw (their multi-argument forms carry real semantics
+///   // — §23.1.1.3 elements / §22.2.4.1 flags — this seam does not
+///   // reach yet; loud beats a silently-wrong one-arg read).
+/// }
+/// ```
+///
+/// The wrappers and Promise ignore arguments past the first per
+/// spec (§21.1.1.1 / §22.1.1.1 / §20.3.1.1 / §27.2.3.1 read only
+/// the first), so the two-arm dispatch is semantically complete for
+/// them. The `super` sites synthesized here are rewritten by the
+/// caller's rewrite loop exactly like a user-written ctor's.
+fn synthesize_exotic_rest_ctor(ast: &mut Ast, cname: &str, parent: &str) -> crate::ast::ClassCtor {
+    let args_len = |ast: &mut Ast| {
+        let obj = ast.add_expr(Expr::Ident("__superargs".to_string()));
+        ast.add_expr(Expr::Member {
+            obj,
+            name: "length".to_string(),
+        })
+    };
+    let len0 = args_len(ast);
+    let zero = ast.add_expr(Expr::Number(0.0));
+    let is_zero = ast.add_expr(Expr::BinOp {
+        op: BinOp::Eq,
+        left: len0,
+        right: zero,
+    });
+    let super0 = ast.add_expr(Expr::Super { args: Vec::new() });
+    let arg0_obj = ast.add_expr(Expr::Ident("__superargs".to_string()));
+    let idx0 = ast.add_expr(Expr::Number(0.0));
+    let arg0 = ast.add_expr(Expr::Index {
+        obj: arg0_obj,
+        index: idx0,
+    });
+    let super1 = ast.add_expr(Expr::Super { args: vec![arg0] });
+    let else_branch = if matches!(parent, "Array" | "RegExp") {
+        let len1 = args_len(ast);
+        let one = ast.add_expr(Expr::Number(1.0));
+        let is_one = ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left: len1,
+            right: one,
+        });
+        let msg = ast.add_expr(Expr::String(format!(
+            "M5.N: `new {cname}(...)` with 2+ arguments is not yet supported \
+             for an exotic `{parent}` parent"
+        )));
+        let err = ast.add_expr(Expr::New {
+            class_name: "Error".to_string(),
+            args: vec![msg],
+            type_args: Vec::new(),
+        });
+        Stmt::If {
+            cond: is_one,
+            then_branch: Box::new(Stmt::Expr(super1)),
+            else_branch: Some(Box::new(Stmt::Throw(err))),
+        }
+    } else {
+        Stmt::Expr(super1)
+    };
+    crate::ast::ClassCtor {
+        params: vec![crate::ast::Param {
+            name: "__superargs".to_string(),
+            type_ann: Some("any[]".to_string()),
+            default: None,
+            is_rest: true,
+        }],
+        body: vec![Stmt::If {
+            cond: is_zero,
+            then_branch: Box::new(Stmt::Expr(super0)),
+            else_branch: Some(Box::new(else_branch)),
+        }],
     }
 }
