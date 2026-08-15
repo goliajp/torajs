@@ -94,6 +94,11 @@ pub struct UserClassLayoutEntry {
     /// so the runtime Obj drop can restrict cycle-root buffering to
     /// named-class instances (mirrors the typed drop's policy).
     pub is_named: bool,
+    /// 405-04 knife 2 fix — GENERIC specialization row (per-factory
+    /// tag wearing the class identity, no registry slot of its own).
+    /// Written into the outer entry's flags word (bit 1); the
+    /// runtime proto/class alias resolver triggers only on it.
+    pub is_generic: bool,
     /// 刀 4 (RFC 20260714-t262-top-clusters) — runtime-dispatchable
     /// methods (name + boxed-adapter fn). Lowered into the per-class
     /// `.__class_methods_<i>` inner global; the outer entry's

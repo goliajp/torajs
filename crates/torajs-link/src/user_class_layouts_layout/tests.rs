@@ -10,6 +10,7 @@ fn entry(offsets: &[u32]) -> UserClassLayoutEntry {
         child_offsets: offsets.to_vec(),
         fields: Vec::new(),
         is_named: true,
+        is_generic: false,
         methods: Vec::new(),
     }
 }
@@ -27,6 +28,7 @@ fn entry_with_fields(offsets: &[u32], fields: Vec<UserFieldMetaEntry>) -> UserCl
         child_offsets: offsets.to_vec(),
         fields,
         is_named: true,
+        is_generic: false,
         methods: Vec::new(),
     }
 }
@@ -397,6 +399,7 @@ pub(super) fn entry_with_methods(
         child_offsets: offsets.to_vec(),
         fields: Vec::new(),
         is_named: true,
+        is_generic: false,
         methods,
     }
 }

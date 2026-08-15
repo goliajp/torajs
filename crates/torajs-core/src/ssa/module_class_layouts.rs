@@ -93,6 +93,15 @@ pub struct ClassLayoutMeta {
     /// buffer scrub for speed, so a runtime-buffered anon struct
     /// would leave a dangling buffer entry behind).
     pub is_named: bool,
+    /// 405-04 knife 2 fix (rotation 408) — `true` for a GENERIC
+    /// specialization row (a mono factory's per-factory tag, 404-01):
+    /// the row wears the class's identity but its proto/class
+    /// registry slots are never filled, so the runtime registry
+    /// aliases it to the main tag by name. Baked as outer-entry
+    /// flags bit 1; the alias resolver triggers ONLY on rows carrying
+    /// this bit (a non-generic tag with an empty slot keeps the null
+    /// answer — several consumers' termination logic depends on it).
+    pub is_generic: bool,
     /// 刀 4 — runtime-dispatchable methods (inherited included, the
     /// vtable walk's resolution). Empty for anonymous shapes and for
     /// classes whose methods all failed adapter synthesis.

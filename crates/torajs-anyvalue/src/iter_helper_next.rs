@@ -31,6 +31,18 @@ use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use torajs_rc::Tag;
 
+/// §7.4.4 helper — a heap cell whose tag is a PRIMITIVE value shape
+/// (a string / symbol / bigint payload cell), which is not an Object
+/// for the IteratorResult check even though it is heap-allocated.
+pub(crate) fn is_primitive_heap_cell(p: *const c_void) -> bool {
+    // SAFETY: caller verified `is_cell`, so `p` is a live heap cell
+    // with the universal header (type tag u16 at +4).
+    let tag = unsafe { (p.cast::<u8>().add(4) as *const u16).read() };
+    // A substr view shares Tag::Str (FLAG_SUBSTR_VIEW discriminates
+    // internally), so the Str arm covers both spellings.
+    tag == Tag::Str as u16 || tag == Tag::Symbol as u16 || tag == Tag::BigInt as u16
+}
+
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
@@ -117,7 +129,15 @@ pub(crate) unsafe fn step_via(iter: AnyValue, next: AnyValue, out: *mut AnyValue
         if __torajs_throw_check() != 0 {
             return 0;
         }
-        if !is_cell(step) {
+        // §7.4.4 IteratorComplete step 1 — the result must be an
+        // OBJECT. `is_cell` alone admits primitive heap cells (a
+        // string value is a Str cell in tr), and a next() answering
+        // `""` then read `done`/`value` as undefined and spun the
+        // driver forever (rotation 408: sm/Iterator/prototype/reduce
+        // — reachable once the generic-tag proto alias let the
+        // reified face resolve; the legacy derived driver already
+        // judged this correctly).
+        if !is_cell(step) || is_primitive_heap_cell(as_void_ptr(step) as *const c_void) {
             __torajs_anyv_rc_dec(step);
             __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
             return 0;

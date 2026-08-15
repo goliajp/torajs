@@ -18,6 +18,11 @@
 
 use crate::instanceof_generic::names_match;
 
+unsafe extern "C" {
+    /// torajs-structmeta — outer-entry flags bit 1 (generic row).
+    fn __torajs_struct_row_is_generic(class_tag: u32) -> bool;
+}
+
 /// `(specialization tag, main tag)` pairs — a tiny direct-scan
 /// cache. `static mut` matches this module's registry arrays (JS
 /// execution is single-threaded, see the classmeta.rs module doc).
@@ -35,6 +40,18 @@ static mut CACHE_LEN: usize = 0;
 /// racing module-init registration order must not freeze a miss).
 pub(super) fn main_tag_of(tag: i64) -> Option<usize> {
     let t = u32::try_from(tag).ok()?;
+    // Rotation 408 hang fix — the alias triggers ONLY on rows the
+    // compiler marked as generic specializations (outer-entry flags
+    // bit 1). A non-generic tag with an empty registry slot must
+    // keep the null/undefined answer: several consumers' termination
+    // logic depends on a miss staying a miss (an Iterator-helper
+    // reduce over a subclass instance span into an infinite loop
+    // when the blanket by-name scan turned its miss into a hit —
+    // test262 sm/Iterator/prototype/reduce, caught by the sweep's
+    // pass→tr-timeout regression and bisected to the blanket form).
+    if !unsafe { __torajs_struct_row_is_generic(t) } {
+        return None;
+    }
     // SAFETY: single-threaded JS runtime (module doc); plain indexed
     // reads, no reference to the mutable static is formed.
     unsafe {

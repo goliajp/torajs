@@ -3,11 +3,11 @@
 //! table, then count.
 
 use super::types::{
-    COUNT_ALIGN, COUNT_SIZE, ENTRY_FLAG_NAMED_CLASS, INNER_ELEM_ALIGN, INNER_ELEM_SIZE,
-    INNER_FIELD_META_ALIGN, INNER_FIELD_META_ELEM_SIZE, INNER_FIELD_META_HEADER_SIZE,
-    INNER_METHOD_META_ALIGN, INNER_METHOD_META_ELEM_SIZE, INNER_METHOD_META_HEADER_SIZE,
-    OUTER_ENTRY_ALIGN, OUTER_ENTRY_SIZE, UserClassLayoutEntryLayout, UserClassLayoutsLayout,
-    UserFieldMetaPlacement, UserMethodMetaPlacement,
+    COUNT_ALIGN, COUNT_SIZE, ENTRY_FLAG_GENERIC_ROW, ENTRY_FLAG_NAMED_CLASS, INNER_ELEM_ALIGN,
+    INNER_ELEM_SIZE, INNER_FIELD_META_ALIGN, INNER_FIELD_META_ELEM_SIZE,
+    INNER_FIELD_META_HEADER_SIZE, INNER_METHOD_META_ALIGN, INNER_METHOD_META_ELEM_SIZE,
+    INNER_METHOD_META_HEADER_SIZE, OUTER_ENTRY_ALIGN, OUTER_ENTRY_SIZE, UserClassLayoutEntryLayout,
+    UserClassLayoutsLayout, UserFieldMetaPlacement, UserMethodMetaPlacement,
 };
 use crate::exec::UserClassLayoutEntry;
 
@@ -128,6 +128,10 @@ pub fn compute_user_class_layouts_layout(
             child_offsets: entry.child_offsets.clone(),
             flags: if entry.is_named {
                 ENTRY_FLAG_NAMED_CLASS
+            } else {
+                0
+            } | if entry.is_generic {
+                ENTRY_FLAG_GENERIC_ROW
             } else {
                 0
             },

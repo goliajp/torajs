@@ -221,6 +221,7 @@ pub fn append_fresh_class_layouts(
             child_offsets,
             field_metadata,
             is_named: false,
+            is_generic: base.is_some(),
             methods,
         });
     }

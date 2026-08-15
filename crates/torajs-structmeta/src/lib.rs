@@ -345,6 +345,21 @@ pub unsafe extern "C" fn __torajs_struct_layout_lookup(class_tag: u32) -> *const
     }
 }
 
+/// 405-04 knife 2 fix — whether `class_tag`'s row is a GENERIC
+/// specialization row (outer-entry flags bit 1, mirrored from
+/// torajs-link `ENTRY_FLAG_GENERIC_ROW`). The proto/class registry
+/// alias (`torajs-meta::classmeta::generic_alias`) triggers only on
+/// these rows: a non-generic tag with an empty registry slot must
+/// keep the null answer — consumer termination logic depends on it
+/// (the rotation-408 Iterator-helper hang).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_row_is_generic(class_tag: u32) -> bool {
+    match lookup_layout(class_tag) {
+        Some(entry) => entry.flags & 2 != 0,
+        None => false,
+    }
+}
+
 /// Read the `idx`-th field name as a `(ptr, len)` slice. Returns an
 /// empty slice for a NULL layout, an out-of-range index, or a class
 /// with no field metadata.

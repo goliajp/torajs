@@ -29,6 +29,11 @@ pub(super) const OUTER_ENTRY_SIZE: u32 = 32;
 /// mirroring the typed drop path's policy. Runtime mirror:
 /// `torajs-cycle::layout::CLASS_LAYOUT_FLAG_NAMED`.
 pub const ENTRY_FLAG_NAMED_CLASS: u32 = 1;
+/// 405-04 knife 2 fix — outer-entry flags bit 1: a GENERIC
+/// specialization row. The runtime registry alias
+/// (`torajs-meta::classmeta::generic_alias`) resolves proto/class
+/// reads through the main tag ONLY for rows carrying this bit.
+pub const ENTRY_FLAG_GENERIC_ROW: u32 = 2;
 /// Outer-table entry alignment.
 pub(super) const OUTER_ENTRY_ALIGN: u32 = 8;
 /// Inner child_offsets array element size — `i32`.

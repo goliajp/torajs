@@ -74,7 +74,13 @@ pub(crate) unsafe fn step_derived_iterator(
             *out = VALUE_UNDEFINED;
             return 0;
         }
-        if !is_cell(step) {
+        // §7.4.4 step 1 — the result must be an OBJECT; a primitive
+        // heap cell (a string is a Str cell in tr) is not one, and
+        // reading done/value off it spun this driver forever (the
+        // step_via twin had the identical hole — rotation 408).
+        if !is_cell(step)
+            || crate::iter_helper_next::is_primitive_heap_cell(as_void_ptr(step) as *const c_void)
+        {
             __torajs_anyv_rc_dec(step);
             __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
             *out = VALUE_UNDEFINED;

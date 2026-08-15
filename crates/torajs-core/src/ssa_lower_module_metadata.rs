@@ -151,6 +151,7 @@ pub(crate) fn populate_class_layouts(
             child_offsets,
             field_metadata,
             is_named: true,
+            is_generic: false,
             methods: crate::ssa_lower_module_metadata_methods::resolve_class_methods(
                 ast,
                 &own_methods,
@@ -319,6 +320,7 @@ fn generic_class_placeholder_row(
         child_offsets: Vec::new(),
         field_metadata: Vec::new(),
         is_named: true,
+        is_generic: false,
         methods: crate::ssa_lower_module_metadata_methods::retarget_generic_class_methods(
             ast,
             fn_table,
@@ -398,6 +400,7 @@ fn register_anonymous_struct_layouts(
             child_offsets,
             field_metadata,
             is_named: false,
+            is_generic: false,
             methods: Vec::new(),
         });
     }
