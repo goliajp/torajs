@@ -198,14 +198,25 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, in_arrow: bool, hits: &mut Vec<ExprId>
 /// taken out of the node, walked with `in_arrow = true`, and put
 /// back.
 fn scan_expr(ast: &mut Ast, eid: ExprId, in_arrow: bool, hits: &mut Vec<ExprId>) {
-    // Arrow boundary — the body walks in this SAME fn scope, flagged.
+    // `Expr::ArrowFn` is a lossy encoding (see `parser/fn_expr.rs`
+    // knife-1 note): a FUNCTION expression parses to the same node,
+    // marked in `fn_expr_exprs` / `gen_fn_exprs` — and a fn-expr has
+    // its OWN `arguments` binding, so its body is a fresh scope, not
+    // an extension of this one (the un-gated first version rewrote
+    // `const h = function () { return arguments[0] }` at the outer
+    // fn's — six gate reds). Only the true arrow stays flagged.
     if matches!(ast.get_expr(eid), Expr::ArrowFn { .. }) {
+        let own_scope = ast.fn_expr_exprs.contains(&eid) || ast.gen_fn_exprs.contains_key(&eid);
         let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
             unreachable!()
         };
         let mut b = std::mem::take(body);
-        for s in b.iter_mut() {
-            scan_stmt(ast, s, true, hits);
+        if own_scope {
+            process_scope(ast, &mut b);
+        } else {
+            for s in b.iter_mut() {
+                scan_stmt(ast, s, true, hits);
+            }
         }
         let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
             unreachable!()
