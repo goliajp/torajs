@@ -490,6 +490,7 @@ pub(crate) struct Intrinsics {
     pub(crate) weakmap_subclass_super: FuncId,
     pub(crate) weakset_subclass_super: FuncId,
     pub(crate) date_subclass_super: FuncId,
+    pub(crate) date_subclass_super_components: FuncId,
     pub(crate) number_wrapper_subclass_super: FuncId,
     pub(crate) map_subclass_super: FuncId,
     pub(crate) set_subclass_super: FuncId,

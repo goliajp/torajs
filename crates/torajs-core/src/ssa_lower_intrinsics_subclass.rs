@@ -38,6 +38,7 @@ pub(crate) struct ExoticSubclassIds {
     pub weakmap_subclass_super: FuncId,
     pub weakset_subclass_super: FuncId,
     pub date_subclass_super: FuncId,
+    pub date_subclass_super_components: FuncId,
     pub number_wrapper_subclass_super: FuncId,
     pub map_subclass_super: FuncId,
     pub set_subclass_super: FuncId,
@@ -177,6 +178,12 @@ pub(crate) fn declare(
             super_pair,
         ),
         date_subclass_super: d(module, fn_table, "__torajs_date_subclass_super", super_pair),
+        date_subclass_super_components: d(
+            module,
+            fn_table,
+            "__torajs_date_subclass_super_components",
+            super_pair,
+        ),
         regex_subclass_super: d(
             module,
             fn_table,

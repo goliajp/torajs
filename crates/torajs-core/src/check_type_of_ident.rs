@@ -49,9 +49,13 @@ fn subclass_magic_ty(name: &str) -> Option<Type> {
             Box::new(Type::Any),
         ));
     }
-    // The 2+-argument elements form (§23.1.1.3) — the second operand
-    // is the ctor's packed rest array, any-admitted.
-    if name == "__torajs_arr_subclass_super_elems" {
+    // The 2+-argument elements form (§23.1.1.3) and Date's components
+    // form (§21.4.2.1 step 6) — the second operand is the ctor's
+    // packed rest array, any-admitted.
+    if matches!(
+        name,
+        "__torajs_arr_subclass_super_elems" | "__torajs_date_subclass_super_components"
+    ) {
         return Some(Type::Function(
             vec![Type::Any, Type::Any],
             Box::new(Type::Any),

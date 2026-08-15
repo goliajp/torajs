@@ -432,6 +432,7 @@ pub(crate) fn build(
         weakmap_subclass_super: init_c.subclass.weakmap_subclass_super,
         weakset_subclass_super: init_c.subclass.weakset_subclass_super,
         date_subclass_super: init_c.subclass.date_subclass_super,
+        date_subclass_super_components: init_c.subclass.date_subclass_super_components,
         number_wrapper_subclass_super: init_c.subclass.number_wrapper_subclass_super,
         map_subclass_super: init_c.subclass.map_subclass_super,
         set_subclass_super: init_c.subclass.set_subclass_super,

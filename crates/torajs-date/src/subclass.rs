@@ -68,3 +68,73 @@ pub unsafe extern "C" fn __torajs_date_set_ms_from(dst: *mut c_void, src: *const
         (*(dst as *mut Date)).ms = (*(src as *const Date)).ms;
     }
 }
+
+/// `torajs_arr` header mirror — the length slot every Arr cell
+/// carries at +8 (the torajs-promise combinator carries the same
+/// mirror; torajs-date takes no crate dep on torajs-arr).
+const ARR_LEN_OFF: usize = 8;
+
+unsafe extern "C" {
+    /// torajs-anyvalue — NaN-box payload decode.
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-anyvalue — ToNumber over a boxed any (§7.1.4).
+    fn __torajs_anyv_to_number(v: u64) -> f64;
+    /// torajs-arr — borrow-read one Any slot boxed (OOB answers
+    /// boxed undefined; not consulted past `len` here — a MISSING
+    /// component takes its §21.4.2.1 step-6 default, while a present
+    /// `undefined` must run ToNumber to NaN, so the argc question is
+    /// answered by the length slot, never by the OOB posture).
+    fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64;
+    /// torajs-rc — the fresh-owned-answer inc (see below).
+    fn __torajs_rc_inc(p: *mut c_void);
+}
+
+/// `super(y, m, ...)` with 2+ arguments inside a Date-subclass ctor —
+/// the `new Date(y, m, d, h, mi, s, ms)` components form
+/// (§21.4.2.1 step 6): LOCAL-time interpretation, MakeFullYear on the
+/// year, day defaulting to 1 and the time components to 0 when the
+/// argument list stops short. The synthesized rest-param default ctor
+/// hands its packed rest array; each present slot runs ToNumber
+/// (§7.1.4 — a boxed string parses, an undefined answers NaN and the
+/// clip lands Invalid Date, exactly the plain ctor's account).
+///
+/// # Safety
+/// `this_av` is the factory's freshly minted subclass instance boxed
+/// ANY_HEAP (or any non-cell box, answered back unchanged);
+/// `comps_av` is a live borrowed boxed Arr<Any>.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_subclass_super_components(
+    this_av: u64,
+    comps_av: u64,
+) -> u64 {
+    unsafe {
+        let this_p = __torajs_anyv_unbox_value(this_av) as *mut c_void;
+        let comps_p = __torajs_anyv_unbox_value(comps_av) as *const c_void;
+        if this_p.is_null() || comps_p.is_null() {
+            return this_av;
+        }
+        let len = *((comps_p as *const u8).add(ARR_LEN_OFF) as *const u64);
+        let comp = |i: u64, default: f64| -> f64 {
+            if i < len {
+                __torajs_anyv_to_number(__torajs_arr_get_any_boxed(comps_p, i))
+            } else {
+                default
+            }
+        };
+        let ms = crate::make_time::make_ms_local(
+            crate::make_time::make_full_year(comp(0, f64::NAN)),
+            comp(1, 0.0),
+            comp(2, 1.0),
+            comp(3, 0.0),
+            comp(4, 0.0),
+            comp(5, 0.0),
+            comp(6, 0.0),
+        );
+        (*(this_p as *mut Date)).ms = ms;
+        // Fresh owned answer — the `super(...)` statement position
+        // releases the discarded any value (the arr elems kernel's
+        // account).
+        __torajs_rc_inc(this_p);
+    }
+    this_av
+}

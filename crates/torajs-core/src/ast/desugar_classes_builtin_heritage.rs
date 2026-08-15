@@ -334,12 +334,21 @@ fn synthesize_exotic_rest_ctor(ast: &mut Ast, cname: &str, parent: &str) -> crat
             left: len1,
             right: one,
         });
-        let multi_arm = if parent == "Array" {
-            // §23.1.1.3 — the packed rest array IS the elements
+        let multi_arm = if matches!(parent, "Array" | "Date") {
+            // Array §23.1.1.3 — the packed rest array IS the elements
             // list; the kernel appends each onto the minted cell.
-            // Bypasses the super rewrite (it is already the lowered
-            // spelling — the exotic-subclass magic dispatch owns it).
-            let callee = ast.add_expr(Expr::Ident("__torajs_arr_subclass_super_elems".to_string()));
+            // Date §21.4.2.1 step 6 — the rest array carries the
+            // components; the kernel runs ToNumber per present slot
+            // (day defaults 1, time components 0) and writes the
+            // clipped LOCAL-time ms into the mint. Both bypass the
+            // super rewrite (already the lowered spelling — the
+            // exotic-subclass magic dispatch owns them).
+            let kernel = if parent == "Array" {
+                "__torajs_arr_subclass_super_elems"
+            } else {
+                "__torajs_date_subclass_super_components"
+            };
+            let callee = ast.add_expr(Expr::Ident(kernel.to_string()));
             let this_id = ast.add_expr(Expr::This);
             let rest_id = ast.add_expr(Expr::Ident("__superargs".to_string()));
             Stmt::Expr(ast.add_expr(Expr::Call {
