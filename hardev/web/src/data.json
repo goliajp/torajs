@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-15T15:45:43.618Z",
+  "generatedAt": "2026-08-15T17:43:11.281Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-15T15:37:19Z",
-    "headSha": "9fc6db4c",
-    "elapsedSec": 328.35,
+    "ranAt": "2026-08-15T17:27:01Z",
+    "headSha": "e8fd4d8c",
+    "elapsedSec": 328.16,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25207,
+    "pass": 25217,
     "passNoOracle": 854,
     "passNegative": 4125,
-    "passTotal": 30186,
-    "bug": 12784,
-    "incompatible": 10204,
+    "passTotal": 30196,
+    "bug": 12772,
+    "incompatible": 10206,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42970,
-    "passRateInScope": 56.77,
-    "passRateTrAccepted": 70.25
+    "trAccepted": 42968,
+    "passRateInScope": 56.79,
+    "passRateTrAccepted": 70.28
   },
   "torajs": {
-    "commit": "9fc6db4c",
-    "commitSubject": "feat: a ctor-less date subclass takes the components form",
+    "commit": "e8fd4d8c",
+    "commitSubject": "fix: an arguments-named formal parameter shadows the arrow alias walk",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "e8fd4d8c",
+      "subject": "fix: an arguments-named formal parameter shadows the arrow alias walk"
+    },
+    {
+      "hash": "e04a9ff2",
+      "subject": "fix: a function expression keeps its own arguments scope in the arrow alias walk"
+    },
+    {
+      "hash": "2918e5d3",
+      "subject": "feat: an arrow body inherits the enclosing function's arguments"
+    },
+    {
+      "hash": "ce4742c8",
+      "subject": "feat: a tuple type annotation widens to its element array"
+    },
+    {
+      "hash": "18b5314d",
+      "subject": "feat: a regexp subclass super takes the two-argument flags form"
+    },
+    {
+      "hash": "38125ecc",
+      "subject": "feat: a generic class's accessor reaches the any lane through its twin"
+    },
+    {
+      "hash": "187ff6c0",
+      "subject": "refactor: the struct probe's data-field half moves to a child module"
+    },
+    {
+      "hash": "fbe0cccd",
+      "subject": "chore: record the rotation 413 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "9fc6db4c",
       "subject": "feat: a ctor-less date subclass takes the components form"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "f58863aa",
       "subject": "feat: an inherited accessor keeps its declared type and direct call"
-    },
-    {
-      "hash": "b063d61d",
-      "subject": "fix: a derived default ctor crosses a generic heritage"
-    },
-    {
-      "hash": "038a3945",
-      "subject": "chore: record the rotation 412 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "85db70e6",
-      "subject": "feat: an array subclass takes the multi-argument elements form"
-    },
-    {
-      "hash": "ea0468de",
-      "subject": "feat: a ctor-less date subclass rides the rest-param dispatch"
-    },
-    {
-      "hash": "b2947850",
-      "subject": "feat: a ctor-less exotic subclass forwards its true argc"
-    },
-    {
-      "hash": "3a143f1e",
-      "subject": "fix: a class ctor's rest param carries the true argc"
-    },
-    {
-      "hash": "e6ff5530",
-      "subject": "feat: a declined spread shape reaches its bare fn callee"
-    },
-    {
-      "hash": "7ef04c7d",
-      "subject": "chore: record the rotation 411 sweep and refresh the dashboard snapshot"
     }
   ],
-  "headSha": "9fc6db4c",
+  "headSha": "e8fd4d8c",
   "autorun": {
-    "total": 716,
+    "total": 717,
     "baselineTarget": 10,
-    "bySelf": 711,
+    "bySelf": 712,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786803239-6a1b",
-      "at": "2026-08-15T14:13:59Z",
-      "ts": 1786803239,
+      "rotationId": "r-1786808810-3b9b",
+      "at": "2026-08-15T15:46:50Z",
+      "ts": 1786808810,
       "trigger": "self",
-      "prevHead": "038a3945",
-      "handoffSha": "sha256:23ea0fbd32ed3e8ded3c6af395eaf43cb5d015e5602ef8f171ba09d48712dc2a",
-      "handoffAgeSec": 52,
+      "prevHead": "fbe0cccd",
+      "handoffSha": "sha256:b434f1b3efbbd6a88a8b3fbe655adce7d0f5b2ced6bdf386883e7dbde9bf4950",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786808810-3b9b",
+        "at": "2026-08-15T15:46:50Z",
+        "ts": 1786808810,
+        "trigger": "self",
+        "prevHead": "fbe0cccd",
+        "handoffSha": "sha256:b434f1b3efbbd6a88a8b3fbe655adce7d0f5b2ced6bdf386883e7dbde9bf4950",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786803239-6a1b",
         "at": "2026-08-15T14:13:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "9e07c421",
         "handoffSha": "sha256:ecaac12586a7c6c563dfe68bc1c94574808e285043afdc24c5565b64f41153d2",
         "handoffAgeSec": 26,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786728422-496e",
-        "at": "2026-08-14T17:27:02Z",
-        "ts": 1786728422,
-        "trigger": "self",
-        "prevHead": "fa92fb03",
-        "handoffSha": "sha256:6f52d621779bb5c8045ee54f0f6d5068080192cbe3068153dbb3578e58e2d5c4",
-        "handoffAgeSec": 35,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1530,7 +1530,27 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `b037a042`** (2026-08-15, rotation 410 — the value-shaped
+**Latest @ `e8fd4d8c`** (2026-08-16, rotation 414 — the any-lane
+generic-accessor ABI knife landed (a GENERIC class's accessor rides
+its `__cmany_` twin through a flags-aware finder + recv-first
+dispatch — the 404-01 method-face pattern extended to accessors),
+RegExp subclasses took the §22.2.4.1 two-argument `super(pattern,
+flags)` form (the exotic rest ctor family's last loud arm), tuple
+type annotations widen to their element array, and arrow bodies
+inherit the enclosing function's `arguments` (§9.4.4 — the Babel
+alias shape, with fn-expr scopes and `arguments`-named formal
+parameters correctly excluded after one gate red and one sweep
+regression each). Sweep vs rotation 413: passTotal 30186 →
+**30196 (+10)**, bug −12, incompatible +2, trAccepted −2 —
+conservation exact; one case-level regression
+(`arrow-body-private-direct-eval-err-contains-arguments`
+expressions form, a lucky pass turned loud incompatible — the eval
+inline path now surfaces the class-field-init `arguments` early
+error as unsupported instead of accidentally passing). Gate
+predicate **238 unattributed clusters / 2987 cases / register 2 ·
+615 / residue 771 · 1002 / core 4604**.
+
+**Prior @ `b037a042`** (2026-08-15, rotation 410 — the value-shaped
 heritage lane finished its admission story. An `extends` naming a
 VALUE binding (`{ let B = Real; class K extends B }`) extracts to the
 `__ccp<N>` lane like any heritage expression (the class-name census
