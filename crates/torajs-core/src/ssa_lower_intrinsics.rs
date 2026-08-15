@@ -475,6 +475,7 @@ pub(crate) struct Intrinsics {
     pub(crate) ctor_mark_arr_species: FuncId,
     pub(crate) arr_subclass_alloc: FuncId,
     pub(crate) arr_subclass_super_len: FuncId,
+    pub(crate) arr_subclass_super_elems: FuncId,
     pub(crate) number_wrapper_subclass_alloc: FuncId,
     pub(crate) string_wrapper_subclass_alloc: FuncId,
     pub(crate) boolean_wrapper_subclass_alloc: FuncId,

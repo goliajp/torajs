@@ -35,7 +35,7 @@ unsafe extern "C" {
 /// crate's existing dep rather than mirrored; see blade 0.
 use torajs_rc::{__torajs_rc_inc, FLAG_SUBCLASSED};
 
-use crate::any::{ANY_HEAP, ANY_UNDEF};
+use crate::any::{__torajs_arr_extend_any, ANY_HEAP, ANY_UNDEF};
 
 /// Mint an Array-subclass instance: `new Array(len)` semantics, then
 /// mark + register the class identity (prototype resolved from the
@@ -111,4 +111,32 @@ unsafe extern "C" {
     fn __torajs_throw_range_error(msg: *const u8);
     /// torajs-anyvalue — ToNumber over a boxed any (§7.1.4).
     fn __torajs_anyv_to_number(v: u64) -> f64;
+}
+
+/// `super(a, b, ...)` with 2+ arguments inside an Array-subclass
+/// ctor — `new Array(a, b, ...)` elements semantics (§23.1.1.3):
+/// every argument appends as an element. The synthesized rest-param
+/// default ctor hands its packed rest array (an Arr<Any> cell,
+/// boxed); the walk borrows it — `arr_extend_any` incs each shared
+/// slot, so both arrays own their references.
+///
+/// # Safety
+/// `this_av` is the factory's freshly minted subclass instance boxed
+/// ANY_HEAP (or any non-cell box, answered back unchanged);
+/// `elems_av` is a live borrowed boxed Arr<Any>.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_subclass_super_elems(this_av: u64, elems_av: u64) -> u64 {
+    unsafe {
+        let this_p = __torajs_anyv_unbox_value(this_av) as *mut u8;
+        let elems_p = __torajs_anyv_unbox_value(elems_av) as *const u8;
+        if this_p.is_null() || elems_p.is_null() {
+            return this_av;
+        }
+        __torajs_arr_extend_any(this_p, elems_p);
+        // Fresh owned answer — same account as the len twin above:
+        // `super(...)` sits in statement position and the lowerer
+        // releases the discarded any value.
+        __torajs_rc_inc(this_p as *mut c_void);
+    }
+    this_av
 }

@@ -417,6 +417,7 @@ pub(crate) fn build(
         ctor_mark_arr_species: init_c.subclass.ctor_mark_arr_species,
         arr_subclass_alloc: init_c.subclass.arr_subclass_alloc,
         arr_subclass_super_len: init_c.subclass.arr_subclass_super_len,
+        arr_subclass_super_elems: init_c.subclass.arr_subclass_super_elems,
         number_wrapper_subclass_alloc: init_c.subclass.number_wrapper_subclass_alloc,
         string_wrapper_subclass_alloc: init_c.subclass.string_wrapper_subclass_alloc,
         boolean_wrapper_subclass_alloc: init_c.subclass.boolean_wrapper_subclass_alloc,

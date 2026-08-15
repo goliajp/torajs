@@ -49,6 +49,14 @@ fn subclass_magic_ty(name: &str) -> Option<Type> {
             Box::new(Type::Any),
         ));
     }
+    // The 2+-argument elements form (§23.1.1.3) — the second operand
+    // is the ctor's packed rest array, any-admitted.
+    if name == "__torajs_arr_subclass_super_elems" {
+        return Some(Type::Function(
+            vec![Type::Any, Type::Any],
+            Box::new(Type::Any),
+        ));
+    }
     let is_super = name.strip_prefix("__torajs_").is_some_and(|r| {
         r.strip_suffix("_subclass_super")
             .is_some_and(|b| !b.is_empty())

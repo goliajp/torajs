@@ -32,3 +32,7 @@ class D2 extends Date {}
 console.log(new D2(0).getTime());
 console.log(new D2("2020-01-02T00:00:00Z").getUTCFullYear());
 console.log(new D2().getTime() > 0);
+const ae = new A2(1, 2, 3);
+console.log(ae.length, ae[0], ae[2], Array.isArray(ae), ae instanceof A2);
+const as = new A2("x", "y");
+console.log(as.length, as[1]);

@@ -23,6 +23,7 @@ pub(crate) struct ExoticSubclassIds {
     pub ctor_mark_arr_species: FuncId,
     pub arr_subclass_alloc: FuncId,
     pub arr_subclass_super_len: FuncId,
+    pub arr_subclass_super_elems: FuncId,
     pub number_wrapper_subclass_alloc: FuncId,
     pub string_wrapper_subclass_alloc: FuncId,
     pub boolean_wrapper_subclass_alloc: FuncId,
@@ -103,6 +104,12 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_arr_subclass_super_len",
+            super_pair,
+        ),
+        arr_subclass_super_elems: d(
+            module,
+            fn_table,
+            "__torajs_arr_subclass_super_elems",
             super_pair,
         ),
         number_wrapper_subclass_alloc: d(

@@ -289,10 +289,12 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
 /// constructor(...__superargs: any[]) {
 ///   if (__superargs.length === 0) { super(); }
 ///   else { super(__superargs[0]); }          // wrappers / Promise
-///   // Array / RegExp split the else again: 1 → super(args[0]),
+///   // RegExp / Date split the else again: 1 → super(args[0]),
 ///   // 2+ → throw (their multi-argument forms carry real semantics
-///   // — §23.1.1.3 elements / §22.2.4.1 flags — this seam does not
-///   // reach yet; loud beats a silently-wrong one-arg read).
+///   // — §22.2.4.1 flags / §21.4.2.1 components — this seam does
+///   // not reach yet; loud beats a silently-wrong one-arg read).
+///   // Array's 2+ arm reaches: it hands the packed rest array to
+///   // the §23.1.1.3 elements kernel directly.
 /// }
 /// ```
 ///
@@ -332,19 +334,34 @@ fn synthesize_exotic_rest_ctor(ast: &mut Ast, cname: &str, parent: &str) -> crat
             left: len1,
             right: one,
         });
-        let msg = ast.add_expr(Expr::String(format!(
-            "M5.N: `new {cname}(...)` with 2+ arguments is not yet supported \
-             for an exotic `{parent}` parent"
-        )));
-        let err = ast.add_expr(Expr::New {
-            class_name: "Error".to_string(),
-            args: vec![msg],
-            type_args: Vec::new(),
-        });
+        let multi_arm = if parent == "Array" {
+            // §23.1.1.3 — the packed rest array IS the elements
+            // list; the kernel appends each onto the minted cell.
+            // Bypasses the super rewrite (it is already the lowered
+            // spelling — the exotic-subclass magic dispatch owns it).
+            let callee = ast.add_expr(Expr::Ident("__torajs_arr_subclass_super_elems".to_string()));
+            let this_id = ast.add_expr(Expr::This);
+            let rest_id = ast.add_expr(Expr::Ident("__superargs".to_string()));
+            Stmt::Expr(ast.add_expr(Expr::Call {
+                callee,
+                args: vec![this_id, rest_id],
+            }))
+        } else {
+            let msg = ast.add_expr(Expr::String(format!(
+                "M5.N: `new {cname}(...)` with 2+ arguments is not yet supported \
+                 for an exotic `{parent}` parent"
+            )));
+            let err = ast.add_expr(Expr::New {
+                class_name: "Error".to_string(),
+                args: vec![msg],
+                type_args: Vec::new(),
+            });
+            Stmt::Throw(err)
+        };
         Stmt::If {
             cond: is_one,
             then_branch: Box::new(Stmt::Expr(super1)),
-            else_branch: Some(Box::new(Stmt::Throw(err))),
+            else_branch: Some(Box::new(multi_arm)),
         }
     } else {
         Stmt::Expr(super1)
