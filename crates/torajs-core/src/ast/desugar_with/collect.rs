@@ -57,7 +57,7 @@ fn collect_stmt(
             );
         }
         Stmt::ClassDecl { .. } => {
-            collect_class(ast, s, scope, err);
+            collect_class(ast, s, scope, sites, err);
             return;
         }
         Stmt::FnDecl { params, body, .. } => {
@@ -126,7 +126,13 @@ fn collect_fn(
 /// needs no guard, hoists, and runs — that is the whole set tr can
 /// express — and everything else is refused naming the part that
 /// carries the free name.
-fn collect_class(ast: &Ast, s: &Stmt, scope: &Scope, err: &mut Option<String>) {
+fn collect_class(
+    ast: &Ast,
+    s: &Stmt,
+    scope: &Scope,
+    sites: &mut Vec<(ExprId, Position)>,
+    err: &mut Option<String>,
+) {
     let Stmt::ClassDecl {
         name,
         type_params,
@@ -140,20 +146,23 @@ fn collect_class(ast: &Ast, s: &Stmt, scope: &Scope, err: &mut Option<String>) {
     else {
         return;
     };
-    if parent.is_some() {
+    if let Some(pid) = parent {
         // §15.7.14 evaluates the heritage in THIS scope, so the object
         // can supply the parent — including for a name that is
         // otherwise a global, since `with (o)` over an `o` carrying
-        // `Error` shadows the real one. The static class lane keys on
-        // a NAME, which leaves nowhere to put a guard; a non-Ident
-        // heritage expression is refused the same way until RFC
-        // 20260815 knife 3 rewrites the clause with the guard inline.
+        // `Error` shadows the real one. The heritage is an ExprId (RFC
+        // 20260815), i.e. an ordinary expression position: an
+        // unshadowed bare name takes the standard read guard
+        // (`has ? w.Base : Base`), and the guarded clause — now a
+        // non-Ident expression — is what knife 2's extract pass lifts
+        // to a value binding for the capturing lane to dispatch at
+        // run time. A heritage that is already an expression collects
+        // its free names like any other read position (it evaluates
+        // in the CLASS-OUTER scope, so `scope`, not `inner`).
         match ast.parent_ident_name(*parent) {
             Some(p) if scope.shadows(p) => {}
-            _ => {
-                refuse(err, "an `extends` clause the object could supply");
-                return;
-            }
+            Some(_) => sites.push((*pid, Position::Read)),
+            None => collect_expr(ast, *pid, scope, sites, err),
         }
     }
     // Recorded into a scratch list, not the body's: a class that needs
@@ -266,7 +275,7 @@ fn collect_expr(
             // working.
             if n.starts_with(CLASS_EXPR_PREFIX) {
                 if let Some(decl) = find_class_decl(ast, n) {
-                    collect_class(ast, decl, scope, err);
+                    collect_class(ast, decl, scope, sites, err);
                 }
                 return;
             }
