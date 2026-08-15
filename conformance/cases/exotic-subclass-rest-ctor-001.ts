@@ -28,3 +28,7 @@ try {
 } catch (e) {
   console.log("threw");
 }
+class D2 extends Date {}
+console.log(new D2(0).getTime());
+console.log(new D2("2020-01-02T00:00:00Z").getUTCFullYear());
+console.log(new D2().getTime() > 0);

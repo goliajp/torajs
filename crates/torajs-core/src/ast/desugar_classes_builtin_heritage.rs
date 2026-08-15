@@ -183,21 +183,6 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         // shape until an arguments-length-aware forward exists
         // (rest-forwarding is the recorded call-spread boundary,
         // L3b 371-01).
-        // Rotation 373 — a ctor-less Date subclass stays LOUD: its
-        // default ctor must forward the caller's ACTUAL argument
-        // count (`new D()` → now, `new D(v)` → the value ladder,
-        // `new D(y, m, ...)` → components — none argument-count
-        // agnostic), which needs the real-argc face (L3b 372-00/02).
-        // A single-arg forward would mint `new D()` as Invalid Date
-        // — the exact db66228e silent-wrong the r371 gate caught on
-        // the wrappers. Explicit ctors carry their own super sites.
-        if ctor.is_none() && p == "Date" {
-            panic!(
-                "M5.N: `{cname} extends Date` — a ctor-less Date subclass needs an \
-                 argument-count-aware super forward (not yet supported); declare an \
-                 explicit constructor"
-            );
-        }
         if exotic && ctor.is_none() && matches!(p.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
             let arg = ast.add_expr(Expr::Ident("__superarg".to_string()));
             let sup = ast.add_expr(Expr::Super { args: vec![arg] });
@@ -217,12 +202,17 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         // rides the bare `super()` rewrite (mint default; Promise's
         // §27.2.3.1 TypeError), argc 1+ the one-argument kernel.
         // Pre-fix these were the no-forward shape, which silently
-        // dropped the argument (`new N2(5)` valueOf'd +0).
+        // dropped the argument (`new N2(5)` valueOf'd +0). Date joins
+        // with the same dispatch (its r373 compile-time reject
+        // predates the argc-aware relay): the mint IS `new Date()`
+        // (subclass_alloc seeds the wall clock), so 0-arg no-ops and
+        // 1-arg rides the §21.4.2.1 value ladder; the components
+        // form (2+ args) throws loud like Array's elements form.
         if exotic
             && ctor.is_none()
             && matches!(
                 p.as_str(),
-                "Number" | "String" | "Boolean" | "Promise" | "Array" | "RegExp"
+                "Number" | "String" | "Boolean" | "Promise" | "Array" | "RegExp" | "Date"
             )
         {
             *ctor = Some(synthesize_exotic_rest_ctor(ast, cname, p));
@@ -334,7 +324,7 @@ fn synthesize_exotic_rest_ctor(ast: &mut Ast, cname: &str, parent: &str) -> crat
         index: idx0,
     });
     let super1 = ast.add_expr(Expr::Super { args: vec![arg0] });
-    let else_branch = if matches!(parent, "Array" | "RegExp") {
+    let else_branch = if matches!(parent, "Array" | "RegExp" | "Date") {
         let len1 = args_len(ast);
         let one = ast.add_expr(Expr::Number(1.0));
         let is_one = ast.add_expr(Expr::BinOp {
