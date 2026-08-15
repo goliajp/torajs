@@ -22,13 +22,20 @@ use super::*;
 /// silently never ran.
 ///
 /// Skipped (keeping today's behavior) when the whole chain is
-/// ctor-less (nothing to forward), when the class or any ancestor on
-/// the walk is generic (ctor param anns may reference that class's
-/// type params), or when the ancestor ctor is variadic (rest
-/// forwarding needs a spread — apply_rest_args territory). The walk
-/// is hop-capped by the class count; malformed parent chains fall
-/// through to `compute_full_fields`' existing declaration-order
-/// panic.
+/// ctor-less (nothing to forward) or when the class ITSELF is generic
+/// (its factory lane threads its own type params; a later blade). A
+/// generic ANCESTOR no longer stops the walk: its ctor param anns
+/// spell its type params (`constructor(x: T)`), and the heritage
+/// arguments recorded per hop (`class Sub extends Box<number>` →
+/// `class_parent_type_args["Sub"] = ["number"]`) substitute them out
+/// exactly the way `compute_full_fields` flattens field types — the
+/// substitution composes across hops, so each ancestor only ever
+/// needs its own params replaced. Pre-fix the skip left the derived
+/// default ctor without its super call, so `class S extends
+/// Box<string> {}` never ran Box's ctor and every parent field read
+/// back zero. The walk is hop-capped by the class count; malformed
+/// parent chains fall through to `compute_full_fields`' existing
+/// declaration-order panic.
 pub(super) fn synthesize_derived_default_ctors(
     ast: &mut Ast,
     class_index: &mut [super::desugar_classes_super::ClassIndexEntry],
@@ -42,7 +49,9 @@ pub(super) fn synthesize_derived_default_ctors(
         /// different question: a parser-synth field-init ctor forwards
         /// no parameters but still has to RUN.
         has_ctor: bool,
-        generic: bool,
+        /// The ancestor's own type-param NAMES — what its ctor param
+        /// anns may spell, and what the heritage arguments replace.
+        type_params: Vec<String>,
     }
     let by_name: std::collections::HashMap<String, ChainInfo> = class_index
         .iter()
@@ -61,7 +70,7 @@ pub(super) fn synthesize_derived_default_ctors(
                         .filter(|_| !ast.field_init_synth_ctors.contains(cname))
                         .map(|c| c.params.clone()),
                     has_ctor: ctor.is_some(),
-                    generic: !tp.is_empty(),
+                    type_params: tp.clone(),
                 },
             )
         })
@@ -85,21 +94,63 @@ pub(super) fn synthesize_derived_default_ctors(
         {
             continue;
         }
+        let mut child = cname.clone();
         let mut cur = parent.clone();
+        // Maps the CURRENT ancestor's type-param names to spellings
+        // resolvable in the derived class — rebuilt per hop from the
+        // child's written heritage arguments, with the previous hop's
+        // substitution applied first so chains compose (`C extends
+        // Mid<number>`, `Mid<U> extends Box<U>`: Box's `T` ends up
+        // `number`, not `U`). Empty for a non-generic ancestor.
+        let mut subst: Vec<(String, String)> = Vec::new();
         let mut found: Option<Vec<Param>> = None;
         let mut any_ancestor_ctor = false;
         for _ in 0..max_hops {
-            let Some(info) = cur.as_ref().and_then(|n| by_name.get(n)) else {
+            let Some(pname) = cur.clone() else { break };
+            let Some(info) = by_name.get(&pname) else {
                 break;
             };
-            if info.generic {
-                break;
-            }
+            subst = if info.type_params.is_empty() {
+                Vec::new()
+            } else {
+                let written = ast.class_parent_type_args.get(&child);
+                info.type_params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, tp)| {
+                        // A generic parent extended with no written
+                        // arguments substitutes `any` per slot — the
+                        // transpiled-JS behavior, matching the field
+                        // flattening walk.
+                        let raw = written
+                            .and_then(|a| a.get(i))
+                            .cloned()
+                            .unwrap_or_else(|| "any".to_string());
+                        let arg = if subst.is_empty() {
+                            raw
+                        } else {
+                            crate::check_type_ann_substitute::ann_substitute(&raw, &subst)
+                        };
+                        (tp.clone(), arg)
+                    })
+                    .collect()
+            };
             any_ancestor_ctor |= info.has_ctor;
             if let Some(params) = &info.ctor_params {
-                found = Some(params.clone());
+                let mut ps = params.clone();
+                if !subst.is_empty() {
+                    for p in &mut ps {
+                        if let Some(ann) = &p.type_ann {
+                            p.type_ann = Some(crate::check_type_ann_substitute::ann_substitute(
+                                ann, &subst,
+                            ));
+                        }
+                    }
+                }
+                found = Some(ps);
                 break;
             }
+            child = pname;
             cur = info.parent.clone();
         }
         // Nothing to forward is not the same as nothing to call. A
