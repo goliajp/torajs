@@ -232,7 +232,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
         unsafe { __torajs_dynobj_iter_len(props) }
     };
 
-    if n == 0 && n_props == 0 {
+    // 405-05 — a method-carrying class prints its prototype entries
+    // even with zero own properties (`M { m: [Function: m] }`).
+    let has_methods = unsafe { crate::struct_print_methods::has_visible_methods(class_tag) };
+    if n == 0 && n_props == 0 && !has_methods {
         unsafe { put_bytes(b"{}") };
         return;
     }
@@ -325,6 +328,14 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
             unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
             emitted += 1;
         }
+    }
+    // 405-05 — prototype methods and accessors render after the own
+    // properties, matching bun's inspect order (own first, proto
+    // entries last; see struct_print_methods.rs).
+    if has_methods {
+        unsafe {
+            crate::struct_print_methods::print_proto_methods(class_tag, indent, &mut emitted)
+        };
     }
     unsafe { put_bytes(b",\n") };
     unsafe { __torajs_inspect_line_add(1) };
