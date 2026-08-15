@@ -6,9 +6,41 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::{FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED};
+
 use crate::member_set::{
     __torajs_dynobj_alloc, __torajs_throw_type_error, drop_payload, dynobj_set_flavored,
 };
+
+unsafe extern "C" {
+    /// torajs-dynobj — own-entry presence probe (prop_has's kernel).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+}
+
+/// §7.3 integrity gate shared by the closure / promise expando arms.
+/// `Object.freeze` / `seal` / `preventExtensions` mark only the
+/// receiver HEADER for non-DynObj cells (`extensible_reflect` —
+/// their property surface lives here, not in a DynObj bucket), so
+/// the expando write must consult it: a frozen receiver refuses
+/// every assign (§10.1.9 — all own props non-writable, no growth);
+/// a sealed / non-extensible one refuses only NEW keys (an existing
+/// data entry stays writable under seal). Pre-fix `Object.freeze(f)`
+/// left `f.a = 1` mutating the frozen function while
+/// `Object.isFrozen(f)` answered true.
+unsafe fn expando_integrity_refuses(
+    recv: *const c_void,
+    props: *const c_void,
+    key: *const c_void,
+) -> bool {
+    let hflags = unsafe { (recv.cast::<u8>().add(6) as *const u16).read() };
+    if hflags & FLAG_FROZEN != 0 {
+        return true;
+    }
+    if hflags & (FLAG_SEALED | FLAG_NON_EXTENSIBLE) != 0 {
+        return props.is_null() || unsafe { __torajs_dynobj_has(props, key) } == 0;
+    }
+    false
+}
 
 /// Closure-cell lazy props slot — mirror of torajs-core
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
@@ -40,6 +72,13 @@ pub(crate) unsafe fn set_promise_member(
     unsafe {
         let props_slot = ptr.cast::<u8>().add(MEMBER_SET_PROMISE_PROPS_OFF) as *mut u64;
         let mut props = *props_slot as *mut c_void;
+        if expando_integrity_refuses(ptr, props, key) {
+            drop_payload(tag, value);
+            if throw_on_refusal {
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            }
+            return 0;
+        }
         if props.is_null() {
             props = __torajs_dynobj_alloc();
         }
@@ -106,6 +145,13 @@ pub(crate) unsafe fn set_closure_member(
         }
         let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
         let mut props = *props_slot as *mut c_void;
+        if expando_integrity_refuses(ptr, props, key) {
+            drop_payload(tag, value);
+            if throw_on_refusal {
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            }
+            return 0;
+        }
         if props.is_null() {
             props = __torajs_dynobj_alloc();
         }

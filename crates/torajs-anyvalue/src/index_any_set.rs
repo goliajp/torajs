@@ -145,10 +145,18 @@ pub unsafe extern "C" fn __torajs_any_index_set(
     // by its §7.1.19 spelling or lands in the +24 expando dict (the
     // non-extensible gate lives in the struct arm). The struct
     // cell's identity never moves either.
+    //
+    // 405-01 residue close (rotation 408) — a CLOSURE receiver's
+    // numeric write rides the same route: member_set's closure arm
+    // owns the +24 expando dict, the fn-prop locks and the
+    // non-extensible gate, so `f[5] = v` is exactly `f."5" = v`
+    // (§7.1.19). Pre-fix this fell to the loud tail below while the
+    // matching index READ already resolved through the expando.
     if hdr_tag == Tag::NumberWrapper as u16
         || hdr_tag == Tag::StringWrapper as u16
         || hdr_tag == Tag::BooleanWrapper as u16
         || hdr_tag == Tag::Obj as u16
+        || hdr_tag == Tag::Closure as u16
     {
         let mut buf = [0u8; 20];
         let (start, len) = i64_dec(&mut buf, idx);
