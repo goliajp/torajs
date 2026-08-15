@@ -133,8 +133,18 @@ pub(crate) fn try_match(
 ) -> Option<Result<Type, String>> {
     if let Expr::Ident(name) = ast.get_expr(*callee)
         && let Some(type_params) = checker.generic_type_params.get(name).cloned()
-        && let Some(Type::Function(params, ret)) = checker.globals.get(name).cloned()
+        && let Some(Type::Function(mut params, ret)) = checker.globals.get(name).cloned()
     {
+        // 刀 1 (RFC 20260815-fn-value-rest-spread) — a generic rest
+        // fn's DIRECT call was packed by `apply_rest_args` like any
+        // other; fold the sentinel back to the packed array shape.
+        crate::check_type_of_call_rest_param::fold_packed_direct_call(
+            checker,
+            ast,
+            *callee,
+            &mut params,
+        );
+        let params = params;
         // T-28 — trailing-typevar-Any padding path. A missing slot is
         // paddable when it is a fresh TypeVar (an unannotated param —
         // §10.2.1.4 binds it undefined, so the var resolves to Any) or

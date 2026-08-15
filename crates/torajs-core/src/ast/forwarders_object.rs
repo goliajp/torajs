@@ -303,6 +303,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     }
     let (mut targets, mut rewrites) = (collector.targets, collector.rewrites);
 
+    let mut variadic_bindings: Vec<String> = Vec::new();
     collect_let_init_axis_rewrites(
         ast,
         &stmts_snapshot,
@@ -310,7 +311,9 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         &fn_sigs,
         &mut targets,
         &mut rewrites,
+        &mut variadic_bindings,
     );
+    ast.variadic_value_bindings.extend(variadic_bindings);
 
     if rewrites.is_empty() {
         return;
@@ -348,6 +351,7 @@ fn collect_let_init_axis_rewrites(
     fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     targets: &mut std::collections::HashSet<String>,
     rewrites: &mut Vec<(ExprId, String)>,
+    variadic_bindings: &mut Vec<String>,
 ) {
     for s in stmts_snapshot {
         if let Stmt::LetDecl {
@@ -357,9 +361,6 @@ fn collect_let_init_axis_rewrites(
             is_var: false,
             ..
         } = s
-            && type_ann
-                .as_deref()
-                .is_none_or(|a| is_fn_like_ann(a) && !a.contains("__rest("))
             // Chunk 737 — immutable closure-captured bindings promote
             // (the capture filter resolves them to the global), so
             // their named-fn inits wrap too. Chunk 740 — the
@@ -367,6 +368,20 @@ fn collect_let_init_axis_rewrites(
             // (capture filter reads + Assign-Ident global writes =
             // one home), so its named-fn init wraps too.
             && let Expr::Ident(n) = ast.get_expr(*init)
+            // 刀 3 (RFC 20260815-fn-value-rest-spread) — a rest-fn
+            // target wraps past both narrowings below: its VALUE
+            // binding must be a closure cell (the variadic call lane
+            // dispatches through the boxed dual entry in the env; a
+            // raw FnSig home has none), and a direct call on the
+            // binding never sees apply_rest_args' name-keyed packing
+            // anyway — pre-wrap it mis-fed the packed-array ABI one
+            // argument per slot, silently.
+            && let is_rest_target = fn_sigs
+                .get(n)
+                .is_some_and(|(ps, _, _)| ps.last().is_some_and(|p| p.is_rest))
+            && type_ann
+                .as_deref()
+                .is_none_or(|a| is_fn_like_ann(a) && (!a.contains("__rest(") || is_rest_target))
             // r292 — a hoisted generator-expression init wraps without
             // the named-fn-refs gate: its top-level reads (harness
             // verifyProperty args — the fn-name-gen family) box into
@@ -375,6 +390,7 @@ fn collect_let_init_axis_rewrites(
             // free. Plain named-fn inits keep the read gate (their
             // direct calls are hot paths).
             && (binding_refs.named_fn_refs.contains(name)
+                || is_rest_target
                 || ast.generator_factory_classes.contains_key(n)
                 || ast.async_generator_fns.contains(n))
             // Chunk 805 — no explicit-return-ann gate anymore: the
@@ -391,6 +407,9 @@ fn collect_let_init_axis_rewrites(
         {
             targets.insert(n.clone());
             rewrites.push((*init, n.clone()));
+            if is_rest_target {
+                variadic_bindings.push(name.clone());
+            }
         }
     }
 }

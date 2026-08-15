@@ -31,6 +31,8 @@ pub(super) fn build_boxed_entry(
     hidden_argc: bool,
     dflt_lits: &[Option<DfltLit>],
     rest: bool,
+    rest_kind: Option<i64>,
+    arr_any_to_typed: FuncId,
 ) -> (FuncId, ssa::SigId) {
     let name = format!("__boxed_{body_name}");
     let fid = FuncId(module.funcs.len() as u32);
@@ -41,7 +43,7 @@ pub(super) fn build_boxed_entry(
     let env = f.add_param(Type::Ptr, "__env");
     let argv = f.add_param(Type::Ptr, "argv");
     let argc = f.add_param(Type::I64, "argc");
-    let entry = f.add_block();
+    let mut entry = f.add_block();
 
     let mut args: Vec<Operand> = Vec::with_capacity(user_tys.len() + 2);
     // Str-param temps (owned via ToString — a ShortStr argument
@@ -82,25 +84,7 @@ pub(super) fn build_boxed_entry(
     }
     if has_argv {
         if recv_slot {
-            let pi = f.append_inst(
-                entry,
-                InstKind::PtrToInt(Operand::Value(argv)),
-                Type::I64,
-                None,
-            );
-            let off = f.append_inst(
-                entry,
-                InstKind::BinOp(ssa::BinOp::Add, Operand::Value(pi), Operand::ConstI64(8)),
-                Type::I64,
-                None,
-            );
-            let pv = f.append_inst(
-                entry,
-                InstKind::IntToPtr(Operand::Value(off)),
-                Type::Ptr,
-                None,
-            );
-            args.push(Operand::Value(pv));
+            args.push(Operand::Value(shifted_argv(&mut f, entry, argv)));
         } else {
             args.push(Operand::Value(argv));
         }
@@ -127,18 +111,21 @@ pub(super) fn build_boxed_entry(
         &dflt_lits[..n_fixed.min(dflt_lits.len())],
     );
     if rest {
-        let arr = emit_rest_collect(&mut f, entry, intr, argv, argc, n_fixed, user_tys[n_fixed]);
-        args.push(Operand::Value(arr));
-        let boxed_arr = f.append_inst(
+        let (arr, new_entry) = emit_rest_slot(
+            &mut f,
             entry,
-            InstKind::Call(
-                intr.any_box,
-                vec![Operand::ConstI64(4), Operand::Value(arr)],
-            ),
-            Type::Any,
-            None,
+            intr,
+            &coerce,
+            arr_any_to_typed,
+            argv,
+            argc,
+            n_fixed,
+            user_tys[n_fixed],
+            rest_kind,
+            &mut obj_temps,
         );
-        obj_temps.push(boxed_arr);
+        entry = new_entry;
+        args.push(Operand::Value(arr));
     }
 
     let boxed = if ret_ty == Type::Void {
@@ -223,6 +210,134 @@ pub(super) fn build_boxed_entry(
 /// the alloc's +1) and releases it after the body call — the
 /// caller-owns convention direct call sites use for the packed
 /// literal.
+/// The recv-slot argv window shift (RFC 20260808 knife 2): the
+/// receiver rides argv[0], so the body's argv face starts one slot
+/// past it.
+fn shifted_argv(f: &mut ssa::Function, entry: ssa::BlockId, argv: ssa::ValueId) -> ssa::ValueId {
+    let pi = f.append_inst(
+        entry,
+        InstKind::PtrToInt(Operand::Value(argv)),
+        Type::I64,
+        None,
+    );
+    let off = f.append_inst(
+        entry,
+        InstKind::BinOp(ssa::BinOp::Add, Operand::Value(pi), Operand::ConstI64(8)),
+        Type::I64,
+        None,
+    );
+    f.append_inst(
+        entry,
+        InstKind::IntToPtr(Operand::Value(off)),
+        Type::Ptr,
+        None,
+    )
+}
+
+/// The rest-slot half of the adapter (刀 2 extraction, function-size
+/// line): collect argv[fixed..argc] into an Arr<Any>, convert to the
+/// typed repr when the rest is typed (NULL-gating the catchable
+/// mismatch TypeError into an early undefined return), and record
+/// the value's box as a post-call temp. Answers the slot operand and
+/// the (possibly new) current block.
+#[allow(clippy::too_many_arguments)]
+fn emit_rest_slot(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    intr: &BoxedEntryIntrinsics,
+    coerce: &BoxedCoerceIntrinsics<'_>,
+    arr_any_to_typed: FuncId,
+    argv: ssa::ValueId,
+    argc: ssa::ValueId,
+    n_fixed: usize,
+    arr_ty: Type,
+    rest_kind: Option<i64>,
+    obj_temps: &mut Vec<ssa::ValueId>,
+) -> (ssa::ValueId, ssa::BlockId) {
+    let mut entry = entry;
+    let any_arr = emit_rest_collect(f, entry, intr, argv, argc, n_fixed, arr_ty);
+    // A TYPED rest converts the Arr<Any> collection through the
+    // assign-boundary kernel (per-slot coerce + kind stamp). A
+    // mismatched element arms the catchable TypeError and answers
+    // NULL; the gate below short-circuits before the body could
+    // read the NULL block, and the pending throw surfaces at the
+    // caller's check point.
+    let arr = match rest_kind {
+        Some(kind) => {
+            let typed = f.append_inst(
+                entry,
+                InstKind::Call(
+                    arr_any_to_typed,
+                    vec![Operand::Value(any_arr), Operand::ConstI64(kind)],
+                ),
+                arr_ty,
+                None,
+            );
+            // Release the Any collection now that the typed copy
+            // owns the elements' new stakes.
+            let boxed_src = f.append_inst(
+                entry,
+                InstKind::Call(
+                    intr.any_box,
+                    vec![Operand::ConstI64(4), Operand::Value(any_arr)],
+                ),
+                Type::Any,
+                None,
+            );
+            f.append_void(
+                entry,
+                InstKind::Call(coerce.anyv_rc_dec, vec![Operand::Value(boxed_src)]),
+            );
+            let pi = f.append_inst(
+                entry,
+                InstKind::PtrToInt(Operand::Value(typed)),
+                Type::I64,
+                None,
+            );
+            let isnull = f.append_inst(
+                entry,
+                InstKind::ICmp(ssa::IPred::Eq, Operand::Value(pi), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            let throw_blk = f.add_block();
+            let cont_blk = f.add_block();
+            f.set_term(
+                entry,
+                Terminator::CondBr {
+                    cond: Operand::Value(isnull),
+                    then_blk: throw_blk,
+                    else_blk: cont_blk,
+                },
+            );
+            let undef = f.append_inst(
+                throw_blk,
+                InstKind::Call(
+                    intr.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            f.set_term(throw_blk, Terminator::Ret(Some(Operand::Value(undef))));
+            entry = cont_blk;
+            typed
+        }
+        None => any_arr,
+    };
+    let boxed_arr = f.append_inst(
+        entry,
+        InstKind::Call(
+            intr.any_box,
+            vec![Operand::ConstI64(4), Operand::Value(arr)],
+        ),
+        Type::Any,
+        None,
+    );
+    obj_temps.push(boxed_arr);
+    (arr, entry)
+}
+
 fn emit_rest_collect(
     f: &mut ssa::Function,
     entry: ssa::BlockId,

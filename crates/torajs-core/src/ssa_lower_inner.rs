@@ -163,6 +163,7 @@ pub(crate) fn lower_inner(
         &anon_stamp_pool,
         &class_name_to_tag,
         &aliases,
+        &arr_layouts,
         env_drop_trivial_fid,
         &init_a,
         &init_b,

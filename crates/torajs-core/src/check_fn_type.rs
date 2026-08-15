@@ -90,7 +90,24 @@ pub(crate) fn build_fn_type_full(
                 p.name
             ));
         };
-        param_tys.push(ty);
+        // RFC 20260815-fn-value-rest-spread 刀 1 — a rest param
+        // registers as the `Type::Rest(elem)` sentinel, the same
+        // per-argument shape a `(...args: E[]) => R` ANNOTATION
+        // resolves to, so a fn VALUE made of this decl rides the
+        // variadic call machinery. Direct calls saw their trailing
+        // args packed into one array literal by `apply_rest_args`
+        // (name-keyed, before the checker) — the bare-global-callee
+        // fold in the call arms hands those exactly the packed
+        // `Array(elem)` param this used to register.
+        if p.is_rest {
+            let elem = match ty {
+                Type::Array(e) => *e,
+                other => other,
+            };
+            param_tys.push(Type::Rest(Box::new(elem)));
+        } else {
+            param_tys.push(ty);
+        }
     }
     let ret_ty = match return_type {
         None => Type::Void,

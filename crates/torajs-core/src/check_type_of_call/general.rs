@@ -77,7 +77,14 @@ pub(crate) fn general_call(
     // RFC 20260708-variadic — rest-param callee admit: pop the
     // trailing `Type::Rest(elem)` sentinel and stretch the param
     // list to the argument count so the arity gate and per-arg
-    // loop pair rest-position args against the element type.
+    // loop pair rest-position args against the element type. A
+    // packed DIRECT call folds first (刀 1 — see the helper doc).
+    crate::check_type_of_call_rest_param::fold_packed_direct_call(
+        checker,
+        ast,
+        *callee,
+        &mut params,
+    );
     crate::check_type_of_call_rest_param::apply(&mut params, &effective_args)?;
     // T-28 — Default param missing → undefined widen wedge
     // extracted to [`crate::check_type_of_call_t28_pad`]

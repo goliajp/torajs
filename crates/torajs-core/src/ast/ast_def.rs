@@ -200,6 +200,15 @@ pub struct Ast {
     /// parent extended with NO written arguments substitutes `any`,
     /// matching the transpiled-JS behavior bun runs).
     pub class_parent_type_args: std::collections::HashMap<String, Vec<String>>,
+    /// 刀 3 (RFC 20260815-fn-value-rest-spread) — top-level binding
+    /// names whose init is a REST-fn value (`const g = tail` where
+    /// `tail` declares `...args`), recorded at the forwarder wrap.
+    /// A closure-captured such binding promotes to a global and its
+    /// LetDecl never lowers in the calling fn, so the let-decl lane
+    /// that fills `variadic_locals` never sees it — the closure-call
+    /// lane reads this set for the promoted flavor of the same
+    /// boxed-dual-entry dispatch.
+    pub variadic_value_bindings: std::collections::HashSet<String>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

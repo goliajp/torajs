@@ -173,6 +173,7 @@ pub(crate) fn synthesize_boxed_entries(
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
+    arr_layouts: &[Type],
 ) -> HashMap<FuncId, (FuncId, ssa::SigId)> {
     // S2.36 — sid → class_tag for the struct-param coercion call.
     // Named classes resolve through their name tag; anonymous shapes
@@ -191,7 +192,7 @@ pub(crate) fn synthesize_boxed_entries(
             .copied()
             .unwrap_or_else(|| anon_stamp_pool.borrow_mut().assign_or_get(sid))
     };
-    let targets = collect_boxed_targets(ast, fn_table, fn_sigs, fn_sig_ids);
+    let targets = collect_boxed_targets(ast, fn_table, fn_sigs, fn_sig_ids, arr_layouts);
     let mut entries = HashMap::new();
     if targets.is_empty() {
         return entries;
@@ -220,6 +221,17 @@ pub(crate) fn synthesize_boxed_entries(
         "__torajs_anyv_rc_dec",
         &[Type::Any],
         Type::Void,
+    );
+    // 刀 2 (RFC 20260815-fn-value-rest-spread) — the typed-rest
+    // conversion kernel, declared lazily like anyv_to_str (the
+    // intrinsics table doesn't carry it; the assign-boundary
+    // consumer declares its own).
+    let arr_any_to_typed = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_arr_any_to_typed",
+        &[Type::Ptr, Type::I64],
+        Type::Ptr,
     );
     // S2.39 — the literal-default substitution kernel rides the
     // intrinsics table since S3.8 (the direct-call terminal consumes
@@ -258,6 +270,8 @@ pub(crate) fn synthesize_boxed_entries(
             t.hidden_argc,
             &t.dflt_lits,
             t.rest,
+            t.rest_kind,
+            arr_any_to_typed,
         );
         entries.insert(t.fid, pair);
     }
@@ -275,6 +289,7 @@ fn collect_boxed_targets(
     fn_table: &HashMap<String, FuncId>,
     fn_sigs: &[(Vec<Type>, Type)],
     fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
+    arr_layouts: &[Type],
 ) -> Vec<BoxedEntryTarget> {
     let constructs_from_value = program_constructs_from_value(ast);
     let mut targets: Vec<BoxedEntryTarget> = Vec::new();
@@ -341,15 +356,31 @@ fn collect_boxed_targets(
         // ordinary Arr the static world always feeds. A runtime call
         // has no packing site — pre-fix the adapter unboxed argv
         // positionally and the rest param read one lone argument as
-        // an array (garbage). The adapter now collects
-        // argv[fixed..argc] into a fresh Arr<Any> itself. Only the
-        // `any[]` spelling qualifies (untyped rest is implicitly
-        // any[]); a TYPED rest would need per-element unbox into a
-        // typed arr — no adapter, so a runtime call stays a loud
-        // not-callable instead of silent garbage.
+        // an array (garbage). The adapter collects argv[fixed..argc]
+        // into a fresh Arr<Any> itself; a TYPED rest (刀 2, RFC
+        // 20260815-fn-value-rest-spread) converts that collection
+        // through `__torajs_arr_any_to_typed` when the element repr
+        // has an ARR_KIND (I64 / F64 / Bool). Element reprs outside
+        // the kind scheme (Str — a ShortStr argument is an immediate
+        // the heap-kind check would refuse; nested typed arrays)
+        // keep no adapter: a runtime call stays a loud not-callable
+        // instead of silent garbage.
         let rest = params.last().is_some_and(|p| p.is_rest);
+        let mut rest_kind: Option<i64> = None;
         if rest && params.last().and_then(|p| p.type_ann.as_deref()) != Some("any[]") {
-            continue;
+            let elem = match user_tys.last() {
+                Some(Type::Arr(id)) => arr_layouts.get(id.0 as usize),
+                _ => None,
+            };
+            rest_kind = match elem {
+                Some(Type::I64) | Some(Type::I32) => Some(torajs_rc::ARR_KIND_I64 as i64),
+                Some(Type::F64) => Some(torajs_rc::ARR_KIND_F64 as i64),
+                Some(Type::Bool) => Some(torajs_rc::ARR_KIND_BOOL as i64),
+                _ => None,
+            };
+            if rest_kind.is_none() {
+                continue;
+            }
         }
         if !user_tys.iter().all(boxable) || !(ret_ty == Type::Void || boxable(&ret_ty)) {
             continue;
@@ -394,6 +425,7 @@ fn collect_boxed_targets(
             hidden_argc: first_is_env || this_hidden,
             dflt_lits,
             rest,
+            rest_kind,
         });
     }
     targets
@@ -421,6 +453,13 @@ struct BoxedEntryTarget {
     /// Last user param is an `any[]` rest — the adapter collects
     /// argv[fixed..argc] into a fresh Arr<Any> for that slot.
     rest: bool,
+    /// 刀 2 (RFC 20260815-fn-value-rest-spread) — a TYPED rest
+    /// (`...args: number[]`): the collected Arr<Any> converts
+    /// through `__torajs_arr_any_to_typed` with this ARR_KIND before
+    /// feeding the slot (a mismatched element throws the same
+    /// catchable TypeError the assign-boundary conversion does).
+    /// `None` = the `any[]` spelling, no conversion.
+    rest_kind: Option<i64>,
 }
 
 mod build;

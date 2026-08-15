@@ -56,10 +56,18 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
                 }
             })
         };
+        // 刀 1 (RFC 20260815-fn-value-rest-spread) — the signature
+        // spells a rest param as the `Rest(elem)` sentinel for CALL
+        // SITES; the body's binding is the packed array (§10.2.1.3
+        // IteratorBindingInitialization collects the tail into one).
+        let binding_ty = match ty {
+            Type::Rest(elem) => Type::Array(elem.clone()),
+            other => other.clone(),
+        };
         if let Err(e) = checker.declare(
             p.name.clone(),
             LocalInfo {
-                ty: ty.clone(),
+                ty: binding_ty,
                 mutable: true,
                 moved: false,
                 borrowed: false,

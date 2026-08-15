@@ -231,10 +231,18 @@ pub(crate) fn check_closure(
         );
     }
     for (p, ty) in real_params.iter().zip(param_tys.iter()) {
+        // 刀 1 (RFC 20260815-fn-value-rest-spread) — the signature
+        // spells a rest param as the `Rest(elem)` sentinel for call
+        // sites; the body's binding is the packed array (§10.2.1.3),
+        // mirroring `check_stmt_fn_decl`.
+        let binding_ty = match ty {
+            Type::Rest(elem) => Type::Array(elem.clone()),
+            other => other.clone(),
+        };
         let _ = checker.declare(
             p.name.clone(),
             LocalInfo {
-                ty: ty.clone(),
+                ty: binding_ty,
                 mutable: true,
                 moved: false,
                 borrowed: false,

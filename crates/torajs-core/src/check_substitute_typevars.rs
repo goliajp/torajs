@@ -29,6 +29,7 @@ pub(crate) fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> T
                 .map(|(n, t)| (n.clone(), substitute_typevars(t, subst)))
                 .collect(),
         ),
+        Type::Rest(inner) => Type::Rest(Box::new(substitute_typevars(inner, subst))),
         other => other.clone(),
     }
 }

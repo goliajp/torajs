@@ -65,7 +65,10 @@ pub(crate) fn try_lower_with_this(
     // call boxes its args and routes through the boxed dual entry —
     // which has no `__this` slot, so an explicit-this replay stays
     // loud instead of dropping the receiver.
-    if ctx.variadic_locals.contains(callee_name) || global_argv_face_binding(ctx, callee_name) {
+    if ctx.variadic_locals.contains(callee_name)
+        || global_argv_face_binding(ctx, callee_name)
+        || global_variadic_value_binding(ctx, callee_name)
+    {
         if this_arg.is_some() {
             return None;
         }
@@ -289,6 +292,16 @@ fn emit_static_indirect_call(
 
 fn global_argv_face_binding(ctx: &LowerCtx<'_>, callee_name: &str) -> bool {
     !ctx.locals.contains_key(callee_name) && ctx.ast.closure_argv_locals.contains(callee_name)
+}
+
+/// 刀 3 (RFC 20260815-fn-value-rest-spread) — the promoted flavor of
+/// a rest-fn VALUE binding: closure-captured `const g = tail`
+/// promotes to a global, its LetDecl never lowers in the calling fn
+/// (so `variadic_locals` never saw it), and the forwarder wrap
+/// recorded the name instead. Locals-miss scoping mirrors
+/// [`global_argv_face_binding`].
+fn global_variadic_value_binding(ctx: &LowerCtx<'_>, callee_name: &str) -> bool {
+    !ctx.locals.contains_key(callee_name) && ctx.ast.variadic_value_bindings.contains(callee_name)
 }
 
 /// Is the runtime recv gate reachable for a callee resolved to
