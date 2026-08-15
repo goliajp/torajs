@@ -45,6 +45,16 @@ use crate::ast_desugar_implicit_generics_closure::{
 };
 
 pub(crate) fn run(ast: &mut Ast) {
+    // A class factory reached through a VALUE gets its arguments as
+    // `any` off argv, and the ctor registry keys the adapter on the
+    // bare `__new_<C>` spelling — a GENERIC factory has no instance
+    // under that name when no static call site drives one (`const
+    // nd: any = C; new nd(7)` died on "cannot be reached through a
+    // runtime value"). When the program constructs from values, keep
+    // factories non-generic: untyped ctor params annotate `any`
+    // instead (rotation 409; the demand predicate is the same one
+    // that arms the adapter synthesis).
+    let factories_stay_any = crate::ssa_lower_boxed_entry::program_constructs_from_value(ast);
     let Ast {
         stmts,
         exprs,
@@ -200,6 +210,14 @@ pub(crate) fn run(ast: &mut Ast) {
         }
         if name.starts_with("__closure_") {
             desugar_lifted_closure_fn(params, return_type, body, ast_exprs_view, &fn_sigs);
+            continue;
+        }
+        if factories_stay_any && name.starts_with("__new_") {
+            for p in params.iter_mut() {
+                if p.type_ann.is_none() && !p.is_rest {
+                    p.type_ann = Some("any".to_string());
+                }
+            }
             continue;
         }
 

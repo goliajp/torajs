@@ -88,7 +88,7 @@ fn boxable(ty: &Type) -> bool {
 /// is a differentiator. r293 — `Reflect.construct` reaches the same
 /// registry through its own kernel, so its call shape arms the
 /// synthesis too.
-fn program_constructs_from_value(ast: &Ast) -> bool {
+pub(crate) fn program_constructs_from_value(ast: &Ast) -> bool {
     ast.exprs.iter().any(|e| match e {
         crate::ast::Expr::NewDynamic { .. } => true,
         // A `.construct(...)` call arms regardless of the receiver
