@@ -184,6 +184,64 @@ impl<'a> Parser<'a> {
             name = self.consume_nullish_union_suffix(name)?;
             return Ok(name);
         }
+        // V3-18 wedge — tuple type ann (`[number, string]`, TS spec
+        // §3.3.3). The subset has no fixed-arity array type, so a
+        // tuple widens to its element array: `T[]` when every member
+        // spells the same `T`, `any[]` otherwise — the same widening
+        // posture as the literal-type wedges below (a tuple IS an
+        // array; reads come back as the widened element). Optional
+        // (`T?`) and rest (`...T`) members keep the loud reject
+        // until a real need shows up.
+        if matches!(self.peek(), Token::LBracket) {
+            self.pos += 1;
+            let mut elems: Vec<String> = Vec::new();
+            if !matches!(self.peek(), Token::RBracket) {
+                loop {
+                    elems.push(self.parse_type_ann_inner()?);
+                    match self.peek() {
+                        Token::Comma => {
+                            self.pos += 1;
+                            if matches!(self.peek(), Token::RBracket) {
+                                break;
+                            }
+                        }
+                        Token::RBracket => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `]` in tuple type, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::RBracket => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `]` to end tuple type, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            let elem = match elems.first() {
+                Some(first) if elems.iter().all(|e| e == first) => first.clone(),
+                _ => "any".to_string(),
+            };
+            let mut name = format!("{elem}[]");
+            // Mirror the inline-obj tail: `[T, U][]` / `| null`.
+            while matches!(self.peek(), Token::LBracket)
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::RBracket)
+                )
+            {
+                self.pos += 2;
+                name.push_str("[]");
+            }
+            name = self.consume_nullish_union_suffix(name)?;
+            return Ok(name);
+        }
         // V3-18 wedge — string-literal type-ann (`type Mode =
         // "dev" | "prod"`). Per TS spec §3.2.10 a string literal
         // is a type that has only that literal as its value. The
