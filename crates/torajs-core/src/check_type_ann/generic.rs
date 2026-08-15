@@ -65,63 +65,15 @@ pub(super) fn resolve_generic(
             return Some(Type::Any);
         }
     }
-    if let Some((tp_names, fields)) = generic_aliases.get(head) {
-        let inner = &name[open_idx + 1..name.len() - 1];
-        // Split inner at depth-0 `|`.
-        let args = split_top_pipe(inner);
-        if args.len() != tp_names.len() {
-            return None;
-        }
-        // Substitute each tp_name with its arg ann in every field's
-        // annotation string, then recursively resolve.
-        let subst: Vec<(String, String)> = tp_names
-            .iter()
-            .cloned()
-            .zip(args.iter().map(|s| s.to_string()))
-            .collect();
-        // V3-18 wedge — generic bare alias (`type Pair<T> = T[]`)
-        // uses the same single-field "__alias__" sentinel; resolve
-        // directly to the substituted underlying type instead of
-        // wrapping in a Struct.
-        if fields.len() == 1 && fields[0].0 == "__alias__" {
-            let substituted = ann_substitute(&fields[0].1, &subst);
-            return resolve_type_ann_inner(
-                &substituted,
-                aliases,
-                type_params,
-                generic_aliases,
-                in_flight,
-            );
-        }
-        // Recursive instantiation (`type Rec<T> = { next: Rec<T> |
-        // null }`): a field of `Rec<number>` mentions `Rec<number>`
-        // again. Without a guard this recurses forever — Struct is
-        // a structural tree and a recursive type has no finite
-        // expansion. Mirror of the non-generic V3-05 solution: the
-        // back-edge becomes a nominal ClassRef whose name is the
-        // full instantiation key (its own canonical ann), resolved
-        // lazily one layer per access by resolve_class_ref.
-        if in_flight.contains(name) {
-            return Some(Type::ClassRef(name.to_string()));
-        }
-        in_flight.insert(name.to_string());
-        let mut field_tys: Vec<(String, Type)> = Vec::new();
-        for (fname, fann) in fields {
-            let substituted = ann_substitute(fann, &subst);
-            let Some(ty) = resolve_type_ann_inner(
-                &substituted,
-                aliases,
-                type_params,
-                generic_aliases,
-                in_flight,
-            ) else {
-                in_flight.remove(name);
-                return None;
-            };
-            field_tys.push((fname.clone(), ty));
-        }
-        in_flight.remove(name);
-        return Some(Type::Struct(field_tys));
+    if generic_aliases.contains_key(head) {
+        return expand_instantiation(
+            name,
+            open_idx,
+            aliases,
+            type_params,
+            generic_aliases,
+            in_flight,
+        );
     }
     // T-15 (v0.5.0) — `Promise<T>` is a built-in generic type
     // when the user hasn't shadowed it with a `class Promise<T>`
@@ -185,4 +137,107 @@ pub(super) fn resolve_generic(
         });
     }
     None
+}
+
+/// The user generic-alias / generic-class instantiation body — the
+/// `generic_aliases` hit of [`resolve_generic`], verbatim. Split out
+/// (rotation 413 blade 3a) so `resolve_class_ref` can FORCE one layer
+/// of structural expansion for a `ClassRef("Box<number>")` key without
+/// going through `resolve_generic` — the nominal short-circuit blade 3
+/// adds there would otherwise answer the same ClassRef back and the
+/// unwrap could never make progress.
+fn expand_instantiation(
+    name: &str,
+    open_idx: usize,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+    generic_aliases: &GenericAliasMap,
+    in_flight: &mut HashSet<String>,
+) -> Option<Type> {
+    let head = &name[..open_idx];
+    let (tp_names, fields) = generic_aliases.get(head)?;
+    let inner = &name[open_idx + 1..name.len() - 1];
+    // Split inner at depth-0 `|`.
+    let args = split_top_pipe(inner);
+    if args.len() != tp_names.len() {
+        return None;
+    }
+    // Substitute each tp_name with its arg ann in every field's
+    // annotation string, then recursively resolve.
+    let subst: Vec<(String, String)> = tp_names
+        .iter()
+        .cloned()
+        .zip(args.iter().map(|s| s.to_string()))
+        .collect();
+    // V3-18 wedge — generic bare alias (`type Pair<T> = T[]`)
+    // uses the same single-field "__alias__" sentinel; resolve
+    // directly to the substituted underlying type instead of
+    // wrapping in a Struct.
+    if fields.len() == 1 && fields[0].0 == "__alias__" {
+        let substituted = ann_substitute(&fields[0].1, &subst);
+        return resolve_type_ann_inner(
+            &substituted,
+            aliases,
+            type_params,
+            generic_aliases,
+            in_flight,
+        );
+    }
+    // Recursive instantiation (`type Rec<T> = { next: Rec<T> |
+    // null }`): a field of `Rec<number>` mentions `Rec<number>`
+    // again. Without a guard this recurses forever — Struct is
+    // a structural tree and a recursive type has no finite
+    // expansion. Mirror of the non-generic V3-05 solution: the
+    // back-edge becomes a nominal ClassRef whose name is the
+    // full instantiation key (its own canonical ann), resolved
+    // lazily one layer per access by resolve_class_ref.
+    if in_flight.contains(name) {
+        return Some(Type::ClassRef(name.to_string()));
+    }
+    in_flight.insert(name.to_string());
+    let mut field_tys: Vec<(String, Type)> = Vec::new();
+    for (fname, fann) in fields {
+        let substituted = ann_substitute(fann, &subst);
+        let Some(ty) = resolve_type_ann_inner(
+            &substituted,
+            aliases,
+            type_params,
+            generic_aliases,
+            in_flight,
+        ) else {
+            in_flight.remove(name);
+            return None;
+        };
+        field_tys.push((fname.clone(), ty));
+    }
+    in_flight.remove(name);
+    Some(Type::Struct(field_tys))
+}
+
+/// Force-expand entry for a generic-instantiation ClassRef key
+/// (`"Box<number>"`) — one structural layer, bypassing whatever
+/// nominal short-circuit `resolve_generic` applies. Falls back to the
+/// ordinary resolver for any other key shape, which keeps it exactly
+/// equivalent to the `resolve_type_ann_full` call it replaces at the
+/// `resolve_class_ref` unwrap site.
+pub(crate) fn expand_instantiation_full(
+    name: &str,
+    aliases: &HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> Option<Type> {
+    if let Some(open_idx) = name.find('<')
+        && name.ends_with('>')
+        && generic_aliases.contains_key(&name[..open_idx])
+    {
+        let mut in_flight = HashSet::new();
+        return expand_instantiation(
+            name,
+            open_idx,
+            aliases,
+            &[],
+            generic_aliases,
+            &mut in_flight,
+        );
+    }
+    super::resolve_type_ann_full(name, aliases, &[], generic_aliases)
 }

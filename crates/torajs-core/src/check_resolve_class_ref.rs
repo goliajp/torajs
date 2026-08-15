@@ -23,7 +23,6 @@
 use std::borrow::Cow;
 
 use crate::check::{GenericAliasMap, Type};
-use crate::check_type_ann::resolve_type_ann_full;
 
 /// `resolve_class_ref` walks one layer of class-reference indirection.
 /// See [module doc](crate::check_resolve_class_ref) for the full
@@ -99,8 +98,15 @@ fn resolve_class_ref_unwrap(
                 // one shallow layer. Recursive fields inside come back
                 // as ClassRef again, so this terminates: same lazy
                 // one-layer-per-access contract as the named-class arm.
+                // The FORCE-expand entry (blade 3a) bypasses the
+                // resolver's nominal short-circuit, which would answer
+                // this same ClassRef back and never make progress.
                 None if name.contains('<') => {
-                    match resolve_type_ann_full(name, aliases, &[], generic_aliases) {
+                    match crate::check_type_ann::expand_instantiation_full(
+                        name,
+                        aliases,
+                        generic_aliases,
+                    ) {
                         Some(t) if !matches!(t, Type::ClassRef(_)) => t,
                         _ => ty.clone(),
                     }
