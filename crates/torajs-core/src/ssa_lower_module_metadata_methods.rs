@@ -88,7 +88,20 @@ pub(crate) fn collect_own_class_methods(
         if mname == "ctor" || mname.is_empty() || mname.starts_with("ctor$$") {
             continue;
         }
-        let entry_name = match accessor_slots.get(fname.as_str()) {
+        // RFC 20260815 刀 5 — a GENERIC accessor's mono instance
+        // (`__cm_Box__value_get$$anywv`) resolves its slot spelling
+        // through the un-mono'd fn name the accessor maps are keyed
+        // by; without the strip the row registered under the mangled
+        // `value_get$$anywv` instead of `__getter_value`. Typed mono
+        // rows (`…$$_number`) deliberately keep their own spelling —
+        // one slot row per property, and the generic retarget below
+        // drops them (their layout is one specialization's).
+        let slot = accessor_slots.get(fname.as_str()).or_else(|| {
+            fname
+                .strip_suffix("$$anywv")
+                .and_then(|base| accessor_slots.get(base))
+        });
+        let entry_name = match slot {
             Some(slot) => slot.clone(),
             // 402-01 — a generic method's all-`any` mono instance
             // (`__cm_C__id$$anywv`, pre-seeded by
@@ -204,7 +217,14 @@ pub(crate) fn retarget_generic_class_methods(
     methods
         .into_iter()
         .filter_map(|mut m| {
-            let decl = format!("__cm_{base}__{}", m.name);
+            // RFC 20260815 刀 5 — an accessor row's name is the slot
+            // spelling (`__getter_value`), not a `__cm_` suffix; its
+            // twin is keyed by the getter/setter FN name, recovered
+            // through the accessor maps (walking the parent chain —
+            // the row may be inherited, and the twin reads through
+            // GetV so it is sound under a subclass receiver too).
+            let decl = accessor_decl_for(ast, base, &m.name)
+                .unwrap_or_else(|| format!("__cm_{base}__{}", m.name));
             let Some(twin) = ast.cmany_twins.get(&decl) else {
                 return m.this_free.then_some(m);
             };
@@ -216,6 +236,31 @@ pub(crate) fn retarget_generic_class_methods(
             Some(m)
         })
         .collect()
+}
+
+/// RFC 20260815 刀 5 — recover the declaring getter/setter FN name
+/// behind an accessor slot row (`__getter_value` on class `Box` →
+/// `__cm_Box__value_get`), walking `class_parents` because a resolved
+/// method table merges inherited rows. `None` for a plain method row
+/// or an accessor no ancestor declares.
+fn accessor_decl_for(ast: &crate::ast::Ast, base: &str, slot: &str) -> Option<String> {
+    let (table, prop) = match slot.strip_prefix("__getter_") {
+        Some(p) => (&ast.accessor_getters, p),
+        None => (&ast.accessor_setters, slot.strip_prefix("__setter_")?),
+    };
+    let mut cur = Some(base.to_string());
+    let mut depth = 0u32;
+    while let Some(c) = cur {
+        if depth > 64 {
+            break;
+        }
+        if let Some(f) = table.get(&(c.clone(), prop.to_string())) {
+            return Some(f.clone());
+        }
+        cur = ast.class_parents.get(&c).and_then(|p| p.clone());
+        depth += 1;
+    }
+    None
 }
 
 /// S2.38 — `true` when the function never observes its first param

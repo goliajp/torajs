@@ -164,6 +164,22 @@ impl StructLayoutEntry {
         prop: &[u8],
         kind: AccessorKind,
     ) -> Option<*const core::ffi::c_void> {
+        self.find_accessor_method_meta(prop, kind)
+            .map(|m| m.adapter)
+    }
+
+    /// The record behind [`find_accessor_method`] — the flags-aware
+    /// finder reads it so a twin-primary row (RFC 20260815 刀 5 — a
+    /// GENERIC class's accessor rides its `__cmany_` twin, recv-first
+    /// calling convention) can be invoked with the right shape. The
+    /// presence probes keep using the adapter finder: a twin-primary
+    /// row still makes the property present.
+    #[inline]
+    fn find_accessor_method_meta(
+        &self,
+        prop: &[u8],
+        kind: AccessorKind,
+    ) -> Option<&'static MethodMeta> {
         let prefix = kind.prefix();
         let n = self.n_methods();
         let mut i = 0;
@@ -171,7 +187,7 @@ impl StructLayoutEntry {
             if let Some(m) = self.method(i)
                 && crate::accessor_table::slot_name_matches(m.name_bytes(), prefix, prop)
             {
-                return Some(m.adapter);
+                return Some(m);
             }
             i += 1;
         }
@@ -284,6 +300,45 @@ pub unsafe extern "C" fn __torajs_struct_accessor_method_find(
     entry
         .find_accessor_method(prop, kind)
         .unwrap_or(core::ptr::null())
+}
+
+/// The flags-aware variant of [`__torajs_struct_accessor_method_find`]
+/// — mirror of [`__torajs_struct_method_find_flags`]. Writes the
+/// record's flags word through `out_flags` on a hit (untouched on a
+/// miss); the caller reads [`METHOD_FLAG_TWIN_PRIMARY`] to pick the
+/// recv-first calling convention (RFC 20260815 刀 5 — a GENERIC
+/// class's accessor row is its `__cmany_` twin).
+///
+/// # Safety
+/// `layout` / `name` as in [`__torajs_struct_accessor_method_find`];
+/// `out_flags` must be NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_accessor_method_find_flags(
+    layout: *const StructLayoutEntry,
+    name: *const u8,
+    name_len: u32,
+    kind: u8,
+    out_flags: *mut u32,
+) -> *const core::ffi::c_void {
+    if layout.is_null() || name.is_null() {
+        return core::ptr::null();
+    }
+    let Some(kind) = AccessorKind::from_raw(kind) else {
+        return core::ptr::null();
+    };
+    // SAFETY: caller contract above.
+    let entry = unsafe { &*layout };
+    let prop = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    match entry.find_accessor_method_meta(prop, kind) {
+        Some(m) => {
+            if !out_flags.is_null() {
+                // SAFETY: caller contract above.
+                unsafe { out_flags.write(m.flags) };
+            }
+            m.adapter
+        }
+        None => core::ptr::null(),
+    }
 }
 
 /// Enumerate side — the record count for the register-time method

@@ -60,6 +60,16 @@ unsafe extern "C" {
         name_len: u32,
         kind: u8,
     ) -> *const c_void;
+    /// torajs-structmeta RFC 20260815 刀 5 — the flags-aware variant;
+    /// writes the record's flags word on a hit so a twin-primary row
+    /// (a GENERIC class's accessor) invokes recv-first.
+    fn __torajs_struct_accessor_method_find_flags(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        kind: u8,
+        out_flags: *mut u32,
+    ) -> *const c_void;
     fn __torajs_struct_field_info(layout: *const c_void, idx: u32) -> FieldInfo;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
     /// torajs-structmeta — does a name spell an accessor SLOT
@@ -103,12 +113,24 @@ pub(crate) const KIND_SETTER: u8 = 1;
 /// struct lane.
 pub(crate) const ANY_ACCESSOR_TAG: u64 = 6;
 
+/// MethodMeta flags bit 1 — mirror of torajs-structmeta
+/// `METHOD_FLAG_TWIN_PRIMARY` (`method_call_dynobj/tail.rs` carries
+/// the same twin): the record's adapter is the receiver-polymorphic
+/// `__cmany_` twin, recv-first calling convention.
+const METHOD_FLAG_TWIN_PRIMARY: u32 = 2;
+
 /// How a struct's accessor half is reached.
 enum StructAccessor {
     /// Object literal — the closure env cell out of the layout slot.
     Closure(*mut c_void),
     /// Class — the boxed adapter out of the dispatch table.
     Adapter(*const c_void),
+    /// GENERIC class (RFC 20260815 刀 5) — the row's adapter is the
+    /// `__cmany_` twin: the receiver box rides argv[0] and the env
+    /// argument is dropped (the mono adapter's env-slot convention
+    /// would hand the twin a bare struct ptr it decodes as a NaN
+    /// box — the rotation-413 REVERT's TypeError).
+    TwinAdapter(*const c_void),
 }
 
 /// Resolve one half of a struct's accessor for `prop`.
@@ -135,10 +157,19 @@ unsafe fn resolve(ptr: *mut c_void, prop: &[u8], kind: u8) -> Option<StructAcces
             }
             return Some(StructAccessor::Closure(env));
         }
-        let adapter =
-            __torajs_struct_accessor_method_find(layout, prop.as_ptr(), prop.len() as u32, kind);
+        let mut mflags: u32 = 0;
+        let adapter = __torajs_struct_accessor_method_find_flags(
+            layout,
+            prop.as_ptr(),
+            prop.len() as u32,
+            kind,
+            &mut mflags,
+        );
         if adapter.is_null() {
             return None;
+        }
+        if mflags & METHOD_FLAG_TWIN_PRIMARY != 0 {
+            return Some(StructAccessor::TwinAdapter(adapter));
         }
         Some(StructAccessor::Adapter(adapter))
     }
@@ -185,6 +216,13 @@ unsafe fn invoke_getter(recv: *mut c_void, acc: StructAccessor) -> AnyValue {
             // which the adapter reads out of the env slot — empty argv.
             StructAccessor::Adapter(adapter) => {
                 invoke_boxed(recv, adapter as u64, core::ptr::null(), 0)
+            }
+            // `__cmany_` twin — recv-first: the receiver box rides
+            // argv[0], the env argument is dropped (the
+            // `method_call_dynobj/tail.rs` twin-primary shape).
+            StructAccessor::TwinAdapter(adapter) => {
+                let argv = [box_void_ptr(recv)];
+                invoke_boxed(recv, adapter as u64, argv.as_ptr(), 1)
             }
         }
     }
@@ -259,6 +297,11 @@ unsafe fn invoke_setter(recv: *mut c_void, acc: StructAccessor, value: AnyValue)
             StructAccessor::Adapter(adapter) => {
                 let argv = [value];
                 invoke_boxed(recv, adapter as u64, argv.as_ptr(), 1);
+            }
+            // `__cmany_` twin — recv-first: `(recv box, v)`.
+            StructAccessor::TwinAdapter(adapter) => {
+                let argv = [box_void_ptr(recv), value];
+                invoke_boxed(recv, adapter as u64, argv.as_ptr(), 2);
             }
         }
     }
