@@ -67,8 +67,10 @@ use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
 
 mod dynamic;
+mod tags;
 
 use dynamic::{emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target};
+use tags::{compute_descendant_tags, generic_half_tags};
 
 /// Which of the two lanes the right-hand side takes.
 ///
@@ -244,38 +246,34 @@ fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> O
         return Operand::ConstBool(false);
     }
     let r = emit_any_class_or_chain(ctx, v, &descendant_tags);
-    // 405-03 — a GENERIC class's instances wear per-specialization
-    // anon tags minted during Pass 2, which the constant chain above
-    // can never list; the runtime half answers by row-name identity.
-    if let Some(base_tag) = generic_class_tag(ctx, class_name) {
+    // 405-03 + rotation 411 — a GENERIC class's instances wear
+    // per-specialization anon tags minted during Pass 2, which the
+    // constant chain above can never list; the runtime half answers
+    // by row-name identity, once per generic class in the answer set
+    // (the target itself and every generic descendant).
+    let mut acc = match &r {
+        Operand::Value(rv) => Some(*rv),
+        _ => None,
+    };
+    let mut emitted_generic = false;
+    for base_tag in generic_half_tags(ctx, class_name) {
+        emitted_generic = true;
         let cur_block = ctx.cur_block;
         let g = ctx.f.append_inst(
             cur_block,
             InstKind::Call(
                 ctx.intrinsics.instanceof_generic_any,
-                vec![v, Operand::ConstI64(base_tag)],
+                vec![v.clone(), Operand::ConstI64(base_tag)],
             ),
             Type::Bool,
             None,
         );
-        let Operand::Value(rv) = r else {
-            return Operand::Value(g);
-        };
-        return Operand::Value(or_chain_step(ctx, Some(rv), g));
+        acc = Some(or_chain_step(ctx, acc, g));
+    }
+    if emitted_generic && let Some(rv) = acc {
+        return Operand::Value(rv);
     }
     r
-}
-
-/// 405-03 — the runtime tag of a GENERIC class (a name in
-/// `class_name_to_tag` that also has a generic struct decl). Its
-/// instances never wear this tag — the placeholder row it names is
-/// what the specialization rows copy their identity from, and the
-/// name comparison in `__torajs_generic_tag_match` is keyed off it.
-fn generic_class_tag(ctx: &LowerCtx<'_>, class_name: &str) -> Option<i64> {
-    if !ctx.generic_struct_decls.contains_key(class_name) {
-        return None;
-    }
-    ctx.class_name_to_tag.get(class_name).map(|t| *t as i64)
 }
 
 /// Rotation 345 (RFC 20260808-construct-channel) — `o instanceof C`
@@ -377,9 +375,16 @@ fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str
         None,
     );
     let r = emit_obj_tag_or_chain(ctx, tag_v, &descendant_tags);
-    // 405-03 — same generic-class half as the any dispatch; the tag
-    // is already loaded here, so only the name comparison is left.
-    if let Some(base_tag) = generic_class_tag(ctx, class_name) {
+    // 405-03 + rotation 411 — same generic-class half as the any
+    // dispatch, once per generic class in the answer set (the target
+    // itself and every generic descendant — see `generic_half_tags`);
+    // the tag is already loaded here, so only the name comparison is
+    // left.
+    let mut acc = match &r {
+        Operand::Value(rv) => Some(*rv),
+        _ => None,
+    };
+    for base_tag in generic_half_tags(ctx, class_name) {
         let cur_block = ctx.cur_block;
         let g = ctx.f.append_inst(
             cur_block,
@@ -390,39 +395,12 @@ fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str
             Type::Bool,
             None,
         );
-        let Operand::Value(rv) = r else {
-            return Operand::Value(g);
-        };
-        return Operand::Value(or_chain_step(ctx, Some(rv), g));
+        acc = Some(or_chain_step(ctx, acc, g));
     }
-    r
-}
-
-fn compute_descendant_tags(ctx: &LowerCtx<'_>, class_name: &str) -> Vec<u32> {
-    let mut descendant_tags: Vec<u32> = Vec::new();
-    if !ctx.ast.class_parents.contains_key(class_name) {
-        return descendant_tags;
+    match acc {
+        Some(rv) => Operand::Value(rv),
+        None => r,
     }
-    for c in ctx.ast.class_parents.keys() {
-        let mut cur = Some(c.clone());
-        let mut depth = 0u32;
-        while let Some(name) = cur {
-            if depth > 64 {
-                break;
-            }
-            if name == class_name {
-                if let Some(tag) = ctx.class_name_to_tag.get(c) {
-                    descendant_tags.push(*tag);
-                }
-                break;
-            }
-            cur = ctx.ast.class_parents.get(&name).and_then(|p| p.clone());
-            depth += 1;
-        }
-    }
-    descendant_tags.sort();
-    descendant_tags.dedup();
-    descendant_tags
 }
 
 fn emit_any_class_or_chain(ctx: &mut LowerCtx<'_>, v: Operand, tags: &[u32]) -> Operand {
