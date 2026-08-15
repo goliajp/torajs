@@ -88,8 +88,14 @@ pub(crate) unsafe fn expando_this_is_the_function(
 /// anything else goes through the props-bag dispatch unchanged (the
 /// same approximation the own-entry path makes).
 ///
-/// A non-closure ancestor ends the walk (recorded boundary — the
-/// extends lane only ever links function values); so does an
+/// A REAL class object on the chain answers through its member-get
+/// face (405-01 face 2): the extends lane links `Object.
+/// setPrototypeOf(D, P)` where P may be a hoisted or top-level
+/// class — a DynObj carrying the class-ctor flag — and `D.s()` must
+/// resolve P's statics (own and inherited; the member-get face
+/// covers P's parent chain) with the ORIGINAL receiver, per
+/// §10.1.8.1 GetV + §13.3.6 EvaluateCall. Any other non-closure
+/// ancestor still ends the walk (recorded boundary); so does an
 /// explicit-null or never-re-parented link. The set path refuses
 /// cycles, so the walk terminates.
 pub(crate) unsafe fn proto_chain_method(
@@ -108,6 +114,9 @@ pub(crate) unsafe fn proto_chain_method(
             }
             let pp = as_void_ptr(parent);
             let (_, t) = crate::member_get::recv_cell(parent)?;
+            if t == Tag::DynObj as u16 {
+                return class_object_hop(recv, parent, name_str, argv, argc);
+            }
             if t != Tag::Closure as u16 {
                 return None;
             }
@@ -127,5 +136,47 @@ pub(crate) unsafe fn proto_chain_method(
             }
             cur = pp;
         }
+    }
+}
+
+/// Resolve `name` against a class object the chain walk reached and
+/// invoke with the original function-value receiver (405-01 face 2).
+///
+/// The member-get face covers the class's own statics and its parent
+/// chain (§15.7.14 links class ctors), so one read answers inherited
+/// statics too. The resolved cell dispatches through
+/// [`crate::method_call::invoke_with_this`] with the original
+/// receiver — the same verdict every `.call` / detached-value
+/// spelling gets (static faces ride their `__smany_` twin,
+/// this-free faces run bare, plain closures honor their
+/// receiver-first flag), so the two spellings cannot disagree. A
+/// resolved non-callable is the §13.3.6 TypeError; an accessor
+/// entry is the recorded residue (`None` keeps the caller's
+/// no-such-method exit).
+unsafe fn class_object_hop(
+    recv: *mut c_void,
+    parent: AnyValue,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let key = name_str as *const c_void;
+        let ctag = crate::member_get::__torajs_any_member_get_tag(parent, key);
+        // 5 = full-chain miss; 6 = accessor (residue).
+        if ctag != 4 {
+            return None;
+        }
+        let cell = crate::member_get::__torajs_any_member_get_value(parent, key);
+        if let Some((env, entry)) = crate::method_call::closure_boxed_entry(cell) {
+            return Some(crate::method_call::invoke_with_this(
+                env,
+                entry,
+                __torajs_anyv_box_pointer(recv),
+                argv,
+                argc,
+            ));
+        }
+        Some(crate::method_call::not_callable())
     }
 }
