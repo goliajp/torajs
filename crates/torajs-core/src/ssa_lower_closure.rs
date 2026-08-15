@@ -244,7 +244,14 @@ pub(crate) fn alloc_env(
     // the lazily materialized §10.2.5 `.prototype`. Generator
     // factories and async-generator steps keep both bits clear
     // (their reflection surface is the G2 substrate).
-    let decl_name = fn_name.strip_prefix("__forward_");
+    // `__fwdrecv_<decl>` is the receiver-first flavor of the same
+    // decl singleton (namedfn_recv_cb) — same fn-flavor story: a
+    // plain-decl copy owns a `.prototype` (the value-shaped-parent
+    // `Object.create(P.prototype)` reads it), an async decl's copy
+    // reflects %AsyncFunction%.
+    let decl_name = fn_name
+        .strip_prefix("__forward_")
+        .or_else(|| fn_name.strip_prefix("__fwdrecv_"));
     if decl_name.is_some_and(|n| ctx.ast.generator_factory_classes.contains_key(n)) {
         // Generator factory — [[Prototype]] routes to the genfn trio
         // (RFC 20260721 刀 2); its `.prototype` rides the class-proto

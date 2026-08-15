@@ -71,6 +71,7 @@ pub fn synthesize_recv_cb_forwarders(ast: &mut Ast) {
     }
     let mut sites = collect_sites(ast, &fn_sigs);
     collect_objlit_field_sites(ast, &fn_sigs, &mut sites);
+    collect_any_let_init_sites(ast, &fn_sigs, &mut sites);
     if sites.is_empty() {
         return;
     }
@@ -234,6 +235,62 @@ fn collect_objlit_field_sites(
                         if !decls.is_empty() {
                             continue;
                         }
+                        sites.push((inner, n.clone()));
+                    }
+                }
+            }
+            super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+                walk(inner, ast, fn_sigs, sites)
+            });
+        }
+    }
+    walk(&ast.stmts, ast, fn_sigs, sites);
+}
+
+/// Rotation 410 — the any-let BARE-INIT sites: a promoted named fn
+/// is the whole initializer of an `: any`-annotated binding
+/// (`const B: any = F`, the `as any` shell admitted). The binding is
+/// an any cell, so EVERY consumer is an any-lane call path, and all
+/// of them honor `FLAG_CLOSURE_RECV_FIRST`: a bare `B(5)` rides
+/// `invoke_with_this(undefined)` (§10.2.1.2), `B.call(o, 5)` hands
+/// its thisArg through the same shift, and a value-shaped-parent
+/// `super(…)` (`__torajs_anyv_super_call`'s closure arm — the
+/// extracted `let __ccp<N>: any = F` heritage binding spells exactly
+/// this shape) threads the subclass-allocated `this`. The plain
+/// `__forward_` shim hardwired `undefined` into `__this` on all
+/// three, so a receiver-writing fn body threw "cannot assign to a
+/// property of this any value". Same shadow / re-decl / generator
+/// gates as the callback sites; rotation 366's global-stamp lesson
+/// stays honored — only this SITE's copy carries the flag, typed
+/// lanes never see it.
+fn collect_any_let_init_sites(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    sites: &mut Vec<(ExprId, String)>,
+) {
+    fn walk(
+        stmts: &[Stmt],
+        ast: &Ast,
+        fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+        sites: &mut Vec<(ExprId, String)>,
+    ) {
+        for s in stmts {
+            if let Stmt::LetDecl { type_ann, init, .. } = s
+                && type_ann.as_deref() == Some("any")
+            {
+                let inner = match ast.get_expr(*init) {
+                    Expr::As { expr, ty_ann } if ty_ann == "any" => *expr,
+                    _ => *init,
+                };
+                if let Expr::Ident(n) = ast.get_expr(inner)
+                    && fn_sigs.contains_key(n)
+                    && !ast.generator_factory_classes.contains_key(n)
+                    && !ast.async_generator_fns.contains(n)
+                    && !name_shadowed_elsewhere(&ast.stmts, n)
+                {
+                    let mut decls: Vec<(bool, ExprId)> = Vec::new();
+                    collect_decls_by_name(&ast.stmts, n, &mut decls);
+                    if decls.is_empty() {
                         sites.push((inner, n.clone()));
                     }
                 }
