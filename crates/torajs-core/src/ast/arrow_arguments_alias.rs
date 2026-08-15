@@ -32,19 +32,39 @@
 //! downstream (the bare `arguments` ident stays unresolved), never
 //! silently wrong.
 
-use super::expr::Expr;
+use super::expr::{Expr, Param};
 use super::stmt::Stmt;
 use super::{Ast, ExprId};
+
+/// Where the walk stands relative to arrow boundaries.
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    /// Inside the fn body proper — reads here are the fn's own.
+    Outer,
+    /// Crossed >=1 arrow boundary — reads belong to the enclosing fn.
+    Arrow,
+    /// A formal parameter named `arguments` (legal in sloppy code —
+    /// §14.2.16, the t262 lexical-bindings-overriden case) shadows
+    /// the object for the whole lexical subtree: nothing here may be
+    /// rewritten, however many more arrows the walk crosses.
+    Shadowed,
+}
+
+/// Does a param list bind the name `arguments`?
+fn params_shadow(params: &[Param]) -> bool {
+    params.iter().any(|p| p.name == "arguments")
+}
 
 pub fn alias_arrow_arguments(ast: &mut Ast) {
     let n = ast.stmts.len();
     for i in 0..n {
         if matches!(ast.stmts[i], Stmt::FnDecl { .. }) {
-            let Stmt::FnDecl { body, .. } = &mut ast.stmts[i] else {
+            let Stmt::FnDecl { params, body, .. } = &mut ast.stmts[i] else {
                 unreachable!()
             };
+            let shadowed = params_shadow(params);
             let mut b = std::mem::take(body);
-            process_scope(ast, &mut b);
+            process_scope(ast, &mut b, shadowed);
             let Stmt::FnDecl { body, .. } = &mut ast.stmts[i] else {
                 unreachable!()
             };
@@ -57,10 +77,15 @@ pub fn alias_arrow_arguments(ast: &mut Ast) {
 /// sitting inside an arrow subtree of `body`, rewrite them to the
 /// alias spelling, and inject the alias binding at the body head
 /// when any were found.
-fn process_scope(ast: &mut Ast, body: &mut Vec<Stmt>) {
+fn process_scope(ast: &mut Ast, body: &mut Vec<Stmt>, shadowed: bool) {
+    let start = if shadowed {
+        Mode::Shadowed
+    } else {
+        Mode::Outer
+    };
     let mut hits: Vec<ExprId> = Vec::new();
     for s in body.iter_mut() {
-        scan_stmt(ast, s, false, &mut hits);
+        scan_stmt(ast, s, start, &mut hits);
     }
     if hits.is_empty() {
         return;
@@ -81,57 +106,57 @@ fn process_scope(ast: &mut Ast, body: &mut Vec<Stmt>) {
     );
 }
 
-/// Statement walk within one fn scope. `in_arrow` = the walk has
-/// crossed at least one arrow boundary (reads here belong to the
-/// enclosing fn). A nested `FnDecl` is its own scope — recurse
-/// through [`process_scope`] and do not extend the current one.
-fn scan_stmt(ast: &mut Ast, s: &mut Stmt, in_arrow: bool, hits: &mut Vec<ExprId>) {
+/// Statement walk within one fn scope (`mode` — see [`Mode`]). A
+/// nested `FnDecl` is its own scope — recurse through
+/// [`process_scope`] and do not extend the current one.
+fn scan_stmt(ast: &mut Ast, s: &mut Stmt, mode: Mode, hits: &mut Vec<ExprId>) {
     match s {
-        Stmt::FnDecl { body, .. } => {
+        Stmt::FnDecl { params, body, .. } => {
+            let shadowed = params_shadow(params);
             let mut b = std::mem::take(body);
-            process_scope(ast, &mut b);
+            process_scope(ast, &mut b, shadowed);
             *body = b;
         }
-        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => scan_expr(ast, *e, in_arrow, hits),
+        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => scan_expr(ast, *e, mode, hits),
         Stmt::Return(opt) => {
             if let Some(e) = opt {
-                scan_expr(ast, *e, in_arrow, hits);
+                scan_expr(ast, *e, mode, hits);
             }
         }
         Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
-            scan_expr(ast, *init, in_arrow, hits);
+            scan_expr(ast, *init, mode, hits);
         }
-        Stmt::YieldInto { value, .. } => scan_expr(ast, *value, in_arrow, hits),
+        Stmt::YieldInto { value, .. } => scan_expr(ast, *value, mode, hits),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            scan_expr(ast, *cond, in_arrow, hits);
-            scan_stmt(ast, then_branch, in_arrow, hits);
+            scan_expr(ast, *cond, mode, hits);
+            scan_stmt(ast, then_branch, mode, hits);
             if let Some(e) = else_branch {
-                scan_stmt(ast, e, in_arrow, hits);
+                scan_stmt(ast, e, mode, hits);
             }
         }
         Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
-            scan_expr(ast, *cond, in_arrow, hits);
-            scan_stmt(ast, body, in_arrow, hits);
+            scan_expr(ast, *cond, mode, hits);
+            scan_stmt(ast, body, mode, hits);
         }
         Stmt::Switch {
             scrutinee,
             cases,
             default,
         } => {
-            scan_expr(ast, *scrutinee, in_arrow, hits);
+            scan_expr(ast, *scrutinee, mode, hits);
             for c in cases.iter_mut() {
-                scan_expr(ast, c.value, in_arrow, hits);
+                scan_expr(ast, c.value, mode, hits);
                 for cs in c.body.iter_mut() {
-                    scan_stmt(ast, cs, in_arrow, hits);
+                    scan_stmt(ast, cs, mode, hits);
                 }
             }
             if let Some(d) = default {
                 for ds in d.iter_mut() {
-                    scan_stmt(ast, ds, in_arrow, hits);
+                    scan_stmt(ast, ds, mode, hits);
                 }
             }
         }
@@ -142,30 +167,30 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, in_arrow: bool, hits: &mut Vec<ExprId>
             body,
         } => {
             if let Some(s0) = init {
-                scan_stmt(ast, s0, in_arrow, hits);
+                scan_stmt(ast, s0, mode, hits);
             }
             if let Some(c) = cond {
-                scan_expr(ast, *c, in_arrow, hits);
+                scan_expr(ast, *c, mode, hits);
             }
             if let Some(st) = step {
-                scan_expr(ast, *st, in_arrow, hits);
+                scan_expr(ast, *st, mode, hits);
             }
-            scan_stmt(ast, body, in_arrow, hits);
+            scan_stmt(ast, body, mode, hits);
         }
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
-            scan_expr(ast, *parent, in_arrow, hits);
-            scan_expr(ast, *sep, in_arrow, hits);
-            scan_stmt(ast, body, in_arrow, hits);
+            scan_expr(ast, *parent, mode, hits);
+            scan_expr(ast, *sep, mode, hits);
+            scan_stmt(ast, body, mode, hits);
         }
         Stmt::ForOf {
             elem_expr, body, ..
         } => {
-            scan_expr(ast, *elem_expr, in_arrow, hits);
-            scan_stmt(ast, body, in_arrow, hits);
+            scan_expr(ast, *elem_expr, mode, hits);
+            scan_stmt(ast, body, mode, hits);
         }
-        Stmt::Labeled { body, .. } => scan_stmt(ast, body, in_arrow, hits),
+        Stmt::Labeled { body, .. } => scan_stmt(ast, body, mode, hits),
         Stmt::Try {
             body,
             catch_body,
@@ -173,20 +198,20 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, in_arrow: bool, hits: &mut Vec<ExprId>
             ..
         } => {
             for bs in body.iter_mut() {
-                scan_stmt(ast, bs, in_arrow, hits);
+                scan_stmt(ast, bs, mode, hits);
             }
             for cs in catch_body.iter_mut() {
-                scan_stmt(ast, cs, in_arrow, hits);
+                scan_stmt(ast, cs, mode, hits);
             }
             if let Some(fb) = finally_body {
                 for fs in fb.iter_mut() {
-                    scan_stmt(ast, fs, in_arrow, hits);
+                    scan_stmt(ast, fs, mode, hits);
                 }
             }
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for bs in stmts.iter_mut() {
-                scan_stmt(ast, bs, in_arrow, hits);
+                scan_stmt(ast, bs, mode, hits);
             }
         }
         _ => {}
@@ -194,10 +219,11 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, in_arrow: bool, hits: &mut Vec<ExprId>
 }
 
 /// Expression walk. Recursion collects child ids first (the arena is
-/// borrowed immutably per node), then descends; an `ArrowFn` body is
-/// taken out of the node, walked with `in_arrow = true`, and put
+/// borrowed immutably per node), then descends; a true arrow's body
+/// is taken out of the node, walked in [`Mode::Arrow`] (or
+/// [`Mode::Shadowed`] under an `arguments`-named param), and put
 /// back.
-fn scan_expr(ast: &mut Ast, eid: ExprId, in_arrow: bool, hits: &mut Vec<ExprId>) {
+fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Vec<ExprId>) {
     // `Expr::ArrowFn` is a lossy encoding (see `parser/fn_expr.rs`
     // knife-1 note): a FUNCTION expression parses to the same node,
     // marked in `fn_expr_exprs` / `gen_fn_exprs` — and a fn-expr has
@@ -207,15 +233,23 @@ fn scan_expr(ast: &mut Ast, eid: ExprId, in_arrow: bool, hits: &mut Vec<ExprId>)
     // fn's — six gate reds). Only the true arrow stays flagged.
     if matches!(ast.get_expr(eid), Expr::ArrowFn { .. }) {
         let own_scope = ast.fn_expr_exprs.contains(&eid) || ast.gen_fn_exprs.contains_key(&eid);
-        let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
+        let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[eid.0 as usize] else {
             unreachable!()
         };
+        let shadowed = params_shadow(params);
         let mut b = std::mem::take(body);
         if own_scope {
-            process_scope(ast, &mut b);
+            process_scope(ast, &mut b, shadowed);
         } else {
+            // A shadow anywhere up the arrow chain covers the whole
+            // subtree; otherwise this is (or stays) the flagged walk.
+            let inner = if shadowed || mode == Mode::Shadowed {
+                Mode::Shadowed
+            } else {
+                Mode::Arrow
+            };
             for s in b.iter_mut() {
-                scan_stmt(ast, s, true, hits);
+                scan_stmt(ast, s, inner, hits);
             }
         }
         let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
@@ -224,7 +258,7 @@ fn scan_expr(ast: &mut Ast, eid: ExprId, in_arrow: bool, hits: &mut Vec<ExprId>)
         *body = b;
         return;
     }
-    if in_arrow && matches!(ast.get_expr(eid), Expr::Ident(n) if n == "arguments") {
+    if mode == Mode::Arrow && matches!(ast.get_expr(eid), Expr::Ident(n) if n == "arguments") {
         hits.push(eid);
         return;
     }
@@ -270,6 +304,6 @@ fn scan_expr(ast: &mut Ast, eid: ExprId, in_arrow: bool, hits: &mut Vec<ExprId>)
         _ => Vec::new(),
     };
     for c in children {
-        scan_expr(ast, c, in_arrow, hits);
+        scan_expr(ast, c, mode, hits);
     }
 }
