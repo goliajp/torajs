@@ -61,7 +61,7 @@ fn collect_stmt(
             return;
         }
         Stmt::FnDecl { params, body, .. } => {
-            collect_fn(ast, params, body, scope, sites, err);
+            collect_fn(ast, params, body, scope, sites, err, true);
             return;
         }
         _ => {}
@@ -93,8 +93,9 @@ fn collect_fn(
     scope: &Scope,
     sites: &mut Vec<(ExprId, Position)>,
     err: &mut Option<String>,
+    binds_arguments: bool,
 ) {
-    let child = scope.nested_fn(params, body);
+    let child = scope.nested_fn(params, body, binds_arguments);
     for p in params {
         if let Some(d) = p.default {
             collect_expr(ast, d, &child, sites, err);
@@ -174,10 +175,10 @@ fn collect_class(
         // Instance field initialisers are folded into the constructor
         // body by the parser (`finalize_class_field_inits`), so this
         // walk covers them too.
-        collect_fn(ast, &c.params, &c.body, &inner, &mut probe, err);
+        collect_fn(ast, &c.params, &c.body, &inner, &mut probe, err, true);
     }
     for m in methods.iter().chain(static_methods.iter()) {
-        collect_fn(ast, &m.params, &m.body, &inner, &mut probe, err);
+        collect_fn(ast, &m.params, &m.body, &inner, &mut probe, err, true);
     }
     for si in static_init {
         match si {
@@ -343,10 +344,17 @@ fn collect_expr(
             return;
         }
         Expr::ArrowFn { params, body, .. } => {
-            // A function EXPRESSION (the parser gives `function () {}`
-            // and `() => {}` the same node): its free names resolve at
-            // call time, through the object captured by the closure.
-            collect_fn(ast, params, body, scope, sites, err);
+            // The parser gives `function () {}` and `() => {}` the
+            // same node; its free names resolve at call time, through
+            // the object captured by the closure. The one difference
+            // that matters here (392-04): a TRUE arrow — not in
+            // `fn_expr_exprs` (fn expressions, async included) and
+            // not in `gen_fn_exprs` (generator expressions hoist
+            // AFTER this pass) — binds no `arguments` of its own, so
+            // the object record may answer that name.
+            let is_true_arrow =
+                !ast.fn_expr_exprs.contains(&eid) && !ast.gen_fn_exprs.contains_key(&eid);
+            collect_fn(ast, params, body, scope, sites, err, !is_true_arrow);
             return;
         }
         Expr::Closure { .. } => {

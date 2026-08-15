@@ -46,20 +46,22 @@ impl Scope {
 
     /// A function nested inside the body. Everything the enclosing
     /// scope shadowed still shadows (those records stay in front),
-    /// plus this function's params, its `var`s and `arguments`.
-    ///
-    /// `arguments` is bound for an arrow too, where strictly it is the
-    /// enclosing function's and so sits BEHIND the object. Rewriting
-    /// it would hand a guarded conditional to the arguments-object
-    /// pass, which reads a bare `arguments` occurrence; the deviation
-    /// needs `with (o)` over an object carrying a property literally
-    /// named `arguments`, read from an arrow.
-    pub(crate) fn nested_fn(&self, params: &[Param], body: &[Stmt]) -> Self {
+    /// plus this function's params, its `var`s — and `arguments`,
+    /// UNLESS the function is an arrow (392-04): an arrow has no
+    /// `arguments` of its own (§15.3.4 — no declaration
+    /// instantiation binding), so the name stays free and the object
+    /// record answers it first. The guard's else branch keeps the
+    /// bare `arguments` read, which is the shape the
+    /// arguments-object pass already handles for any arrow reading
+    /// its enclosing function's `arguments`.
+    pub(crate) fn nested_fn(&self, params: &[Param], body: &[Stmt], binds_arguments: bool) -> Self {
         let mut bound = self.bound.clone();
         for p in params {
             bound.insert(p.name.clone());
         }
-        bound.insert("arguments".to_string());
+        if binds_arguments {
+            bound.insert("arguments".to_string());
+        }
         collect_binders(body, true, &mut bound);
         Scope { bound, in_fn: true }
     }
@@ -78,7 +80,7 @@ impl Scope {
     /// `var`s are ordinary locals rather than the hoisted-past-the-
     /// object shape.
     pub(crate) fn class_body(&self, name: &str, type_params: &[String]) -> Self {
-        let mut s = self.nested_fn(&[], &[]);
+        let mut s = self.nested_fn(&[], &[], true);
         s.bound.insert(name.to_string());
         s.bound.extend(type_params.iter().cloned());
         s
