@@ -1530,7 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `c589dbb2`** (2026-08-15, rotation 406 — the
+**Latest @ `b037a042`** (2026-08-15, rotation 410 — the value-shaped
+heritage lane finished its admission story. An `extends` naming a
+VALUE binding (`{ let B = Real; class K extends B }`) extracts to the
+`__ccp<N>` lane like any heritage expression (the class-name census
+decides which idents stay static); a this-writing named fn carried
+into an `: any` binding keeps its receiver channel (the
+`__fwdrecv_` site copy — `.call`, bare call, `new`, and value-parent
+`super` all thread `this`; rotation 366's global-stamp lesson stays
+honored), which closed the fn-value-parent residue; `extends null`
+defines with a null-prototype chain and throws at `new`
+(`es5_null_parents` side-table); and a non-constructor heritage value
+throws at class-DEFINITION time (`__torajs_anyv_heritage_check`,
+§15.7.14 step 5 — the `{prototype:{}}` silent-accept became a loud
+TypeError). A probe also un-wedged named-member `delete` on typed
+arrays (`delete arr.length` / `arr["length"]` — the hole argument
+only ever gated element slots). Sweep: passTotal 30150 → **30171
+(+21)**, bug +65, incompatible −86, trAccepted +86 — conservation
+exact; **zero pass regressions**; forward moves all in the heritage
+family (class/subclass, sm/class, delete, super). Gate predicate
+**238 unattributed clusters / 2988 cases / register 2 · 616 /
+residue 774 · 1005 / core 4609**.
+
+**Prior @ `c589dbb2`** (2026-08-15, rotation 406 — the
 capturing-nested-class RFC closed out and function values grew a real
 prototype chain. Blade 6 (393-01): a class expression outside a class
 body now lands NEXT TO its use site (parse_stmt wrapper drains a
