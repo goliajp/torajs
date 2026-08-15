@@ -84,7 +84,15 @@ impl<'a> Parser<'a> {
                             )),
                         }
                     } else {
-                        self.parse_expr().map(|e| vec![Stmt::Return(Some(e))])
+                        // Watermark drain (406-01) — same protocol as
+                        // parse_arrow_fn's expression body: class
+                        // synths minted here belong inside the body.
+                        let synth_mark = self.synth_classes_local.len();
+                        self.parse_expr().map(|e| {
+                            let mut v = self.synth_classes_local.split_off(synth_mark);
+                            v.push(Stmt::Return(Some(e)));
+                            v
+                        })
                     };
                     self.await_allowed = saved_await;
                     let body = body_result?;

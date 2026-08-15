@@ -206,8 +206,23 @@ impl<'a> Parser<'a> {
             // would drain OUTSIDE the arrow — and an arrow body is
             // not a yield position anyway (§15.5.5: arrows are not
             // generators): reject via the disallow guard.
+            //
+            // A class expression minted while the body parsed must
+            // land INSIDE this body (watermark drain, same protocol
+            // as the parse_stmt wrapper) — an expression body has no
+            // statement boundary of its own, so without the drain the
+            // synth ClassDecl would surface in front of the ENCLOSING
+            // statement, where the arrow's parameters are not in
+            // scope (406-01). The body then converges on the
+            // block-bodied shape `{ class …; return … }`, which the
+            // nested-class machinery already handles.
+            let synth_mark = self.synth_classes_local.len();
             self.with_yield_hoist_disallowed(|p| p.parse_expr())
-                .map(|e| vec![Stmt::Return(Some(e))])
+                .map(|e| {
+                    let mut v = self.synth_classes_local.split_off(synth_mark);
+                    v.push(Stmt::Return(Some(e)));
+                    v
+                })
         };
         self.await_allowed = saved_await;
         let body = body_result?;
@@ -219,8 +234,9 @@ impl<'a> Parser<'a> {
         // still had to ARM the bit above, because `() => { "use
         // strict"; function f() {} }` makes `f` strict. Writing the
         // directive in here would also cost real ground: an
-        // expression-bodied arrow is exactly `[Stmt::Return]`, a shape
-        // several later passes probe for.
+        // expression-bodied arrow is `[Stmt::Return]` (plus any
+        // drained class synths in front — the Return still closes the
+        // body), a shape the formatter probes for.
         self.restore_fn_strict(strict_outer, &params)?;
         // V3-18 wedge — prepend destr-param lets to the body, matching
         // the parse_fn wedge.

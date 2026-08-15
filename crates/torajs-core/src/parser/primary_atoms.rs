@@ -258,8 +258,15 @@ impl<'a> Parser<'a> {
                     }
                     stmts
                 } else {
+                    // Watermark drain (406-01) — a class expression
+                    // minted while this expression body parsed lands
+                    // inside the body, not in front of the enclosing
+                    // statement. Same protocol as parse_arrow_fn.
+                    let synth_mark = self.synth_classes_local.len();
                     let e = self.parse_expr()?;
-                    vec![Stmt::Return(Some(e))]
+                    let mut v = self.synth_classes_local.split_off(synth_mark);
+                    v.push(Stmt::Return(Some(e)));
+                    v
                 };
                 return Ok(Some(self.add_expr_at(
                     pos,
