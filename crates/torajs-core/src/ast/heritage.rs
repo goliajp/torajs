@@ -36,12 +36,33 @@ impl Ast {
     /// read would throw the wrong error; it stays on the loud
     /// EXPR_HERITAGE_REASON refusal until it gets its own shape.
     pub(in crate::ast) fn extract_value_heritage(&mut self) {
+        // A bare-Ident heritage naming NO class declaration and no
+        // subclassable builtin is a VALUE binding (`{ let B = Real;
+        // class K extends B }` — 393-04 tail registration), and it
+        // extracts too: the minted `__ccp<N>` keeps `es5_value_parents`
+        // an all-unique-names set (a user spelling like `B` recurs
+        // across scopes), and reading the block-local alias makes the
+        // class a CAPTURING one, which is exactly the lane that runs
+        // the value-shaped-parent machinery. The census walks the same
+        // ground this pass does — stmt spine plus arena arrow bodies.
+        let mut counts = std::collections::HashMap::new();
+        for s in &self.stmts {
+            super::hoist_nested_classes_census::count_class_decl_names(s, &mut counts);
+        }
+        for e in &self.exprs {
+            if let Expr::ArrowFn { body, .. } = e {
+                for s in body {
+                    super::hoist_nested_classes_census::count_class_decl_names(s, &mut counts);
+                }
+            }
+        }
+        let class_names: std::collections::HashSet<String> = counts.into_keys().collect();
         let mut counter: u32 = 0;
         let mut stmts = std::mem::take(&mut self.stmts);
-        extract_in_list(self, &mut stmts, &mut counter);
+        extract_in_list(self, &mut stmts, &mut counter, &class_names);
         for s in stmts.iter_mut() {
             super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |list| {
-                extract_in_list(self, list, &mut counter);
+                extract_in_list(self, list, &mut counter, &class_names);
             });
         }
         self.stmts = stmts;
@@ -58,10 +79,10 @@ impl Ast {
                     continue;
                 }
             };
-            extract_in_list(self, &mut body, &mut counter);
+            extract_in_list(self, &mut body, &mut counter, &class_names);
             for s in body.iter_mut() {
                 super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |list| {
-                    extract_in_list(self, list, &mut counter);
+                    extract_in_list(self, list, &mut counter, &class_names);
                 });
             }
             if let Expr::ArrowFn { body: b, .. } = &mut self.exprs[i] {
@@ -89,10 +110,15 @@ impl Ast {
 /// One statement list: insert the minted binding right before each
 /// class whose heritage extracts. `for_each_nested_vec_mut` recurses
 /// the spine, so this handles a single flat list.
-fn extract_in_list(ast: &mut Ast, list: &mut Vec<super::Stmt>, counter: &mut u32) {
+fn extract_in_list(
+    ast: &mut Ast,
+    list: &mut Vec<super::Stmt>,
+    counter: &mut u32,
+    class_names: &std::collections::HashSet<String>,
+) {
     let mut i = 0;
     while i < list.len() {
-        match extract_one(ast, &mut list[i], counter) {
+        match extract_one(ast, &mut list[i], counter, class_names) {
             Some(binding) => {
                 list.insert(i, binding);
                 i += 2;
@@ -104,7 +130,12 @@ fn extract_in_list(ast: &mut Ast, list: &mut Vec<super::Stmt>, counter: &mut u32
 
 /// The class shapes a heritage hangs off: a bare ClassDecl or one
 /// inside an `export` wrapper.
-fn extract_one(ast: &mut Ast, s: &mut super::Stmt, counter: &mut u32) -> Option<super::Stmt> {
+fn extract_one(
+    ast: &mut Ast,
+    s: &mut super::Stmt,
+    counter: &mut u32,
+    class_names: &std::collections::HashSet<String>,
+) -> Option<super::Stmt> {
     use super::Stmt;
     let class = match s {
         Stmt::ClassDecl { .. } => s,
@@ -117,8 +148,25 @@ fn extract_one(ast: &mut Ast, s: &mut super::Stmt, counter: &mut u32) -> Option<
         return None;
     };
     let pid = (*parent)?;
-    if matches!(ast.get_expr(pid), Expr::Ident(_) | Expr::Null) {
-        return None;
+    match ast.get_expr(pid) {
+        // `extends null` keeps its loud refusal (see the method doc).
+        Expr::Null => return None,
+        // A NAMED heritage stays put when the name means something to a
+        // static path: a class declaration (the static/capturing name
+        // lanes), a subclassable builtin (`strip_builtin_heritage`
+        // recognises it by name AFTER this pass), a binding this pass
+        // already minted, or `undefined` (a shape no lane claims —
+        // extracting it would only trade one loud error for another).
+        Expr::Ident(n) => {
+            if class_names.contains(n)
+                || super::desugar_classes_builtin_heritage::is_subclassable_builtin(n)
+                || ast.es5_value_parents.contains(n)
+                || n == "undefined"
+            {
+                return None;
+            }
+        }
+        _ => {}
     }
     let name = format!("__ccp{}", *counter);
     *counter += 1;

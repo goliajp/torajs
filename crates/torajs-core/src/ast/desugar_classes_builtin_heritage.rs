@@ -50,6 +50,14 @@ const EXOTIC_SUBCLASSABLE: &[&str] = &[
     "WeakMap", "WeakSet", "Date",
 ];
 
+/// Is `name` a builtin this pass accepts as an `extends` parent?
+/// `extract_value_heritage` must leave such a heritage in place — the
+/// strip below recognises it by NAME, and an extracted `__ccp<N>`
+/// alias would hide it from this table.
+pub(super) fn is_subclassable_builtin(name: &str) -> bool {
+    SUBCLASSABLE_BUILTINS.contains(&name) || EXOTIC_SUBCLASSABLE.contains(&name)
+}
+
 /// The factory's zero-arg mint magic for an exotic parent (the class
 /// resolves from the enclosing `__new_<C>` fn name at lower time).
 pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
