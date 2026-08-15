@@ -41,6 +41,34 @@ unsafe extern "C" {
     fn __torajs_object_create_link_proto(obj: *mut c_void, proto: u64);
     fn __torajs_throw_check() -> i64;
     fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
+    fn __torajs_proto_cell_raw(tag: i64) -> u64;
+}
+
+/// §7.3.22 OrdinaryHasInstance for the compile-time class lane's
+/// DynObj receiver arm (405-01 face 2) — an `Object.create(
+/// C.prototype)` shape carries no `class_tag@+8`, so the tag
+/// comparison in `__torajs_instanceof_class_any_tag` can never see
+/// it; the spec answer is whether the class's reified prototype sits
+/// on the receiver's [[Prototype]] chain. Called once per descendant
+/// tag by ssa_lower's existing OR-chain, so a single-tag identity
+/// check suffices (a subclass prototype matches through its own
+/// tag's call). A tag that never registered a prototype answers
+/// false.
+///
+/// # Safety
+/// `v` is a valid AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_instanceof_proto_chain_any_tag(
+    v: u64,
+    expected_tag: i64,
+) -> bool {
+    unsafe {
+        let pval = __torajs_proto_cell_raw(expected_tag);
+        if pval == 0 {
+            return false;
+        }
+        proto_chain_reaches(v, pval)
+    }
 }
 
 /// Mirror of `method_value.rs`'s cell layout constant — the boxed

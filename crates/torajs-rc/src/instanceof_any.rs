@@ -158,6 +158,16 @@ pub unsafe extern "C" fn __torajs_instanceof_class_any_tag(v: i64, expected_tag:
         if flags & crate::FLAG_SUBCLASSED != 0 {
             return unsafe { __torajs_subclass_class_tag(ptr) } == expected_tag;
         }
+        // 405-01 face 2 — a DynObj receiver (`Object.create(
+        // C.prototype)` shapes) carries no class_tag at +8; §7.3.22
+        // OrdinaryHasInstance asks whether the class's reified
+        // prototype sits on its [[Prototype]] chain instead. The
+        // dynamic-target lane already answers this (`o instanceof K`
+        // with K a runtime class value); this closes the same gap on
+        // the compile-time Ident lane.
+        if type_tag == Tag::DynObj as u16 {
+            return unsafe { __torajs_instanceof_proto_chain_any_tag(v as u64, expected_tag) };
+        }
         return false;
     }
     let class_tag = unsafe { *((ptr as *const u8).add(OBJ_CLASS_TAG_OFF) as *const i64) };
@@ -169,6 +179,9 @@ unsafe extern "C" {
     /// torajs-meta — the blade-0 subclass identity side table (-1 on
     /// miss).
     fn __torajs_subclass_class_tag(cell: *const c_void) -> i64;
+    /// torajs-anyvalue — user [[Prototype]]-chain walk against the
+    /// class's reified prototype identity (405-01 face 2).
+    fn __torajs_instanceof_proto_chain_any_tag(v: u64, expected_tag: i64) -> bool;
 }
 
 /// Cargo-test stand-in — no test block sets `FLAG_SUBCLASSED`, so
@@ -176,6 +189,13 @@ unsafe extern "C" {
 #[cfg(test)]
 unsafe fn __torajs_subclass_class_tag(_cell: *const c_void) -> i64 {
     -1
+}
+
+/// Cargo-test stand-in — no test block builds a DynObj cell with a
+/// user prototype chain, so the gated call never fires.
+#[cfg(test)]
+unsafe fn __torajs_instanceof_proto_chain_any_tag(_v: u64, _expected_tag: i64) -> bool {
+    false
 }
 
 // Cargo-test stubs for the NaN-box unbox externs. The real symbols
