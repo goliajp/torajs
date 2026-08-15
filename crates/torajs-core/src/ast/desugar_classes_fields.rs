@@ -58,6 +58,11 @@ pub(super) fn compute_full_fields(
     // whose parent comes later resolves in a subsequent sweep. No
     // progress with entries left = an unresolvable (or cyclic) parent.
     let mut full_fields: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    // Generic-parent substitution needs the parent's type-param list.
+    let tp_by_class: HashMap<&str, &Vec<String>> = class_index
+        .iter()
+        .map(|(_, cname, tp, _, _, _, _, _, _)| (cname.as_str(), tp))
+        .collect();
     let mut pending: Vec<&ClassIndexEntry> = class_index.iter().collect();
     while !pending.is_empty() {
         let before = pending.len();
@@ -76,7 +81,38 @@ pub(super) fn compute_full_fields(
                 let pfields = full_fields.get(p).unwrap_or_else(|| {
                     panic!("internal: parent `{p}` of `{cname}` had no flattened fields")
                 });
-                combined.extend(pfields.iter().cloned());
+                // A generic parent's field types spell ITS type params
+                // (`class Box<T> { v: T }`), which resolve nowhere in
+                // the subclass — substitute the heritage arguments in
+                // (`extends Box<number>` → `v: number`). A generic
+                // parent extended with no written arguments gets
+                // `any` per slot, the transpiled-JS behavior. Chains
+                // compose: the parent's own flattened list already
+                // carries ITS substitution, so each hop only ever
+                // sees one class's params.
+                match tp_by_class.get(p.as_str()) {
+                    Some(ptp) if !ptp.is_empty() => {
+                        let written = ast.class_parent_type_args.get(cname);
+                        let subst: Vec<(String, String)> = ptp
+                            .iter()
+                            .enumerate()
+                            .map(|(i, tp)| {
+                                let arg = written
+                                    .and_then(|a| a.get(i))
+                                    .cloned()
+                                    .unwrap_or_else(|| "any".to_string());
+                                (tp.clone(), arg)
+                            })
+                            .collect();
+                        combined.extend(pfields.iter().map(|(n, t)| {
+                            (
+                                n.clone(),
+                                crate::check_type_ann_substitute::ann_substitute(t, &subst),
+                            )
+                        }));
+                    }
+                    _ => combined.extend(pfields.iter().cloned()),
+                }
             }
             // Everything in `combined` up to here came from the parent, so
             // this index separates "collides with an inherited field" from

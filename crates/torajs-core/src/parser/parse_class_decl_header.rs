@@ -267,14 +267,20 @@ impl<'a> Parser<'a> {
                 },
                 _ => rhs,
             };
-            // `extends Base<number>` — heritage type arguments,
-            // consumed and discarded like `implements` (TS §3.7: no
-            // runtime effect). At heritage position a `<` cannot open
-            // a comparison — the clause is a LeftHandSideExpression —
-            // so there is no `f < 3` ambiguity to rewind for.
+            // `extends Base<number>` — heritage type arguments. At
+            // heritage position a `<` cannot open a comparison — the
+            // clause is a LeftHandSideExpression — so there is no
+            // `f < 3` ambiguity to rewind for. Recorded (keyed by the
+            // extending class, set by `parse_class_header` before the
+            // heritage parses) for the field-flattening substitution:
+            // a generic parent's inherited field types spell ITS type
+            // params, which resolve nowhere in the subclass.
             if matches!(self.peek(), Token::Lt) {
                 self.pos += 1;
-                let _ = self.parse_type_args_list()?;
+                let args = self.parse_type_args_list()?;
+                if let Some(cls) = self.current_class.clone() {
+                    self.ast.class_parent_type_args.insert(cls, args);
+                }
             }
             Some(rhs)
         } else {

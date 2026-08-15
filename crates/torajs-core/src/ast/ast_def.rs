@@ -191,6 +191,15 @@ pub struct Ast {
     /// instantiated at all — inference is argument-driven, and that
     /// call has no arguments to drive it.
     pub call_type_args: std::collections::HashMap<ExprId, Vec<String>>,
+    /// Heritage type arguments by SUBCLASS name, as written —
+    /// `class Sub extends Box<number>` records `Sub → ["number"]`.
+    /// TS §3.7 gives them no runtime effect of their own, but under
+    /// monomorphization the subclass inherits the parent's fields
+    /// and those field types spell the parent's type params — the
+    /// flattening walk substitutes these spellings in (a generic
+    /// parent extended with NO written arguments substitutes `any`,
+    /// matching the transpiled-JS behavior bun runs).
+    pub class_parent_type_args: std::collections::HashMap<String, Vec<String>>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

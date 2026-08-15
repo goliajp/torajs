@@ -36,7 +36,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, Type, substitute_typevars};
+use crate::check::{Checker, Type, resolve_class_ref, substitute_typevars};
 use crate::check_typevar::{typevar_appears_in_iter, unify_typevar};
 
 /// RC-4 — a `Nullable<Array<..>>` arg (exec/match result, chunk 598
@@ -53,6 +53,43 @@ fn decay_nullable_arr(param_ty: &Type, arg_ty: Type) -> Type {
         return (**inner).clone();
     }
     arg_ty
+}
+
+/// A class instance against a struct-shaped generic param — the
+/// `ClassRef` doc's "dereference at consumer sites" applied to
+/// unification, plus width subtyping over the flattened layout.
+/// `class NumBox extends Box<number>` inherits `get()` as the
+/// generic fn `__cm_Box__get(__this: Box<T>)`: the param resolved
+/// to the parent's Struct shape, and the receiver arrives either as
+/// `ClassRef("NumBox")` (a top-level call) or as an
+/// already-structural `Wide<string>` instantiation (inside a
+/// specialization body, where the receiver param's own substituted
+/// ann resolved). Either way, when the actual is WIDER than the
+/// pattern (a subclass appended its own fields after the flattened
+/// parent prefix), unify only the pattern-width prefix — sound
+/// because a parent method reads only parent slots, and the unify's
+/// own field-NAME check still rejects unrelated shapes.
+fn decay_classref_struct(checker: &Checker, param_ty: &Type, arg_ty: Type) -> Type {
+    let Type::Struct(p_fields) = param_ty else {
+        return arg_ty;
+    };
+    let resolved = match &arg_ty {
+        Type::ClassRef(_) => resolve_class_ref(
+            &arg_ty,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        ),
+        Type::Struct(_) => arg_ty,
+        _ => return arg_ty,
+    };
+    match resolved {
+        Type::Struct(mut a_fields) if a_fields.len() > p_fields.len() => {
+            a_fields.truncate(p_fields.len());
+            Type::Struct(a_fields)
+        }
+        other => other,
+    }
 }
 
 /// The substitution the call site *stated*, before any is inferred
@@ -136,6 +173,7 @@ pub(crate) fn try_match(
                         Err(e) => return Some(Err(e)),
                     };
                     let arg_ty = decay_nullable_arr(param_ty, arg_ty);
+                    let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
                     if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
                         return Some(Err(format!("argument {i} to `{name}`: {e}")));
                     }
@@ -175,6 +213,7 @@ pub(crate) fn try_match(
                 Err(e) => return Some(Err(e)),
             };
             let arg_ty = decay_nullable_arr(param_ty, arg_ty);
+            let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
             if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }
