@@ -21,6 +21,56 @@ impl Ast {
         }
     }
 
+    /// Extract every non-Ident heritage expression to a `let
+    /// __ccp<N>: any = <expr>` binding minted right before the class
+    /// (RFC 20260815 knife 2a) — §15.7.14 evaluates the heritage at
+    /// class-definition time, and the binding position preserves that
+    /// order. The heritage then points at `Ident("__ccp<N>")`, and the
+    /// name is recorded in `es5_value_parents` so the capturing lane
+    /// admits the class as a value-shaped-parent subclass (its ES5
+    /// machinery is already runtime-shaped: `Object.create(P.prototype)`
+    /// + `P.call(this, …)`).
+    ///
+    /// `extends null` (§15.7: legal, [[Prototype]] chain null, no
+    /// super) is NOT extracted — the lane's `Object.create(P.prototype)`
+    /// read would throw the wrong error; it stays on the loud
+    /// EXPR_HERITAGE_REASON refusal until it gets its own shape.
+    pub(in crate::ast) fn extract_value_heritage(&mut self) {
+        let mut counter: u32 = 0;
+        let mut stmts = std::mem::take(&mut self.stmts);
+        extract_in_list(self, &mut stmts, &mut counter);
+        for s in stmts.iter_mut() {
+            super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |list| {
+                extract_in_list(self, list, &mut counter);
+            });
+        }
+        self.stmts = stmts;
+        // Fn-expression / arrow bodies live in the expr arena; nested
+        // arrows are separate arena entries, so the flat scan covers
+        // deep nesting (hoist_nested_classes does the same walk). The
+        // arena grows as bindings mint — length re-read per step.
+        let mut i = 0;
+        while i < self.exprs.len() {
+            let mut body = match &mut self.exprs[i] {
+                Expr::ArrowFn { body, .. } => std::mem::take(body),
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            };
+            extract_in_list(self, &mut body, &mut counter);
+            for s in body.iter_mut() {
+                super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |list| {
+                    extract_in_list(self, list, &mut counter);
+                });
+            }
+            if let Expr::ArrowFn { body: b, .. } = &mut self.exprs[i] {
+                *b = body;
+            }
+            i += 1;
+        }
+    }
+
     /// Overwrite a discarded heritage node with a name-free literal.
     /// Passes that CONSUME a ClassDecl (the capturing lane's ES5
     /// rewrite, the static lane's TypeDecl+FnDecl split) drop the Stmt
@@ -34,4 +84,52 @@ impl Ast {
     pub fn tombstone_expr(&mut self, id: ExprId) {
         self.exprs[id.0 as usize] = Expr::Null;
     }
+}
+
+/// One statement list: insert the minted binding right before each
+/// class whose heritage extracts. `for_each_nested_vec_mut` recurses
+/// the spine, so this handles a single flat list.
+fn extract_in_list(ast: &mut Ast, list: &mut Vec<super::Stmt>, counter: &mut u32) {
+    let mut i = 0;
+    while i < list.len() {
+        match extract_one(ast, &mut list[i], counter) {
+            Some(binding) => {
+                list.insert(i, binding);
+                i += 2;
+            }
+            None => i += 1,
+        }
+    }
+}
+
+/// The class shapes a heritage hangs off: a bare ClassDecl or one
+/// inside an `export` wrapper.
+fn extract_one(ast: &mut Ast, s: &mut super::Stmt, counter: &mut u32) -> Option<super::Stmt> {
+    use super::Stmt;
+    let class = match s {
+        Stmt::ClassDecl { .. } => s,
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => inner.as_mut(),
+        _ => return None,
+    };
+    let Stmt::ClassDecl { parent, .. } = class else {
+        return None;
+    };
+    let pid = (*parent)?;
+    if matches!(ast.get_expr(pid), Expr::Ident(_) | Expr::Null) {
+        return None;
+    }
+    let name = format!("__ccp{}", *counter);
+    *counter += 1;
+    let alias = ast.add_expr(Expr::Ident(name.clone()));
+    *parent = Some(alias);
+    ast.es5_value_parents.insert(name.clone());
+    Some(Stmt::LetDecl {
+        mutable: false,
+        name,
+        type_ann: Some("any".to_string()),
+        init: pid,
+        is_var: false,
+    })
 }

@@ -23,6 +23,11 @@
 use super::*;
 
 pub fn desugar_classes(ast: &mut Ast) {
+    // RFC 20260815 knife 2a — extract each non-Ident heritage
+    // expression to a `__ccp<N>` binding before the hoist runs, so
+    // the hoist's capture check and the capturing lane's admit both
+    // see an ordinary named parent binding.
+    ast.extract_value_heritage();
     // Pre-pass — move capture-free ClassDecls out of nested statement
     // containers (fn bodies, fn-expression bodies, blocks) to the top
     // level, where the snapshot below can see them. Doing it here
@@ -243,6 +248,17 @@ fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::Clas
             let parent_name = ast.parent_ident_name(*parent).map(str::to_string);
             if parent.is_some() && parent_name.is_none() {
                 expr_heritage.push(name.clone());
+                continue;
+            }
+            // A value-shaped parent (knife 2a) belongs to the
+            // capturing lane; one that reaches this snapshot was
+            // DECLINED there for a recorded reason — skip it (filing
+            // `__ccp<N>` as a class name would panic the forward-ref
+            // check) and let check report the decline.
+            if parent_name
+                .as_deref()
+                .is_some_and(|p| ast.es5_value_parents.contains(p))
+            {
                 continue;
             }
             out.push((

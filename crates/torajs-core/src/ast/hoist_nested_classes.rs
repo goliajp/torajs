@@ -68,6 +68,27 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
     // Stmt tree first. Top level itself never hoists (already there);
     // only nested containers are scanned.
     let mut stmts = std::mem::take(&mut ast.stmts);
+
+    // RFC 20260815 knife 2a — a TOP-LEVEL class whose heritage was
+    // extracted to a `__ccp<N>` value binding cannot take the static
+    // lane (it keys on a class NAME), and the container walk below
+    // only scans nested lists. Route it through the capturing lane
+    // here; whatever the lane declines stays and stays loud.
+    for idx in 0..stmts.len() {
+        let value_parent = matches!(&stmts[idx], Stmt::ClassDecl { parent, .. }
+            if ast
+                .parent_ident_name(*parent)
+                .is_some_and(|p| ast.es5_value_parents.contains(p)));
+        if value_parent {
+            super::capturing_classes::try_rewrite_capturing_class(
+                ast,
+                &mut stmts,
+                idx,
+                &mut counter,
+                &name_counts,
+            );
+        }
+    }
     for s in &mut stmts {
         walk_child(
             ast,

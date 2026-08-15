@@ -380,7 +380,30 @@ fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
     let ctor_register = ctx.intrinsics.ctor_register;
     ctx.f.append_void(
         cur_block,
-        InstKind::Call(ctor_register, vec![class_op, Operand::Value(addr)]),
+        InstKind::Call(ctor_register, vec![class_op.clone(), Operand::Value(addr)]),
+    );
+    // RFC 20260815 knife 2b — the ctor-twin registration beside it,
+    // so a value-shaped parent's `super(…)` can reach this class's
+    // receiver-polymorphic ctor through the same class value. Silent
+    // when the twin has no adapter (the mint neutralized, or a param
+    // fell outside the boxable set) — the super kernel answers that
+    // miss with its own loud message.
+    let Some(&twin) = ctx.fn_table.get(&format!("__ctorany_{cname}")) else {
+        return;
+    };
+    let Some(&(twin_adapter, twin_sig)) = ctx.boxed_entries.get(&twin) else {
+        return;
+    };
+    let twin_addr = ctx.f.append_inst(
+        cur_block,
+        InstKind::FnAddr(twin_adapter),
+        Type::FnSig(twin_sig),
+        None,
+    );
+    let ctorany_register = ctx.intrinsics.ctorany_register;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(ctorany_register, vec![class_op, Operand::Value(twin_addr)]),
     );
 }
 

@@ -129,6 +129,9 @@ pub(crate) fn try_route(
         return Some(r);
     }
     // §13.10 ergonomic brand check (`#x in o`) — the priv sibling.
+    if let Some(r) = crate::check_type_of_call_super_value::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::check_type_of_call_in_op::try_match_priv(checker, ast, callee, args) {
         return Some(r);
     }

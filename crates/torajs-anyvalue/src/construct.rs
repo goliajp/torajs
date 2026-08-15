@@ -95,7 +95,7 @@ static CTOR_ARR_SPECIES: [AtomicU64; CTOR_SLOTS] = [const { AtomicU64::new(0) };
 /// Heap pointers are 8-aligned, so the low bits alone would collide
 /// every eighth class.
 #[inline]
-fn mix(mut k: u64) -> u64 {
+pub(crate) fn mix(mut k: u64) -> u64 {
     k ^= k >> 33;
     k = k.wrapping_mul(0xff51_afd7_ed55_8ccd);
     k ^= k >> 33;

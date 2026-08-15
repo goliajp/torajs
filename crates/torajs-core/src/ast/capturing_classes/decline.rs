@@ -59,9 +59,12 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
         // is declined here (knife 2 opens the value-shaped-parent
         // route for it).
         let Some(p) = ast.parent_ident_name(*parent) else {
-            return Some(super::EXPR_HERITAGE_REASON);
+            return Some(EXPR_HERITAGE_REASON);
         };
-        if !ast.es5_parent_classes.contains(p) && !ast.top_root_real_classes.contains(p) {
+        if !ast.es5_parent_classes.contains(p)
+            && !ast.top_root_real_classes.contains(p)
+            && !ast.es5_value_parents.contains(p)
+        {
             return Some(if p.starts_with("__cc") {
                 "it extends a class this lane could not claim"
             } else {
@@ -209,3 +212,66 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     }
     None
 }
+
+/// What to say about a `ClassDecl` that reached the checker.
+///
+/// Exactly one shape gets there, and it is ordinary code: a class
+/// nested inside a block or a function body that reads a binding from
+/// the scope around it. Such a class cannot be lifted to the top level
+/// (nothing up there resolves what it reads), and this lane covers
+/// only part of the class surface. Calling that "internal" and asking
+/// "desugar didn't run?" reads as a compiler bug report to someone who
+/// wrote perfectly good TypeScript; name what is actually missing.
+///
+/// The reason comes from the side table the hoist filled, not from
+/// re-deciding here: the tree has moved since. A static method's
+/// `this` is gone from the body it was turned down for by the time
+/// this runs, so re-deciding answered a DIFFERENT reason — or none at
+/// all, which printed the "the class desugar did not claim it"
+/// fallback at code that was turned down for a nameable reason.
+pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
+    let name = match s {
+        Stmt::ClassDecl { name, .. } => name.as_str(),
+        _ => "?",
+    };
+    let why = ast
+        .unclaimed_class_reasons
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, why)| *why)
+        // Fallback re-decision has no census in hand — `false` takes
+        // the conservative arm, and the recorded reason above is the
+        // normal path anyway.
+        .or_else(|| decline_reason(ast, s, false))
+        .unwrap_or("the class desugar did not claim it");
+    // A `__ClassExpr_<id>` here is a class EXPRESSION the parser
+    // spliced next to its use site (393-01) — that spelling means
+    // nothing to whoever wrote it, but the binding name might.
+    let shown = if name.starts_with("__ClassExpr_") {
+        match ast.class_expr_display_names.get(name) {
+            Some(d) => format!("the class expression bound to `{d}`"),
+            None => "an anonymous class expression".to_string(),
+        }
+    } else {
+        format!("class `{name}`")
+    };
+    // RFC 20260815 — an expression heritage is refused by the STATIC
+    // lane too (top-level classes included), so the nested-capture
+    // sentence above it would be false. One sentence of its own.
+    if why == EXPR_HERITAGE_REASON {
+        return format!(
+            "{shown} has an `extends` clause that is an expression, not a bare \
+             class name, which is not supported yet (RFC 20260815)"
+        );
+    }
+    format!(
+        "{shown} is declared inside a block or a function body and reads a \
+         binding from around it, which is not supported yet because {why}"
+    )
+}
+
+/// The one refusal both class lanes share (RFC 20260815): the heritage
+/// is an expression, and every static path keys on a NAME. Kept as a
+/// single spelling so `unclaimed_class_message` can recognise it.
+pub(crate) const EXPR_HERITAGE_REASON: &str =
+    "its `extends` clause is an expression, not a bare class name";

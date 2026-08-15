@@ -108,6 +108,9 @@ fn try_dispatch_a(
     }
     // T-45 — synthetic `__torajs_in_op(key, obj)` from binary `in` rewrite.
     // §13.10 ergonomic brand check — `__torajs_priv_in_op` (`#x in o`).
+    if let Some(op) = crate::ssa_lower_call_super_value::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     if let Some(op) = crate::ssa_lower_call_in_op::try_lower_priv(ctx, callee, args) {
         return Some(op);
     }

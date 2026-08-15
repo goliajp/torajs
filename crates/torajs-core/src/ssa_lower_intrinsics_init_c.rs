@@ -24,6 +24,7 @@ pub(crate) struct InitC {
     pub struct_expando: crate::ssa_lower_intrinsics_struct_expando::StructExpandoIds,
     pub subclass: crate::ssa_lower_intrinsics_subclass::ExoticSubclassIds,
     pub recv_gate: crate::ssa_lower_intrinsics_recv_gate::RecvGateIds,
+    pub ctorany: crate::ssa_lower_intrinsics_ctorany::CtoranyIds,
     pub class_computed: crate::ssa_lower_intrinsics_class_computed::ClassComputedIds,
     pub private: crate::ssa_lower_intrinsics_private::PrivateIds,
     pub json_raw: crate::ssa_lower_intrinsics_json_raw::JsonRawIds,
@@ -43,6 +44,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     let struct_expando = crate::ssa_lower_intrinsics_struct_expando::declare(module, fn_table);
     let subclass = crate::ssa_lower_intrinsics_subclass::declare(module, fn_table);
     let recv_gate = crate::ssa_lower_intrinsics_recv_gate::declare(module, fn_table);
+    let ctorany = crate::ssa_lower_intrinsics_ctorany::declare(module, fn_table);
     let class_computed = crate::ssa_lower_intrinsics_class_computed::declare(module, fn_table);
     let private = crate::ssa_lower_intrinsics_private::declare(module, fn_table);
     let json_raw = crate::ssa_lower_intrinsics_json_raw::declare(module, fn_table);
@@ -66,6 +68,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         struct_expando,
         subclass,
         recv_gate,
+        ctorany,
         class_computed,
         private,
         json_raw,

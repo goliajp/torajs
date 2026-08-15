@@ -446,6 +446,16 @@ pub struct Ast {
     /// receiver at baked struct offsets a dynobj instance never
     /// has).
     pub es5_real_parents: std::collections::HashSet<String>,
+    /// RFC 20260815 knife 2a — the minted `__ccp<N>` bindings holding
+    /// an extracted non-Ident heritage expression (`class K extends
+    /// f() {}` → `let __ccp0: any = f()`). The capturing lane admits a
+    /// class whose parent names one of these: its ES5 machinery is
+    /// already runtime-shaped, so the parent being a VALUE costs
+    /// nothing new. `super(…)` rides the `P.call(this, …)` arm — right
+    /// for a function-shaped parent value; a real-class value throws
+    /// §10.3.1's TypeError loudly (the runtime ctor-twin dispatch is
+    /// knife 2b). Filled by `extract_value_heritage`.
+    pub es5_value_parents: std::collections::HashSet<String>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

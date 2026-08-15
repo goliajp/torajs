@@ -148,8 +148,14 @@ fn head_shape(name: &str, params: &[crate::ast::Param]) -> (bool, bool, bool) {
         head_is_this
             // Knife 3b (RFC 20260804-fn-this-channel) — the static
             // twin `__smany_` has the same any-typed `__this` head
-            // and the same recv-first adapter shape.
-            && (name.starts_with("__cmany_") || name.starts_with("__smany_"))
+            // and the same recv-first adapter shape. The ctor twin
+            // `__ctorany_` (RFC 20260815 knife 2b) is the same shape
+            // again: `(__this, __new_target, …user)`, every param
+            // any — the value-parent super registry calls it through
+            // this adapter.
+            && (name.starts_with("__cmany_")
+                || name.starts_with("__smany_")
+                || name.starts_with("__ctorany_"))
             && !params.iter().any(|p| p.name == "__torajs_argv"),
     )
 }

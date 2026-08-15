@@ -110,7 +110,24 @@ pub(super) fn rewrite_super_sites(
         collect_supercall_in_stmt(ast, s, &mut method_sites);
     }
     let ctor_target = ctor_forward_target(ast, parent);
+    let value_parent = ast.es5_value_parents.contains(parent);
     for (eid, args) in ctor_sites {
+        // RFC 20260815 knife 2b — a VALUE-shaped parent dispatches at
+        // run time: `__torajs_super_value(P, this, [args…])` (a
+        // synthetic the checker and lowering intercept by name). The
+        // args pack into an array literal so one kernel shape serves
+        // the explicit and the implicit (rest-forwarding) ctor alike.
+        if value_parent {
+            let callee = ast.add_expr(Expr::Ident("__torajs_super_value".to_string()));
+            let p = ast.add_expr(Expr::Ident(parent.to_string()));
+            let this = ast.add_expr(Expr::This);
+            let pack = ast.add_expr(Expr::Array(args));
+            ast.exprs[eid.0 as usize] = Expr::Call {
+                callee,
+                args: vec![p, this, pack],
+            };
+            continue;
+        }
         // A REAL-class target (405-01 face 2) calls its
         // `__ctorany_<P>` receiver-polymorphic twin directly — the
         // class's own `.call` correctly throws per §10.3.1, and the
@@ -199,7 +216,19 @@ pub(super) fn implicit_derived_ctor(
     _class_binding: &str,
 ) -> (Vec<Param>, Vec<Stmt>) {
     let target = ctor_forward_target(ast, parent);
-    let call = if ast.es5_real_parents.contains(&target) {
+    let call = if ast.es5_value_parents.contains(parent) {
+        // RFC 20260815 knife 2b — value-shaped parent: the implicit
+        // forwarding ctor hands its rest binding (already a dense
+        // any[] array) straight to the runtime dispatch kernel.
+        let callee = ast.add_expr(Expr::Ident("__torajs_super_value".to_string()));
+        let p = ast.add_expr(Expr::Ident(parent.to_string()));
+        let this = ast.add_expr(Expr::This);
+        let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
+        ast.add_expr(Expr::Call {
+            callee,
+            args: vec![p, this, rest_ref],
+        })
+    } else if ast.es5_real_parents.contains(&target) {
         // Real-class target — the `__ctorany_<P>` direct call (see
         // `rewrite_super_sites`), spread-forwarding the rest param.
         let callee = ast.add_expr(Expr::Ident(format!("__ctorany_{target}")));
