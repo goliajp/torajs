@@ -248,6 +248,22 @@ pub(crate) unsafe fn dynobj_method(
                             cellp, twin, recv, argv, argc,
                         );
                     }
+                    // Blade 3 guard, own-entry edition (405-01 face
+                    // 2 probe p17) — this arm's receiver is always a
+                    // dynobj (`C.prototype.m()` runs with this =
+                    // the prototype object itself), never the owning
+                    // class's struct layout, so a guarded instance
+                    // face rides the `__cmany_` twin; the mono path
+                    // read nanbox bits at baked offsets. twin 0
+                    // keeps the mono path (this-free bodies never
+                    // read the receiver; super-route bodies are the
+                    // recorded residue).
+                    if face_tag != 0 && twin != 0 {
+                        let recv = __torajs_anyv_box_pointer(obj);
+                        return crate::method_call_closure_dispatch::invoke_boxed_recv_first(
+                            cellp, twin, recv, argv, argc,
+                        );
+                    }
                     return crate::method_call_closure_dispatch::invoke_boxed(
                         obj, adapter, argv, argc,
                     );
