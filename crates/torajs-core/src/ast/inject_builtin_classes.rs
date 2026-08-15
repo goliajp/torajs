@@ -228,10 +228,11 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
         body: vec![Stmt::Expr(super_call)],
     };
 
+    let parent_ident = ast.add_expr(Expr::Ident("Error".to_string()));
     Stmt::ClassDecl {
         name: sub_name.to_string(),
         type_params: Vec::new(),
-        parent: Some("Error".to_string()),
+        parent: Some(parent_ident),
         is_abstract: false,
         fields: Vec::new(),
         static_init: Vec::new(),
@@ -311,13 +312,15 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
             // throw could not build a real instance). It needs no arm
             // of its own: the target is an expression, so the name
             // arrives as the `Expr::Ident` the first line matches.
+            // RFC 20260815 — `extends <N>` is covered the same way:
+            // the heritage is an arena expression now, so its bare
+            // name is the `Expr::Ident` the first line matches.
         }) || ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == n)
-                // P7.4-a-2 — `catch (e: <N>)` annotates the class and
-                // expects it to resolve; treat the annotation as a
-                // reference so the typed catch + runtime real-instance
-                // path both work.
-                || matches!(s, Stmt::Try { catch_type: Some(t), .. } if t == n)
+            // P7.4-a-2 — `catch (e: <N>)` annotates the class and
+            // expects it to resolve; treat the annotation as a
+            // reference so the typed catch + runtime real-instance
+            // path both work.
+            matches!(s, Stmt::Try { catch_type: Some(t), .. } if t == n)
         })
     };
 

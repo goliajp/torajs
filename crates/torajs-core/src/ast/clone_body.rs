@@ -338,7 +338,11 @@ impl<'a> BodyCloner<'a> {
             } => Stmt::ClassDecl {
                 name: name.clone(),
                 type_params: type_params.clone(),
-                parent: parent.clone(),
+                // The heritage is an arena expression (RFC 20260815);
+                // a plain id copy would SHARE the node between the two
+                // bodies, so a later rename in one would leak into the
+                // other. Deep-clone like every other ExprId field.
+                parent: parent.map(|p| self.clone_expr(p)),
                 is_abstract: *is_abstract,
                 fields: fields.clone(),
                 static_init: static_init

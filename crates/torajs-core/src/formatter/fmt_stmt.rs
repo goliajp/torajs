@@ -190,7 +190,7 @@ impl<'a> Formatter<'a> {
             } => self.fmt_class_decl(
                 name,
                 type_params,
-                parent.as_deref(),
+                *parent,
                 *is_abstract,
                 fields,
                 static_init,

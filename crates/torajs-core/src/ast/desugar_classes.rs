@@ -216,35 +216,53 @@ pub fn desugar_classes(ast: &mut Ast) {
 /// mutated in-place without aliasing). M5.2 adds `parent` to the
 /// tuple — for inheritance flattening + super(args) rewriting;
 /// M-OO.4 adds the static-init / static-methods slices.
-fn snapshot_class_index(ast: &Ast) -> Vec<super::desugar_classes_super::ClassIndexEntry> {
-    ast.stmts
-        .iter()
-        .enumerate()
-        .filter_map(|(i, s)| match s {
-            Stmt::ClassDecl {
-                name,
-                type_params,
-                parent,
-                is_abstract: _,
-                fields,
-                static_init,
-                ctor,
-                methods,
-                static_methods,
-            } => Some((
+///
+/// RFC 20260815 — the heritage is an expression; this static lane
+/// keys everything on the parent NAME, so only a bare-Ident heritage
+/// enters the index. A class whose heritage is a non-Ident expression
+/// is left OUT (never mapped to None — that would mis-file it as a
+/// root class, a silent wrong): it stays in `ast.stmts`, survives to
+/// check, and is reported loudly through the same
+/// `unclaimed_class_reasons` channel the capturing lane uses.
+fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::ClassIndexEntry> {
+    let mut out = Vec::new();
+    let mut expr_heritage: Vec<String> = Vec::new();
+    for (i, s) in ast.stmts.iter().enumerate() {
+        if let Stmt::ClassDecl {
+            name,
+            type_params,
+            parent,
+            is_abstract: _,
+            fields,
+            static_init,
+            ctor,
+            methods,
+            static_methods,
+        } = s
+        {
+            let parent_name = ast.parent_ident_name(*parent).map(str::to_string);
+            if parent.is_some() && parent_name.is_none() {
+                expr_heritage.push(name.clone());
+                continue;
+            }
+            out.push((
                 i,
                 name.clone(),
                 type_params.clone(),
-                parent.clone(),
+                parent_name,
                 fields.clone(),
                 static_init.clone(),
                 ctor.clone(),
                 methods.clone(),
                 static_methods.clone(),
-            )),
-            _ => None,
-        })
-        .collect()
+            ));
+        }
+    }
+    for name in expr_heritage {
+        ast.unclaimed_class_reasons
+            .push((name, super::capturing_classes::EXPR_HERITAGE_REASON));
+    }
+    out
 }
 
 /// RFC 20260718-accessor-reify 刀 3 — rewrite static-accessor

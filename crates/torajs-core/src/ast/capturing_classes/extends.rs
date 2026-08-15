@@ -46,7 +46,10 @@ pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str) {
     let Stmt::ClassDecl { ctor, parent, .. } = s else {
         return;
     };
-    let target = match (ctor, parent) {
+    // Admission (`decline_reason`) already required a bare-Ident
+    // heritage, so the name read-back cannot miss here.
+    let parent: Option<String> = ast.parent_ident_name(*parent).map(str::to_string);
+    let target = match (ctor, &parent) {
         (None, Some(p)) => ast
             .es5_ctor_forward
             .get(p)
@@ -55,7 +58,7 @@ pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str) {
         _ => new.to_string(),
     };
     ast.es5_ctor_forward.insert(new.to_string(), target);
-    if let Some(p) = parent {
+    if let Some(p) = &parent {
         let landing = ast.es5_ctor_forward.get(p).cloned().unwrap_or(p.clone());
         for n in [p, &landing] {
             if ast.top_root_real_classes.contains(n) {

@@ -60,61 +60,7 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
         }
     }
 
-    // 405-01 face 2 — the REAL classes a capturing subclass may
-    // `extends`: top-level, non-generic, non-abstract, name-unique
-    // program-wide (the lane resolves the parent by NAME; a shadowed
-    // spelling could link the wrong class — the silent direction),
-    // and whose whole `extends` chain is made of such classes. The
-    // chain condition (rotation 408, replacing the root-only admit)
-    // is what keeps the ctor-twin mint sound: a derived real class's
-    // ctor carries a `super(…)` form, which the mint rewrites into a
-    // direct `__ctorany_<parent>` call — legal only when the parent
-    // is itself admitted (its twin provably mints too).
-    let mut cand: std::collections::HashMap<String, Option<String>> =
-        std::collections::HashMap::new();
-    for s in &ast.stmts {
-        let inner = if let Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } = s
-        {
-            inner.as_ref()
-        } else {
-            s
-        };
-        if let Stmt::ClassDecl {
-            name,
-            parent,
-            type_params,
-            is_abstract,
-            ..
-        } = inner
-            && type_params.is_empty()
-            && !is_abstract
-            && name_counts.get(name).copied() == Some(1)
-        {
-            cand.insert(name.clone(), parent.clone());
-        }
-    }
-    for name in cand.keys() {
-        // Walk the heritage chain; every link must be a candidate.
-        // Legal programs cannot cycle (extends is TDZ-gated), but a
-        // bounded walk keeps a malformed tree from hanging the pass.
-        let mut cur = name.as_str();
-        let mut admitted = false;
-        for _ in 0..=cand.len() {
-            match cand.get(cur) {
-                Some(None) => {
-                    admitted = true;
-                    break;
-                }
-                Some(Some(p)) if cand.contains_key(p) => cur = p.as_str(),
-                _ => break,
-            }
-        }
-        if admitted {
-            ast.top_root_real_classes.insert(name.clone());
-        }
-    }
+    super::hoist_nested_classes_census::admit_top_root_real_classes(ast, &name_counts);
 
     let mut hoisted: Vec<Stmt> = Vec::new();
     let mut counter: u32 = 0;
@@ -405,11 +351,17 @@ fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
     else {
         return false;
     };
-    if let Some(p) = parent
-        && !top_names.contains(p)
-        && !super::free_vars::is_global_name(p)
-    {
-        return false;
+    if parent.is_some() {
+        match ast.parent_ident_name(*parent) {
+            Some(pn) => {
+                if !top_names.iter().any(|t| t == pn) && !super::free_vars::is_global_name(pn) {
+                    return false;
+                }
+            }
+            // A heritage EXPRESSION reads names in the enclosing
+            // scope — never capture-free for hoisting purposes.
+            None => return false,
+        }
     }
     let mut prebound: Vec<String> = top_names.to_vec();
     prebound.push(name.clone());

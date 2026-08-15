@@ -60,6 +60,11 @@ impl<'a> Parser<'a> {
         // Optional generic type params: `class Map<K, V> { ... }`.
         let type_params = self.parse_class_type_params()?;
         let parent = self.parse_class_heritage()?;
+        // The generator-method branch keys its `super` rewrites on the
+        // statically-known parent NAME; a non-Ident heritage answers
+        // None there, same as no heritage (those classes are routed to
+        // the value-shaped-parent lane before any of this matters).
+        let parent_name: Option<String> = self.ast.parent_ident_name(parent).map(str::to_string);
         // Read only by the constructor branch below, to decide whether a
         // `super()` in that body is the legal one (ES §15.7.1). Saved
         // and restored like `current_class` for nested classes.
@@ -145,7 +150,7 @@ impl<'a> Parser<'a> {
                 let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
                 self.parse_class_generator_method(
                     &name,
-                    parent.as_deref(),
+                    parent_name.as_deref(),
                     is_static,
                     is_async,
                     visibility,

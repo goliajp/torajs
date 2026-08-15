@@ -140,16 +140,21 @@ fn collect_class(ast: &Ast, s: &Stmt, scope: &Scope, err: &mut Option<String>) {
     else {
         return;
     };
-    if let Some(p) = parent
-        && !scope.shadows(p)
-    {
+    if parent.is_some() {
         // §15.7.14 evaluates the heritage in THIS scope, so the object
         // can supply the parent — including for a name that is
         // otherwise a global, since `with (o)` over an `o` carrying
-        // `Error` shadows the real one. tr models a parent as a name
-        // resolved statically, which leaves nowhere to put a guard.
-        refuse(err, "an `extends` clause the object could supply");
-        return;
+        // `Error` shadows the real one. The static class lane keys on
+        // a NAME, which leaves nowhere to put a guard; a non-Ident
+        // heritage expression is refused the same way until RFC
+        // 20260815 knife 3 rewrites the clause with the guard inline.
+        match ast.parent_ident_name(*parent) {
+            Some(p) if scope.shadows(p) => {}
+            _ => {
+                refuse(err, "an `extends` clause the object could supply");
+                return;
+            }
+        }
     }
     // Recorded into a scratch list, not the body's: a class that needs
     // any of these guards is refused, so its sites must never reach

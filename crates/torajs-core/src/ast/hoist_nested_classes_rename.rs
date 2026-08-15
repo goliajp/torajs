@@ -111,8 +111,11 @@ fn rename_in_stmt(ast: &mut Ast, s: &mut Stmt, old: &str, new: &str) {
             if name == old {
                 *name = new.to_string();
             }
-            if parent.as_deref() == Some(old) {
-                *parent = Some(new.to_string());
+            // The heritage is an expression (RFC 20260815): a bare
+            // `Expr::Ident` root is renamed by the same walk that
+            // renames every identifier inside a non-Ident heritage.
+            if let Some(pid) = parent {
+                rename_in_expr(ast, *pid, old, new);
             }
             if let Some(c) = ctor {
                 rename_in_stmts(ast, &mut c.body, old, new);

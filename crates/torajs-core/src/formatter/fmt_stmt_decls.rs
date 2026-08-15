@@ -76,7 +76,7 @@ impl<'a> Formatter<'a> {
         &mut self,
         name: &str,
         type_params: &[String],
-        parent: Option<&str>,
+        parent: Option<ExprId>,
         is_abstract: bool,
         fields: &[(String, String)],
         static_init: &[StaticInit],
@@ -93,7 +93,7 @@ impl<'a> Formatter<'a> {
         self.fmt_type_params(type_params);
         if let Some(p) = parent {
             self.write(" extends ");
-            self.write(p);
+            self.fmt_expr(p);
         }
         self.write(" {");
         self.newline();

@@ -123,10 +123,11 @@ pub(super) fn build_error_data_subclass(
         ast,
     ));
 
+    let parent_ident = ast.add_expr(Expr::Ident("Error".to_string()));
     Stmt::ClassDecl {
         name: sub_name.to_string(),
         type_params: Vec::new(),
-        parent: Some("Error".to_string()),
+        parent: Some(parent_ident),
         is_abstract: false,
         fields: data_params
             .iter()

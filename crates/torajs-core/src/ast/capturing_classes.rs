@@ -167,11 +167,26 @@ pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
     } else {
         format!("class `{name}`")
     };
+    // RFC 20260815 — an expression heritage is refused by the STATIC
+    // lane too (top-level classes included), so the nested-capture
+    // sentence above it would be false. One sentence of its own.
+    if why == EXPR_HERITAGE_REASON {
+        return format!(
+            "{shown} has an `extends` clause that is an expression, not a bare \
+             class name, which is not supported yet (RFC 20260815)"
+        );
+    }
     format!(
         "{shown} is declared inside a block or a function body and reads a \
          binding from around it, which is not supported yet because {why}"
     )
 }
+
+/// The one refusal both class lanes share (RFC 20260815): the heritage
+/// is an expression, and every static path keys on a NAME. Kept as a
+/// single spelling so `unclaimed_class_message` can recognise it.
+pub(crate) const EXPR_HERITAGE_REASON: &str =
+    "its `extends` clause is an expression, not a bare class name";
 
 /// Every `this` node in `body`. A nested `function` expression binds
 /// its own, so descending into one over-answers — the safe direction
@@ -332,6 +347,12 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     else {
         unreachable!("routes() matched a ClassDecl");
     };
+    // This lane's extends machinery keys on the parent BINDING NAME
+    // (the α-rename wrote the minted spelling into the heritage
+    // Ident). `decline_reason` already refused any class whose
+    // heritage is not a bare identifier, so reading the name back
+    // here cannot miss.
+    let parent: Option<String> = ast.parent_ident_name(parent).map(str::to_string);
     // The parser recorded, at the token, that every `this` in a static
     // member body means the class object, and `desugar_classes` pass 2
     // turns each recorded site into the class NAME. That mint is wrong

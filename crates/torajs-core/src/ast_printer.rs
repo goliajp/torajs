@@ -20,7 +20,7 @@ mod expr;
 
 pub(crate) use expr::print_expr;
 
-use crate::ast::{Ast, ExprId, Param, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
 /// `name: ann` comma list shared by FnDecl / ctor / method / ArrowFn
 fn fmt_params(params: &[Param]) -> String {
@@ -238,16 +238,24 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             ctor,
             methods,
             static_methods: _,
-        } => print_class_decl(
-            ast,
-            &pad,
-            name,
-            parent.as_deref(),
-            fields,
-            ctor,
-            methods,
-            indent,
-        ),
+        } => {
+            // Debug printer: a bare-Ident heritage prints its name, a
+            // general heritage expression prints its arena id.
+            let parent_disp: Option<String> = parent.map(|pid| match ast.get_expr(pid) {
+                Expr::Ident(n) => n.clone(),
+                _ => format!("<expr #{}>", pid.0),
+            });
+            print_class_decl(
+                ast,
+                &pad,
+                name,
+                parent_disp.as_deref(),
+                fields,
+                ctor,
+                methods,
+                indent,
+            )
+        }
         Stmt::ImportDecl { source, .. } => {
             println!("{pad}ImportDecl {source:?}");
         }

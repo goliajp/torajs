@@ -18,9 +18,12 @@ use super::Parser;
 use crate::ast::{Expr, ExprId, Stmt};
 
 /// The parent name when the class extends its own name, else None.
-pub(super) fn self_extends(stmt: &Stmt) -> Option<String> {
+/// A non-Ident heritage cannot spell the bare self-name, so it
+/// answers None here (its subexpressions referencing the name are
+/// the runtime's problem, same as any other capture).
+pub(super) fn self_extends(ast: &crate::ast::Ast, stmt: &Stmt) -> Option<String> {
     if let Stmt::ClassDecl { name, parent, .. } = stmt
-        && parent.as_deref() == Some(name.as_str())
+        && ast.parent_ident_name(*parent) == Some(name.as_str())
     {
         return Some(name.clone());
     }
@@ -33,10 +36,10 @@ pub(super) fn self_extends(stmt: &Stmt) -> Option<String> {
 /// compares the heritage against the display name.
 pub(super) fn expr_self_extends(ast: &crate::ast::Ast, stmt: &Stmt) -> Option<String> {
     if let Stmt::ClassDecl { name, parent, .. } = stmt
-        && let Some(p) = parent
-        && (p == name || ast.class_expr_display_names.get(name) == Some(p))
+        && let Some(p) = ast.parent_ident_name(*parent)
+        && (p == name || ast.class_expr_display_names.get(name).map(String::as_str) == Some(p))
     {
-        return Some(p.clone());
+        return Some(p.to_string());
     }
     None
 }
@@ -46,7 +49,7 @@ impl Parser<'_> {
     /// becomes `throw __new_ReferenceError("Cannot access '<name>'
     /// before initialization")` in place.
     pub(super) fn finish_class_decl_stmt(&mut self, stmt: Stmt) -> Stmt {
-        match self_extends(&stmt) {
+        match self_extends(&self.ast, &stmt) {
             Some(name) => Stmt::Throw(self.tdz_reference_error(&name)),
             None => stmt,
         }

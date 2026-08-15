@@ -261,13 +261,16 @@ Object.defineProperty(AsyncDisposableStack.prototype, Symbol.toStringTag, { valu
 /// reference shapes: bare Ident, `new <N>()`, a `.<N>` member,
 /// `extends <N>`, or a `catch (e: <N>)` annotation.
 fn referenced(ast: &Ast, n: &str) -> bool {
+    // `extends <N>` needs no arm of its own: the heritage is an arena
+    // expression (RFC 20260815), so its bare name is the `Expr::Ident`
+    // the first line matches.
     ast.exprs.iter().any(|e| {
         matches!(e, Expr::Ident(x) | Expr::New { class_name: x, .. } if x == n)
             || matches!(e, Expr::Member { name, .. } if name == n)
-    }) || ast.stmts.iter().any(|s| {
-        matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == n)
-            || matches!(s, Stmt::Try { catch_type: Some(t), .. } if t == n)
-    })
+    }) || ast
+        .stmts
+        .iter()
+        .any(|s| matches!(s, Stmt::Try { catch_type: Some(t), .. } if t == n))
 }
 
 fn user_shadows(ast: &Ast, n: &str) -> bool {

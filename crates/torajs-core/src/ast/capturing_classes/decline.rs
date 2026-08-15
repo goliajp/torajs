@@ -53,15 +53,21 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     // admit registers below). A derived / generic / abstract /
     // name-shadowed real class stays out — root-ness is what
     // guarantees the ctor twin never drops its mint.
-    if let Some(p) = parent
-        && !ast.es5_parent_classes.contains(p)
-        && !ast.top_root_real_classes.contains(p)
-    {
-        return Some(if p.starts_with("__cc") {
-            "it extends a class this lane could not claim"
-        } else {
-            "it extends another class"
-        });
+    if parent.is_some() {
+        // RFC 20260815 — the heritage is an expression. This lane's
+        // machinery keys on a binding NAME, so a non-Ident heritage
+        // is declined here (knife 2 opens the value-shaped-parent
+        // route for it).
+        let Some(p) = ast.parent_ident_name(*parent) else {
+            return Some(super::EXPR_HERITAGE_REASON);
+        };
+        if !ast.es5_parent_classes.contains(p) && !ast.top_root_real_classes.contains(p) {
+            return Some(if p.starts_with("__cc") {
+                "it extends a class this lane could not claim"
+            } else {
+                "it extends another class"
+            });
+        }
     }
     if *is_abstract {
         return Some("it is abstract");
@@ -165,8 +171,8 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     // spelled with the source name, α-renamed by now) is prebound
     // rather than "compiler minted".
     let mut prebound = vec![name.clone(), "arguments".to_string()];
-    if let Some(p) = parent {
-        prebound.push(p.clone());
+    if let Some(p) = ast.parent_ident_name(*parent) {
+        prebound.push(p.to_string());
     }
     // The ctor prefix a computed instance field turns into reads the
     // evaluated key out of `__ccmk_<C>_<n>`; this lane declares those

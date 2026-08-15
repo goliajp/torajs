@@ -248,7 +248,16 @@ pub enum Stmt {
         /// Multi-level inheritance is supported (Sub extends Mid extends Root)
         /// as long as the chain is acyclic and every ancestor is declared
         /// before the descendant in source order.
-        parent: Option<String>,
+        ///
+        /// Per §15.7 the heritage is a LeftHandSideExpression, so this is
+        /// an ExprId. A bare name arrives as `Expr::Ident` carrying the
+        /// same class-value alias the parser applied before, so every
+        /// static path keyed on the name (class_index / class_parents /
+        /// super rewrites) reads back exactly what it did — static
+        /// resolution is an OPTIMISATION the desugar applies when the
+        /// heritage happens to be an `Expr::Ident`, not the shape of the
+        /// node. Read the name via `Ast::parent_ident_name`.
+        parent: Option<ExprId>,
         /// M-OO.6 — `abstract class C { ... }`. Abstract classes can't be
         /// instantiated (`new C()` rejected at typecheck), and any
         /// concrete (non-abstract) subclass must override every abstract
