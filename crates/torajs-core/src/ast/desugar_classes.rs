@@ -92,6 +92,9 @@ pub fn desugar_classes(ast: &mut Ast) {
     // can walk the chain when the LHS is a subclass and the RHS names
     // an ancestor.
     ast.class_parents = parent_map.clone();
+    for (_, cname, tp, ..) in &class_index {
+        ast.class_type_params.insert(cname.clone(), tp.clone());
+    }
     super::desugar_classes_generic_twin::close_real_parents_over_chain(ast, &parent_map);
     // method_owners populated below; expose only the multi-owner entries
     // so ssa_lower's `__dispatch_` interception is a constant-time

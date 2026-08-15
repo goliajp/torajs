@@ -62,6 +62,7 @@ impl Checker {
                 crate::check_type_of_member::check(
                     self,
                     ast,
+                    eid,
                     obj,
                     name,
                     ast.dstr_default_member_loads.contains(&eid),
@@ -71,7 +72,7 @@ impl Checker {
                 // V3-18 index-expression — `obj[index]` Number-index
                 // narrow + String/Array<T> receiver narrow. See
                 // [`crate::check_type_of_index::check`].
-                crate::check_type_of_index::check(self, ast, *obj, *index)
+                crate::check_type_of_index::check(self, ast, eid, *obj, *index)
             }
             Expr::Array(elements) => {
                 // T-10.c / P0.10 / S134 / S141 — array literal
@@ -113,7 +114,7 @@ impl Checker {
                 // Target-shape dispatch (Ident / Member / Index /
                 // invalid). See
                 // [`crate::check_type_of_assign::check`].
-                crate::check_type_of_assign::check(self, ast, *target, *value)
+                crate::check_type_of_assign::check(self, ast, eid, *target, *value)
             }
             Expr::ArrowFn {
                 params,
@@ -220,7 +221,7 @@ impl Checker {
                 // Chunk 703 — `obj?.[index]` element access, same
                 // nullish contract as OptChain. See
                 // [`crate::check_type_of_misc::check_opt_index`].
-                crate::check_type_of_misc::check_opt_index(self, ast, *obj, *index)
+                crate::check_type_of_misc::check_opt_index(self, ast, eid, *obj, *index)
             }
             Expr::OptCall { callee, args } => {
                 // Chunk 705 — `callee?.(args…)` optional call, same

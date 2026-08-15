@@ -40,6 +40,7 @@ use crate::check_type_of_member_accessor::{class_name_of, enforce_visibility};
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     obj: &ExprId,
     name: &str,
     lenient_missing: bool,
@@ -107,6 +108,7 @@ pub(crate) fn check(
     if let Some(r) = crate::check_type_of_member_accessor::try_accessor_read(
         checker,
         ast,
+        eid,
         &obj_ty,
         &resolved_obj_ty,
         name,

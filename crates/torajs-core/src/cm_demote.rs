@@ -219,7 +219,7 @@ impl Checker {
     fn struct_is_generic_class_shape(&self, ast: &Ast, fields: &[(String, Type)]) -> bool {
         self.generic_alias_decls
             .iter()
-            .any(|(name, (_tps, decl_fields))| {
+            .any(|(name, (_tps, decl_fields, _))| {
                 ast.class_parents.contains_key(name)
                     && decl_fields.len() == fields.len()
                     && decl_fields

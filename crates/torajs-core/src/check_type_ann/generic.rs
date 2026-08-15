@@ -65,7 +65,17 @@ pub(super) fn resolve_generic(
             return Some(Type::Any);
         }
     }
-    if generic_aliases.contains_key(head) {
+    if let Some((_, _, is_class)) = generic_aliases.get(head) {
+        // Blade 3 (RFC 20260815-generic-nominal-identity) — a generic
+        // CLASS instantiation is nominal: `Box<number>` answers
+        // `ClassRef("Box<number>")` (the full key is its own canonical
+        // ann), and structural consumers force one layer through
+        // `resolve_class_ref` → `expand_instantiation_full` exactly
+        // like the recursive-alias back-edge. A generic `type` alias
+        // keeps the structural expansion — it has no nominal identity.
+        if *is_class {
+            return Some(Type::ClassRef(name.to_string()));
+        }
         return expand_instantiation(
             name,
             open_idx,
@@ -155,7 +165,7 @@ fn expand_instantiation(
     in_flight: &mut HashSet<String>,
 ) -> Option<Type> {
     let head = &name[..open_idx];
-    let (tp_names, fields) = generic_aliases.get(head)?;
+    let (tp_names, fields, _) = generic_aliases.get(head)?;
     let inner = &name[open_idx + 1..name.len() - 1];
     // Split inner at depth-0 `|`.
     let args = split_top_pipe(inner);
@@ -215,14 +225,18 @@ fn expand_instantiation(
 }
 
 /// Force-expand entry for a generic-instantiation ClassRef key
-/// (`"Box<number>"`) — one structural layer, bypassing whatever
-/// nominal short-circuit `resolve_generic` applies. Falls back to the
-/// ordinary resolver for any other key shape, which keeps it exactly
-/// equivalent to the `resolve_type_ann_full` call it replaces at the
-/// `resolve_class_ref` unwrap site.
+/// (`"Box<number>"`) — one structural layer, bypassing the nominal
+/// short-circuit `resolve_generic` applies to generic classes. Falls
+/// back to the ordinary resolver for any other key shape, which keeps
+/// it exactly equivalent to the `resolve_type_ann_full` call it
+/// replaced at the `resolve_class_ref` unwrap site. `type_params`
+/// names the tp environment for keys spelled inside a generic body
+/// (`"Box<T>"` — the args must resolve as TypeVars there); an
+/// instantiated key passes `&[]`.
 pub(crate) fn expand_instantiation_full(
     name: &str,
     aliases: &HashMap<String, Type>,
+    type_params: &[String],
     generic_aliases: &GenericAliasMap,
 ) -> Option<Type> {
     if let Some(open_idx) = name.find('<')
@@ -234,10 +248,10 @@ pub(crate) fn expand_instantiation_full(
             name,
             open_idx,
             aliases,
-            &[],
+            type_params,
             generic_aliases,
             &mut in_flight,
         );
     }
-    super::resolve_type_ann_full(name, aliases, &[], generic_aliases)
+    super::resolve_type_ann_full(name, aliases, type_params, generic_aliases)
 }

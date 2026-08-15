@@ -144,6 +144,14 @@ pub struct Ast {
     /// declared class name to its parent (None if no `extends`). Empty
     /// before desugar runs and for programs with no class declarations.
     pub class_parents: std::collections::HashMap<String, Option<String>>,
+    /// Blade 3 (RFC 20260815-generic-nominal-identity) — each declared
+    /// class's own type-parameter NAMES (`Box<T>` → `["T"]`; empty for
+    /// a non-generic class). The heritage-argument composition walks
+    /// (inherited-accessor substitution, and whatever else maps a
+    /// written arg list onto an ancestor's vocabulary) zip these
+    /// against `class_parent_type_args` per hop. Recorded by
+    /// `desugar_classes` alongside `class_parents`.
+    pub class_type_params: std::collections::HashMap<String, Vec<String>>,
     /// Chunk 812 — classes whose ctor was synthesized by
     /// `synthesize_derived_default_ctors` (ctor-less derived). Their
     /// factory params mirror the ancestor ctor, but per ES the

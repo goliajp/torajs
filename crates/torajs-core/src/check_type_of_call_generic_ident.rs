@@ -144,6 +144,25 @@ pub(crate) fn try_match(
             *callee,
             &mut params,
         );
+        // Blade 3 (RFC 20260815-generic-nominal-identity) — a generic
+        // method's receiver param ann (`__this: Box<T>`) now resolves
+        // nominally as `ClassRef("Box<T>")`. Unification is
+        // structural: force one layer back so the TypeVar-bearing
+        // Struct shape the unifier always saw is restored (the key's
+        // own params resolve as TypeVars).
+        for p in &mut params {
+            if let Type::ClassRef(n) = p
+                && n.contains('<')
+                && let Some(t) = crate::check_type_ann::expand_instantiation_full(
+                    n,
+                    &checker.aliases,
+                    &type_params,
+                    &checker.generic_alias_decls,
+                )
+            {
+                *p = t;
+            }
+        }
         let params = params;
         // T-28 — trailing-typevar-Any padding path. A missing slot is
         // paddable when it is a fresh TypeVar (an unannotated param —

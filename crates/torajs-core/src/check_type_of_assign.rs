@@ -24,6 +24,7 @@ use crate::check::{Checker, Type};
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     target: ExprId,
     value: ExprId,
 ) -> Result<Type, String> {
@@ -55,7 +56,7 @@ pub(crate) fn check(
                         && !crate::check_assigns_to::path_overlaps(recv, &full)
                 });
             }
-            crate::check_assign_target::check_member(checker, ast, obj, field, value)
+            crate::check_assign_target::check_member(checker, ast, eid, obj, field, value)
         }
         Expr::Index { obj, index } => {
             // G2.5 — the Index spelling: a string-literal key takes
@@ -76,7 +77,7 @@ pub(crate) fn check(
                     .member_narrows
                     .retain(|(recv, _), _| !recv.starts_with(&base));
             }
-            crate::check_assign_target::check_index(checker, ast, obj, index, value)
+            crate::check_assign_target::check_index(checker, ast, eid, obj, index, value)
         }
         _ => Err("invalid assignment target".into()),
     }

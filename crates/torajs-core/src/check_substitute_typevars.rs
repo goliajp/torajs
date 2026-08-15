@@ -30,6 +30,22 @@ pub(crate) fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> T
                 .collect(),
         ),
         Type::Rest(inner) => Type::Rest(Box::new(substitute_typevars(inner, subst))),
+        // Blade 3 (RFC 20260815-generic-nominal-identity) — a nominal
+        // generic-class reference carries its type params INSIDE the
+        // key string (`ClassRef("Box<T>")` from the factory's `Box<T>`
+        // return ann). Word-level substitution rewrites the key to the
+        // instantiated spelling (`"Box<number>"`) — the same one the
+        // lowering's `substitute_in_ann` mints, so the ann round-trip
+        // lands on the same `inst_memo` layout.
+        Type::ClassRef(name) if name.contains('<') => {
+            let pairs: Vec<(String, String)> = subst
+                .iter()
+                .map(|(k, v)| (k.clone(), crate::check_type_to_ann::type_to_ann(v)))
+                .collect();
+            Type::ClassRef(crate::ssa_lower_generics_monomorph::substitute_in_ann(
+                name, &pairs,
+            ))
+        }
         other => other.clone(),
     }
 }

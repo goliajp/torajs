@@ -10,6 +10,7 @@ use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
 pub(crate) fn try_lower_setter_call(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
     _sid: StructId,
@@ -26,13 +27,31 @@ pub(crate) fn try_lower_setter_call(
     // RFC 20260715-nominal-class-identity — the setter's class comes
     // from the receiver's NAME, not from whichever class shares its
     // layout id.
-    let cname = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, obj)?;
     // Blade 2 (rotation 413) — the pair may live on an ANCESTOR;
-    // walk the chain the way [[Set]] would. A generic declarer's
-    // setter has no fn_table entry under its bare name, so that hit
-    // falls through on the `?` below (blade 4).
-    let setter_fn = crate::ast::accessor_lookup::accessor_setter_in_chain(ctx.ast, &cname, field)?;
-    let fid = ctx.fn_table.get(&setter_fn).copied()?;
+    // walk the chain the way [[Set]] would, starting from the
+    // receiver's FULL ClassRef key. A generic declarer's setter has
+    // no fn_table entry under its bare name — the checker recorded
+    // this assign site in generic_call_sites, so the mono retarget
+    // names the specialization (blade 3/4).
+    let cls_key = match ctx.expr_types.get(&obj)? {
+        crate::check::Type::ClassRef(n)
+            if ctx
+                .ast
+                .class_parents
+                .contains_key(n.split('<').next().unwrap_or(n.as_str())) =>
+        {
+            n.clone()
+        }
+        _ => return None,
+    };
+    let hit = crate::ast::accessor_lookup::accessor_setter_in_chain(ctx.ast, &cls_key, field)?;
+    let fid = match ctx.fn_table.get(&hit.fn_name).copied() {
+        Some(f) => f,
+        None => {
+            let mono = ctx.call_retargets.get(&eid)?;
+            ctx.fn_table.get(mono).copied()?
+        }
+    };
     let v = ctx.lower_expr(value);
     // Chunk 566 — SHARE: no consume. The value passes to the setter
     // as a +0 borrow; the setter body's own field store takes the

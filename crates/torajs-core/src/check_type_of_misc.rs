@@ -318,6 +318,7 @@ pub(crate) fn check_opt_chain(
 pub(crate) fn check_opt_index(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     obj: ExprId,
     index: ExprId,
 ) -> Result<Type, String> {
@@ -327,7 +328,7 @@ pub(crate) fn check_opt_index(
             let _ = checker.type_of(ast, index)?;
             Ok(Type::Any)
         }
-        _ => crate::check_type_of_index::check(checker, ast, obj, index),
+        _ => crate::check_type_of_index::check(checker, ast, eid, obj, index),
     }
 }
 

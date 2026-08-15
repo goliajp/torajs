@@ -77,8 +77,14 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
                 continue;
             }
             if !type_params.is_empty() {
-                c.generic_alias_decls
-                    .insert(name.clone(), (type_params.clone(), fields.clone()));
+                c.generic_alias_decls.insert(
+                    name.clone(),
+                    (
+                        type_params.clone(),
+                        fields.clone(),
+                        ast.class_parents.contains_key(name),
+                    ),
+                );
                 continue;
             }
             if fields.len() == 1 && fields[0].0 == "__alias__" {

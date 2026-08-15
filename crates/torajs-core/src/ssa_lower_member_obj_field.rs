@@ -73,7 +73,7 @@ pub(crate) fn try_lower(
     // (bun/JSC wording), not a deref past the bare static header.
     // No-op for plain receivers.
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
-    if let Some(op) = try_accessor_getter(ctx, obj, obj_val, sid, name) {
+    if let Some(op) = try_accessor_getter(ctx, eid, obj, obj_val, sid, name) {
         return op;
     }
     if let Some(op) = try_objlit_getter(ctx, obj_val, sid, name) {
@@ -154,18 +154,39 @@ fn try_objlit_getter(
 
 fn try_accessor_getter(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
     _sid: StructId,
     name: &str,
 ) -> Option<Operand> {
-    let cname = class_name_of_expr(ctx, obj)?;
     // Blade 2 (rotation 413) — the pair may live on an ANCESTOR;
-    // walk the chain the way [[Get]] would. A generic declarer's
-    // getter has no fn_table entry under its bare name, so that hit
-    // falls through to the any-lane on the `?` below (blade 4).
-    let getter_fn = crate::ast::accessor_lookup::accessor_getter_in_chain(ctx.ast, &cname, name)?;
-    let fid = ctx.fn_table.get(&getter_fn).copied()?;
+    // walk the chain the way [[Get]] would, starting from the
+    // receiver's FULL ClassRef key (a generic instantiation seeds the
+    // heritage-argument composition). A generic declarer's getter has
+    // no fn_table entry under its bare name — the checker recorded
+    // this site in generic_call_sites, so the mono retarget names the
+    // specialization (blade 3/4); no record means the read stays on
+    // the any-lane via the final `?`.
+    let cls_key = match ctx.expr_types.get(&obj)? {
+        crate::check::Type::ClassRef(n)
+            if ctx
+                .ast
+                .class_parents
+                .contains_key(n.split('<').next().unwrap_or(n.as_str())) =>
+        {
+            n.clone()
+        }
+        _ => return None,
+    };
+    let hit = crate::ast::accessor_lookup::accessor_getter_in_chain(ctx.ast, &cls_key, name)?;
+    let fid = match ctx.fn_table.get(&hit.fn_name).copied() {
+        Some(f) => f,
+        None => {
+            let mono = ctx.call_retargets.get(&eid)?;
+            ctx.fn_table.get(mono).copied()?
+        }
+    };
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;
     let v = ctx

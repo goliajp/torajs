@@ -105,6 +105,7 @@ fn resolve_class_ref_unwrap(
                     match crate::check_type_ann::expand_instantiation_full(
                         name,
                         aliases,
+                        &[],
                         generic_aliases,
                     ) {
                         Some(t) if !matches!(t, Type::ClassRef(_)) => t,

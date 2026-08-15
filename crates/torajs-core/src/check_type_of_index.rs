@@ -22,6 +22,7 @@ use crate::check::{Checker, Type};
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     obj: ExprId,
     index: ExprId,
 ) -> Result<Type, String> {
@@ -49,7 +50,7 @@ pub(crate) fn check(
     {
         // Index reads are never the desugar's default-guarded pattern
         // load (that lane mints Member exprs) — no lenient miss here.
-        return crate::check_type_of_member::check(checker, ast, &obj, &name, false);
+        return crate::check_type_of_member::check(checker, ast, eid, &obj, &name, false);
     }
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES

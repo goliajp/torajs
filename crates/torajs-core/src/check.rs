@@ -21,7 +21,13 @@ pub(crate) use diag::DiagPush;
 pub use diag::{Diagnostic, Severity};
 pub use type_def::Type;
 
-pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
+/// Generic declaration index: name → (type-param names, field ann
+/// pairs, is_class). The bool separates a generic CLASS (`class
+/// Box<T>`) from a generic `type` alias — a class instantiation keeps
+/// its nominal identity (`ClassRef("Box<number>")`, RFC
+/// 20260815-generic-nominal-identity blade 3), an alias expands
+/// structurally as ever.
+pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>, bool)>;
 
 /// M6.1 — string / array methods that borrow both their receiver and
 /// any args (no consume on pass). Shared between `check.rs`'s Call

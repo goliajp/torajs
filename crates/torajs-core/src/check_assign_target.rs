@@ -48,6 +48,7 @@ use crate::check_assignable::is_assignable_to_resolved;
 pub(crate) fn check_member(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     obj: ExprId,
     field: String,
     value: ExprId,
@@ -100,7 +101,7 @@ pub(crate) fn check_member(
             "field assignment target must be a struct, got {obj_ty:?}"
         ));
     };
-    if let Some(t) = try_accessor_setter(checker, ast, &obj_ty_nominal, &field, value)? {
+    if let Some(t) = try_accessor_setter(checker, ast, eid, &obj_ty_nominal, &field, value)? {
         return Ok(t);
     }
     if let Some(t) = try_objlit_setter(checker, ast, fields, &field, value)? {
@@ -303,6 +304,7 @@ fn try_objlit_setter(
 fn try_accessor_setter(
     checker: &mut Checker,
     ast: &Ast,
+    site: ExprId,
     obj_ty: &Type,
     field: &str,
     value: ExprId,
@@ -312,27 +314,59 @@ fn try_accessor_setter(
     // receiver's struct shape let a plain `{a: 1}` write through
     // `class C { a; set b(v) }`'s setter.
     let cls = match obj_ty {
-        Type::ClassRef(n) if ast.class_parents.contains_key(n) => n.clone(),
+        Type::ClassRef(n)
+            if ast
+                .class_parents
+                .contains_key(n.split('<').next().unwrap_or(n)) =>
+        {
+            n.clone()
+        }
         _ => return Ok(None),
     };
     // Blade 2 (rotation 413) — the pair may live on an ANCESTOR
-    // (§10.1.9 walks the prototype chain). A generic declarer's
-    // setter param types spell its type params — that hit stays on
-    // the any-lane until blade 4 substitutes them.
-    let Some(setter_fn) = crate::ast::accessor_lookup::accessor_setter_in_chain(ast, &cls, field)
-    else {
+    // (§10.1.9 walks the prototype chain). A generic declarer's hit
+    // substitutes the setter's value-param TypeVars (blade 3) so the
+    // assignability check runs against the instantiated type; the
+    // LOWERING of that hit still rides the any-lane (a setter has no
+    // recorded call site to retarget yet — RFC residual).
+    let Some(hit) = crate::ast::accessor_lookup::accessor_setter_in_chain(ast, &cls, field) else {
         return Ok(None);
     };
-    if checker.generic_type_params.contains_key(&setter_fn) {
-        return Ok(None);
-    }
+    let setter_fn = hit.fn_name.clone();
     let Some(Type::Function(params, _ret)) = checker.globals.get(&setter_fn).cloned() else {
         return Ok(None);
     };
     if params.len() < 2 {
         return Ok(None);
     }
-    let setter_param_ty = params[1].clone();
+    let mut setter_param_ty = params[1].clone();
+    if let Some(tps) = checker.generic_type_params.get(&setter_fn).cloned() {
+        let mut submap: std::collections::HashMap<String, Type> = std::collections::HashMap::new();
+        for (k, ann) in &hit.subst {
+            let Some(t) = crate::check_type_ann::resolve_type_ann_full(
+                ann,
+                &checker.aliases,
+                &[],
+                &checker.generic_alias_decls,
+            ) else {
+                return Ok(None);
+            };
+            submap.insert(k.clone(), t);
+        }
+        let Some(type_args) = tps
+            .iter()
+            .map(|tp| submap.get(tp).cloned())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(None);
+        };
+        setter_param_ty = crate::check::substitute_typevars(&setter_param_ty, &submap);
+        // Record the write site so the mono pass emits the setter
+        // specialization and the lowering retargets its direct call.
+        checker
+            .generic_call_sites
+            .insert(site, (setter_fn.clone(), type_args));
+    }
     let value_ty = checker.type_of(ast, value)?;
     if !is_assignable_to_resolved(
         &setter_param_ty,
@@ -351,6 +385,7 @@ fn try_accessor_setter(
 pub(crate) fn check_index(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     obj: ExprId,
     index: ExprId,
     value: ExprId,
@@ -364,7 +399,7 @@ pub(crate) fn check_index(
     if matches!(obj_ty, Type::Struct(_))
         && let Some(name) = crate::ast::literal_prop_key(ast, index)
     {
-        return check_member(checker, ast, obj, name, value);
+        return check_member(checker, ast, eid, obj, name, value);
     }
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES

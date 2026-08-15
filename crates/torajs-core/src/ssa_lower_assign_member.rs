@@ -296,6 +296,7 @@ fn lower_obj_assign(
 ) -> Operand {
     if let Some(v) = crate::ssa_lower_assign_member_field::try_lower_setter_call(
         ctx,
+        eid,
         obj,
         obj_val.clone(),
         sid,
