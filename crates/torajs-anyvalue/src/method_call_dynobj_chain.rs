@@ -127,6 +127,24 @@ pub(crate) unsafe fn proto_chain_method(
                         ),
                     );
                 }
+                // Blade 3 guard, chain edition — the mono body reads
+                // the receiver at baked class offsets, and THIS arm's
+                // receiver is always a dynobj (`Object.create(
+                // C.prototype)` instances), never the owning class's
+                // struct layout, so a guarded instance face always
+                // rides the `__cmany_` twin. Pre-fix the mono ran
+                // against the dynobj and read nanbox bits as field
+                // values. twin 0 keeps the mono path (this-free
+                // bodies never read the receiver; super-route bodies
+                // are the recorded residue, same as invoke_with_this).
+                if face_tag != 0 && twin != 0 {
+                    let recv = __torajs_anyv_box_pointer(obj);
+                    return Some(
+                        crate::method_call_closure_dispatch::invoke_boxed_recv_first(
+                            cellp, twin, recv, argv, argc,
+                        ),
+                    );
+                }
                 return Some(crate::method_call_closure_dispatch::invoke_boxed(
                     obj, adapter, argv, argc,
                 ));
