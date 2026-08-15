@@ -97,13 +97,19 @@ pub(super) fn write_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::Value
 }
 
 pub(super) fn write_vtable_ptr(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId) {
+    // A GENERIC class's mono factory (`__new_Box$$_number`) misses
+    // the bare-name tag lookup, but its instances still need a
+    // vtable — `populate_vtables` emits one row per mono factory
+    // under the full suffixed spelling (same `split_once` shape as
+    // `write_class_tag`'s generic-tag branch above).
     let vtable_class: Option<&str> = if ctx.ast.method_index.is_empty() {
         None
     } else {
-        ctx.f
-            .name
-            .strip_prefix("__new_")
-            .filter(|c| ctx.class_name_to_tag.contains_key(*c))
+        ctx.f.name.strip_prefix("__new_").filter(|c| {
+            ctx.class_name_to_tag.contains_key(*c)
+                || c.split_once("$$")
+                    .is_some_and(|(base, _)| ctx.class_name_to_tag.contains_key(base))
+        })
     };
     let cur_block = ctx.cur_block;
     let vtable_ptr_op = match vtable_class {

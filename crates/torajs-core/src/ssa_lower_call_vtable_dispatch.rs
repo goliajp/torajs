@@ -20,7 +20,9 @@
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not an
 //! `Ident("__dispatch_<M>")`, `M` absent from `method_owners` /
-//! `method_index`, or args empty).
+//! `method_index`, args empty, or no resolvable slot signature —
+//! a generic base owner whose mono the checker never retargeted
+//! falls back to the plain call lanes instead of panicking).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -28,18 +30,42 @@ use crate::ssa_lower::{LowerCtx, OBJ_VTABLE_OFF};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
     let Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
         return None;
     };
+    let callee_name = callee_name.clone();
     let method_name = callee_name.strip_prefix("__dispatch_")?;
     let owners = ctx.ast.method_owners.get(method_name).cloned()?;
     let method_idx = ctx.ast.method_index.get(method_name).copied()?;
     if args.is_empty() {
         return None;
     }
+    // The base owner's fn supplies the shared slot signature (Liskov:
+    // every override matches it). A GENERIC base's bare `__cm_` name
+    // never enters fn_table (pass 1 skips type_params carriers) — but
+    // the checker retargeted THIS call to the dispatcher's mono
+    // (`__dispatch_<M>$$<suffix>`), and the same suffix names the base
+    // impl's specialization, which the stub-body recheck seeded. Both
+    // misses → None: the call falls through to the plain generic-fn
+    // lane (the retargeted stub — static forwarding, no vtable), the
+    // honest degradation over a panic.
+    let base_bare = format!("__cm_{}__{method_name}", owners[0]);
+    let base_fid = match ctx.fn_table.get(&base_bare) {
+        Some(fid) => *fid,
+        None => {
+            let retarget = ctx.call_retargets.get(&eid)?;
+            let suffix = retarget.strip_prefix(callee_name.as_str())?;
+            *ctx.fn_table.get(&format!("{base_bare}{suffix}"))?
+        }
+    };
+    let ret_ty = ctx.f_ret_type_hint(base_fid);
+    // Resolve the sig BEFORE lowering args — a `?` after lowering
+    // would hand the fallback lane already-emitted arg effects.
+    let sig_id = *ctx.fn_sig_ids.get(&base_fid)?;
     let arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
     let owned_temps: Vec<(usize, Operand)> = args
         .iter()
@@ -49,15 +75,6 @@ pub(crate) fn try_lower(
         .map(|(i, (_, op))| (i, *op))
         .collect();
     let recv = arg_ops[0];
-    let base_fn_name = format!("__cm_{}__{method_name}", owners[0]);
-    let base_fid = *ctx.fn_table.get(&base_fn_name).unwrap_or_else(|| {
-        panic!("ssa-lower: __dispatch interception lost base fn `{base_fn_name}`")
-    });
-    let ret_ty = ctx.f_ret_type_hint(base_fid);
-    let sig_id = *ctx
-        .fn_sig_ids
-        .get(&base_fid)
-        .unwrap_or_else(|| panic!("ssa-lower: __dispatch base fn `{base_fn_name}` has no SigId"));
     let cur_block = ctx.cur_block;
     let vt = ctx.f.append_inst(
         cur_block,

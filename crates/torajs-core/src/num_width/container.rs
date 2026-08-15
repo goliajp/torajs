@@ -306,20 +306,34 @@ pub(super) fn dispatch_unions(a: &mut Analysis) {
         let Some(m_name) = f.strip_prefix("__dispatch_") else {
             continue;
         };
+        // A MONO dispatcher (`__dispatch_area$$_number`) shares its
+        // vtable slot with every owner's impl under BOTH spellings:
+        // the same-suffix mono (`__cm_Shape__area$$_number`, the
+        // generic base) and the bare one (`__cm_Circle__area`, a
+        // non-generic overrider) — the suffix rides the name's tail,
+        // so the bare-name overrider only unions through here.
+        let (bare_m, suffix) = m_name
+            .split_once("$$")
+            .map(|(b, s)| (b, format!("$${s}")))
+            .unwrap_or((m_name, String::new()));
         let d_params = a.fn_params[f].clone();
         for c in a.classes.clone() {
-            let cm = format!("__cm_{c}__{m_name}");
-            let Some(cm_params) = a.fn_params.get(&cm).cloned() else {
-                continue;
-            };
-            a.uf.union(&SlotKey::Ret(f.clone()), &SlotKey::Ret(cm.clone()));
-            // Positional params align 1:1 (both lists start with
-            // `__this`, which stays out of the width domain).
-            for (dp, cp) in d_params.iter().zip(cm_params.iter()).skip(1) {
-                a.uf.union(
-                    &SlotKey::Param(f.clone(), dp.clone()),
-                    &SlotKey::Param(cm.clone(), cp.clone()),
-                );
+            for cm in [
+                format!("__cm_{c}__{bare_m}{suffix}"),
+                format!("__cm_{c}__{bare_m}"),
+            ] {
+                let Some(cm_params) = a.fn_params.get(&cm).cloned() else {
+                    continue;
+                };
+                a.uf.union(&SlotKey::Ret(f.clone()), &SlotKey::Ret(cm.clone()));
+                // Positional params align 1:1 (both lists start with
+                // `__this`, which stays out of the width domain).
+                for (dp, cp) in d_params.iter().zip(cm_params.iter()).skip(1) {
+                    a.uf.union(
+                        &SlotKey::Param(f.clone(), dp.clone()),
+                        &SlotKey::Param(cm.clone(), cp.clone()),
+                    );
+                }
             }
         }
     }

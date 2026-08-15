@@ -148,7 +148,7 @@ fn try_dispatch_a(
         return Some(op);
     }
     // T-24 virtual-dispatch via vtable — synthetic `__dispatch_<M>(obj, args)` + CallIndirect.
-    if let Some(op) = crate::ssa_lower_call_vtable_dispatch::try_lower(ctx, callee, args) {
+    if let Some(op) = crate::ssa_lower_call_vtable_dispatch::try_lower(ctx, eid, callee, args) {
         return Some(op);
     }
     // `n.{toFixed|toString|toLocaleString|toExponential|toPrecision}` — primitive number wedges.
