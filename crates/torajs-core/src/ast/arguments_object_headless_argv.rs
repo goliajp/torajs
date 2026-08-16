@@ -97,6 +97,24 @@ pub(super) fn collect_headless_argv(
         {
             continue;
         }
+        // A `__forward_` relay already exists for this name — the
+        // forwarder passes (pipeline 195, ahead of this one) minted
+        // one for a value escape. Its forwarding call carries the
+        // relay's RUNTIME argc into the callee's hidden slot, while
+        // the terminal's packer can only fill a buffer of the
+        // statically written argument count: the body would then
+        // materialize argv[0..argc] off the end of a shorter stack
+        // slab. Such a fn keeps the declared-params face until the
+        // relay can hand its own argv down (registered residue,
+        // plan-state L3b).
+        let relay = format!("__forward_{name}");
+        if ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FnDecl { name: n, .. } if *n == relay))
+        {
+            continue;
+        }
         if body_has_non_length_arguments_touch(ast, body) {
             candidates.insert(name.clone());
         }
