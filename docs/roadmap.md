@@ -4251,7 +4251,25 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 320 closing sweep `f1c685b1`, core **8674**,
+(refreshed @ rotation 417 closing sweep `bc00feb6`, core **4577**,
+**238** clusters of ≥ 4 holding 2963 cases; 771 clusters of ≤ 3 hold
+1000 more (21.8 %), and the subset-decision register accounts for 614
+across two entries. Coverage: top 10 = 14.2 %, top 25 = 28.8 %,
+top 100 = 58.5 %, top 400 = 85.0 %. Rotation 417 worked the
+`unknown ident __this` cluster, which the previous rotation had
+attacked by shape without first counting the shapes — the honest
+count says it is not one gap but several. The largest single root was
+a class whose heritage is a VALUE expression: that lane lowers the
+class to an ES5 constructor function, whose `this` needs the knife-2
+promotion, and three ordinary value reads of the class binding
+(`typeof K`, a `var` alias, `export default K`) had no admitting use
+shape. The `with` guard was leaving the node it consumed alive in the
+arena, which read as a use in no recognised position and cost the same
+promotion. passTotal +26, **zero pass regressions**, gate 2979 →
+**2984**/0/4 across five substrate commits; the cluster's occurrence
+count fell 89 → 59.)
+
+(previous stamp @ rotation 320 closing sweep `f1c685b1`, core **8674**,
 **311** clusters of ≥ 4 holding 7678 cases; 756 clusters of ≤ 3 hold
 996 more (11.5 %). Coverage: top 10 = 31.2 %, top 25 = 43.9 %,
 top 100 = 70.5 %, top 400 = 91.2 %. Rotation 320 worked the
