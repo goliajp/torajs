@@ -179,6 +179,13 @@ pub(crate) fn lift_lets_in_stmt(
                     // "number" fallback would pin the lifted field's
                     // type against whatever next() actually sends.
                     "any".into()
+                } else if matches!(ast.get_expr(*init), Expr::Uninit) {
+                    // 422-01 — `let v;` (no init, no ann): the binding
+                    // starts undefined and takes whatever a later
+                    // assignment sends (`v = yield ...` most often).
+                    // Pinning number cannot even hold the initial
+                    // undefined; the field is an any slot by shape.
+                    "any".into()
                 } else if n.starts_with("__forof_src_")
                     || n.starts_with("__forof_destr_")
                     || n.starts_with("__ary_src_")
