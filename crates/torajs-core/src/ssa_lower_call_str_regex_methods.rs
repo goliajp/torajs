@@ -26,267 +26,82 @@ use crate::ssa_lower_call_str_regex_emit::{
     emit_match, emit_match_all, emit_replace, emit_search, emit_split,
 };
 
-/// Try to lower `<Str>.{replace|replaceAll|split|match|matchAll}` when the
-/// first arg is a RegExp. Returns `Some` when dispatched, `None` otherwise.
-pub(crate) fn try_lower(
+/// `s.replace(pattern, r)` / `s.replaceAll(…)` with the pattern in an
+/// `any` slot — one runtime kernel makes the §22.1.3.19 step-2 choice
+/// the caller cannot: a RegExp cell rides the regex lane, everything
+/// else is a literal search over `ToString(searchValue)`.
+///
+/// `functional` picks the callback twin, whose extra operands are the
+/// callback's own declared capture count and the `(position, string)`
+/// tail flag — always 0 here, since the gate admits only all-`string`
+/// signatures (see the caller).
+fn emit_replace_any_slot(
     ctx: &mut LowerCtx<'_>,
-    callee: ExprId,
+    recv_op: Operand,
     args: &[ExprId],
-) -> Option<Operand> {
-    let (obj, name) = match ctx.ast.get_expr(callee) {
-        Expr::Member { obj, name } => (*obj, name.clone()),
-        _ => return None,
-    };
-    if !matches!(
-        name.as_str(),
-        "replace" | "replaceAll" | "split" | "match" | "matchAll" | "search"
-    ) {
-        return None;
+    name: &str,
+    functional: bool,
+) -> Operand {
+    let pat_op = ctx.lower_expr(args[0]);
+    let repl_op = ctx.lower_expr(args[1]);
+    // §22.1.3.19 silently ignores args past (pattern, replacement) —
+    // eval-then-discard, the S321 idiom.
+    for &a in args.iter().skip(2) {
+        let _ = ctx.lower_expr(a);
     }
-    if args.is_empty() {
-        return None;
-    }
-    // Detection: peek the AST without lowering to avoid double side-effects
-    // (re-evaluating the receiver if we were to fall through). Recognized
-    // regex args:
-    //   - Expr::Regex { ... } — literal `/.../flags`
-    //   - Expr::Ident(name) — a local whose tracked SSA type is Type::RegExp
-    // Anything else (incl. computed RegExp from a function call) falls
-    // through to the existing string path, which currently rejects RegExp
-    // args via Type::Any signature. A v0.2 #1.c follow-up can broaden the
-    // detection — for now the literal + ident forms cover the dominant
-    // idioms and all the test262 cases at hand.
-    let arg0_is_regex = match ctx.ast.get_expr(args[0]) {
-        Expr::Regex { .. } => true,
-        Expr::Ident(n) => ctx
-            .locals
-            .get(n)
-            .map(|info| info.ty == Type::RegExp)
-            .unwrap_or(false),
-        _ => false,
-    };
-    // RFC 20260716 刀 9 — `match` / `matchAll` accept a non-RegExp
-    // arg via ES §22.1.3.{11,12} step 4.c: `RegExpCreate(ToString(P),
-    // flags)`. match uses `""` flags; matchAll uses `"g"` (matchAll
-    // kernel throws TypeError on non-global — the coerced RegExp
-    // must be global implicitly). Emit the coerce inline below and
-    // fall through to the shared dispatch block.
-    //
-    // Rotation 262 — `search` joins the coerce lane for an
-    // Any-typed single arg only (§22.1.3.20 step 4; regex, not
-    // indexOf, semantics): the string-arg spelling keeps its
-    // member-table indexOf boundary and every other shape keeps
-    // today's route.
-    let arg0_is_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
-    let coerce_match_lane = !arg0_is_regex
-        && (matches!(name.as_str(), "match" | "matchAll")
-            || (name == "search" && arg0_is_any && args.len() == 1));
-    // Rotation 262 — `replace` with an Any-typed searchValue and
-    // store evidence rides the §22.1.3.19 step-3 `@@replace` branch.
-    // The replaceValue must be a shape BOTH lanes can emit (checker
-    // String or Function — the fallback's literal-substring kernels);
-    // everything else keeps today's route.
-    let replace_symbol_lane = name == "replace"
-        && !arg0_is_regex
-        && arg0_is_any
-        && (args.len() == 1
-            || (args.len() == 2
-                && matches!(
-                    ctx.expr_types.get(&args[1]),
-                    Some(crate::check::Type::String) | Some(crate::check::Type::Function(..))
-                )))
-        && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
-    // Does the program contain evidence that a symbol face may have
-    // been rewritten on this value? Every one of the new `any`-slot
-    // lanes below decides "this is a RegExp, so step 2 hands off to
-    // its `@@replace`" from the cell tag alone, and that is only the
-    // same question while the method is still there: t262's
-    // `replaceAll/{searchValue-tostring-regexp,getSubstitution-*}`
-    // define `Symbol.replace` away and then expect the six characters
-    // "/./g" to be searched for literally. The runtime cannot tell
-    // the two apart — a defined-away symbol on a RegExp cell reads
-    // back as the prototype's builtin either way — so the honest
-    // answer is this static one, and with evidence present the whole
-    // family keeps its old route rather than guessing. Same predicate
-    // `replace_symbol_lane` uses, read the other way round.
-    let symbol_face_may_be_rewritten =
-        crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
-    // The same `any` slot on the replace family. §22.1.3.19 step 2
-    // hands a RegExp searchValue to its own `@@replace`; the typed
-    // lane instead ToString'd it and searched for its source text, so
-    // `"abc".replace(re, "Y")` answered "abc". A checker-String
-    // replacement is the shape the runtime kernel can serve; a
-    // function replacement keeps today's route (loud), and the
-    // one-argument spelling keeps the member table's.
-    let replace_any_lane = matches!(name.as_str(), "replace" | "replaceAll")
-        && !arg0_is_regex
-        && !replace_symbol_lane
-        && !symbol_face_may_be_rewritten
-        && arg0_is_any
-        && args.len() >= 2
-        && matches!(
-            ctx.expr_types.get(&args[1]),
-            Some(crate::check::Type::String)
-        );
-    // Same lane with a FUNCTION replaceValue. How many capture
-    // arguments to hand it is the callback's own declared count —
-    // a pattern known only as `any` cannot be counted at compile
-    // time, and a slot past the pattern's real group count reads
-    // back as the non-participating sentinel, which is the
-    // `undefined` the spec would pass there anyway.
-    //
-    // Every declared parameter has to be a plain `string` for that to
-    // hold. A callback naming §22.2.6.11's `(position, string)` tail
-    // pins every argument before it, and only the pattern knows how
-    // many captures precede; a promoted `function () { …this… }`
-    // carries a receiver parameter the count would misread. Both keep
-    // today's loud route.
-    let replace_any_fn_lane = matches!(name.as_str(), "replace" | "replaceAll")
-        && !arg0_is_regex
-        && !replace_symbol_lane
-        && !symbol_face_may_be_rewritten
-        && arg0_is_any
-        && args.len() >= 2
-        && matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Function(ps, _))
-            if ps.iter().all(|t| *t == crate::check::Type::String));
-    if !arg0_is_regex
-        && !coerce_match_lane
-        && !replace_symbol_lane
-        && !replace_any_lane
-        && !replace_any_fn_lane
-    {
-        return None;
-    }
-    let raw_recv = ctx.lower_expr(obj);
-    // Chunk 800 — a Substr receiver (charAt view, for-of-str char,
-    // exec capture) is a 16-byte parent-pointer block the runtime
-    // `str_slice` reader would misread as an owned Str header
-    // (probe: `ch.match(/o/)` answered null on a matching char,
-    // `ch.split(/x/)` answered mojibake). Materialize through
-    // `substr_to_owned` — the chunk-699 test/exec haystack dance —
-    // and drop the fresh temp after the call. Owned-Str receivers
-    // pass through.
-    let recv_is_view = ctx.operand_ty(&raw_recv) == Type::Substr;
-    let recv_op = if recv_is_view {
-        let owned = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![raw_recv]),
-            Type::Str,
-            None,
-        );
-        Operand::Value(owned)
-    } else {
-        raw_recv
-    };
-    // §22.1.3.{13,20} step 3 — an Any-typed pattern may carry a
-    // user `@@match` / `@@search` method; branch on the runtime
-    // probe before the step-4 coerce. The checker mirrors this
-    // exact gate with a `Type::Any` result
-    // (`check_type_of_call_string_match` / `_search_regex`), so
-    // only the single-arg shape with a checker-Any pattern AND
-    // store evidence routes here; a store-free Any pattern falls
-    // through to the plain coerce lane below.
-    if replace_symbol_lane {
-        let result = crate::ssa_lower_call_str_match_custom::lower_replace_any_pattern(
-            ctx,
-            recv_op.clone(),
-            args,
-        );
-        if recv_is_view {
-            ctx.emit_drop_value(recv_op, Type::Str);
-        }
-        return Some(result);
-    }
-    if coerce_match_lane
-        && matches!(name.as_str(), "match" | "search")
-        && arg0_is_any
-        && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0])
-    {
-        use crate::ssa_lower_call_str_match_custom::SymbolDispatchKind;
-        let kind = if name == "search" {
-            SymbolDispatchKind::Search
-        } else {
-            SymbolDispatchKind::Match
-        };
-        let result = crate::ssa_lower_call_str_match_custom::lower_symbol_dispatch_pattern(
-            ctx,
-            recv_op.clone(),
-            args,
-            kind,
-        );
-        if recv_is_view {
-            ctx.emit_drop_value(recv_op, Type::Str);
-        }
-        return Some(result);
-    }
-    if replace_any_fn_lane {
-        let pat_op = ctx.lower_expr(args[0]);
-        let cb_op = ctx.lower_expr(args[1]);
-        for &a in args.iter().skip(2) {
-            let _ = ctx.lower_expr(a);
-        }
+    let all = Operand::ConstI64(i64::from(name == "replaceAll"));
+    let (fid, call_args) = if functional {
         // The callback's own arity, minus the matched string.
-        let n_caps = match ctx.operand_ty(&cb_op) {
+        let n_caps = match ctx.operand_ty(&repl_op) {
             Type::Closure(sig_id) => ctx.fn_sigs[sig_id.0 as usize].0.len().saturating_sub(1),
             _ => 0,
         };
-        let all = Operand::ConstI64(i64::from(name == "replaceAll"));
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.str_replace_any_pattern_fn,
-                vec![
-                    recv_op,
-                    pat_op,
-                    cb_op,
-                    Operand::ConstI64(n_caps as i64),
-                    Operand::ConstI64(0),
-                    all,
-                ],
-            ),
-            Type::Str,
-            None,
-        );
-        ctx.release_owned_temp(args[1], &cb_op);
-        ctx.emit_throw_check(None);
-        if recv_is_view {
-            ctx.emit_drop_value(recv_op, Type::Str);
-        }
-        return Some(Operand::Value(v));
-    }
-    if replace_any_lane {
-        let pat_op = ctx.lower_expr(args[0]);
-        let repl_op = ctx.lower_expr(args[1]);
-        // §22.1.3.19 silently ignores args past (pattern, replacement)
-        // — eval-then-discard, the S321 idiom.
-        for &a in args.iter().skip(2) {
-            let _ = ctx.lower_expr(a);
-        }
-        let all = Operand::ConstI64(i64::from(name == "replaceAll"));
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.str_replace_any_pattern,
-                vec![recv_op, pat_op, repl_op, all],
-            ),
-            Type::Str,
-            None,
-        );
-        ctx.release_owned_temp(args[1], &repl_op);
-        // Both a `ToString(searchValue)` hook and replaceAll's step
-        // 2.b non-global rejection record a pending throw.
-        ctx.emit_throw_check(None);
-        if recv_is_view {
-            ctx.emit_drop_value(recv_op, Type::Str);
-        }
-        return Some(Operand::Value(v));
-    }
-    // `Some(pattern)` when the RegExp came out of the any-slot
-    // kernel, whose result is BORROWED whenever the slot already held
-    // one — so its release is the conditional sibling, not a plain
-    // drop.
+        (
+            ctx.intrinsics.str_replace_any_pattern_fn,
+            vec![
+                recv_op,
+                pat_op,
+                repl_op,
+                Operand::ConstI64(n_caps as i64),
+                Operand::ConstI64(0),
+                all,
+            ],
+        )
+    } else {
+        (
+            ctx.intrinsics.str_replace_any_pattern,
+            vec![recv_op, pat_op, repl_op, all],
+        )
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, call_args),
+        Type::Str,
+        None,
+    );
+    ctx.release_owned_temp(args[1], &repl_op);
+    // Both a `ToString(searchValue)` hook and replaceAll's step 2.b
+    // non-global rejection record a pending throw.
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
+}
+
+/// Step 4's `RegExpCreate(P, F)` for the match / matchAll / search
+/// coerce lane, plus the plain lowering for every other shape.
+///
+/// Answers `(regexp, minted, coerced_from)`: `minted` says the caller
+/// owes a release, and `coerced_from` carries the pattern operand when
+/// the any-slot kernel produced the RegExp — that one may have handed
+/// back a BORROWED cell, so its release is the conditional sibling.
+fn mint_pattern_regexp(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    name: &str,
+    coerce_match_lane: bool,
+    symbol_face_may_be_rewritten: bool,
+) -> (Operand, bool, Option<Operand>) {
     let mut coerced_from: Option<Operand> = None;
-    let (re_op, minted_regex) = if coerce_match_lane {
+    let (re_op, minted) = if coerce_match_lane {
         // ES §22.1.3.{11,12} step 4.c → `RegExpCreate(regexp, F)`.
         // RegExpCreate → RegExpInitialize (§22.2.3.2):
         //  - if pattern is undefined, P = "" (skip ToString)
@@ -361,6 +176,250 @@ pub(crate) fn try_lower(
     } else {
         (ctx.lower_expr(args[0]), false)
     };
+    (re_op, minted, coerced_from)
+}
+
+/// Which of the intercept's lanes this call site qualifies for.
+struct Lanes {
+    arg0_is_regex: bool,
+    arg0_is_any: bool,
+    coerce_match_lane: bool,
+    replace_symbol_lane: bool,
+    symbol_face_may_be_rewritten: bool,
+    replace_any_lane: bool,
+    replace_any_fn_lane: bool,
+}
+
+/// Read the call site's shape once — every gate below is a pure
+/// question about the argument types and the program's syntax, so
+/// they are settled before a single operand is lowered (lowering the
+/// receiver twice would re-run its side effects).
+fn classify_lanes(ctx: &LowerCtx<'_>, args: &[ExprId], name: &str) -> Lanes {
+    // Detection: peek the AST without lowering to avoid double side-effects
+    // (re-evaluating the receiver if we were to fall through). Recognized
+    // regex args:
+    //   - Expr::Regex { ... } — literal `/.../flags`
+    //   - Expr::Ident(name) — a local whose tracked SSA type is Type::RegExp
+    // Anything else (incl. computed RegExp from a function call) falls
+    // through to the existing string path, which currently rejects RegExp
+    // args via Type::Any signature. A v0.2 #1.c follow-up can broaden the
+    // detection — for now the literal + ident forms cover the dominant
+    // idioms and all the test262 cases at hand.
+    let arg0_is_regex = match ctx.ast.get_expr(args[0]) {
+        Expr::Regex { .. } => true,
+        Expr::Ident(n) => ctx
+            .locals
+            .get(n)
+            .map(|info| info.ty == Type::RegExp)
+            .unwrap_or(false),
+        _ => false,
+    };
+    // RFC 20260716 刀 9 — `match` / `matchAll` accept a non-RegExp
+    // arg via ES §22.1.3.{11,12} step 4.c: `RegExpCreate(ToString(P),
+    // flags)`. match uses `""` flags; matchAll uses `"g"` (matchAll
+    // kernel throws TypeError on non-global — the coerced RegExp
+    // must be global implicitly). Emit the coerce inline below and
+    // fall through to the shared dispatch block.
+    //
+    // Rotation 262 — `search` joins the coerce lane for an
+    // Any-typed single arg only (§22.1.3.20 step 4; regex, not
+    // indexOf, semantics): the string-arg spelling keeps its
+    // member-table indexOf boundary and every other shape keeps
+    // today's route.
+    let arg0_is_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
+    let coerce_match_lane = !arg0_is_regex
+        && (matches!(name, "match" | "matchAll")
+            || (name == "search" && arg0_is_any && args.len() == 1));
+    // Rotation 262 — `replace` with an Any-typed searchValue and
+    // store evidence rides the §22.1.3.19 step-3 `@@replace` branch.
+    // The replaceValue must be a shape BOTH lanes can emit (checker
+    // String or Function — the fallback's literal-substring kernels);
+    // everything else keeps today's route.
+    let replace_symbol_lane = name == "replace"
+        && !arg0_is_regex
+        && arg0_is_any
+        && (args.len() == 1
+            || (args.len() == 2
+                && matches!(
+                    ctx.expr_types.get(&args[1]),
+                    Some(crate::check::Type::String) | Some(crate::check::Type::Function(..))
+                )))
+        && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
+    // Does the program contain evidence that a symbol face may have
+    // been rewritten on this value? Every one of the new `any`-slot
+    // lanes below decides "this is a RegExp, so step 2 hands off to
+    // its `@@replace`" from the cell tag alone, and that is only the
+    // same question while the method is still there: t262's
+    // `replaceAll/{searchValue-tostring-regexp,getSubstitution-*}`
+    // define `Symbol.replace` away and then expect the six characters
+    // "/./g" to be searched for literally. The runtime cannot tell
+    // the two apart — a defined-away symbol on a RegExp cell reads
+    // back as the prototype's builtin either way — so the honest
+    // answer is this static one, and with evidence present the whole
+    // family keeps its old route rather than guessing. Same predicate
+    // `replace_symbol_lane` uses, read the other way round.
+    let symbol_face_may_be_rewritten =
+        crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
+    // The same `any` slot on the replace family. §22.1.3.19 step 2
+    // hands a RegExp searchValue to its own `@@replace`; the typed
+    // lane instead ToString'd it and searched for its source text, so
+    // `"abc".replace(re, "Y")` answered "abc". A checker-String
+    // replacement is the shape the runtime kernel can serve; a
+    // function replacement keeps today's route (loud), and the
+    // one-argument spelling keeps the member table's.
+    let replace_any_lane = matches!(name, "replace" | "replaceAll")
+        && !arg0_is_regex
+        && !replace_symbol_lane
+        && !symbol_face_may_be_rewritten
+        && arg0_is_any
+        && args.len() >= 2
+        && matches!(
+            ctx.expr_types.get(&args[1]),
+            Some(crate::check::Type::String)
+        );
+    // Same lane with a FUNCTION replaceValue. How many capture
+    // arguments to hand it is the callback's own declared count —
+    // a pattern known only as `any` cannot be counted at compile
+    // time, and a slot past the pattern's real group count reads
+    // back as the non-participating sentinel, which is the
+    // `undefined` the spec would pass there anyway.
+    //
+    // Every declared parameter has to be a plain `string` for that to
+    // hold. A callback naming §22.2.6.11's `(position, string)` tail
+    // pins every argument before it, and only the pattern knows how
+    // many captures precede; a promoted `function () { …this… }`
+    // carries a receiver parameter the count would misread. Both keep
+    // today's loud route.
+    let replace_any_fn_lane = matches!(name, "replace" | "replaceAll")
+        && !arg0_is_regex
+        && !replace_symbol_lane
+        && !symbol_face_may_be_rewritten
+        && arg0_is_any
+        && args.len() >= 2
+        && matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Function(ps, _))
+            if ps.iter().all(|t| *t == crate::check::Type::String));
+    Lanes {
+        arg0_is_regex,
+        arg0_is_any,
+        coerce_match_lane,
+        replace_symbol_lane,
+        symbol_face_may_be_rewritten,
+        replace_any_lane,
+        replace_any_fn_lane,
+    }
+}
+
+/// Try to lower `<Str>.{replace|replaceAll|split|match|matchAll}` when the
+/// first arg is a RegExp. Returns `Some` when dispatched, `None` otherwise.
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let (obj, name) = match ctx.ast.get_expr(callee) {
+        Expr::Member { obj, name } => (*obj, name.clone()),
+        _ => return None,
+    };
+    if !matches!(
+        name.as_str(),
+        "replace" | "replaceAll" | "split" | "match" | "matchAll" | "search"
+    ) {
+        return None;
+    }
+    if args.is_empty() {
+        return None;
+    }
+    let Lanes {
+        arg0_is_regex,
+        arg0_is_any,
+        coerce_match_lane,
+        replace_symbol_lane,
+        symbol_face_may_be_rewritten,
+        replace_any_lane,
+        replace_any_fn_lane,
+    } = classify_lanes(ctx, args, &name);
+    if !arg0_is_regex
+        && !coerce_match_lane
+        && !replace_symbol_lane
+        && !replace_any_lane
+        && !replace_any_fn_lane
+    {
+        return None;
+    }
+    let raw_recv = ctx.lower_expr(obj);
+    // Chunk 800 — a Substr receiver (charAt view, for-of-str char,
+    // exec capture) is a 16-byte parent-pointer block the runtime
+    // `str_slice` reader would misread as an owned Str header
+    // (probe: `ch.match(/o/)` answered null on a matching char,
+    // `ch.split(/x/)` answered mojibake). Materialize through
+    // `substr_to_owned` — the chunk-699 test/exec haystack dance —
+    // and drop the fresh temp after the call. Owned-Str receivers
+    // pass through.
+    let recv_is_view = ctx.operand_ty(&raw_recv) == Type::Substr;
+    let recv_op = if recv_is_view {
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![raw_recv]),
+            Type::Str,
+            None,
+        );
+        Operand::Value(owned)
+    } else {
+        raw_recv
+    };
+    // §22.1.3.{13,20} step 3 — an Any-typed pattern may carry a
+    // user `@@match` / `@@search` method; branch on the runtime
+    // probe before the step-4 coerce. The checker mirrors this
+    // exact gate with a `Type::Any` result
+    // (`check_type_of_call_string_match` / `_search_regex`), so
+    // only the single-arg shape with a checker-Any pattern AND
+    // store evidence routes here; a store-free Any pattern falls
+    // through to the plain coerce lane below.
+    let symbol_dispatch = if replace_symbol_lane {
+        Some(crate::ssa_lower_call_str_match_custom::lower_replace_any_pattern(ctx, recv_op, args))
+    } else if coerce_match_lane
+        && matches!(name.as_str(), "match" | "search")
+        && arg0_is_any
+        && symbol_face_may_be_rewritten
+    {
+        use crate::ssa_lower_call_str_match_custom::SymbolDispatchKind;
+        let kind = if name == "search" {
+            SymbolDispatchKind::Search
+        } else {
+            SymbolDispatchKind::Match
+        };
+        Some(
+            crate::ssa_lower_call_str_match_custom::lower_symbol_dispatch_pattern(
+                ctx, recv_op, args, kind,
+            ),
+        )
+    } else {
+        None
+    };
+    if let Some(result) = symbol_dispatch {
+        if recv_is_view {
+            ctx.emit_drop_value(recv_op, Type::Str);
+        }
+        return Some(result);
+    }
+    if replace_any_lane || replace_any_fn_lane {
+        let result = emit_replace_any_slot(ctx, recv_op, args, &name, replace_any_fn_lane);
+        if recv_is_view {
+            ctx.emit_drop_value(recv_op, Type::Str);
+        }
+        return Some(result);
+    }
+    // The RegExp to dispatch on, plus the pattern operand when that
+    // RegExp came out of the any-slot kernel — whose result is
+    // BORROWED whenever the slot already held one, so its release is
+    // the conditional sibling rather than a plain drop.
+    let (re_op, minted_regex, coerced_from) = mint_pattern_regexp(
+        ctx,
+        args,
+        &name,
+        coerce_match_lane,
+        symbol_face_may_be_rewritten,
+    );
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
     let result = match name.as_str() {
         "match" => emit_match(ctx, recv_op.clone(), re_op.clone(), args, arr_id),

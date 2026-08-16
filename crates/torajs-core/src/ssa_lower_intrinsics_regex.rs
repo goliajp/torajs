@@ -101,6 +101,16 @@ pub(crate) struct RegexIds {
     pub regex_set_last_index: FuncId,
 }
 
+// CARVE-OUT: dispatch table — 33 back-to-back `declare_intrinsic` calls
+// filling a single `RegexIds` struct literal (data-driven; each entry
+// declares one runtime FuncId + records it in `fn_table`). Same shape
+// and same rationale as `ssa_lower_intrinsics_map_set.rs::declare` and
+// `ssa_lower_intrinsics_table.rs::build`: splitting `RegexIds` into
+// sub-structs would change the `intrinsics.<field>` consumer surface
+// across every regex read site, and a `decl!` macro would trade the
+// line count for macro hygiene at ≤ 3 lines saved per entry. Crossed
+// 200 in rotation 418, when the `any`-slot pattern family added three
+// entries.
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> RegexIds {
     RegexIds {
         regexp_escape_any: declare_intrinsic(
