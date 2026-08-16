@@ -146,6 +146,52 @@ unsafe fn wrapper_subclass_probe(
     unsafe { crate::method_call_subclass::subclass_method(ptr, name_str, argv, argc) }
 }
 
+/// [`cell_method`] plus the `Object.prototype` surface every cell
+/// inherits once no per-tag arm claimed the mid. §20.1.3.6 toString
+/// is the "[object X]" badge and §20.1.4.6 toLocaleString invokes
+/// this.toString, so a Map / Set / Promise receiver — whose arms own
+/// neither name — answers a badge, not a no-such TypeError. The
+/// quieter half: a mid-miss floats the [`ANY_METHOD_NO_SUCH`]
+/// sentinel, and OrdinaryToPrimitive used to accept it as toString's
+/// answer. Its bit pattern is a quiet NaN, so `String(mapThroughAny)`
+/// coerced to "NaN" — a wrong value with nothing to catch.
+///
+/// The Promise arm floats the sentinel rather than falling past the
+/// remaining tag arms for exactly this reason; none of the arms
+/// below it could match a Promise cell anyway.
+///
+/// # Safety
+/// Same contract as [`cell_method`].
+pub(crate) unsafe fn cell_method_inheriting(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+    skip_wrapper_expando: bool,
+) -> Option<AnyValue> {
+    let out = unsafe {
+        cell_method(
+            recv,
+            mid,
+            name_str,
+            recv_slot,
+            argv,
+            argc,
+            skip_wrapper_expando,
+        )
+    }?;
+    if out == crate::method_call::ANY_METHOD_NO_SUCH
+        && (mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING)
+    {
+        return Some(unsafe {
+            crate::method_call_object_proto::cell_badge_string(as_void_ptr(recv), false)
+        });
+    }
+    Some(out)
+}
+
 /// Dispatch a cell receiver by its heap tag. `None` = no arm
 /// matched; the caller raises the no-such-method TypeError.
 /// `skip_wrapper_expando` = the call is a reified-builtin cell's
@@ -330,13 +376,13 @@ pub(crate) unsafe fn cell_method(
         return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
     }
     // RFC 20260720-anylane-promise-methods knife 2 — `.then` /
-    // `.catch` bridge; a mid the arm doesn't own falls through to
-    // the shared no-such exit (valueOf identity answered above).
-    if tag == Tag::Promise as u16
-        && let Some(out) =
+    // `.catch` bridge; a mid the arm doesn't own is a miss like
+    // every other tag's (see `cell_method_inheriting`).
+    if tag == Tag::Promise as u16 {
+        return Some(
             unsafe { crate::method_call_promise::promise_method(ptr, mid, argv, argc) }
-    {
-        return Some(out);
+                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
+        );
     }
     if tag == Tag::RegExp as u16 {
         return Some(unsafe { crate::method_call_regexp::regexp_method(ptr, mid, argv, argc) });

@@ -397,7 +397,7 @@ unsafe fn any_method_call_dispatch(
     }
     if is_cell(recv)
         && let Some(out) = unsafe {
-            crate::method_call_cell::cell_method(
+            crate::method_call_cell::cell_method_inheriting(
                 recv,
                 mid,
                 name_str,

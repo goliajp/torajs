@@ -271,6 +271,14 @@ unsafe fn ordinary_to_primitive(cell: *mut c_void, hint_string: bool) -> Option<
             // the caller's next check point.
             return Some(out);
         }
+        // The receiver's arm knows no such method — §7.1.1.1 step 5
+        // reads that as "not callable" and moves to the next name.
+        // The sentinel is a quiet-NaN bit pattern that answers false
+        // to `is_object_value`, so accepting it here handed the walk
+        // a NaN dressed as a primitive.
+        if out == crate::method_call::ANY_METHOD_NO_SUCH {
+            continue;
+        }
         if !is_object_value(out) {
             return Some(out);
         }
