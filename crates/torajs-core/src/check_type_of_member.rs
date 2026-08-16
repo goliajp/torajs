@@ -197,23 +197,40 @@ pub(crate) fn check(
     // siblings inside [`try_family_dispatch`] (chunks
     // 191-206). Anything reaching this point is genuinely
     // unknown for the obj_ty — emit a typecheck error.
+    answer_terminal_miss(ast, obj, name, &obj_ty, lenient_missing)
+}
+
+/// Terminal-miss posture — what a member read answers once every
+/// family arm has declined. Extracted from `check` (rotation 422,
+/// fn-size cap). The postures, in order:
+/// - `lenient_missing` (desugar-minted default-guarded load) → Any.
+/// - CLASS INSTANCE receiver (RFC 20260804 blade 4) → Any: §10.1.8.1
+///   [[Get]] on an absent property answers undefined; the lowering
+///   boxes the receiver and rides the any-member lane (an expando /
+///   prototype write may have landed the name). A `__priv_<cls>__`
+///   miss stays a compile-time reject — §13.1 private references
+///   resolve lexically, and the prefix is parser-minted.
+/// - ZERO-field anonymous Struct (`var o = {}`, rotation 346) → Any:
+///   it declares no surface a typo could miss and only grows through
+///   runtime writes.
+/// - Namespace-import binding (`import * as ns`, rotation 422) →
+///   Undefined: a compiler-synthesized ObjectLit, so the
+///   anonymous-struct typo posture does not apply — §10.4.6.8 [[Get]]
+///   on a non-exported name answers undefined, and namespaces are not
+///   extensible, so the static answer IS the runtime answer.
+/// - NON-empty anonymous Struct keeps the loud reject: its fields ARE
+///   statically known, so a miss is overwhelmingly a typo (recorded
+///   diagnostic-posture boundary).
+fn answer_terminal_miss(
+    ast: &Ast,
+    obj: &ExprId,
+    name: &str,
+    obj_ty: &Type,
+    lenient_missing: bool,
+) -> Result<Type, String> {
     if lenient_missing {
         return Ok(Type::Any);
     }
-    // RFC 20260804-method-rebind-generic-body blade 4 — a CLASS
-    // INSTANCE receiver's terminal miss is not an error: §10.1.8.1
-    // [[Get]] on an absent property answers undefined (bun runs
-    // these programs). Answer Any; the lowering's struct-field miss
-    // arm boxes the receiver and rides the any-member lane (runtime
-    // GetV — an expando / prototype write may have landed the name).
-    // Anonymous Struct shapes keep the loud reject: an object
-    // literal's fields are all statically known, so a miss there is
-    // overwhelmingly a typo (recorded diagnostic-posture boundary).
-    // A `__priv_<cls>__<name>` miss stays a compile-time reject: an
-    // undeclared private name is an early SyntaxError (§13.1 all
-    // private references must resolve lexically), never a runtime
-    // undefined — the mangled prefix is minted only by the parser's
-    // PrivateIdent path, so the gate is mechanical.
     if matches!(obj_ty, Type::ClassRef(_)) {
         if let Some(rest) = name.strip_prefix("__priv_") {
             let field = rest.split_once("__").map(|(_, f)| f).unwrap_or(rest);
@@ -223,18 +240,14 @@ pub(crate) fn check(
         }
         return Ok(Type::Any);
     }
-    // Rotation 346 — a ZERO-field anonymous Struct is the
-    // `var o = {}` shape: it declares no surface a typo could miss,
-    // and it only grows through runtime writes (expando stores, an
-    // apply/call thisArg receiver) — §10.1.8.1 [[Get]] on an absent
-    // property answers undefined, exactly the ClassRef posture
-    // above. Answer Any; the lowering boxes the receiver and rides
-    // the any-member lane. A NON-empty literal keeps the loud
-    // reject: its fields ARE statically known, so a miss there is
-    // overwhelmingly a typo (the recorded diagnostic-posture
-    // boundary).
-    if matches!(obj_ty, Type::Struct(ref f) if f.is_empty()) {
+    if matches!(obj_ty, Type::Struct(f) if f.is_empty()) {
         return Ok(Type::Any);
+    }
+    if matches!(obj_ty, Type::Struct(_))
+        && let crate::ast::Expr::Ident(n) = ast.get_expr(*obj)
+        && ast.namespace_bindings.contains(n)
+    {
+        return Ok(Type::Undefined);
     }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
 }

@@ -401,6 +401,9 @@ pub(super) fn materialize_pending_namespaces(
             fields.push((name.clone(), id));
         }
         let obj_id = ast.add_expr(Expr::ObjectLit { fields });
+        // §10.4.6.8 — mark the binding so a member miss on it answers
+        // undefined instead of the anonymous-struct typo reject.
+        ast.namespace_bindings.insert(alias.clone());
         injections.push(Stmt::LetDecl {
             mutable: false,
             name: alias.clone(),

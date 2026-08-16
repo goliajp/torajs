@@ -676,6 +676,14 @@ pub struct Ast {
     /// breaking. Keyed by name — clones share the entry safely, the
     /// binding scopes per generator body.
     pub yieldstar_done_targets: std::collections::HashMap<String, String>,
+    /// Namespace-import bindings (`import * as ns` /
+    /// `export * as ns`) materialized as synthetic object literals by
+    /// the resolver. §10.4.6.8 — a module namespace exotic object
+    /// answers `undefined` for a non-exported name, and namespaces
+    /// are not extensible, so the checker's anonymous-struct
+    /// typo reject does not apply to a member miss on one of these:
+    /// it answers Undefined statically instead.
+    pub namespace_bindings: std::collections::HashSet<String>,
     /// Generator / async function-value EXPRESSIONS parsed for real
     /// (RFC 20260713-generator-fn-value-substrate). Keyed by the
     /// `Expr::ArrowFn` ExprId the parser emitted; `hoist_gen_fn_exprs`
