@@ -4251,7 +4251,32 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 417 closing sweep `bc00feb6`, core **4577**,
+(refreshed @ rotation 419 closing sweep `5c33b06c`, core **4574**,
+**238** clusters of ≥ 4 holding 2961 cases; 772 clusters of ≤ 3 hold
+1002 more (21.9 %), and the subset-decision register accounts for 611
+across two entries. Coverage: top 10 = 14.2 %, top 25 = 28.8 %,
+top 100 = 58.4 %, top 400 = 85.0 %. Rotation 419 asked rotation 418's
+question — what does a typed lane do when a builtin arrives through
+an `any` slot — of Date, Map, Set, Promise and Array. Date and Array
+were clean; the other three gave up six defects, all of them silent:
+`new Map(pairs)` nulled every value of a mixed-type pair (an
+Array<Any> slot is 8 bytes, and the last slot-walk site in the
+compiler still scaled it by 16 — invisible at index 0, which is why
+the KEY always arrived), `String(map)` answered "NaN" (the mid-miss
+sentinel is a quiet NaN and OrdinaryToPrimitive took it for a value),
+`typeof map.toString` answered undefined while calling it worked, and
+two await sites read a promise's settled slot in a form the cell did
+not carry — one handing back the NaN box's raw bits, one rc_inc'ing
+the number 1. Following the last one out found a seventh: ONE
+method-valued field kept a whole top-level object literal off the
+globals table, so every named function in the file saw "unknown
+identifier" for it. passTotal −1, **two pass regressions, both
+de-watering** — the cases passed because that binding was broken, and
+the real defect they document (a class computed member name is not
+ToPropertyKey'd at definition time) is now visible instead. gate
+2991 → **2997**/0/4 across six substrate commits.)
+
+(previous stamp @ rotation 417 closing sweep `bc00feb6`, core **4577**,
 **238** clusters of ≥ 4 holding 2963 cases; 771 clusters of ≤ 3 hold
 1000 more (21.8 %), and the subset-decision register accounts for 614
 across two entries. Coverage: top 10 = 14.2 %, top 25 = 28.8 %,

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T05:55:39.588Z",
+  "generatedAt": "2026-08-16T08:00:08.656Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-16T05:55:09Z",
-    "headSha": "cbf8e052",
-    "elapsedSec": 328.41,
+    "ranAt": "2026-08-16T07:52:49Z",
+    "headSha": "5c33b06c",
+    "elapsedSec": 357.39,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
     "pass": 25250,
-    "passNoOracle": 856,
+    "passNoOracle": 855,
     "passNegative": 4125,
-    "passTotal": 30231,
-    "bug": 12770,
-    "incompatible": 10173,
+    "passTotal": 30230,
+    "bug": 12768,
+    "incompatible": 10176,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43001,
+    "trAccepted": 42998,
     "passRateInScope": 56.85,
-    "passRateTrAccepted": 70.3
+    "passRateTrAccepted": 70.31
   },
   "torajs": {
-    "commit": "cbf8e052",
-    "commitSubject": "refactor: split the any-slot lanes out of the regex-method intercept",
+    "commit": "5c33b06c",
+    "commitSubject": "fix: one method field kept a whole top-level object off the globals table",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "5c33b06c",
+      "subject": "fix: one method field kept a whole top-level object off the globals table"
+    },
+    {
+      "hash": "8087ff1e",
+      "subject": "fix: reading toString off a Map answered undefined while calling it worked"
+    },
+    {
+      "hash": "c4c0d13f",
+      "subject": "fix: awaiting Promise.resolve of an any-bound promise rc_inc'd the number 1"
+    },
+    {
+      "hash": "286f64a4",
+      "subject": "fix: a Map through an any slot stringified to NaN"
+    },
+    {
+      "hash": "a39adf60",
+      "subject": "fix: a mixed-type pair array handed new Map a null for every value"
+    },
+    {
+      "hash": "22f67edf",
+      "subject": "fix: awaiting a .then on an any receiver read the box as a raw value"
+    },
+    {
+      "hash": "39ba668a",
+      "subject": "chore: record the rotation 418 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "cbf8e052",
       "subject": "refactor: split the any-slot lanes out of the regex-method intercept"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "01f09d02",
       "subject": "fix: a RegExp in an `any` slot was searched for as its own source text"
-    },
-    {
-      "hash": "6ad04fd0",
-      "subject": "fix: a replacer may declare fewer parameters than it is handed"
-    },
-    {
-      "hash": "417a8962",
-      "subject": "fix: a receiver written once is as certain as a const one"
-    },
-    {
-      "hash": "ba77f109",
-      "subject": "chore: record the rotation 417 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "bc00feb6",
-      "subject": "fix: the upsert callback reads `this` as undefined"
-    },
-    {
-      "hash": "c68eca0b",
-      "subject": "fix: a regexp-searchValue replacer reads `this` as undefined"
-    },
-    {
-      "hash": "a1ee52c2",
-      "subject": "fix: Array.of allocates through its receiver"
-    },
-    {
-      "hash": "187d152b",
-      "subject": "fix: the `with` guard tombstones the node it consumed"
     }
   ],
-  "headSha": "cbf8e052",
+  "headSha": "5c33b06c",
   "autorun": {
-    "total": 721,
+    "total": 722,
     "baselineTarget": 10,
-    "bySelf": 716,
+    "bySelf": 717,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786851543-0f88",
-      "at": "2026-08-16T03:39:03Z",
-      "ts": 1786851543,
+      "rotationId": "r-1786859850-264d",
+      "at": "2026-08-16T05:57:30Z",
+      "ts": 1786859850,
       "trigger": "self",
-      "prevHead": "ba77f109",
-      "handoffSha": "sha256:8f2a533fcdab4b8c49ba1b9609eacd6b16255e88d987e099016ee20c1878d696",
-      "handoffAgeSec": 33,
+      "prevHead": "39ba668a",
+      "handoffSha": "sha256:d004091fc13974ac9b95e0d8fe20db204206f2ecbf6b3fa9d5875bb6302209ea",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786859850-264d",
+        "at": "2026-08-16T05:57:30Z",
+        "ts": 1786859850,
+        "trigger": "self",
+        "prevHead": "39ba668a",
+        "handoffSha": "sha256:d004091fc13974ac9b95e0d8fe20db204206f2ecbf6b3fa9d5875bb6302209ea",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786851543-0f88",
         "at": "2026-08-16T03:39:03Z",
@@ -876,17 +887,6 @@
         "prevHead": "8992d12a",
         "handoffSha": "sha256:57b4b1e0d0adbf4f34796ab7851cd0113d743a92a7cfa913face409dc86687a5",
         "handoffAgeSec": 49,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786774867-7c77",
-        "at": "2026-08-15T06:21:07Z",
-        "ts": 1786774867,
-        "trigger": "self",
-        "prevHead": "57d786e4",
-        "handoffSha": "sha256:f7521ce5a56504cdbb2796c354fb8cf68ded6fa1806b6b3d9d8ffd7906035ed7",
-        "handoffAgeSec": 37,
         "conformanceBefore": null,
         "commitsInSession": null
       }
