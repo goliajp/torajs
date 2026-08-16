@@ -17,7 +17,8 @@ use std::collections::HashMap;
 
 use super::ast_def::Ast;
 use super::expr::{Expr, Param};
-use super::stmt::{ClassCtor, ClassMethod, StaticField, StaticInit, Stmt, SwitchCase};
+use super::stmt::{Stmt, SwitchCase};
+use super::stmt_class::{ClassCtor, ClassMethod, StaticField, StaticInit};
 use crate::ast::ExprId;
 
 pub(crate) struct BodyCloner<'a> {
@@ -342,11 +343,13 @@ impl<'a> BodyCloner<'a> {
                 named,
                 default_expr,
                 source,
+                star,
             } => Stmt::ExportDecl {
                 inner: inner.as_ref().map(|i| Box::new(self.clone_stmt(i))),
                 named: named.clone(),
                 default_expr: default_expr.map(|d| self.clone_expr(d)),
                 source: source.clone(),
+                star: star.clone(),
             },
         }
     }

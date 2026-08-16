@@ -155,6 +155,7 @@ mod sfi_safe;
 pub(crate) mod sloppy_this_prologue;
 mod spread_callee_wrap;
 mod stmt;
+mod stmt_class;
 mod stmt_flat;
 pub(crate) mod stmt_nested_lists;
 mod strict_reserved_goal;
@@ -225,10 +226,9 @@ pub use prop_key::{literal_prop_key, number_prop_key};
 pub use prototype_call::desugar_prototype_call;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use spread_callee_wrap::wrap_dynamic_spread_callees;
-pub use stmt::{
-    AccessorKind, ClassCtor, ClassMethod, StaticField, StaticInit, Stmt, SwitchCase, Visibility,
-};
+pub use stmt::{ExportStar, Stmt, SwitchCase};
 pub(crate) use stmt::{GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM};
+pub use stmt_class::{AccessorKind, ClassCtor, ClassMethod, StaticField, StaticInit, Visibility};
 pub(crate) mod desugar_with;
 pub(crate) use desugar_with::{WITH_OBJ_FN, WITH_OBJ_PREFIX};
 pub use desugar_with::{WithReject, desugar_with};

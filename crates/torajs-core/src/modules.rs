@@ -25,6 +25,16 @@
 //!                                              load of y with the request
 //!                                              translated through the lib's
 //!                                              optional alias clause)
+//!   - `export * from "./y"`                  — supported; a star preserves
+//!                                              names, so the importer's own
+//!                                              request forwards to y minus
+//!                                              whatever b exports itself, and
+//!                                              a namespace request walks y
+//!                                              into the SAME namespace
+//!                                              accumulator
+//!   - `export * as ns from "./y"`            — supported; exposes exactly one
+//!                                              name, whose value is y's
+//!                                              namespace object
 //!   - `export { a, b }` (inline, no source)  — rejected (no module
 //!                                              relationship; a plain re-bind
 //!                                              of in-scope names; out of K.2
@@ -82,45 +92,6 @@ type WorkItem = (
     Option<String>,
 );
 
-/// One statement of a side-effect-only (`import "./x"`) lib walk —
-/// the lib's ImportDecls still queue (so transitive loads happen),
-/// but every other top-level statement (including bare expressions,
-/// console.log, top-level `let`s, classes, and `export`-wrapped
-/// decls) injects in source order. Bare named export (`export
-/// { a }`, the P13-S4 re-export surface) is still rejected at the
-/// side-effect boundary (K.2).
-fn inject_side_effect_stmt(
-    work: &mut VecDeque<WorkItem>,
-    target_dir: &Path,
-    injections: &mut Vec<Stmt>,
-    s: Stmt,
-) -> Result<(), String> {
-    if let Stmt::ImportDecl {
-        source,
-        named,
-        default,
-        namespace,
-    } = s
-    {
-        queue_nested_import(work, target_dir, &source, named, default, namespace)?;
-        return Ok(());
-    }
-    if let Stmt::ExportDecl {
-        inner: Some(boxed), ..
-    } = s
-    {
-        injections.push(*boxed);
-    } else if let Stmt::ExportDecl { inner: None, .. } = s {
-        // P13-S4b — a side-effect import binds no names, so the
-        // export FACE of a bare named export (`export { a }`) has no
-        // consumer here; the decls it lists already injected as
-        // ordinary top-level statements above. Drop the face.
-    } else {
-        injections.push(s);
-    }
-    Ok(())
-}
-
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
 /// at the front of `ast.stmts`. Single-file mode (no `ImportDecl`s) is
@@ -144,21 +115,34 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     let mut work: VecDeque<WorkItem> = VecDeque::new();
 
     for s in &ast.stmts {
-        if let Stmt::ImportDecl {
-            source,
-            named,
-            default,
-            namespace,
-        } = s
-        {
-            queue_nested_import(
-                &mut work,
-                base_dir,
+        match s {
+            Stmt::ImportDecl {
                 source,
-                named.clone(),
-                default.clone(),
-                namespace.clone(),
-            )?;
+                named,
+                default,
+                namespace,
+            } => {
+                queue_nested_import(
+                    &mut work,
+                    base_dir,
+                    source,
+                    named.clone(),
+                    default.clone(),
+                    namespace.clone(),
+                )?;
+            }
+            // A star re-export in the ENTRY file binds nothing anyone
+            // can see — nothing imports the entry — but §16.2.1.5
+            // still evaluates the module it names, in the order the
+            // clause appears. Load it for its side effects.
+            Stmt::ExportDecl {
+                star: Some(_),
+                source: Some(star_source),
+                ..
+            } => {
+                queue_nested_import(&mut work, base_dir, star_source, Vec::new(), None, None)?;
+            }
+            _ => {}
         }
     }
 
@@ -173,6 +157,12 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // sentinel-deduped to nothing) still gets its rewrite.
     let mut dyn_ns_inline: Vec<(String, Vec<String>)> = Vec::new();
     let mut ns_fields_by_path: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    // Namespace object fields, keyed by the ALIAS rather than the
+    // module — a lib's `export * from "m"` pours m's exports into the
+    // same namespace, and m is a work item popped later. `ns_order`
+    // keeps discovery order for [`materialize_pending_namespaces`].
+    let mut ns_accums: HashMap<String, NsAccum> = HashMap::new();
+    let mut ns_order: Vec<String> = Vec::new();
 
     while let Some((target_path, named, default_alias, side_effect_only, mut namespace_alias)) =
         work.pop_front()
@@ -219,40 +209,53 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             .iter()
             .filter_map(|(orig, alias)| alias.as_deref().map(|a| (orig.as_str(), a)))
             .collect();
-        // For P13-S2 namespace import: accumulates the names of every
-        // value-export injected (FnDecl / LetDecl / ClassDecl). After
-        // the walk the namespace alias materializes as a synthetic
-        // `let <alias> = { name1: name1, name2: name2, ... }`.
-        let mut namespace_fields: Vec<String> = Vec::new();
-
         let bare_exports = collect_bare_exports(&lib_section);
+        let own_exports = collect_own_export_names(&lib_section);
+
+        // For P13-S2 namespace import: the accumulator collecting the
+        // names of every value-export injected (FnDecl / LetDecl /
+        // ClassDecl). `first_field` marks where THIS lib's own
+        // contribution starts, so the dyn-ns revisit shortcut still
+        // records per-path fields.
+        if let Some(alias) = &namespace_alias
+            && !ns_accums.contains_key(alias)
+        {
+            ns_order.push(alias.clone());
+            ns_accums.insert(alias.clone(), NsAccum::new(alias.clone()));
+        }
+        let first_field = namespace_alias
+            .as_ref()
+            .map(|a| ns_accums[a].fields().len())
+            .unwrap_or(0);
+        let mut req = LibRequest {
+            side_effect_only,
+            default_alias: &default_alias,
+            want: &want,
+            rename: &rename,
+            ns: namespace_alias
+                .as_ref()
+                .and_then(|a| ns_accums.get_mut(a.as_str())),
+            bare_exports: &bare_exports,
+            own_exports: &own_exports,
+        };
 
         for s in lib_section {
-            walk_lib_stmt(
-                &mut work,
-                &target_dir,
-                &mut injections,
-                s,
-                side_effect_only,
-                &default_alias,
-                &want,
-                &rename,
-                namespace_alias.is_some(),
-                &mut namespace_fields,
-                &bare_exports,
-            )?;
+            walk_lib_stmt(&mut work, &target_dir, &mut injections, s, &mut req)?;
         }
 
-        if let Some(ns_name) = namespace_alias {
-            ns_fields_by_path.insert(target_path.clone(), namespace_fields.clone());
-            if ns_name.starts_with("__dyn_ns_") {
-                dyn_ns_inline.push((ns_name, namespace_fields));
-            } else {
-                materialize_namespace(ast, &mut injections, ns_name, &namespace_fields);
-            }
+        if let Some(alias) = &namespace_alias {
+            let fields = ns_accums[alias].fields()[first_field..].to_vec();
+            ns_fields_by_path.insert(target_path.clone(), fields);
         }
     }
 
+    materialize_pending_namespaces(
+        ast,
+        &mut injections,
+        &ns_order,
+        &ns_accums,
+        &mut dyn_ns_inline,
+    );
     inline_dyn_ns_objlits(ast, &dyn_ns_inline);
 
     if !injections.is_empty() {
@@ -271,98 +274,6 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         ast.stmts = new_stmts;
     }
     Ok(closure_files)
-}
-
-/// One lib-section statement through the injection walk: side-effect
-/// imports forward whole statements, nested imports / re-exports
-/// queue, export forms inject (see each arm). Pulled out of
-/// [`resolve_imports`]'s per-work-item loop verbatim.
-#[allow(clippy::too_many_arguments)]
-fn walk_lib_stmt(
-    work: &mut VecDeque<WorkItem>,
-    target_dir: &Path,
-    injections: &mut Vec<Stmt>,
-    s: Stmt,
-    side_effect_only: bool,
-    default_alias: &Option<String>,
-    want: &HashSet<&str>,
-    rename: &HashMap<&str, &str>,
-    namespace_on: bool,
-    namespace_fields: &mut Vec<String>,
-    bare_exports: &HashMap<String, String>,
-) -> Result<(), String> {
-    // Side-effect-only import — see [`inject_side_effect_stmt`].
-    if side_effect_only {
-        return inject_side_effect_stmt(work, target_dir, injections, s);
-    }
-    match s {
-        Stmt::ImportDecl {
-            source,
-            named,
-            default,
-            namespace,
-        } => {
-            queue_nested_import(work, target_dir, &source, named, default, namespace)?;
-        }
-        Stmt::ExportDecl {
-            inner: None,
-            default_expr: Some(eid),
-            ..
-        } => {
-            // `export default <expr>` form. Inject as a synthetic
-            // `let <importer-alias> = <expr>` if the importer used
-            // the default-binding form (`import x from ...`).
-            if let Some(alias) = default_alias {
-                injections.push(Stmt::LetDecl {
-                    mutable: false,
-                    name: alias.clone(),
-                    type_ann: None,
-                    init: eid,
-                    is_var: false,
-                });
-            }
-            // If no default alias was requested the export is
-            // silently dropped — matches "named exports not in
-            // the importer's list" behavior for parity.
-        }
-        Stmt::ExportDecl {
-            inner: Some(boxed), ..
-        } => {
-            inject_export_inner(
-                injections,
-                *boxed,
-                want,
-                rename,
-                namespace_on,
-                namespace_fields,
-            );
-        }
-        Stmt::ExportDecl {
-            inner: None,
-            named: lib_named,
-            source: Some(lib_source),
-            ..
-        } => {
-            queue_reexport(work, target_dir, &lib_named, &lib_source, want, rename)?;
-        }
-        Stmt::ExportDecl { inner: None, .. } => {
-            // P13-S4b — the bare named export FACE: its
-            // (orig, exported) pairs were collected before
-            // the walk; the decls themselves inject below.
-        }
-        other => {
-            inject_bare_exported_decl(
-                injections,
-                other,
-                bare_exports,
-                want,
-                rename,
-                namespace_on,
-                namespace_fields,
-            );
-        }
-    }
-    Ok(())
 }
 
 /// See the injection-splice comment in [`resolve_imports`] — recurse
@@ -389,10 +300,13 @@ fn clear_injected_spans(s: &mut Stmt) {
     }
 }
 
+mod lib_walk;
 mod resolve_helpers;
+use lib_walk::{LibRequest, walk_lib_stmt};
 use resolve_helpers::{
-    collect_bare_exports, filter_request, inject_bare_exported_decl, inject_export_inner,
-    inline_dyn_ns_objlits, materialize_namespace, queue_nested_import, queue_reexport,
+    NsAccum, collect_bare_exports, collect_own_export_names, filter_request,
+    inject_bare_exported_decl, inject_export_inner, inline_dyn_ns_objlits,
+    materialize_pending_namespaces, queue_nested_import, queue_reexport, queue_star_reexport,
 };
 
 fn check_k2_form(

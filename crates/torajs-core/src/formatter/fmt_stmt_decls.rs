@@ -7,7 +7,7 @@
 //!
 //! Extracted from `fmt_stmt.rs` (2026-05-25, god-file decomp batch 19).
 
-use crate::ast::{ClassCtor, ClassMethod, ExprId, Param, StaticInit, Stmt, SwitchCase};
+use crate::ast::{ClassCtor, ClassMethod, ExportStar, ExprId, Param, StaticInit, Stmt, SwitchCase};
 
 use super::Formatter;
 
@@ -216,18 +216,62 @@ impl<'a> Formatter<'a> {
         self.write("'");
     }
 
+    /// §16.2 module syntax — `import` / `export` declarations. Taking
+    /// the node whole is what keeps the `fmt_stmt` dispatch arm a
+    /// single line: between them the two variants carry nine fields,
+    /// and spelling those out at the call site is what pushed that
+    /// function past the 200-line limit.
+    pub(super) fn fmt_module_decl(&mut self, s: &Stmt) {
+        match s {
+            Stmt::ImportDecl {
+                default,
+                namespace,
+                named,
+                source,
+            } => self.fmt_import_decl(default.as_deref(), namespace.as_deref(), named, source),
+            Stmt::ExportDecl {
+                inner,
+                named,
+                default_expr,
+                source,
+                star,
+            } => self.fmt_export_decl(
+                inner.as_deref(),
+                named,
+                *default_expr,
+                source.as_deref(),
+                star.as_ref(),
+            ),
+            _ => {}
+        }
+    }
+
     pub(super) fn fmt_export_decl(
         &mut self,
         inner: Option<&Stmt>,
         named: &[(String, Option<String>)],
         default_expr: Option<ExprId>,
         source: Option<&str>,
+        star: Option<&ExportStar>,
     ) {
         self.write_indent();
         self.write("export ");
         if let Some(eid) = default_expr {
             self.write("default ");
             self.fmt_expr(eid);
+            return;
+        }
+        if let Some(star) = star {
+            self.write("*");
+            if let ExportStar::AsNamespace(ns) = star {
+                self.write(" as ");
+                self.write(ns);
+            }
+            if let Some(src) = source {
+                self.write(" from \"");
+                self.write(src);
+                self.write("\"");
+            }
             return;
         }
         if !named.is_empty() {

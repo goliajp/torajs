@@ -15,6 +15,7 @@
 //! pattern. Body unchanged.
 
 use super::*;
+use crate::ast::ExportStar;
 
 impl<'a> Parser<'a> {
     /// Phase K.1 — `import` declaration parser. Single-file mode: builds
@@ -191,6 +192,8 @@ impl<'a> Parser<'a> {
     /// Phase K.1 — `export` declaration parser. Recognized shapes:
     ///   - `export function/class/type/const/let X ...`  (modifier on decl)
     ///   - `export { a, b as c }`                        (named re-export)
+    ///   - `export * from "./b"`                          (star re-export)
+    ///   - `export * as ns from "./b"`                    (namespace re-export)
     ///   - `export default <expr>`                        (default export)
     pub(super) fn parse_export(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `export`
@@ -204,7 +207,15 @@ impl<'a> Parser<'a> {
                 named: Vec::new(),
                 default_expr: Some(e),
                 source: None,
+                star: None,
             });
+        }
+        // §16.2.3 ExportFromClause — `export * from "m"` and
+        // `export * as ns from "m"`. Both bind nothing locally, so
+        // `inner` / `named` stay empty and the star head carries the
+        // shape; the `from` clause is mandatory for either form.
+        if matches!(self.peek(), Token::Star) {
+            return self.parse_export_star();
         }
         // `export { a, b as c };`
         if matches!(self.peek(), Token::LBrace) {
@@ -246,19 +257,7 @@ impl<'a> Parser<'a> {
             // P13-S4 — optional `from "./b"` for re-export form.
             let source = if matches!(self.peek(), Token::Ident(n) if n == "from") {
                 self.pos += 1;
-                match self.peek() {
-                    Token::String(s) => {
-                        let s = s.clone();
-                        self.pos += 1;
-                        Some(s)
-                    }
-                    t => {
-                        return Err(format!(
-                            "expected module source string after `from`, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                }
+                Some(self.expect_module_source()?)
             } else {
                 None
             };
@@ -268,6 +267,7 @@ impl<'a> Parser<'a> {
                 named,
                 default_expr: None,
                 source,
+                star: None,
             });
         }
         // `export <decl>` — modifier on a function / class / type / let
@@ -279,7 +279,60 @@ impl<'a> Parser<'a> {
             named: Vec::new(),
             default_expr: None,
             source: None,
+            star: None,
         })
+    }
+
+    /// §16.2.3 `export * from "m"` / `export * as ns from "m"`, entered
+    /// with the cursor on the `*`. The name after `as` is a
+    /// ModuleExportName, so a string literal (`export * as "a-b" from`)
+    /// and the reserved word `default` (`export * as default from`) are
+    /// both legal spellings alongside a plain identifier.
+    fn parse_export_star(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `*`
+        let star = if matches!(self.peek(), Token::Ident(n) if n == "as") {
+            self.pos += 1;
+            let name = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                Token::String(s) => s.clone(),
+                Token::Default => "default".to_string(),
+                t => {
+                    return Err(format!(
+                        "expected export name after `* as`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            ExportStar::AsNamespace(name)
+        } else {
+            ExportStar::All
+        };
+        self.expect_ident_keyword("from")?;
+        let source = self.expect_module_source()?;
+        self.skip_optional_semi();
+        Ok(Stmt::ExportDecl {
+            inner: None,
+            named: Vec::new(),
+            default_expr: None,
+            source: Some(source),
+            star: Some(star),
+        })
+    }
+
+    /// The string literal after a `from` keyword in a re-export clause.
+    fn expect_module_source(&mut self) -> Result<String, String> {
+        match self.peek() {
+            Token::String(s) => {
+                let s = s.clone();
+                self.pos += 1;
+                Ok(s)
+            }
+            t => Err(format!(
+                "expected module source string after `from`, got {t:?} at {}",
+                self.at()
+            )),
+        }
     }
 
     pub(super) fn expect_ident_keyword(&mut self, kw: &str) -> Result<(), String> {

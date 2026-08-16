@@ -198,18 +198,7 @@ impl<'a> Formatter<'a> {
                 methods,
                 static_methods,
             ),
-            Stmt::ImportDecl {
-                default,
-                namespace,
-                named,
-                source,
-            } => self.fmt_import_decl(default.as_deref(), namespace.as_deref(), named, source),
-            Stmt::ExportDecl {
-                inner,
-                named,
-                default_expr,
-                source,
-            } => self.fmt_export_decl(inner.as_deref(), named, *default_expr, source.as_deref()),
+            Stmt::ImportDecl { .. } | Stmt::ExportDecl { .. } => self.fmt_module_decl(s),
         }
     }
 
