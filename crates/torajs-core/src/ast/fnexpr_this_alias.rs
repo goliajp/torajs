@@ -26,7 +26,10 @@
 //!   aliases `K` into `__forin_obj_N`, whose only Ident use is this
 //!   argument;
 //! * the init site of another currently-safe alias admits (the
-//!   chain rule above).
+//!   chain rule above);
+//! * the TARGET of the assignment that introduced an alias admits —
+//!   see [`collect_alias_decls`], which is also where the `var`
+//!   spelling of an alias enters the set.
 //!
 //! An alias name declared more than once or shadowed by a non-LetDecl
 //! declarator refutes outright — the by-name use walk could not be
@@ -66,9 +69,11 @@ pub(super) fn safe_alias_init_sites(
         })
         .collect();
     // Candidate aliases: a LetDecl whose (as-peeled) init is a bare
-    // Ident. The alias name must be pairable by name.
+    // Ident, or the statement-position `X = <name>` the `var` split
+    // mints. The alias name must be pairable by name.
     let mut aliases: Vec<(ExprId, String)> = Vec::new();
-    collect_alias_decls(stmts, exprs, &mut aliases);
+    let mut assign_targets: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
+    collect_alias_decls(stmts, exprs, &mut aliases, &mut assign_targets);
     aliases.retain(|(_, b)| {
         let mut decls = Vec::new();
         collect_decls_by_name(stmts, b, &mut decls);
@@ -95,6 +100,7 @@ pub(super) fn safe_alias_init_sites(
                 let eid = ExprId(i as u32);
                 let ok = (base.admits(eid, b) && !base.callee.contains(&eid))
                     || forin_keys_args.contains(&eid)
+                    || assign_targets.contains(&eid)
                     || safe_inits.contains(&eid);
                 !ok
             });
@@ -114,16 +120,55 @@ pub(super) fn safe_alias_init_sites(
         .collect()
 }
 
-fn collect_alias_decls(stmts: &[Stmt], exprs: &[Expr], out: &mut Vec<(ExprId, String)>) {
+/// Both alias spellings, plus the target Ident nodes of the second one.
+///
+/// The second spelling is what a `var` alias looks like by the time
+/// this pass runs: `desugar_var_hoist` splits `var X = K` into a
+/// declaration without an initializer and a statement-position
+/// assignment, so the LetDecl arm sees no init at all and the source
+/// name's only remaining appearance is an assignment right-hand side —
+/// a position nothing admits. Every `var X = K` therefore un-promoted
+/// `K`, while the `let` / `const` spelling of the same three
+/// characters promoted fine.
+///
+/// The proof is the one the LetDecl arm already carries: what makes an
+/// alias admissible is a property of the alias's OWN uses, and those
+/// are read by name either way. The target Ident is handed back so the
+/// fixpoint does not read it as a use — a LetDecl carries its name as
+/// a `String` field, but an assignment spells it as an arena node, and
+/// left alone that node refutes every alias it introduces.
+///
+/// Statement position only. `f(X = K)` hands the assignment's VALUE on
+/// to another position, which would need its own reading.
+fn collect_alias_decls(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    out: &mut Vec<(ExprId, String)>,
+    targets: &mut std::collections::HashSet<ExprId>,
+) {
     for s in stmts {
-        if let Stmt::LetDecl { name, init, .. } = s {
-            let init = peel_as(exprs, *init);
-            if matches!(&exprs[init.0 as usize], Expr::Ident(_)) {
-                out.push((init, name.clone()));
+        match s {
+            Stmt::LetDecl { name, init, .. } => {
+                let init = peel_as(exprs, *init);
+                if matches!(&exprs[init.0 as usize], Expr::Ident(_)) {
+                    out.push((init, name.clone()));
+                }
             }
+            Stmt::Expr(eid) => {
+                if let Expr::Assign { target, value } = &exprs[eid.0 as usize]
+                    && let Expr::Ident(name) = &exprs[target.0 as usize]
+                {
+                    let value = peel_as(exprs, *value);
+                    if matches!(&exprs[value.0 as usize], Expr::Ident(_)) {
+                        out.push((value, name.clone()));
+                        targets.insert(*target);
+                    }
+                }
+            }
+            _ => {}
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_alias_decls(inner, exprs, out)
+            collect_alias_decls(inner, exprs, out, targets)
         });
     }
 }

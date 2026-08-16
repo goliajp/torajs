@@ -73,6 +73,29 @@ use decline::decline_reason;
 pub(crate) use decline::{EXPR_HERITAGE_REASON, unclaimed_class_message};
 use install::{define_member, descriptor_fields};
 
+/// Is this the CLASS BINDING this lane mints — `__cc<N>_<user name>`?
+///
+/// The lane's other minted spellings all put a letter where this one
+/// puts a digit (`__cca<N>_` aliases, `__ccm_<n>__` member sentinels,
+/// `__ccmk_<C>_<n>` computed keys, `__ccp<N>` heritage bindings), so
+/// the digit is what tells them apart.
+///
+/// Asked outside the AST passes by the top-level data-global gate:
+/// a desugar-minted `__`-prefixed name stays a main-local there, but
+/// this one is a USER class name in disguise — α-renamed, holding the
+/// ES5 constructor function — and a named function reading the class
+/// it was declared next to has to find it. Without the carve-out
+/// `function g() { return K; }` answered `unknown ident __cc0_K`, and
+/// the `typeof` spelling of the same read answered `"undefined"`
+/// (§13.5.3's answer for an unresolvable reference).
+pub(crate) fn is_es5_class_binding(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("__cc") else {
+        return false;
+    };
+    let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    digits > 0 && rest[digits..].starts_with('_')
+}
+
 /// Rewrite the class at `stmts[idx]` when this lane covers it.
 /// Returns whether it did.
 ///
@@ -109,6 +132,7 @@ pub(super) fn try_rewrite_capturing_class(
     let old = name.clone();
     let new = format!("__cc{}_{}", *counter, old);
     *counter += 1;
+    debug_assert!(is_es5_class_binding(&new));
     // Every class this lane claims is a faithful `extends` target for
     // a later sibling (blade 5; 405-01 opened the static-carrying
     // half — `Object.setPrototypeOf(D, P)` links the class side now

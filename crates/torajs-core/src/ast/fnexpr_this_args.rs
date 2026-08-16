@@ -11,7 +11,8 @@ use super::{Expr, ExprId, Stmt};
 // sibling at the 500-line cap (rotation 410); the re-export keeps
 // `fnexpr_this_shapes`'s import path intact.
 pub(super) use super::fnexpr_this_args_valueops::{
-    define_property_target_idents, eq_operand_idents, instanceof_name_idents,
+    define_property_target_idents, eq_operand_idents, export_default_idents,
+    instanceof_name_idents, typeof_operand_idents,
 };
 
 /// The construct-channel callee whitelist backing the fourth

@@ -13,9 +13,9 @@
 //! a hunch:
 //!
 //! 1. **It never calls the binding.** A member's object, the right of
-//!    `instanceof`, an equality operand, the target of
-//!    `Object.defineProperty` — these consume the cell as a value and
-//!    enter no call lane at all.
+//!    `instanceof`, a `typeof` operand, an equality operand, the target
+//!    of `Object.defineProperty`, the name in `export default <name>` —
+//!    these consume the cell as a value and enter no call lane at all.
 //! 2. **The value crosses into the any lane and stays there.** An
 //!    explicitly-`any` parameter slot, and a `return` across an
 //!    any-typed boundary. The cell escapes, so the proof has to cover
@@ -35,7 +35,7 @@
 
 use super::fnexpr_this_args::{
     any_param_arg_idents, construct_channel_arg_idents, define_property_target_idents,
-    eq_operand_idents, instanceof_name_idents,
+    eq_operand_idents, export_default_idents, instanceof_name_idents, typeof_operand_idents,
 };
 use super::fnexpr_this_names::peel_as;
 use super::fnexpr_this_recvs::{collect_any_binding_names, collect_arraylit_binding_names};
@@ -65,6 +65,10 @@ pub(super) struct UseShapes {
     pub(super) any_arg: std::collections::HashSet<ExprId>,
     /// The bare name on the right of `instanceof`.
     pub(super) instanceof_name: std::collections::HashSet<ExprId>,
+    /// The bare name under `typeof`.
+    pub(super) typeof_operand: std::collections::HashSet<ExprId>,
+    /// The bare name in `export default <name>`.
+    pub(super) export_default: std::collections::HashSet<ExprId>,
     /// `return <bare name>` out of a function whose return type is
     /// inferred or spelled exactly `any`. Admits only together with
     /// [`Self::any_ann_names`] — see [`any_boundary_return_idents`].
@@ -138,6 +142,8 @@ impl UseShapes {
             eq_operand: eq_operand_idents(exprs),
             any_arg: any_param_arg_idents(stmts, exprs),
             instanceof_name: instanceof_name_idents(exprs),
+            typeof_operand: typeof_operand_idents(exprs),
+            export_default: export_default_idents(stmts, exprs),
             any_return: any_boundary_return_idents(stmts, exprs),
             define_target: define_property_target_idents(exprs),
             any_ann_names,
@@ -159,6 +165,8 @@ impl UseShapes {
             || self.eq_operand.contains(&e)
             || self.any_arg.contains(&e)
             || self.instanceof_name.contains(&e)
+            || self.typeof_operand.contains(&e)
+            || self.export_default.contains(&e)
             || self.define_target.contains(&e)
             || self.hof_cb_arg.contains(&e)
             || self.any_arraylit_elem.contains(&e)

@@ -217,7 +217,12 @@ fn slot_type_supported(
         // init, and every `__sm_` method write lands on it).
         && (!name.starts_with("__")
             || name.starts_with("__ccmk_")
-            || name.starts_with("__sf_")))
+            || name.starts_with("__sf_")
+            // …and the ES5 class binding (rotation 417): the name is
+            // minted, but what it holds is the user's class, and the
+            // named fns that read it are the user's too. See
+            // `capturing_classes::is_es5_class_binding`.
+            || crate::ast::capturing_classes::is_es5_class_binding(name)))
 }
 
 /// Whether a MUTABLE refcounted binding still promotes to a data

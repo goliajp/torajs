@@ -1,12 +1,75 @@
 //! The never-calls VALUE-position classifiers (rotation 410 split
 //! from `fnexpr_this_args.rs` at the 500-line cap): an equality
-//! operand, the right of `instanceof`, and the audited `Object.*`
-//! argument slots. The proof family is "it never calls the binding"
-//! (`fnexpr_this_shapes` module doc, kind 1) — the sibling keeps the
-//! any-escape / call-channel positions (kind 2), whose proof rides
-//! FLAG_CLOSURE_RECV_FIRST instead.
+//! operand, the right of `instanceof`, a `typeof` operand, and the
+//! audited `Object.*` argument slots. The proof family is "it never
+//! calls the binding" (`fnexpr_this_shapes` module doc, kind 1) — the
+//! sibling keeps the any-escape / call-channel positions (kind 2),
+//! whose proof rides FLAG_CLOSURE_RECV_FIRST instead.
 
-use super::{Expr, ExprId};
+use super::{Expr, ExprId, Stmt};
+
+/// The bare name in `export default <name>`.
+///
+/// By the time this pass runs, module resolution has already happened:
+/// an importer that asked for the default got a synthetic
+/// `let <alias> = <name>` (`modules::materialize`), which is an
+/// ordinary alias declaration and proves itself through the alias
+/// fixpoint. What is still spelled as an `ExportDecl` is therefore the
+/// ENTRY module's export, which nothing imports and which
+/// `ssa_lower_stmt_dispatch` drops. Either way the position invokes
+/// nothing.
+///
+/// This is the last shape between the ES5 class lane and the
+/// `export default class extends <expr> {}` spelling — the one every
+/// top-level-await heritage case in t262 is written in.
+pub(super) fn export_default_idents(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<ExprId> {
+    stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::ExportDecl {
+                default_expr: Some(e),
+                ..
+            } => Some(*e),
+            _ => None,
+        })
+        .filter(|e| matches!(&exprs[e.0 as usize], Expr::Ident(_)))
+        .collect()
+}
+
+/// The BARE NAME under `typeof` (§13.5.3).
+///
+/// The thinnest never-calls position there is: the operator resolves
+/// the reference, and answers a string picked from the value's type.
+/// It reads no property, coerces nothing, and invokes nothing — less
+/// contact with the cell than a `.prototype` read or the right of
+/// `instanceof`, both of which already admit.
+///
+/// This is what the ES5 class lane hits every time a program asks
+/// `typeof K` about a class whose heritage is a value expression
+/// (`class D extends (calls++, C) {}`, `class extends fn(x)`). That
+/// lane lowers the class to `let K = function (…) { … this … }`, so
+/// the constructor's `this` needs the knife-2 promotion — and one
+/// `typeof K` anywhere in the program refuted it, leaving `__this`
+/// an unbound capture. The t262 spelling of "did the class evaluate"
+/// is `assert.sameValue(typeof K, 'function')`, so the assertion the
+/// tests use to observe the lane was the thing disabling it.
+///
+/// Only the bare-name spelling qualifies, matching `instanceof`: a
+/// larger operand is a value expression that may itself call.
+pub(super) fn typeof_operand_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::TypeOf { expr } if matches!(&exprs[expr.0 as usize], Expr::Ident(_)) => {
+                Some(*expr)
+            }
+            _ => None,
+        })
+        .collect()
+}
 
 /// B6 刀 2 — an EQUALITY operand (`result.constructor === C`, the
 /// t262 identity-assert spelling) is the fifth receiver-safe use
