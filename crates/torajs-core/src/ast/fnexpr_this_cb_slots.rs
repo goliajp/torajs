@@ -111,6 +111,16 @@ pub(super) fn collect_call_apply_face(
     ident_cands: &mut Vec<(String, ExprId)>,
     call_faces: &mut std::collections::HashSet<ExprId>,
 ) {
+    // An `as` wrapper changes nothing about who supplies the
+    // receiver: `(f as any).call(o)` is still §20.2.3.3 handing `o`
+    // to `f`, and the any-lane method dispatch it lowers through
+    // shifts argv on FLAG_CLOSURE_RECV_FIRST exactly like the static
+    // lane does. Without the peel the binding saw an unrecognized
+    // use shape, declined promotion, and its body's `this` capture
+    // then had nothing to bind to ("closure `__closure_N` references
+    // unknown identifier `__this`") — while the same call written
+    // without the cast worked.
+    let obj = super::fnexpr_this_names::peel_as(exprs, obj);
     collect_face(stmts, exprs, obj, fn_expr_exprs, patches);
     if matches!(&exprs[obj.0 as usize], Expr::Ident(_)) {
         collect_ident_face(exprs, obj, ident_cands);
