@@ -179,6 +179,16 @@ pub(super) fn inject_export_inner(
 /// Translate into a transitive BFS load of `./other` with the lib's
 /// selected names, BUT swap each name's importer-visible alias so
 /// the caller (one level up) sees the same names it requested.
+///
+/// `default` can sit on either side of a specifier, and each side
+/// means a different lane. As the EXPOSED name (`export { V as
+/// default }`, `export { default }`) the clause answers the
+/// importer's default binding, so the request that selects it is
+/// `default_alias`, not `want`. As the SOURCE name (`export
+/// { default as X }`, `export { default }`) the nested load has to
+/// fetch the other module's default export — a named request for a
+/// binding literally called `default` would miss it — so it queues on
+/// the default lane under the final caller-visible name.
 pub(super) fn queue_reexport(
     work: &mut VecDeque<WorkItem>,
     target_dir: &Path,
@@ -186,6 +196,7 @@ pub(super) fn queue_reexport(
     lib_source: &str,
     want: &HashSet<&str>,
     rename: &HashMap<&str, &str>,
+    default_alias: &Option<String>,
 ) -> Result<(), String> {
     if is_builtin_module_source(lib_source) {
         return Ok(());
@@ -194,30 +205,41 @@ pub(super) fn queue_reexport(
     // For each (orig, alias) in the lib's re-export
     // clause, the lib exposes `alias` (or `orig` if no
     // alias). We only need to actually load the names
-    // the caller asked for via `want`.
+    // the caller asked for via `want` / `default_alias`.
     let mut nested_named: Vec<NamedImport> = Vec::new();
     for (orig, alias) in lib_named {
         let lib_visible = alias.as_deref().unwrap_or(orig);
-        if want.contains(lib_visible) {
-            // Final caller-visible name: the importer's
-            // own alias (`import { x as y }`) if any,
-            // otherwise the lib-visible name.
-            let final_name = rename
+        // Final caller-visible name: the importer's own
+        // alias (`import { x as y }`) if any, otherwise
+        // the lib-visible name.
+        let final_name = if lib_visible == "default" {
+            let Some(da) = default_alias else {
+                continue;
+            };
+            da.clone()
+        } else if want.contains(lib_visible) {
+            rename
                 .get(lib_visible)
                 .map(|s| (*s).to_string())
-                .unwrap_or_else(|| lib_visible.to_string());
-            // Re-export's nested load fetches `orig` from
-            // the source file. The transitive rename
-            // alias is `Some(final_name)` when the final
-            // name differs from the source-side `orig`;
-            // the lib walk's rename map will pick it up.
-            let nested_alias = if final_name == *orig {
-                None
-            } else {
-                Some(final_name)
-            };
-            nested_named.push((orig.clone(), nested_alias));
+                .unwrap_or_else(|| lib_visible.to_string())
+        } else {
+            continue;
+        };
+        if orig == "default" {
+            work.push_back((path.clone(), Vec::new(), Some(final_name), false, None));
+            continue;
         }
+        // Re-export's nested load fetches `orig` from
+        // the source file. The transitive rename
+        // alias is `Some(final_name)` when the final
+        // name differs from the source-side `orig`;
+        // the lib walk's rename map will pick it up.
+        let nested_alias = if final_name == *orig {
+            None
+        } else {
+            Some(final_name)
+        };
+        nested_named.push((orig.clone(), nested_alias));
     }
     if !nested_named.is_empty() {
         work.push_back((path, nested_named, None, false, None));

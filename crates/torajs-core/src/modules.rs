@@ -134,6 +134,21 @@ fn seed_entry_requests(
     Ok(())
 }
 
+/// A later default request against a path whose default export
+/// already materialized (see `default_bound_as` in
+/// [`resolve_imports`]) — the new alias binds to the first one's
+/// `let` instead of re-walking, which would re-lower the same ExprId.
+fn bind_repeat_default_alias(ast: &mut Ast, first: &str, second: &str) -> Stmt {
+    let init = ast.add_expr(crate::ast::Expr::Ident(first.to_string()));
+    Stmt::LetDecl {
+        mutable: false,
+        name: second.to_string(),
+        type_ann: None,
+        init,
+        is_var: false,
+    }
+}
+
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
 /// at the front of `ast.stmts`. Single-file mode (no `ImportDecl`s) is
@@ -187,8 +202,15 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // keeps discovery order for [`materialize_pending_namespaces`].
     let mut ns_accums: HashMap<String, NsAccum> = HashMap::new();
     let mut ns_order: Vec<String> = Vec::new();
+    // The alias a path's default export materialized under. A module's
+    // default is ONE export but nothing stops several requests wanting
+    // it under different names (`export { default as X } from "m"`
+    // beside `export { default } from "m"`); the first request wins
+    // the `let <alias> = <expr>` and every later alias binds to the
+    // first — re-walking would re-lower the same ExprId.
+    let mut default_bound_as: HashMap<PathBuf, String> = HashMap::new();
 
-    while let Some((target_path, named, default_alias, side_effect_only, mut namespace_alias)) =
+    while let Some((target_path, named, mut default_alias, side_effect_only, mut namespace_alias)) =
         work.pop_front()
     {
         if let Some(ns) = namespace_alias
@@ -198,6 +220,18 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         {
             dyn_ns_inline.push((ns.clone(), fields.clone()));
             namespace_alias = None;
+        }
+        if let Some(second) = &default_alias
+            && let Some(first) = default_bound_as.get(&target_path)
+        {
+            if second != first {
+                let stmt = bind_repeat_default_alias(ast, first, second);
+                injections_by_path
+                    .entry(target_path.clone())
+                    .or_default()
+                    .push(stmt);
+            }
+            default_alias = None;
         }
         // Filter the request against per-path injected state — see
         // [`filter_request`].
@@ -228,6 +262,9 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
 
         let lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
 
+        if let Some(a) = &default_alias {
+            default_bound_as.insert(target_path.clone(), a.clone());
+        }
         let want: HashSet<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
         let rename: HashMap<&str, &str> = named
             .iter()

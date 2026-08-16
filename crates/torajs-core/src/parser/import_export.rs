@@ -219,34 +219,26 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Star) {
             return self.parse_export_star();
         }
-        // `export { a, b as c };`
+        // `export { a, b as c };` — both halves of a specifier are
+        // §16.2.3 ModuleExportName, which covers reserved words
+        // (`default`) and string literals alongside plain identifiers.
         if matches!(self.peek(), Token::LBrace) {
             self.pos += 1;
             let mut named: Vec<(String, Option<String>)> = Vec::new();
+            // The first orig spelled by something that cannot be an
+            // IdentifierReference — legal only under a `from` clause,
+            // where the name looks up in the other module instead of
+            // the local scope (§16.2.3.1 early error otherwise).
+            let mut non_ident_ref: Option<String> = None;
             while !matches!(self.peek(), Token::RBrace) {
-                let orig = match self.peek() {
-                    Token::Ident(n) => n.clone(),
-                    t => {
-                        return Err(format!(
-                            "expected ident in export named clause, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                };
-                self.pos += 1;
+                let (orig, orig_is_ident) =
+                    self.expect_module_export_name("export named clause")?;
+                if !orig_is_ident && non_ident_ref.is_none() {
+                    non_ident_ref = Some(orig.clone());
+                }
                 let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
                     self.pos += 1;
-                    let a = match self.peek() {
-                        Token::Ident(n) => n.clone(),
-                        t => {
-                            return Err(format!(
-                                "expected alias ident after `as`, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    };
-                    self.pos += 1;
-                    Some(a)
+                    Some(self.expect_module_export_name("`as`")?.0)
                 } else {
                     None
                 };
@@ -263,6 +255,15 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
+            if source.is_none()
+                && let Some(n) = non_ident_ref
+            {
+                return Err(format!(
+                    "`{n}` in an export clause without `from` references a local binding, \
+                     which a reserved word or string cannot name, at {}",
+                    self.at()
+                ));
+            }
             self.expect_decl_end("an export declaration")?;
             return Ok(Stmt::ExportDecl {
                 inner: None,
@@ -294,19 +295,7 @@ impl<'a> Parser<'a> {
         self.pos += 1; // consume `*`
         let star = if matches!(self.peek(), Token::Ident(n) if n == "as") {
             self.pos += 1;
-            let name = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                Token::String(s) => s.clone(),
-                Token::Default => "default".to_string(),
-                t => {
-                    return Err(format!(
-                        "expected export name after `* as`, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            };
-            self.pos += 1;
-            ExportStar::AsNamespace(name)
+            ExportStar::AsNamespace(self.expect_module_export_name("`* as`")?.0)
         } else {
             ExportStar::All
         };
@@ -391,6 +380,27 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1;
         Ok(())
+    }
+
+    /// §16.2.3 ModuleExportName — a plain identifier, the reserved
+    /// word `default`, or a string literal. The bool answers whether
+    /// the spelling was an identifier, which is what decides whether
+    /// the name can reference a LOCAL binding (a `from`-less export
+    /// clause needs that; everything else does not care).
+    fn expect_module_export_name(&mut self, ctx: &str) -> Result<(String, bool), String> {
+        let (name, is_ident) = match self.peek() {
+            Token::Ident(n) => (n.clone(), true),
+            Token::Default => ("default".to_string(), false),
+            Token::String(s) => (s.clone(), false),
+            t => {
+                return Err(format!(
+                    "expected an export name after {ctx}, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        Ok((name, is_ident))
     }
 
     /// The string literal after a `from` keyword in a re-export clause.
