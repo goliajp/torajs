@@ -71,10 +71,9 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1; // consume `yield`
         if matches!(self.peek(), Token::Star) {
-            return Err(format!(
-                "not yet supported: `yield*` in expression position at {}",
-                self.at()
-            ));
+            self.pos += 1; // consume `*`
+            let src = self.parse_expr()?;
+            return Ok(self.emit_yieldstar_expr_hoist(src));
         }
         let value = self.parse_yield_operand()?;
         let id = self.mint_desugar_id();

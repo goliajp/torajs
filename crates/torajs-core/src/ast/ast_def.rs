@@ -666,6 +666,16 @@ pub struct Ast {
     /// (desugar_classes_emit) gives the step methods their
     /// Promise<__step_*> shape.
     pub async_generator_fns: std::collections::HashSet<String>,
+    /// Expression-position `yield*` done-value routing (§27.5.3.2:
+    /// the YieldExpression's value is the inner iterator's final
+    /// `.value`). The parser hoists `v = yield* src` into a mutable
+    /// `__yx_<n>` temp plus the same yield-bearing ForOf the statement
+    /// form emits; this maps that ForOf's element binding
+    /// (`__ysxv_<n>`, unique per mint) to the temp so the F1 manual
+    /// protocol's done arm writes `__step.value` into it before
+    /// breaking. Keyed by name — clones share the entry safely, the
+    /// binding scopes per generator body.
+    pub yieldstar_done_targets: std::collections::HashMap<String, String>,
     /// Generator / async function-value EXPRESSIONS parsed for real
     /// (RFC 20260713-generator-fn-value-substrate). Keyed by the
     /// `Expr::ArrowFn` ExprId the parser emitted; `hoist_gen_fn_exprs`

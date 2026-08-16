@@ -147,6 +147,46 @@ impl<'a> Parser<'a> {
         Stmt::Block(stmts)
     }
 
+    /// Expression-position `yield* src` (§27.5.3.2 done completion).
+    /// Caller (`parse_yield_expr_hoist`) has consumed `yield` and `*`
+    /// and parsed the operand. Hoists two statements into
+    /// `yield_hoist_buf`:
+    ///
+    /// ```text
+    /// let __yx_<n>: any = undefined;          // mutable done-value temp
+    /// for (const __ysxv_<n> of src) { yield __ysxv_<n> }
+    /// ```
+    ///
+    /// and yields back `Ident(__yx_<n>)`. The element name is
+    /// registered in `yieldstar_done_targets`, so the F1 manual
+    /// protocol (desugar_generators_forof) writes `__step.value` into
+    /// the temp on the done step instead of dropping it — that final
+    /// value IS the yield* expression's value. The `__yx_` prefix
+    /// keeps the temp inside the eval-order guard's and the
+    /// assignment-target reject's existing namespace.
+    pub(super) fn emit_yieldstar_expr_hoist(&mut self, src: ExprId) -> ExprId {
+        let id = self.mint_desugar_id();
+        let done_var = format!("__yx_{id}");
+        let v_name = format!("__ysxv_{id}");
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        self.yield_hoist_buf.push(Stmt::LetDecl {
+            mutable: true,
+            name: done_var.clone(),
+            type_ann: Some("any".into()),
+            init: undef,
+            is_var: false,
+        });
+        let v_ref = self.ast.add_expr(Expr::Ident(v_name.clone()));
+        let body = Stmt::Block(vec![Stmt::Yield(v_ref)]);
+        let is_async = self.in_async_gen;
+        self.ast
+            .yieldstar_done_targets
+            .insert(v_name.clone(), done_var.clone());
+        let forof = self.emit_forof_default(v_name, Some("any".into()), src, body, is_async, None);
+        self.yield_hoist_buf.push(forof);
+        self.ast.add_expr(Expr::Ident(done_var))
+    }
+
     /// F2 (RFC 20260728-gen-forof-yieldstar) — generic `yield* e`
     /// delegation (§27.5.3.2 next-drive): desugars to
     /// `for (const __ysv_N of e) { yield __ysv_N }`; the generator

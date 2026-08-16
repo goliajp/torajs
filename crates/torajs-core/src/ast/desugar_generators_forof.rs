@@ -282,14 +282,34 @@ fn build_manual_protocol(
     };
 
     // if (__gfstep_N.done) break;
+    // Expression-position yield* (parse_yield.rs hoist): the done
+    // step's `.value` is the YieldExpression's value (§27.5.3.2 —
+    // the async form's step await has already settled it), so the
+    // done arm writes it into the registered `__yx_` temp first.
     let step_ref_done = ast.add_expr(Expr::Ident(step_name.clone()));
     let done_member = ast.add_expr(Expr::Member {
         obj: step_ref_done,
         name: "done".into(),
     });
+    let done_then: Stmt = match ast.yieldstar_done_targets.get(&var_name).cloned() {
+        Some(target) => {
+            let step_ref = ast.add_expr(Expr::Ident(step_name.clone()));
+            let final_value = ast.add_expr(Expr::Member {
+                obj: step_ref,
+                name: "value".into(),
+            });
+            let target_ref = ast.add_expr(Expr::Ident(target));
+            let assign = ast.add_expr(Expr::Assign {
+                target: target_ref,
+                value: final_value,
+            });
+            Stmt::Block(vec![Stmt::Expr(assign), Stmt::Break(None)])
+        }
+        None => Stmt::Break(None),
+    };
     let done_check = Stmt::If {
         cond: done_member,
-        then_branch: Box::new(Stmt::Break(None)),
+        then_branch: Box::new(done_then),
         else_branch: None,
     };
 
