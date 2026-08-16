@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T00:04:16.159Z",
+  "generatedAt": "2026-08-16T01:48:59.947Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-15T23:49:07Z",
-    "headSha": "4b76596b",
-    "elapsedSec": 326.8,
+    "ranAt": "2026-08-16T01:45:19Z",
+    "headSha": "a37d9b86",
+    "elapsedSec": 330.53,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 854,
     "passNegative": 4125,
     "passTotal": 30197,
-    "bug": 12771,
-    "incompatible": 10206,
+    "bug": 12772,
+    "incompatible": 10205,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42968,
+    "trAccepted": 42969,
     "passRateInScope": 56.79,
     "passRateTrAccepted": 70.28
   },
   "torajs": {
-    "commit": "bd395230",
-    "commitSubject": "refactor: move the specialization clone's side-table carry to a sibling",
+    "commit": "a37d9b86",
+    "commitSubject": "fix: a relayed head-less callee leaves the argv face",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -698,7 +698,7 @@
         "speedup": 1.11150406540793
       }
     ],
-    "geomeanBunAot": 2.1372620243047487,
+    "geomeanBunAot": 2.137262024304749,
     "geomeanNodeV8": null,
     "peak": 15.555233764934302,
     "peakCase": "popcount",
@@ -712,6 +712,30 @@
     "host": "mini"
   },
   "commits": [
+    {
+      "hash": "a37d9b86",
+      "subject": "fix: a relayed head-less callee leaves the argv face"
+    },
+    {
+      "hash": "3aa654a9",
+      "subject": "fix: a rest-parameter function expression may take the this promotion"
+    },
+    {
+      "hash": "e98a3313",
+      "subject": "fix: a spread call site reaches a head-less function's real argc"
+    },
+    {
+      "hash": "5789116e",
+      "subject": "fix: an `as` cast no longer hides who supplies a call's receiver"
+    },
+    {
+      "hash": "0f082b9b",
+      "subject": "feat: a head-less function reads its real arguments, not just its params"
+    },
+    {
+      "hash": "c2223746",
+      "subject": "chore: record the rotation 415 sweep and refresh the dashboard snapshot"
+    },
     {
       "hash": "bd395230",
       "subject": "refactor: move the specialization clone's side-table carry to a sibling"
@@ -735,51 +759,38 @@
     {
       "hash": "fb465813",
       "subject": "feat: a generic base owner keeps virtual dispatch through mono vtable rows"
-    },
-    {
-      "hash": "987a2635",
-      "subject": "chore: record the rotation 414 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "e8fd4d8c",
-      "subject": "fix: an arguments-named formal parameter shadows the arrow alias walk"
-    },
-    {
-      "hash": "e04a9ff2",
-      "subject": "fix: a function expression keeps its own arguments scope in the arrow alias walk"
-    },
-    {
-      "hash": "2918e5d3",
-      "subject": "feat: an arrow body inherits the enclosing function's arguments"
-    },
-    {
-      "hash": "ce4742c8",
-      "subject": "feat: a tuple type annotation widens to its element array"
-    },
-    {
-      "hash": "18b5314d",
-      "subject": "feat: a regexp subclass super takes the two-argument flags form"
     }
   ],
-  "headSha": "bd395230",
+  "headSha": "a37d9b86",
   "autorun": {
-    "total": 718,
+    "total": 719,
     "baselineTarget": 10,
-    "bySelf": 713,
+    "bySelf": 714,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786815853-3889",
-      "at": "2026-08-15T17:44:13Z",
-      "ts": 1786815853,
+      "rotationId": "r-1786838686-7bce",
+      "at": "2026-08-16T00:04:46Z",
+      "ts": 1786838686,
       "trigger": "self",
-      "prevHead": "987a2635",
-      "handoffSha": "sha256:0e5bbbac2f2f04ed180a4b543996ecd56328e460da033475a6c448799afa6198",
-      "handoffAgeSec": 79,
+      "prevHead": "c2223746",
+      "handoffSha": "sha256:a34d2a10cef2cde560d16504dac777b86492c804188e3242e65adc9ff0925a23",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786838686-7bce",
+        "at": "2026-08-16T00:04:46Z",
+        "ts": 1786838686,
+        "trigger": "self",
+        "prevHead": "c2223746",
+        "handoffSha": "sha256:a34d2a10cef2cde560d16504dac777b86492c804188e3242e65adc9ff0925a23",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786815853-3889",
         "at": "2026-08-15T17:44:13Z",
@@ -876,17 +887,6 @@
         "prevHead": "8866c604",
         "handoffSha": "sha256:e2fc1d6b98cceb4b8b80ac96c39dd61bcceba02ed1a518710080b69c51ee1906",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786742825-17ad",
-        "at": "2026-08-14T21:27:05Z",
-        "ts": 1786742825,
-        "trigger": "self",
-        "prevHead": "cf5167e6",
-        "handoffSha": "sha256:8bae0434a47d17f3e9917fbbd4528e6bce8f32ab05fa624d75ce8b8f3f755dd9",
-        "handoffAgeSec": 1,
         "conformanceBefore": null,
         "commitsInSession": null
       }
