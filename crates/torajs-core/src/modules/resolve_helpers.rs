@@ -143,6 +143,7 @@ pub(super) fn inject_export_inner(
     want: &HashSet<&str>,
     rename: &HashMap<&str, &str>,
     ns: Option<&mut NsAccum>,
+    injected: &mut HashSet<String>,
 ) {
     // Type decls always inject — TS doesn't require type
     // names in the value-import list, and downstream
@@ -156,11 +157,14 @@ pub(super) fn inject_export_inner(
     // decl with its original name (no `want` filter, no
     // alias rename) so the synthetic namespace object
     // can reference them. The struct literal builds
-    // after the BFS drains.
+    // after the BFS drains. A name an earlier request
+    // already injected under this path still claims its
+    // FIELD — the object references the existing binding
+    // — but must not inject a second decl of it.
     if let Some(ns) = ns
         && let Some(name) = decl_name(&inner)
     {
-        if ns.claim(&name) {
+        if ns.claim(&name) && injected.insert(name) {
             injections.push(inner);
         }
         return;
@@ -441,6 +445,7 @@ pub(super) fn inject_bare_exported_decl(
     want: &HashSet<&str>,
     rename: &HashMap<&str, &str>,
     ns: Option<&mut NsAccum>,
+    injected: &mut HashSet<String>,
 ) {
     if let Some(dname) = decl_name(&other)
         && let Some(exported) = bare_exports.get(&dname)
@@ -449,7 +454,7 @@ pub(super) fn inject_bare_exported_decl(
         if *exported != dname {
             rename_decl(&mut inner, exported.clone());
         }
-        inject_export_inner(injections, inner, want, rename, ns);
+        inject_export_inner(injections, inner, want, rename, ns, injected);
     }
 }
 

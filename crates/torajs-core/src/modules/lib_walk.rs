@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use super::{
-    NsAccum, WorkItem, inject_bare_exported_decl, inject_export_inner, queue_nested_import,
-    queue_reexport, queue_star_reexport,
+    NsAccum, WorkItem, decl_name, inject_bare_exported_decl, inject_export_inner,
+    queue_nested_import, queue_reexport, queue_star_reexport,
 };
 
 /// Everything the walk needs about the request that reached this lib:
@@ -26,6 +26,12 @@ pub(super) struct LibRequest<'a> {
     pub(super) ns: Option<&'a mut NsAccum>,
     pub(super) bare_exports: &'a HashMap<String, String>,
     pub(super) own_exports: &'a HashSet<String>,
+    /// The path's injected-name ledger (importer-visible names plus
+    /// the request sentinels — see `resolve_imports`). The walk both
+    /// reads it (a decl an earlier request injected must not inject
+    /// again, whichever lane asks) and writes it (so a later NAMED
+    /// request for a name this walk injected filters to nothing).
+    pub(super) injected: &'a mut HashSet<String>,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -40,6 +46,7 @@ fn inject_side_effect_stmt(
     target_dir: &Path,
     injections: &mut Vec<Stmt>,
     s: Stmt,
+    injected: &mut HashSet<String>,
 ) -> Result<(), String> {
     if let Stmt::ImportDecl {
         source,
@@ -63,19 +70,29 @@ fn inject_side_effect_stmt(
         // module of the module being evaluated, star clauses included.
         return queue_nested_import(work, target_dir, star_source, Vec::new(), None, None);
     }
-    if let Stmt::ExportDecl {
+    let stmt = if let Stmt::ExportDecl {
         inner: Some(boxed), ..
     } = s
     {
-        injections.push(*boxed);
+        *boxed
     } else if let Stmt::ExportDecl { inner: None, .. } = s {
         // P13-S4b — a side-effect import binds no names, so the
         // export FACE of a bare named export (`export { a }`) has no
         // consumer here; the decls it lists already injected as
         // ordinary top-level statements above. Drop the face.
+        return Ok(());
     } else {
-        injections.push(s);
+        s
+    };
+    // Whole statements inject in source order, but a DECL an earlier
+    // request already materialized (or that a later one will ask for
+    // by name) goes through the ledger like every other lane's.
+    if let Some(n) = decl_name(&stmt)
+        && !injected.insert(n)
+    {
+        return Ok(());
     }
+    injections.push(stmt);
     Ok(())
 }
 
@@ -90,7 +107,7 @@ pub(super) fn walk_lib_stmt(
 ) -> Result<(), String> {
     // Side-effect-only import — see [`inject_side_effect_stmt`].
     if req.side_effect_only {
-        return inject_side_effect_stmt(work, target_dir, injections, s);
+        return inject_side_effect_stmt(work, target_dir, injections, s, req.injected);
     }
     match s {
         Stmt::ImportDecl {
@@ -131,6 +148,7 @@ pub(super) fn walk_lib_stmt(
                 req.want,
                 req.rename,
                 req.ns.as_deref_mut(),
+                req.injected,
             );
         }
         Stmt::ExportDecl {
@@ -180,6 +198,7 @@ pub(super) fn walk_lib_stmt(
                 req.want,
                 req.rename,
                 req.ns.as_deref_mut(),
+                req.injected,
             );
         }
     }

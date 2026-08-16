@@ -298,6 +298,11 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                 .and_then(|a| ns_accums.get_mut(a.as_str())),
             bare_exports: &bare_exports,
             own_exports: &own_exports,
+            // Re-borrowed rather than kept from the filter above —
+            // the parse in between needed `ast`, and the walk is the
+            // ledger's writer: every decl it injects records here so
+            // a later request (any lane) skips it.
+            injected: injected_names.entry(target_path.clone()).or_default(),
         };
 
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
