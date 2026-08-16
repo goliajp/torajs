@@ -44,11 +44,7 @@ console.log(
   ),
 );
 
-// a group that DOES participate reads back through a shorter arity
-// too (the non-participating case is a separate open hole: §22.2.6.11
-// hands the callback `undefined`, and a `Str`-typed parameter slot has
-// no way to carry it, so tr passes "" — measured here rather than
-// asserted, since asserting it would freeze the wrong answer)
+// a group that DOES participate reads back through a shorter arity too
 console.log("xyz".replace(/x(y)?(z)/, function (m: string, p1: string) {
   return "<" + p1 + ">";
 }));

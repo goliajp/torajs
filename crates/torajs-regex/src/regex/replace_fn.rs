@@ -13,16 +13,28 @@ use core::ffi::c_void;
 
 use super::replace_fn_dispatch::invoke_replace_cb;
 use super::{
-    __torajs_str_drop, __torajs_throw_type_error, abort_unsupported, as_regex, byte_to_utf16_units,
-    str_from_bytes, str_slice,
+    __torajs_str_drop, __torajs_str_undef, __torajs_throw_type_error, abort_unsupported, as_regex,
+    byte_to_utf16_units, str_from_bytes, str_slice,
 };
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
 
 /// Build N capture Strs from saves[]. Each cap slot reads
 /// `saves[2*(i+1)] / saves[2*(i+1)+1]` (group 0 = whole match is
-/// handled separately). Non-participating groups emit an empty Str.
-/// Caller owns the returned Strs (rc=1 each) and must drop them.
+/// handled separately).
+///
+/// A group that did not participate is `undefined` per §22.2.6.11
+/// step 14.g, and it reaches the callback as the immortal undefined
+/// sentinel — the same cell the `match` / `exec` array lanes already
+/// push for exactly this case. The empty Str this used to build made
+/// `"xz".replace(/x(y)?(z)/, (m, p1) => "<" + p1 + ">")` answer
+/// `<>` where every engine answers `<undefined>`, silently. (The
+/// `$1` expansion in the string-replacement lane is NOT this case:
+/// §22.2.6.11's GetSubstitution really does substitute "" for an
+/// undefined capture.)
+///
+/// Caller owns the returned Strs and must drop them; the sentinel
+/// carries `FLAG_STATIC_LITERAL`, so its drop is a no-op.
 ///
 /// # Safety
 ///
@@ -38,7 +50,7 @@ unsafe fn build_capture_strs(
         let gs = save_slot(saves, 2 * (i + 1));
         let ge = save_slot(saves, 2 * (i + 1) + 1);
         let p = if gs < 0 || ge < 0 {
-            unsafe { str_from_bytes(b"") }
+            unsafe { __torajs_str_undef() }
         } else {
             unsafe { str_from_bytes(&s[gs as usize..ge as usize]) }
         };
