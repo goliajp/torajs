@@ -59,9 +59,13 @@
 //!     present the answer is that object, which is exactly the case
 //!     the blanket version got wrong.
 //!
-//! Receiver certainty reads through a `const` binding as well as the
-//! receiver expression itself — `const p = Promise.resolve(1);
-//! p.then(…)` is the ordinary spelling. See [`certain_bindings`].
+//! Receiver certainty reads through a binding as well as the receiver
+//! expression itself — `const p = Promise.resolve(1); p.then(…)` is
+//! the ordinary spelling, and `var p = Promise.resolve(1)` is the one
+//! test262 actually writes. A `const` is proved by its initializer
+//! ([`certain_bindings`]); a mutable binding is proved by the program
+//! writing it exactly once
+//! ([`super::fnexpr_this_default_writes`]).
 //!
 //! A call to an `async function` is a certain promise too, which is
 //! how `asyncFn().then(…)` — the spelling most real code actually
@@ -89,18 +93,24 @@
 //! `__this` capture left by the time this looks.
 
 use super::fnexpr_this_default_slots::{HANDLER_METHODS, no_receiver_slots};
+use super::fnexpr_this_default_writes::SingleWrite;
 use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
 
-/// The `const` bindings whose initializer satisfies `pred` and whose
-/// name is declared nowhere else — the receiver-certainty bar, one
+/// The bindings whose value satisfies `pred` and whose name the
+/// program cannot have re-pointed — the receiver-certainty bar, one
 /// step wider than reading the receiver expression itself.
 ///
-/// `const` is what makes this sound: the binding cannot be reassigned,
-/// so proving the initializer proves every read. A `let` / `var` of
-/// the same name anywhere disqualifies the name outright (the census
-/// is name-keyed, not scope-keyed — deliberately coarse, since an
-/// over-refusal only costs a loud reject).
+/// Two proofs meet here, and they are proofs of the same thing. A
+/// `const`'s initializer settles it because the binding cannot be
+/// reassigned. A MUTABLE binding settles it when the whole program
+/// writes it exactly once and binds the name nowhere else, which is
+/// what `var map = new Map()` looks like after `desugar_var_hoist`
+/// splits it — see [`super::fnexpr_this_default_writes`], which
+/// carries the completeness argument for "writes it exactly once".
+///
+/// Both halves are name-keyed rather than scope-keyed — deliberately
+/// coarse, since an over-refusal only costs a loud reject.
 ///
 /// This is `fnexpr_this_recvs`'s array census generalized over the
 /// predicate, and it deliberately does NOT share code with it: that
@@ -109,12 +119,12 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// explicitly annotated `const xs: number[] = […]`) belongs here
 /// first, where a wrong admission is a body-local binding.
 fn certain_bindings(
-    stmts: &[Stmt],
-    exprs: &[Expr],
+    ast: &Ast,
+    single: &SingleWrite,
     pred: &dyn Fn(&[Expr], ExprId) -> bool,
 ) -> std::collections::HashSet<String> {
     let mut decls: Vec<(String, bool)> = Vec::new();
-    collect_const_decls(stmts, exprs, pred, false, &mut decls);
+    collect_const_decls(&ast.stmts, &ast.exprs, pred, false, &mut decls);
     // A name declared more than once anywhere is out, whichever
     // declaration would have qualified: the census is name-keyed and
     // an over-refusal only costs a loud reject.
@@ -124,6 +134,7 @@ fn certain_bindings(
             names.insert(name.clone());
         }
     }
+    names.extend(single.names(&ast.exprs, pred));
     names
 }
 
@@ -206,12 +217,13 @@ fn async_promise_fns(ast: &Ast) -> std::collections::HashSet<String> {
 /// link of a chain written across statements.
 fn certain_promise_bindings(
     ast: &Ast,
+    single: &SingleWrite,
     async_fns: &std::collections::HashSet<String>,
 ) -> std::collections::HashSet<String> {
     let mut bound: std::collections::HashSet<String> = std::collections::HashSet::new();
     loop {
         let snapshot = bound.clone();
-        let next = certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
+        let next = certain_bindings(ast, single, &|exprs, e| {
             promise_expr(exprs, e, &snapshot, async_fns)
         });
         if next == bound {
@@ -302,15 +314,16 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
 /// paired with the name of the FnDecl `lift_arrow_fns` made of it.
 fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
     let async_fns = async_promise_fns(ast);
+    let single = SingleWrite::scan(ast);
     let certain = Certain {
-        arrays: certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
+        arrays: certain_bindings(ast, &single, &|exprs, e| {
             matches!(&exprs[e.0 as usize], Expr::Array(_))
         }),
-        maps: certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
+        maps: certain_bindings(ast, &single, &|exprs, e| {
             matches!(&exprs[e.0 as usize], Expr::New { class_name, .. }
                 if class_name == "Map" || class_name == "WeakMap")
         }),
-        promises: certain_promise_bindings(ast, &async_fns),
+        promises: certain_promise_bindings(ast, &single, &async_fns),
         async_fns,
     };
     let mut targets: Vec<(ExprId, String)> = Vec::new();
