@@ -4,7 +4,9 @@
 //! them into the same `Ast` arena via `parser::parse_into` (so ExprIds
 //! stay coherent), and prepends each imported file's requested
 //! `export`-wrapped declarations to the main file's stmts. Imports are
-//! resolved breadth-first; the visited set keys on the canonicalized
+//! resolved breadth-first, spliced back in dependency post-order (ES
+//! §16.2.1.5 — a module body runs after every module it requests; see
+//! `modules/graph.rs`); the visited set keys on the canonicalized
 //! absolute path so cyclic imports terminate naturally.
 //!
 //! Subset boundary (P13 sub-step ship chain progressively lifts these):
@@ -92,6 +94,46 @@ type WorkItem = (
     Option<String>,
 );
 
+/// The modules the ENTRY file requests, in clause order, onto the
+/// worklist. Its own `import`s plus the target of any `export *`: a
+/// star re-export in the entry binds nothing anyone can see — nothing
+/// imports the entry — but §16.2.1.5 still evaluates the module it
+/// names, so it loads for its side effects.
+fn seed_entry_requests(
+    ast: &Ast,
+    base_dir: &Path,
+    work: &mut VecDeque<WorkItem>,
+) -> Result<(), String> {
+    for s in &ast.stmts {
+        match s {
+            Stmt::ImportDecl {
+                source,
+                named,
+                default,
+                namespace,
+            } => {
+                queue_nested_import(
+                    work,
+                    base_dir,
+                    source,
+                    named.clone(),
+                    default.clone(),
+                    namespace.clone(),
+                )?;
+            }
+            Stmt::ExportDecl {
+                star: Some(_),
+                source: Some(star_source),
+                ..
+            } => {
+                queue_nested_import(work, base_dir, star_source, Vec::new(), None, None)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
 /// at the front of `ast.stmts`. Single-file mode (no `ImportDecl`s) is
@@ -113,40 +155,22 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     let mut injected_names: HashMap<PathBuf, HashSet<String>> = HashMap::new();
     let mut closure_paths: HashSet<PathBuf> = HashSet::new();
     let mut work: VecDeque<WorkItem> = VecDeque::new();
+    // §16.2.1.5 — a module body runs AFTER every module it requests.
+    // The worklist is breadth-first, so pop order is the opposite; the
+    // graph is recorded here instead and the injected statements are
+    // spliced back in dependency post-order once the queue drains. An
+    // edge is whatever a walk pushed onto the worklist, so it needs no
+    // threading: [`ModuleGraph::edges_since`] reads the tail.
+    let mut graph = ModuleGraph::default();
 
-    for s in &ast.stmts {
-        match s {
-            Stmt::ImportDecl {
-                source,
-                named,
-                default,
-                namespace,
-            } => {
-                queue_nested_import(
-                    &mut work,
-                    base_dir,
-                    source,
-                    named.clone(),
-                    default.clone(),
-                    namespace.clone(),
-                )?;
-            }
-            // A star re-export in the ENTRY file binds nothing anyone
-            // can see — nothing imports the entry — but §16.2.1.5
-            // still evaluates the module it names, in the order the
-            // clause appears. Load it for its side effects.
-            Stmt::ExportDecl {
-                star: Some(_),
-                source: Some(star_source),
-                ..
-            } => {
-                queue_nested_import(&mut work, base_dir, star_source, Vec::new(), None, None)?;
-            }
-            _ => {}
-        }
-    }
+    seed_entry_requests(ast, base_dir, &mut work)?;
+    graph.roots = graph.edges_since(&work, 0);
 
-    let mut injections: Vec<Stmt> = Vec::new();
+    // Statements injected on behalf of one module, keyed by its path
+    // so the dependency-order splice below can reassemble them. A path
+    // may be walked more than once (a later request asking for a name
+    // the first visit did not want); the later visit appends.
+    let mut injections_by_path: HashMap<PathBuf, Vec<Stmt>> = HashMap::new();
     // Dynamic-import namespaces (`__dyn_ns_<n>`) don't materialize a
     // top-level `let` — a lifted async-fn body can't see main-local
     // bindings, so the resolver rewrites each `Ident(__dyn_ns_<n>)`
@@ -239,9 +263,15 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             own_exports: &own_exports,
         };
 
+        let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
+        let work_mark = work.len();
         for s in lib_section {
             walk_lib_stmt(&mut work, &target_dir, &mut injections, s, &mut req)?;
         }
+
+        let deps = graph.edges_since(&work, work_mark);
+        graph.record(target_path.clone(), deps);
+        injections_by_path.insert(target_path.clone(), injections);
 
         if let Some(alias) = &namespace_alias {
             let fields = ns_accums[alias].fields()[first_field..].to_vec();
@@ -249,6 +279,15 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         }
     }
 
+    let mut injections: Vec<Stmt> = Vec::new();
+    for path in graph.evaluation_order() {
+        if let Some(stmts) = injections_by_path.remove(&path) {
+            injections.extend(stmts);
+        }
+    }
+    // The synthetic `let ns = { … }` bindings only reference decls, so
+    // they land after every module's statements regardless of which
+    // module asked for them.
     materialize_pending_namespaces(
         ast,
         &mut injections,
@@ -300,8 +339,10 @@ fn clear_injected_spans(s: &mut Stmt) {
     }
 }
 
+mod graph;
 mod lib_walk;
 mod resolve_helpers;
+use graph::ModuleGraph;
 use lib_walk::{LibRequest, walk_lib_stmt};
 use resolve_helpers::{
     NsAccum, collect_bare_exports, collect_own_export_names, filter_request,
