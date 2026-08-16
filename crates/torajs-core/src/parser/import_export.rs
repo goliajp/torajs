@@ -322,6 +322,77 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// §16.2.2 WithClause — `with { type: "json" }` after a module
+    /// source. The attributes select how the host reads the module, so
+    /// nothing here can act on them until there is more than one module
+    /// type to select; what matters now is that the clause belongs to
+    /// the declaration. Read as a statement it became a `with` block,
+    /// and once `expect_decl_end` started guarding the tail it became a
+    /// SyntaxError — both wrong for source every engine accepts.
+    ///
+    /// A repeated AttributeKey is an early error (§16.2.2 static
+    /// semantics), and the key may be spelled as a string literal.
+    fn parse_with_clause(&mut self) -> Result<(), String> {
+        if !matches!(self.peek(), Token::Ident(s) if s == "with") {
+            return Ok(());
+        }
+        if !matches!(self.tokens[self.pos + 1].token, Token::LBrace) {
+            return Ok(());
+        }
+        self.pos += 2; // consume `with` `{`
+        let mut keys: Vec<String> = Vec::new();
+        while !matches!(self.peek(), Token::RBrace) {
+            let key = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                Token::String(s) => s.clone(),
+                t => {
+                    return Err(format!(
+                        "expected an import-attribute key, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            if keys.contains(&key) {
+                return Err(format!(
+                    "duplicate import attribute `{key}` at {}",
+                    self.at()
+                ));
+            }
+            keys.push(key);
+            if !matches!(self.peek(), Token::Colon) {
+                return Err(format!(
+                    "expected `:` after an import-attribute key, got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+            self.pos += 1;
+            if !matches!(self.peek(), Token::String(_)) {
+                return Err(format!(
+                    "an import-attribute value must be a string literal, got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+            self.pos += 1;
+            if matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if !matches!(self.peek(), Token::RBrace) {
+            return Err(format!(
+                "expected `}}` to close an import-attribute clause, got {:?} at {}",
+                self.peek(),
+                self.at()
+            ));
+        }
+        self.pos += 1;
+        Ok(())
+    }
+
     /// The string literal after a `from` keyword in a re-export clause.
     fn expect_module_source(&mut self) -> Result<String, String> {
         match self.peek() {
@@ -361,6 +432,7 @@ impl<'a> Parser<'a> {
     /// statements — the tolerant reading silently accepted source no
     /// engine does.
     fn expect_decl_end(&mut self, what: &str) -> Result<(), String> {
+        self.parse_with_clause()?;
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
             return Ok(());
