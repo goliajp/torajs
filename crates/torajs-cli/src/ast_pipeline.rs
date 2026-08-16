@@ -65,6 +65,14 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // §16.2.3 duplicate ExportedNames — same reason it sits here: the
+    // duplicate-export cases point their `from` clause at the file
+    // itself, so "import path not found" / "import error" would
+    // otherwise answer before the SyntaxError does.
+    if let Some(msg) = ast::triage_duplicate_exports(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     Ok(())
 }
 

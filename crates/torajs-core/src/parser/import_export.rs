@@ -8,6 +8,8 @@
 //!   `export default <expr>`
 //! - expect_ident_keyword — contextual-keyword matcher (`from` / `as`)
 //! - skip_optional_semi — trailing `;` tolerance
+//! - expect_decl_end — §16.2 declaration terminator (`;` / `}` / EOF /
+//!   a line break for ASI)
 //!
 //! parse_import + parse_export are called from parse_stmt
 //! (parse_stmt.rs sibling); the helpers are internal to this
@@ -39,7 +41,7 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
             self.pos += 1;
-            self.skip_optional_semi();
+            self.expect_decl_end("an import declaration")?;
             return Ok(Stmt::ImportDecl {
                 default,
                 namespace,
@@ -180,7 +182,7 @@ impl<'a> Parser<'a> {
             }
         };
         self.pos += 1;
-        self.skip_optional_semi();
+        self.expect_decl_end("an import declaration")?;
         Ok(Stmt::ImportDecl {
             default,
             namespace,
@@ -261,7 +263,7 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            self.skip_optional_semi();
+            self.expect_decl_end("an export declaration")?;
             return Ok(Stmt::ExportDecl {
                 inner: None,
                 named,
@@ -310,7 +312,7 @@ impl<'a> Parser<'a> {
         };
         self.expect_ident_keyword("from")?;
         let source = self.expect_module_source()?;
-        self.skip_optional_semi();
+        self.expect_decl_end("an export declaration")?;
         Ok(Stmt::ExportDecl {
             inner: None,
             named: Vec::new(),
@@ -349,5 +351,27 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
+    }
+
+    /// §16.2 — an ImportDeclaration / ExportDeclaration ends at its
+    /// module source. Whatever comes next has to be able to START a
+    /// statement, which means a `;`, a `}`, end of input, or a
+    /// LineTerminator for ASI to insert the semicolon itself. So
+    /// `export * from "m" null;` is a SyntaxError rather than two
+    /// statements — the tolerant reading silently accepted source no
+    /// engine does.
+    fn expect_decl_end(&mut self, what: &str) -> Result<(), String> {
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+            return Ok(());
+        }
+        if matches!(self.peek(), Token::Eof | Token::RBrace) || self.has_newline_before(self.pos) {
+            return Ok(());
+        }
+        Err(format!(
+            "expected `;` or a line break after {what}, got {:?} at {}",
+            self.peek(),
+            self.at()
+        ))
     }
 }
