@@ -684,6 +684,12 @@ pub struct Ast {
     /// typo reject does not apply to a member miss on one of these:
     /// it answers Undefined statically instead.
     pub namespace_bindings: std::collections::HashSet<String>,
+    /// True when the parser saw at least one dynamic `import(...)`
+    /// expression (any argument shape — §13.3.10 takes a full
+    /// AssignmentExpression). Gates the module resolver's speculative
+    /// candidate collection and `__torajs_dyn_import` dispatcher
+    /// synthesis, so a program without dynamic import pays nothing.
+    pub dyn_import_present: bool,
     /// Generator / async function-value EXPRESSIONS parsed for real
     /// (RFC 20260713-generator-fn-value-substrate). Keyed by the
     /// `Expr::ArrowFn` ExprId the parser emitted; `hoist_gen_fn_exprs`

@@ -17,14 +17,16 @@
 use super::*;
 
 impl<'a> Parser<'a> {
-    // P13-S5 — dynamic `import("./y")` expression. Restricted to a
-    // string-literal source (compile-time resolvable for AOT) so we
-    // can synthesize a `import * as __dyn_<n> from "./y"` decl in
-    // the same translation unit and rewrite the expression to
-    // `Promise.resolve(__dyn_<n>)`. The runtime path is identical
-    // to the static namespace-import form (P13-S2) — the only
-    // observable difference is the `Promise<…>` wrapper, matching
-    // `import()` per ES §13.3.10.
+    // P13-S5 — dynamic `import(<expr>)` expression. §13.3.10 takes a
+    // full AssignmentExpression; every call site — string literal or
+    // not — rewrites to `__torajs_dyn_import(<expr>)`, a dispatcher
+    // FnDecl the module resolver synthesizes. The resolver bakes a
+    // candidate table (source string literals that resolve to module
+    // files, webpack context-module style, narrowed to exact
+    // literals) via the same namespace-injection machinery the static
+    // `import * as ns` form uses; at runtime the dispatcher does
+    // ToString(specifier) — an abrupt completion rejects the promise
+    // per step 7 — then matches the baked table, and a miss rejects.
     pub(super) fn parse_primary_dyn_import(&mut self) -> Result<ExprId, String> {
         self.pos += 1;
         // import-defer proposal — `import.defer("...")` is the
@@ -57,19 +59,16 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1;
-        let source = match self.peek() {
-            Token::String(s) => {
-                let s = s.clone();
-                self.pos += 1;
-                s
-            }
-            t => {
-                return Err(format!(
-                    "dynamic `import` requires a string-literal source; got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        };
+        // `import()` with no argument — the AssignmentExpression is
+        // not optional (test262 syntax/invalid *-not-optional).
+        if matches!(self.peek(), Token::RParen) {
+            return Err(format!(
+                "dynamic `import` requires an argument (§13.3.10 \
+                 ImportCall's AssignmentExpression is not optional) at {}",
+                self.at()
+            ));
+        }
+        let spec = self.parse_expr()?;
         // §13.3.10 ImportCall's optional second argument (import
         // options). Parsed and DISCARDED — the eager AOT subset
         // resolves the module at compile time, so options cannot
@@ -93,41 +92,13 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1;
-        let n = self.dyn_import_counter;
-        self.dyn_import_counter += 1;
-        let ns_name = format!("__dyn_ns_{n}");
-        // Synthesize: `import * as <ns_name> from <source>`. The K.2
-        // resolver injects `source`'s exports as top-level decls and
-        // rewrites the `Ident(<ns_name>)` below into the namespace
-        // object literal IN PLACE (`inline_dyn_ns_objlits`) — no
-        // top-level `let`, so the expression works inside (lifted)
-        // async fn bodies where a main-local binding is invisible.
-        self.synth_classes.push(Stmt::ImportDecl {
-            default: None,
-            namespace: Some(ns_name.clone()),
-            named: Vec::new(),
-            source,
-        });
-        // The expression is `Promise.resolve(<ns>)` — a REAL Promise
-        // per §13.3.10, so both consumer shapes work: `await
-        // import(...)` unwraps it and `import(...).then(cb)` chains
-        // (rotation 288; the bare-namespace form this replaces made
-        // `await` an identity pass but left `.then()` a typecheck
-        // error — the top dynamic-import signature after the
-        // statement-position dispatch fix).
-        let ns_ident = self.ast.add_expr(Expr::Ident(ns_name));
-        let promise_ident = self.ast.add_expr(Expr::Ident("Promise".to_string()));
-        // §13.3.10 builds the promise through the intrinsic, not
-        // through whatever the name `Promise` resolves to here, so no
-        // `with` object may supply this one.
-        self.ast.synth_global_refs.insert(promise_ident);
-        let resolve = self.ast.add_expr(Expr::Member {
-            obj: promise_ident,
-            name: "resolve".to_string(),
-        });
+        self.ast.dyn_import_present = true;
+        let callee = self
+            .ast
+            .add_expr(Expr::Ident("__torajs_dyn_import".to_string()));
         return Ok(self.ast.add_expr(Expr::Call {
-            callee: resolve,
-            args: vec![ns_ident],
+            callee,
+            args: vec![spec],
         }));
     }
 

@@ -179,6 +179,9 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     let mut graph = ModuleGraph::default();
 
     seed_entry_requests(ast, base_dir, &mut work)?;
+    // §13.3.10 dynamic import — candidates queue before `graph.roots`
+    // records so their injections ride the dependency-order splice.
+    let dyn_table = dyn_import::seed_candidates(ast, base_dir, &mut work);
     graph.roots = graph.edges_since(&work, 0);
 
     // Statements injected on behalf of one module, keyed by its path
@@ -327,6 +330,10 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             injections.extend(stmts);
         }
     }
+    // Dispatcher before `inline_dyn_ns_objlits` — see `synth_dispatcher`.
+    if ast.dyn_import_present {
+        injections.push(dyn_import::synth_dispatcher(ast, &dyn_table));
+    }
     // The synthetic `let ns = { … }` bindings only reference decls, so
     // they land after every module's statements regardless of which
     // module asked for them.
@@ -339,22 +346,27 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     );
     inline_dyn_ns_objlits(ast, &dyn_ns_inline);
 
-    if !injections.is_empty() {
-        let mut new_stmts = injections;
-        // An injected lib decl's recorded span indexes the LIB
-        // file's text, but every span consumer downstream
-        // (`intern_fn_source` / the class-method registry) slices
-        // the MAIN file's `ast.source`: out of bounds when the main
-        // file is shorter, silently wrong toString text otherwise.
-        // Reset to the (0,0) "no user source" sentinel — toString
-        // answers the native form.
-        for s in &mut new_stmts {
-            clear_injected_spans(s);
-        }
-        new_stmts.extend(std::mem::take(&mut ast.stmts));
-        ast.stmts = new_stmts;
-    }
+    splice_injections(ast, injections);
     Ok(closure_files)
+}
+
+/// Prepend the resolver's injected statements to the entry's own.
+/// An injected lib decl's recorded span indexes the LIB file's text,
+/// but every span consumer downstream (`intern_fn_source` / the
+/// class-method registry) slices the MAIN file's `ast.source`: out of
+/// bounds when the main file is shorter, silently wrong toString text
+/// otherwise. Reset to the (0,0) "no user source" sentinel — toString
+/// answers the native form.
+fn splice_injections(ast: &mut Ast, injections: Vec<Stmt>) {
+    if injections.is_empty() {
+        return;
+    }
+    let mut new_stmts = injections;
+    for s in &mut new_stmts {
+        clear_injected_spans(s);
+    }
+    new_stmts.extend(std::mem::take(&mut ast.stmts));
+    ast.stmts = new_stmts;
 }
 
 /// See the injection-splice comment in [`resolve_imports`] — recurse
@@ -381,6 +393,7 @@ fn clear_injected_spans(s: &mut Stmt) {
     }
 }
 
+mod dyn_import;
 mod graph;
 mod lib_walk;
 mod resolve_helpers;

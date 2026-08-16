@@ -163,10 +163,6 @@ pub fn parse_into_super_prop(
         synth_classes_local: Vec::new(),
         stmt_depth: 0,
         class_value_aliases: std::collections::HashMap::new(),
-        // Seeded like `desugar_id`: a lib file's own dynamic imports
-        // must mint `__dyn_ns_<n>` names that can't collide with the
-        // main file's (the resolver rewrites these BY NAME).
-        dyn_import_counter: id_offset,
         yield_hoist_buf: Vec::new(),
         yield_hoist_allowed: true,
         in_formal_params: false,
@@ -411,13 +407,6 @@ struct Parser<'a> {
     /// `parse_program`, whose own splice keeps top-level behavior
     /// byte-identical, so the wrapper only wraps when deeper.
     stmt_depth: u32,
-    /// P13-S5 — counter for synthetic namespace bindings minted by
-    /// `parse_primary` when it encounters a dynamic `import("./y")`
-    /// expression. Each occurrence prepends a synthetic
-    /// `import * as __dyn_<n> from "./y"` to the stmt stream (via
-    /// `synth_classes`) and rewrites the expression to
-    /// `Promise.resolve(__dyn_<n>)`.
-    dyn_import_counter: u32,
 }
 
 impl Parser<'_> {

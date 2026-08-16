@@ -127,7 +127,6 @@ impl<'a> Parser<'a> {
                         // never adds aliases itself (only stmt-level
                         // const-decls register).
                         class_value_aliases: self.class_value_aliases.clone(),
-                        dyn_import_counter: self.dyn_import_counter,
                         // `${yield x}` is legal in a generator —
                         // hoisted YieldIntos flow back to the outer
                         // buffer below, position marker rides along.
@@ -161,9 +160,6 @@ impl<'a> Parser<'a> {
                     // Expression-position yields hoisted inside the
                     // interpolation drain at the ENCLOSING statement.
                     self.yield_hoist_buf.append(&mut sub.yield_hoist_buf);
-                    // P13-S5 — propagate dynamic-import counter so
-                    // the next minted name doesn't collide.
-                    self.dyn_import_counter = sub.dyn_import_counter;
                     // §13.2.8.5 — a substitution stringifies with the
                     // STRING hint (ToString → toString before
                     // valueOf). The desugared `+` chain can't carry
