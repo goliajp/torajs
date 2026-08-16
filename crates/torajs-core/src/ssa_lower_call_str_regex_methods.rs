@@ -96,7 +96,23 @@ pub(crate) fn try_lower(
                     Some(crate::check::Type::String) | Some(crate::check::Type::Function(..))
                 )))
         && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
-    if !arg0_is_regex && !coerce_match_lane && !replace_symbol_lane {
+    // The same `any` slot on the replace family. §22.1.3.19 step 2
+    // hands a RegExp searchValue to its own `@@replace`; the typed
+    // lane instead ToString'd it and searched for its source text, so
+    // `"abc".replace(re, "Y")` answered "abc". A checker-String
+    // replacement is the shape the runtime kernel can serve; a
+    // function replacement keeps today's route (loud), and the
+    // one-argument spelling keeps the member table's.
+    let replace_any_lane = matches!(name.as_str(), "replace" | "replaceAll")
+        && !arg0_is_regex
+        && !replace_symbol_lane
+        && arg0_is_any
+        && args.len() >= 2
+        && matches!(
+            ctx.expr_types.get(&args[1]),
+            Some(crate::check::Type::String)
+        );
+    if !arg0_is_regex && !coerce_match_lane && !replace_symbol_lane && !replace_any_lane {
         return None;
     }
     let raw_recv = ctx.lower_expr(obj);
@@ -161,6 +177,38 @@ pub(crate) fn try_lower(
         }
         return Some(result);
     }
+    if replace_any_lane {
+        let pat_op = ctx.lower_expr(args[0]);
+        let repl_op = ctx.lower_expr(args[1]);
+        // §22.1.3.19 silently ignores args past (pattern, replacement)
+        // — eval-then-discard, the S321 idiom.
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        let all = Operand::ConstI64(i64::from(name == "replaceAll"));
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.str_replace_any_pattern,
+                vec![recv_op, pat_op, repl_op, all],
+            ),
+            Type::Str,
+            None,
+        );
+        ctx.release_owned_temp(args[1], &repl_op);
+        // Both a `ToString(searchValue)` hook and replaceAll's step
+        // 2.b non-global rejection record a pending throw.
+        ctx.emit_throw_check(None);
+        if recv_is_view {
+            ctx.emit_drop_value(recv_op, Type::Str);
+        }
+        return Some(Operand::Value(v));
+    }
+    // `Some(pattern)` when the RegExp came out of the any-slot
+    // kernel, whose result is BORROWED whenever the slot already held
+    // one — so its release is the conditional sibling, not a plain
+    // drop.
+    let mut coerced_from: Option<Operand> = None;
     let (re_op, minted_regex) = if coerce_match_lane {
         // ES §22.1.3.{11,12} step 4.c → `RegExpCreate(regexp, F)`.
         // RegExpCreate → RegExpInitialize (§22.2.3.2):
@@ -172,40 +220,67 @@ pub(crate) fn try_lower(
         // spec-covered set). matchAll gets `"g"` flag per step 4.c.
         let raw_arg = ctx.lower_expr(args[0]);
         let arg_ty = ctx.operand_ty(&raw_arg);
-        let arg_is_undef = matches!(
-            ctx.expr_types.get(&args[0]),
-            Some(crate::check::Type::Undefined)
-        ) && matches!(raw_arg, Operand::ConstPtrNull);
-        let pat_op = if arg_is_undef {
-            // Drop the ConstPtrNull; it's a no-op operand but
-            // release_owned_temp is defensive across arg shapes.
-            let empty_lit = ctx.intern_string_literal("");
-            Operand::Value(empty_lit)
-        } else {
-            crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty, false)
-        };
         let flags_bytes = if name == "matchAll" { "g" } else { "" };
-        let flags_v = ctx.intern_string_literal(flags_bytes);
-        let re_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.regex_compile,
-                vec![pat_op.clone(), Operand::Value(flags_v)],
-            ),
-            Type::RegExp,
-            None,
-        );
-        // Drop the coerced Str temp for non-undef path. The undef
-        // shortcut passed an interned static-lifetime Str literal
-        // (`intern_string_literal`) which the runtime does not
-        // rc-tracked — no drop needed. For every non-Str arg type,
-        // `emit_to_string` returns a fresh owned Str; the Str-arg
-        // path emits rc_inc via the identity arm so unconditional
-        // drop is correct on that fresh/borrowed ref.
-        if !arg_is_undef {
-            ctx.emit_drop_value(pat_op, Type::Str);
+        if arg_ty == Type::Any {
+            // A pattern that arrives in an `any` slot may already BE
+            // a RegExp — `var re = /b/` is an `any` binding once
+            // `desugar_var_hoist` has split it, and so is any
+            // parameter typed `any`. Step 3 hands such a value
+            // straight to its own `@@match` / `@@search`, so
+            // ToString-ing it here compiled a pattern out of the
+            // regex's own source text: `"abc".match(re)` answered
+            // null and `"abc".search(re)` answered -1, silently. The
+            // runtime kernel makes the same three-way choice the
+            // `split` separator already makes, and it owns nothing
+            // when the slot already held a RegExp — hence the
+            // conditional release below.
+            let flags_v = ctx.intern_string_literal(flags_bytes);
+            let re_v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.regexp_from_any,
+                    vec![raw_arg, Operand::Value(flags_v)],
+                ),
+                Type::RegExp,
+                None,
+            );
+            coerced_from = Some(raw_arg);
+            (Operand::Value(re_v), true)
+        } else {
+            let arg_is_undef = matches!(
+                ctx.expr_types.get(&args[0]),
+                Some(crate::check::Type::Undefined)
+            ) && matches!(raw_arg, Operand::ConstPtrNull);
+            let pat_op = if arg_is_undef {
+                // Drop the ConstPtrNull; it's a no-op operand but
+                // release_owned_temp is defensive across arg shapes.
+                let empty_lit = ctx.intern_string_literal("");
+                Operand::Value(empty_lit)
+            } else {
+                crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty, false)
+            };
+            let flags_v = ctx.intern_string_literal(flags_bytes);
+            let re_v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.regex_compile,
+                    vec![pat_op.clone(), Operand::Value(flags_v)],
+                ),
+                Type::RegExp,
+                None,
+            );
+            // Drop the coerced Str temp for non-undef path. The undef
+            // shortcut passed an interned static-lifetime Str literal
+            // (`intern_string_literal`) which the runtime does not
+            // rc-tracked — no drop needed. For every non-Str arg type,
+            // `emit_to_string` returns a fresh owned Str; the Str-arg
+            // path emits rc_inc via the identity arm so unconditional
+            // drop is correct on that fresh/borrowed ref.
+            if !arg_is_undef {
+                ctx.emit_drop_value(pat_op, Type::Str);
+            }
+            (Operand::Value(re_v), true)
         }
-        (Operand::Value(re_v), true)
     } else {
         (ctx.lower_expr(args[0]), false)
     };
@@ -219,10 +294,12 @@ pub(crate) fn try_lower(
         _ => unreachable!(),
     };
     if minted_regex {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.regex_drop, vec![re_op]),
-        );
+        let (fid, drop_args) = match coerced_from {
+            Some(av) => (ctx.intrinsics.regexp_drop_if_coerced, vec![av, re_op]),
+            None => (ctx.intrinsics.regex_drop, vec![re_op]),
+        };
+        ctx.f
+            .append_void(ctx.cur_block, InstKind::Call(fid, drop_args));
     }
     if recv_is_view {
         ctx.emit_drop_value(recv_op, Type::Str);

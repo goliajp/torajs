@@ -383,6 +383,7 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
     }
 }
 
+mod any_pattern;
 mod ext;
 mod regex_gate;
 mod split;

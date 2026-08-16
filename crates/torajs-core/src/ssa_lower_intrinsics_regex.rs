@@ -54,6 +54,18 @@ pub(crate) struct RegexIds {
     /// runs ToString (rotation 267; the RegExp call→construct
     /// rewrite exposed non-Str patterns).
     pub regex_compile_any: FuncId,
+    /// §22.1.3.{11,12,20} step 3 for a typed-receiver call whose
+    /// pattern arrived in an `any` slot — a real RegExp cell passes
+    /// through borrowed, everything else takes step 4's
+    /// `RegExpCreate(ToString(P), F)`. Paired with
+    /// [`RegexIds::regexp_drop_if_coerced`], which releases only what
+    /// it minted.
+    pub regexp_from_any: FuncId,
+    pub regexp_drop_if_coerced: FuncId,
+    /// §22.1.3.{19,20} step 2 with the searchValue in an `any` slot —
+    /// a RegExp cell rides the regex kernel, everything else is a
+    /// literal search over `ToString(searchValue)`.
+    pub str_replace_any_pattern: FuncId,
     pub regex_compile_from_static_dfa: FuncId,
     pub regex_test: FuncId,
     pub regex_drop: FuncId,
@@ -114,6 +126,27 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_regex_compile_any",
             &[Type::Any, Type::Any],
             Type::RegExp,
+        ),
+        regexp_from_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_regexp_from_any",
+            &[Type::Any, Type::Str],
+            Type::RegExp,
+        ),
+        regexp_drop_if_coerced: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_regexp_drop_if_coerced",
+            &[Type::Any, Type::RegExp],
+            Type::Void,
+        ),
+        str_replace_any_pattern: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_replace_any_pattern",
+            &[Type::Str, Type::Any, Type::Str, Type::I64],
+            Type::Str,
         ),
         regex_compile_from_static_dfa: declare_intrinsic(
             module,
