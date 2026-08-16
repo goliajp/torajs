@@ -157,10 +157,21 @@ pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
 /// the two slots cannot drift (and the interned layout unifies with
 /// an equivalent written annotation). `None` — keeping the binding
 /// main-local — for any field that isn't a Number/String/Bool
-/// literal, a computed-key / symbol / spread / dunder sentinel name,
-/// a non-identifier name (the spelling's `:` / `|` separators must
-/// stay unambiguous), or an empty literal (`{}` is the dynobj-family
-/// idiom, left to the degrade passes).
+/// literal or a lifted arrow, a computed-key / symbol / spread /
+/// dunder sentinel name, a non-identifier name (the spelling's `:` /
+/// `|` separators must stay unambiguous), or an empty literal (`{}`
+/// is the dynobj-family idiom, left to the degrade passes).
+///
+/// A method-valued field carries its lifted fn's `__fn(...)->T`
+/// spelling — the one a written `{ f: (x: number) => number }`
+/// annotation resolves through too, and the `|` between its params
+/// sits inside parens where `split_top_pipe`'s depth counter already
+/// leaves it alone. Without this arm, ONE closure field kept the
+/// whole binding main-local, so a named fn reading any field of it
+/// got "unknown identifier" — which is what made `const thenable =
+/// { then(res) {…} }` unreachable from every function in the file.
+/// Variadic sigs stay out for the same reason the sibling arms keep
+/// them out: their boxed-dual routing is a fn-local table.
 pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
     let Expr::ObjectLit { fields } = ast.get_expr(init) else {
         return None;
@@ -180,16 +191,29 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
         {
             return None;
         }
-        let ann = match ast.get_expr(*val) {
+        let ann: String = match ast.get_expr(*val) {
             Expr::Number(n) => {
                 if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 {
-                    "f64"
+                    "f64".to_string()
                 } else {
-                    "number"
+                    "number".to_string()
                 }
             }
-            Expr::String(_) => "string",
-            Expr::Bool(_) => "boolean",
+            Expr::String(_) => "string".to_string(),
+            Expr::Bool(_) => "boolean".to_string(),
+            Expr::Closure { fn_name, .. } => {
+                let canon = lifted_closure_fn_canon(ast, fn_name)?;
+                if canon.contains("__rest(") {
+                    return None;
+                }
+                // A struct FIELD holding a fn is Closure-repr, not the
+                // direct-dispatch FnSig a `__fn(` spelling names — the
+                // same retag the parser applies where it mints
+                // `__inlobj(` from written syntax. Leaving it untagged
+                // resolves the field to a bare code pointer and calling
+                // it through an env-first indirect call is a SIGBUS.
+                crate::ast::retag_field_fn_ann(&canon)
+            }
             _ => return None,
         };
         parts.push(format!("{fname}:{ann}"));
