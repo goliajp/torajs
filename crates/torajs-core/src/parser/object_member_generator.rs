@@ -37,6 +37,43 @@ use crate::ast::{Expr, ExprId, Param, Stmt};
 use crate::lexer::Token;
 
 impl<'a> Parser<'a> {
+    /// `{ *[<expr>]() {} }` computed generator-method key — consume
+    /// the optional `async`, the `*`, and the `[`, read the key, and
+    /// mint the same `__computed_N__` sentinel + `objlit_computed_keys`
+    /// numbering the ordinary computed-property arm uses (after the
+    /// key, before the body, so the counters agree). From the `[` the
+    /// shape is unambiguous — nothing else in an object literal starts
+    /// `*[` — so a malformed remainder is an error rather than a
+    /// decline, which would rewind into a caller that has no path for
+    /// it either.
+    fn parse_computed_generator_key(
+        &mut self,
+        star_off: usize,
+    ) -> Result<(String, ExprId), String> {
+        self.pos += star_off + 2;
+        let key_expr = self.parse_assign()?;
+        match self.peek() {
+            Token::RBracket => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `]` after computed generator-method key, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        if !matches!(self.peek(), Token::LParen) {
+            return Err(format!(
+                "expected `(` after computed generator-method key, got {:?} at {}",
+                self.peek(),
+                self.at()
+            ));
+        }
+        Ok((
+            format!("__computed_{}__", self.ast.objlit_computed_keys.len()),
+            key_expr,
+        ))
+    }
+
     /// Try to parse a `*<Ident>(...) {...}` generator method shorthand.
     /// `Ok(Some((field_name, value)))` when the lookahead matched and
     /// the method was consumed whole; `Ok(None)` when the leading token
@@ -75,37 +112,8 @@ impl<'a> Parser<'a> {
         // leading `[`. Neither arm could take this alone, which is why
         // it used to reach neither.
         let (method_name, computed_key) = if matches!(t1.token, Token::LBracket) {
-            // Consume the optional `async`, the `*`, and the `[`. From
-            // here the shape is unambiguous — nothing else in an object
-            // literal starts `*[` — so a malformed remainder is an
-            // error rather than a decline, which would rewind into a
-            // caller that has no path for it either.
-            self.pos += star_off + 2;
-            let key_expr = self.parse_assign()?;
-            match self.peek() {
-                Token::RBracket => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `]` after computed generator-method key, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            if !matches!(self.peek(), Token::LParen) {
-                return Err(format!(
-                    "expected `(` after computed generator-method key, got {:?} at {}",
-                    self.peek(),
-                    self.at()
-                ));
-            }
-            // The same `__computed_N__` sentinel + `objlit_computed_keys`
-            // side table the ordinary computed-property arm mints, at
-            // the same point in the parse (after the key, before the
-            // body) so the numbering agrees with it.
-            (
-                format!("__computed_{}__", self.ast.objlit_computed_keys.len()),
-                Some(key_expr),
-            )
+            let (name, key) = self.parse_computed_generator_key(star_off)?;
+            (name, Some(key))
         } else {
             // §12.7.6 IdentifierName — reserved words are valid
             // property names, generator methods included
