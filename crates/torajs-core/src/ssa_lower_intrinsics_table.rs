@@ -175,6 +175,7 @@ pub(crate) fn build(
         regexp_from_any: init_b.regex.regexp_from_any,
         regexp_drop_if_coerced: init_b.regex.regexp_drop_if_coerced,
         str_replace_any_pattern: init_b.regex.str_replace_any_pattern,
+        str_replace_any_pattern_fn: init_b.regex.str_replace_any_pattern_fn,
         regex_compile_from_static_dfa: init_b.regex.regex_compile_from_static_dfa,
         regex_test: init_b.regex.regex_test,
         regex_get_source: init_b.regex.regex_get_source,

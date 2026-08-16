@@ -53,6 +53,37 @@ unsafe extern "C" {
         re: *const c_void,
         repl: *const c_void,
     ) -> *mut c_void;
+    /// torajs-regex — the callback replacer over a RegExp pattern
+    /// (`n_caps` capture Strs built per match; `has_off_input` adds
+    /// the `(position, string)` tail).
+    fn __torajs_str_replace_regex_fn(
+        s: *const c_void,
+        re: *const c_void,
+        closure: *mut c_void,
+        n_caps: i64,
+        has_off_input: i64,
+    ) -> *mut c_void;
+    /// torajs-regex — the replaceAll twin.
+    fn __torajs_str_replace_all_regex_fn(
+        s: *const c_void,
+        re: *const c_void,
+        closure: *mut c_void,
+        n_caps: i64,
+        has_off_input: i64,
+    ) -> *mut c_void;
+    /// torajs-str — the callback replacer over a literal needle,
+    /// which has no captures and so rides the boxed entry.
+    fn __torajs_str_replace_fn(
+        s: *const c_void,
+        needle: *const c_void,
+        closure: *mut c_void,
+    ) -> *mut c_void;
+    /// torajs-str — the replaceAll twin.
+    fn __torajs_str_replace_all_fn(
+        s: *const c_void,
+        needle: *const c_void,
+        closure: *mut c_void,
+    ) -> *mut c_void;
 }
 
 /// `g` bit mirror (torajs-regex parser / `member_props_regexp.rs`).
@@ -98,6 +129,65 @@ pub unsafe extern "C" fn __torajs_regexp_from_any(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regexp_drop_if_coerced(av: AnyValue, re: *mut c_void) {
     unsafe { regexp_drop_if_coerced(av, re) }
+}
+
+/// The callback-replacer twin of [`__torajs_str_replace_any_pattern`]
+/// — same step-2 dispatch, with the replaceValue a function instead
+/// of a string.
+///
+/// `n_caps` is what the CALLBACK declares, not what the pattern has:
+/// the caller cannot count groups in a pattern it only knows as
+/// `any`, and the callback reads exactly its own declared slots
+/// anyway. A slot past the pattern's real group count reads back as
+/// the non-participating sentinel, which is the same `undefined` the
+/// spec would hand it. The `(position, string)` tail is excluded by
+/// the caller for the one shape that would go wrong — naming it pins
+/// every position, and only the pattern knows how many precede it.
+///
+/// A literal needle has no captures at all, so that leg rides the
+/// boxed entry (§22.1.3.18 step 10's `«matched, position, string»`)
+/// exactly as the typed literal lane already does.
+///
+/// # Safety
+/// `s` is a live Str cell; `pat_av` carries a valid AnyValue bit
+/// pattern; `closure` is a live closure heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_replace_any_pattern_fn(
+    s: *const c_void,
+    pat_av: AnyValue,
+    closure: *mut c_void,
+    n_caps: i64,
+    has_off_input: i64,
+    all: i64,
+) -> *mut c_void {
+    unsafe {
+        if let Some(re) = regexp_cell(pat_av) {
+            if all != 0 && __torajs_regex_has_flag(re, RE_FLAG_G) == 0 {
+                __torajs_throw_type_error(
+                    c"String.prototype.replaceAll called with a non-global RegExp argument"
+                        .as_ptr(),
+                );
+                return core::ptr::null_mut();
+            }
+            return if all != 0 {
+                __torajs_str_replace_all_regex_fn(s, re, closure, n_caps, has_off_input)
+            } else {
+                __torajs_str_replace_regex_fn(s, re, closure, n_caps, has_off_input)
+            };
+        }
+        let needle = __torajs_anyv_to_str(pat_av) as *const c_void;
+        if __torajs_throw_check() != 0 {
+            __torajs_str_drop(needle as *mut c_void);
+            return core::ptr::null_mut();
+        }
+        let out = if all != 0 {
+            __torajs_str_replace_all_fn(s, needle, closure)
+        } else {
+            __torajs_str_replace_fn(s, needle, closure)
+        };
+        __torajs_str_drop(needle as *mut c_void);
+        out
+    }
 }
 
 /// §22.1.3.19 step 2 / §22.1.3.20 step 2 for a typed receiver whose

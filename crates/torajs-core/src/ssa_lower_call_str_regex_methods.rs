@@ -112,7 +112,32 @@ pub(crate) fn try_lower(
             ctx.expr_types.get(&args[1]),
             Some(crate::check::Type::String)
         );
-    if !arg0_is_regex && !coerce_match_lane && !replace_symbol_lane && !replace_any_lane {
+    // Same lane with a FUNCTION replaceValue. How many capture
+    // arguments to hand it is the callback's own declared count —
+    // a pattern known only as `any` cannot be counted at compile
+    // time, and a slot past the pattern's real group count reads
+    // back as the non-participating sentinel, which is the
+    // `undefined` the spec would pass there anyway.
+    //
+    // Every declared parameter has to be a plain `string` for that to
+    // hold. A callback naming §22.2.6.11's `(position, string)` tail
+    // pins every argument before it, and only the pattern knows how
+    // many captures precede; a promoted `function () { …this… }`
+    // carries a receiver parameter the count would misread. Both keep
+    // today's loud route.
+    let replace_any_fn_lane = matches!(name.as_str(), "replace" | "replaceAll")
+        && !arg0_is_regex
+        && !replace_symbol_lane
+        && arg0_is_any
+        && args.len() >= 2
+        && matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Function(ps, _))
+            if ps.iter().all(|t| *t == crate::check::Type::String));
+    if !arg0_is_regex
+        && !coerce_match_lane
+        && !replace_symbol_lane
+        && !replace_any_lane
+        && !replace_any_fn_lane
+    {
         return None;
     }
     let raw_recv = ctx.lower_expr(obj);
@@ -176,6 +201,41 @@ pub(crate) fn try_lower(
             ctx.emit_drop_value(recv_op, Type::Str);
         }
         return Some(result);
+    }
+    if replace_any_fn_lane {
+        let pat_op = ctx.lower_expr(args[0]);
+        let cb_op = ctx.lower_expr(args[1]);
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        // The callback's own arity, minus the matched string.
+        let n_caps = match ctx.operand_ty(&cb_op) {
+            Type::Closure(sig_id) => ctx.fn_sigs[sig_id.0 as usize].0.len().saturating_sub(1),
+            _ => 0,
+        };
+        let all = Operand::ConstI64(i64::from(name == "replaceAll"));
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.str_replace_any_pattern_fn,
+                vec![
+                    recv_op,
+                    pat_op,
+                    cb_op,
+                    Operand::ConstI64(n_caps as i64),
+                    Operand::ConstI64(0),
+                    all,
+                ],
+            ),
+            Type::Str,
+            None,
+        );
+        ctx.release_owned_temp(args[1], &cb_op);
+        ctx.emit_throw_check(None);
+        if recv_is_view {
+            ctx.emit_drop_value(recv_op, Type::Str);
+        }
+        return Some(Operand::Value(v));
     }
     if replace_any_lane {
         let pat_op = ctx.lower_expr(args[0]);
