@@ -189,10 +189,20 @@ fn detect_promise_returning_call(ctx: &LowerCtx<'_>, callee: ExprId) -> bool {
                         )
                 )
     );
+    // A `.then` result is a built-in Promise only when the receiver
+    // itself is one. Through an `any` receiver the call is served by
+    // the runtime's any-lane bridge, whose result cell stamps
+    // REPR_ANY and stores a BOXED settled value — reading it with the
+    // typed `get_value` hands back the box's raw bits (an i64 10 read
+    // as -562949953421302). Mirrors the lowering side's
+    // `src_is_builtin_promise` gate, which already declines an `any`
+    // source; before this the two predicates disagreed and `await
+    // anyPromise.then(cb)` took the typed read.
     let then_chain = matches!(
         ctx.ast.get_expr(callee),
-        Expr::Member { name: m_name, .. }
-            if m_name == "then" || m_name == "catch" || m_name == "finally"
+        Expr::Member { obj: src_id, name: m_name }
+            if (m_name == "then" || m_name == "catch" || m_name == "finally")
+                && detect_obj_is_builtin_promise(ctx, *src_id)
     );
     let fn_returns_promise = if let Expr::Ident(fn_name) = ctx.ast.get_expr(callee) {
         ctx.fn_table
