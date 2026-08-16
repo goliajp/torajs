@@ -143,9 +143,11 @@ impl<'a> LowerCtx<'a> {
     /// the cell's data pointer, not the cell). Use at element-walk
     /// sites that may operate on a shifted array (Index, sort,
     /// map/filter/reduce closures, JSON.stringify, console.log).
-    /// `stride_log2` is 3 for regular Array<T> (8-byte slots) and 4
-    /// for Array<Any> (16-byte tagged slots); head is always counted
-    /// in 8-byte units (matching the C-side macro contract).
+    /// `stride_log2` is 3 for every array shape in the runtime today
+    /// — an Array<Any> slot is a single 8-byte NaN-boxed AnyValue,
+    /// not the 16-byte (tag, value) pair it once was. The non-3
+    /// scaling below survives for a future wider slot; passing 4 for
+    /// Array<Any> is a layout error, and one that hides at index 0.
     ///
     /// 11-A1: `is_non_deque = true` ⇒ skip head load + lshr + shl +
     /// extra add chain. Caller proves safety via
@@ -172,8 +174,9 @@ impl<'a> LowerCtx<'a> {
         let head_scaled = if stride_log2 == 3 {
             head_x8
         } else {
-            // Array<Any>: head is in 8-byte units but slot stride is 16,
-            // so the byte distance for `head` slots is head*16 = head_x8*2.
+            // Wider-than-8 slots: head is counted in 8-byte units, so
+            // the byte distance for `head` slots is head_x8 scaled by
+            // the extra stride bits. No caller takes this branch today.
             let h2 = self.f.append_inst(
                 self.cur_block,
                 InstKind::BinOp(SsaBinOp::Shl, head_x8, Operand::ConstI64(stride_log2 - 3)),

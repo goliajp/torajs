@@ -91,19 +91,16 @@ pub(crate) fn lower_map_from_arr(
         Type::Arr(inner_id),
         None,
     );
-    let inner_stride_log2 = if inner_elem_ty == Type::Any { 4 } else { 3 };
-    let (k_base, k_off) = ctx.emit_arr_slot_byte_offset(
-        Operand::Value(inner_arr),
-        Operand::ConstI64(0),
-        inner_stride_log2,
-        false,
-    );
-    let (v_base, v_off) = ctx.emit_arr_slot_byte_offset(
-        Operand::Value(inner_arr),
-        Operand::ConstI64(1),
-        inner_stride_log2,
-        false,
-    );
+    // An Array<Any> slot is one 8-byte NaN-boxed AnyValue, same
+    // stride as every other array (`torajs-arr` any.rs). This site
+    // used to scale Any slots by 16 — the legacy (tag, value) pair
+    // layout — which is invisible at index 0 and put the value read
+    // of `new Map(pairs)` one slot past the pair, so every mixed-type
+    // entry landed with a null value.
+    let (k_base, k_off) =
+        ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::ConstI64(0), 3, false);
+    let (v_base, v_off) =
+        ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::ConstI64(1), 3, false);
     let cur_block = ctx.cur_block;
     let k_loaded = ctx.f.append_inst(
         cur_block,
