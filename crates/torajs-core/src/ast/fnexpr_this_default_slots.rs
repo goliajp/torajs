@@ -97,6 +97,16 @@ pub(super) fn no_receiver_slots(
     {
         return args.iter().skip(1).take(1).copied().collect();
     }
+    // proposal-upsert `Map.prototype.getOrInsertComputed` /
+    // `WeakMap.prototype.getOrInsertComputed` — the computed branch is
+    // `Call(callbackfn, undefined, «key»)`, one argument and no
+    // thisArg anywhere in the signature. The receiver has to be a
+    // certain Map / WeakMap for the same reason the promise handlers
+    // need a certain promise: a user object with a method of that name
+    // decides for itself how it calls what it is handed.
+    if name == "getOrInsertComputed" && certain.map(&ast.exprs, obj) {
+        return args.iter().skip(1).take(1).copied().collect();
+    }
     if HANDLER_METHODS.contains(&name) && certain.promise(&ast.exprs, obj) {
         // `then` takes two handler slots; `catch` / `finally` one.
         // Anything past them is not a handler and is left alone.

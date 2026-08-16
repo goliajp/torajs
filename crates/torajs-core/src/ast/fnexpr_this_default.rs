@@ -306,6 +306,10 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
         arrays: certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
             matches!(&exprs[e.0 as usize], Expr::Array(_))
         }),
+        maps: certain_bindings(&ast.stmts, &ast.exprs, &|exprs, e| {
+            matches!(&exprs[e.0 as usize], Expr::New { class_name, .. }
+                if class_name == "Map" || class_name == "WeakMap")
+        }),
         promises: certain_promise_bindings(ast, &async_fns),
         async_fns,
     };
@@ -340,6 +344,7 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
 /// let that object's method decide the callback's receiver.
 pub(super) struct Certain {
     arrays: std::collections::HashSet<String>,
+    maps: std::collections::HashSet<String>,
     promises: std::collections::HashSet<String>,
     async_fns: std::collections::HashSet<String>,
 }
@@ -349,6 +354,19 @@ impl Certain {
         match &exprs[eid.0 as usize] {
             Expr::Array(_) => true,
             Expr::Ident(n) => self.arrays.contains(n),
+            _ => false,
+        }
+    }
+
+    /// A `Map` / `WeakMap` the program can only have gotten from the
+    /// builtin constructor — same bar as [`Self::array`]. A bare
+    /// binding that might hold a user object with its own
+    /// `getOrInsertComputed` would let that object decide the
+    /// callback's receiver.
+    pub(super) fn map(&self, exprs: &[Expr], eid: ExprId) -> bool {
+        match &exprs[eid.0 as usize] {
+            Expr::New { class_name, .. } => class_name == "Map" || class_name == "WeakMap",
+            Expr::Ident(n) => self.maps.contains(n),
             _ => false,
         }
     }
