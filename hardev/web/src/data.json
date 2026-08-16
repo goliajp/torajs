@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T08:00:08.656Z",
+  "generatedAt": "2026-08-16T11:26:42.876Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-16T07:52:49Z",
-    "headSha": "5c33b06c",
-    "elapsedSec": 357.39,
+    "ranAt": "2026-08-16T11:15:37Z",
+    "headSha": "af31fa42",
+    "elapsedSec": 326.87,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25250,
+    "pass": 25287,
     "passNoOracle": 855,
     "passNegative": 4125,
-    "passTotal": 30230,
-    "bug": 12768,
-    "incompatible": 10176,
+    "passTotal": 30267,
+    "bug": 12733,
+    "incompatible": 10174,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 42998,
-    "passRateInScope": 56.85,
-    "passRateTrAccepted": 70.31
+    "trAccepted": 43000,
+    "passRateInScope": 56.92,
+    "passRateTrAccepted": 70.39
   },
   "torajs": {
-    "commit": "5c33b06c",
-    "commitSubject": "fix: one method field kept a whole top-level object off the globals table",
+    "commit": "cdf930f5",
+    "commitSubject": "chore: record the rotation 420 sweep and refresh the P-SURF snapshot",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "cdf930f5",
+      "subject": "chore: record the rotation 420 sweep and refresh the P-SURF snapshot"
+    },
+    {
+      "hash": "af31fa42",
+      "subject": "fix: `super.m()` in a static field initializer or static block died at typecheck"
+    },
+    {
+      "hash": "46839200",
+      "subject": "fix: a computed static field's `this` survived the ES5 lane's drop"
+    },
+    {
+      "hash": "99a125f7",
+      "subject": "fix: `this` in a static field initializer or static block was the instance receiver"
+    },
+    {
+      "hash": "1a529376",
+      "subject": "fix: a class's static initializers ran before the program's first statement"
+    },
+    {
+      "hash": "0913b57c",
+      "subject": "fix: a class inside a function evaluated its computed member name at program end"
+    },
+    {
+      "hash": "b7924e83",
+      "subject": "fix: a class's computed field name converted at construction, not at the class"
+    },
+    {
+      "hash": "79791f6a",
+      "subject": "chore: record the rotation 419 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "5c33b06c",
       "subject": "fix: one method field kept a whole top-level object off the globals table"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "286f64a4",
       "subject": "fix: a Map through an any slot stringified to NaN"
-    },
-    {
-      "hash": "a39adf60",
-      "subject": "fix: a mixed-type pair array handed new Map a null for every value"
-    },
-    {
-      "hash": "22f67edf",
-      "subject": "fix: awaiting a .then on an any receiver read the box as a raw value"
-    },
-    {
-      "hash": "39ba668a",
-      "subject": "chore: record the rotation 418 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "cbf8e052",
-      "subject": "refactor: split the any-slot lanes out of the regex-method intercept"
-    },
-    {
-      "hash": "95f5b53a",
-      "subject": "fix: a RegExp whose hand-off method was defined away is not one"
-    },
-    {
-      "hash": "b0eb4aa1",
-      "subject": "feat: a function replacer over a pattern known only as `any`"
-    },
-    {
-      "hash": "1d667469",
-      "subject": "fix: a capture group that did not participate is undefined, not \"\""
-    },
-    {
-      "hash": "01f09d02",
-      "subject": "fix: a RegExp in an `any` slot was searched for as its own source text"
     }
   ],
-  "headSha": "5c33b06c",
+  "headSha": "cdf930f5",
   "autorun": {
-    "total": 722,
+    "total": 723,
     "baselineTarget": 10,
-    "bySelf": 717,
+    "bySelf": 718,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786859850-264d",
-      "at": "2026-08-16T05:57:30Z",
-      "ts": 1786859850,
+      "rotationId": "r-1786867511-37b7",
+      "at": "2026-08-16T08:05:11Z",
+      "ts": 1786867511,
       "trigger": "self",
-      "prevHead": "39ba668a",
-      "handoffSha": "sha256:d004091fc13974ac9b95e0d8fe20db204206f2ecbf6b3fa9d5875bb6302209ea",
-      "handoffAgeSec": 21,
+      "prevHead": "79791f6a",
+      "handoffSha": "sha256:e711de755965053c7dfe07dce207304747b888c3ec2d72b797fdd275f1918eae",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786867511-37b7",
+        "at": "2026-08-16T08:05:11Z",
+        "ts": 1786867511,
+        "trigger": "self",
+        "prevHead": "79791f6a",
+        "handoffSha": "sha256:e711de755965053c7dfe07dce207304747b888c3ec2d72b797fdd275f1918eae",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786859850-264d",
         "at": "2026-08-16T05:57:30Z",
@@ -876,17 +887,6 @@
         "prevHead": "0cc52bbc",
         "handoffSha": "sha256:1d388c0fab02dd2c936d8c66d32a51af7e636c1d4e4863e8122c4a3163bbde3f",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786784167-63f7",
-        "at": "2026-08-15T08:56:07Z",
-        "ts": 1786784167,
-        "trigger": "self",
-        "prevHead": "8992d12a",
-        "handoffSha": "sha256:57b4b1e0d0adbf4f34796ab7851cd0113d743a92a7cfa913face409dc86687a5",
-        "handoffAgeSec": 49,
         "conformanceBefore": null,
         "commitsInSession": null
       }
