@@ -72,6 +72,7 @@ pub(crate) fn try_lower(
             reify::try_lower_class_accessor_reify(ctx, args, true)
         }
         "__torajs_class_computed_reify" => reify::try_lower_class_computed_reify(ctx, args),
+        "__torajs_class_computed_key" => reify::try_lower_class_computed_key(ctx, args),
         "__torajs_register_native_error" => {
             crate::ssa_lower_call_class_synth_error::try_lower_register_native_error(ctx, args)
         }

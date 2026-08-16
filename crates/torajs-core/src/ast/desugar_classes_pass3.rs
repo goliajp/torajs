@@ -402,9 +402,17 @@ fn emit_computed_member_reifies(
         if kind >= 3 {
             // Field lanes — the evaluated key parks in a module
             // global the ctor prefix / static store reference.
-            let key_any = ast.add_expr(Expr::As {
-                expr: key_eid,
-                ty_ann: "any".into(),
+            //
+            // 419-01 — the park is a ToPropertyKey, not a box. `<key>
+            // as any` only carried the raw value across, leaving the
+            // §7.1.19 conversion to whoever used the key: for an
+            // instance field that is the ctor-prefix keyed write, so
+            // a throwing `toString` fired once per construction and
+            // never at the class definition §15.7.14 puts it at.
+            let key_conv = ast.add_expr(Expr::Ident("__torajs_class_computed_key".to_string()));
+            let key_any = ast.add_expr(Expr::Call {
+                callee: key_conv,
+                args: vec![key_eid],
             });
             // `mutable: true` — never reassigned, but the K.6/chunk-809
             // module-global promote (which is what makes the name

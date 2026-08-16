@@ -239,6 +239,10 @@ pub(crate) fn check(
             ],
             Box::new(Type::Void),
         )),
+        // 419-01 — the FIELD lane's ToPropertyKey shell: the key
+        // evaluated at the class-decl position, answered as the `any`
+        // the `__ccmk_<C>_<n>` global holds.
+        "__torajs_class_computed_key" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Any))),
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),

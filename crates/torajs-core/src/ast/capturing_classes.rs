@@ -378,9 +378,15 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         })));
     }
     for (n, key) in keys_of(ast, src_name, &own) {
-        let key_any = ast.add_expr(Expr::As {
-            expr: key,
-            ty_ann: "any".to_string(),
+        // 419-01 — ToPropertyKey here, not at whoever reads the
+        // binding. A method's keyed install happens at this same
+        // position either way, but a FIELD's is the ctor-prefix write,
+        // so an unconverted box moved the §7.1.19 conversion (and any
+        // `toString` throw with it) to construction time.
+        let key_conv = ast.add_expr(Expr::Ident("__torajs_class_computed_key".to_string()));
+        let key_any = ast.add_expr(Expr::Call {
+            callee: key_conv,
+            args: vec![key],
         });
         out.push(Stmt::LetDecl {
             mutable: false,
