@@ -96,6 +96,7 @@ mod fnexpr_this_args_valueops;
 pub(crate) mod fnexpr_this_cb_slots;
 mod fnexpr_this_default;
 mod fnexpr_this_default_alias;
+mod fnexpr_this_default_slots;
 pub(crate) mod fnexpr_this_faces;
 mod fnexpr_this_member_ret;
 mod fnexpr_this_names;

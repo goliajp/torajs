@@ -88,6 +88,7 @@
 //! receiver-promoting knives live: a slot one of them claimed has no
 //! `__this` capture left by the time this looks.
 
+use super::fnexpr_this_default_slots::{HANDLER_METHODS, no_receiver_slots};
 use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -232,30 +233,6 @@ const PROMISE_STATICS: [&str; 7] = [
     "try",
 ];
 
-/// The prototype methods that both take no-receiver handlers and
-/// answer a promise, so a chain over them stays certain.
-const HANDLER_METHODS: [&str; 3] = ["then", "catch", "finally"];
-
-/// Array iteration methods whose callback NEVER takes a thisArg —
-/// the spec hands them `undefined` whatever the call site wrote.
-const ARRAY_NO_THISARG: [&str; 4] = ["sort", "toSorted", "reduce", "reduceRight"];
-
-/// Array iteration methods whose callback takes an OPTIONAL thisArg
-/// as the second argument: `undefined` is the answer only when the
-/// call site omitted it.
-const ARRAY_OPTIONAL_THISARG: [&str; 10] = [
-    "forEach",
-    "map",
-    "filter",
-    "some",
-    "every",
-    "find",
-    "findIndex",
-    "findLast",
-    "findLastIndex",
-    "flatMap",
-];
-
 pub fn bind_fnexpr_this_default(ast: &mut Ast) {
     let targets = collect_targets(ast);
     if targets.is_empty() {
@@ -356,72 +333,19 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
     targets
 }
 
-/// The argument positions of `recv.<name>(args…)` that the spec
-/// invokes with no receiver — empty for every call this table does
-/// not name, which is what keeps an unaudited slot on its loud
-/// reject.
-fn no_receiver_slots(
-    ast: &Ast,
-    certain: &Certain,
-    obj: ExprId,
-    name: &str,
-    args: &[ExprId],
-) -> Vec<ExprId> {
-    // §7.3.35 GroupBy step 4.c — `Call(callback, undefined, «value,
-    // key»)`, reached through `Object.groupBy` / `Map.groupBy`.
-    if name == "groupBy"
-        && matches!(&ast.exprs[obj.0 as usize], Expr::Ident(n) if n == "Object" || n == "Map")
-    {
-        return args.iter().skip(1).take(1).copied().collect();
-    }
-    // proposal-array-from-async §2.1.1 step 5.e — `Call(mapfn,
-    // thisArg, «v, k»)`, where thisArg is the THIRD argument. So
-    // `undefined` is the answer only when the call site omitted it,
-    // the same arity rule the optional-thisArg array methods use. A
-    // WRITTEN thisArg keeps the loud reject: the map kernel
-    // (`__torajs_array_from_async_map_dyn`) takes `(items, mapfn)`
-    // and the lowering eval-and-drops args[2..], so there is nothing
-    // to thread the object through yet (L3b). `Array.from`'s mapFn is
-    // not here — `collect_array_from_face` promotes that one, thisArg
-    // and all, and it gates on the method name.
-    if name == "fromAsync" && matches!(&ast.exprs[obj.0 as usize], Expr::Ident(n) if n == "Array") {
-        return if args.len() == 2 {
-            args.iter().skip(1).take(1).copied().collect()
-        } else {
-            Vec::new()
-        };
-    }
-    if HANDLER_METHODS.contains(&name) && certain.promise(&ast.exprs, obj) {
-        // `then` takes two handler slots; `catch` / `finally` one.
-        // Anything past them is not a handler and is left alone.
-        let slots = if name == "then" { 2 } else { 1 };
-        return args.iter().take(slots).copied().collect();
-    }
-    if !certain.array(&ast.exprs, obj) {
-        return Vec::new();
-    }
-    let admits = ARRAY_NO_THISARG.contains(&name)
-        || (ARRAY_OPTIONAL_THISARG.contains(&name) && args.len() == 1);
-    if admits {
-        args.iter().take(1).copied().collect()
-    } else {
-        Vec::new()
-    }
-}
-
 /// `true` when `eid` is syntactically certain to be an array: a
 /// literal, or a binding the knife-2 receiver census proves holds
 /// only array literals. Same bar the promote knives use — a bare
 /// binding that might hold a user object with its own `map` would
 /// let that object's method decide the callback's receiver.
-struct Certain {
+pub(super) struct Certain {
     arrays: std::collections::HashSet<String>,
     promises: std::collections::HashSet<String>,
     async_fns: std::collections::HashSet<String>,
 }
 
 impl Certain {
-    fn array(&self, exprs: &[Expr], eid: ExprId) -> bool {
+    pub(super) fn array(&self, exprs: &[Expr], eid: ExprId) -> bool {
         match &exprs[eid.0 as usize] {
             Expr::Array(_) => true,
             Expr::Ident(n) => self.arrays.contains(n),
@@ -429,7 +353,7 @@ impl Certain {
         }
     }
 
-    fn promise(&self, exprs: &[Expr], eid: ExprId) -> bool {
+    pub(super) fn promise(&self, exprs: &[Expr], eid: ExprId) -> bool {
         promise_expr(exprs, eid, &self.promises, &self.async_fns)
     }
 }
