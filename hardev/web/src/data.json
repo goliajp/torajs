@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T13:23:03.302Z",
+  "generatedAt": "2026-08-16T23:00:51.103Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-16T13:20:52Z",
-    "headSha": "e787fd8d",
-    "elapsedSec": 359.19,
+    "ranAt": "2026-08-16T22:52:53Z",
+    "headSha": "c40b5319",
+    "elapsedSec": 328.29,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25292,
+    "pass": 25312,
     "passNoOracle": 856,
-    "passNegative": 4130,
-    "passTotal": 30278,
-    "bug": 12744,
-    "incompatible": 10152,
+    "passNegative": 4128,
+    "passTotal": 30296,
+    "bug": 12833,
+    "incompatible": 10045,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43022,
-    "passRateInScope": 56.94,
-    "passRateTrAccepted": 70.38
+    "trAccepted": 43129,
+    "passRateInScope": 56.98,
+    "passRateTrAccepted": 70.25
   },
   "torajs": {
-    "commit": "e787fd8d",
-    "commitSubject": "fix: a lone-surrogate export name sailed through to a runtime failure",
+    "commit": "c40b5319",
+    "commitSubject": "refactor: extract the computed generator-method key parse",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "c40b5319",
+      "subject": "refactor: extract the computed generator-method key parse"
+    },
+    {
+      "hash": "360eba58",
+      "subject": "fix: an uninitialized let in a generator body lifts as any, not number"
+    },
+    {
+      "hash": "f7c8021c",
+      "subject": "fix: generator objects classify as [object Generator], not [object Object]"
+    },
+    {
+      "hash": "a9c6e67d",
+      "subject": "fix: a namespace member the module never exported is undefined, not a type error"
+    },
+    {
+      "hash": "1012b8e4",
+      "subject": "fix: a reserved word could not name an object-literal generator method"
+    },
+    {
+      "hash": "ea5ec386",
+      "subject": "feat: expression-position yield* carries the delegated done value"
+    },
+    {
+      "hash": "ea009482",
+      "subject": "chore: refresh the hardev dashboard snapshot for rotation 421"
+    },
+    {
       "hash": "e787fd8d",
       "subject": "fix: a lone-surrogate export name sailed through to a runtime failure"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "a7837878",
       "subject": "fix: two module early errors the previous knife's parser opened the door to"
-    },
-    {
-      "hash": "d6be6b9d",
-      "subject": "fix: an imported module's body ran after the body that imported it"
-    },
-    {
-      "hash": "e9a80601",
-      "subject": "feat: `export * from \"m\"` died in the parser before it reached the resolver"
-    },
-    {
-      "hash": "4e3ed20a",
-      "subject": "chore: refresh the hardev dashboard snapshot for rotation 420"
-    },
-    {
-      "hash": "cdf930f5",
-      "subject": "chore: record the rotation 420 sweep and refresh the P-SURF snapshot"
-    },
-    {
-      "hash": "af31fa42",
-      "subject": "fix: `super.m()` in a static field initializer or static block died at typecheck"
-    },
-    {
-      "hash": "46839200",
-      "subject": "fix: a computed static field's `this` survived the ES5 lane's drop"
-    },
-    {
-      "hash": "99a125f7",
-      "subject": "fix: `this` in a static field initializer or static block was the instance receiver"
     }
   ],
-  "headSha": "e787fd8d",
+  "headSha": "c40b5319",
   "autorun": {
-    "total": 724,
+    "total": 725,
     "baselineTarget": 10,
-    "bySelf": 719,
+    "bySelf": 720,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786879620-5181",
-      "at": "2026-08-16T11:27:00Z",
-      "ts": 1786879620,
+      "rotationId": "r-1786887295-1f67",
+      "at": "2026-08-16T13:34:55Z",
+      "ts": 1786887295,
       "trigger": "self",
-      "prevHead": "4e3ed20a",
-      "handoffSha": "sha256:9e503bf6a41842507ec7169719e73b57b9af55c4eab8ae2482af31863d05b5e2",
+      "prevHead": "ea009482",
+      "handoffSha": "sha256:52d183d759eca52f8a9a149a1c87ea86cacdd7f4c15fc9197c1393c2a97f9f02",
       "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786887295-1f67",
+        "at": "2026-08-16T13:34:55Z",
+        "ts": 1786887295,
+        "trigger": "self",
+        "prevHead": "ea009482",
+        "handoffSha": "sha256:52d183d759eca52f8a9a149a1c87ea86cacdd7f4c15fc9197c1393c2a97f9f02",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786879620-5181",
         "at": "2026-08-16T11:27:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "038a3945",
         "handoffSha": "sha256:23ea0fbd32ed3e8ded3c6af395eaf43cb5d015e5602ef8f171ba09d48712dc2a",
         "handoffAgeSec": 52,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786797792-0cc4",
-        "at": "2026-08-15T12:43:12Z",
-        "ts": 1786797792,
-        "trigger": "self",
-        "prevHead": "7ef04c7d",
-        "handoffSha": "sha256:e5dcb7f08353113aa9ef3bd66ccf7039fc30c144923b19a8a9040ce6577c47fe",
-        "handoffAgeSec": 42,
         "conformanceBefore": null,
         "commitsInSession": null
       }

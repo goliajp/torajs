@@ -1530,7 +1530,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `e787fd8d`** (2026-08-16, rotation 421 — the module
+**Latest @ `c40b5319`** (2026-08-17, rotation 422 — the async-generator
+half of the `got Star` cluster, which a re-survey first overturned:
+async generators themselves had worked in all three hosts since
+rotation 413's blade 4 — the 49 remaining cases all die on
+EXPRESSION-position `yield*`. The parser now hoists `v = yield* src`
+into a mutable `__yx_` temp plus the statement form's yield-bearing
+ForOf, and the F1 manual protocol's done arm writes the inner
+iterator's final `.value` into the temp (§27.5.3.2 — the yield*
+expression's value). Alongside: reserved words can name object-literal
+generator methods (`{ *yield() {} }`, §12.7.6); a namespace member the
+module never exported answers undefined instead of the struct typo
+reject (§10.4.6.8); %GeneratorPrototype% carries its real
+@@toStringTag own entry ("Generator" / "AsyncGenerator", §27.5.1.5);
+and an uninitialized annotation-less `let` in a generator body lifts
+as `any` — the old number pin could not even hold the initial
+undefined, and turned out to be load-bearing for two lucky
+pass-negatives and 24 masked eval-substrate crashes (both documented,
+L3b 422-02). Sweep vs rotation 421: passTotal 30278 → **30296
+(+18)**, bug +89, incompatible −107, trAccepted +107 — conservation
+exact; passNegative −2 (de-watering, A/B-attributed), 24 new exit-138
+in one signature family (unlocked pre-existing crashes, registered).
+The `got Star` cluster is **gone entirely** (87 → 49 → 0 across two
+rotations). Gate predicate **236 unattributed clusters / 2891 cases /
+register 2 · 573 / residue 763 · 979 / core 4443**.
+
+**Prior @ `e787fd8d`** (2026-08-16, rotation 421 — the module
 graph's missing half. `export * from "m"` / `export * as ns from "m"`
 parse and resolve (a star forwards the importer's request minus the
 hub's own exports; namespace objects accumulate per ALIAS and
