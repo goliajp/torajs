@@ -4,9 +4,7 @@
 //! stays in the parent, which hands its Ident candidates here.
 
 use super::fnexpr_this_faces::FacePatch;
-use super::fnexpr_this_names::{
-    collect_this_fnexpr_decl_names, fn_has_rest_param, name_shadowed_elsewhere, peel_as,
-};
+use super::fnexpr_this_names::{collect_this_fnexpr_decl_names, name_shadowed_elsewhere, peel_as};
 use super::fnexpr_this_pairing::pair_decls_scoped;
 use super::fnexpr_this_shapes::UseShapes;
 use super::{Expr, ExprId, Stmt};
@@ -155,9 +153,8 @@ pub(super) fn promote_variable_routed(
             }
             // A binding with a DIRECT CALL must not also ride a
             // boxed-argv call lane: the real-argc prepend contends
-            // for the same leading argv slot, and the variadic /
-            // full-arguments adapters (rest param, `arguments[i]`
-            // tier) materialize params straight off argv — a
+            // for the same leading argv slot, and the full-arguments
+            // adapter materializes params straight off argv — a
             // `__this` param would eat argv[0]. All stay loud. A
             // `.call`/`.apply` face rides the same `closure_local`
             // replay, so its binding is under the same bar even with
@@ -166,11 +163,19 @@ pub(super) fn promote_variable_routed(
             // all, and the store-face + argv combination is exactly
             // the escape-store profile whose adapter order the
             // rotation-338 knife fixed.
+            //
+            // A REST param used to sit under this bar too, and no
+            // longer does (rotation 416): a recv-first body's
+            // `__this` IS argv[0] by construction — §10.4.4 says the
+            // receiver is not an argument — so the adapter drops the
+            // count by one and unboxes the fixed prefix, `__this`
+            // included, before the rest window starts. The bar
+            // predates that recv slot (RFC 20260808 knife 2). Its
+            // cost was the dominant test262 callback spelling,
+            // `function (...args) { …this… }`, failing to compile.
             if (mixed_calls.iter().any(|e| shapes.callee.contains(e))
                 || face_eids.iter().any(|e| call_faces.contains(e)))
-                && (closure_argc_locals.contains(name)
-                    || closure_argv_locals.contains(name)
-                    || fn_has_rest_param(stmts, fn_name))
+                && (closure_argc_locals.contains(name) || closure_argv_locals.contains(name))
             {
                 continue;
             }
@@ -286,9 +291,7 @@ fn try_promote_scope_paired(
         // single-decl path's.
         if (g.uses.iter().any(|e| shapes.callee.contains(e))
             || g_faces.iter().any(|e| call_faces.contains(e)))
-            && (closure_argc_locals.contains(name)
-                || closure_argv_locals.contains(name)
-                || fn_has_rest_param(stmts, fn_name))
+            && (closure_argc_locals.contains(name) || closure_argv_locals.contains(name))
         {
             return;
         }

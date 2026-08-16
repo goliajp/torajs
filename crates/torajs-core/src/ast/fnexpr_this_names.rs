@@ -102,17 +102,6 @@ pub(super) fn peel_as(exprs: &[Expr], mut e: super::ExprId) -> super::ExprId {
     e
 }
 
-/// Does the lifted FnDecl named `fn_name` declare a rest param
-/// (`...args`)? Rest-tail closures dispatch through the boxed
-/// variadic entry, which materializes params off argv — cut 2's
-/// mixed promotion excludes them.
-pub(super) fn fn_has_rest_param(stmts: &[Stmt], fn_name: &str) -> bool {
-    stmts.iter().any(|s| {
-        matches!(s, Stmt::FnDecl { name, params, .. }
-            if name == fn_name && params.iter().any(|p| p.is_rest))
-    })
-}
-
 /// Every `LetDecl` matching `name`, over the full
 /// [`for_each_nested_list`] spine — knife 2's uniqueness guard needs
 /// the program-wide count, and it must re-find every decl the
