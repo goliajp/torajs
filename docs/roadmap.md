@@ -4251,7 +4251,28 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 419 closing sweep `5c33b06c`, core **4574**,
+(refreshed @ rotation 420 closing sweep `af31fa42`, core **4572**,
+**238** clusters of ≥ 4 holding 2957 cases; 773 clusters of ≤ 3 hold
+1004 more (22.0 %), and the subset-decision register accounts for 611
+across two entries. Coverage: top 10 = 14.2 %, top 25 = 28.8 %,
+top 100 = 58.4 %, top 400 = 85.0 %. Rotation 420 took rotation 419's
+registered follow-up — a class's computed member name is not
+ToPropertyKey'd where the class is defined — and found that the ONE
+thing §15.7.14 says about the class-definition point is the thing tr
+had never implemented: the FIELD lane parked the key as an
+unconverted box (so `toString` ran per construction, and never at all
+for a class that is defined and not constructed); hoisting a nested
+class carried its whole definition-time evaluation to the END of the
+module; static field initializers and static blocks were prepended to
+the head of the module instead, which ran them before every top-level
+`var` initializer (silently wrong for a scalar, SIGSEGV for a heap
+global); `this` in those two positions was the instance receiver, not
+the class; and `super.m()` in them died at typecheck on the parser's
+raw marker. Five defects, one shared cause — the definition point had
+no owner. passTotal **+37, zero regressions**, gate 2997 →
+**3002**/0/4 across six substrate commits.)
+
+(previous stamp @ rotation 419 closing sweep `5c33b06c`, core **4574**,
 **238** clusters of ≥ 4 holding 2961 cases; 772 clusters of ≤ 3 hold
 1002 more (21.9 %), and the subset-decision register accounts for 611
 across two entries. Coverage: top 10 = 14.2 %, top 25 = 28.8 %,
