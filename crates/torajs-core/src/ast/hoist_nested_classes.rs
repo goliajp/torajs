@@ -32,6 +32,7 @@
 //!   inner shadow of the same identifier inside the container would
 //!   be renamed with it).
 
+use super::hoist_nested_classes_admit::{class_has_computed_member, class_is_capture_free};
 use super::*;
 
 pub(super) fn hoist_nested_classes(ast: &mut Ast) {
@@ -192,7 +193,24 @@ fn walk_container(
         if !matches!(stmts[idx], Stmt::ClassDecl { .. }) {
             continue;
         }
-        if !class_is_capture_free(ast, &stmts[idx], top_names) {
+        // 420-01 — a computed member NAME is evaluated where the class
+        // is written (§15.7.14 walks the elements once, in order, at
+        // ClassDefinitionEvaluation), and hoisting moves that
+        // evaluation to wherever the hoisted class lands, which is the
+        // END of the program. `function f() { class C { [obj](){} } }`
+        // therefore called `obj.toString()` once, after the last
+        // top-level statement, instead of once per call to `f`; a
+        // throwing one escaped an enclosing `try` the same way. The
+        // in-place lane below gets this right already (its key binding
+        // is emitted at the class's own position), so route there when
+        // it will take the class. A computed INSTANCE field never
+        // needed this — its ctor prefix reads `__ccmk_<C>_<n>`, a free
+        // name that already fails the capture check below.
+        let computed_member_name = class_has_computed_member(ast, &stmts[idx]);
+        if !class_is_capture_free(ast, &stmts[idx], top_names)
+            || (computed_member_name
+                && super::capturing_classes::decline::would_claim(ast, &stmts[idx], name_counts))
+        {
             // The other half: a class that DOES read an outer local
             // cannot be lifted, and takes the runtime-value lane
             // instead (RFC 20260814-capturing-nested-class). Whatever
@@ -343,118 +361,4 @@ fn walk_child(
         } => walk_child(ast, inner, top_names, hoisted, counter, name_counts),
         _ => {}
     }
-}
-
-/// Every body of the class resolves against top-level names only.
-/// Instance-field initializers are already folded into the ctor body
-/// by the parser (`finalize_class_field_inits`), so the ctor walk
-/// covers them.
-///
-/// A computed member name is NOT in any body — the parser puts the key
-/// expression in a side table and leaves a `__ccm_<n>__` sentinel
-/// behind (`class_computed_keys`, and `class_computed_static_fields`
-/// for a static field's initializer). Walking only the bodies made
-/// `{ const k = "z"; class K { [k]() {…} } }` read as capture-free, so
-/// it hoisted to the top level and the key no longer resolved there —
-/// a warning plus a wrong answer at run time, not the loud abort every
-/// other capturing shape gets.
-fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
-    let Stmt::ClassDecl {
-        name,
-        type_params,
-        parent,
-        ctor,
-        methods,
-        static_methods,
-        static_init,
-        ..
-    } = s
-    else {
-        return false;
-    };
-    if parent.is_some() {
-        match ast.parent_ident_name(*parent) {
-            Some(pn) => {
-                if !top_names.iter().any(|t| t == pn) && !super::free_vars::is_global_name(pn) {
-                    return false;
-                }
-            }
-            // A heritage EXPRESSION reads names in the enclosing
-            // scope — never capture-free for hoisting purposes.
-            None => return false,
-        }
-    }
-    let mut prebound: Vec<String> = top_names.to_vec();
-    prebound.push(name.clone());
-    prebound.extend(type_params.iter().cloned());
-    prebound.push("arguments".into());
-
-    let body_free = |params: &[Param], body: &[Stmt]| -> bool {
-        let mut bound = prebound.clone();
-        bound.extend(params.iter().map(|p| p.name.clone()));
-        super::free_vars::free_vars_of_body(ast, &bound, body)
-            .iter()
-            // `super.m()` parses as a Call to the marker ident
-            // `__supercall__m` — desugar_classes rewrites it from the
-            // class's own parent link, so it is never a capture.
-            .all(|n| n.starts_with("__supercall__"))
-    };
-
-    if let Some(c) = ctor
-        && !body_free(&c.params, &c.body)
-    {
-        return false;
-    }
-    for m in methods.iter().chain(static_methods.iter()) {
-        if !body_free(&m.params, &m.body) {
-            return false;
-        }
-    }
-    for si in static_init {
-        let ok = match si {
-            StaticInit::Field(f) => body_free(&[], &[Stmt::Expr(f.init)]),
-            StaticInit::Block(v) => body_free(&[], v),
-        };
-        if !ok {
-            return false;
-        }
-    }
-    // Which side-table rows are THIS class's is a question the name
-    // cannot answer — two fn bodies each declaring `class K` share a
-    // key set — so the computed members are read back off the class
-    // itself. A computed STATIC FIELD leaves no trace on the class at
-    // all (it is neither a member nor a ctor-prefix write), so its
-    // initializer is still matched by name: over-answering there
-    // costs a same-named sibling's static field the hoist, which is
-    // the loud direction.
-    let ctor_body: &[Stmt] = ctor.as_ref().map_or(&[], |c| c.body.as_slice());
-    let member_names: Vec<&str> = methods
-        .iter()
-        .chain(static_methods.iter())
-        .map(|m| m.name.as_str())
-        .collect();
-    let own = super::capturing_classes::own_computed_members(ast, name, ctor_body, &member_names);
-    let side_exprs = super::capturing_classes::keys_of(ast, name, &own)
-        .into_iter()
-        .map(|(_, key)| key)
-        .chain(
-            ast.class_computed_static_fields
-                .iter()
-                .filter(|(c, _, _)| c == name)
-                .flat_map(|(c, sent, init)| {
-                    // The KEY too (406-02) — it lives only under the
-                    // side-table sentinel, so walking just the init
-                    // read `{ let k = 5; class C { static [k] = … } }`
-                    // as capture-free and hoisted it away from `k` —
-                    // a warning plus a wrong answer at run time.
-                    let key = ast.class_computed_keys.get(&(c.clone(), sent.clone()));
-                    key.copied().into_iter().chain([*init])
-                }),
-        );
-    for e in side_exprs {
-        if !body_free(&[], &[Stmt::Expr(e)]) {
-            return false;
-        }
-    }
-    true
 }

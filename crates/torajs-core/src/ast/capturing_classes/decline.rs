@@ -17,6 +17,28 @@ use super::{key_binding, own_computed_members, sentinel_index};
 /// and the hoist declines exactly the ones that read something from
 /// around them — so whoever asks this question already knows the class
 /// captures, and what is missing is the SECOND half of the sentence.
+/// The same question asked WITHOUT recording an answer — 420-01.
+///
+/// The hoist reaches for this lane for a second reason now: a class
+/// whose member name is computed evaluates that name where the class
+/// is written, and hoisting moves the evaluation (to the end of the
+/// program, since hoisted classes append there). Such a class must
+/// stay put — but only if the lane will actually take it, so the hoist
+/// has to ask before it commits. [`super::try_rewrite_capturing_class`]
+/// answers by recording a decline reason the checker later reports,
+/// which would then name a class that went on to hoist fine.
+pub(crate) fn would_claim(
+    ast: &Ast,
+    s: &Stmt,
+    name_counts: &std::collections::HashMap<String, u32>,
+) -> bool {
+    let Stmt::ClassDecl { name, .. } = s else {
+        return false;
+    };
+    let name_unique = name_counts.get(name).copied().unwrap_or(0) <= 1;
+    decline_reason(ast, s, name_unique).is_none()
+}
+
 pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&'static str> {
     let Stmt::ClassDecl {
         name,

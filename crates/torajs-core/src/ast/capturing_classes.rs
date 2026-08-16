@@ -62,7 +62,7 @@
 //! included, since rotation 397.
 
 mod alias;
-mod decline;
+pub(crate) mod decline;
 mod extends;
 
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};

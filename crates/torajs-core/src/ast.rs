@@ -116,6 +116,7 @@ mod globalthis_member;
 mod heritage;
 mod hoist_gen_fn_exprs;
 mod hoist_nested_classes;
+mod hoist_nested_classes_admit;
 mod hoist_nested_classes_census;
 mod hoist_nested_classes_rename;
 mod implicit_generics_cb_ret;
