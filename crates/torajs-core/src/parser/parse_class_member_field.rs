@@ -80,7 +80,14 @@ impl<'a> Parser<'a> {
                     ));
                 }
             }
-            let init = self.parse_assign()?;
+            // 420-03 — a static field initializer's `this` is the class
+            // object too (§15.7.14 runs it with the class as receiver),
+            // so register the token the way a static method body's is.
+            let saved_static_this =
+                std::mem::replace(&mut self.static_this_class, Some(name.to_string()));
+            let init = self.parse_assign();
+            self.static_this_class = saved_static_this;
+            let init = init?;
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;
             }

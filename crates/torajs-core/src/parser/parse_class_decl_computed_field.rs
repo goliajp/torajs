@@ -31,7 +31,17 @@ impl<'a> Parser<'a> {
         }
         let init = if matches!(self.peek(), Token::Eq) {
             self.pos += 1; // consume `=`
-            let e = self.parse_assign()?;
+            // 420-03 — a STATIC field's initializer runs with the class
+            // as receiver (§15.7.14); an instance one runs in ctor
+            // scope, where `this` is already the instance.
+            let saved_static_this = if is_static {
+                std::mem::replace(&mut self.static_this_class, Some(name.to_string()))
+            } else {
+                self.static_this_class.take()
+            };
+            let e = self.parse_assign();
+            self.static_this_class = saved_static_this;
+            let e = e?;
             if super::class_field_early_errors::init_contains_arguments(&self.ast, e) {
                 return Err(format!(
                     "`arguments` is not allowed in a class field initializer in class `{name}` at {} (ES §15.7.1)",

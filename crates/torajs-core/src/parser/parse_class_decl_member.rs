@@ -24,11 +24,20 @@ impl<'a> Parser<'a> {
         // `await` anywhere in a ClassStaticBlockBody.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_await = std::mem::replace(&mut self.await_allowed, false);
+        // 420-03 — §15.7.14 binds `this` to the class object in a
+        // static block, the same binding a static method body gets.
+        // Only the method arm used to say so, so a block's `this`
+        // reached `desugar_classes` pass 2 unregistered and became the
+        // instance receiver `__this`: `static { this.x = 1 }` threw
+        // where it should have written an own property on the class.
+        let saved_static_this =
+            std::mem::replace(&mut self.static_this_class, Some(name.to_string()));
         let mut block_stmts: Vec<Stmt> = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             let s = match self.parse_stmt() {
                 Ok(s) => s,
                 Err(e) => {
+                    self.static_this_class = saved_static_this;
                     self.await_allowed = saved_await;
                     self.super_call_allowed = saved_super;
                     return Err(e);
@@ -36,6 +45,7 @@ impl<'a> Parser<'a> {
             };
             block_stmts.push(s);
         }
+        self.static_this_class = saved_static_this;
         self.await_allowed = saved_await;
         self.super_call_allowed = saved_super;
         if !matches!(self.peek(), Token::RBrace) {
@@ -399,7 +409,17 @@ impl<'a> Parser<'a> {
             // name + `=`, plus the `?` of `p? = init`
             self.pos += 2 + usize::from(optional);
         }
-        let init = self.parse_assign()?;
+        // 420-03 — a STATIC field's initializer runs with the class as
+        // receiver (§15.7.14). This is the untyped-field arm; the
+        // annotated one lives in `parse_class_member_field`.
+        let saved_static_this = if is_static {
+            std::mem::replace(&mut self.static_this_class, Some(name.to_string()))
+        } else {
+            self.static_this_class.take()
+        };
+        let init = self.parse_assign();
+        self.static_this_class = saved_static_this;
+        let init = init?;
         let inferred = match self.ast.get_expr(init) {
             Expr::Number(_) => "number",
             Expr::String(_) => "string",

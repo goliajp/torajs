@@ -322,20 +322,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     if let Some(pid) = parent_id {
         ast.tombstone_expr(pid);
     }
-    // The parser recorded, at the token, that every `this` in a static
-    // member body means the class object, and `desugar_classes` pass 2
-    // turns each recorded site into the class NAME. That mint is wrong
-    // twice over here: the name has been α-renamed away, and what the
-    // renamed binding holds is a function value rather than a class.
-    // Drop the registration and those reads become ordinary function
-    // `this` — which is what `K.s = function () { … }` invoked as
-    // `K.s()` delivers anyway, and it is the same object §10.2.1.2
-    // asked for.
-    for m in &static_methods {
-        for eid in this_sites(ast, &m.body) {
-            ast.static_this_sites.remove(&eid);
-        }
-    }
+    install::drop_static_this_sites(ast, &static_methods, &static_init);
     // §15.7.14 evaluates every ComputedPropertyName once, in element
     // order, at class-definition time — ahead of anything a method or
     // an initializer does, because those run later (on call, on

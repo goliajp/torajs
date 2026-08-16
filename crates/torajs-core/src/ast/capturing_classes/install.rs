@@ -5,7 +5,7 @@
 //! sibling answers "how does one member land on the binding".
 //! Bodies verbatim.
 
-use super::super::{Ast, Expr, ExprId, StaticInit, Stmt};
+use super::super::{Ast, ClassMethod, Expr, ExprId, StaticInit, Stmt};
 use super::expr_says_this;
 
 /// Static initialization last, and in source order: §15.7.14 runs
@@ -180,4 +180,43 @@ pub(super) fn define_member(
         callee,
         args: vec![recv, key, desc],
     })
+}
+
+/// Every `this` this lane must stop treating as the class NAME.
+///
+/// The parser recorded, at the token, that a `this` in a static member
+/// body means the class object, and `desugar_classes` pass 2 turns each
+/// recorded site into the class NAME. That mint is wrong twice over
+/// here: the name has been α-renamed away, and what the renamed binding
+/// holds is a function value rather than a class. Drop the registration
+/// and those reads become ordinary function `this` — which is what
+/// `K.s = function () { … }` invoked as `K.s()` delivers anyway, and it
+/// is the same object §10.2.1.2 asked for.
+///
+/// Static INITIALIZERS are here for the same reason (420-03, which
+/// started registering their sites): `install_static_inits` wraps a
+/// `this`-saying field initializer or static block in
+/// `(function () { … }).call(K)` (394-05), which hands the body the
+/// class object as that ordinary receiver.
+pub(super) fn drop_static_this_sites(
+    ast: &mut Ast,
+    static_methods: &[ClassMethod],
+    static_init: &[StaticInit],
+) {
+    let init_bodies: Vec<Vec<Stmt>> = static_init
+        .iter()
+        .map(|si| match si {
+            StaticInit::Field(f) => vec![Stmt::Expr(f.init)],
+            StaticInit::Block(v) => v.clone(),
+        })
+        .collect();
+    for body in static_methods
+        .iter()
+        .map(|m| &m.body)
+        .chain(init_bodies.iter())
+    {
+        for eid in super::this_sites(ast, body) {
+            ast.static_this_sites.remove(&eid);
+        }
+    }
 }
