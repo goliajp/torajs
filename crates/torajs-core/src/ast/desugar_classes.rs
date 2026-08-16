@@ -57,7 +57,6 @@ pub fn desugar_classes(ast: &mut Ast) {
     // user top-level code; the alternative leaves `check()` reading
     // uninitialized slots when the user-visible call comes first
     // in source order.
-    let mut static_field_inits: Vec<Stmt> = Vec::new();
 
     let mut class_index = snapshot_class_index(ast);
     if class_index.is_empty() {
@@ -183,24 +182,11 @@ pub fn desugar_classes(ast: &mut Ast) {
         &class_field_inits,
         &class_field_preludes,
         &mut appended,
-        &mut static_field_inits,
         &mut accessor_getter_records,
         &mut accessor_setter_records,
     );
 
     ast.stmts.extend(appended);
-
-    // M-OO.4 — prepend static-field LetDecls so they init before any
-    // user code. Maintains insertion order across multiple classes
-    // (declaration-order, source-order). Doing this AFTER
-    // `ast.stmts.extend(appended)` keeps the source-position of
-    // appended decls (factory / __cm_*/__sm_*) unchanged; they're
-    // already at the back where check.rs / ssa_lower expect them.
-    if !static_field_inits.is_empty() {
-        let mut new_stmts = static_field_inits;
-        new_stmts.extend(std::mem::take(&mut ast.stmts));
-        ast.stmts = new_stmts;
-    }
 
     // RFC 20260718-accessor-reify 刀 3 — static-accessor rewrites run
     // BEFORE the data-member flat rewrite: the assign walk consumes

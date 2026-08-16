@@ -32,7 +32,7 @@
 //!   inner shadow of the same identifier inside the container would
 //!   be renamed with it).
 
-use super::hoist_nested_classes_admit::{class_has_computed_member, class_is_capture_free};
+use super::hoist_nested_classes_admit::{class_evaluation_is_observable, class_is_capture_free};
 use super::*;
 
 pub(super) fn hoist_nested_classes(ast: &mut Ast) {
@@ -193,22 +193,23 @@ fn walk_container(
         if !matches!(stmts[idx], Stmt::ClassDecl { .. }) {
             continue;
         }
-        // 420-01 — a computed member NAME is evaluated where the class
-        // is written (§15.7.14 walks the elements once, in order, at
-        // ClassDefinitionEvaluation), and hoisting moves that
-        // evaluation to wherever the hoisted class lands, which is the
-        // END of the program. `function f() { class C { [obj](){} } }`
-        // therefore called `obj.toString()` once, after the last
-        // top-level statement, instead of once per call to `f`; a
-        // throwing one escaped an enclosing `try` the same way. The
-        // in-place lane below gets this right already (its key binding
-        // is emitted at the class's own position), so route there when
-        // it will take the class. A computed INSTANCE field never
-        // needed this — its ctor prefix reads `__ccmk_<C>_<n>`, a free
-        // name that already fails the capture check below.
-        let computed_member_name = class_has_computed_member(ast, &stmts[idx]);
+        // 420-01 / 420-02 — §15.7.14 walks a class's elements once, in
+        // order, where the class is written: computed member NAMES are
+        // evaluated there and static initializers RUN there. Hoisting
+        // moves all of that to wherever the hoisted class lands, which
+        // is the END of the program. `function f() { class C {
+        // [obj](){} } }` therefore called `obj.toString()` once, after
+        // the last top-level statement, instead of once per call to
+        // `f`, and the same relocation carried a throwing key out of an
+        // enclosing `try`. The in-place lane below gets this right
+        // already — it emits the key binding and the static installs at
+        // the class's own position — so route there when it will take
+        // the class. A computed INSTANCE field never needed the route:
+        // its ctor prefix reads `__ccmk_<C>_<n>`, a free name that
+        // already fails the capture check below.
+        let observable = class_evaluation_is_observable(ast, &stmts[idx]);
         if !class_is_capture_free(ast, &stmts[idx], top_names)
-            || (computed_member_name
+            || (observable
                 && super::capturing_classes::decline::would_claim(ast, &stmts[idx], name_counts))
         {
             // The other half: a class that DOES read an outer local

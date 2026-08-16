@@ -2,7 +2,7 @@
 //! per-class synthetic FnDecl emission (chunk 184, 2026-06-28).
 //!
 //! Extracted from `ast/desugar_classes.rs` after Pass 2.5 static-member
-//! table build, before the static_field_inits prepend. The big for-loop
+//! table build. The big for-loop
 //! over `class_index` that does, per class:
 //!
 //!   * Replace `ast.stmts[idx] = TypeDecl { name, type_params, fields }`
@@ -102,21 +102,35 @@ fn emit_ctor_fn(
 /// `ast.stmts`, plus a top-level `Stmt::Expr(Call(...))` at the
 /// block's source-order position.
 ///
-/// CRITICAL: static field LetDecls + static block Calls go into
-/// `static_field_inits` (NOT `appended`) so they can be prepended to
-/// `ast.stmts` before the user's top-level code runs. Otherwise the
-/// synth main fn would call `check()` BEFORE the static slot was
-/// initialized — every read of `Counter.label` inside `check()`
-/// would see the slot's null/zero default. This was a real silent
-/// leak + correctness bug uncovered by the m-oo-04-static
-/// `leaks --atExit` audit.
+/// Static field LetDecls + static block Calls go into `own_statics`
+/// (NOT `appended`), which the caller splices at the class's OWN
+/// statement position — where §15.7.14 runs them, right after the
+/// class's element names are evaluated.
+///
+/// 420-02 — they used to be prepended to the head of `ast.stmts`
+/// instead, "so they init before the user's top-level code runs".
+/// That answered one ordering question by asking a worse one: a
+/// static initializer calling a named function then ran before every
+/// `var` at the top level was initialized, so the function read
+/// whatever the slot held before its own declaration. For a scalar
+/// that is a silent wrong answer (`var n = 0; function bump(){ n =
+/// n + 1 } class C { static s = bump() }` left `n` at 0, because the
+/// `var n = 0` ran afterwards and overwrote the bump). For a heap
+/// global it is a SEGV — `var log: string[] = []` had not allocated
+/// yet, so `log.push(...)` dereferenced the slot's zero.
+///
+/// The shape the prepend was defending — a top-level `check()` call
+/// ABOVE the class, reading `Counter.label` from inside — is the
+/// spec's own TDZ: a class binding is not initialized until its
+/// declaration is reached, and reaching through it early is a
+/// ReferenceError, not a read of the eventual value.
 fn emit_static_inits(
     ast: &mut Ast,
     cname: &str,
     type_params: &[String],
     static_init: &[StaticInit],
     appended: &mut Vec<Stmt>,
-    static_field_inits: &mut Vec<Stmt>,
+    own_statics: &mut Vec<Stmt>,
 ) {
     for (block_idx, si) in static_init.iter().enumerate() {
         match si {
@@ -133,7 +147,7 @@ fn emit_static_inits(
                 // WRITE to an uninitialized `static x;` slot (typed
                 // "any", init undefined) an unknown-ident reject
                 // (the 68-case rs-static-privatename family).
-                static_field_inits.push(Stmt::LetDecl {
+                own_statics.push(Stmt::LetDecl {
                     mutable: true,
                     name: format!("__sf_{cname}__{}", sf.name),
                     type_ann: Some(sf.type_ann.clone()),
@@ -146,7 +160,7 @@ fn emit_static_inits(
                 // answer (`verifyProperty(C, "<f>", ...)`). Emitted
                 // right after the slot's LetDecl (value ready), and
                 // the class registration ran earlier (class_globals
-                // stmts prepend ahead of static_field_inits). The
+                // stmts prepend runs ahead of any class patch). The
                 // value rides as the `__sf_` Ident so lowering reuses
                 // the plain global-read path.
                 let cname_str = ast.add_expr(Expr::String(cname.to_string()));
@@ -157,7 +171,7 @@ fn emit_static_inits(
                     callee,
                     args: vec![cname_str, fname_str, val_ident],
                 });
-                static_field_inits.push(Stmt::Expr(call));
+                own_statics.push(Stmt::Expr(call));
             }
             StaticInit::Block(stmts) => {
                 let fn_name = format!("__sb_{cname}__{block_idx}");
@@ -175,7 +189,7 @@ fn emit_static_inits(
                     callee: callee_id,
                     args: Vec::new(),
                 });
-                static_field_inits.push(Stmt::Expr(call_id));
+                own_statics.push(Stmt::Expr(call_id));
             }
         }
     }
@@ -189,7 +203,6 @@ pub(super) fn rewrite_classdecls_pass3(
     class_field_inits: &HashMap<String, Vec<(String, ExprId)>>,
     class_field_preludes: &HashMap<String, Vec<Stmt>>,
     appended: &mut Vec<Stmt>,
-    static_field_inits: &mut Vec<Stmt>,
     accessor_getter_records: &mut Vec<(String, String, String)>,
     accessor_setter_records: &mut Vec<(String, String, String)>,
 ) {
@@ -300,23 +313,32 @@ pub(super) fn rewrite_classdecls_pass3(
         });
 
         // M-OO.4 / P8.3-A3 — static fields + `static { ... }` blocks
-        // in source order; see `emit_static_inits` doc (CRITICAL
-        // init-before-user-code ordering rationale).
+        // in source order; see `emit_static_inits` doc (420-02 — they
+        // ride the class's own patch, not a module-top prepend).
+        let mut own_statics: Vec<Stmt> = Vec::new();
         emit_static_inits(
             ast,
             cname,
             type_params,
             static_init,
             appended,
-            static_field_inits,
+            &mut own_statics,
         );
 
         // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
         // for each static method. See `ast/desugar_classes_emit.rs`.
         emit_class_static_methods(ast, static_methods, cname, type_params, appended);
 
+        // §15.7.14 evaluates every ClassElementName (step 27) before
+        // running any static initializer (step 29), so the reifies —
+        // which carry the name evaluations — lead. The one residual
+        // gap: a computed STATIC FIELD's initializer rides its own
+        // name patch, so it runs ahead of a named static field
+        // declared above it. Both are at the class now, which is the
+        // half that was wrong.
         let mut patch: Vec<Stmt> = Vec::new();
         emit_computed_member_reifies(ast, cname, methods, static_methods, &mut patch);
+        patch.extend(own_statics);
         if !patch.is_empty() {
             computed_patches.push((*idx, patch));
         }

@@ -8,24 +8,34 @@
 
 use super::*;
 
-/// Whether any member of this class was written with a computed name
-/// (420-01). Methods and accessors carry the parser's `__ccm_<n>__`
-/// sentinel as their name; a static field leaves its row in the side
-/// table instead, since it never becomes a `ClassMethod`.
-pub(super) fn class_has_computed_member(ast: &Ast, s: &Stmt) -> bool {
+/// Whether anything this class does AT ITS DEFINITION is observable
+/// from outside it, which is what makes moving the class observable
+/// too (420-01 / 420-02).
+///
+/// Two such things, both §15.7.14: a computed member NAME is evaluated
+/// there (methods and accessors carry the parser's `__ccm_<n>__`
+/// sentinel as their name; a computed static field leaves its row in
+/// the side table instead, since it never becomes a `ClassMethod`),
+/// and every static field initializer / static block RUNS there.
+///
+/// A class with neither can be lifted to the top level with nothing to
+/// see: its bodies only run when something calls them.
+pub(super) fn class_evaluation_is_observable(ast: &Ast, s: &Stmt) -> bool {
     let Stmt::ClassDecl {
         name,
         methods,
         static_methods,
+        static_init,
         ..
     } = s
     else {
         return false;
     };
-    methods
-        .iter()
-        .chain(static_methods.iter())
-        .any(|m| m.name.starts_with("__ccm_"))
+    !static_init.is_empty()
+        || methods
+            .iter()
+            .chain(static_methods.iter())
+            .any(|m| m.name.starts_with("__ccm_"))
         || ast
             .class_computed_static_fields
             .iter()
