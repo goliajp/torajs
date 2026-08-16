@@ -362,8 +362,8 @@ unsafe fn iterator_concat_pack(argv: *const u64, argc: i64) -> u64 {
 /// the count first (the typed tier does the same at
 /// `ssa_lower_call_object_get_prototype_of.rs:112`). Immediates carry
 /// no refcount, so only cells inc.
-/// The statics whose spec reads `this` (Array.from / fromAsync take
-/// it as the constructor C, §23.1.2.1 step 1) — their cells carry
+/// The statics whose spec reads `this` (Array.from / fromAsync / of
+/// take it as the constructor C, §23.1.2.1 step 1 / §23.1.2.3 step 2) — their cells carry
 /// `FLAG_CLOSURE_RECV_FIRST`, so EVERY caller that honors the
 /// receiver channel (`.call`/`.apply`, the variadic alias lane, HOF
 /// loops, bind) prepends the thisArg in argv[0] (undefined on a bare
@@ -373,7 +373,7 @@ fn this_aware_id(id: i64) -> bool {
     id >= 0
         && matches!(
             DISPATCH.get(id as usize),
-            Some(Disp::ArrayFromFace | Disp::FromAsyncDyn)
+            Some(Disp::ArrayFromFace | Disp::FromAsyncDyn | Disp::ArrayOf)
         )
 }
 

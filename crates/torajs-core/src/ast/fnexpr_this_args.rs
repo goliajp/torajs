@@ -17,9 +17,16 @@ pub(super) use super::fnexpr_this_args_valueops::{
 
 /// The construct-channel callee whitelist backing the fourth
 /// receiver-safe use shape: `Reflect.construct` and the
-/// `Array.from` / `Array.fromAsync` statics re-dispatched through
-/// `.call` / `.apply` (their ns-static cells are recv-first, so the
-/// thisArg rides argv[0] into the kernel's Construct split).
+/// `Array.from` / `Array.fromAsync` / `Array.of` statics re-dispatched
+/// through `.call` / `.apply` (their ns-static cells are recv-first,
+/// so the thisArg rides argv[0] into the kernel's Construct split).
+///
+/// `of` joins in rotation 417 on the same reading as `from`: §23.1.2.3
+/// step 4.a does `Construct(C, «len»)` with the `.call` thisArg as C,
+/// and does nothing else with it. `Array.of.call(A, 2)` — a t262
+/// spelling for "does the array-like allocation go through `A` as a
+/// constructor" — is how it shows up, and `A` there is normally a
+/// `this`-writing function expression.
 fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
     match &exprs[callee.0 as usize] {
         // Rotation 410 — the value-shaped-parent synthetics: the
@@ -33,7 +40,7 @@ fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
         }
         Expr::Member { obj, name } if name == "call" || name == "apply" => {
             matches!(&exprs[obj.0 as usize], Expr::Member { obj: ns, name: m }
-                if (m == "from" || m == "fromAsync")
+                if (m == "from" || m == "fromAsync" || m == "of")
                     && matches!(&exprs[ns.0 as usize], Expr::Ident(n) if n == "Array"))
         }
         _ => false,

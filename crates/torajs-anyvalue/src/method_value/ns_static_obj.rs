@@ -167,22 +167,63 @@ unsafe extern "C" {
     fn __torajs_regexp_escape(s: *const c_void) -> *mut u8;
 }
 
-/// §23.1.2.3 Array.of as a detached call — pack argv into a fresh
-/// `Array<Any>` (the `iterator_concat_pack` shape without the kernel
-/// hop). Each arg's payload rc-incs on entry; the minted array is
-/// the owned answer.
+/// §23.1.2.3 Array.of through the value cell. The cell is recv-first
+/// (`ns_static::this_aware_id`), so argv[0] is the thisArg every
+/// honoring caller prepends and the items start at 1 — step 2 reads
+/// `this` as C, and step 4.a hands the item count to `Construct(C,
+/// «len»)` when C is a constructor. `Array.of.call(A, 2)` is the t262
+/// spelling of that branch, and `A` there is normally a `this`-writing
+/// function expression.
+///
+/// A non-constructor C (including the `undefined` a bare call
+/// prepends) takes step 4.b's ArrayCreate, which is the original pack
+/// — argv into a fresh `Array<Any>`, each payload rc-inc'd on entry,
+/// the minted array the owned answer.
 pub(super) unsafe fn array_of_pack(argv: *const u64, argc: i64) -> u64 {
     unsafe {
-        let n = argc.max(0);
+        let this_c = arg_at(argv, argc, 0);
+        let n = (argc - 1).max(0);
+        if crate::construct::__torajs_is_constructor(this_c) {
+            return array_of_construct(this_c, argv, argc, n);
+        }
         let mut items = __torajs_arr_alloc_any(n as u64);
         for i in 0..n {
-            let v = arg_at(argv, argc, i);
+            let v = arg_at(argv, argc, i + 1);
             let t = crate::__torajs_anyv_unbox_tag(v);
             let p = crate::__torajs_anyv_unbox_value(v);
             crate::payload_rc_inc(t, p);
             items = __torajs_arr_push_any(items as *mut c_void, t as u64, p as u64);
         }
         crate::nanbox::box_void_ptr(items as *mut c_void)
+    }
+}
+
+/// §23.1.2.3 steps 4.a / 5 / 6 — the constructor branch. Same shape
+/// as `Array.from`'s array-like walk (`array_from::from_array_like`)
+/// and sharing its store / length kernels: `Construct(C, «len»)`,
+/// then CreateDataPropertyOrThrow per item, then Set(A, "length",
+/// len, true). Any abrupt step releases the product and answers
+/// undefined with the throw already pending.
+unsafe fn array_of_construct(this_c: u64, argv: *const u64, argc: i64, n: i64) -> u64 {
+    unsafe {
+        let len_box = crate::nanbox_encode::__torajs_anyv_box_i64(n);
+        let ctor_argv = [len_box];
+        let mut product = crate::construct::__torajs_anyv_construct(this_c, ctor_argv.as_ptr(), 1);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        for k in 0..n {
+            let v = arg_at(argv, argc, k + 1);
+            let t = crate::__torajs_anyv_unbox_tag(v);
+            let p = crate::__torajs_anyv_unbox_value(v);
+            crate::payload_rc_inc(t, p);
+            if !crate::method_call_arr_species::store_elem(&mut product, k, v) {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(product);
+                return VALUE_UNDEFINED;
+            }
+        }
+        crate::method_call_arr_species::write_product_length(&mut product, n);
+        product
     }
 }
 
