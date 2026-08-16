@@ -124,7 +124,7 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
     // reads the static-method lists. Before the split every static
     // site was named `__cm_...` with a minted `this` and died loud on
     // an unknown identifier.
-    for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in class_index {
+    for (_, cname, _tp, parent, _, static_init, ctor, methods, static_methods) in class_index {
         // Rotation 371 — a builtin-heritage class was STRIPPED
         // (desugar_classes_builtin_heritage sets its parent to None
         // and records the builtin in `exotic_parent`); its
@@ -188,6 +188,27 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
         for m in static_methods {
             for s in &m.body {
                 collect_supercall_in_stmt(ast, s, &mut static_sites);
+            }
+        }
+        // 420-04 — a static field initializer and a static block are
+        // static member bodies too: §15.7.14 runs both with the class
+        // as receiver, so their home object is the class and
+        // `super.m()` names the parent CLASS. Only the method list was
+        // walked, so those two positions kept the parser's raw
+        // `__supercall__<m>` marker and died on it at typecheck. (A
+        // bare `super(...)` CALL is a different question — the grammar
+        // confines SuperCall to derived constructors, and the class
+        // lane refuses it in a static body on its own.)
+        for si in static_init {
+            match si {
+                StaticInit::Field(f) => {
+                    collect_supercall_in_stmt(ast, &Stmt::Expr(f.init), &mut static_sites);
+                }
+                StaticInit::Block(v) => {
+                    for s in v {
+                        collect_supercall_in_stmt(ast, s, &mut static_sites);
+                    }
+                }
             }
         }
         for (eid, m_name, args) in static_sites {
