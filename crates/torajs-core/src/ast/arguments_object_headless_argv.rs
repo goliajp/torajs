@@ -55,7 +55,10 @@ pub(super) fn collect_headless_argv(
     excluded: &std::collections::HashSet<String>,
     static_argv: &std::collections::HashMap<String, usize>,
     env_fns: &std::collections::HashSet<String>,
-) -> std::collections::HashSet<String> {
+) -> (
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+) {
     use std::collections::HashSet;
     let mut candidates: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
@@ -94,28 +97,42 @@ pub(super) fn collect_headless_argv(
         {
             continue;
         }
-        // A rest tail leaves the call sites unreadable to this face:
-        // `apply_rest_args` (pipeline 213, after this pass) bundles
-        // the trailing arguments into ONE array literal, so by
-        // lowering time the terminal sees `f(1, [2, 3])` where the
-        // source wrote `f(1, 2, 3)` — packing that arg list would
-        // hand `arguments[1]` the array. Rest bodies keep today's
-        // loud refusal (registered residue, plan-state L3b).
-        if params.last().is_some_and(|p| p.is_rest) {
-            continue;
-        }
-        if body_has_non_length_arguments_touch(ast, body)
-            && !body_has_unsafe_return_arguments(ast, body)
-        {
+        if body_has_non_length_arguments_touch(ast, body) {
             candidates.insert(name.clone());
         }
     }
     if candidates.is_empty() {
-        return candidates;
+        return (candidates.clone(), candidates);
     }
-    candidates.retain(|name| name_only_called_directly(ast, name));
-    retain_off_spread_sites(ast, &mut candidates);
-    candidates
+    // Everything that reads argument VALUES is `touched`, admitted or
+    // not — the callers need both halves. A declined body keeps the
+    // declared-params approximation it had before this face existed,
+    // and every lane that would otherwise widen its call sites (the
+    // dynamic-spread forwarder wrap) must keep refusing it: turning a
+    // loud refusal into a quietly wrong `arguments[i]` is the one
+    // outcome worse than not supporting the shape.
+    let touched = candidates.clone();
+    let mut admitted = candidates;
+    admitted.retain(|name| {
+        !ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::FnDecl { name: n, params, body, .. }
+                if n == name
+                    // A rest tail leaves the call sites unreadable to
+                    // this face: `apply_rest_args` (pipeline 213,
+                    // after this pass) bundles the trailing arguments
+                    // into ONE array literal, so by lowering time the
+                    // terminal sees `f(1, [2, 3])` where the source
+                    // wrote `f(1, 2, 3)`.
+                    && (params.last().is_some_and(|p| p.is_rest)
+                        // A bare `return arguments[i]` would leave the
+                        // element borrowing the array's stake past its
+                        // scope drop (the value tier refuses it too).
+                        || body_has_unsafe_return_arguments(ast, body)))
+        })
+    });
+    admitted.retain(|name| name_only_called_directly(ast, name));
+    retain_off_spread_sites(ast, &mut admitted);
+    (admitted, touched)
 }
 
 /// Drop any candidate with a spread call site. `f(1, ...arr)` passes

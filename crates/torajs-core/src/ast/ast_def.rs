@@ -628,6 +628,17 @@ pub struct Ast {
     /// `arguments_object_headless_argv`) requires every arena
     /// reference to the name be a call callee, so no site is missed.
     pub headless_argv_fns: std::collections::HashSet<String>,
+    /// Head-less fns whose body reads argument VALUES at all —
+    /// [`Self::headless_argv_fns`] plus the ones that wanted the
+    /// channel and could not have it (a rest tail, a bare
+    /// `return arguments[i]`, a value escape, a spread call site).
+    /// A declined body keeps the declared-params approximation, so
+    /// every lane that would widen its call sites must keep refusing
+    /// it: the dynamic-spread forwarder wrap reads this set to tell a
+    /// length-only head-less callee (safe to widen — the relay
+    /// carries the true argc) from one whose `arguments[i]` would
+    /// then answer undefined instead of failing loudly.
+    pub headless_argv_touch_fns: std::collections::HashSet<String>,
     /// Call ExprId → the argument count the SOURCE wrote, for calls
     /// `apply_default_args` padded with the callee's declared
     /// defaults. The pad rewrites the arena node, so by lowering

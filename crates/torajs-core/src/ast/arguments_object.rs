@@ -237,13 +237,14 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // Its bodies read `__torajs_argc` too (the materialize take-count
     // is the hidden slot), so the argc tier absorbs them even when
     // the source never spells `arguments.length`.
-    let headless_argv_fns = super::arguments_object_headless_argv::collect_headless_argv(
-        ast,
-        &shadowed,
-        &excluded,
-        &iife_static_argv,
-        &env_fns,
-    );
+    let (headless_argv_fns, headless_argv_touch) =
+        super::arguments_object_headless_argv::collect_headless_argv(
+            ast,
+            &shadowed,
+            &excluded,
+            &iife_static_argv,
+            &env_fns,
+        );
     let uses_real_argc: std::collections::HashSet<String> =
         uses_real_argc.union(&headless_argv_fns).cloned().collect();
     // RFC 20260810-indirect-argc-abi H1 — record the final head-less
@@ -252,6 +253,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // and the mono pass mirrors clones into it.
     ast.headless_argc_fns = uses_real_argc.clone();
     ast.headless_argv_fns = headless_argv_fns.clone();
+    ast.headless_argv_touch_fns = headless_argv_touch;
 
     inject_argc_params(ast, &value_argv_fns, &method_argv_fns, &headless_argv_fns);
 

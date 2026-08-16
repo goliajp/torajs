@@ -20,10 +20,16 @@
 //! its tail there — the knife-2 adapter).
 //!
 //! Ordering is load-bearing three ways:
-//! - AFTER `desugar_arguments_object`: an arguments-carrying callee
-//!   must NOT wrap (the forwarder relays only the declared params, so
-//!   the true argc dies in the relay — the ba9095b4 lesson); the
-//!   side-tables consulted here are filled by that pass.
+//! - AFTER `desugar_arguments_object`: a callee that reads argument
+//!   VALUES must NOT wrap (the forwarder relays only the declared
+//!   params, so those values die in the relay — the ba9095b4
+//!   lesson); the side-tables consulted here are filled by that pass.
+//!   A LENGTH-only head-less callee does wrap since rotation 416: the
+//!   relay carries its own runtime argc into the callee's hidden slot
+//!   (RFC 20260815 blade 5), so the count survives the hop, and the
+//!   static expanders decline those sites on purpose — leaving them
+//!   unwrapped meant both passes stood aside and the bare fn name
+//!   died loud in the runtime lane's callee boxing.
 //! - AFTER `apply_default_args`: a defaulted-param callee must NOT
 //!   wrap either (defaults are call-site-substituted by the static
 //!   expanders; the dynamic lane has no default story), and the skip
@@ -71,11 +77,15 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         let Some((params, _, _)) = fn_sigs.get(&name) else {
             continue;
         };
-        // Arguments-carrying callees keep the loud reject: their true
-        // argc has no channel through the forwarder's declared-param
-        // relay (recorded boundary, matches apply_spread_args' gate).
+        // Argument VALUES still have no channel through the
+        // forwarder's declared-param relay, so those callees keep the
+        // loud reject. The head-less argc tier no longer does: since
+        // the `__forward_` relay carries its OWN runtime argc into a
+        // head-less callee's hidden slot (RFC 20260815 blade 5), a
+        // spread site's true count reaches the body — the relay is
+        // fed by the boxed adapter, which knows it.
         if ast.closure_argv_fns.contains(&name)
-            || ast.headless_argc_fns.contains(&name)
+            || ast.headless_argv_touch_fns.contains(&name)
             || ast.closure_argc_locals.contains(&name)
             || ast.closure_argv_locals.contains(&name)
         {
@@ -87,7 +97,16 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         if user.iter().any(|p| p.default.is_some()) {
             continue;
         }
-        if static_expander_takes(ast, args, user) {
+        // …but only when it really will. `apply_spread_args` skips an
+        // arguments-carrying callee on purpose (its index-read
+        // expansion trims the list to the declared arity and the real
+        // argc dies with the trimmed tail), so for those sites the
+        // shape test below answers yes about a pass that is about to
+        // decline. Left to itself that gap put a bare fn name on the
+        // runtime spread lane, which cannot box it — a loud
+        // "box_to_any element type FnSig" where the two passes each
+        // assumed the other had it.
+        if !ast.headless_argc_fns.contains(&name) && static_expander_takes(ast, args, user) {
             continue;
         }
         targets.insert(name.clone());
