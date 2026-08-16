@@ -90,6 +90,9 @@ const FUNCTION_PROTO_TAG: i64 = 13;
 /// Builtin-proto singleton tag for %Iterator.prototype%
 /// (RFC 20260730-iterator-global 刀 1).
 const ITERATOR_PROTO_TAG: i64 = 15;
+/// Index of `Symbol.toStringTag` in torajs-str's alphabetical
+/// well-known table (proto_tostringtag_install's constant).
+const WK_TO_STRING_TAG: i64 = 13;
 
 /// Per-kind trio: [fn_proto, ctor, gen_proto]. kind 0 = generator,
 /// kind 1 = async generator. Pointer addresses stored as usize so
@@ -197,6 +200,33 @@ unsafe fn mint_kind(kind: usize) {
                     ANY_HEAP,
                     heap_anyv(cell),
                     ATTRS_WEC_101,
+                )
+            };
+        }
+    }
+    // §27.5.1.5 / §27.6.1.5 — gen_proto[@@toStringTag] = "Generator" /
+    // "AsyncGenerator" ({W:0,E:0,C:1}), a real own entry so both the
+    // badge's step-15 [[Get]] and getOwnPropertyDescriptor agree
+    // (proto_tostringtag_install posture). An instance inherits it
+    // through the chain, so `Object.prototype.toString.call(g())`
+    // answers "[object Generator]".
+    {
+        let tag: &[u8] = if kind == 0 {
+            b"Generator"
+        } else {
+            b"AsyncGenerator"
+        };
+        let sym = unsafe { __torajs_symbol_well_known(WK_TO_STRING_TAG) };
+        if !sym.is_null() {
+            let value = unsafe { alloc_str_key(tag) };
+            let mut slot = gen_proto;
+            unsafe {
+                __torajs_dynobj_define(
+                    &mut slot,
+                    sym as *const u8,
+                    ANY_HEAP,
+                    heap_anyv(value as *mut c_void),
+                    ATTRS_WEC_001,
                 )
             };
         }
