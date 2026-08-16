@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T11:26:42.876Z",
+  "generatedAt": "2026-08-16T13:23:03.302Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-16T11:15:37Z",
-    "headSha": "af31fa42",
-    "elapsedSec": 326.87,
+    "ranAt": "2026-08-16T13:20:52Z",
+    "headSha": "e787fd8d",
+    "elapsedSec": 359.19,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25287,
-    "passNoOracle": 855,
-    "passNegative": 4125,
-    "passTotal": 30267,
-    "bug": 12733,
-    "incompatible": 10174,
+    "pass": 25292,
+    "passNoOracle": 856,
+    "passNegative": 4130,
+    "passTotal": 30278,
+    "bug": 12744,
+    "incompatible": 10152,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43000,
-    "passRateInScope": 56.92,
-    "passRateTrAccepted": 70.39
+    "trAccepted": 43022,
+    "passRateInScope": 56.94,
+    "passRateTrAccepted": 70.38
   },
   "torajs": {
-    "commit": "cdf930f5",
-    "commitSubject": "chore: record the rotation 420 sweep and refresh the P-SURF snapshot",
+    "commit": "e787fd8d",
+    "commitSubject": "fix: a lone-surrogate export name sailed through to a runtime failure",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "e787fd8d",
+      "subject": "fix: a lone-surrogate export name sailed through to a runtime failure"
+    },
+    {
+      "hash": "a247a54f",
+      "subject": "fix: a second request shape for the same module re-declared its bindings"
+    },
+    {
+      "hash": "82b7e262",
+      "subject": "fix: `export { x as default } from \"m\"` never answered a default import"
+    },
+    {
+      "hash": "c13cc983",
+      "subject": "fix: `import x from \"m\" with { … }` was read as a `with` statement"
+    },
+    {
+      "hash": "a7837878",
+      "subject": "fix: two module early errors the previous knife's parser opened the door to"
+    },
+    {
+      "hash": "d6be6b9d",
+      "subject": "fix: an imported module's body ran after the body that imported it"
+    },
+    {
+      "hash": "e9a80601",
+      "subject": "feat: `export * from \"m\"` died in the parser before it reached the resolver"
+    },
+    {
+      "hash": "4e3ed20a",
+      "subject": "chore: refresh the hardev dashboard snapshot for rotation 420"
+    },
+    {
       "hash": "cdf930f5",
       "subject": "chore: record the rotation 420 sweep and refresh the P-SURF snapshot"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "99a125f7",
       "subject": "fix: `this` in a static field initializer or static block was the instance receiver"
-    },
-    {
-      "hash": "1a529376",
-      "subject": "fix: a class's static initializers ran before the program's first statement"
-    },
-    {
-      "hash": "0913b57c",
-      "subject": "fix: a class inside a function evaluated its computed member name at program end"
-    },
-    {
-      "hash": "b7924e83",
-      "subject": "fix: a class's computed field name converted at construction, not at the class"
-    },
-    {
-      "hash": "79791f6a",
-      "subject": "chore: record the rotation 419 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "5c33b06c",
-      "subject": "fix: one method field kept a whole top-level object off the globals table"
-    },
-    {
-      "hash": "8087ff1e",
-      "subject": "fix: reading toString off a Map answered undefined while calling it worked"
-    },
-    {
-      "hash": "c4c0d13f",
-      "subject": "fix: awaiting Promise.resolve of an any-bound promise rc_inc'd the number 1"
-    },
-    {
-      "hash": "286f64a4",
-      "subject": "fix: a Map through an any slot stringified to NaN"
     }
   ],
-  "headSha": "cdf930f5",
+  "headSha": "e787fd8d",
   "autorun": {
-    "total": 723,
+    "total": 724,
     "baselineTarget": 10,
-    "bySelf": 718,
+    "bySelf": 719,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786867511-37b7",
-      "at": "2026-08-16T08:05:11Z",
-      "ts": 1786867511,
+      "rotationId": "r-1786879620-5181",
+      "at": "2026-08-16T11:27:00Z",
+      "ts": 1786879620,
       "trigger": "self",
-      "prevHead": "79791f6a",
-      "handoffSha": "sha256:e711de755965053c7dfe07dce207304747b888c3ec2d72b797fdd275f1918eae",
-      "handoffAgeSec": 12,
+      "prevHead": "4e3ed20a",
+      "handoffSha": "sha256:9e503bf6a41842507ec7169719e73b57b9af55c4eab8ae2482af31863d05b5e2",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786879620-5181",
+        "at": "2026-08-16T11:27:00Z",
+        "ts": 1786879620,
+        "trigger": "self",
+        "prevHead": "4e3ed20a",
+        "handoffSha": "sha256:9e503bf6a41842507ec7169719e73b57b9af55c4eab8ae2482af31863d05b5e2",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786867511-37b7",
         "at": "2026-08-16T08:05:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "7ef04c7d",
         "handoffSha": "sha256:e5dcb7f08353113aa9ef3bd66ccf7039fc30c144923b19a8a9040ce6577c47fe",
         "handoffAgeSec": 42,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786789766-7ce5",
-        "at": "2026-08-15T10:29:26Z",
-        "ts": 1786789766,
-        "trigger": "self",
-        "prevHead": "0cc52bbc",
-        "handoffSha": "sha256:1d388c0fab02dd2c936d8c66d32a51af7e636c1d4e4863e8122c4a3163bbde3f",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }

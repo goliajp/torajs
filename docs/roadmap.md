@@ -1530,7 +1530,34 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `e8fd4d8c`** (2026-08-16, rotation 414 — the any-lane
+**Latest @ `e787fd8d`** (2026-08-16, rotation 421 — the module
+graph's missing half. `export * from "m"` / `export * as ns from "m"`
+parse and resolve (a star forwards the importer's request minus the
+hub's own exports; namespace objects accumulate per ALIAS and
+materialize after the BFS drains, in reverse discovery order);
+module bodies evaluate in dependency post-order per §16.2.1.5
+(requester → requested recorded as the walk pushes, statements
+spliced back once the queue drains — cycles stop at the member on
+the stack); `with { type: "json" }` import attributes parse as part
+of the declaration; `default` works on both sides of an export
+specifier (exposed name answers the importer's default binding,
+source name rides the default lane); a second request shape against
+one module no longer re-declares its bindings (every lane records
+injected decl names in the per-path ledger); and three §16.2
+early errors landed — declaration terminator (`export * from "m"
+null;`), duplicate ExportedNames, and lone-surrogate string export
+names (checked on the RAW spelling — the lexer folds lone
+surrogates to U+FFFD). Sweep vs rotation 420: passTotal 30267 →
+**30278 (+11)**, bug +11, incompatible −22, trAccepted +22 —
+conservation exact; **zero pass regressions, zero new crashes**
+(three surrogate regressions appeared mid-rotation from accepting
+string export names and were repaid the same rotation). The
+`expected expression, got Star` cluster (87 cases) lost its entire
+module-code half; the 49 that remain are all async generators.
+Gate predicate **239 unattributed clusters / 2960 cases / register
+2 · 611 / residue 762 · 979 / core 4550**.
+
+**Prior @ `e8fd4d8c`** (2026-08-16, rotation 414 — the any-lane
 generic-accessor ABI knife landed (a GENERIC class's accessor rides
 its `__cmany_` twin through a flags-aware finder + recv-first
 dispatch — the 404-01 method-face pattern extended to accessors),
