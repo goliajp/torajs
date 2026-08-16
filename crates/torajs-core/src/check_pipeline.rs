@@ -163,7 +163,19 @@ pub(crate) fn pass_1_hoist_fn_signatures(c: &mut Checker, ast: &Ast) {
         } = stmt
         {
             let is_closure = params.first().is_some_and(|p| p.name == "__env");
-            let user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            let mut user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            // RFC 20260816-headless-argv-face — a head-less argv
+            // body carries the synthetic raw-argv pointer at
+            // position 0 (the head-less degeneration of "right after
+            // the head"). It is an ABI slot the direct-call terminal
+            // fills, never a user argument, so the caller-visible
+            // signature drops it exactly as the env slot drops above.
+            if user_params
+                .first()
+                .is_some_and(|p| p.name == "__torajs_argv")
+            {
+                user_params = &user_params[1..];
+            }
             match build_fn_type_full(
                 name,
                 user_params,

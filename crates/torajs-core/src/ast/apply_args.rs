@@ -31,6 +31,15 @@ use std::collections::HashMap;
 /// stripping a leading one too would peel it twice and eat a real user
 /// param ("expected 2 argument(s), got 1").
 pub(super) fn peel_hidden_params(params: &[Param]) -> &[Param] {
+    // RFC 20260816-headless-argv-face — a head-less argv body leads
+    // with the synthetic raw-argv pointer instead of a head param.
+    // The direct-call terminal fills that slot from its own buffer,
+    // so no call site counts it and neither may the default / rest
+    // tables (leaving it in shifted every default one position and
+    // made `f()` on `function f(a = 5)` refuse the call).
+    if params.first().is_some_and(|p| p.name == "__torajs_argv") {
+        return &params[1..];
+    }
     if !params.first().is_some_and(|p| p.name == "__env") {
         return params;
     }

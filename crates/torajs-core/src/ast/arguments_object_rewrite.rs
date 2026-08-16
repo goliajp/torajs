@@ -154,63 +154,16 @@ pub(super) fn rewrite_arguments_in_expr(
         // → `__torajs_arguments[<i>]` reading from the synthesized
         // Array<Any>. The synth let is prepended at fn body start by
         // the FnDecl-walk pre-pass when any dynamic use is detected.
-        Expr::Index { obj, index } => {
-            let is_arguments = matches!(
-                ast.get_expr(obj),
-                Expr::Ident(n) if n == "arguments"
-            );
-            if is_arguments {
-                // KeepLoud — leave every `arguments[...]` node
-                // untouched so the checker rejects the body loudly
-                // (RFC 20260708-closure-argv-face chunk 2: the old
-                // unconditional rewrite fed a declared-params-only
-                // array to bodies whose real argv face was killed,
-                // silently answering undefined beyond declared).
-                if argc_mode == ArgcMode::KeepLoud {
-                    return eid;
-                }
-                // Unmapped / LiveLength faces (module code is strict,
-                // ES §10.4.4.6/7) — `arguments[i]` never aliases the
-                // param: the literal-index substitution below would
-                // diverge both ways (`arguments[0] = 2` mutating `a`;
-                // `a = 99` showing in a later read). Every index
-                // rides the materialized array instead.
-                if !matches!(argc_mode, ArgcMode::Unmapped(_) | ArgcMode::LiveLength(_))
-                    && let Expr::Number(n) = ast.get_expr(index)
-                    && n.fract() == 0.0
-                    && (*n as usize) < params.len()
-                {
-                    let pname = params[*n as usize].clone();
-                    return ast.add_expr(Expr::Ident(pname));
-                }
-                // Dynamic index (or out-of-range literal): route to
-                // the materialized Array<Any> via __torajs_arguments.
-                let new_index = rewrite_arguments_in_expr(
-                    ast,
-                    index,
-                    params,
-                    argc_mode,
-                    is_argv_fn,
-                    sloppy_callee,
-                );
-                let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-                return ast.add_expr(Expr::Index {
-                    obj: synth_obj,
-                    index: new_index,
-                });
-            }
-            let new_obj =
-                rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
-            let new_index =
-                rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn, sloppy_callee);
-            if new_obj == obj && new_index == index {
-                return eid;
-            }
-            ast.add_expr(Expr::Index {
-                obj: new_obj,
-                index: new_index,
-            })
-        }
+        Expr::Index { obj, index } => rewrite_index_arm(
+            ast,
+            eid,
+            obj,
+            index,
+            params,
+            argc_mode,
+            is_argv_fn,
+            sloppy_callee,
+        ),
         Expr::Call { callee, args } => rewrite_call_arm(
             ast,
             eid,
@@ -257,6 +210,80 @@ pub(super) fn rewrite_arguments_in_expr(
             sloppy_callee,
         ),
     }
+}
+
+/// The `arguments[...]` / ordinary-index arm of
+/// [`rewrite_arguments_in_expr`], carved out when the argv-face gate
+/// pushed that fn past the 200-line limit (verbatim move — same
+/// shape as the `rewrite_call_arm` sibling).
+#[allow(clippy::too_many_arguments)]
+fn rewrite_index_arm(
+    ast: &mut Ast,
+    eid: ExprId,
+    obj: ExprId,
+    index: ExprId,
+    params: &[String],
+    argc_mode: ArgcMode,
+    is_argv_fn: bool,
+    sloppy_callee: SloppyCallee<'_>,
+) -> ExprId {
+    let is_arguments = matches!(
+        ast.get_expr(obj),
+        Expr::Ident(n) if n == "arguments"
+    );
+    if is_arguments {
+        // KeepLoud — leave every `arguments[...]` node
+        // untouched so the checker rejects the body loudly
+        // (RFC 20260708-closure-argv-face chunk 2: the old
+        // unconditional rewrite fed a declared-params-only
+        // array to bodies whose real argv face was killed,
+        // silently answering undefined beyond declared).
+        if argc_mode == ArgcMode::KeepLoud {
+            return eid;
+        }
+        // Unmapped / LiveLength faces (module code is strict,
+        // ES §10.4.4.6/7) — `arguments[i]` never aliases the
+        // param: the literal-index substitution below would
+        // diverge both ways (`arguments[0] = 2` mutating `a`;
+        // `a = 99` showing in a later read). Every index
+        // rides the materialized array instead.
+        // An argv face is unmapped for the same reason and
+        // has the materialized array unconditionally: its
+        // slots are the values the CALLER passed, which the
+        // params only coincide with when the site's count
+        // matches the arity. `function f(a = 5) {}` called as
+        // `f()` binds `a` to the callee's own default, while
+        // `arguments[0]` must stay undefined (§10.4.4 builds
+        // the object from the argument list).
+        if !is_argv_fn
+            && !matches!(argc_mode, ArgcMode::Unmapped(_) | ArgcMode::LiveLength(_))
+            && let Expr::Number(n) = ast.get_expr(index)
+            && n.fract() == 0.0
+            && (*n as usize) < params.len()
+        {
+            let pname = params[*n as usize].clone();
+            return ast.add_expr(Expr::Ident(pname));
+        }
+        // Dynamic index (or out-of-range literal): route to
+        // the materialized Array<Any> via __torajs_arguments.
+        let new_index =
+            rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn, sloppy_callee);
+        let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+        return ast.add_expr(Expr::Index {
+            obj: synth_obj,
+            index: new_index,
+        });
+    }
+    let new_obj = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn, sloppy_callee);
+    let new_index =
+        rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn, sloppy_callee);
+    if new_obj == obj && new_index == index {
+        return eid;
+    }
+    ast.add_expr(Expr::Index {
+        obj: new_obj,
+        index: new_index,
+    })
 }
 
 /// The `arguments.length` fold, one arm per [`ArgcMode`]. Returns

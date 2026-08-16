@@ -44,6 +44,32 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     if new_class.is_some() {
         checker.current_class = new_class;
     }
+    // RFC 20260816-headless-argv-face — the synthetic raw-argv
+    // pointer at position 0 is absent from the caller-visible
+    // signature (`pass_1_hoist_fn_signatures` drops it), so it must
+    // not consume a `param_tys` slot here either: zipping it against
+    // the first user type shifted every later param off by one and
+    // the body's real names went unbound ("unknown identifier `a`").
+    // It still needs a binding of its own — the synthesized
+    // `__torajs_arguments_materialize` call reads it.
+    let params = if params.first().is_some_and(|p| p.name == "__torajs_argv") {
+        checker
+            .declare(
+                "__torajs_argv".to_string(),
+                LocalInfo {
+                    ty: Type::Any,
+                    mutable: false,
+                    moved: false,
+                    borrowed: false,
+                    declared_class: None,
+                    builtin_mv: false,
+                },
+            )
+            .ok();
+        &params[1..]
+    } else {
+        params
+    };
     for (p, ty) in params.iter().zip(param_tys.iter()) {
         let declared_class = if p.name == "__this" {
             checker.current_class.clone()

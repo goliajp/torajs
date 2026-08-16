@@ -620,6 +620,14 @@ pub struct Ast {
     /// the family needs this side table where the env/this tiers key
     /// on param names.
     pub headless_argc_fns: std::collections::HashSet<String>,
+    /// RFC 20260816-headless-argv-face — the subset of
+    /// [`Self::headless_argc_fns`] that also owns a runtime argv
+    /// channel: a synthetic `__torajs_argv: __argvptr()` param at
+    /// AST position 0, fed at every direct-call site from a stack
+    /// buffer the terminal packs. Admission (module doc in
+    /// `arguments_object_headless_argv`) requires every arena
+    /// reference to the name be a call callee, so no site is missed.
+    pub headless_argv_fns: std::collections::HashSet<String>,
     /// Call ExprId → the argument count the SOURCE wrote, for calls
     /// `apply_default_args` padded with the callee's declared
     /// defaults. The pad rewrites the arena node, so by lowering

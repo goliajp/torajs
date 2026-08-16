@@ -20,12 +20,17 @@ use super::{Ast, Param, Stmt};
 /// - `value_argv_fns` (env-first argv face): at the first user slot
 ///   after `__env`.
 /// - `method_argv_fns` (`__cm_` this-first): right after `__this`.
+/// - `headless_argv_fns` (RFC 20260816-headless-argv-face): at
+///   position 0 — a head-less body has no head param, so "right
+///   after the head" degenerates to the front, exactly as the H1
+///   hidden argc slot does on the sig side.
 pub(super) fn inject_argc_params(
     ast: &mut Ast,
     value_argv_fns: &std::collections::HashSet<String>,
     method_argv_fns: &std::collections::HashSet<String>,
+    headless_argv_fns: &std::collections::HashSet<String>,
 ) {
-    if value_argv_fns.is_empty() && method_argv_fns.is_empty() {
+    if value_argv_fns.is_empty() && method_argv_fns.is_empty() && headless_argv_fns.is_empty() {
         return;
     }
     let argv = || Param {
@@ -38,6 +43,8 @@ pub(super) fn inject_argc_params(
         if let Stmt::FnDecl { name, params, .. } = s {
             if value_argv_fns.contains(name) || method_argv_fns.contains(name) {
                 params.insert(1, argv());
+            } else if headless_argv_fns.contains(name) {
+                params.insert(0, argv());
             }
         }
     }

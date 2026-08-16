@@ -36,6 +36,9 @@
 use crate::ast::ExprId;
 use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_call_terminal_headless::{
+    forwarded_argc, headless_slots, pack_headless_argv, user_argc,
+};
 
 pub(crate) fn emit(
     ctx: &mut LowerCtx<'_>,
@@ -50,7 +53,8 @@ pub(crate) fn emit(
     // below shifts past the slot, and the argc operand is prepended
     // only at the very end, right before the `Call` emit — inserting
     // earlier would shift the pad/coerce/dflt-lit zips off by one.
-    let hidden_off = headless_hidden_off(ctx, eid, callee);
+    let headless = headless_slots(ctx, eid, callee);
+    let hidden_off = headless.width();
     // Chunk 641 — an empty `[]` arg allocs with the PARAM's layout
     // (checker admit `empty_lit_into_arr` pairs here); every other
     // arg lowers plain.
@@ -128,6 +132,17 @@ pub(crate) fn emit(
         .filter(|(_, (a, _))| ctx.expr_owned_shape(**a))
         .map(|(i, (_, op))| (i, *op))
         .collect();
+    // RFC 20260816-headless-argv-face — pack the raw argv buffer
+    // BEFORE the truncate/coerce steps below: those align the SSA
+    // arg list down to the callee's declared signature, while the
+    // arguments object must see every value the source passed
+    // (`f(1, 2, 3)` into `function f(a) { … arguments[2] … }`).
+    // Packing here also reuses the operands already lowered above —
+    // re-lowering the arg expressions would double their side
+    // effects.
+    let headless_argv_op = headless
+        .argv
+        .then(|| pack_headless_argv(ctx, eid, args, &argv));
     // Direct-call trailing-ignore (checker wedge mirror): the extra
     // args lowered above for §13.3.6.1 side effects; the callee's ABI
     // reads only its declared slots, so argv aligns down to the
@@ -147,17 +162,16 @@ pub(crate) fn emit(
     // the AST-prepended argc arg rides in it — the slot has no
     // readers until H2 retires that prepend, which also removes the
     // extra arg and makes this count the true user argc).
-    if hidden_off == 1 {
+    if let Some(op) = headless_argv_op {
+        argv.insert(0, op);
+    }
+    if headless.argc {
         // …minus the trailing slots `apply_default_args` materialized
         // from the callee's declared defaults: those are the callee's
         // own values, not arguments the program passed.
-        let user_argc = ctx
-            .ast
-            .default_padded_argc
-            .get(&eid)
-            .copied()
-            .unwrap_or(args.len());
-        let argc_op = forwarded_argc(ctx, callee).unwrap_or(Operand::ConstI64(user_argc as i64));
+        let argc_op =
+            forwarded_argc(ctx, callee)
+                .unwrap_or(Operand::ConstI64(user_argc(ctx, eid, args.len()) as i64));
         argv.insert(0, argc_op);
     }
     let ret_ty = ctx.f_ret_type_hint(target);
@@ -190,49 +204,6 @@ pub(crate) fn emit(
         ctx.emit_drop_value(op, ty);
     }
     result
-}
-
-/// H1 — 1 when the callee is a head-less T-31 body (hidden argc at
-/// sig position 0), 0 otherwise. Keyed by name — the mono retarget
-/// name when the checker recorded one (clones are mirrored into the
-/// side table), the direct Ident otherwise. Non-Ident callees can't
-/// reach a head-less body (value escapes ride the `__forward_` relay,
-/// itself an env-first closure).
-/// `__forward_<f>` is a TRANSPARENT relay minted for a value escape
-/// of `f`; when its body's forwarding call reaches a head-less
-/// callee, the hidden argc slot must carry the relay's OWN runtime
-/// argc (the S1 hidden param every env-first closure receives), not
-/// the relay's declared arity — `(f as any)(1, 2, 3)` reaches `f`
-/// through the relay and `arguments.length` must answer 3. Any
-/// other caller keeps the static count (`args.len()`).
-fn forwarded_argc(ctx: &mut LowerCtx<'_>, callee: ExprId) -> Option<Operand> {
-    let crate::ast::Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
-        return None;
-    };
-    if ctx.f.name.strip_prefix("__forward_") != Some(callee_name.as_str()) {
-        return None;
-    }
-    let info = ctx.locals.get("__torajs_argc")?;
-    let (slot, ty) = (info.slot, info.ty);
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(ty, Operand::Value(slot), 0),
-        ty,
-        None,
-    );
-    Some(Operand::Value(v))
-}
-
-fn headless_hidden_off(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) -> usize {
-    let name = if let Some(n) = ctx.call_retargets.get(&eid) {
-        n.as_str()
-    } else if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(callee) {
-        n.as_str()
-    } else {
-        return 0;
-    };
-    usize::from(ctx.ast.headless_argc_fns.contains(name))
 }
 
 fn resolve_target(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) -> FuncId {

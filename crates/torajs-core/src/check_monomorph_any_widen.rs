@@ -120,6 +120,9 @@ fn escape_widen_one(
     if owned_ast.headless_argc_fns.contains(&fn_name) {
         owned_ast.headless_argc_fns.insert(mono_name.clone());
     }
+    if owned_ast.headless_argv_fns.contains(&fn_name) {
+        owned_ast.headless_argv_fns.insert(mono_name.clone());
+    }
     if !c.globals.contains_key(&mono_name) {
         emit_widened_spec(
             c,
@@ -211,6 +214,9 @@ fn widen_one(
     // mirror in `process_one_generic`).
     if owned_ast.headless_argc_fns.contains(&fn_name) {
         owned_ast.headless_argc_fns.insert(mono_name.clone());
+    }
+    if owned_ast.headless_argv_fns.contains(&fn_name) {
+        owned_ast.headless_argv_fns.insert(mono_name.clone());
     }
     if !c.globals.contains_key(&mono_name) {
         emit_widened_spec(

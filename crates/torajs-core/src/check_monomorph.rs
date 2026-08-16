@@ -234,6 +234,12 @@ pub(crate) fn process_one_generic(
         if owned_ast.headless_argc_fns.contains(&name) {
             owned_ast.headless_argc_fns.insert(mono_name.clone());
         }
+        // RFC 20260816-headless-argv-face — the argv channel rides
+        // the same specialization (its `__torajs_argv` param clones
+        // with the body; the terminal keys the pack on this set).
+        if owned_ast.headless_argv_fns.contains(&name) {
+            owned_ast.headless_argv_fns.insert(mono_name.clone());
+        }
         // `MakeIterable$$_boolean` → `$$_boolean`; the same suffix
         // names this spec's lifted-closure clones.
         let spec_suffix = mono_name[name.len()..].to_string();

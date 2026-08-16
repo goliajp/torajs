@@ -371,6 +371,7 @@ pub(crate) mod ssa_lower_call_super_value;
 pub(crate) mod ssa_lower_call_symbol_ctor;
 pub(crate) mod ssa_lower_call_symbol_registry;
 pub(crate) mod ssa_lower_call_terminal;
+pub(crate) mod ssa_lower_call_terminal_headless;
 pub(crate) mod ssa_lower_call_universal_methods;
 pub(crate) mod ssa_lower_call_vtable_dispatch;
 pub(crate) mod ssa_lower_call_weakref_collections;
