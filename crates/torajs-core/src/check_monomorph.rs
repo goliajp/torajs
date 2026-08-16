@@ -426,29 +426,7 @@ pub(crate) fn clone_spec_body(
         .iter()
         .map(|s| crate::ssa_lower::deep_clone_stmt(owned_ast, &mut id_map, s))
         .collect();
-    let cloned_groups: Vec<(ExprId, i64)> = id_map
-        .iter()
-        .filter_map(|&(old, new)| {
-            owned_ast
-                .ary_destr_groups
-                .get(&old)
-                .map(|&limit| (new, limit))
-        })
-        .collect();
-    owned_ast.ary_destr_groups.extend(cloned_groups);
-    // The default-pad's true-argc record rides the clone too — a
-    // padded call inside a generic body is copied verbatim, and the
-    // fresh ExprId would otherwise fall back to the padded length.
-    let cloned_argc: Vec<(ExprId, usize)> = id_map
-        .iter()
-        .filter_map(|&(old, new)| {
-            owned_ast
-                .default_padded_argc
-                .get(&old)
-                .map(|&argc| (new, argc))
-        })
-        .collect();
-    owned_ast.default_padded_argc.extend(cloned_argc);
+    crate::check_monomorph_clone_tables::carry(owned_ast, &id_map);
     for s in new_body.iter_mut() {
         substitute_in_stmt(s, subst);
     }
