@@ -96,6 +96,21 @@ pub(crate) fn try_lower(
                     Some(crate::check::Type::String) | Some(crate::check::Type::Function(..))
                 )))
         && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
+    // Does the program contain evidence that a symbol face may have
+    // been rewritten on this value? Every one of the new `any`-slot
+    // lanes below decides "this is a RegExp, so step 2 hands off to
+    // its `@@replace`" from the cell tag alone, and that is only the
+    // same question while the method is still there: t262's
+    // `replaceAll/{searchValue-tostring-regexp,getSubstitution-*}`
+    // define `Symbol.replace` away and then expect the six characters
+    // "/./g" to be searched for literally. The runtime cannot tell
+    // the two apart — a defined-away symbol on a RegExp cell reads
+    // back as the prototype's builtin either way — so the honest
+    // answer is this static one, and with evidence present the whole
+    // family keeps its old route rather than guessing. Same predicate
+    // `replace_symbol_lane` uses, read the other way round.
+    let symbol_face_may_be_rewritten =
+        crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
     // The same `any` slot on the replace family. §22.1.3.19 step 2
     // hands a RegExp searchValue to its own `@@replace`; the typed
     // lane instead ToString'd it and searched for its source text, so
@@ -106,6 +121,7 @@ pub(crate) fn try_lower(
     let replace_any_lane = matches!(name.as_str(), "replace" | "replaceAll")
         && !arg0_is_regex
         && !replace_symbol_lane
+        && !symbol_face_may_be_rewritten
         && arg0_is_any
         && args.len() >= 2
         && matches!(
@@ -128,6 +144,7 @@ pub(crate) fn try_lower(
     let replace_any_fn_lane = matches!(name.as_str(), "replace" | "replaceAll")
         && !arg0_is_regex
         && !replace_symbol_lane
+        && !symbol_face_may_be_rewritten
         && arg0_is_any
         && args.len() >= 2
         && matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Function(ps, _))
@@ -281,7 +298,7 @@ pub(crate) fn try_lower(
         let raw_arg = ctx.lower_expr(args[0]);
         let arg_ty = ctx.operand_ty(&raw_arg);
         let flags_bytes = if name == "matchAll" { "g" } else { "" };
-        if arg_ty == Type::Any {
+        if arg_ty == Type::Any && !symbol_face_may_be_rewritten {
             // A pattern that arrives in an `any` slot may already BE
             // a RegExp — `var re = /b/` is an `any` binding once
             // `desugar_var_hoist` has split it, and so is any

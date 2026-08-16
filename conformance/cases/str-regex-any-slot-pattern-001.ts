@@ -66,3 +66,17 @@ try {
 
 // the statically-typed spellings are untouched
 console.log("typed", "abc".replace("b", "Y"), "abc".replace(/b/, "Z"));
+
+// A RegExp whose hand-off method was DEFINED AWAY is not a RegExp as
+// far as §22.1.3.19 step 2 is concerned — it falls through to step 3's
+// literal search over its own source text. tr cannot tell the two
+// apart at runtime (a defined-away symbol on a RegExp cell reads back
+// as the prototype's builtin either way), so the whole `any`-slot
+// family stands down whenever the program contains evidence that a
+// symbol face may have been rewritten. t262's
+// `replaceAll/searchValue-tostring-regexp` and the `getSubstitution-*`
+// family are exactly this shape, and they went from pass to fail when
+// the lane read the cell tag alone.
+var deleted: any = /./g;
+Object.defineProperty(deleted, Symbol.replace, { value: undefined });
+console.log("defined-away", "--- /./g --- /a/g --- /./g ---".replaceAll(deleted, "a($1$1)"));
