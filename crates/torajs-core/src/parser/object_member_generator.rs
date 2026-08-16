@@ -107,10 +107,18 @@ impl<'a> Parser<'a> {
                 Some(key_expr),
             )
         } else {
-            let Token::Ident(name) = &t1.token else {
-                return Ok(None);
+            // §12.7.6 IdentifierName — reserved words are valid
+            // property names, generator methods included
+            // (`{ *yield() {} }`, t262 yield-as-generator-method-
+            // binding-identifier). Same table every other
+            // property-name position reads.
+            let method_name = match &t1.token {
+                Token::Ident(name) => name.clone(),
+                t => match Self::keyword_property_name(t) {
+                    Some(kw) => kw.to_string(),
+                    None => return Ok(None),
+                },
             };
-            let method_name = name.clone();
             let Some(t2) = self.tokens.get(self.pos + star_off + 2) else {
                 return Ok(None);
             };
