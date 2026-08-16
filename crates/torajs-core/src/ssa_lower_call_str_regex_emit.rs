@@ -192,10 +192,12 @@ pub(crate) fn emit_replace(
     // $&/$N expand_repl path) or Closure (env+8 ABI runtime invoke, with
     // N capture Strs built from saves[] per match).
     //
-    // For Closure: count regex captures statically from the literal pattern
-    // and validate cb sig is exactly `[Str; N+1] -> Str`. Mismatches +
-    // N > 9 panic at compile-time; never silent-wrong from cb cast
-    // mismatch.
+    // For Closure: count regex captures statically from the literal
+    // pattern, and check the cb sig can RECEIVE `[Str; N+1]` — it may
+    // declare fewer (the spec's extra arguments go nowhere), but never
+    // more, and never a differently-typed slot. A cb that would have
+    // to read one argument as another's type panics at compile time;
+    // never silent-wrong from a cb cast mismatch.
     // Returns (target_fid, Some((n_caps, has_off_input))) for Closure paths,
     // or (target_fid, None) for the Str path.
     let (target, opt_extras) = match (&repl_ty, method) {
@@ -211,14 +213,24 @@ pub(crate) fn emit_replace(
             //  - A1.2: [Str; N+1, I64, Str]  → has_off_input=1
             // (A1.2 trailing slots are (offset:number, input:string) per
             //  ES spec.)
-            let (n_caps_expected, has_off_input) = if params.len() >= 3
+            // §22.2.6.11 step 14.j calls the replacer with
+            // `Call(replaceValue, undefined, «matched, captures…,
+            // position, string»)`, and a function that declares fewer
+            // parameters than that simply never sees the rest. So how
+            // many arguments to build is the REGEX's to decide; what
+            // the callback declares only has to be no MORE than that.
+            let (declared, has_off_input) = if params.len() >= 3
                 && params[params.len() - 2] == Type::I64
                 && params[params.len() - 1] == Type::Str
                 && params[..params.len() - 2].iter().all(|t| t == &Type::Str)
             {
                 (params.len() - 3, true)
-            } else if !params.is_empty() && params.iter().all(|t| t == &Type::Str) {
-                (params.len() - 1, false)
+            } else if params.iter().all(|t| t == &Type::Str) {
+                // An empty list lands here on purpose: `function () {
+                // … }` declares nothing at all, which is legal and is
+                // how t262 spells a replacer that only needs a
+                // constant.
+                (params.len().saturating_sub(1), false)
             } else {
                 panic!(
                     "ssa-lower: P9.5 s.{m_name}(re, fn) — fn must have shape \
@@ -226,25 +238,38 @@ pub(crate) fn emit_replace(
                          string) => Str` (A1.2), got params={params:?} ret={ret_ty:?}"
                 );
             };
-            if n_caps_expected > 9 {
-                panic!(
-                    "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — max 9 capture-group \
-                         cb args, got {n_caps_expected}. Use the Str-repl form for this case."
-                );
-            }
             // For ident-bound regex tora can't count captures statically;
             // A1.1 narrow scope = inline regex literal for N ≥ 1.
             let n_caps_actual = match ctx.ast.get_expr(args[0]) {
                 Expr::Regex { pattern, .. } => count_capture_groups(pattern),
                 _ => 0,
             };
-            if n_caps_actual != n_caps_expected {
+            if n_caps_actual > 9 {
+                panic!(
+                    "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — max 9 capture-group \
+                         cb args, regex has {n_caps_actual}. Use the Str-repl form \
+                         for this case."
+                );
+            }
+            // Naming the offset / input tail pins every position, so a
+            // callback that names them while declaring fewer captures
+            // than the regex has would read a capture Str as the
+            // number — that one keeps the loud reject rather than
+            // being handed the wrong argument.
+            let short = if has_off_input {
+                declared != n_caps_actual
+            } else {
+                declared > n_caps_actual
+            };
+            if short {
                 panic!(
                     "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — regex has \
                          {n_caps_actual} capture group(s) but cb takes \
-                         {n_caps_expected} capture arg(s). Note: ident-bound regex \
-                         always assumed 0 captures; inline the regex literal to use \
-                         captures."
+                         {declared} capture arg(s). A cb may take FEWER than the \
+                         regex has, but not more, and the (number, string) tail \
+                         has to name every capture before it. Note: ident-bound \
+                         regex always assumed 0 captures; inline the regex \
+                         literal to use captures."
                 );
             }
             let fid = if m_name == "replace" {
