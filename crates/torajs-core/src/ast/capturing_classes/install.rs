@@ -200,15 +200,27 @@ pub(super) fn define_member(
 /// class object as that ordinary receiver.
 pub(super) fn drop_static_this_sites(
     ast: &mut Ast,
+    src_name: &str,
     static_methods: &[ClassMethod],
     static_init: &[StaticInit],
 ) {
+    // A COMPUTED static field's initializer is not in `static_init` —
+    // the parser files it under the side-table sentinel instead, keyed
+    // by the name the source used. Missed here it stays registered and
+    // pass 2 mints the α-renamed-away name: `unknown identifier C`.
+    let computed_inits: Vec<ExprId> = ast
+        .class_computed_static_fields
+        .iter()
+        .filter(|(c, _, _)| c == src_name)
+        .map(|(_, _, init)| *init)
+        .collect();
     let init_bodies: Vec<Vec<Stmt>> = static_init
         .iter()
         .map(|si| match si {
             StaticInit::Field(f) => vec![Stmt::Expr(f.init)],
             StaticInit::Block(v) => v.clone(),
         })
+        .chain(computed_inits.into_iter().map(|e| vec![Stmt::Expr(e)]))
         .collect();
     for body in static_methods
         .iter()

@@ -322,7 +322,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     if let Some(pid) = parent_id {
         ast.tombstone_expr(pid);
     }
-    install::drop_static_this_sites(ast, &static_methods, &static_init);
+    install::drop_static_this_sites(ast, src_name, &static_methods, &static_init);
     // §15.7.14 evaluates every ComputedPropertyName once, in element
     // order, at class-definition time — ahead of anything a method or
     // an initializer does, because those run later (on call, on
