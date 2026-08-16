@@ -161,7 +161,16 @@ pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
 /// it as a Str. Same defect the `.then` kernels had, same fix: consult
 /// the stamp, which is the only runtime record of the real form.
 ///
-/// `want_repr` of 0 means the caller has no typed lane in mind and
+/// The mirror case is just as real: the awaiting site's lane is `any`
+/// while the cell holds a typed form. `Promise.resolve(x)` on an `any`
+/// argument answers the SAME cell when x is already a promise
+/// (§27.2.4.7 step 2), so the result keeps whatever repr that promise
+/// was minted with — an i64 1 under a static `Promise<any>`. The
+/// caller then read the slot raw and rc_inc'd it as a NaN box, which
+/// is `rc_inc(0x1)`. Asking for REPR_ANY boxes the slot per the cell's
+/// own stamp instead.
+///
+/// `want_repr` of 0 means the caller has no lane in mind at all and
 /// wants the slot as-is.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_repr: i64) -> i64 {
@@ -170,6 +179,12 @@ pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_re
         return v;
     }
     let repr = unsafe { (*(p as *const Promise)).value_repr };
+    if want_repr == REPR_ANY as i64 {
+        // Rc-neutral like the unbox below — the caller's cast takes
+        // the stake. A cell that already holds a box answers it back
+        // verbatim.
+        return unsafe { crate::then_box::box_settled(repr, v) };
+    }
     if repr != REPR_ANY {
         return v;
     }

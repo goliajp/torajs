@@ -292,16 +292,21 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
     Operand::Value(v)
 }
 
-/// The repr code `__torajs_promise_get_value_as` should unbox into,
+/// The repr code `__torajs_promise_get_value_as` should convert into,
 /// for the lane [`cast_promise_value`] is about to cast to. `0` means
-/// "leave the slot alone" — either the lane is unknown, or it is `any`
-/// itself and the box is exactly what the awaiting site wants.
+/// "leave the slot alone" — the lane is unknown, so there is nothing
+/// to convert towards.
+///
+/// An `any` lane asks for REPR_ANY rather than the slot verbatim: the
+/// cast rc_incs what it gets as a NaN box, and a cell reached through
+/// `Promise.resolve(<any>)`'s same-object pass-through carries the
+/// SOURCE promise's repr, which is routinely a plain i64.
 fn awaited_lane_repr(inner_ssa_ty: Option<&Type>) -> i64 {
     let Some(ty) = inner_ssa_ty else {
         return 0;
     };
     if matches!(ty, Type::Any) {
-        return 0;
+        return crate::ssa_lower_promise_repr_mark::REPR_ANY;
     }
     let as_f64 = matches!(ty, Type::F64);
     crate::ssa_lower_promise_repr_mark::promise_value_repr(ty, as_f64, false).unwrap_or(0)
