@@ -54,6 +54,17 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
     let ptr = as_void_ptr(recv);
     // SAFETY: is_cell guarantees a live heap pointer.
     let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+    // §20.1.3.6 / §20.1.4.6 — every cell's chain ends at
+    // Object.prototype, and `cell_method_inheriting` answers both
+    // calls for a tag whose own arm claims neither. Asking that once
+    // here is what the per-tag rows kept getting wrong one family at
+    // a time: Obj / DynObj, then Symbol, then BigInt each had to be
+    // told separately, and Map / Set / Promise never were — reading
+    // `m.toString` said undefined while calling `m.toString()`
+    // answered "[object Map]".
+    if mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING {
+        return true;
+    }
     match tag {
         t if t == Tag::Str as u16 => str_supports(mid),
         t if t == Tag::Arr as u16 => arr_supports(mid),
@@ -77,23 +88,6 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::WeakSet as u16 => weakset_supports(mid),
         t if t == Tag::WeakRef as u16 => weakref_supports(mid),
         t if t == Tag::Closure as u16 => closure_supports(mid),
-        // Plain objects (dynobj / static-layout struct) reach the
-        // dispatcher's Object.prototype toLocaleString arm plus the
-        // Annex B §B.2.2.2-5 legacy accessor four, which they inherit
-        // from Object.prototype like any other object — the dispatcher
-        // has answered those calls since RFC
-        // 20260713-annexb-legacy-accessor, but reading one as a value
-        // (`typeof o.__defineGetter__`, `f.call(o, …)`) went through
-        // here and said undefined. Their remaining methods resolve by
-        // name probe, not by mid.
-        // §20.4.3 Symbol.prototype — toString (the
-        // SymbolDescriptiveString arm) plus the inherited
-        // Object.prototype toLocaleString; valueOf answered by the
-        // universal arm above. Reading either as a value hands out
-        // the interned cell so `typeof s.toString` says "function".
-        t if t == Tag::Symbol as u16 => {
-            mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
-        }
         // §27.2.5 Promise.prototype — then / catch / finally own
         // methods; the dispatcher has always answered the calls, but
         // reading one as a value (`const t = p.then`) said undefined.
@@ -103,22 +97,20 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
                 || mid == torajs_rc::ANY_METHOD_CATCH
                 || mid == torajs_rc::ANY_METHOD_FINALLY
         }
-        // §21.2.3 BigInt.prototype — toString / toLocaleString own;
-        // valueOf answered by the universal arm above.
-        t if t == Tag::BigInt as u16 => {
-            mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
-        }
+        // Plain objects (dynobj / static-layout struct) reach the
+        // Annex B §B.2.2.2-5 legacy accessor four, which they inherit
+        // from Object.prototype like any other object — the dispatcher
+        // has answered those calls since RFC
+        // 20260713-annexb-legacy-accessor, but reading one as a value
+        // (`typeof o.__defineGetter__`, `f.call(o, …)`) went through
+        // here and said undefined. Their remaining methods resolve by
+        // name probe, not by mid. Symbol / BigInt need no row at all
+        // now: the SymbolDescriptiveString and radix toString arms
+        // are reached through the universal answer above, and valueOf
+        // through the identity arm at the top.
         t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
-            // toString sits beside toLocaleString: both are inherited
-            // from Object.prototype and the dispatcher has always
-            // answered the call (`({}).toString()` is
-            // "[object Object]"), but only toLocaleString was
-            // declared here, so reading the same method as a value
-            // (`const m = o.toString`) came back undefined.
-            mid == ANY_METHOD_TO_STRING
-                || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
-                || (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
-                    .contains(&mid)
+            (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
+                .contains(&mid)
         }
         _ => false,
     }
