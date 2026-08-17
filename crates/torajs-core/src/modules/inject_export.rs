@@ -93,6 +93,7 @@ pub(super) fn inject_export_inner(
                     let mut copy = crate::ast::clone_toplevel_stmt(ast, &inner);
                     rename_decl(&mut copy, alias.to_string());
                     crate::ast::rename_fn_self_refs(ast, &mut copy, &name, alias);
+                    copy_fn_name_tables(ast, &name, alias);
                     extra_decls.push(copy);
                 }
                 Stmt::TypeDecl { .. } => {
@@ -118,6 +119,7 @@ pub(super) fn inject_export_inner(
             // the new spelling — `import { fact as f1 }` used to leave
             // the recursive `fact(n - 1)` reading a name not in scope.
             crate::ast::rename_fn_self_refs(ast, &mut inner, &name, &first);
+            copy_fn_name_tables(ast, &name, &first);
             rename_decl(&mut inner, first);
         }
         injections.push(inner);
@@ -147,8 +149,30 @@ pub(super) fn inject_bare_exported_decl(
             // K.2 closure — same self-reference follow as the alias
             // rename inside `inject_export_inner`.
             crate::ast::rename_fn_self_refs(ast, &mut inner, &dname, exported);
+            copy_fn_name_tables(ast, &dname, exported);
             rename_decl(&mut inner, exported.clone());
         }
         inject_export_inner(ast, injections, inner, want, rename, ns, injected);
+    }
+}
+
+/// r425(423-01 勘察薄刀)— the parser-filled name-keyed fn tables
+/// follow a rename: `desugar_async` gates on `async_fns` by NAME, so
+/// an aliased async import otherwise checks its body as a plain fn
+/// (`import { af as g }` — loud ret-type mismatch where bun runs);
+/// same face for the async-generator set and the generator
+/// param-destr prefix count. COPY, not move: the original spelling
+/// may still be injected by another lane of the same lib, and a
+/// same-named entry decl is a redeclaration reject before any table
+/// is consulted.
+fn copy_fn_name_tables(ast: &mut Ast, old: &str, new: &str) {
+    if ast.async_fns.contains(old) {
+        ast.async_fns.insert(new.to_string());
+    }
+    if ast.async_generator_fns.contains(old) {
+        ast.async_generator_fns.insert(new.to_string());
+    }
+    if let Some(&n) = ast.gen_param_destr_prefix.get(old) {
+        ast.gen_param_destr_prefix.insert(new.to_string(), n);
     }
 }
