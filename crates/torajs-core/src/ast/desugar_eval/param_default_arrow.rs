@@ -51,10 +51,6 @@ use std::collections::HashMap;
 /// Rewrite every true-arrow whose default-parameter position holds a
 /// direct literal eval that var-declares `arguments`.
 pub(super) fn rewrite_arrow_param_default_arguments_evals(ast: &mut Ast) {
-    let decl_evals = collect_declaring_evals(ast);
-    if decl_evals.is_empty() {
-        return;
-    }
     let n = ast.exprs.len();
     for ai in 0..n {
         let Expr::ArrowFn { params, body, .. } = &ast.exprs[ai] else {
@@ -68,15 +64,18 @@ pub(super) fn rewrite_arrow_param_default_arguments_evals(ast: &mut Ast) {
         }
         let params_c = params.clone();
         let body_c = body.clone();
-        // Ownership: eval slots reached from this arrow's defaults
-        // without crossing another function boundary.
+        // Ownership FIRST, parse second: only eval slots reached from
+        // this arrow's defaults (without crossing another function
+        // boundary) get their source parsed. Parsing is not free of
+        // side effects — `parse_into` fills name-keyed side-tables —
+        // so an eval that is not in arrow-default position must not
+        // be parsed here (a statement-position `eval("(function f(){
+        // arguments = 10 })()")` regressed to a lowering error when
+        // an earlier draft pre-parsed every literal eval).
         let mut owned = vec![false; ast.exprs.len()];
         mark_defaults(ast, &params_c, &mut owned);
-        let owned_evals: Vec<usize> = decl_evals
-            .keys()
-            .copied()
-            .filter(|s| owned.get(*s).copied().unwrap_or(false))
-            .collect();
+        let decl_evals = collect_declaring_evals(ast, &owned);
+        let owned_evals: Vec<usize> = decl_evals.keys().copied().collect();
         if owned_evals.is_empty() {
             continue;
         }
@@ -107,14 +106,17 @@ pub(super) fn rewrite_arrow_param_default_arguments_evals(ast: &mut Ast) {
     }
 }
 
-/// Every direct literal eval slot whose source var-declares
+/// Every OWNED direct literal eval slot whose source var-declares
 /// `arguments`, with its source text and parsed statements. Slots the
 /// non-arrow pass already rewrote are no longer eval calls and do not
-/// match.
-fn collect_declaring_evals(ast: &mut Ast) -> HashMap<usize, (String, Vec<Stmt>)> {
+/// match; slots outside the owned map are never parsed (see the
+/// caller's ownership-first note).
+fn collect_declaring_evals(ast: &mut Ast, owned: &[bool]) -> HashMap<usize, (String, Vec<Stmt>)> {
     let mut found = HashMap::new();
-    let mut i = 0;
-    while i < ast.exprs.len() {
+    for i in 0..owned.len() {
+        if !owned[i] {
+            continue;
+        }
         let eid = ExprId(i as u32);
         if let Some((src, CallForm::Direct)) = literal_eval_call(eid, ast) {
             if let Some(stmts) = parse_eval_source(&src, ast, false) {
@@ -123,7 +125,6 @@ fn collect_declaring_evals(ast: &mut Ast) -> HashMap<usize, (String, Vec<Stmt>)>
                 }
             }
         }
-        i += 1;
     }
     found
 }

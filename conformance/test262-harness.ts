@@ -134,14 +134,30 @@ function __t262_notSameValue<T>(actual: T, expected: T, msg: string = ""): void 
 // Test262 also exposes `assert.throws(ErrorType, fn, msg)` — the
 // rewrite turns that into `__t262_throws`.
 
-// `thunk` is deliberately `any`, not `() => void`: test262 passes
-// declared functions of ANY arity here (`assert.throws(SyntaxError,
-// f)` where `f(p = eval(...), arguments)` — the declare-arguments
-// families), and a zero-arg call of a multi-param fn is exactly the
-// JS semantics under test. A structural `() => void` annotation made
-// the checker reject those cases as incompatible before they ran;
-// the any-call lane pads missing arguments with undefined.
-function __t262_throws_runtime(thunk: any, msg: string = ""): void {
+// Two entries, one body: the rewrite layer picks by the shape of the
+// second `assert.throws` argument. A function/arrow LITERAL keeps the
+// typed `() => void` thunk (the fn-expr lanes lower it today, and the
+// any lane trips the lifted-closure capture-types stop). A bare
+// IDENTIFIER reference takes the `any` twin below: test262 passes
+// declared functions of ANY arity (`assert.throws(SyntaxError, f)`
+// where `f(p = eval(...), arguments)` — the declare-arguments
+// families), a zero-arg call of a multi-param fn is exactly the JS
+// semantics under test, and the structural annotation rejected those
+// cases at typecheck; the any-call lane pads missing arguments with
+// undefined.
+function __t262_throws_anyfn(thunk: any, msg: string = ""): void {
+  let threw: boolean = false;
+  try {
+    thunk();
+  } catch (e) {
+    threw = true;
+  }
+  if (!threw) {
+    throw new Test262Error(msg);
+  }
+}
+
+function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
   let threw: boolean = false;
   try {
     thunk();

@@ -233,7 +233,19 @@ fn transform_source(src: &str) -> String {
                         while j < bytes.len() && bytes[j].is_ascii_whitespace() {
                             j += 1;
                         }
-                        out.push_str("__t262_throws_runtime(");
+                        // Entry by second-argument shape: a function /
+                        // arrow / async LITERAL keeps the typed thunk
+                        // (its lanes lower today); anything else — a
+                        // bare identifier reference of any arity —
+                        // rides the `any` twin (see the harness note).
+                        let literal_fn = starts_with_at(bytes, j, b"function")
+                            || starts_with_at(bytes, j, b"async")
+                            || bytes[j] == b'(';
+                        out.push_str(if literal_fn {
+                            "__t262_throws_runtime("
+                        } else {
+                            "__t262_throws_anyfn("
+                        });
                         i = j;
                         continue;
                     }
