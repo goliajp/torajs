@@ -59,20 +59,14 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     emit_chain_and_registration_stmts(ast, &meta, &mut prepended);
 
     // Rewrite Ident("<C>") → Ident("__class_<C>") for each known
-    // class name. Walks the entire expr arena since class refs can
-    // appear anywhere (let init, fn arg, return value, conditional
-    // branches, ...). Synthesized __proto_<C> / __class_<C> idents
-    // are not in class_set (their names carry the prefix), so this
-    // pass leaves them untouched.
-    let n = ast.exprs.len();
-    for i in 0..n {
-        if let Expr::Ident(name) = &ast.exprs[i]
-            && meta.class_set.contains(name)
-        {
-            let new_name = format!("__class_{name}");
-            ast.exprs[i] = Expr::Ident(new_name);
-        }
-    }
+    // class name — shadow-aware (`class_globals_shadow`): a local
+    // binding of the same spelling (param / let / var / catch) owns
+    // its references, and the flat arena scan this used to be
+    // silently handed those to the class object (the
+    // param-shadow-class bug). Synthesized __proto_<C> / __class_<C>
+    // idents are not in class_set (their names carry the prefix), so
+    // the walk leaves them untouched.
+    super::class_globals_shadow::rewrite_class_value_refs(ast, &meta.class_set);
 
     // Prepend the new LetDecls so they're initialized before any
     // user code references them. Insert at the very top so static
