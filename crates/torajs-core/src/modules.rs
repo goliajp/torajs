@@ -224,37 +224,32 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     while let Some((
         target_path,
         named,
-        mut default_alias,
+        default_alias,
         side_effect_only,
-        mut namespace_alias,
+        namespace_alias,
         ns_star_feed,
     )) = work.pop_front()
     {
-        repeat_request::align_repeat_request(
-            ast,
-            &target_path,
-            &mut default_alias,
-            &mut namespace_alias,
-            &ns_fields_by_path,
-            &mut dyn_ns_inline,
-            &default_bound_as,
-            &mut injections_by_path,
-        );
-        // Filter the request against per-path injected state — see
-        // [`filter_request`].
-        let entry = injected_names.entry(target_path.clone()).or_default();
-        let Some((named, mut default_alias, namespace_alias, side_effect_only)) = filter_request(
-            entry,
-            named,
-            default_alias,
-            namespace_alias,
-            side_effect_only,
-        ) else {
+        // Repeat-visit alignment + per-path filter + mangle-memory
+        // realignment — see [`repeat_request::align_and_filter`].
+        let Some((named, mut default_alias, namespace_alias, side_effect_only)) =
+            repeat_request::align_and_filter(
+                ast,
+                &target_path,
+                named,
+                default_alias,
+                namespace_alias,
+                side_effect_only,
+                &ns_fields_by_path,
+                &mut dyn_ns_inline,
+                &default_bound_as,
+                &mut injections_by_path,
+                &mut injected_names,
+                &mangled_by_path,
+            )
+        else {
             continue;
         };
-
-        let mut named = named;
-        repeat_request::realign_named_to_mangles(&mut named, mangled_by_path.get(&target_path));
 
         let (mut lib_section, lib_expr_offset, target_dir) = load_lib_section(
             ast,
@@ -265,17 +260,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         )?;
 
         // §16.2.1.10 ns `default` field — see `default_binding.rs`.
-        let repeat_default_field = default_binding::synth_ns_default_binding(
+        let repeat_default_field = default_binding::settle_walk_default(
             &lib_section,
             &namespace_alias,
             &mut default_alias,
-            &default_bound_as,
+            &mut default_bound_as,
             &target_path,
             ns_star_feed,
         );
-        if let Some(a) = &default_alias {
-            default_bound_as.insert(target_path.clone(), a.clone());
-        }
         let (want, rename, bare_exports, own_exports, demangle, hidden) =
             deconflict::prep_lib_request(
                 ast,
@@ -403,8 +395,8 @@ use graph::ModuleGraph;
 use inject_export::{inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
 use resolve_helpers::{
-    NsAccum, filter_request, inline_dyn_ns_objlits, materialize_pending_namespaces,
-    queue_nested_import, queue_reexport, queue_star_reexport,
+    NsAccum, inline_dyn_ns_objlits, materialize_pending_namespaces, queue_nested_import,
+    queue_reexport, queue_star_reexport,
 };
 use splice::splice_injections;
 

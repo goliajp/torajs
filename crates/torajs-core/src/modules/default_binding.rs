@@ -51,6 +51,32 @@ fn bind_repeat_default_alias(ast: &mut Ast, first: &str, second: &str) -> Stmt {
     }
 }
 
+/// The whole per-walk default step: mint / reuse the ns `default`
+/// binding (see [`synth_ns_default_binding`]) and record which alias
+/// this path's default bound under, so a later `import d` binds by
+/// reference instead of re-evaluating the ExprId.
+pub(super) fn settle_walk_default(
+    lib_section: &[Stmt],
+    namespace_alias: &Option<String>,
+    default_alias: &mut Option<String>,
+    default_bound_as: &mut HashMap<PathBuf, String>,
+    target_path: &Path,
+    ns_star_feed: bool,
+) -> Option<String> {
+    let repeat = synth_ns_default_binding(
+        lib_section,
+        namespace_alias,
+        default_alias,
+        default_bound_as,
+        target_path,
+        ns_star_feed,
+    );
+    if let Some(a) = default_alias {
+        default_bound_as.insert(target_path.to_path_buf(), a.clone());
+    }
+    repeat
+}
+
 /// §16.2.1.10 — the namespace object always carries a `default` field
 /// when the lib has a default export. A namespace request with no
 /// default binding of its own materializes it under a synthetic
@@ -59,7 +85,7 @@ fn bind_repeat_default_alias(ast: &mut Ast, first: &str, second: &str) -> Stmt {
 /// `import d` shortcut-binds instead of re-evaluating). A path whose
 /// default already materialized reuses that binding: the return value
 /// is the existing binding the field claim is still owed for.
-pub(super) fn synth_ns_default_binding(
+fn synth_ns_default_binding(
     lib_section: &[Stmt],
     namespace_alias: &Option<String>,
     default_alias: &mut Option<String>,

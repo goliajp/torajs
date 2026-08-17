@@ -6,11 +6,52 @@
 //! what a namespace walk leaves behind for the next one.
 
 use crate::ast::{Ast, Stmt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use super::resolve_helpers::NsAccum;
+use super::resolve_helpers::{NsAccum, filter_request};
 use super::{NamedImport, default_binding};
+
+/// The whole pre-walk alignment for one dequeued request: the
+/// repeat-visit shortcuts, the per-path injected-state filter, and
+/// the mangle-memory realignment of the named list. `None` = the
+/// request filtered to nothing (everything it wants already landed).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub(super) fn align_and_filter(
+    ast: &mut Ast,
+    target_path: &Path,
+    named: Vec<NamedImport>,
+    mut default_alias: Option<String>,
+    mut namespace_alias: Option<String>,
+    side_effect_only: bool,
+    ns_fields_by_path: &HashMap<PathBuf, Vec<(String, String)>>,
+    dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
+    default_bound_as: &HashMap<PathBuf, String>,
+    injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
+    injected_names: &mut HashMap<PathBuf, HashSet<String>>,
+    mangled_by_path: &HashMap<PathBuf, HashMap<String, String>>,
+) -> Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)> {
+    align_repeat_request(
+        ast,
+        target_path,
+        &mut default_alias,
+        &mut namespace_alias,
+        ns_fields_by_path,
+        dyn_ns_inline,
+        default_bound_as,
+        injections_by_path,
+    );
+    let entry = injected_names.entry(target_path.to_path_buf()).or_default();
+    let (mut named, default_alias, namespace_alias, side_effect_only) = filter_request(
+        entry,
+        named,
+        default_alias,
+        namespace_alias,
+        side_effect_only,
+    )?;
+    realign_named_to_mangles(&mut named, mangled_by_path.get(target_path));
+    Some((named, default_alias, namespace_alias, side_effect_only))
+}
 
 /// The pre-filter half: a dyn-import namespace revisiting a path
 /// whose fields are already known inlines them without re-walking,
