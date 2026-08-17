@@ -44,11 +44,21 @@ pub(super) type StaticRequest = (String, String);
 /// named request (or a default-lane request for `export { default }
 /// from`); `export * from "m"` binds nothing anyone can see but
 /// §16.2.1.5 still evaluates the module it names.
+pub(super) struct EntrySeed {
+    pub(super) requests: Vec<StaticRequest>,
+    import_bindings: HashSet<String>,
+    /// The arena length BEFORE any lib parses — marks which
+    /// expressions the entry itself wrote (the import-binding write
+    /// rejection scopes to exactly those).
+    entry_expr_len: usize,
+}
+
 pub(super) fn seed_entry_requests(
     ast: &Ast,
     base_dir: &Path,
     work: &mut VecDeque<WorkItem>,
-) -> Result<(Vec<StaticRequest>, HashSet<String>), String> {
+) -> Result<EntrySeed, String> {
+    let entry_expr_len = ast.exprs.len();
     let mut requests: Vec<StaticRequest> = Vec::new();
     let mut import_bindings: HashSet<String> = HashSet::new();
     let mut iee_seq = 0usize;
@@ -123,7 +133,32 @@ pub(super) fn seed_entry_requests(
             _ => {}
         }
     }
-    Ok((requests, import_bindings))
+    Ok(EntrySeed {
+        requests,
+        import_bindings,
+        entry_expr_len,
+    })
+}
+
+/// Post-BFS judgment on everything the seed recorded: every static
+/// request must have resolved ([`check`]), and every entry-side
+/// write to an import binding rewrites into its runtime TypeError
+/// ([`reject_import_binding_writes`]).
+pub(super) fn finalize(
+    ast: &mut Ast,
+    seed: &EntrySeed,
+    injections_by_path: &HashMap<PathBuf, Vec<Stmt>>,
+    ns_accums: &HashMap<String, NsAccum>,
+    ambiguous_locals: &HashSet<String>,
+) -> Result<(), String> {
+    check(
+        &seed.requests,
+        injections_by_path,
+        ns_accums,
+        ambiguous_locals,
+    )?;
+    reject_import_binding_writes(ast, &seed.import_bindings, seed.entry_expr_len);
+    Ok(())
 }
 
 /// §16.2.1.5 CreateImportBinding — assignment to an import binding is
@@ -140,11 +175,7 @@ pub(super) fn seed_entry_requests(
 /// entry_expr_len`, the arena length before any lib parsed): a lib
 /// module assigning its OWN exported binding is the legal
 /// live-binding write path, and every lib expr sits past the mark.
-pub(super) fn reject_import_binding_writes(
-    ast: &mut Ast,
-    bindings: &HashSet<String>,
-    entry_expr_len: usize,
-) {
+fn reject_import_binding_writes(ast: &mut Ast, bindings: &HashSet<String>, entry_expr_len: usize) {
     if bindings.is_empty() {
         return;
     }
@@ -191,7 +222,7 @@ pub(super) fn reject_import_binding_writes(
 /// take the spec's SyntaxError — the message carries the marker the
 /// CLI's `import error:` prefix composes into a recognizable
 /// resolution reject.
-pub(super) fn check(
+fn check(
     requests: &[StaticRequest],
     injections_by_path: &HashMap<PathBuf, Vec<Stmt>>,
     ns_accums: &HashMap<String, NsAccum>,

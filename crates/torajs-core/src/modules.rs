@@ -104,8 +104,21 @@ type WorkItem = (
     bool,
 );
 
-// Entry-request seeding + post-BFS static-resolution judgment — see
-// `static_resolution.rs`.
+/// Seed every root request onto the worklist: the entry's static
+/// clauses (`static_resolution.rs`), then §13.3.10 dynamic-import
+/// candidates — queued before `graph.roots` records so their
+/// injections ride the dependency-order splice.
+fn seed_requests(
+    ast: &mut Ast,
+    base_dir: &Path,
+    work: &mut VecDeque<WorkItem>,
+    graph: &mut ModuleGraph,
+) -> Result<(static_resolution::EntrySeed, Vec<(String, String)>), String> {
+    let entry_seed = static_resolution::seed_entry_requests(ast, base_dir, work)?;
+    let dyn_table = dyn_import::seed_candidates(ast, base_dir, work);
+    graph.roots = graph.edges_since(work, 0);
+    Ok((entry_seed, dyn_table))
+}
 
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
@@ -149,16 +162,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     let mut hidden_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
     let mut mangle_seq: usize = 0;
 
-    // §16.2.1.5 — the arena length BEFORE any lib parses marks which
-    // expressions the entry itself wrote (import-binding write
-    // rejection scopes to exactly those).
-    let entry_expr_len = ast.exprs.len();
-    let (static_requests, import_bindings) =
-        static_resolution::seed_entry_requests(ast, base_dir, &mut work)?;
-    // §13.3.10 dynamic import — candidates queue before `graph.roots`
-    // records so their injections ride the dependency-order splice.
-    let dyn_table = dyn_import::seed_candidates(ast, base_dir, &mut work);
-    graph.roots = graph.edges_since(&work, 0);
+    let (entry_seed, dyn_table) = seed_requests(ast, base_dir, &mut work, &mut graph)?;
 
     // Statements injected on behalf of one module, keyed by its path
     // so the dependency-order splice below can reassemble them. A path
@@ -304,16 +308,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         );
     }
 
-    // §16.2.1.6.2/.3 — the entry's static requests must all have
-    // resolved (see `static_resolution.rs`); the dyn-import lane
-    // keeps its own per-candidate promise-reject poisoning.
-    static_resolution::check(
-        &static_requests,
+    // §16.2.1.5/.6 post-BFS judgment — see `static_resolution.rs`.
+    static_resolution::finalize(
+        ast,
+        &entry_seed,
         &injections_by_path,
         &ns_accums,
         &ambiguous_locals,
     )?;
-    static_resolution::reject_import_binding_writes(ast, &import_bindings, entry_expr_len);
 
     splice::assemble_and_splice(
         ast,
