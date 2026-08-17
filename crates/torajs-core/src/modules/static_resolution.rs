@@ -25,7 +25,7 @@
 //! per-candidate promise-reject poisoning (`poisoned_candidates`) —
 //! a dynamic candidate must never fail the build.
 
-use crate::ast::{Ast, Stmt};
+use crate::ast::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -48,8 +48,9 @@ pub(super) fn seed_entry_requests(
     ast: &Ast,
     base_dir: &Path,
     work: &mut VecDeque<WorkItem>,
-) -> Result<Vec<StaticRequest>, String> {
+) -> Result<(Vec<StaticRequest>, HashSet<String>), String> {
     let mut requests: Vec<StaticRequest> = Vec::new();
+    let mut import_bindings: HashSet<String> = HashSet::new();
     let mut iee_seq = 0usize;
     for s in &ast.stmts {
         match s {
@@ -59,6 +60,18 @@ pub(super) fn seed_entry_requests(
                 default,
                 namespace,
             } => {
+                // Every declared import binding is immutable in the
+                // importer (§16.2.1.5 CreateImportBinding) — builtin
+                // modules included; see [`reject_import_binding_writes`].
+                for (orig, alias) in named {
+                    import_bindings.insert(alias.as_deref().unwrap_or(orig).to_string());
+                }
+                if let Some(d) = default {
+                    import_bindings.insert(d.clone());
+                }
+                if let Some(ns) = namespace {
+                    import_bindings.insert(ns.clone());
+                }
                 // Builtin modules (fs, path, ...) inject no decls —
                 // their bindings resolve inside the checker — so they
                 // must not enter the resolution ledger.
@@ -110,7 +123,61 @@ pub(super) fn seed_entry_requests(
             _ => {}
         }
     }
-    Ok(requests)
+    Ok((requests, import_bindings))
+}
+
+/// §16.2.1.5 CreateImportBinding — assignment to an import binding is
+/// a RUNTIME TypeError, not a static reject: the checker's type
+/// mismatch rejected whole programs whose assignment sits inside a
+/// `try` (test262 probes binding immutability exactly that way, e.g.
+/// the instn-iee-bndng family's `B = null`). Rewrite every
+/// entry-arena `Assign` / `PostIncr` node targeting an import
+/// binding into a TypeError-throw IIFE (the statement-in-value-
+/// position carrier — the arrow is constructed here at module scope,
+/// so the closure lift sees a live construction site).
+///
+/// Only expressions the ENTRY itself wrote rewrite (`i <
+/// entry_expr_len`, the arena length before any lib parsed): a lib
+/// module assigning its OWN exported binding is the legal
+/// live-binding write path, and every lib expr sits past the mark.
+pub(super) fn reject_import_binding_writes(
+    ast: &mut Ast,
+    bindings: &HashSet<String>,
+    entry_expr_len: usize,
+) {
+    if bindings.is_empty() {
+        return;
+    }
+    for i in 0..entry_expr_len {
+        let target = match &ast.exprs[i] {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => *target,
+            _ => continue,
+        };
+        let Expr::Ident(name) = ast.get_expr(target) else {
+            continue;
+        };
+        if !bindings.contains(name) {
+            continue;
+        }
+        let name = name.clone();
+        let msg = ast.add_expr(Expr::String(format!(
+            "Assignment to import binding '{name}'."
+        )));
+        let exc = ast.add_expr(Expr::New {
+            class_name: "TypeError".to_string(),
+            args: vec![msg],
+            type_args: Vec::new(),
+        });
+        let arrow = ast.add_expr(Expr::ArrowFn {
+            params: Vec::new(),
+            return_type: None,
+            body: vec![Stmt::Throw(exc)],
+        });
+        ast.exprs[i] = Expr::Call {
+            callee: arrow,
+            args: Vec::new(),
+        };
+    }
 }
 
 /// §16.2.1.6.2/.3 — the entry's static requests, judged after the BFS

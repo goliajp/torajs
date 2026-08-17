@@ -149,7 +149,12 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     let mut hidden_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
     let mut mangle_seq: usize = 0;
 
-    let static_requests = static_resolution::seed_entry_requests(ast, base_dir, &mut work)?;
+    // §16.2.1.5 — the arena length BEFORE any lib parses marks which
+    // expressions the entry itself wrote (import-binding write
+    // rejection scopes to exactly those).
+    let entry_expr_len = ast.exprs.len();
+    let (static_requests, import_bindings) =
+        static_resolution::seed_entry_requests(ast, base_dir, &mut work)?;
     // §13.3.10 dynamic import — candidates queue before `graph.roots`
     // records so their injections ride the dependency-order splice.
     let dyn_table = dyn_import::seed_candidates(ast, base_dir, &mut work);
@@ -308,6 +313,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         &ns_accums,
         &ambiguous_locals,
     )?;
+    static_resolution::reject_import_binding_writes(ast, &import_bindings, entry_expr_len);
 
     splice::assemble_and_splice(
         ast,
