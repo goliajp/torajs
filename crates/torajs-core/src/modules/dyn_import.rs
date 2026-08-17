@@ -89,7 +89,7 @@ pub(super) fn seed_candidates(
 ///   names or an earlier candidate's injected face (see module doc);
 ///   every other collision deconflicts at walk time.
 fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
-    let mut reserved = entry_reserved_names(ast);
+    let mut reserved = entry_reserved_names(ast, base_dir);
     let mut seen_lits: HashSet<&str> = HashSet::new();
     let mut seen_paths: HashSet<PathBuf> = HashSet::new();
     let mut out: Vec<(String, PathBuf)> = Vec::new();
@@ -113,7 +113,7 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
         };
         if unmanglable_names(&probe)
             .iter()
-            .any(|n| reserved.contains(n))
+            .any(|n| reserved.blocks(n, &path))
         {
             continue;
         }
@@ -130,10 +130,14 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
                 other => other,
             };
             if let Some(n) = decl_name(inner) {
-                reserved.insert(n);
+                reserved.by_path.remove(&n);
+                reserved.hard.insert(n);
             }
         }
-        reserved.extend(collect_own_export_names(&probe.stmts));
+        for n in collect_own_export_names(&probe.stmts) {
+            reserved.by_path.remove(&n);
+            reserved.hard.insert(n);
+        }
         seen_paths.insert(path.clone());
         out.push((lit.clone(), path));
     }
@@ -169,30 +173,80 @@ fn unmanglable_names(probe: &Ast) -> HashSet<String> {
     out
 }
 
-/// Top-level names a candidate's injected exports must not shadow:
-/// the entry's own decls plus every importer-visible name its static
-/// import clauses bind.
-fn entry_reserved_names(ast: &Ast) -> HashSet<String> {
-    let mut names: HashSet<String> = HashSet::new();
+/// Top-level names a candidate's injected exports must not shadow.
+/// `hard` holds the entry's own decls (export-wrapped included) and
+/// namespace aliases; `by_path` maps a static import BINDING to the
+/// path it resolves from — a binding is that path's own decl
+/// (§16.2.1.6 one-set-of-bindings), so a dyn candidate for the SAME
+/// path revisiting the same spelling is not a collision (the ns walk
+/// reuses the already-injected decl through the ledger). Same
+/// posture as `deconflict::SeedNames`.
+struct ReservedNames {
+    hard: HashSet<String>,
+    by_path: std::collections::HashMap<String, PathBuf>,
+}
+
+impl ReservedNames {
+    fn blocks(&self, name: &str, candidate_path: &Path) -> bool {
+        self.hard.contains(name) || self.by_path.get(name).is_some_and(|p| p != candidate_path)
+    }
+
+    fn reserve_binding(&mut self, name: String, path: Option<&Path>) {
+        match path {
+            Some(p) if !self.hard.contains(&name) => match self.by_path.entry(name.clone()) {
+                std::collections::hash_map::Entry::Occupied(e) => {
+                    if e.get() != p {
+                        e.remove();
+                        self.hard.insert(name);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(p.to_path_buf());
+                }
+            },
+            _ => {
+                self.by_path.remove(&name);
+                self.hard.insert(name);
+            }
+        }
+    }
+}
+
+fn entry_reserved_names(ast: &Ast, base_dir: &Path) -> ReservedNames {
+    let mut names = ReservedNames {
+        hard: HashSet::new(),
+        by_path: std::collections::HashMap::new(),
+    };
     for s in &ast.stmts {
-        if let Some(n) = decl_name(s) {
-            names.insert(n);
+        let inner = match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => inner,
+            other => other,
+        };
+        if let Some(n) = decl_name(inner) {
+            names.by_path.remove(&n);
+            names.hard.insert(n);
         }
         if let Stmt::ImportDecl {
+            source,
             named,
             default,
             namespace,
-            ..
         } = s
         {
+            let path = resolve_path(base_dir, source).ok();
             for (orig, alias) in named {
-                names.insert(alias.clone().unwrap_or_else(|| orig.clone()));
+                let n = alias.clone().unwrap_or_else(|| orig.clone());
+                names.reserve_binding(n, path.as_deref());
             }
             if let Some(d) = default {
-                names.insert(d.clone());
+                names.reserve_binding(d.clone(), path.as_deref());
             }
             if let Some(ns) = namespace {
-                names.insert(ns.clone());
+                // The namespace ALIAS binding is entry-scope, not any
+                // lib's own decl — always hard.
+                names.reserve_binding(ns.clone(), None);
             }
         }
     }
