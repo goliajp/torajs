@@ -34,32 +34,71 @@
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
-/// Seed the "already committed" name set: the entry's own top-level
-/// decls plus every entry-level import BINDING. Bindings reserve
+/// The seeded name state: `hard` names collide with any injection
+/// (the entry's own top-level decls); `reserved` maps an entry-level
+/// import BINDING to the path it resolves from. Bindings reserve
 /// their spellings up front — a namespace-injected decl of the same
 /// name must deconflict even when its module happens to walk first
-/// (BFS order must not decide which of the two keeps the name).
-/// Nested libs' own named requests are not visible here; a late
-/// collision there lands on the census's loud reject instead of a
-/// silent split.
-pub(super) fn seed_seen_names(ast: &Ast) -> HashSet<String> {
-    let mut seen: HashSet<String> = HashSet::new();
+/// (BFS order must not decide which of the two keeps the name) — but
+/// an injection FROM THE RESERVING PATH is that binding's own decl
+/// (§16.2.1.6 one-set-of-bindings: `import "./se"` then
+/// `import { S1 } from "./se"` shares S1), so same-path names pass.
+/// An unresolvable source or two paths claiming one spelling turn
+/// the name hard. Nested libs' own named requests are not visible
+/// here; a late collision there lands on the census's loud reject
+/// instead of a silent split.
+pub(super) struct SeedNames {
+    pub(super) hard: HashSet<String>,
+    pub(super) reserved: HashMap<String, std::path::PathBuf>,
+}
+
+impl SeedNames {
+    fn reserve(&mut self, name: String, path: Option<&std::path::Path>) {
+        match path {
+            Some(p) if !self.hard.contains(&name) => match self.reserved.entry(name.clone()) {
+                std::collections::hash_map::Entry::Occupied(e) => {
+                    if e.get() != p {
+                        e.remove();
+                        self.hard.insert(name);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(p.to_path_buf());
+                }
+            },
+            _ => {
+                self.reserved.remove(&name);
+                self.hard.insert(name);
+            }
+        }
+    }
+}
+
+pub(super) fn seed_seen_names(ast: &Ast, base_dir: &std::path::Path) -> SeedNames {
+    let mut seed = SeedNames {
+        hard: HashSet::new(),
+        reserved: HashMap::new(),
+    };
     for s in &ast.stmts {
         match s {
             Stmt::ImportDecl {
+                source,
                 named,
                 default,
                 namespace,
-                ..
             } => {
+                let path = super::resolve_path(base_dir, source).ok();
                 for (orig, alias) in named {
-                    seen.insert(alias.clone().unwrap_or_else(|| orig.clone()));
+                    let n = alias.clone().unwrap_or_else(|| orig.clone());
+                    seed.reserve(n, path.as_deref());
                 }
                 if let Some(d) = default {
-                    seen.insert(d.clone());
+                    seed.reserve(d.clone(), path.as_deref());
                 }
                 if let Some(n) = namespace {
-                    seen.insert(n.clone());
+                    // The namespace ALIAS binding is entry-scope, not
+                    // any lib's own decl — always hard.
+                    seed.reserve(n.clone(), None);
                 }
             }
             other => {
@@ -70,16 +109,17 @@ pub(super) fn seed_seen_names(ast: &Ast) -> HashSet<String> {
                     o => o,
                 };
                 if let Some(n) = super::decl_name(inner) {
-                    seen.insert(n);
+                    seed.reserve(n, None);
                 }
             }
         }
     }
-    seen
+    seed
 }
 
-/// Commit one walked lib's (post-census) top-level decl names.
-pub(super) fn extend_seen_with_lib(lib_section: &[Stmt], seen: &mut HashSet<String>) {
+/// Commit one walked lib's (post-census) top-level decl names —
+/// hard: whoever comes later collides with them.
+pub(super) fn extend_seen_with_lib(lib_section: &[Stmt], seed: &mut SeedNames) {
     for s in lib_section {
         let inner = match s {
             Stmt::ExportDecl {
@@ -88,7 +128,8 @@ pub(super) fn extend_seen_with_lib(lib_section: &[Stmt], seen: &mut HashSet<Stri
             other => other,
         };
         if let Some(n) = super::decl_name(inner) {
-            seen.insert(n);
+            seed.reserved.remove(&n);
+            seed.hard.insert(n);
         }
     }
 }
@@ -106,7 +147,8 @@ pub(super) fn deconflict_lib_section(
     ast: &mut Ast,
     lib_section: &mut [Stmt],
     lib_expr_offset: usize,
-    seen_names: &HashSet<String>,
+    current_path: &std::path::Path,
+    seed: &SeedNames,
     requested: &HashSet<&str>,
     prior: &mut HashMap<String, String>,
     mangle_seq: &mut usize,
@@ -126,7 +168,9 @@ pub(super) fn deconflict_lib_section(
             continue;
         }
         let prior_mangle = prior.get(&name).cloned();
-        if prior_mangle.is_none() && !seen_names.contains(&name) {
+        let collides = seed.hard.contains(&name)
+            || seed.reserved.get(&name).is_some_and(|p| p != current_path);
+        if prior_mangle.is_none() && !collides {
             continue;
         }
         if rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, &name) {
@@ -160,7 +204,7 @@ pub(super) fn deconflict_lib_section(
 /// The FnDecl / LetDecl name a top-level lib statement declares
 /// (through the `export` wrapper). Class / type decls answer None —
 /// out of knife A's scope.
-fn top_value_decl_name(s: &Stmt) -> Option<String> {
+pub(super) fn top_value_decl_name(s: &Stmt) -> Option<String> {
     match s {
         Stmt::ExportDecl {
             inner: Some(inner), ..
@@ -186,7 +230,7 @@ fn rename_top_decl(s: &mut Stmt, mangled: &str) {
 /// lib's arena slice — rebind `name`? The blind arena rewrite is only
 /// sound when nothing shadows the top-level binding; a rebinding
 /// declines the mangle (module doc).
-fn rebinds_elsewhere(
+pub(super) fn rebinds_elsewhere(
     ast: &Ast,
     lib_section: &[Stmt],
     lib_expr_offset: usize,
@@ -243,8 +287,9 @@ pub(super) fn prep_lib_request<'a>(
     ast: &mut Ast,
     lib_section: &mut [Stmt],
     lib_expr_offset: usize,
+    current_path: &std::path::Path,
     named: &'a [super::NamedImport],
-    seen_names: &mut HashSet<String>,
+    seed: &mut SeedNames,
     prior_mangles: &mut HashMap<String, String>,
     mangle_seq: &mut usize,
 ) -> Result<
@@ -280,11 +325,12 @@ pub(super) fn prep_lib_request<'a>(
         ast,
         lib_section,
         lib_expr_offset,
-        seen_names,
+        current_path,
+        seed,
         &requested,
         prior_mangles,
         mangle_seq,
     )?;
-    extend_seen_with_lib(lib_section, seen_names);
+    extend_seen_with_lib(lib_section, seed);
     Ok((want, rename, bare_exports, own_exports, demangle))
 }

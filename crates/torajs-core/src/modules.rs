@@ -209,7 +209,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // entry import bindings, see `deconflict::seed_seen_names`) plus
     // each path's mangle memory (the same file re-parses per request,
     // and the same decl must keep the same mangle).
-    let mut seen_names = deconflict::seed_seen_names(ast);
+    let mut seen_names = deconflict::seed_seen_names(ast, base_dir);
     let mut mangled_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
     let mut mangle_seq: usize = 0;
 
@@ -303,6 +303,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             ast,
             &mut lib_section,
             lib_expr_offset,
+            &target_path,
             &named,
             &mut seen_names,
             mangled_by_path.entry(target_path.clone()).or_default(),
