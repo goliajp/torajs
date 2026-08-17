@@ -336,7 +336,11 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     }
     // Dispatcher before `inline_dyn_ns_objlits` — see `synth_dispatcher`.
     if ast.dyn_import_present {
-        injections.push(dyn_import::synth_dispatcher(ast, &dyn_table));
+        // 426-01 — a candidate whose `__reex_` namespace binding
+        // never materialized (circular / missing indirect export)
+        // gets a SyntaxError-reject entry instead of a namespace.
+        let poisoned = dyn_import::poisoned_candidates(&dyn_table, &ns_accums, &injections);
+        injections.push(dyn_import::synth_dispatcher(ast, &dyn_table, &poisoned));
     }
     // The synthetic `let ns = { … }` bindings only reference decls, so
     // they land after every module's statements regardless of which

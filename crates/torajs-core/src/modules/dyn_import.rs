@@ -41,13 +41,13 @@
 use crate::ast::{Ast, BinOp, Expr, Param, Stmt};
 use crate::lexer;
 use crate::parser;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use super::deconflict::{
     is_class_decl, rebinds_elsewhere, top_value_decl_name, type_param_shadows,
 };
-use super::resolve_helpers::{collect_bare_exports, collect_own_export_names};
+use super::resolve_helpers::{NsAccum, collect_bare_exports, collect_own_export_names};
 use super::{WorkItem, decl_name, resolve_path};
 
 /// The dispatcher FnDecl's name. Parser-minted at every `import()`
@@ -289,7 +289,68 @@ fn speculative_probe(path: &Path) -> Option<Ast> {
 /// `Promise.reject`, which is exactly IfAbruptRejectPromise. The
 /// `__dyn_ns_c<k>` idents rewrite to namespace object literals in
 /// `inline_dyn_ns_objlits` — synthesis must run before that pass.
-pub(super) fn synth_dispatcher(ast: &mut Ast, table: &[(String, String)]) -> Stmt {
+/// 426-01 — candidates whose namespace depends on a re-export binding
+/// that never materialized. A circular indirect-export chain
+/// (`export { x } from` A→B→A) deduplicates to nothing in the BFS:
+/// the synthetic `__reex_<ns>_<face>` binding is requested but no
+/// declaration ever injects. Per §16.2.1.5 the module fails to
+/// instantiate with a SyntaxError — and a dyn-import candidate must
+/// reject its promise, never fail the build. A missing (non-circular)
+/// indirect export takes the same verdict: same ResolveExport step,
+/// same SyntaxError. The dispatcher emits a SyntaxError throw for
+/// these entries (riding its own reject-on-abrupt catch) and never
+/// references the namespace, so the dangling binding keeps no use
+/// site and the checker stays quiet.
+pub(super) fn poisoned_candidates(
+    table: &[(String, String)],
+    ns_accums: &HashMap<String, NsAccum>,
+    injections: &[Stmt],
+) -> HashSet<String> {
+    let needs_scan = table
+        .iter()
+        .any(|(_, ns)| ns_accums.get(ns).is_some_and(reex_backed));
+    if !needs_scan {
+        return HashSet::new();
+    }
+    let mut declared: HashSet<String> = HashSet::new();
+    collect_decl_names(injections, &mut declared);
+    table
+        .iter()
+        .filter(|(_, ns)| {
+            ns_accums.get(ns.as_str()).is_some_and(|acc| {
+                acc.fields()
+                    .iter()
+                    .any(|(_, local)| local.starts_with("__reex_") && !declared.contains(local))
+            })
+        })
+        .map(|(_, ns)| ns.clone())
+        .collect()
+}
+
+fn reex_backed(acc: &NsAccum) -> bool {
+    acc.fields()
+        .iter()
+        .any(|(_, local)| local.starts_with("__reex_"))
+}
+
+fn collect_decl_names(stmts: &[Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            Stmt::Multi(inner) => collect_decl_names(inner, out),
+            _ => {
+                if let Some(n) = decl_name(s) {
+                    out.insert(n);
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn synth_dispatcher(
+    ast: &mut Ast,
+    table: &[(String, String)],
+    poisoned: &HashSet<String>,
+) -> Stmt {
     let mut body: Vec<Stmt> = Vec::new();
     // const __s: any = String(__spec);
     let string_ident = ast.add_expr(Expr::Ident("String".to_string()));
@@ -317,6 +378,24 @@ pub(super) fn synth_dispatcher(ast: &mut Ast, table: &[(String, String)]) -> Stm
             left: s_ref,
             right: lit_expr,
         });
+        if poisoned.contains(ns_name.as_str()) {
+            // if (__s === "<lit>") throw new SyntaxError(...) — the
+            // catch below turns it into the §16.2.1.5 promise reject.
+            let msg = ast.add_expr(Expr::String(format!(
+                "indirect exports of module '{lit}' do not resolve (circular or missing)"
+            )));
+            let err = ast.add_expr(Expr::New {
+                class_name: "SyntaxError".to_string(),
+                args: vec![msg],
+                type_args: Vec::new(),
+            });
+            body.push(Stmt::If {
+                cond,
+                then_branch: Box::new(Stmt::Throw(err)),
+                else_branch: None,
+            });
+            continue;
+        }
         let ns_ident = ast.add_expr(Expr::Ident(ns_name.clone()));
         let promise_ident = ast.add_expr(Expr::Ident("Promise".to_string()));
         ast.synth_global_refs.insert(promise_ident);
