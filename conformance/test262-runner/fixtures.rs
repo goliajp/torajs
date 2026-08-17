@@ -28,7 +28,10 @@ pub fn stage(slot_dir: &Path, case_path: &Path, case_src: &str) -> Vec<u8> {
     let _ = std::fs::create_dir_all(slot_dir);
     if let Ok(rd) = std::fs::read_dir(slot_dir) {
         for e in rd.flatten() {
-            if e.file_name().to_string_lossy().ends_with("_FIXTURE.js") {
+            // Fixtures AND the previous case's self-import alias —
+            // both are `.js`; the assembled case itself is `case.ts`
+            // / `case.cts` and never matches.
+            if e.file_name().to_string_lossy().ends_with(".js") {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -58,6 +61,22 @@ pub fn stage(slot_dir: &Path, case_path: &Path, case_src: &str) -> Vec<u8> {
             salt.extend_from_slice(&bytes);
             salt.push(0xff);
         }
+    }
+    // Self-import alias — the assembled case runs as `case.ts`, but
+    // several module-code fixtures import the case back by its
+    // CORPUS filename (`export { x } from './instn-iee-err-circular
+    // .js'` where that file IS the case). Stage the raw case source
+    // under its original name too so those chains resolve instead of
+    // dying on path-not-found. The alias is the UNTRANSFORMED source
+    // (both runtimes see the same module text); it rides the oracle
+    // salt so cached verdicts from the alias-less staging era can't
+    // score this one.
+    if let Some(name) = case_path.file_name() {
+        let _ = std::fs::write(slot_dir.join(name), case_src.as_bytes());
+        salt.extend_from_slice(name.to_string_lossy().as_bytes());
+        salt.push(0xfe);
+        salt.extend_from_slice(case_src.as_bytes());
+        salt.push(0xfe);
     }
     salt
 }
