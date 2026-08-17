@@ -323,6 +323,11 @@ unsafe extern "C" {
     /// torajs-throw — pending-throw probe for the ToPrimitive leg
     /// of the generic toJSON body below.
     fn __torajs_throw_check() -> i64;
+    /// torajs-dynobj — own-property probe for the Invoke(O,
+    /// "toISOString") leg (per-module extern convention, mirrors
+    /// `method_call_object_proto`'s pair).
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
 }
 
 /// §21.4.4.37 Date.prototype.toJSON through a `.call`-re-dispatched
@@ -359,6 +364,39 @@ pub(crate) unsafe fn date_to_json_generic(recv: AnyValue) -> AnyValue {
         }
         if non_finite {
             return crate::nanbox::VALUE_NULL;
+        }
+        // §21.4.4.37 step 3 is Invoke(O, "toISOString") — an ordinary
+        // Get-then-Call, so a plain object's OWN `toISOString` wins
+        // over the builtin (t262 invoke-result hands `{ toISOString:
+        // function () { … } }` to the reified cell). Same hand as
+        // `arr_to_string_borrowed`'s `Get(this, "join")` leg; a
+        // non-closure or missing entry falls through to the
+        // redispatch, whose not-a-function TypeError is the same
+        // answer §7.3.21 gives an uncallable Get result.
+        if let Some((ptr, tag)) = crate::member_get::recv_cell(recv)
+            && tag == torajs_rc::Tag::DynObj as u16
+        {
+            let key = {
+                let bytes = b"toISOString";
+                let s = crate::__torajs_str_alloc_pooled(bytes.len() as u64);
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), s.add(16), bytes.len());
+                s
+            };
+            let jtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
+            let jval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+            crate::__torajs_str_drop(key as *mut c_void);
+            if jtag != 5
+                && let Some((env, entry)) =
+                    crate::method_call::closure_cell_entry(jval as *mut c_void)
+            {
+                return crate::method_call::invoke_with_this(
+                    env,
+                    entry,
+                    recv,
+                    core::ptr::null(),
+                    0,
+                );
+            }
         }
         crate::method_call::any_method_redispatch(
             recv,
