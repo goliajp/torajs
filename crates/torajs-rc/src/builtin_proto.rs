@@ -117,6 +117,14 @@ pub const OBJECT_PROTO_TAG: usize = 1;
 /// restricted-property accessors (see the mint site).
 pub const FUNCTION_PROTO_TAG: usize = 13;
 
+/// `Map.prototype`'s slot — its reified methods brand-check
+/// thisMapObject (§24.1.3) on borrow re-dispatch.
+pub const MAP_PROTO_TAG: usize = 11;
+
+/// `Set.prototype`'s slot — its reified methods brand-check
+/// thisSetObject (§24.2.3) on borrow re-dispatch.
+pub const SET_PROTO_TAG: usize = 12;
+
 /// `%Iterator.prototype%`'s slot — its mint installs the §27.1.2.1
 /// `[Symbol.iterator]` / §27.1.4.1 `[Symbol.dispose]` own entries
 /// (see the mint site; RFC 20260809 B6).

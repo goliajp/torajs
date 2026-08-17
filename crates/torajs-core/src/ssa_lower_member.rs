@@ -233,6 +233,8 @@ pub(crate) fn mv_family_of_ssa_ty(t: &Type) -> Option<i64> {
         Type::I64 | Type::F64 => torajs_rc::builtin_proto::NUMBER_PROTO_TAG as i64,
         Type::Bool => torajs_rc::builtin_proto::BOOLEAN_PROTO_TAG as i64,
         Type::Arr(_) => torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64,
+        Type::Map => torajs_rc::builtin_proto::MAP_PROTO_TAG as i64,
+        Type::Set => torajs_rc::builtin_proto::SET_PROTO_TAG as i64,
         _ => return None,
     })
 }
@@ -245,6 +247,8 @@ pub(crate) fn mv_family_of_checker_ty(t: &crate::check::Type) -> Option<i64> {
         crate::check::Type::Number => torajs_rc::builtin_proto::NUMBER_PROTO_TAG as i64,
         crate::check::Type::Boolean => torajs_rc::builtin_proto::BOOLEAN_PROTO_TAG as i64,
         crate::check::Type::Array(_) => torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64,
+        crate::check::Type::Map => torajs_rc::builtin_proto::MAP_PROTO_TAG as i64,
+        crate::check::Type::Set => torajs_rc::builtin_proto::SET_PROTO_TAG as i64,
         _ => return None,
     })
 }
