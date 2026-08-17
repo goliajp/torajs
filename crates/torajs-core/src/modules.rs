@@ -225,18 +225,13 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         ns_star_feed,
     )) = work.pop_front()
     {
-        if let Some(ns) = namespace_alias
-            .as_ref()
-            .filter(|n| n.starts_with("__dyn_ns_"))
-            && let Some(fields) = ns_fields_by_path.get(&target_path)
-        {
-            dyn_ns_inline.push((ns.clone(), fields.clone()));
-            namespace_alias = None;
-        }
-        default_binding::shortcut_repeat_default(
+        repeat_request::align_repeat_request(
             ast,
             &target_path,
             &mut default_alias,
+            &mut namespace_alias,
+            &ns_fields_by_path,
+            &mut dyn_ns_inline,
             &default_bound_as,
             &mut injections_by_path,
         );
@@ -253,56 +248,26 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             continue;
         };
 
-        // A named request that ALIASES its binding follows this
-        // path's mangle memory: the source-side decl an earlier walk
-        // renamed re-mangles to the same spelling, and the alias is
-        // what the importer sees anyway (the `__reex_` fetches ride
-        // this). A plain-spelling request keeps the orig — the
-        // importer wants the very name the mangle took away, and the
-        // census's loud reject stays right for it.
         let mut named = named;
-        if let Some(prior) = mangled_by_path.get(&target_path) {
-            for (orig, alias) in named.iter_mut() {
-                if let Some(m) = prior.get(orig)
-                    && alias.as_ref().is_some_and(|a| a != orig)
-                {
-                    *orig = m.clone();
-                }
-            }
-        }
+        repeat_request::realign_named_to_mangles(&mut named, mangled_by_path.get(&target_path));
 
-        let src_text = std::fs::read_to_string(&target_path)
-            .map_err(|e| format!("import {}: {e}", target_path.display()))?;
-        let tokens = lexer::tokenize(&src_text)
-            .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
-        let lib_expr_offset = ast.exprs.len();
-        let lib_offset = parser::parse_into(&src_text, &tokens, ast)
-            .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
-        if closure_paths.insert(target_path.clone()) {
-            closure_files.push((target_path.clone(), src_text.into_bytes()));
-        }
-        let target_dir = target_path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| base_dir.to_path_buf());
-
-        let mut lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
+        let (mut lib_section, lib_expr_offset, target_dir) = load_lib_section(
+            ast,
+            &target_path,
+            base_dir,
+            &mut closure_paths,
+            &mut closure_files,
+        )?;
 
         // §16.2.1.10 ns `default` field — see `default_binding.rs`.
-        // Not on a star pour: §16.2.3 `export * from` never forwards
-        // `default`, so a star-fed walk of a default-carrying module
-        // must not mint the field.
-        let repeat_default_field = if ns_star_feed {
-            None
-        } else {
-            default_binding::synth_ns_default_binding(
-                &lib_section,
-                &namespace_alias,
-                &mut default_alias,
-                &default_bound_as,
-                &target_path,
-            )
-        };
+        let repeat_default_field = default_binding::synth_ns_default_binding(
+            &lib_section,
+            &namespace_alias,
+            &mut default_alias,
+            &default_bound_as,
+            &target_path,
+            ns_star_feed,
+        );
         if let Some(a) = &default_alias {
             default_bound_as.insert(target_path.clone(), a.clone());
         }
@@ -317,21 +282,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             &mut mangle_seq,
         )?;
 
-        // For P13-S2 namespace import: the accumulator collecting the
-        // names of every value-export injected (FnDecl / LetDecl /
-        // ClassDecl). `first_field` marks where THIS lib's own
-        // contribution starts, so the dyn-ns revisit shortcut still
-        // records per-path fields.
-        if let Some(alias) = &namespace_alias
-            && !ns_accums.contains_key(alias)
-        {
-            ns_order.push(alias.clone());
-            ns_accums.insert(alias.clone(), NsAccum::new(alias.clone()));
-        }
-        let first_field = namespace_alias
-            .as_ref()
-            .map(|a| ns_accums[a].fields().len())
-            .unwrap_or(0);
+        let first_field =
+            repeat_request::open_ns_walk(&namespace_alias, &mut ns_accums, &mut ns_order);
         let mut req = LibRequest {
             side_effect_only,
             default_alias: &default_alias,
@@ -360,19 +312,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         graph.record(target_path.clone(), deps);
         injections_by_path.insert(target_path.clone(), injections);
 
-        // The repeat half of the `default` field — the binding already
-        // exists, only the field claim is owed. Before the ns_fields
-        // snapshot so a dyn revisit carries it.
-        if let Some(binding) = repeat_default_field
-            && let Some(alias) = &namespace_alias
-            && let Some(accum) = ns_accums.get_mut(alias.as_str())
-        {
-            accum.claim("default", &binding);
-        }
-        if let Some(alias) = &namespace_alias {
-            let fields = ns_accums[alias].fields()[first_field..].to_vec();
-            ns_fields_by_path.insert(target_path.clone(), fields);
-        }
+        repeat_request::record_ns_walk(
+            &namespace_alias,
+            repeat_default_field,
+            &mut ns_accums,
+            first_field,
+            &target_path,
+            &mut ns_fields_by_path,
+        );
     }
 
     let mut injections: Vec<Stmt> = Vec::new();
@@ -401,12 +348,42 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     Ok(closure_files)
 }
 
+/// Read, tokenize, and parse one module file into the shared arena,
+/// recording it for the compile-closure cache key; answers the
+/// drained lib section, the arena offset its expressions start at,
+/// and the directory its own imports resolve against.
+fn load_lib_section(
+    ast: &mut Ast,
+    target_path: &Path,
+    base_dir: &Path,
+    closure_paths: &mut HashSet<PathBuf>,
+    closure_files: &mut Vec<(PathBuf, Vec<u8>)>,
+) -> Result<(Vec<Stmt>, usize, PathBuf), String> {
+    let src_text = std::fs::read_to_string(target_path)
+        .map_err(|e| format!("import {}: {e}", target_path.display()))?;
+    let tokens = lexer::tokenize(&src_text)
+        .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
+    let lib_expr_offset = ast.exprs.len();
+    let lib_offset = parser::parse_into(&src_text, &tokens, ast)
+        .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
+    if closure_paths.insert(target_path.to_path_buf()) {
+        closure_files.push((target_path.to_path_buf(), src_text.into_bytes()));
+    }
+    let target_dir = target_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| base_dir.to_path_buf());
+    let lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
+    Ok((lib_section, lib_expr_offset, target_dir))
+}
+
 mod deconflict;
 mod default_binding;
 mod dyn_import;
 mod graph;
 mod inject_export;
 mod lib_walk;
+mod repeat_request;
 mod resolve_helpers;
 mod splice;
 use graph::ModuleGraph;

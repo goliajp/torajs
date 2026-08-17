@@ -65,7 +65,14 @@ pub(super) fn synth_ns_default_binding(
     default_alias: &mut Option<String>,
     default_bound_as: &HashMap<PathBuf, String>,
     target_path: &Path,
+    ns_star_feed: bool,
 ) -> Option<String> {
+    if ns_star_feed {
+        // §16.2.3 — a bare `export * from` pour never forwards
+        // `default`, so a star-fed walk of a default-carrying module
+        // must not mint the field.
+        return None;
+    }
     let ns_alias = namespace_alias.as_ref()?;
     if default_alias.is_some() {
         return None;
