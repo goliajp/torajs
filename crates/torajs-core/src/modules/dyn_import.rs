@@ -27,11 +27,16 @@
 //!   literal in the source (`'./a' + '_b.js'` concatenation) is not
 //!   in the table — the call rejects. Prefix-directory scanning
 //!   (webpack's ContextModule) is the follow-up that would widen this.
-//! - A candidate whose export names collide with the entry's own
-//!   top-level names, its imports, or an earlier candidate's exports
-//!   is DROPPED (rejects at runtime): the flat top-level injection
-//!   model has no per-module scope yet, and a speculative candidate
-//!   must never turn a valid program into a compile error.
+//! - A candidate whose UNMANGLABLE names (see [`unmanglable_names`])
+//!   collide with the entry's own top-level names, its imports, or an
+//!   earlier candidate's injected face is DROPPED (rejects at
+//!   runtime): the 423-01 deconflict census renames colliding
+//!   unrequested Fn/Let decls at walk time, but a name the census
+//!   cannot rename would redeclare — and a speculative candidate must
+//!   never turn a valid program into a compile error. A collision
+//!   inside a candidate's TRANSITIVE imports is outside this check
+//!   (same boundary as before: only the candidate's own file is
+//!   speculatively parsed).
 
 use crate::ast::{Ast, BinOp, Expr, Param, Stmt};
 use crate::lexer;
@@ -39,7 +44,8 @@ use crate::parser;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
-use super::resolve_helpers::collect_own_export_names;
+use super::deconflict::{rebinds_elsewhere, top_value_decl_name};
+use super::resolve_helpers::{collect_bare_exports, collect_own_export_names};
 use super::{WorkItem, decl_name, resolve_path};
 
 /// The dispatcher FnDecl's name. Parser-minted at every `import()`
@@ -79,8 +85,9 @@ pub(super) fn seed_candidates(
 ///   tries the `.ts` suffix fallback);
 /// - a speculative parse succeeds (the file may be any bytes — a
 ///   candidate must not turn the build into a parse error);
-/// - its export names don't collide with the entry's reserved names
-///   or an earlier candidate's exports (see module doc).
+/// - its UNMANGLABLE names don't collide with the entry's reserved
+///   names or an earlier candidate's injected face (see module doc);
+///   every other collision deconflicts at walk time.
 fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
     let mut reserved = entry_reserved_names(ast);
     let mut seen_lits: HashSet<&str> = HashSet::new();
@@ -101,16 +108,62 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
             // Two spellings of one file: the first literal claimed it.
             continue;
         }
-        let Some(exports) = speculative_export_names(&path) else {
+        let Some(probe) = speculative_probe(&path) else {
             continue;
         };
-        if exports.iter().any(|n| reserved.contains(n)) {
+        if unmanglable_names(&probe)
+            .iter()
+            .any(|n| reserved.contains(n))
+        {
             continue;
         }
-        reserved.extend(exports);
+        // Reserve this candidate's whole injected face for later
+        // candidates: a namespace request floods EVERY top-level decl
+        // into the entry (not just exports), so a later candidate's
+        // unmanglable name colliding with any of them would redeclare.
+        // Export faces ride along for the aliased spellings.
+        for s in &probe.stmts {
+            let inner = match s {
+                Stmt::ExportDecl {
+                    inner: Some(inner), ..
+                } => inner,
+                other => other,
+            };
+            if let Some(n) = decl_name(inner) {
+                reserved.insert(n);
+            }
+        }
+        reserved.extend(collect_own_export_names(&probe.stmts));
         seen_paths.insert(path.clone());
         out.push((lit.clone(), path));
     }
+    out
+}
+
+/// Names the walk-time deconflict census cannot rename when this
+/// candidate's section injects: class / type decls (knife C/D scope —
+/// `top_value_decl_name` answers None), Fn/Let decls the lib rebinds
+/// elsewhere (the census declines those to keep the blind arena
+/// rewrite sound), and bare-export (`export { a }`) originals (the
+/// census treats them as requested spellings). A collision on any of
+/// these redeclares at walk time, so the caller must DROP.
+fn unmanglable_names(probe: &Ast) -> HashSet<String> {
+    let mut out: HashSet<String> = HashSet::new();
+    for (i, s) in probe.stmts.iter().enumerate() {
+        let inner = match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => inner,
+            other => other,
+        };
+        let Some(n) = decl_name(inner) else { continue };
+        let manglable =
+            top_value_decl_name(s).is_some() && !rebinds_elsewhere(probe, &probe.stmts, 0, i, &n);
+        if !manglable {
+            out.insert(n);
+        }
+    }
+    out.extend(collect_bare_exports(&probe.stmts).into_keys());
     out
 }
 
@@ -144,14 +197,14 @@ fn entry_reserved_names(ast: &Ast) -> HashSet<String> {
     names
 }
 
-/// Parse the candidate into a throwaway arena and answer its export
-/// names. `None` = unreadable or unparseable — not a candidate.
-fn speculative_export_names(path: &Path) -> Option<HashSet<String>> {
+/// Parse the candidate into a throwaway arena. `None` = unreadable or
+/// unparseable — not a candidate.
+fn speculative_probe(path: &Path) -> Option<Ast> {
     let src = std::fs::read_to_string(path).ok()?;
     let tokens = lexer::tokenize(&src).ok()?;
     let mut probe = Ast::default();
     parser::parse_into(&src, &tokens, &mut probe).ok()?;
-    Some(collect_own_export_names(&probe.stmts))
+    Some(probe)
 }
 
 /// Synthesize the dispatcher FnDecl:
