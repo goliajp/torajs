@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `27c7b62d`** (2026-08-17, rotation 426 — the dynamic-import
+**Latest @ `37fc80ab`** (2026-08-17, rotations 427-428 — the hidden-
+dependency census and the full ClassDecl rename. Rotation 427 (knife
+C/D0/D1/D2): a named import's injection closure — the free variables
+of every injected decl, recursed to a fixpoint over the lib's own
+top-level names — injects hidden (census-mangled, never importer-
+visible) with per-path memory separate from the requested-mangle
+memory; class deps first landed bare-only, same-path dyn candidates
+stopped colliding with their own static bindings, class fan-out
+aliases bind by reference, and a bare export's face rename moved
+into the census so sibling references follow. Sweep +36 passTotal,
+all forward (the dynamic-import/usage family). Rotation 428 (knife
+D): the census renames ClassDecl outright — `__priv_` brands
+(declaration, member refs, the `#x in o` key), `__ccmk_` computed-
+key hoists, `__cm_gen_` forwarders, `__cm_/__sm_` super-call bakes,
+type-ann strings, and the name-keyed parser tables migrate as one
+move (row ownership: arena-offset ExprIds, a parse-window snapshot
+diff with overwrite restore, then structure-gated COPY); `.name`
+keeps the source spelling via the NamedEvaluation display table; a
+same-spelled type param declines the mangle. Dyn candidates with a
+colliding class stopped DROPping, and a single-aliased class import
+renames in the census (the walk's shallow rename retired). Sweep vs
+427: passTotal 30570 flat, zero pass regressions, one forward
+deepening (`instn-uniq-env-rec`) — this knife's value lands in the
+conformance face (+5 fixtures, gate 3048/0/4) and in the silent-
+wrong family it closes, not in t262 counts. Gate predicate **235
+unattributed clusters / 2771 cases / register 2 · 522 / residue
+735 · 924 / core 4217**.)
+
+**Prior @ `27c7b62d`** (2026-08-17, rotation 426 — the dynamic-import
 deconflict chain. Knife B narrowed the candidate DROP to unmanglable
 names, and the probes then overturned the recon: the
 assignment-expression family's real blockers were three GENERAL
