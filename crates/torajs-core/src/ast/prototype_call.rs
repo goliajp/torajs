@@ -149,6 +149,41 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         if ns == "Array" {
             continue;
         }
+        // Rotation 431 — the remaining WHOLE-namespace brand-checked
+        // families SKIP the rewrite for the Number/Boolean reason
+        // above, extended to every member: §21.4.4 thisTimeValue
+        // (Date), §24.1.3 thisMapObject / §24.2.3 thisSetObject, and
+        // the §27.2.5.4 promise brand. Rewriting to `recv.m()` turns
+        // the spec's runtime TypeError on a wrong-brand receiver
+        // into a compile-time member reject (t262 probes the throw
+        // with try/catch), and a plain object's OWN `m` would shadow
+        // the explicitly-called builtin. The reified proto method
+        // cell's `.call` short-circuit already runs the brand gate —
+        // the through-a-binding form reads back bun-equal on both
+        // the legal and wrong-brand faces.
+        if matches!(ns.as_str(), "Date" | "Map" | "Set" | "Promise") {
+            continue;
+        }
+        // §20.2.3 Function.prototype — `bind` / `toString` join the
+        // whole-member skip (the reified cell's dispatch runs the
+        // IsCallable gate). `call` / `apply` CANNOT blanket-skip:
+        // the nested legal form `Function.prototype.call.call(f,
+        // recv, …)` only works through the rewrite today (the cell
+        // short-circuit does not thread the double-`call`
+        // this-shift). They skip exactly when the receiver is a
+        // literal the spec's IsCallable gate must reject at runtime
+        // — a number / string / bool / null literal or the
+        // `undefined` name, the t262 this-not-callable shape; every
+        // other receiver keeps the rewrite.
+        if ns == "Function" {
+            let wrong_brand_literal = matches!(
+                ast.get_expr(args[0]),
+                Expr::Number(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null
+            ) || matches!(ast.get_expr(args[0]), Expr::Ident(n) if n == "undefined");
+            if !matches!(method_name.as_str(), "call" | "apply") || wrong_brand_literal {
+                continue;
+            }
+        }
         let recv = args[0];
         let rest = args[1..].to_vec();
         let new_callee = ast.add_expr(Expr::Member {

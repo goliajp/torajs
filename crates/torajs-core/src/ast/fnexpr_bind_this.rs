@@ -78,6 +78,21 @@ pub fn normalize_function_bind_call(ast: &mut Ast) {
         let Some(&recv) = args.first() else {
             continue;
         };
+        // Rotation 431 — a literal wrong-brand receiver (a number /
+        // string / bool / null literal or the `undefined` name) keeps
+        // the ORIGINAL spelling: §20.2.3.2 step 2 makes it a runtime
+        // TypeError (IsCallable(Target) false, t262 this-not-callable
+        // probes the throw), while `undefined.bind()` is a
+        // compile-time member reject. The un-normalized form rides
+        // the reified proto method cell's `.call` dispatch, whose
+        // IsCallable gate reads back bun-equal.
+        let wrong_brand_literal = matches!(
+            ast.get_expr(recv),
+            Expr::Number(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null
+        ) || matches!(ast.get_expr(recv), Expr::Ident(n) if n == "undefined");
+        if wrong_brand_literal {
+            continue;
+        }
         let bind_callee = ast.add_expr(Expr::Member {
             obj: recv,
             name: "bind".into(),
