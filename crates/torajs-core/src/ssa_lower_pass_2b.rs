@@ -59,6 +59,30 @@ fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
     map
 }
 
+/// Definition shell for a dead orphan closure (see the gate in
+/// [`run`]): mirrors the pass-1 signature so every synthesized
+/// reference (boxed-entry adapter, fn-addr tables) links, and
+/// terminates with `unreachable` — no construction site exists, so
+/// no fn value can ever carry its address and the body cannot run.
+fn synth_dead_orphan_stub(
+    name: &str,
+    fid: FuncId,
+    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
+    fn_sigs: &[(Vec<Type>, Type)],
+    signatures: &HashMap<FuncId, Type>,
+) -> ssa::Function {
+    let ret_ty = signatures.get(&fid).copied().unwrap_or(Type::Void);
+    let mut f = ssa::Function::new(name, ret_ty);
+    if let Some(sid) = fn_sig_ids.get(&fid) {
+        for (i, ty) in fn_sigs[sid.0 as usize].0.iter().enumerate() {
+            f.add_param(*ty, &format!("p{i}"));
+        }
+    }
+    let entry = f.add_block();
+    f.set_term(entry, crate::ssa::Terminator::Unreachable);
+    f
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     closure_decls: Vec<(usize, FuncId)>,
@@ -100,6 +124,35 @@ pub(crate) fn run(
             ..
         } = &ast.stmts[stmt_idx]
         {
+            // A capturing closure with NO capture side-channel entry
+            // by now is dead code: 2B runs after every other body
+            // (pass 2A user fns, pass 3 main) and its own reverse
+            // append order puts enclosing bodies first, so no
+            // construction site exists anywhere in the program and
+            // the fn value can never come to exist. The module
+            // resolver strands such orphans — a discarded lib
+            // statement's fn literal still rides the whole-arena
+            // lift (`lift_arrow_fns` walks every arena expr,
+            // statement-dead or not), capturing bindings that were
+            // never declared. Lowering the body would panic on the
+            // env preamble; the pass-1 shell stays an empty
+            // Function no call site can reach.
+            let dead_orphan = params.first().is_some_and(|p| {
+                p.name == "__env"
+                    && p.type_ann
+                        .as_deref()
+                        .and_then(crate::ssa_lower_free_helpers::decode_env_ann)
+                        .is_some_and(|caps| !caps.is_empty())
+            }) && !closure_captures.contains_key(name.as_str());
+            if dead_orphan {
+                // The definition must still exist — the boxed-entry
+                // adapter (synthesized for every lifted closure)
+                // calls the body by FuncId, so an empty shell leaves
+                // an unresolved extern at link time.
+                module.funcs[fid.0 as usize] =
+                    synth_dead_orphan_stub(name, fid, fn_sig_ids, fn_sigs, signatures);
+                continue;
+            }
             let string_id_base = module.strings.len();
             let (f, new_strings) = crate::ssa_lower_fn::lower_fn(
                 name,
