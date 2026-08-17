@@ -44,7 +44,9 @@ use crate::parser;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
-use super::deconflict::{rebinds_elsewhere, top_value_decl_name};
+use super::deconflict::{
+    is_class_decl, rebinds_elsewhere, top_value_decl_name, type_param_shadows,
+};
 use super::resolve_helpers::{collect_bare_exports, collect_own_export_names};
 use super::{WorkItem, decl_name, resolve_path};
 
@@ -164,8 +166,12 @@ fn unmanglable_names(probe: &Ast) -> HashSet<String> {
             other => other,
         };
         let Some(n) = decl_name(inner) else { continue };
-        let manglable =
-            top_value_decl_name(s).is_some() && !rebinds_elsewhere(probe, &probe.stmts, 0, i, &n);
+        // Knife D — ClassDecl mangles now, so a colliding class no
+        // longer forces a DROP; the prediction mirrors the census's
+        // extra class decline (a type param spelled like the class).
+        let manglable = top_value_decl_name(s).is_some()
+            && !rebinds_elsewhere(probe, &probe.stmts, 0, i, &n)
+            && !(is_class_decl(s) && type_param_shadows(&probe.stmts, &n));
         if !manglable {
             out.insert(bare.get(&n).cloned().unwrap_or(n));
         }

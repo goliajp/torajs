@@ -297,7 +297,7 @@ pub(super) fn top_value_decl_name(s: &Stmt) -> Option<String> {
     }
 }
 
-fn is_class_decl(s: &Stmt) -> bool {
+pub(super) fn is_class_decl(s: &Stmt) -> bool {
     match s {
         Stmt::ExportDecl {
             inner: Some(inner), ..
@@ -376,7 +376,9 @@ fn copy_fn_name_tables(ast: &mut Ast, old: &str, new: &str) {
 mod seed;
 pub(super) use seed::{SeedNames, extend_seen_with_lib, seed_seen_names};
 mod class_rename;
-pub(super) use class_rename::{LibTableDelta, diff_class_tables, snapshot_class_tables};
+pub(super) use class_rename::{
+    LibTableDelta, diff_class_tables, snapshot_class_tables, type_param_shadows,
+};
 mod hidden;
 pub(super) use hidden::LaneShape;
 

@@ -35,7 +35,7 @@ use std::collections::HashSet;
 /// reference from a same-named type param, so the census DECLINES
 /// the class mangle when one exists (today's loud collision beats a
 /// silently retyped signature).
-pub(super) fn type_param_shadows(lib_section: &[Stmt], name: &str) -> bool {
+pub(in crate::modules) fn type_param_shadows(lib_section: &[Stmt], name: &str) -> bool {
     fn in_stmt(s: &Stmt, name: &str) -> bool {
         match s {
             Stmt::ExportDecl {
