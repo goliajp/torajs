@@ -78,5 +78,59 @@ pub fn stage(slot_dir: &Path, case_path: &Path, case_src: &str) -> Vec<u8> {
         salt.extend_from_slice(case_src.as_bytes());
         salt.push(0xfe);
     }
+    // Fixture chains can also reference SIBLING CASE files (the -as
+    // variant's fixture points at the base variant: `export { x } from
+    // './instn-iee-err-circular.js'` inside circular-as's chain).
+    // Pull every same-directory `.js` a staged fixture mentions, to a
+    // fixpoint — chains are short, and anything already staged (the
+    // fixtures, the case alias) is skipped by the existence check.
+    let mut scan: Vec<String> = names;
+    while !scan.is_empty() {
+        let mut next: Vec<String> = Vec::new();
+        for n in &scan {
+            let Ok(bytes) = std::fs::read(dir.join(n)) else {
+                continue;
+            };
+            for r in sibling_js_refs(&bytes) {
+                if slot_dir.join(&r).is_file() || !dir.join(&r).is_file() {
+                    continue;
+                }
+                if let Ok(rb) = std::fs::read(dir.join(&r)) {
+                    let _ = std::fs::write(slot_dir.join(&r), &rb);
+                    salt.extend_from_slice(r.as_bytes());
+                    salt.push(0xfd);
+                    salt.extend_from_slice(&rb);
+                    salt.push(0xfd);
+                    next.push(r);
+                }
+            }
+        }
+        next.sort();
+        scan = next;
+    }
     salt
+}
+
+/// `./<name>.js` references inside one staged module's source —
+/// byte-scan, no string-literal awareness needed: a false positive
+/// only stages an extra sibling file nobody imports.
+fn sibling_js_refs(bytes: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 2 < bytes.len() {
+        if bytes[i] == b'.' && bytes[i + 1] == b'/' {
+            let start = i + 2;
+            let mut j = start;
+            while j < bytes.len() && !matches!(bytes[j], b'\'' | b'"' | b'\n' | b'`') {
+                j += 1;
+            }
+            if j > start && bytes[start..j].ends_with(b".js") {
+                out.push(String::from_utf8_lossy(&bytes[start..j]).into_owned());
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
