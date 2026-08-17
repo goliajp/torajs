@@ -101,7 +101,15 @@ fn param_default_owned_exprs(ast: &Ast) -> Vec<bool> {
     for (i, e) in ast.exprs.iter().enumerate() {
         if let Expr::ArrowFn { params, body, .. } = e {
             let eid = ExprId(i as u32);
-            if ast.fn_expr_exprs.contains(&eid) || ast.gen_fn_exprs.contains_key(&eid) {
+            // An object-literal METHOD parses as an arena ArrowFn too
+            // (`objlit_method_exprs` is what remembers the difference),
+            // and a method has its own `arguments` binding — §19.2.1.3
+            // applies to it exactly like a function expression (the
+            // t262 meth-*-declare-arguments family).
+            if ast.fn_expr_exprs.contains(&eid)
+                || ast.gen_fn_exprs.contains_key(&eid)
+                || ast.objlit_method_exprs.contains(&eid)
+            {
                 mark_defaults(ast, params, &mut owned);
             }
             mark_stmts(ast, body, &mut owned);
