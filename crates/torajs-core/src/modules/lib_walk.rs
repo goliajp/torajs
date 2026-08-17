@@ -197,6 +197,7 @@ pub(super) fn walk_lib_stmt(
                 req.want,
                 req.rename,
                 req.default_alias,
+                req.ns.as_deref_mut(),
             )?;
         }
         Stmt::ExportDecl { inner: None, .. } => {

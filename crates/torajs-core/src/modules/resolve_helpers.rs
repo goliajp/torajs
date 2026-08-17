@@ -159,11 +159,43 @@ pub(super) fn queue_reexport(
     want: &HashSet<&str>,
     rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
+    ns: Option<&mut NsAccum>,
 ) -> Result<(), String> {
     if is_builtin_module_source(lib_source) {
         return Ok(());
     }
     let path = resolve_path(target_dir, lib_source)?;
+    // A namespace request sees each re-exported FACE as one of this
+    // lib's own exports (§16.2.3): the field claims the face spelling
+    // and binds to a synthetic `__reex_<ns>_<face>` the nested load
+    // materializes — a face spelled by the source module's own name
+    // would collide across libs, and named-requested spellings are
+    // census-exempt on purpose.
+    if let Some(ns) = ns {
+        for (orig, alias) in lib_named {
+            let face = alias.as_deref().unwrap_or(orig);
+            let binding = format!("__reex_{}_{}", ns.alias(), face);
+            if !ns.claim(face, &binding) {
+                continue; // an earlier walk already owns this field
+            }
+            if orig == "default" {
+                // The source's default export only answers on the
+                // default lane — a named request for a binding
+                // literally called `default` would miss it.
+                work.push_back((path.clone(), Vec::new(), Some(binding), false, None, false));
+            } else {
+                work.push_back((
+                    path.clone(),
+                    vec![(orig.clone(), Some(binding))],
+                    None,
+                    false,
+                    None,
+                    false,
+                ));
+            }
+        }
+        return Ok(());
+    }
     // For each (orig, alias) in the lib's re-export
     // clause, the lib exposes `alias` (or `orig` if no
     // alias). We only need to actually load the names
