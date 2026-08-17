@@ -413,6 +413,7 @@ pub(super) fn prep_lib_request<'a>(
         mangle_seq,
         &mut hidden_inject,
     )?;
+    hidden::admit_bare_class_deps(lib_section, &hidden, seed, current_path, &mut hidden_inject);
     extend_seen_with_lib(lib_section, &bare_exports, seed);
     Ok((
         want,

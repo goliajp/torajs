@@ -34,7 +34,7 @@ pub(super) fn hidden_injection_closure(
 ) -> HashSet<String> {
     let mut top_decls: HashMap<String, usize> = HashMap::new();
     for (i, s) in lib_section.iter().enumerate() {
-        if let Some(n) = super::top_value_decl_name(s) {
+        if let Some(n) = super::top_value_decl_name(s).or_else(|| top_class_decl_name(s)) {
             top_decls.insert(n, i);
         }
     }
@@ -79,4 +79,45 @@ pub(super) fn hidden_injection_closure(
         work.extend(crate::ast::free_idents_of_stmt(ast, &lib_section[j]));
     }
     hidden
+}
+
+/// The ClassDecl name a top-level lib statement declares (through the
+/// `export` wrapper). Kept separate from `top_value_decl_name`: the
+/// census can MANGLE a Fn/Let decl, while a class dep can only inject
+/// BARE — `__priv_<C>__` member names and every class-keyed side
+/// table bake the class name at parse time (knife D territory).
+pub(super) fn top_class_decl_name(s: &Stmt) -> Option<String> {
+    match s {
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => top_class_decl_name(inner),
+        Stmt::ClassDecl { name, .. } => Some(name.clone()),
+        _ => None,
+    }
+}
+
+/// Post-census classification of the hidden CLASS deps: a class
+/// cannot mangle, so it injects under its own spelling when nothing
+/// collides, and keeps the loud unknown-identifier reject when
+/// something does.
+pub(super) fn admit_bare_class_deps(
+    lib_section: &[Stmt],
+    hidden: &HashSet<String>,
+    seed: &super::SeedNames,
+    current_path: &std::path::Path,
+    hidden_inject: &mut HashSet<String>,
+) {
+    for s in lib_section {
+        let Some(name) = top_class_decl_name(s) else {
+            continue;
+        };
+        if !hidden.contains(&name) {
+            continue;
+        }
+        let collides = seed.hard.contains(&name)
+            || seed.reserved.get(&name).is_some_and(|p| p != current_path);
+        if !collides {
+            hidden_inject.insert(name);
+        }
+    }
 }

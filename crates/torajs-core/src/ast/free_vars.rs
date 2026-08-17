@@ -8,6 +8,7 @@
 //! arrow-fn lift pass) that resolves via the pub(super) marker on
 //! free_vars_of_arrow.
 
+use super::free_vars_decls::{walk_class_decl, walk_fn_decl};
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// Free-variable analysis for an arrow fn body. Returns a deterministic,
@@ -77,7 +78,7 @@ pub(crate) fn free_idents_of_stmt(ast: &Ast, s: &Stmt) -> Vec<String> {
 /// list — including before the declaration — resolves to the local
 /// decl, never to an outer binding. Bind every direct FnDecl name
 /// before walking the list's statements.
-fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
+pub(super) fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
     for s in list {
         if let Stmt::FnDecl { name, .. } = s {
             if !bound.contains(name) {
@@ -87,42 +88,41 @@ fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
     }
 }
 
-/// A nested `function` declaration's body walk. The decl's own name is
-/// hoist-bound by the enclosing list walk. Its body is a scope of its
-/// own: params and the decl's `arguments` quasi-binding bind, and
-/// whatever stays free inside is free in the enclosing scope too — a
-/// nested decl reading an outer local makes the enclosing closure
-/// capture it. Ignoring the body (the pre-fix behavior) both reported
-/// the decl's NAME as a phantom capture and hid its real ones.
-///
-/// `__this` binds too: a `function` declaration binds its own `this`
-/// (§10.2.1.1 non-lexical [[ThisMode]]), so the body's `__this` — the
-/// desugar_classes pass-2 spelling — is NOT free in the enclosing
-/// scope. Without this bound entry an enclosing lifted closure carries
-/// a phantom `__this` capture its definition scope cannot supply, and
-/// the checker rejects the whole closure (unknown identifier) even
-/// though the nested decl itself promotes fine.
-fn walk_fn_decl(
+/// The try / catch / finally scopes: each block is its own binding
+/// region, and the catch param binds only inside the catch body.
+fn walk_try(
     ast: &Ast,
-    params: &[Param],
     body: &[Stmt],
+    catch_param: &Option<String>,
+    catch_body: &[Stmt],
+    finally_body: &Option<Vec<Stmt>>,
     bound: &mut Vec<String>,
     out: &mut Vec<String>,
 ) {
     let saved = bound.len();
-    for p in params {
-        bound.push(p.name.clone());
-    }
-    bound.push("arguments".into());
-    bound.push("__this".into());
     hoist_fn_decl_names(body, bound);
     for s in body {
         walk_stmt(ast, s, bound, out);
     }
     bound.truncate(saved);
+    if let Some(name) = catch_param {
+        bound.push(name.clone());
+    }
+    hoist_fn_decl_names(catch_body, bound);
+    for s in catch_body {
+        walk_stmt(ast, s, bound, out);
+    }
+    bound.truncate(saved);
+    if let Some(fb) = finally_body {
+        hoist_fn_decl_names(fb, bound);
+        for s in fb {
+            walk_stmt(ast, s, bound, out);
+        }
+        bound.truncate(saved);
+    }
 }
 
-fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
+pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match s {
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
             walk_expr(ast, *eid, bound, out)
@@ -273,36 +273,26 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             had_catch: _,
             catch_body,
             finally_body,
-        } => {
-            let saved = bound.len();
-            hoist_fn_decl_names(body, bound);
-            for s in body {
-                walk_stmt(ast, s, bound, out);
-            }
-            bound.truncate(saved);
-            if let Some(name) = catch_param {
-                bound.push(name.clone());
-            }
-            hoist_fn_decl_names(catch_body, bound);
-            for s in catch_body {
-                walk_stmt(ast, s, bound, out);
-            }
-            bound.truncate(saved);
-            if let Some(fb) = finally_body {
-                hoist_fn_decl_names(fb, bound);
-                for s in fb {
-                    walk_stmt(ast, s, bound, out);
-                }
-                bound.truncate(saved);
-            }
-        }
+        } => walk_try(ast, body, catch_param, catch_body, finally_body, bound, out),
         Stmt::FnDecl { params, body, .. } => walk_fn_decl(ast, params, body, bound, out),
         Stmt::TypeDecl { .. } => {}
-        Stmt::ClassDecl { .. } => {
-            // desugar_classes runs before lift_arrow_fns; if a ClassDecl
-            // somehow remains, ignore — its body has already been split
-            // into FnDecls anyway.
-        }
+        Stmt::ClassDecl {
+            parent,
+            ctor,
+            methods,
+            static_methods,
+            static_init,
+            ..
+        } => walk_class_decl(
+            ast,
+            parent,
+            ctor,
+            methods,
+            static_methods,
+            static_init,
+            bound,
+            out,
+        ),
         Stmt::ImportDecl { .. } => {}
         Stmt::ExportDecl { inner, .. } => {
             if let Some(inner) = inner {
@@ -323,7 +313,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
 /// shapes against it.
 pub(crate) use super::free_vars_globals::is_global_name;
 
-fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
+pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match ast.get_expr(eid) {
         Expr::Elision => {}
         Expr::Ident(name) => {
@@ -428,7 +418,26 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
         // class method whose desugar hasn't completed; in practice we
         // run desugar_classes before lift_arrow_fns, so they're inert.
         Expr::This | Expr::NewTarget => {}
-        Expr::New { args, .. } | Expr::Super { args } => {
+        Expr::New {
+            class_name, args, ..
+        } => {
+            // Pre-desugar, `new C()` carries its class name as a String
+            // field, not an Ident — report it like one. The module
+            // resolver's hidden-dep census is the pass that meets this
+            // shape; the arrow-lift caller runs after desugar_classes /
+            // builtin-new rewrites, where class News have become
+            // factory calls.
+            if !is_global_name(class_name)
+                && !bound.contains(class_name)
+                && !out.contains(class_name)
+            {
+                out.push(class_name.clone());
+            }
+            for a in args {
+                walk_expr(ast, *a, bound, out);
+            }
+        }
+        Expr::Super { args } => {
             for a in args {
                 walk_expr(ast, *a, bound, out);
             }
