@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T08:25:19.791Z",
+  "generatedAt": "2026-08-17T10:14:25.744Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-17T07:59:10Z",
-    "headSha": "bf1da85e",
-    "elapsedSec": 331.1,
+    "ranAt": "2026-08-17T10:06:25Z",
+    "headSha": "d8ce3dc3",
+    "elapsedSec": 329.76,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25530,
-    "passNoOracle": 876,
+    "pass": 25548,
+    "passNoOracle": 894,
     "passNegative": 4128,
-    "passTotal": 30534,
+    "passTotal": 30570,
     "bug": 12784,
-    "incompatible": 9856,
+    "incompatible": 9820,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43318,
-    "passRateInScope": 57.42,
-    "passRateTrAccepted": 70.49
+    "trAccepted": 43354,
+    "passRateInScope": 57.49,
+    "passRateTrAccepted": 70.51
   },
   "torajs": {
-    "commit": "27c7b62d",
-    "commitSubject": "refactor: resolve_imports delegates its repeat-request memory to a sibling",
+    "commit": "d8ce3dc3",
+    "commitSubject": "refactor: resolve_imports folds its pre-walk alignment into siblings",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "d8ce3dc3",
+      "subject": "refactor: resolve_imports folds its pre-walk alignment into siblings"
+    },
+    {
+      "hash": "c06c96da",
+      "subject": "fix: a bare export's face rename follows sibling references too"
+    },
+    {
+      "hash": "b4e200ae",
+      "subject": "feat: a multi-spelling class import binds every alias to the one identity"
+    },
+    {
+      "hash": "e300002f",
+      "subject": "fix: restore the dyn-import double-FIXTURE case the knife-D2 fixture overwrote"
+    },
+    {
+      "hash": "7d3aa869",
+      "subject": "feat: a static import binding no longer blocks a same-path dyn candidate"
+    },
+    {
+      "hash": "fe428dc2",
+      "subject": "feat: a class-shaped hidden dependency injects bare when nothing collides"
+    },
+    {
+      "hash": "63a6bad6",
+      "subject": "feat: a named import's decl drags its lib-internal dependencies along"
+    },
+    {
+      "hash": "c7d86dee",
+      "subject": "chore: record the rotation 426 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "27c7b62d",
       "subject": "refactor: resolve_imports delegates its repeat-request memory to a sibling"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "1a468ce1",
       "subject": "fix: a star pour does not mint the namespace default field"
-    },
-    {
-      "hash": "dff491c6",
-      "subject": "feat: the namespace object carries the lib's default export as its default field"
-    },
-    {
-      "hash": "f1e81b3d",
-      "subject": "feat: a dyn-import candidate deconflicts instead of dropping on a name collision"
-    },
-    {
-      "hash": "d9f07290",
-      "subject": "chore: record the rotation 425 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "3a83d0da",
-      "subject": "refactor: the forwarder pass takes its typedecl snapshots from a helper"
-    },
-    {
-      "hash": "e1890420",
-      "subject": "fix: a reserved import binding passes its own module's injection"
-    },
-    {
-      "hash": "34d9ef03",
-      "subject": "feat: two modules exporting the same name deconflict per-module"
-    },
-    {
-      "hash": "32ea107d",
-      "subject": "fix: an aliased async or generator import keeps its nature"
-    },
-    {
-      "hash": "fa05b7a7",
-      "subject": "fix: an objlit method's param-default eval declaring arguments throws"
     }
   ],
-  "headSha": "27c7b62d",
+  "headSha": "d8ce3dc3",
   "autorun": {
-    "total": 729,
+    "total": 730,
     "baselineTarget": 10,
-    "bySelf": 724,
+    "bySelf": 725,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786948641-7caf",
-      "at": "2026-08-17T06:37:21Z",
-      "ts": 1786948641,
+      "rotationId": "r-1786955159-32d9",
+      "at": "2026-08-17T08:25:59Z",
+      "ts": 1786955159,
       "trigger": "self",
-      "prevHead": "d9f07290",
-      "handoffSha": "sha256:59c524add99a3812d4e9b209b2767e3bafdbd058b31f563cf68097ad94b74009",
-      "handoffAgeSec": 7,
+      "prevHead": "c7d86dee",
+      "handoffSha": "sha256:8caa029dc2cf94ca169df9e7b70ea2113e772713b033cd6b063a43d19ffd3672",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786955159-32d9",
+        "at": "2026-08-17T08:25:59Z",
+        "ts": 1786955159,
+        "trigger": "self",
+        "prevHead": "c7d86dee",
+        "handoffSha": "sha256:8caa029dc2cf94ca169df9e7b70ea2113e772713b033cd6b063a43d19ffd3672",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786948641-7caf",
         "at": "2026-08-17T06:37:21Z",
@@ -876,17 +887,6 @@
         "prevHead": "ba77f109",
         "handoffSha": "sha256:8f2a533fcdab4b8c49ba1b9609eacd6b16255e88d987e099016ee20c1878d696",
         "handoffAgeSec": 33,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786845366-163b",
-        "at": "2026-08-16T01:56:06Z",
-        "ts": 1786845366,
-        "trigger": "self",
-        "prevHead": "5172ade3",
-        "handoffSha": "sha256:f5d8eca1465f441600ead63bd981000a39cfa1406ae5e302ad0b4eda56a6fd6e",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
