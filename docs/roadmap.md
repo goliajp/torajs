@@ -4303,11 +4303,16 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 420 closing sweep `af31fa42`, core **4572**,
-**238** clusters of ≥ 4 holding 2957 cases; 773 clusters of ≤ 3 hold
-1004 more (22.0 %), and the subset-decision register accounts for 611
-across two entries. Coverage: top 10 = 14.2 %, top 25 = 28.8 %,
-top 100 = 58.4 %, top 400 = 85.0 %. Rotation 420 took rotation 419's
+(refreshed @ rotation 424 closing sweep `3800ad73`, core **4212**,
+**234** clusters of ≥ 4 holding 2767 cases; 734 clusters of ≤ 3 hold
+923 more (21.9 %), and the subset-decision register accounts for 522
+across two entries. Coverage: top 10 = 14.8 %, top 25 = 29.5 %,
+top 100 = 58.8 %, top 400 = 85.7 %.
+
+Earlier stamp @ rotation 420 closing sweep `af31fa42`: core 4572,
+238 clusters of ≥ 4 holding 2957 cases; 773 clusters of ≤ 3 hold
+1004 more (22.0 %), register 611 across two entries. Coverage:
+top 10 = 14.2 %, top 25 = 28.8 %, top 100 = 58.4 %, top 400 = 85.0 %. Rotation 420 took rotation 419's
 registered follow-up — a class's computed member name is not
 ToPropertyKey'd where the class is defined — and found that the ONE
 thing §15.7.14 says about the class-definition point is the thing tr

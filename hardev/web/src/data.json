@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T01:33:22.304Z",
+  "generatedAt": "2026-08-17T03:12:11.690Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-17T01:24:19Z",
-    "headSha": "d5405c7d",
-    "elapsedSec": 331.14,
+    "ranAt": "2026-08-17T03:08:42Z",
+    "headSha": "3800ad73",
+    "elapsedSec": 331.68,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25463,
+    "pass": 25485,
     "passNoOracle": 876,
     "passNegative": 4128,
-    "passTotal": 30467,
-    "bug": 12894,
-    "incompatible": 9813,
+    "passTotal": 30489,
+    "bug": 12871,
+    "incompatible": 9814,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43361,
-    "passRateInScope": 57.3,
-    "passRateTrAccepted": 70.26
+    "trAccepted": 43360,
+    "passRateInScope": 57.34,
+    "passRateTrAccepted": 70.32
   },
   "torajs": {
-    "commit": "d5405c7d",
-    "commitSubject": "fix: every nested parse drops its class spans, not just the two sites that knew to",
+    "commit": "3800ad73",
+    "commitSubject": "refactor: the fn-slot admit hardens its lane boundaries",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "3800ad73",
+      "subject": "refactor: the fn-slot admit hardens its lane boundaries"
+    },
+    {
+      "hash": "d3078198",
+      "subject": "feat: a fn-typed let slot admits and reabstracts a mismatched fn init"
+    },
+    {
+      "hash": "63d6d2f9",
+      "subject": "feat: a fn-type annotation takes the optional-parameter marker"
+    },
+    {
+      "hash": "cb9fc6c1",
+      "subject": "feat: one imported name binds every importer-visible spelling"
+    },
+    {
+      "hash": "1b05fc8c",
+      "subject": "feat: a mismatched fn value passed into a fn-typed slot rides a sig-exact thunk"
+    },
+    {
+      "hash": "b564a6b0",
+      "subject": "chore: record the rotation 423 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "d5405c7d",
       "subject": "fix: every nested parse drops its class spans, not just the two sites that knew to"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c40b5319",
       "subject": "refactor: extract the computed generator-method key parse"
-    },
-    {
-      "hash": "360eba58",
-      "subject": "fix: an uninitialized let in a generator body lifts as any, not number"
-    },
-    {
-      "hash": "f7c8021c",
-      "subject": "fix: generator objects classify as [object Generator], not [object Object]"
-    },
-    {
-      "hash": "a9c6e67d",
-      "subject": "fix: a namespace member the module never exported is undefined, not a type error"
-    },
-    {
-      "hash": "1012b8e4",
-      "subject": "fix: a reserved word could not name an object-literal generator method"
-    },
-    {
-      "hash": "ea5ec386",
-      "subject": "feat: expression-position yield* carries the delegated done value"
-    },
-    {
-      "hash": "ea009482",
-      "subject": "chore: refresh the hardev dashboard snapshot for rotation 421"
     }
   ],
-  "headSha": "d5405c7d",
+  "headSha": "3800ad73",
   "autorun": {
-    "total": 726,
+    "total": 727,
     "baselineTarget": 10,
-    "bySelf": 721,
+    "bySelf": 722,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786921288-0c8d",
-      "at": "2026-08-16T23:01:28Z",
-      "ts": 1786921288,
+      "rotationId": "r-1786930499-09d3",
+      "at": "2026-08-17T01:34:59Z",
+      "ts": 1786930499,
       "trigger": "self",
-      "prevHead": "099d2d09",
-      "handoffSha": "sha256:df6136025be893df1b1b4d0bae7c91478ed2dee4cb76df7a1ee1347bd9ff2041",
-      "handoffAgeSec": 9,
+      "prevHead": "b564a6b0",
+      "handoffSha": "sha256:653c946417427422dc1924309227b2e0b22f4f5be89d57ad87480da46af413bc",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786930499-09d3",
+        "at": "2026-08-17T01:34:59Z",
+        "ts": 1786930499,
+        "trigger": "self",
+        "prevHead": "b564a6b0",
+        "handoffSha": "sha256:653c946417427422dc1924309227b2e0b22f4f5be89d57ad87480da46af413bc",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786921288-0c8d",
         "at": "2026-08-16T23:01:28Z",
@@ -876,17 +887,6 @@
         "prevHead": "987a2635",
         "handoffSha": "sha256:0e5bbbac2f2f04ed180a4b543996ecd56328e460da033475a6c448799afa6198",
         "handoffAgeSec": 79,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786808810-3b9b",
-        "at": "2026-08-15T15:46:50Z",
-        "ts": 1786808810,
-        "trigger": "self",
-        "prevHead": "fbe0cccd",
-        "handoffSha": "sha256:b434f1b3efbbd6a88a8b3fbe655adce7d0f5b2ced6bdf386883e7dbde9bf4950",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
