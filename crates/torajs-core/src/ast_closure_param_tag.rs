@@ -52,7 +52,7 @@ use crate::ast_closure_param_tag_axes::{backward_param_marks, replace_cb_param_s
 use std::collections::{HashMap, HashSet};
 
 /// Does this annotation parse to `Type::FnSig` at the SSA layer?
-fn is_fnsig_ann(ann: &Option<String>) -> bool {
+pub(crate) fn is_fnsig_ann(ann: &Option<String>) -> bool {
     matches!(ann, Some(s) if s.trim_start().starts_with("__fn("))
 }
 
@@ -65,7 +65,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)> =
         HashMap::new();
     let mut existing_forwarders: HashSet<String> = HashSet::new();
-    collect_fn_decls(
+    crate::ast_closure_param_tag_collect::collect_fn_decls(
         &ast.stmts,
         &mut fn_params,
         &mut fn_sigs,
@@ -74,22 +74,17 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // bug-553 — FnDecls with an `__fn(`-annotated return type: their
     // return-site ExprIds, for the return-lane marking round below.
     let mut fn_returns: HashMap<String, Vec<ExprId>> = HashMap::new();
-    collect_fn_returns(&ast.stmts, &mut fn_returns);
+    crate::ast_closure_param_tag_collect::collect_fn_returns(&ast.stmts, &mut fn_returns);
     if fn_params.is_empty() && fn_returns.is_empty() {
         return;
     }
 
-    // ── Closure-holding let bindings, program-wide by name.
-    let mut closure_idents: HashSet<String> = HashSet::new();
-    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
-    while let Some(s) = stack.pop() {
-        if let Stmt::LetDecl { name, init, .. } = s
-            && matches!(ast.get_expr(*init), Expr::Closure { .. })
-        {
-            closure_idents.insert(name.clone());
-        }
-        push_child_stmts(s, &mut stack);
-    }
+    // ── Program-wide binding snapshots (see the collect sibling's
+    // per-fn docs): closure-holding lets, and named-fn alias lets
+    // whose init wraps once a marked param receives them.
+    let mut closure_idents = crate::ast_closure_param_tag_collect::closure_holding_lets(ast);
+    let fn_alias_lets = crate::ast_closure_param_tag_collect::fn_alias_lets(ast, &fn_sigs);
+    let mut alias_wraps: HashSet<String> = HashSet::new();
 
     // ── Mark fn-typed params that receive a closure-shaped argument
     // and `__fn(`-annotated returns that yield one. Fixpoint: a marked
@@ -120,6 +115,16 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
                 if is_closure_shaped(ast, *arg, &closure_idents, &ret_marked)
                     && marked.insert((fname.clone(), *idx))
                 {
+                    changed = true;
+                }
+                // Named-fn alias into an already-marked slot — see
+                // `fn_alias_lets` above.
+                if marked.contains(&(fname.clone(), *idx))
+                    && let Expr::Ident(x) = ast.get_expr(*arg)
+                    && fn_alias_lets.contains_key(x)
+                    && alias_wraps.insert(x.clone())
+                {
+                    closure_idents.insert(x.clone());
                     changed = true;
                 }
             }
@@ -196,6 +201,13 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     retag_fn_decls(&mut ast.stmts, &marked);
     retag_fn_return_types(&mut ast.stmts, &ret_marked);
 
+    // Alias-let init sites the fixpoint elected for the wrap — their
+    // rewrite rides the same forwarder machinery as direct named-fn
+    // argument sites.
+    let alias_init_sites: Vec<(ExprId, String)> = alias_wraps
+        .iter()
+        .filter_map(|x| fn_alias_lets.get(x).cloned())
+        .collect();
     crate::ast_closure_param_tag_axes::wrap_named_fn_values(
         ast,
         &fn_params,
@@ -204,6 +216,7 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         &marked,
         &ret_marked,
         &closure_idents,
+        &alias_init_sites,
         &mut existing_forwarders,
     );
     crate::ast_closure_param_tag_axes::wrap_ns_static_values(
@@ -231,58 +244,25 @@ fn is_closure_shaped(
         Expr::Call { callee, .. } => {
             matches!(ast.get_expr(*callee), Expr::Ident(f) if ret_marked.contains(f))
         }
-        // A namespace-static fn value (`Math.sin` outside a call
-        // position) lowers to the interned dispatcher cell —
-        // `Type::Closure`, env-first ABI (RFC 20260719-ns-static-
-        // value-reify). Left unmarked, the `__fn(` param keeps the
-        // bare-fn-pointer lane and `blr`s the cell's heap header —
-        // the bug-327 SIGBUS family, third value shape (test262
-        // S12.9_A4 `DD_operator(Math.sin, ...)`). Same approximation
-        // grade as the rest of this pass: a user binding shadowing
-        // the namespace over-marks the param, which costs direct
-        // dispatch but keeps the shapes uniform.
-        Expr::Member { obj, name } => {
-            matches!(ast.get_expr(*obj), Expr::Ident(ns)
-                if torajs_rc::ns_static_id(ns, name) != torajs_rc::NS_STATIC_UNKNOWN)
-        }
+        // ANY member or index read: a fn value living in a slot is
+        // Closure repr across the board — struct / class fn-typed
+        // fields are `__cls`-retagged (`tag_struct_field_closure_types`),
+        // fn-typed array elements are Closure-repr (chunk 733), and a
+        // namespace-static fn value (`Math.sin` outside a call
+        // position) lowers to the interned dispatcher cell (RFC
+        // 20260719-ns-static-value-reify). Left unmarked, the `__fn(`
+        // param keeps the bare-fn-pointer lane and `blr`s the cell's
+        // heap header — the bug-327 SIGBUS family (third value shape:
+        // test262 S12.9_A4 `DD_operator(Math.sin, ...)`; fourth:
+        // `__t262_throws_runtime(o.f)`, the `{ f: top_fn }` field
+        // read that crashed the eval-code `*-cntns-arguments-*`
+        // family). Same approximation grade as the rest of this pass:
+        // a member read that would have arrived as some other repr
+        // over-marks the param, which costs direct dispatch but keeps
+        // the shapes uniform — a fn-typed param's argument is a fn
+        // value either way, so the retag stays sound.
+        Expr::Member { .. } | Expr::Index { .. } => true,
         _ => false,
-    }
-}
-
-/// Snapshot, per FnDecl with an `__fn(`-annotated return type, the
-/// ExprIds of every `return <e>` in its own body. A nested FnDecl
-/// switches context — its returns attribute to itself, never to the
-/// enclosing fn.
-fn collect_fn_returns(stmts: &[Stmt], out: &mut HashMap<String, Vec<ExprId>>) {
-    let mut stack: Vec<(&Stmt, Option<String>)> = stmts.iter().map(|s| (s, None)).collect();
-    while let Some((s, cur)) = stack.pop() {
-        if let Stmt::FnDecl {
-            name,
-            return_type,
-            body,
-            ..
-        } = s
-        {
-            let ctx = if is_fnsig_ann(return_type) {
-                Some(name.clone())
-            } else {
-                None
-            };
-            for b in body {
-                stack.push((b, ctx.clone()));
-            }
-            continue;
-        }
-        if let Stmt::Return(Some(eid)) = s
-            && let Some(f) = &cur
-        {
-            out.entry(f.clone()).or_default().push(*eid);
-        }
-        let mut kids: Vec<&Stmt> = Vec::new();
-        push_child_stmts(s, &mut kids);
-        for k in kids {
-            stack.push((k, cur.clone()));
-        }
     }
 }
 
@@ -300,46 +280,6 @@ fn retag_fn_return_types(stmts: &mut [Stmt], ret_marked: &HashSet<String>) {
             *ann = format!("__cls({rest}");
         }
         push_child_stmts_mut(s, &mut stack);
-    }
-}
-
-/// Recursively snapshot FnDecls (top-level and nested) into the
-/// param-index / signature maps.
-fn collect_fn_decls(
-    stmts: &[Stmt],
-    fn_params: &mut HashMap<String, Vec<(usize, String)>>,
-    fn_sigs: &mut HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
-    existing_forwarders: &mut HashSet<String>,
-) {
-    let mut stack: Vec<&Stmt> = stmts.iter().collect();
-    while let Some(s) = stack.pop() {
-        if let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            span,
-            ..
-        } = s
-        {
-            if name.starts_with("__forward_") {
-                existing_forwarders.insert(name.clone());
-            } else {
-                let is_closure_shaped = params.first().is_some_and(|p| p.name == "__env");
-                let fnsig_params: Vec<(usize, String)> = params
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, p)| is_fnsig_ann(&p.type_ann))
-                    .map(|(i, p)| (i, p.name.clone()))
-                    .collect();
-                if !fnsig_params.is_empty() {
-                    fn_params.insert(name.clone(), fnsig_params);
-                }
-                if !is_closure_shaped {
-                    fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
-                }
-            }
-        }
-        push_child_stmts(s, &mut stack);
     }
 }
 
@@ -711,14 +651,18 @@ mod tests {
     }
 
     #[test]
-    fn unknown_member_arg_keeps_fnsig() {
-        // A member read that is not a namespace static says nothing
-        // about the value's shape — no retag.
+    fn member_arg_retags_closure() {
+        // A member read IS closure-shaped: a fn value living in a
+        // slot (struct field / array element / namespace static) is
+        // Closure repr across the board, so the receiving param must
+        // leave the bare-pointer lane. The old expectation (`no
+        // retag`) preserved exactly the bug-327 fourth-shape SIGBUS —
+        // `o.m` here is an objlit fn-expr field, a Closure cell.
         let ast = pass_output(
             "function f(thunk: () => void): void { thunk(); }\nlet o = { m: function() {} };\nf(o.m);\n",
         );
         let ann = fn_param_ann(&ast, "f", 0).unwrap();
-        assert!(ann.starts_with("__fn("), "no retag expected, got {ann}");
+        assert!(ann.starts_with("__cls("), "member arg retags, got {ann}");
     }
 
     #[test]

@@ -24,19 +24,28 @@ impl<'a> FnToClosureCollector<'a> {
         let type_params = self.fn_type_params.get(cname);
         for (i, arg) in args.iter().enumerate() {
             if params.get(i).is_some_and(|p| {
-                p.type_ann.as_deref().is_some_and(|a| {
-                    a.trim() == "any"
-                        || (is_fn_like_ann(a) && a.contains("__rest("))
-                        // Generic-param axis: a param annotated
-                        // with one of the callee's own TypeVars
-                        // (`sameValue<T>(actual: T, expected: T)`)
-                        // instantiates at Any for a fn-name
-                        // argument — the boxed argv slot can't
-                        // take a raw FnSig, and the canonical
-                        // `__forward_*` cell keeps `===` faces
-                        // agreeing across wrap sites.
-                        || type_params.is_some_and(|tps| tps.iter().any(|tp| tp == a.trim()))
-                })
+                match p.type_ann.as_deref() {
+                    // Untyped param — `desugar_implicit_generics`
+                    // (which runs AFTER this pass) turns it into a
+                    // fresh TypeVar, and a fn value crossing a bare
+                    // TypeVar instantiates at Any (`unify_typevar`'s
+                    // Function→Any rule), so the slot is any-boxed
+                    // and can't take a raw FnSig.
+                    None => true,
+                    Some(a) => {
+                        a.trim() == "any"
+                            || (is_fn_like_ann(a) && a.contains("__rest("))
+                            // Generic-param axis: a param annotated
+                            // with one of the callee's own TypeVars
+                            // (`sameValue<T>(actual: T, expected: T)`)
+                            // instantiates at Any for a fn-name
+                            // argument — the boxed argv slot can't
+                            // take a raw FnSig, and the canonical
+                            // `__forward_*` cell keeps `===` faces
+                            // agreeing across wrap sites.
+                            || type_params.is_some_and(|tps| tps.iter().any(|tp| tp == a.trim()))
+                    }
+                }
             }) {
                 self.try_mark(*arg);
             }

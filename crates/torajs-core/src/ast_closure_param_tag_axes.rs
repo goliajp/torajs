@@ -116,6 +116,7 @@ pub(crate) fn backward_param_marks(
 /// extraction from [`crate::ast_closure_param_tag::tag_closure_arg_params`]'s
 /// tail.)
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn wrap_named_fn_values(
     ast: &mut Ast,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
@@ -124,9 +125,13 @@ pub(crate) fn wrap_named_fn_values(
     marked: &HashSet<(String, usize)>,
     ret_marked: &HashSet<String>,
     closure_idents: &HashSet<String>,
+    alias_init_sites: &[(ExprId, String)],
     existing_forwarders: &mut HashSet<String>,
 ) {
-    let mut wrap_sites: Vec<(ExprId, String)> = Vec::new();
+    // Alias-let inits elected by the main pass's fixpoint (`let
+    // alias = h; f(alias)` into a marked slot) — wrap the INIT so
+    // the binding's slot re-reprs Closure.
+    let mut wrap_sites: Vec<(ExprId, String)> = alias_init_sites.to_vec();
     for e in &ast.exprs {
         let Expr::Call { callee, args } = e else {
             continue;

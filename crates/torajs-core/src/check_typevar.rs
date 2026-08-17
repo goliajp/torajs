@@ -15,6 +15,26 @@ pub(crate) fn unify_typevar(
 ) -> Result<(), String> {
     match (pattern, actual) {
         (Type::TypeVar(name), concrete) => {
+            // A fn VALUE crossing a bare-TypeVar boundary instantiates
+            // at Any, never at its Function type. The checker's
+            // `Type::Function` is repr-blind, but the SSA layer splits
+            // fn values in two: a bare fn name is a raw `FnSig` code
+            // pointer while a struct-field / fn-typed-slot load is a
+            // `Closure` cell — and both reach the same generic. A
+            // `Function`-instantiated clone would pick ONE ABI
+            // (`__fn(...)` = raw CallIndirect) and jump through a
+            // closure cell's header bytes when the other repr arrives
+            // (SIGBUS — the `{ f: top_fn }` → `check(o.f)` shape).
+            // Boxed-any dispatch handles both reprs at runtime; the
+            // fn-name wrap axis (`mark_known_callee_args`) turns the
+            // raw-FnSig arguments into boxable closure cells.
+            // Fn-typed PATTERNS (`f: (t: T) => U`) don't route here —
+            // they decompose structurally below and keep their reprs.
+            let concrete = if matches!(concrete, Type::Function(..)) {
+                &Type::Any
+            } else {
+                concrete
+            };
             if let Some(existing) = subst.get(name) {
                 // `any` absorbs in inference, in BOTH directions (TS
                 // semantics): an Any binding is compatible with every
