@@ -131,6 +131,37 @@ pub(super) fn snapshot_fn_sigs(
     (fn_sigs, existing_forwarders, fn_type_params)
 }
 
+/// The TypeDecl snapshots the ObjectLit-field store-site check
+/// resolves `const o: T = { k: name }` against: (struct_name →
+/// field_name → field_ann) plus the chunk-795 generic TypeDecl
+/// halves for `Box<() => number>` instantiation resolution.
+#[allow(clippy::type_complexity)]
+fn snapshot_type_field_anns(
+    ast: &Ast,
+) -> (
+    std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    std::collections::HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+) {
+    let mut struct_field_anns = std::collections::HashMap::new();
+    let mut generic_field_anns = std::collections::HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = s
+        {
+            let map: std::collections::HashMap<String, String> =
+                fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            struct_field_anns.insert(name.clone(), map);
+            if !type_params.is_empty() {
+                generic_field_anns.insert(name.clone(), (type_params.clone(), fields.clone()));
+            }
+        }
+    }
+    (struct_field_anns, generic_field_anns)
+}
+
 pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     use std::collections::{HashMap, HashSet};
 
@@ -148,30 +179,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         super::forwarders_object_mismatch::collect_fnsig_mismatch_bindings(ast, &fn_sigs);
     ast.fnsig_mismatch_bindings.extend(mismatch);
 
-    // Collect (struct_name, field_name → field_ann) for type-aliased
-    // struct shapes — used by the ObjectLit-field store-site check to
-    // resolve `const o: T = { k: name }` against `T`'s declared field
-    // types.
-    let mut struct_field_anns: HashMap<String, HashMap<String, String>> = HashMap::new();
-    // Chunk 795 — generic TypeDecl snapshots for the wrap axes'
-    // `Box<() => number>` instantiation resolution.
-    let mut generic_field_anns: HashMap<String, (Vec<String>, Vec<(String, String)>)> =
-        HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } = s
-        {
-            let map: HashMap<String, String> =
-                fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            struct_field_anns.insert(name.clone(), map);
-            if !type_params.is_empty() {
-                generic_field_anns.insert(name.clone(), (type_params.clone(), fields.clone()));
-            }
-        }
-    }
+    let (struct_field_anns, generic_field_anns) = snapshot_type_field_anns(ast);
 
     // RFC 20260806 — which builtin methods this module might patch.
     // A patched one stands down to the any-lane, so a fn-name
