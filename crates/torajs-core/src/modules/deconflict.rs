@@ -68,12 +68,14 @@ pub(super) fn deconflict_lib_section(
     mangle_seq: &mut usize,
     hidden_inject: &mut HashSet<String>,
     delta: &class_rename::LibTableDelta,
-) -> Result<HashMap<String, String>, String> {
+    visibles: &HashMap<&str, Vec<&str>>,
+) -> Result<(HashMap<String, String>, Vec<(String, String)>), String> {
     // orig → mangled (drives the arena rewrite) and mangled → FIELD
     // spelling (what the namespace accumulator shows the importer —
     // the export FACE for a bare export, the decl name otherwise).
     let mut mangles: HashMap<String, String> = HashMap::new();
     let mut demangle: HashMap<String, String> = HashMap::new();
+    let mut requested_renames: Vec<(String, String)> = Vec::new();
     for i in 0..lib_section.len() {
         let Some(name) = top_value_decl_name(&lib_section[i]) else {
             continue;
@@ -107,6 +109,24 @@ pub(super) fn deconflict_lib_section(
                     "import name `{surface}` collides with a same-named export of another \
                      module; import it through a namespace (`import * as ns`) instead"
                 ));
+            }
+            if is_class
+                && bare_face.is_none()
+                && class_rename::try_alias_rename(
+                    ast,
+                    lib_section,
+                    lib_expr_offset,
+                    i,
+                    &name,
+                    visibles,
+                    delta,
+                    hidden,
+                    hidden_inject,
+                    &mut mangles,
+                    &mut requested_renames,
+                )
+            {
+                continue;
             }
             hoist_face_rename(
                 ast,
@@ -200,7 +220,7 @@ pub(super) fn deconflict_lib_section(
         mangles.insert(name, mangled);
     }
     if mangles.is_empty() {
-        return Ok(HashMap::new());
+        return Ok((HashMap::new(), requested_renames));
     }
     // Reference rewrite — every lib expression lives in the appended
     // arena slice; a bare Ident there referencing a mangled top-level
@@ -223,7 +243,7 @@ pub(super) fn deconflict_lib_section(
             _ => {}
         }
     }
-    Ok(demangle)
+    Ok((demangle, requested_renames))
 }
 
 /// 427-01 — the P13-S4b face rename (`const a = …; export { a as b }`
@@ -280,49 +300,6 @@ fn hoist_face_rename(
     mangles.insert(name.to_string(), face.clone());
 }
 
-/// The FnDecl / LetDecl / ClassDecl name a top-level lib statement
-/// declares (through the `export` wrapper). Type decls answer None.
-/// Knife D admits ClassDecl: the census renames a class through
-/// `class_rename::rename_class_artifacts`, which moves every baked
-/// artifact with the decl name.
-pub(super) fn top_value_decl_name(s: &Stmt) -> Option<String> {
-    match s {
-        Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } => top_value_decl_name(inner),
-        Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } | Stmt::ClassDecl { name, .. } => {
-            Some(name.clone())
-        }
-        _ => None,
-    }
-}
-
-pub(super) fn is_class_decl(s: &Stmt) -> bool {
-    match s {
-        Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } => is_class_decl(inner),
-        Stmt::ClassDecl { .. } => true,
-        _ => false,
-    }
-}
-
-/// Point the declaration at its mangled name (through the `export`
-/// wrapper). For a ClassDecl this is only the NAME FIELD — the
-/// caller must follow with `rename_class_artifacts`, which owns the
-/// baked-artifact move (never rename a class through this alone).
-fn rename_top_decl(s: &mut Stmt, mangled: &str) {
-    match s {
-        Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } => rename_top_decl(inner, mangled),
-        Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } | Stmt::ClassDecl { name, .. } => {
-            *name = mangled.to_string()
-        }
-        _ => {}
-    }
-}
-
 /// Does any OTHER statement of the lib — or any arrow value in the
 /// lib's arena slice — rebind `name`? The blind arena rewrite is only
 /// sound when nothing shadows the top-level binding; a rebinding
@@ -373,6 +350,8 @@ fn copy_fn_name_tables(ast: &mut Ast, old: &str, new: &str) {
     }
 }
 
+mod decl_shape;
+pub(super) use decl_shape::{is_class_decl, rename_top_decl, top_value_decl_name};
 mod seed;
 pub(super) use seed::{SeedNames, extend_seen_with_lib, seed_seen_names};
 mod class_rename;
@@ -413,7 +392,7 @@ pub(super) fn prep_lib_request<'a>(
     ),
     String,
 > {
-    let want: HashSet<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
+    let mut want: HashSet<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
     // orig → every importer-visible spelling, in clause order
     // (421-04: `import { fa, fa as renamed }` binds BOTH names —
     // a single-alias map collapsed them to the last one).
@@ -437,7 +416,7 @@ pub(super) fn prep_lib_request<'a>(
     // importer-requested spelling lands importer-visible on purpose.
     let requested: HashSet<&str> = want.iter().copied().collect();
     let mut hidden_inject: HashSet<String> = HashSet::new();
-    let demangle = deconflict_lib_section(
+    let (demangle, requested_renames) = deconflict_lib_section(
         ast,
         lib_section,
         lib_expr_offset,
@@ -451,7 +430,23 @@ pub(super) fn prep_lib_request<'a>(
         mangle_seq,
         &mut hidden_inject,
         delta,
+        &rename,
     )?;
+    // 427-02 — a single-aliased class was renamed IN the census, so
+    // the walk must recognize the decl under its alias: re-point the
+    // want / visibles faces at the alias spelling (borrowed from the
+    // same `named` clause the maps were built from).
+    for (orig, alias) in &requested_renames {
+        want.remove(orig.as_str());
+        rename.remove(orig.as_str());
+        if let Some((_, Some(a))) = named
+            .iter()
+            .find(|(o, a)| o == orig && a.as_deref() == Some(alias.as_str()))
+        {
+            want.insert(a.as_str());
+            rename.insert(a.as_str(), vec![a.as_str()]);
+        }
+    }
     extend_seen_with_lib(lib_section, &bare_exports, seed);
     Ok((
         want,

@@ -68,6 +68,60 @@ pub(in crate::modules) fn type_param_shadows(lib_section: &[Stmt], name: &str) -
     lib_section.iter().any(|s| in_stmt(s, name))
 }
 
+/// 427-02 — a single-aliased CLASS request renames in the census
+/// instead of at walk time: the walk's rename-in-place only followed
+/// fn self-references, leaving every baked class artifact on the old
+/// spelling. The census rename moves them all; `prep_lib_request`
+/// re-points want/visibles at the alias so the walk injects the
+/// already-renamed decl verbatim. Declines (keeping the shallow walk
+/// rename) on any shadow, like every other census rename. Answers
+/// whether the rename happened.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_alias_rename(
+    ast: &mut Ast,
+    lib_section: &mut [Stmt],
+    lib_expr_offset: usize,
+    i: usize,
+    name: &str,
+    visibles: &std::collections::HashMap<&str, Vec<&str>>,
+    delta: &LibTableDelta,
+    hidden: &HashSet<String>,
+    hidden_inject: &mut HashSet<String>,
+    mangles: &mut std::collections::HashMap<String, String>,
+    requested_renames: &mut Vec<(String, String)>,
+) -> bool {
+    let Some(vs) = visibles.get(name) else {
+        return false;
+    };
+    let [alias] = vs.as_slice() else {
+        return false;
+    };
+    if *alias == name
+        || super::rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, name)
+        || super::rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, alias)
+        || type_param_shadows(lib_section, name)
+    {
+        return false;
+    }
+    let alias = alias.to_string();
+    super::rename_top_decl(&mut lib_section[i], &alias);
+    super::copy_fn_name_tables(ast, name, &alias);
+    rename_class_artifacts(
+        ast,
+        lib_section,
+        lib_expr_offset,
+        i,
+        name,
+        &alias,
+        delta,
+        hidden,
+        hidden_inject,
+    );
+    mangles.insert(name.to_string(), alias.clone());
+    requested_renames.push((name.to_string(), alias));
+    true
+}
+
 /// The whole knife-D move for one renamed class: called by the
 /// census right after `rename_top_decl` pointed `lib_section[decl_idx]`
 /// (an already-renamed ClassDecl) at `new`. `old` is the spelling
