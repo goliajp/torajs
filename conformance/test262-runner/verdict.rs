@@ -194,9 +194,18 @@ pub fn judge_negative(phase: &str, expected_type: &str, out: &std::process::Outp
                 msg: first_line,
             },
         },
-        // Module resolution phase — tr's module surface is narrow;
-        // any reject lands here until the module trunk widens.
+        // Module resolution phase. Only the resolver's own
+        // ResolveExport verdict counts as a pass — the marker is the
+        // `module resolution failure` message `static_resolution.rs`
+        // composes under the CLI's `import error:` prefix. Every
+        // other reject (path not found, unsupported surface, a
+        // checker error the case tripped for the wrong reason) stays
+        // incompatible: crediting them would be metric inflation —
+        // the reject exists but not via the semantics under test.
         _ => match compile_kind {
+            Some("import error") if first_line.contains("module resolution failure") => {
+                Outcome::PassNegative
+            }
             Some(_) | None => Outcome::Incompatible {
                 kind: "negative-unsupported".to_string(),
                 msg: format!("phase {phase}: {first_line}"),

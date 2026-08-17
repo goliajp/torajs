@@ -11,9 +11,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use super::inject_export::Landings;
+use super::resolve_helpers::queue_nested_import;
 use super::{
-    NsAccum, WorkItem, decl_name, inject_bare_exported_decl, inject_export_inner,
-    queue_nested_import, queue_reexport, queue_star_reexport,
+    NsAccum, WorkItem, decl_name, inject_bare_exported_decl, inject_export_inner, queue_reexport,
+    queue_star_reexport,
 };
 
 /// Everything the walk needs about the request that reached this lib:

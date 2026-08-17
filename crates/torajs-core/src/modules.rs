@@ -104,45 +104,8 @@ type WorkItem = (
     bool,
 );
 
-/// The modules the ENTRY file requests, in clause order, onto the
-/// worklist. Its own `import`s plus the target of any `export *`: a
-/// star re-export in the entry binds nothing anyone can see — nothing
-/// imports the entry — but §16.2.1.5 still evaluates the module it
-/// names, so it loads for its side effects.
-fn seed_entry_requests(
-    ast: &Ast,
-    base_dir: &Path,
-    work: &mut VecDeque<WorkItem>,
-) -> Result<(), String> {
-    for s in &ast.stmts {
-        match s {
-            Stmt::ImportDecl {
-                source,
-                named,
-                default,
-                namespace,
-            } => {
-                queue_nested_import(
-                    work,
-                    base_dir,
-                    source,
-                    named.clone(),
-                    default.clone(),
-                    namespace.clone(),
-                )?;
-            }
-            Stmt::ExportDecl {
-                star: Some(_),
-                source: Some(star_source),
-                ..
-            } => {
-                queue_nested_import(work, base_dir, star_source, Vec::new(), None, None)?;
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
+// Entry-request seeding + post-BFS static-resolution judgment — see
+// `static_resolution.rs`.
 
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
@@ -186,7 +149,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     let mut hidden_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
     let mut mangle_seq: usize = 0;
 
-    seed_entry_requests(ast, base_dir, &mut work)?;
+    let static_requests = static_resolution::seed_entry_requests(ast, base_dir, &mut work)?;
     // §13.3.10 dynamic import — candidates queue before `graph.roots`
     // records so their injections ride the dependency-order splice.
     let dyn_table = dyn_import::seed_candidates(ast, base_dir, &mut work);
@@ -336,6 +299,16 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         );
     }
 
+    // §16.2.1.6.2/.3 — the entry's static requests must all have
+    // resolved (see `static_resolution.rs`); the dyn-import lane
+    // keeps its own per-candidate promise-reject poisoning.
+    static_resolution::check(
+        &static_requests,
+        &injections_by_path,
+        &ns_accums,
+        &ambiguous_locals,
+    )?;
+
     splice::assemble_and_splice(
         ast,
         &graph,
@@ -404,10 +377,11 @@ mod lib_walk;
 mod repeat_request;
 mod resolve_helpers;
 mod splice;
+mod static_resolution;
 use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
-use resolve_helpers::{NsAccum, queue_nested_import, queue_reexport, queue_star_reexport};
+use resolve_helpers::{NsAccum, queue_reexport, queue_star_reexport};
 
 fn check_k2_form(
     _source: &str,

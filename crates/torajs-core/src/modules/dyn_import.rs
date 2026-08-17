@@ -339,7 +339,7 @@ fn reex_backed(acc: &NsAccum) -> bool {
         .any(|(_, local)| local.starts_with("__reex_"))
 }
 
-fn collect_decl_names(stmts: &[Stmt], out: &mut HashSet<String>) {
+pub(super) fn collect_decl_names(stmts: &[Stmt], out: &mut HashSet<String>) {
     for s in stmts {
         match s {
             Stmt::Multi(inner) => collect_decl_names(inner, out),
