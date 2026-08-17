@@ -45,10 +45,40 @@ pub(super) fn sweep(ast: &mut Ast, entry_expr_len: usize) {
     for s in &ast.stmts {
         mark_stmt(ast, s, &mut live);
     }
+    mark_side_table_roots(ast, &mut live);
     for (i, alive) in live.iter().enumerate().skip(entry_expr_len) {
         if !alive {
             ast.tombstone_expr(ExprId(i as u32));
         }
+    }
+}
+
+/// The parser records some expressions ONLY in a side table — the
+/// statement tree never points at them, yet a live consumer reads
+/// them by name or by owner id later. A computed member key
+/// (`class C { [kk]() {} }` → `class_computed_keys`) is the proven
+/// case: the gate caught mod-class-rename-002 losing a live class's
+/// key when the first sweep treated tree-reachability as the whole
+/// truth. Every VALUE-side ExprId table is a mark root; key-side
+/// tables (`gen_fn_exprs` / `dstr_default_names` / …) need nothing —
+/// a dead key simply never gets looked up. Cost of the conservatism:
+/// a dead copy's own side-table entries stay untombstoned, which is
+/// the harmless "stray gets rewritten, never materialized" class.
+fn mark_side_table_roots(ast: &Ast, live: &mut [bool]) {
+    for (_, v) in &ast.speculative_cm_rewrites {
+        mark_expr(ast, *v, live);
+    }
+    for (_, v) in &ast.cm_this_static_calls {
+        mark_expr(ast, *v, live);
+    }
+    for (_, v) in &ast.objlit_computed_keys {
+        mark_expr(ast, *v, live);
+    }
+    for (_, v) in &ast.class_computed_keys {
+        mark_expr(ast, *v, live);
+    }
+    for (_, _, v) in &ast.class_computed_static_fields {
+        mark_expr(ast, *v, live);
     }
 }
 
