@@ -214,6 +214,13 @@ pub fn synthesize_sig_thunks(ast: &mut Ast) {
             }
         }
     }
+    // Phase A' — fn-typed LET slots (423-03 ④: `const slot: () =>
+    // void = gb` — the checker's let-position admit mirrors the
+    // call-face one, so the lowering must reabstract the same way;
+    // an un-thunked init stores the bare address and the slot's
+    // narrower call_indirect reads garbage). The recursive spine
+    // reaches body-local lets.
+    collect_let_sites(ast, &ast.stmts, &faces, &mut sites);
     if sites.is_empty() {
         return;
     }
@@ -234,6 +241,35 @@ pub fn synthesize_sig_thunks(ast: &mut Ast) {
             }
         };
         ast.exprs[aid.0 as usize] = Expr::Ident(thunk_name);
+    }
+}
+
+/// The Phase A' walk: every fn-type-annotated `LetDecl` whose init
+/// is an admitted mismatched head-less FnDecl Ident, at any nesting
+/// depth (the `collect_decls_by_name` recursion shape over the
+/// shared nested-statement spine).
+fn collect_let_sites(
+    ast: &Ast,
+    stmts: &[Stmt],
+    faces: &HashMap<String, FnFace>,
+    out: &mut Vec<(ExprId, String, Vec<String>, String)>,
+) {
+    for s in stmts {
+        if let Stmt::LetDecl {
+            type_ann: Some(ann),
+            init,
+            ..
+        } = s
+            && let Expr::Ident(gname) = ast.get_expr(*init)
+            && let Some(target) = faces.get(gname)
+            && let Some((formal_ps, formal_ret)) = formal_face(Some(ann))
+            && thunk_plan(target, &formal_ps, &formal_ret)
+        {
+            out.push((*init, gname.clone(), formal_ps, formal_ret));
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_let_sites(ast, inner, faces, out)
+        });
     }
 }
 
