@@ -10,6 +10,7 @@ use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
+use super::inject_export::Landings;
 use super::{
     NsAccum, WorkItem, decl_name, inject_bare_exported_decl, inject_export_inner,
     queue_nested_import, queue_reexport, queue_star_reexport,
@@ -43,6 +44,8 @@ pub(super) struct LibRequest<'a> {
     /// name on a no-collision decline); they inject as plain
     /// top-level decls, never importer-visible.
     pub(super) hidden: &'a HashSet<String>,
+    /// §16.2.1.6.3 ambiguity ledger — see [`Landings`].
+    pub(super) landings: Landings<'a>,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -170,6 +173,7 @@ pub(super) fn walk_lib_stmt(
                 req.injected,
                 req.demangle,
                 req.hidden,
+                &mut req.landings,
             );
         }
         Stmt::ExportDecl {
@@ -224,6 +228,7 @@ pub(super) fn walk_lib_stmt(
                 req.injected,
                 req.demangle,
                 req.hidden,
+                &mut req.landings,
             );
         }
     }

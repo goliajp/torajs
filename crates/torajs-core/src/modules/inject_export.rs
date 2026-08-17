@@ -8,9 +8,68 @@
 
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use super::resolve_helpers::NsAccum;
-use super::{decl_name, rename_decl};
+
+/// Where each importer-visible spelling's declaration landed — the
+/// §16.2.1.6.3 ambiguity detector's ground truth. Two `export * from`
+/// clauses forwarding the same requested name from DIFFERENT modules
+/// each inject a decl under the same alias (per-path ledgers don't
+/// dedupe across paths), which is exactly ResolveExport's "ambiguous"
+/// verdict; a transitive diamond converges on ONE final module whose
+/// per-path ledger absorbs the second request, so it never lands
+/// twice and never false-positives here. Consumers: the dyn-import
+/// dispatcher poisons candidates whose namespace touches an
+/// ambiguous spelling (§16.2.1.5 promise-reject).
+pub(super) struct Landings<'a> {
+    /// The module path this walk is injecting from.
+    pub(super) path: &'a Path,
+    /// alias → the first path that landed a decl under it.
+    pub(super) first: &'a mut HashMap<String, PathBuf>,
+    /// aliases a second, different path landed again.
+    pub(super) ambiguous: &'a mut HashSet<String>,
+}
+
+impl Landings<'_> {
+    fn record(&mut self, alias: &str) {
+        match self.first.get(alias) {
+            Some(p) if p != self.path => {
+                self.ambiguous.insert(alias.to_string());
+            }
+            Some(_) => {}
+            None => {
+                self.first
+                    .insert(alias.to_string(), self.path.to_path_buf());
+            }
+        }
+    }
+}
+
+/// The name a top-level statement declares, if any — the resolver's
+/// decl-identity face (moved from `modules.rs` when its file budget
+/// ran out; this file is the main consumer).
+pub(super) fn decl_name(s: &Stmt) -> Option<String> {
+    match s {
+        Stmt::FnDecl { name, .. }
+        | Stmt::LetDecl { name, .. }
+        | Stmt::TypeDecl { name, .. }
+        | Stmt::ClassDecl { name, .. } => Some(name.clone()),
+        _ => None,
+    }
+}
+
+/// Point a declaration at a new name (references are the walkers'
+/// business).
+pub(super) fn rename_decl(s: &mut Stmt, new_name: String) {
+    match s {
+        Stmt::FnDecl { name, .. }
+        | Stmt::LetDecl { name, .. }
+        | Stmt::TypeDecl { name, .. }
+        | Stmt::ClassDecl { name, .. } => *name = new_name,
+        _ => {}
+    }
+}
 
 /// `export <decl>` (inner Some) injection — type decls always inject;
 /// namespace imports inject every value decl under its original name
@@ -29,6 +88,7 @@ pub(super) fn inject_export_inner(
     injected: &mut HashSet<String>,
     demangle: &HashMap<String, String>,
     hidden: &HashSet<String>,
+    landings: &mut Landings<'_>,
 ) {
     // Type decls always inject — TS doesn't require type
     // names in the value-import list, and downstream
@@ -88,6 +148,9 @@ pub(super) fn inject_export_inner(
         // that preserves them should own the original body. With no
         // plain spelling the first alias takes it (rename in place —
         // today's single-alias behavior).
+        for v in visibles {
+            landings.record(v);
+        }
         let first = visibles
             .iter()
             .find(|v| **v == name)
@@ -166,6 +229,7 @@ pub(super) fn inject_bare_exported_decl(
     injected: &mut HashSet<String>,
     demangle: &HashMap<String, String>,
     hidden: &HashSet<String>,
+    landings: &mut Landings<'_>,
 ) {
     if let Some(dname) = decl_name(&other)
         && let Some(exported) = bare_exports.get(&dname)
@@ -179,7 +243,7 @@ pub(super) fn inject_bare_exported_decl(
             rename_decl(&mut inner, exported.clone());
         }
         inject_export_inner(
-            ast, injections, inner, want, rename, ns, injected, demangle, hidden,
+            ast, injections, inner, want, rename, ns, injected, demangle, hidden, landings,
         );
         return;
     }

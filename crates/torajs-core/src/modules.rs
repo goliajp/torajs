@@ -213,6 +213,9 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // keeps discovery order for [`materialize_pending_namespaces`].
     let mut ns_accums: HashMap<String, NsAccum> = HashMap::new();
     let mut ns_order: Vec<String> = Vec::new();
+    // §16.2.1.6.3 ambiguity ledger — see `inject_export::Landings`.
+    let mut landing_first: HashMap<String, PathBuf> = HashMap::new();
+    let mut ambiguous_locals: HashSet<String> = HashSet::new();
     // The alias a path's default export materialized under. A module's
     // default is ONE export but nothing stops several requests wanting
     // it under different names (`export { default as X } from "m"`
@@ -306,6 +309,11 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             injected: injected_names.entry(target_path.clone()).or_default(),
             demangle: &demangle,
             hidden: &hidden,
+            landings: inject_export::Landings {
+                path: &target_path,
+                first: &mut landing_first,
+                ambiguous: &mut ambiguous_locals,
+            },
         };
 
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
@@ -339,7 +347,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         // 426-01 — a candidate whose `__reex_` namespace binding
         // never materialized (circular / missing indirect export)
         // gets a SyntaxError-reject entry instead of a namespace.
-        let poisoned = dyn_import::poisoned_candidates(&dyn_table, &ns_accums, &injections);
+        let poisoned =
+            dyn_import::poisoned_candidates(&dyn_table, &ns_accums, &injections, &ambiguous_locals);
         injections.push(dyn_import::synth_dispatcher(ast, &dyn_table, &poisoned));
     }
     // The synthetic `let ns = { … }` bindings only reference decls, so
@@ -414,7 +423,7 @@ mod repeat_request;
 mod resolve_helpers;
 mod splice;
 use graph::ModuleGraph;
-use inject_export::{inject_bare_exported_decl, inject_export_inner};
+use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
 use resolve_helpers::{
     NsAccum, inline_dyn_ns_objlits, materialize_pending_namespaces, queue_nested_import,
@@ -473,24 +482,4 @@ fn resolve_path(base_dir: &Path, source: &str) -> Result<PathBuf, String> {
     final_path
         .canonicalize()
         .map_err(|e| format!("canonicalize {}: {e}", final_path.display()))
-}
-
-fn decl_name(s: &Stmt) -> Option<String> {
-    match s {
-        Stmt::FnDecl { name, .. }
-        | Stmt::LetDecl { name, .. }
-        | Stmt::TypeDecl { name, .. }
-        | Stmt::ClassDecl { name, .. } => Some(name.clone()),
-        _ => None,
-    }
-}
-
-fn rename_decl(s: &mut Stmt, new_name: String) {
-    match s {
-        Stmt::FnDecl { name, .. }
-        | Stmt::LetDecl { name, .. }
-        | Stmt::TypeDecl { name, .. }
-        | Stmt::ClassDecl { name, .. } => *name = new_name,
-        _ => {}
-    }
 }

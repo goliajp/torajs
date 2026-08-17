@@ -301,26 +301,32 @@ fn speculative_probe(path: &Path) -> Option<Ast> {
 /// these entries (riding its own reject-on-abrupt catch) and never
 /// references the namespace, so the dangling binding keeps no use
 /// site and the checker stays quiet.
+/// A candidate is also poisoned when any of its namespace bindings is
+/// AMBIGUOUS — two `export * from` clauses landed the same requested
+/// spelling from different modules (§16.2.1.6.3 "ambiguous", the
+/// t262 instn-iee-err-ambiguous-import family): same ResolveExport
+/// verdict, same SyntaxError reject.
 pub(super) fn poisoned_candidates(
     table: &[(String, String)],
     ns_accums: &HashMap<String, NsAccum>,
     injections: &[Stmt],
+    ambiguous_locals: &HashSet<String>,
 ) -> HashSet<String> {
     let needs_scan = table
         .iter()
         .any(|(_, ns)| ns_accums.get(ns).is_some_and(reex_backed));
-    if !needs_scan {
-        return HashSet::new();
-    }
     let mut declared: HashSet<String> = HashSet::new();
-    collect_decl_names(injections, &mut declared);
+    if needs_scan {
+        collect_decl_names(injections, &mut declared);
+    }
     table
         .iter()
         .filter(|(_, ns)| {
             ns_accums.get(ns.as_str()).is_some_and(|acc| {
-                acc.fields()
-                    .iter()
-                    .any(|(_, local)| local.starts_with("__reex_") && !declared.contains(local))
+                acc.fields().iter().any(|(_, local)| {
+                    ambiguous_locals.contains(local)
+                        || (local.starts_with("__reex_") && !declared.contains(local))
+                })
             })
         })
         .map(|(_, ns)| ns.clone())
@@ -382,7 +388,7 @@ pub(super) fn synth_dispatcher(
             // if (__s === "<lit>") throw new SyntaxError(...) — the
             // catch below turns it into the §16.2.1.5 promise reject.
             let msg = ast.add_expr(Expr::String(format!(
-                "indirect exports of module '{lit}' do not resolve (circular or missing)"
+                "indirect exports of module '{lit}' do not resolve (circular, missing, or ambiguous)"
             )));
             let err = ast.add_expr(Expr::New {
                 class_name: "SyntaxError".to_string(),
