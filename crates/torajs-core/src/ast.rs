@@ -109,6 +109,7 @@ mod fnexpr_this_shapes;
 mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;
+mod forwarders_object_mismatch;
 mod forwarders_object_synth;
 mod free_vars;
 mod free_vars_globals;

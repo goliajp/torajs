@@ -217,6 +217,16 @@ pub struct Ast {
     /// lane reads this set for the promoted flavor of the same
     /// boxed-dual-entry dispatch.
     pub variadic_value_bindings: std::collections::HashSet<String>,
+    /// 424-04 — MUTABLE fn-typed binding names where some store site
+    /// (init or assign rhs) is a top-level FnDecl whose face is NOT
+    /// sig-exact against the declared annotation (the S2 excess-Any
+    /// admit shapes). The bare closure-call lane fires a
+    /// `call_indirect` shaped by the ANNOTATION, so a callee
+    /// declaring more params reads registers the caller never filled
+    /// — these bindings dispatch through the boxed dual entry
+    /// instead (argc + undefined-filled argv + per-face adapter
+    /// unbox, the same lane a rest-typed binding rides).
+    pub fnsig_mismatch_bindings: std::collections::HashSet<String>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

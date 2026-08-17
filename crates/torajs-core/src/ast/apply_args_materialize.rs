@@ -73,6 +73,8 @@
 
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
+mod nested;
+
 /// Whether the default is safe to evaluate inside the callee body —
 /// a recursive WHITELIST over expression shapes. A function literal
 /// converts when its free vars are all PRIOR PARAMS of the owning fn
@@ -414,15 +416,8 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         let Stmt::FnDecl { params, .. } = s else {
             continue;
         };
-        for (pi, p) in params.iter().enumerate() {
-            let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
-            if let Some(d) = converting_default(ast, p, &global_fns, &prior) {
-                sites.push((si, pi, p.name.clone(), Conv::Any(d)));
-            } else if let Some((d, ann)) = converting_typed_default(ast, p, &global_fns, &prior)
-                && refs_prior_param(ast, params, pi, d, &global_fns)
-            {
-                sites.push((si, pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
-            }
+        for (pi, name, kind) in collect_fn_conv(ast, params, &global_fns) {
+            sites.push((si, pi, name, kind));
         }
     }
     let mut arrow_sites: Vec<(usize, usize, String, Conv)> = Vec::new();
@@ -473,4 +468,29 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         patch_params(params, pads);
         splice_guards(body, guards);
     }
+    // Phase C (424-04) — nested `function` declarations, in the
+    // child module (see its doc for why the spine walk exists).
+    nested::materialize_nested(ast, &global_fns);
+}
+
+/// One fn's conversion plan (module doc "Guarded faces" — the FnDecl
+/// gates), shared by the top-level scan and the nested Phase C.
+/// Entries come out in param order.
+fn collect_fn_conv(
+    ast: &Ast,
+    params: &[super::Param],
+    global_fns: &[String],
+) -> Vec<(usize, String, Conv)> {
+    let mut conv: Vec<(usize, String, Conv)> = Vec::new();
+    for (pi, p) in params.iter().enumerate() {
+        let prior: Vec<String> = params[..pi].iter().map(|q| q.name.clone()).collect();
+        if let Some(d) = converting_default(ast, p, global_fns, &prior) {
+            conv.push((pi, p.name.clone(), Conv::Any(d)));
+        } else if let Some((d, ann)) = converting_typed_default(ast, p, global_fns, &prior)
+            && refs_prior_param(ast, params, pi, d, global_fns)
+        {
+            conv.push((pi, p.name.clone(), Conv::TypedNarrow(d, ann)));
+        }
+    }
+    conv
 }

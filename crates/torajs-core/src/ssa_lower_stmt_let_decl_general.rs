@@ -228,6 +228,13 @@ pub(crate) fn record_binding_flags(
             Some(crate::check::Type::Function(ps, _))
                 if matches!(ps.last(), Some(crate::check::Type::Rest(_)))
         )
+        // 424-04 — a mutable fn-typed binding some store site proved
+        // face-mismatched against the annotation routes the same way:
+        // the bare indirect call is shaped by the annotation, so a
+        // stored callee declaring more params would read unfilled
+        // registers; the boxed dual entry's argc + undefined-filled
+        // argv restores §10.2.1.4 for every stored face.
+        || ctx.ast.fnsig_mismatch_bindings.contains(name)
     {
         ctx.variadic_locals.insert(name.to_string());
     }

@@ -112,20 +112,29 @@ pub(crate) fn check(
     // assignable surface.
     let target_ty = checker.assign_declared_ty(&name, &info.ty);
     let value_ty = checker.type_of(ast, value)?;
-    // NOTE (423-03 ④): the fn-face `fn_slot_admits` widening the LET
-    // position takes is deliberately NOT applied here yet. The assign
-    // lane's value rides the forwarder/closure wrap (probed: the AST
-    // face is right), but the wrapped call still reads a garbage
-    // param — widening the admit before that lane is fixed would
-    // trade today's loud reject for a silent wrong value. Recorded
-    // as the 424-04 residual.
-    if !is_assignable_to_resolved(
+    // 424-04 — the fn-face admit the LET position takes (423-03 ④)
+    // now applies to the assign position too: a mutable fn-typed
+    // binding is a closure_bindings member (the forwarder pass wraps
+    // its store sites into closure cells), and the mismatch census
+    // (`ast/forwarders_object_mismatch.rs`) routes a face-mismatched
+    // binding's calls through the boxed dual entry, whose argc +
+    // undefined-filled argv deliver §10.2.1.4 for every stored face.
+    let fn_slot_widened = crate::check_assignable::fn_slot_admits(
         &target_ty,
         &value_ty,
         &checker.class_structs,
         &checker.aliases,
         &checker.generic_alias_decls,
-    ) {
+    );
+    if !fn_slot_widened
+        && !is_assignable_to_resolved(
+            &target_ty,
+            &value_ty,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        )
+    {
         return Err(format!(
             "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
         ));

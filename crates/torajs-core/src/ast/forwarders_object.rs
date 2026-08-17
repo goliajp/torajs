@@ -139,6 +139,15 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         return;
     }
 
+    // 424-04 — census the mutable fn-typed bindings whose store
+    // faces mismatch their annotation BEFORE the rewrites below turn
+    // those store rhs Idents into Expr::Closure (the census keys off
+    // the bare Ident). The lowering routes the marked bindings
+    // through the boxed dual entry (module doc in the sibling).
+    let mismatch =
+        super::forwarders_object_mismatch::collect_fnsig_mismatch_bindings(ast, &fn_sigs);
+    ast.fnsig_mismatch_bindings.extend(mismatch);
+
     // Collect (struct_name, field_name → field_ann) for type-aliased
     // struct shapes — used by the ObjectLit-field store-site check to
     // resolve `const o: T = { k: name }` against `T`'s declared field
