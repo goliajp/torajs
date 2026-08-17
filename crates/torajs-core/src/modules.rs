@@ -251,7 +251,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             continue;
         };
 
-        let (mut lib_section, lib_expr_offset, target_dir) = load_lib_section(
+        let (mut lib_section, lib_expr_offset, target_dir, table_delta) = load_lib_section(
             ast,
             &target_path,
             base_dir,
@@ -284,6 +284,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     is_ns: namespace_alias.is_some(),
                     side_effect_only,
                 },
+                &table_delta,
             )?;
 
         let first_field =
@@ -363,14 +364,20 @@ fn load_lib_section(
     base_dir: &Path,
     closure_paths: &mut HashSet<PathBuf>,
     closure_files: &mut Vec<(PathBuf, Vec<u8>)>,
-) -> Result<(Vec<Stmt>, usize, PathBuf), String> {
+) -> Result<(Vec<Stmt>, usize, PathBuf, deconflict::LibTableDelta), String> {
     let src_text = std::fs::read_to_string(target_path)
         .map_err(|e| format!("import {}: {e}", target_path.display()))?;
     let tokens = lexer::tokenize(&src_text)
         .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
     let lib_expr_offset = ast.exprs.len();
+    // Knife D — snapshot the name-keyed class tables around the lib's
+    // parse: the diff tells the census which rows THIS file wrote, so
+    // a class rename can split rows that a same-named entry class
+    // merged into (see `class_rename`'s module doc).
+    let table_snap = deconflict::snapshot_class_tables(ast);
     let lib_offset = parser::parse_into(&src_text, &tokens, ast)
         .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
+    let table_delta = deconflict::diff_class_tables(ast, &table_snap);
     // A lib expression's recorded span indexes the LIB file's text,
     // but every span consumer slices the MAIN file's `ast.source`
     // (`splice_injections` clears the Stmt-side spans for the same
@@ -390,7 +397,7 @@ fn load_lib_section(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| base_dir.to_path_buf());
     let lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
-    Ok((lib_section, lib_expr_offset, target_dir))
+    Ok((lib_section, lib_expr_offset, target_dir, table_delta))
 }
 
 mod deconflict;

@@ -34,7 +34,7 @@ pub(super) fn hidden_injection_closure(
 ) -> HashSet<String> {
     let mut top_decls: HashMap<String, usize> = HashMap::new();
     for (i, s) in lib_section.iter().enumerate() {
-        if let Some(n) = super::top_value_decl_name(s).or_else(|| top_class_decl_name(s)) {
+        if let Some(n) = super::top_value_decl_name(s) {
             top_decls.insert(n, i);
         }
     }
@@ -47,6 +47,8 @@ pub(super) fn hidden_injection_closure(
                 if let Some(n) = super::super::decl_name(d)
                     && (lane.is_ns || want.contains(n.as_str()))
                 {
+                    push_class_synths(lib_section, &n, &mut work);
+                    push_computed_key_frees(ast, &n, &mut work);
                     will_inject.insert(n);
                     work.extend(crate::ast::free_idents_of_stmt(ast, &lib_section[i]));
                 }
@@ -62,6 +64,8 @@ pub(super) fn hidden_injection_closure(
                     && let Some(face) = bare_exports.get(&n)
                     && (lane.is_ns || want.contains(face.as_str()))
                 {
+                    push_class_synths(lib_section, &n, &mut work);
+                    push_computed_key_frees(ast, &n, &mut work);
                     will_inject.insert(n);
                     work.extend(crate::ast::free_idents_of_stmt(ast, &lib_section[i]));
                 }
@@ -76,48 +80,66 @@ pub(super) fn hidden_injection_closure(
         if will_inject.contains(&f) || !hidden.insert(f.clone()) {
             continue;
         }
+        push_class_synths(lib_section, &f, &mut work);
+        push_computed_key_frees(ast, &f, &mut work);
         work.extend(crate::ast::free_idents_of_stmt(ast, &lib_section[j]));
     }
     hidden
 }
 
-/// The ClassDecl name a top-level lib statement declares (through the
-/// `export` wrapper). Kept separate from `top_value_decl_name`: the
-/// census can MANGLE a Fn/Let decl, while a class dep can only inject
-/// BARE — `__priv_<C>__` member names and every class-keyed side
-/// table bake the class name at parse time (knife D territory).
-pub(super) fn top_class_decl_name(s: &Stmt) -> Option<String> {
-    match s {
-        Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } => top_class_decl_name(inner),
-        Stmt::ClassDecl { name, .. } => Some(name.clone()),
-        _ => None,
+/// Knife D — a computed METHOD's key expression lives only in the
+/// `class_computed_keys` / `class_computed_static_fields` side tables
+/// (a computed FIELD also gets a `__ccmk_` hoist decl, but a method
+/// does not), so the statement walk cannot reach whatever the key
+/// reads. Feed those expressions' free idents into the closure when
+/// their class joins it.
+fn push_computed_key_frees(ast: &Ast, class: &str, work: &mut Vec<String>) {
+    let eids: Vec<crate::ast::ExprId> = ast
+        .class_computed_keys
+        .iter()
+        .filter(|(k, _)| k.0 == class)
+        .map(|(_, v)| *v)
+        .chain(
+            ast.class_computed_static_fields
+                .iter()
+                .filter(|r| r.0 == class)
+                .map(|r| r.2),
+        )
+        .collect();
+    for eid in eids {
+        work.extend(crate::ast::free_idents_of_stmt(ast, &Stmt::Expr(eid)));
     }
 }
 
-/// Post-census classification of the hidden CLASS deps: a class
-/// cannot mangle, so it injects under its own spelling when nothing
-/// collides, and keeps the loud unknown-identifier reject when
-/// something does.
-pub(super) fn admit_bare_class_deps(
-    lib_section: &[Stmt],
-    hidden: &HashSet<String>,
-    seed: &super::SeedNames,
-    current_path: &std::path::Path,
-    hidden_inject: &mut HashSet<String>,
-) {
+/// Knife D — a class's parser synthetics (`__ccmk_<C>_<n>` computed-
+/// key hoists, `__cm_gen_<C>__<m>` generator forwarders) are separate
+/// TOP-LEVEL decls the free-vars walk cannot connect to their class:
+/// the class body reaches them through side-table ExprIds
+/// (`class_computed_keys`) or desugar-time reconstruction, not
+/// through a statement-tree Ident. Whenever a class lands in the
+/// injection set, its synthetics enter the work list so the closure
+/// carries them (and, transitively, whatever their initializers
+/// read). Cheap no-op for a non-class name — nothing matches the
+/// prefixes.
+fn push_class_synths(lib_section: &[Stmt], class: &str, work: &mut Vec<String>) {
+    let ccmk = format!("__ccmk_{class}_");
+    let genp = format!("__cm_gen_{class}__");
     for s in lib_section {
-        let Some(name) = top_class_decl_name(s) else {
-            continue;
+        let inner = match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => inner.as_ref(),
+            other => other,
         };
-        if !hidden.contains(&name) {
-            continue;
-        }
-        let collides = seed.hard.contains(&name)
-            || seed.reserved.get(&name).is_some_and(|p| p != current_path);
-        if !collides {
-            hidden_inject.insert(name);
+        if let Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } = inner
+            && (name.starts_with(&ccmk) || name.starts_with(&genp))
+        {
+            work.push(name.clone());
         }
     }
 }
+
+// Knife D — `top_class_decl_name` / `admit_bare_class_deps` retired:
+// `top_value_decl_name` admits ClassDecl now, so a hidden class dep
+// rides the census's ordinary mangle/decline lanes like any Fn/Let
+// (`rename_class_artifacts` moves the baked spellings with it).

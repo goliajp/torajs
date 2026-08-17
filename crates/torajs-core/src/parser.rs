@@ -140,11 +140,15 @@ pub fn parse_into_super_prop(
     // appended to a non-empty arena) records class spans that index
     // ITS source text, not `ast.source`; slicing the main text with
     // them is garbage or out of bounds (the disposable-stack inject
-    // panicked erase_types). Snapshot the keys and drop what the
-    // nested parse adds, on every exit. A whole-program parse starts
-    // from an empty arena and keeps its spans.
-    let nested_span_keys: Option<Vec<String>> = (stmt_offset > 0 || id_offset > 0)
-        .then(|| target.class_decl_spans.keys().cloned().collect());
+    // panicked erase_types). Snapshot the WHOLE table and restore it
+    // on exit: a key-only snapshot dropped the nested parse's new
+    // entries but let a same-named nested class OVERWRITE the main
+    // file's row in place (knife D — `class S1` in both entry and
+    // lib), handing the entry's toString slice a span into the lib's
+    // text. A whole-program parse starts from an empty arena and
+    // keeps its spans.
+    let nested_spans_snapshot =
+        (stmt_offset > 0 || id_offset > 0).then(|| target.class_decl_spans.clone());
     let taken = std::mem::take(target);
     let mut p = Parser {
         source,
@@ -188,8 +192,8 @@ pub fn parse_into_super_prop(
         Ok(r)
     });
     *target = p.ast;
-    if let Some(keys) = nested_span_keys {
-        target.class_decl_spans.retain(|k, _| keys.contains(k));
+    if let Some(snap) = nested_spans_snapshot {
+        target.class_decl_spans = snap;
     }
     result?;
     Ok(stmt_offset)

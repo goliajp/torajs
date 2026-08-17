@@ -34,114 +34,6 @@
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
-/// The seeded name state: `hard` names collide with any injection
-/// (the entry's own top-level decls); `reserved` maps an entry-level
-/// import BINDING to the path it resolves from. Bindings reserve
-/// their spellings up front — a namespace-injected decl of the same
-/// name must deconflict even when its module happens to walk first
-/// (BFS order must not decide which of the two keeps the name) — but
-/// an injection FROM THE RESERVING PATH is that binding's own decl
-/// (§16.2.1.6 one-set-of-bindings: `import "./se"` then
-/// `import { S1 } from "./se"` shares S1), so same-path names pass.
-/// An unresolvable source or two paths claiming one spelling turn
-/// the name hard. Nested libs' own named requests are not visible
-/// here; a late collision there lands on the census's loud reject
-/// instead of a silent split.
-pub(super) struct SeedNames {
-    pub(super) hard: HashSet<String>,
-    pub(super) reserved: HashMap<String, std::path::PathBuf>,
-}
-
-impl SeedNames {
-    fn reserve(&mut self, name: String, path: Option<&std::path::Path>) {
-        match path {
-            Some(p) if !self.hard.contains(&name) => match self.reserved.entry(name.clone()) {
-                std::collections::hash_map::Entry::Occupied(e) => {
-                    if e.get() != p {
-                        e.remove();
-                        self.hard.insert(name);
-                    }
-                }
-                std::collections::hash_map::Entry::Vacant(v) => {
-                    v.insert(p.to_path_buf());
-                }
-            },
-            _ => {
-                self.reserved.remove(&name);
-                self.hard.insert(name);
-            }
-        }
-    }
-}
-
-pub(super) fn seed_seen_names(ast: &Ast, base_dir: &std::path::Path) -> SeedNames {
-    let mut seed = SeedNames {
-        hard: HashSet::new(),
-        reserved: HashMap::new(),
-    };
-    for s in &ast.stmts {
-        match s {
-            Stmt::ImportDecl {
-                source,
-                named,
-                default,
-                namespace,
-            } => {
-                let path = super::resolve_path(base_dir, source).ok();
-                for (orig, alias) in named {
-                    let n = alias.clone().unwrap_or_else(|| orig.clone());
-                    seed.reserve(n, path.as_deref());
-                }
-                if let Some(d) = default {
-                    seed.reserve(d.clone(), path.as_deref());
-                }
-                if let Some(n) = namespace {
-                    // The namespace ALIAS binding is entry-scope, not
-                    // any lib's own decl — always hard.
-                    seed.reserve(n.clone(), None);
-                }
-            }
-            other => {
-                let inner = match other {
-                    Stmt::ExportDecl {
-                        inner: Some(inner), ..
-                    } => inner,
-                    o => o,
-                };
-                if let Some(n) = super::decl_name(inner) {
-                    seed.reserve(n, None);
-                }
-            }
-        }
-    }
-    seed
-}
-
-/// Commit one walked lib's (post-census) top-level INJECTED spellings
-/// — hard: whoever comes later collides with them. A bare-exported
-/// decl injects under its face (P13-S4b renames it), so the face is
-/// what later walks must avoid; a census-mangled bare decl's map
-/// entry is the identity, which lands here unchanged.
-pub(super) fn extend_seen_with_lib(
-    lib_section: &[Stmt],
-    bare_exports: &HashMap<String, String>,
-    seed: &mut SeedNames,
-) {
-    for s in lib_section {
-        let inner = match s {
-            Stmt::ExportDecl {
-                inner: Some(inner), ..
-            } => inner,
-            other => other,
-        };
-        if let Some(n) = super::decl_name(inner) {
-            let injected = bare_exports.get(&n).cloned().unwrap_or(n);
-            seed.reserved.remove(&injected);
-            seed.hard.insert(injected);
-        }
-    }
-}
-
 /// Census + rename over one freshly-parsed lib section. Returns the
 /// mangled→original map for the namespace accumulator's field
 /// spellings. `prior` is this path's mangle memory from an earlier
@@ -175,6 +67,7 @@ pub(super) fn deconflict_lib_section(
     hidden_prior: &mut HashMap<String, String>,
     mangle_seq: &mut usize,
     hidden_inject: &mut HashSet<String>,
+    delta: &class_rename::LibTableDelta,
 ) -> Result<HashMap<String, String>, String> {
     // orig → mangled (drives the arena rewrite) and mangled → FIELD
     // spelling (what the namespace accumulator shows the importer —
@@ -185,6 +78,20 @@ pub(super) fn deconflict_lib_section(
         let Some(name) = top_value_decl_name(&lib_section[i]) else {
             continue;
         };
+        // Parser synthetics that bake a class name into their OWN
+        // decl name (`__ccmk_<C>_<n>` computed-key hoists,
+        // `__cm_gen_<C>__<m>` generator forwarders) are not census
+        // candidates — they follow their class's rename inside
+        // `rename_class_artifacts` (which also re-keys the entry
+        // this inserts), and mangling one independently would break
+        // the name-derived consumers. A hidden one still injects.
+        if name.starts_with("__ccmk_") || name.starts_with("__cm_gen_") {
+            if hidden.contains(&name) {
+                hidden_inject.insert(name);
+            }
+            continue;
+        }
+        let is_class = is_class_decl(&lib_section[i]);
         // A hidden dep that happens to share the requested spelling is
         // an import of a NON-export (the request can't be satisfied
         // either way, staying loud) — the dep's mangle wins.
@@ -210,6 +117,9 @@ pub(super) fn deconflict_lib_section(
                 &bare_face,
                 bare_exports,
                 &mut mangles,
+                delta,
+                hidden,
+                hidden_inject,
             );
             continue;
         }
@@ -232,10 +142,15 @@ pub(super) fn deconflict_lib_section(
                 &bare_face,
                 bare_exports,
                 &mut mangles,
+                delta,
+                hidden,
+                hidden_inject,
             );
             continue;
         }
-        if rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, &name) {
+        if rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, &name)
+            || (is_class && class_rename::type_param_shadows(lib_section, &name))
+        {
             // decline — keeps the loud redeclaration reject. A hidden
             // dep still injects under its own spelling when nothing
             // collides; a colliding one keeps the loud unknown.
@@ -250,6 +165,19 @@ pub(super) fn deconflict_lib_section(
         });
         rename_top_decl(&mut lib_section[i], &mangled);
         copy_fn_name_tables(ast, &name, &mangled);
+        if is_class {
+            class_rename::rename_class_artifacts(
+                ast,
+                lib_section,
+                lib_expr_offset,
+                i,
+                &name,
+                &mangled,
+                delta,
+                hidden,
+                hidden_inject,
+            );
+        }
         if is_hidden {
             hidden_inject.insert(mangled.clone());
         }
@@ -276,12 +204,23 @@ pub(super) fn deconflict_lib_section(
     }
     // Reference rewrite — every lib expression lives in the appended
     // arena slice; a bare Ident there referencing a mangled top-level
-    // binding follows it (self-references included).
+    // binding follows it (self-references included). `New` names its
+    // class in a String field the Ident arm can't see (knife D — and
+    // the parser also mints `Expr::New` for `new f()` over a plain
+    // fn, so the arm applies to every mangle, not just classes).
     for e in ast.exprs[lib_expr_offset..].iter_mut() {
-        if let Expr::Ident(n) = e
-            && let Some(m) = mangles.get(n)
-        {
-            *e = Expr::Ident(m.clone());
+        match e {
+            Expr::Ident(n) => {
+                if let Some(m) = mangles.get(n) {
+                    *n = m.clone();
+                }
+            }
+            Expr::New { class_name, .. } => {
+                if let Some(m) = mangles.get(class_name) {
+                    *class_name = m.clone();
+                }
+            }
+            _ => {}
         }
     }
     Ok(demangle)
@@ -307,42 +246,79 @@ fn hoist_face_rename(
     bare_face: &Option<String>,
     bare_exports: &mut HashMap<String, String>,
     mangles: &mut HashMap<String, String>,
+    delta: &class_rename::LibTableDelta,
+    hidden: &HashSet<String>,
+    hidden_inject: &mut HashSet<String>,
 ) {
     let Some(face) = bare_face else { return };
     if face == name
         || rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, name)
         || rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, face)
+        || (is_class_decl(&lib_section[i]) && class_rename::type_param_shadows(lib_section, name))
     {
         return;
     }
     rename_top_decl(&mut lib_section[i], face);
     copy_fn_name_tables(ast, name, face);
+    if is_class_decl(&lib_section[i]) {
+        // A face rename IS a rename — the baked artifacts move the
+        // same way a mangle moves them (knife D).
+        class_rename::rename_class_artifacts(
+            ast,
+            lib_section,
+            lib_expr_offset,
+            i,
+            name,
+            face,
+            delta,
+            hidden,
+            hidden_inject,
+        );
+    }
     bare_exports.remove(name);
     bare_exports.insert(face.clone(), face.clone());
     mangles.insert(name.to_string(), face.clone());
 }
 
-/// The FnDecl / LetDecl name a top-level lib statement declares
-/// (through the `export` wrapper). Class / type decls answer None —
-/// out of knife A's scope.
+/// The FnDecl / LetDecl / ClassDecl name a top-level lib statement
+/// declares (through the `export` wrapper). Type decls answer None.
+/// Knife D admits ClassDecl: the census renames a class through
+/// `class_rename::rename_class_artifacts`, which moves every baked
+/// artifact with the decl name.
 pub(super) fn top_value_decl_name(s: &Stmt) -> Option<String> {
     match s {
         Stmt::ExportDecl {
             inner: Some(inner), ..
         } => top_value_decl_name(inner),
-        Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } => Some(name.clone()),
+        Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } | Stmt::ClassDecl { name, .. } => {
+            Some(name.clone())
+        }
         _ => None,
     }
 }
 
+fn is_class_decl(s: &Stmt) -> bool {
+    match s {
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => is_class_decl(inner),
+        Stmt::ClassDecl { .. } => true,
+        _ => false,
+    }
+}
+
 /// Point the declaration at its mangled name (through the `export`
-/// wrapper).
+/// wrapper). For a ClassDecl this is only the NAME FIELD — the
+/// caller must follow with `rename_class_artifacts`, which owns the
+/// baked-artifact move (never rename a class through this alone).
 fn rename_top_decl(s: &mut Stmt, mangled: &str) {
     match s {
         Stmt::ExportDecl {
             inner: Some(inner), ..
         } => rename_top_decl(inner, mangled),
-        Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } => *name = mangled.to_string(),
+        Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } | Stmt::ClassDecl { name, .. } => {
+            *name = mangled.to_string()
+        }
         _ => {}
     }
 }
@@ -397,6 +373,10 @@ fn copy_fn_name_tables(ast: &mut Ast, old: &str, new: &str) {
     }
 }
 
+mod seed;
+pub(super) use seed::{SeedNames, extend_seen_with_lib, seed_seen_names};
+mod class_rename;
+pub(super) use class_rename::{LibTableDelta, diff_class_tables, snapshot_class_tables};
 mod hidden;
 pub(super) use hidden::LaneShape;
 
@@ -419,6 +399,7 @@ pub(super) fn prep_lib_request<'a>(
     hidden_mangles: &mut HashMap<String, String>,
     mangle_seq: &mut usize,
     lane: LaneShape,
+    delta: &LibTableDelta,
 ) -> Result<
     (
         HashSet<&'a str>,
@@ -467,8 +448,8 @@ pub(super) fn prep_lib_request<'a>(
         hidden_mangles,
         mangle_seq,
         &mut hidden_inject,
+        delta,
     )?;
-    hidden::admit_bare_class_deps(lib_section, &hidden, seed, current_path, &mut hidden_inject);
     extend_seen_with_lib(lib_section, &bare_exports, seed);
     Ok((
         want,
