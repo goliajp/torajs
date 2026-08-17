@@ -1530,7 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `c40b5319`** (2026-08-17, rotation 422 — the async-generator
+**Latest @ `27c7b62d`** (2026-08-17, rotation 426 — the dynamic-import
+deconflict chain. Knife B narrowed the candidate DROP to unmanglable
+names, and the probes then overturned the recon: the
+assignment-expression family's real blockers were three GENERAL
+ns-lane gaps, static and dynamic alike. Four knives: the namespace
+object carries `default` (§16.2.1.10, synthetic `__nsdefault_`
+binding riding the one-binding machinery; a bare `export * from`
+pour must NOT mint it, §16.2.3 — caught by the gate as a red and
+fixed with a WorkItem star-feed flag); a source-ful named re-export
+face claims a ns field bound to a synthetic `__reex_` binding
+(§16.2.3); the deconflict census mangles a bare-exported decl on its
+FACE surface (aliased named requests follow the path's mangle
+memory; the ssa-side Any promote gate admits `__reex_` / `__m<k>_`
+minted bindings). Sweep vs rotation 425: passTotal 30502 → **30534
+(+32)**, bug −72, incompatible +40 — conservation exact; the
+dynamic-import assignment-expression double-FIXTURE family (14
+cases) converted whole. One pass regression listed honestly: a
+circular-instantiation case whose old pass was the DROP coinciding
+with the expected rejection. Gate predicate **235 unattributed
+clusters / 2807 cases / register 2 · 522 / residue 737 · 925 /
+core 4254**.)
+
+**Prior @ `c40b5319`** (2026-08-17, rotation 422 — the async-generator
 half of the `got Star` cluster, which a re-survey first overturned:
 async generators themselves had worked in all three hosts since
 rotation 413's blade 4 — the 49 remaining cases all die on
