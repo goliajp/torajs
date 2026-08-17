@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T15:10:37.657Z",
+  "generatedAt": "2026-08-17T16:35:25.026Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-17T14:56:40Z",
-    "headSha": "e9fc6a80",
-    "elapsedSec": 335.26,
+    "ranAt": "2026-08-17T16:26:24Z",
+    "headSha": "74c3db43",
+    "elapsedSec": 340.37,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25617,
-    "passNoOracle": 898,
+    "pass": 25729,
+    "passNoOracle": 915,
     "passNegative": 4140,
-    "passTotal": 30655,
-    "bug": 12811,
-    "incompatible": 9708,
+    "passTotal": 30784,
+    "bug": 12797,
+    "incompatible": 9593,
     "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43466,
-    "passRateInScope": 57.65,
-    "passRateTrAccepted": 70.53
+    "trAccepted": 43581,
+    "passRateInScope": 57.89,
+    "passRateTrAccepted": 70.64
   },
   "torajs": {
-    "commit": "3490929b",
-    "commitSubject": "refactor: resolve_imports seeding and post-bfs judgment fold into static_resolution",
+    "commit": "74c3db43",
+    "commitSubject": "feat: map and set receivers join the method-value reify families",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "74c3db43",
+      "subject": "feat: map and set receivers join the method-value reify families"
+    },
+    {
+      "hash": "655120c4",
+      "subject": "feat: date toJSON generic leg consults the receiver's own toISOString"
+    },
+    {
+      "hash": "a55d93ae",
+      "subject": "feat: brand-checked proto families skip the prototype-call rewrite"
+    },
+    {
+      "hash": "92755e4c",
+      "subject": "fix: dead-copy sweep marks side-table-only expr roots live"
+    },
+    {
+      "hash": "a502d787",
+      "subject": "feat: resolver dead-copy sweep tombstones discarded lib exprs"
+    },
+    {
+      "hash": "b8383179",
+      "subject": "chore: record the rotation 430 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "3490929b",
       "subject": "refactor: resolve_imports seeding and post-bfs judgment fold into static_resolution"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "7eb7b02f",
       "subject": "feat: entry static requests reject loudly on unresolvable or ambiguous exports"
-    },
-    {
-      "hash": "aaf933c5",
-      "subject": "fix: t262 throws anyfn guards callability before invoking"
-    },
-    {
-      "hash": "9532dd76",
-      "subject": "chore: record the rotation 429 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "0cf1f06b",
-      "subject": "docs: rotation 429 p-surf snapshot and the sweep artifacts"
-    },
-    {
-      "hash": "dc7435f8",
-      "subject": "fix: two sweep regressions from this rotation's own knives"
-    },
-    {
-      "hash": "9d88c805",
-      "subject": "refactor: resolver final assembly moves to the splice sibling"
-    },
-    {
-      "hash": "93169487",
-      "subject": "feat: ambiguous star exports poison the dyn-import candidate"
     }
   ],
-  "headSha": "3490929b",
+  "headSha": "74c3db43",
   "autorun": {
-    "total": 733,
+    "total": 734,
     "baselineTarget": 10,
-    "bySelf": 728,
+    "bySelf": 729,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786973841-18bd",
-      "at": "2026-08-17T13:37:21Z",
-      "ts": 1786973841,
+      "rotationId": "r-1786979502-20d4",
+      "at": "2026-08-17T15:11:42Z",
+      "ts": 1786979502,
       "trigger": "self",
-      "prevHead": "9532dd76",
-      "handoffSha": "sha256:06aa4e5e21aeb9132c84b71efabd6afabebfcc771592f5dad5b79d4c58a09928",
-      "handoffAgeSec": 6,
+      "prevHead": "b8383179",
+      "handoffSha": "sha256:77bdc0b6574be4f3cdf58a49fbb47a8fbf64b1fbd99f528abee423a8a1d0a093",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786979502-20d4",
+        "at": "2026-08-17T15:11:42Z",
+        "ts": 1786979502,
+        "trigger": "self",
+        "prevHead": "b8383179",
+        "handoffSha": "sha256:77bdc0b6574be4f3cdf58a49fbb47a8fbf64b1fbd99f528abee423a8a1d0a093",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786973841-18bd",
         "at": "2026-08-17T13:37:21Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "ea009482",
         "handoffSha": "sha256:52d183d759eca52f8a9a149a1c87ea86cacdd7f4c15fc9197c1393c2a97f9f02",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786879620-5181",
-        "at": "2026-08-16T11:27:00Z",
-        "ts": 1786879620,
-        "trigger": "self",
-        "prevHead": "4e3ed20a",
-        "handoffSha": "sha256:9e503bf6a41842507ec7169719e73b57b9af55c4eab8ae2482af31863d05b5e2",
         "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null

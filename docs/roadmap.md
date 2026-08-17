@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `e9fc6a80`** (2026-08-18, rotation 430 — static-resolution
+**Latest @ `74c3db43`** (2026-08-18, rotation 431 — the resolver's
+dead-copy sweep and the no-member cluster's largest face. The module
+channel that stranded orphan expressions closes at its single exit:
+after the final splice, everything unreachable from the spliced
+statement list — floored at the entry's own arena, with the five
+value-side-ExprId side tables as extra mark roots — is tombstoned, so
+no whole-arena lift can materialize a discarded lib copy's fn/class
+literals again (the 2B stub demotes to defence-in-depth; the
+instn-iee-bndng family now dies on real TDZ semantics instead of
+orphan fallout). The brand-checked prototype families (Date / Map /
+Set / Promise, plus Function's bind/toString and literal-wrong-brand
+call/apply) skip the `X.prototype.m.call(recv)` direct-method rewrite
+and ride the reified proto cell's brand gate — the spec's runtime
+TypeError instead of a compile-time member reject — 111 cases across
+five directories. Date's toJSON generic leg consults the receiver's
+own toISOString (§21.4.4.37 Invoke), and Map/Set receivers join the
+method-value reify families (17 not-a-constructor cases). Sweep vs
+430: passTotal 30655 → **30784 (+129)**, bug −14, incompatible −115,
+conservation exact, moved 142 all forward/neutral — **zero pass
+regressions**. Gate 3060/0/4. Gate predicate **227 unattributed
+clusters / 2613 cases / register 2 · 510 / residue 688 · 868 / core
+3991**.)
+
+**Prior @ `e9fc6a80`** (2026-08-18, rotation 430 — static-resolution
 loud rejects and the orphan-closure shelf. The entry's static requests
 gain a ledger: named imports plus named `export {x} from` clauses —
 previously ignored entirely — are judged after the BFS drains, and an
