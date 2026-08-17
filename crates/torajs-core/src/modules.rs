@@ -137,45 +137,6 @@ fn seed_entry_requests(
     Ok(())
 }
 
-/// The repeat-default shortcut — a later default request against a
-/// path whose default export already materialized binds the new
-/// alias by reference instead of re-walking (see `default_bound_as`).
-fn shortcut_repeat_default(
-    ast: &mut Ast,
-    target_path: &Path,
-    default_alias: &mut Option<String>,
-    default_bound_as: &HashMap<PathBuf, String>,
-    injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
-) {
-    if let Some(second) = default_alias.as_ref()
-        && let Some(first) = default_bound_as.get(target_path)
-    {
-        if second != first {
-            let stmt = bind_repeat_default_alias(ast, first, second);
-            injections_by_path
-                .entry(target_path.to_path_buf())
-                .or_default()
-                .push(stmt);
-        }
-        *default_alias = None;
-    }
-}
-
-/// A later default request against a path whose default export
-/// already materialized (see `default_bound_as` in
-/// [`resolve_imports`]) — the new alias binds to the first one's
-/// `let` instead of re-walking, which would re-lower the same ExprId.
-fn bind_repeat_default_alias(ast: &mut Ast, first: &str, second: &str) -> Stmt {
-    let init = ast.add_expr(crate::ast::Expr::Ident(first.to_string()));
-    Stmt::LetDecl {
-        mutable: false,
-        name: second.to_string(),
-        type_ann: None,
-        init,
-        is_var: false,
-    }
-}
-
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
 /// at the front of `ast.stmts`. Single-file mode (no `ImportDecl`s) is
@@ -259,7 +220,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             dyn_ns_inline.push((ns.clone(), fields.clone()));
             namespace_alias = None;
         }
-        shortcut_repeat_default(
+        default_binding::shortcut_repeat_default(
             ast,
             &target_path,
             &mut default_alias,
@@ -269,7 +230,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         // Filter the request against per-path injected state — see
         // [`filter_request`].
         let entry = injected_names.entry(target_path.clone()).or_default();
-        let Some((named, default_alias, namespace_alias, side_effect_only)) = filter_request(
+        let Some((named, mut default_alias, namespace_alias, side_effect_only)) = filter_request(
             entry,
             named,
             default_alias,
@@ -296,6 +257,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
 
         let mut lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
 
+        // §16.2.1.10 ns `default` field — see `default_binding.rs`.
+        let repeat_default_field = default_binding::synth_ns_default_binding(
+            &lib_section,
+            &namespace_alias,
+            &mut default_alias,
+            &default_bound_as,
+            &target_path,
+        );
         if let Some(a) = &default_alias {
             default_bound_as.insert(target_path.clone(), a.clone());
         }
@@ -353,6 +322,15 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         graph.record(target_path.clone(), deps);
         injections_by_path.insert(target_path.clone(), injections);
 
+        // The repeat half of the `default` field — the binding already
+        // exists, only the field claim is owed. Before the ns_fields
+        // snapshot so a dyn revisit carries it.
+        if let Some(binding) = repeat_default_field
+            && let Some(alias) = &namespace_alias
+            && let Some(accum) = ns_accums.get_mut(alias.as_str())
+        {
+            accum.claim("default", &binding);
+        }
         if let Some(alias) = &namespace_alias {
             let fields = ns_accums[alias].fields()[first_field..].to_vec();
             ns_fields_by_path.insert(target_path.clone(), fields);
@@ -386,6 +364,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
 }
 
 mod deconflict;
+mod default_binding;
 mod dyn_import;
 mod graph;
 mod inject_export;

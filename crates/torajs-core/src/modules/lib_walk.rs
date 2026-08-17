@@ -130,8 +130,11 @@ pub(super) fn walk_lib_stmt(
             ..
         } => {
             // `export default <expr>` form. Inject as a synthetic
-            // `let <importer-alias> = <expr>` if the importer used
-            // the default-binding form (`import x from ...`).
+            // `let <binding> = <expr>` if the importer used the
+            // default-binding form (`import x from ...`) — or if a
+            // namespace request synthesized a `__nsdefault_<alias>`
+            // binding for its `default` field (§16.2.1.10; minted in
+            // `resolve_imports` when the lib has a default export).
             if let Some(alias) = req.default_alias {
                 injections.push(Stmt::LetDecl {
                     mutable: false,
@@ -140,10 +143,13 @@ pub(super) fn walk_lib_stmt(
                     init: eid,
                     is_var: false,
                 });
+                if let Some(ns) = req.ns.as_deref_mut() {
+                    ns.claim("default", alias);
+                }
             }
-            // If no default alias was requested the export is
-            // silently dropped — matches "named exports not in
-            // the importer's list" behavior for parity.
+            // If no binding was requested the export is silently
+            // dropped — matches "named exports not in the
+            // importer's list" behavior for parity.
         }
         Stmt::ExportDecl {
             inner: Some(boxed), ..
