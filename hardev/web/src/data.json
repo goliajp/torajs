@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T23:00:51.103Z",
+  "generatedAt": "2026-08-17T01:33:22.304Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-16T22:52:53Z",
-    "headSha": "c40b5319",
-    "elapsedSec": 328.29,
+    "ranAt": "2026-08-17T01:24:19Z",
+    "headSha": "d5405c7d",
+    "elapsedSec": 331.14,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25312,
-    "passNoOracle": 856,
+    "pass": 25463,
+    "passNoOracle": 876,
     "passNegative": 4128,
-    "passTotal": 30296,
-    "bug": 12833,
-    "incompatible": 10045,
+    "passTotal": 30467,
+    "bug": 12894,
+    "incompatible": 9813,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43129,
-    "passRateInScope": 56.98,
-    "passRateTrAccepted": 70.25
+    "trAccepted": 43361,
+    "passRateInScope": 57.3,
+    "passRateTrAccepted": 70.26
   },
   "torajs": {
-    "commit": "c40b5319",
-    "commitSubject": "refactor: extract the computed generator-method key parse",
+    "commit": "d5405c7d",
+    "commitSubject": "fix: every nested parse drops its class spans, not just the two sites that knew to",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "d5405c7d",
+      "subject": "fix: every nested parse drops its class spans, not just the two sites that knew to"
+    },
+    {
+      "hash": "74d9e62a",
+      "subject": "feat: a class constructor's toString answers its declaration source"
+    },
+    {
+      "hash": "f679647c",
+      "subject": "fix: a fn value read from a slot dispatches env-first, closing the repr split SIGBUS family"
+    },
+    {
+      "hash": "97b21347",
+      "subject": "feat: dynamic import takes any specifier expression, resolved through a baked candidate table"
+    },
+    {
+      "hash": "099d2d09",
+      "subject": "chore: record the rotation 422 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "c40b5319",
       "subject": "refactor: extract the computed generator-method key parse"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "ea009482",
       "subject": "chore: refresh the hardev dashboard snapshot for rotation 421"
-    },
-    {
-      "hash": "e787fd8d",
-      "subject": "fix: a lone-surrogate export name sailed through to a runtime failure"
-    },
-    {
-      "hash": "a247a54f",
-      "subject": "fix: a second request shape for the same module re-declared its bindings"
-    },
-    {
-      "hash": "82b7e262",
-      "subject": "fix: `export { x as default } from \"m\"` never answered a default import"
-    },
-    {
-      "hash": "c13cc983",
-      "subject": "fix: `import x from \"m\" with { … }` was read as a `with` statement"
-    },
-    {
-      "hash": "a7837878",
-      "subject": "fix: two module early errors the previous knife's parser opened the door to"
     }
   ],
-  "headSha": "c40b5319",
+  "headSha": "d5405c7d",
   "autorun": {
-    "total": 725,
+    "total": 726,
     "baselineTarget": 10,
-    "bySelf": 720,
+    "bySelf": 721,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786887295-1f67",
-      "at": "2026-08-16T13:34:55Z",
-      "ts": 1786887295,
+      "rotationId": "r-1786921288-0c8d",
+      "at": "2026-08-16T23:01:28Z",
+      "ts": 1786921288,
       "trigger": "self",
-      "prevHead": "ea009482",
-      "handoffSha": "sha256:52d183d759eca52f8a9a149a1c87ea86cacdd7f4c15fc9197c1393c2a97f9f02",
-      "handoffAgeSec": 5,
+      "prevHead": "099d2d09",
+      "handoffSha": "sha256:df6136025be893df1b1b4d0bae7c91478ed2dee4cb76df7a1ee1347bd9ff2041",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786921288-0c8d",
+        "at": "2026-08-16T23:01:28Z",
+        "ts": 1786921288,
+        "trigger": "self",
+        "prevHead": "099d2d09",
+        "handoffSha": "sha256:df6136025be893df1b1b4d0bae7c91478ed2dee4cb76df7a1ee1347bd9ff2041",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786887295-1f67",
         "at": "2026-08-16T13:34:55Z",
@@ -876,17 +887,6 @@
         "prevHead": "fbe0cccd",
         "handoffSha": "sha256:b434f1b3efbbd6a88a8b3fbe655adce7d0f5b2ced6bdf386883e7dbde9bf4950",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786803239-6a1b",
-        "at": "2026-08-15T14:13:59Z",
-        "ts": 1786803239,
-        "trigger": "self",
-        "prevHead": "038a3945",
-        "handoffSha": "sha256:23ea0fbd32ed3e8ded3c6af395eaf43cb5d015e5602ef8f171ba09d48712dc2a",
-        "handoffAgeSec": 52,
         "conformanceBefore": null,
         "commitsInSession": null
       }
