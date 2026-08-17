@@ -18,6 +18,7 @@ use super::{decl_name, rename_decl};
 /// named imports filter by `want` and inject one decl per
 /// importer-visible spelling (421-04: `import { fa, fa as renamed }`
 /// binds BOTH names; a single-alias `rename` map collapsed them).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn inject_export_inner(
     ast: &mut Ast,
     injections: &mut Vec<Stmt>,
@@ -27,6 +28,7 @@ pub(super) fn inject_export_inner(
     ns: Option<&mut NsAccum>,
     injected: &mut HashSet<String>,
     demangle: &HashMap<String, String>,
+    hidden: &HashSet<String>,
 ) {
     // Type decls always inject — TS doesn't require type
     // names in the value-import list, and downstream
@@ -51,6 +53,20 @@ pub(super) fn inject_export_inner(
         // mangled the local decl (423-01 deconflict).
         let field = demangle.get(&name).cloned().unwrap_or_else(|| name.clone());
         if ns.claim(&field, &name) && injected.insert(name) {
+            injections.push(inner);
+        }
+        return;
+    }
+    // 423-01 knife C — an un-wanted decl whose spelling the hidden
+    // census marked still injects (mangled, or bare when the census
+    // declined without a collision): some injected decl's free
+    // variables reach it. Never importer-visible — no want / rename /
+    // ns face applies. Checked before the want arm: a hidden spelling
+    // is by construction not a wanted one.
+    if let Some(name) = decl_name(&inner)
+        && hidden.contains(&name)
+    {
+        if injected.insert(name) {
             injections.push(inner);
         }
         return;
@@ -134,7 +150,10 @@ pub(super) fn inject_export_inner(
 /// P13-S4b — a top-level decl a bare named export lists injects
 /// under its EXPORTED name (then the importer's own alias applies
 /// inside `inject_export_inner`). Everything else is a lib-level
-/// non-export statement — dropped.
+/// non-export statement — dropped, unless the hidden-dependency
+/// census marked its spelling (423-01 knife C), in which case it
+/// injects as a plain top-level decl.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn inject_bare_exported_decl(
     ast: &mut Ast,
     injections: &mut Vec<Stmt>,
@@ -145,6 +164,7 @@ pub(super) fn inject_bare_exported_decl(
     ns: Option<&mut NsAccum>,
     injected: &mut HashSet<String>,
     demangle: &HashMap<String, String>,
+    hidden: &HashSet<String>,
 ) {
     if let Some(dname) = decl_name(&other)
         && let Some(exported) = bare_exports.get(&dname)
@@ -157,7 +177,16 @@ pub(super) fn inject_bare_exported_decl(
             copy_fn_name_tables(ast, &dname, exported);
             rename_decl(&mut inner, exported.clone());
         }
-        inject_export_inner(ast, injections, inner, want, rename, ns, injected, demangle);
+        inject_export_inner(
+            ast, injections, inner, want, rename, ns, injected, demangle, hidden,
+        );
+        return;
+    }
+    if let Some(dname) = decl_name(&other)
+        && hidden.contains(&dname)
+        && injected.insert(dname)
+    {
+        injections.push(other);
     }
 }
 

@@ -37,6 +37,12 @@ pub(super) struct LibRequest<'a> {
     /// namespace accumulator claims FIELDS by the original spelling
     /// while referencing the mangled binding.
     pub(super) demangle: &'a HashMap<String, String>,
+    /// 423-01 knife C — the hidden-dependency injection set: decls no
+    /// request asked for but which an injected decl's free variables
+    /// reach. Spellings are post-census (mangled, or the original
+    /// name on a no-collision decline); they inject as plain
+    /// top-level decls, never importer-visible.
+    pub(super) hidden: &'a HashSet<String>,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -163,6 +169,7 @@ pub(super) fn walk_lib_stmt(
                 req.ns.as_deref_mut(),
                 req.injected,
                 req.demangle,
+                req.hidden,
             );
         }
         Stmt::ExportDecl {
@@ -216,6 +223,7 @@ pub(super) fn walk_lib_stmt(
                 req.ns.as_deref_mut(),
                 req.injected,
                 req.demangle,
+                req.hidden,
             );
         }
     }

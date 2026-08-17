@@ -179,6 +179,11 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // and the same decl must keep the same mangle).
     let mut seen_names = deconflict::seed_seen_names(ast, base_dir);
     let mut mangled_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
+    // Knife C hidden-dep mangles keep their own per-path memory —
+    // NOT `mangled_by_path`: a later plain named request for a
+    // hidden-mangled export must re-inject bare, not trip the
+    // requested-collision reject (see `deconflict_lib_section`).
+    let mut hidden_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
     let mut mangle_seq: usize = 0;
 
     seed_entry_requests(ast, base_dir, &mut work)?;
@@ -271,16 +276,23 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         if let Some(a) = &default_alias {
             default_bound_as.insert(target_path.clone(), a.clone());
         }
-        let (want, rename, bare_exports, own_exports, demangle) = deconflict::prep_lib_request(
-            ast,
-            &mut lib_section,
-            lib_expr_offset,
-            &target_path,
-            &named,
-            &mut seen_names,
-            mangled_by_path.entry(target_path.clone()).or_default(),
-            &mut mangle_seq,
-        )?;
+        let (want, rename, bare_exports, own_exports, demangle, hidden) =
+            deconflict::prep_lib_request(
+                ast,
+                &mut lib_section,
+                lib_expr_offset,
+                &target_path,
+                &named,
+                &mut seen_names,
+                mangled_by_path.entry(target_path.clone()).or_default(),
+                hidden_by_path.entry(target_path.clone()).or_default(),
+                &mut mangle_seq,
+                deconflict::LaneShape {
+                    has_default_alias: default_alias.is_some(),
+                    is_ns: namespace_alias.is_some(),
+                    side_effect_only,
+                },
+            )?;
 
         let first_field =
             repeat_request::open_ns_walk(&namespace_alias, &mut ns_accums, &mut ns_order);
@@ -300,6 +312,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             // a later request (any lane) skips it.
             injected: injected_names.entry(target_path.clone()).or_default(),
             demangle: &demangle,
+            hidden: &hidden,
         };
 
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();

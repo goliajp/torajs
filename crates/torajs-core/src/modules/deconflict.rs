@@ -151,6 +151,17 @@ pub(super) fn extend_seen_with_lib(
 /// earlier visit already mangled — the importer-visible binding
 /// would collide with whatever forced the mangle, and a loud reject
 /// beats a silently split identity.
+///
+/// 423-01 knife C — a name in `hidden` mangles UNCONDITIONALLY (it
+/// must land, but never importer-visible), and its memory goes into
+/// `hidden_prior`, NOT `prior`: a later plain `import { util }` of a
+/// hidden-mangled EXPORT must keep today's bare re-injection path,
+/// not trip the requested-collision reject above. `hidden_inject`
+/// collects the spellings the walk should inject for the hidden set
+/// (the mangle, or the original name when the census declined on a
+/// rebind with no collision — no rewrite happens, so the references
+/// already match).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn deconflict_lib_section(
     ast: &mut Ast,
     lib_section: &mut [Stmt],
@@ -158,9 +169,12 @@ pub(super) fn deconflict_lib_section(
     current_path: &std::path::Path,
     seed: &SeedNames,
     requested: &HashSet<&str>,
+    hidden: &HashSet<String>,
     bare_exports: &mut HashMap<String, String>,
     prior: &mut HashMap<String, String>,
+    hidden_prior: &mut HashMap<String, String>,
     mangle_seq: &mut usize,
+    hidden_inject: &mut HashSet<String>,
 ) -> Result<HashMap<String, String>, String> {
     // orig → mangled (drives the arena rewrite) and mangled → FIELD
     // spelling (what the namespace accumulator shows the importer —
@@ -171,12 +185,16 @@ pub(super) fn deconflict_lib_section(
         let Some(name) = top_value_decl_name(&lib_section[i]) else {
             continue;
         };
+        // A hidden dep that happens to share the requested spelling is
+        // an import of a NON-export (the request can't be satisfied
+        // either way, staying loud) — the dep's mangle wins.
+        let is_hidden = hidden.contains(&name);
         // A bare-exported decl (`const a = …; export { a as b }`)
         // injects under its FACE (P13-S4b renames it), so the face is
         // its collision surface — the decl's own spelling never lands.
         let bare_face = bare_exports.get(&name).cloned();
         let surface = bare_face.as_deref().unwrap_or(name.as_str());
-        if requested.contains(surface) {
+        if requested.contains(surface) && !is_hidden {
             if prior.contains_key(&name) {
                 return Err(format!(
                     "import name `{surface}` collides with a same-named export of another \
@@ -185,17 +203,26 @@ pub(super) fn deconflict_lib_section(
             }
             continue;
         }
-        let prior_mangle = prior.get(&name).cloned();
+        let prior_mangle = prior
+            .get(&name)
+            .or_else(|| hidden_prior.get(&name))
+            .cloned();
         let collides = seed.hard.contains(surface)
             || seed
                 .reserved
                 .get(surface)
                 .is_some_and(|p| p != current_path);
-        if prior_mangle.is_none() && !collides {
+        if prior_mangle.is_none() && !collides && !is_hidden {
             continue;
         }
         if rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, &name) {
-            continue; // decline — keeps the loud redeclaration reject
+            // decline — keeps the loud redeclaration reject. A hidden
+            // dep still injects under its own spelling when nothing
+            // collides; a colliding one keeps the loud unknown.
+            if is_hidden && !collides && prior_mangle.is_none() {
+                hidden_inject.insert(name);
+            }
+            continue;
         }
         let mangled = prior_mangle.unwrap_or_else(|| {
             *mangle_seq += 1;
@@ -203,7 +230,14 @@ pub(super) fn deconflict_lib_section(
         });
         rename_top_decl(&mut lib_section[i], &mangled);
         copy_fn_name_tables(ast, &name, &mangled);
-        prior.insert(name.clone(), mangled.clone());
+        if is_hidden {
+            hidden_inject.insert(mangled.clone());
+        }
+        if collides || prior.contains_key(&name) {
+            prior.insert(name.clone(), mangled.clone());
+        } else {
+            hidden_prior.insert(name.clone(), mangled.clone());
+        }
         if let Some(face) = bare_face {
             // Re-key so the injection recognizes the mangled decl as
             // bare-exported but keeps its spelling (the map's value ==
@@ -308,13 +342,17 @@ fn copy_fn_name_tables(ast: &mut Ast, old: &str, new: &str) {
     }
 }
 
+mod hidden;
+pub(super) use hidden::LaneShape;
+
 /// The per-request prep between "lib section drained" and "walk":
 /// the importer's want / spelling maps, the lib's export faces (user
 /// spellings — collected before any rename), then the 423-01
 /// deconflict census over the colliding unrequested decl names. The
 /// demangle map lets the namespace accumulator claim fields by the
-/// export spelling while referencing the mangled binding.
-#[allow(clippy::type_complexity)]
+/// export spelling while referencing the mangled binding. The last
+/// tuple slot is the hidden-dependency injection set (knife C).
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn prep_lib_request<'a>(
     ast: &mut Ast,
     lib_section: &mut [Stmt],
@@ -323,7 +361,9 @@ pub(super) fn prep_lib_request<'a>(
     named: &'a [super::NamedImport],
     seed: &mut SeedNames,
     prior_mangles: &mut HashMap<String, String>,
+    hidden_mangles: &mut HashMap<String, String>,
     mangle_seq: &mut usize,
+    lane: LaneShape,
 ) -> Result<
     (
         HashSet<&'a str>,
@@ -331,6 +371,7 @@ pub(super) fn prep_lib_request<'a>(
         HashMap<String, String>,
         HashSet<String>,
         HashMap<String, String>,
+        HashSet<String>,
     ),
     String,
 > {
@@ -348,10 +389,16 @@ pub(super) fn prep_lib_request<'a>(
     }
     let mut bare_exports = super::resolve_helpers::collect_bare_exports(lib_section);
     let own_exports = super::resolve_helpers::collect_own_export_names(lib_section);
+    let hidden = if lane.side_effect_only {
+        HashSet::new()
+    } else {
+        hidden::hidden_injection_closure(ast, lib_section, &want, &bare_exports, &lane)
+    };
     // The census compares each decl's injected SURFACE (a bare
     // export's face, the decl name otherwise) against this set — an
     // importer-requested spelling lands importer-visible on purpose.
     let requested: HashSet<&str> = want.iter().copied().collect();
+    let mut hidden_inject: HashSet<String> = HashSet::new();
     let demangle = deconflict_lib_section(
         ast,
         lib_section,
@@ -359,10 +406,20 @@ pub(super) fn prep_lib_request<'a>(
         current_path,
         seed,
         &requested,
+        &hidden,
         &mut bare_exports,
         prior_mangles,
+        hidden_mangles,
         mangle_seq,
+        &mut hidden_inject,
     )?;
     extend_seen_with_lib(lib_section, &bare_exports, seed);
-    Ok((want, rename, bare_exports, own_exports, demangle))
+    Ok((
+        want,
+        rename,
+        bare_exports,
+        own_exports,
+        demangle,
+        hidden_inject,
+    ))
 }

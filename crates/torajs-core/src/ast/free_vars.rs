@@ -64,6 +64,15 @@ pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -
     out
 }
 
+/// 423-01 knife C — the free identifier names of ONE top-level lib
+/// statement, for the module resolver's hidden-dependency census.
+/// Same walk as the arrow lift with nothing pre-bound: the caller
+/// intersects the answer against the lib's own top-level decl names,
+/// so over-reporting (builtins, entry spellings) is harmless.
+pub(crate) fn free_idents_of_stmt(ast: &Ast, s: &Stmt) -> Vec<String> {
+    free_vars_of_body(ast, &[], std::slice::from_ref(s))
+}
+
 /// Function declarations hoist: a reference anywhere in the holding
 /// list — including before the declaration — resolves to the local
 /// decl, never to an outer binding. Bind every direct FnDecl name
