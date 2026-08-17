@@ -37,10 +37,19 @@ pub(crate) fn try_pad(
     if effective_args.len() >= params.len() {
         return None;
     }
-    let trailing_all_any = params[effective_args.len()..]
-        .iter()
-        .all(|t| matches!(t, Type::Any));
-    if !trailing_all_any {
+    // 424-01 — an optional trailing param (`(p?: number) =>`,
+    // spelled Nullable) also binds undefined when the call omits it
+    // (§10.2.1.4). Only the Nullable shapes that MATERIALIZE as Any
+    // may take the ANY_UNDEF pad (`nullable_inner_boxes`'s scalar
+    // set); a pointer-shaped Nullable slot carries a per-type
+    // sentinel instead and keeps the strict-arity error (recorded
+    // residual).
+    let trailing_all_padable = params[effective_args.len()..].iter().all(|t| {
+        matches!(t, Type::Any)
+            || matches!(t, Type::Nullable(inner)
+                if matches!(inner.as_ref(), Type::Number | Type::Boolean))
+    });
+    if !trailing_all_padable {
         return None;
     }
     for arg_id in effective_args.iter() {

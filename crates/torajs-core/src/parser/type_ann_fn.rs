@@ -104,19 +104,45 @@ impl Parser<'_> {
                     }
                 }
                 // Optional `name:` prefix on each param. Name is discarded;
-                // we keep only the type. Two shapes accepted:
-                //   `name: T` — TS standard fn-type form.
-                //   `T`       — bare type, no name (fallback).
+                // we keep only the type. Three shapes accepted:
+                //   `name: T`  — TS standard fn-type form.
+                //   `name?: T` — optional param (424-01). Encodes as
+                //     `__nullable(T)`, the SAME spelling a value-side
+                //     `(b?: string) =>` parameter carries (see
+                //     `param_optional_default.rs`) — the two faces of
+                //     one annotation must not disagree, and refusing
+                //     the SPELLING made every program carrying a
+                //     TS-idiomatic callback annotation a parse error.
+                //     The arity face (a shorter call through the
+                //     slot) is checker territory — 424-01 residual.
+                //   `T`        — bare type, no name (fallback).
                 let name_then_colon = matches!(self.peek(), Token::Ident(_))
                     && matches!(
                         self.tokens.get(self.pos + 1).map(|s| &s.token),
                         Some(Token::Colon)
                     );
-                if name_then_colon {
+                let name_question_colon = matches!(self.peek(), Token::Ident(_))
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|s| &s.token),
+                        Some(Token::Question)
+                    )
+                    && matches!(
+                        self.tokens.get(self.pos + 2).map(|s| &s.token),
+                        Some(Token::Colon)
+                    );
+                if name_question_colon {
+                    self.pos += 3;
+                    fn_shape_pinned = true;
+                } else if name_then_colon {
                     self.pos += 2;
                     fn_shape_pinned = true;
                 }
                 let pty = self.parse_type_ann()?;
+                let pty = if name_question_colon && !pty.starts_with("__nullable(") {
+                    format!("__nullable({pty})")
+                } else {
+                    pty
+                };
                 params.push(pty);
                 match self.peek() {
                     Token::Comma => self.pos += 1,
