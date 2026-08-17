@@ -146,6 +146,17 @@ function __t262_notSameValue<T>(actual: T, expected: T, msg: string = ""): void 
 // cases at typecheck; the any-call lane pads missing arguments with
 // undefined.
 function __t262_throws_anyfn(thunk: any, msg: string = ""): void {
+  // Real test262 assert.js guards callability BEFORE invoking: a
+  // non-function second argument must raise Test262Error, not
+  // whatever the call-of-non-callable would raise downstream
+  // (harness/assert-throws-null-fn.js probes null / {} / "").
+  // Only this `any` entry needs the guard — the typed literal entry
+  // can only ever receive a function/arrow literal by construction.
+  if (typeof thunk !== "function") {
+    throw new Test262Error(
+      "assert.throws requires two arguments: the error constructor and a function to run"
+    );
+  }
   let threw: boolean = false;
   try {
     thunk();
