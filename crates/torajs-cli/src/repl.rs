@@ -286,6 +286,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     ast::synthesize_fn_to_closure_forwarders(&mut a);
     ast::desugar_function_prototype_methods(&mut a);
     ast::desugar_uninit_let(&mut a);
+    ast::synthesize_sig_thunks(&mut a);
     if let Err(e) = check::check(&a) {
         return ParseOutcome::Error(format!("type: {e}"));
     }

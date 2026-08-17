@@ -221,4 +221,10 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     ast::apply_rest_args(ast);
     ast::apply_spread_args(ast);
     ast::fold_fromentries(ast);
+    // RFC 20260817-fnsig-reabstraction-thunk — last: it rewrites
+    // call-ARGUMENT positions only (the forwarder axes own the
+    // store sites), reads the targets' post-materialize param
+    // spellings, and its thunk bodies pass every argument
+    // explicitly, so nothing after it needs to run again.
+    ast::synthesize_sig_thunks(ast);
 }

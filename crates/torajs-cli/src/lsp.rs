@@ -261,6 +261,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::apply_rest_args(&mut ast);
         torajs_core::ast::apply_spread_args(&mut ast);
         torajs_core::ast::fold_fromentries(&mut ast);
+        torajs_core::ast::synthesize_sig_thunks(&mut ast);
 
         // T-04 (v0.3.0) — switch to the diagnostic stream so warnings
         // surface alongside errors and per-site spans (where attached)
