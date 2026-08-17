@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `37fc80ab`** (2026-08-17, rotations 427-428 — the hidden-
+**Latest @ `dc7435f8`** (2026-08-17, rotation 429 — the declare-
+arguments arrow lane and the dyn-import instantiation rejects. The
+§19.2.1.3 legal half lands: a direct eval in a true arrow's default-
+parameter position that var-declares `arguments` gets real
+parameter-scope semantics (defaults lower into the body, a synthesized
+per-arrow var carries the binding, lexical references α-rename;
+a parameter itself named `arguments` throws at call time) — the
+arrow-fn family goes 12/12, and the throws-harness thunk splits into
+a typed literal entry and an any-arity identifier entry, closing the
+func-decl four. Dyn-import candidates whose indirect exports never
+resolve stop failing the build: a dangling `__reex_` binding
+(circular `export {x} from` chains, missing sources) or an AMBIGUOUS
+star landing (two `export * from` clauses landing one name from
+different modules — the Landings ledger records decl landings by
+path, so transitive diamonds never false-positive) poisons the
+dispatcher entry into a §16.2.1.5 SyntaxError promise reject — the
+instn-iee-err families go green (31 forward). The class value-
+reference rewrite turned shadow-aware (a param/let/catch binding
+spelling a class name owns its references — the flat arena scan
+silently handed them to the class object). Sweep vs 428: passTotal
+30570 → **30617 (+47)**, bug −22, incompatible −25, conservation
+exact, **zero pass regressions** (the first in-rotation sweep caught
+two self-inflicted ones — an eval pre-parse polluting side-tables
+and the any-lane thunk tripping the capture-types stop — both fixed
+before close). Gate 3053/0/4. Gate predicate **234 unattributed
+clusters / 2754 cases / register 2 · 516 / residue 732 · 922 / core
+4192**.)
+
+**Prior @ `37fc80ab`** (2026-08-17, rotations 427-428 — the hidden-
 dependency census and the full ClassDecl rename. Rotation 427 (knife
 C/D0/D1/D2): a named import's injection closure — the free variables
 of every injected decl, recursed to a fixpoint over the lib's own
