@@ -201,6 +201,16 @@ pub(super) fn deconflict_lib_section(
                      module; import it through a namespace (`import * as ns`) instead"
                 ));
             }
+            hoist_face_rename(
+                ast,
+                lib_section,
+                lib_expr_offset,
+                i,
+                &name,
+                &bare_face,
+                bare_exports,
+                &mut mangles,
+            );
             continue;
         }
         let prior_mangle = prior
@@ -213,6 +223,16 @@ pub(super) fn deconflict_lib_section(
                 .get(surface)
                 .is_some_and(|p| p != current_path);
         if prior_mangle.is_none() && !collides && !is_hidden {
+            hoist_face_rename(
+                ast,
+                lib_section,
+                lib_expr_offset,
+                i,
+                &name,
+                &bare_face,
+                bare_exports,
+                &mut mangles,
+            );
             continue;
         }
         if rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, &name) {
@@ -265,6 +285,41 @@ pub(super) fn deconflict_lib_section(
         }
     }
     Ok(demangle)
+}
+
+/// 427-01 — the P13-S4b face rename (`const a = …; export { a as b }`
+/// injects under `b`), hoisted from walk time into the census: the
+/// walk-time rename only followed a fn's self-references, so a
+/// SIBLING decl reading the original spelling (`export const c =
+/// a * 2`) broke. Routing the rename through the census's arena
+/// rewrite follows every reference; the re-keyed map (value == decl
+/// name) makes the walk skip its shallow rename. Declines — keeping
+/// the walk-time behavior — when the lib rebinds either spelling
+/// anywhere (blind-rewrite soundness on the old name; a rebound FACE
+/// would capture the rewritten references).
+#[allow(clippy::too_many_arguments)]
+fn hoist_face_rename(
+    ast: &mut Ast,
+    lib_section: &mut [Stmt],
+    lib_expr_offset: usize,
+    i: usize,
+    name: &str,
+    bare_face: &Option<String>,
+    bare_exports: &mut HashMap<String, String>,
+    mangles: &mut HashMap<String, String>,
+) {
+    let Some(face) = bare_face else { return };
+    if face == name
+        || rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, name)
+        || rebinds_elsewhere(ast, lib_section, lib_expr_offset, i, face)
+    {
+        return;
+    }
+    rename_top_decl(&mut lib_section[i], face);
+    copy_fn_name_tables(ast, name, face);
+    bare_exports.remove(name);
+    bare_exports.insert(face.clone(), face.clone());
+    mangles.insert(name.to_string(), face.clone());
 }
 
 /// The FnDecl / LetDecl name a top-level lib statement declares
