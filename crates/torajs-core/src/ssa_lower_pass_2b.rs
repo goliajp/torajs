@@ -129,14 +129,16 @@ pub(crate) fn run(
             // (pass 2A user fns, pass 3 main) and its own reverse
             // append order puts enclosing bodies first, so no
             // construction site exists anywhere in the program and
-            // the fn value can never come to exist. The module
-            // resolver strands such orphans — a discarded lib
-            // statement's fn literal still rides the whole-arena
-            // lift (`lift_arrow_fns` walks every arena expr,
-            // statement-dead or not), capturing bindings that were
-            // never declared. Lowering the body would panic on the
-            // env preamble; the pass-1 shell stays an empty
-            // Function no call site can reach.
+            // the fn value can never come to exist. Defence in
+            // depth: the module channel that used to strand such
+            // orphans (a discarded lib copy's fn literal riding the
+            // whole-arena lift) is closed at the source by the
+            // resolver's dead-copy sweep (`modules/dead_lib_exprs`),
+            // but any OTHER channel that materializes a dead expr —
+            // the generic-twin clone lane guards its own with
+            // `neutralize_clone` — still lands here instead of
+            // panicking on the env preamble. The pass-1 shell stays
+            // an empty Function no call site can reach.
             let dead_orphan = params.first().is_some_and(|p| {
                 p.name == "__env"
                     && p.type_ann

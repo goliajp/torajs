@@ -48,9 +48,11 @@ pub(super) struct EntrySeed {
     pub(super) requests: Vec<StaticRequest>,
     import_bindings: HashSet<String>,
     /// The arena length BEFORE any lib parses — marks which
-    /// expressions the entry itself wrote (the import-binding write
-    /// rejection scopes to exactly those).
-    entry_expr_len: usize,
+    /// expressions the entry itself wrote. The import-binding write
+    /// rejection scopes to exactly those, and the dead-copy sweep
+    /// (`dead_lib_exprs`) reads it as the tombstone floor: entry
+    /// arena is never a candidate.
+    pub(super) entry_expr_len: usize,
 }
 
 pub(super) fn seed_entry_requests(

@@ -9,6 +9,47 @@ use std::path::PathBuf;
 use super::dyn_import;
 use super::graph::ModuleGraph;
 use super::resolve_helpers::{NsAccum, inline_dyn_ns_objlits, materialize_pending_namespaces};
+use super::{dead_lib_exprs, static_resolution};
+
+/// The resolver's whole tail in one call, extracted so
+/// `resolve_imports` stays under its function budget: the §16.2.1.5/.6
+/// post-BFS judgment (`static_resolution::finalize`), the final
+/// assembly + splice, then the dead-copy sweep — which MUST run last,
+/// because reachability is only decidable once `ast.stmts` is the
+/// program that will actually compile.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn settle_and_splice(
+    ast: &mut Ast,
+    graph: &ModuleGraph,
+    injections_by_path: HashMap<PathBuf, Vec<Stmt>>,
+    dyn_table: &[(String, String)],
+    ns_order: &[String],
+    ns_accums: &HashMap<String, NsAccum>,
+    dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
+    ambiguous_locals: &HashSet<String>,
+    entry_seed: &static_resolution::EntrySeed,
+) -> Result<(), String> {
+    static_resolution::finalize(
+        ast,
+        entry_seed,
+        &injections_by_path,
+        ns_accums,
+        ambiguous_locals,
+    )?;
+    let entry_expr_len = entry_seed.entry_expr_len;
+    assemble_and_splice(
+        ast,
+        graph,
+        injections_by_path,
+        dyn_table,
+        ns_order,
+        ns_accums,
+        dyn_ns_inline,
+        ambiguous_locals,
+    );
+    dead_lib_exprs::sweep(ast, entry_expr_len);
+    Ok(())
+}
 
 /// The resolver's final assembly, moved from `resolve_imports` when
 /// its function budget ran out: order the per-path injections by

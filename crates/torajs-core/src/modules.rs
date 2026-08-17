@@ -308,16 +308,9 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         );
     }
 
-    // §16.2.1.5/.6 post-BFS judgment — see `static_resolution.rs`.
-    static_resolution::finalize(
-        ast,
-        &entry_seed,
-        &injections_by_path,
-        &ns_accums,
-        &ambiguous_locals,
-    )?;
-
-    splice::assemble_and_splice(
+    // §16.2.1.5/.6 post-BFS judgment + final assembly + dead-copy
+    // sweep — see `splice::settle_and_splice`.
+    splice::settle_and_splice(
         ast,
         &graph,
         injections_by_path,
@@ -326,7 +319,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         &ns_accums,
         &mut dyn_ns_inline,
         &ambiguous_locals,
-    );
+        &entry_seed,
+    )?;
     Ok(closure_files)
 }
 
@@ -376,6 +370,7 @@ fn load_lib_section(
     Ok((lib_section, lib_expr_offset, target_dir, table_delta))
 }
 
+mod dead_lib_exprs;
 mod deconflict;
 mod default_binding;
 mod dyn_import;
