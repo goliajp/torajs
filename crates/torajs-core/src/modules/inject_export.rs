@@ -102,10 +102,11 @@ pub(super) fn inject_export_inner(
         // would rewrite it twice); a TypeDecl is ExprId-free and
         // clones plainly; a LetDecl aliases by REFERENCE (`const
         // renamed = fa`) so its initializer evaluates once, per
-        // §16.2.1's one-binding semantics. A ClassDecl keeps today's
-        // single-spelling behavior — the missing alias stays a loud
-        // unknown-identifier, never a silently duplicated class
-        // identity (recorded residual).
+        // §16.2.1's one-binding semantics. A ClassDecl aliases by
+        // reference too (423-01 knife D1): `const K2 = K` shares the
+        // ONE class identity — `new K2()` rides the non-class-new
+        // NewDynamic route off the class value, instanceof included —
+        // where a deep clone would silently split statics and brand.
         let mut extra_decls: Vec<Stmt> = Vec::new();
         for alias in extras {
             match &inner {
@@ -121,7 +122,7 @@ pub(super) fn inject_export_inner(
                     rename_decl(&mut copy, alias.to_string());
                     extra_decls.push(copy);
                 }
-                Stmt::LetDecl { .. } => {
+                Stmt::LetDecl { .. } | Stmt::ClassDecl { .. } => {
                     let init = ast.add_expr(Expr::Ident(first.clone()));
                     extra_decls.push(Stmt::LetDecl {
                         mutable: false,
