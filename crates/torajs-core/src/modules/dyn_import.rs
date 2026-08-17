@@ -67,7 +67,7 @@ pub(super) fn seed_candidates(
     if ast.dyn_import_present {
         for (k, (lit, path)) in collect_candidates(ast, base_dir).into_iter().enumerate() {
             let ns_name = format!("__dyn_ns_c{k}");
-            work.push_back((path, Vec::new(), None, false, Some(ns_name.clone())));
+            work.push_back((path, Vec::new(), None, false, Some(ns_name.clone()), false));
             table.push((lit, ns_name));
         }
     }

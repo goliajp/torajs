@@ -89,12 +89,19 @@ pub(super) type NamedImport = (String, Option<String>);
 /// `import * as M from "./y"`; the lib's full export list materializes
 /// as a synthetic `let M = { name1: name1, name2: name2, ... }`
 /// after the named decls inject).
+/// (path, named, default_alias, side_effect_only, namespace_alias,
+/// ns_star_feed). The last flag marks a `export * from "m"` pour into
+/// an existing namespace accumulator: §16.2.3 star forwarding
+/// excludes `default`, so the ns `default`-field synthesis must skip
+/// these walks (a DIRECT namespace request and `export * as ns` both
+/// carry the module's own default and stay false).
 type WorkItem = (
     PathBuf,
     Vec<NamedImport>,
     Option<String>,
     bool,
     Option<String>,
+    bool,
 );
 
 /// The modules the ENTRY file requests, in clause order, onto the
@@ -209,8 +216,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // first — re-walking would re-lower the same ExprId.
     let mut default_bound_as: HashMap<PathBuf, String> = HashMap::new();
 
-    while let Some((target_path, named, mut default_alias, side_effect_only, mut namespace_alias)) =
-        work.pop_front()
+    while let Some((
+        target_path,
+        named,
+        mut default_alias,
+        side_effect_only,
+        mut namespace_alias,
+        ns_star_feed,
+    )) = work.pop_front()
     {
         if let Some(ns) = namespace_alias
             .as_ref()
@@ -258,13 +271,20 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         let mut lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
 
         // §16.2.1.10 ns `default` field — see `default_binding.rs`.
-        let repeat_default_field = default_binding::synth_ns_default_binding(
-            &lib_section,
-            &namespace_alias,
-            &mut default_alias,
-            &default_bound_as,
-            &target_path,
-        );
+        // Not on a star pour: §16.2.3 `export * from` never forwards
+        // `default`, so a star-fed walk of a default-carrying module
+        // must not mint the field.
+        let repeat_default_field = if ns_star_feed {
+            None
+        } else {
+            default_binding::synth_ns_default_binding(
+                &lib_section,
+                &namespace_alias,
+                &mut default_alias,
+                &default_bound_as,
+                &target_path,
+            )
+        };
         if let Some(a) = &default_alias {
             default_bound_as.insert(target_path.clone(), a.clone());
         }

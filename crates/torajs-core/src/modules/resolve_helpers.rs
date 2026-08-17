@@ -133,7 +133,7 @@ pub(super) fn queue_nested_import(
     check_k2_form(source, &default, &namespace, &named)?;
     let path = resolve_path(dir, source)?;
     let side_effect_only = named.is_empty() && default.is_none() && namespace.is_none();
-    work.push_back((path, named, default, side_effect_only, namespace));
+    work.push_back((path, named, default, side_effect_only, namespace, false));
     Ok(())
 }
 
@@ -188,7 +188,14 @@ pub(super) fn queue_reexport(
         };
         for final_name in final_names {
             if orig == "default" {
-                work.push_back((path.clone(), Vec::new(), Some(final_name), false, None));
+                work.push_back((
+                    path.clone(),
+                    Vec::new(),
+                    Some(final_name),
+                    false,
+                    None,
+                    false,
+                ));
                 continue;
             }
             // Re-export's nested load fetches `orig` from
@@ -205,7 +212,7 @@ pub(super) fn queue_reexport(
         }
     }
     if !nested_named.is_empty() {
-        work.push_back((path, nested_named, None, false, None));
+        work.push_back((path, nested_named, None, false, None, false));
     }
     Ok(())
 }
@@ -247,12 +254,21 @@ pub(super) fn queue_star_reexport(
             // One namespace load per importer-visible spelling
             // (421-04) — each alias gets its own accumulator.
             for local in star_ns_locals(exported, want, rename, default_alias, ns) {
-                work.push_back((path.clone(), Vec::new(), None, false, Some(local)));
+                work.push_back((path.clone(), Vec::new(), None, false, Some(local), false));
             }
         }
         ExportStar::All => match ns {
             Some(ns) => {
-                work.push_back((path, Vec::new(), None, false, Some(ns.alias().to_string())))
+                // `export * from` pour — §16.2.3 excludes `default`; the
+                // flag keeps the ns default-field synthesis off this walk.
+                work.push_back((
+                    path,
+                    Vec::new(),
+                    None,
+                    false,
+                    Some(ns.alias().to_string()),
+                    true,
+                ))
             }
             None => {
                 let forwarded: Vec<NamedImport> = want
@@ -267,7 +283,7 @@ pub(super) fn queue_star_reexport(
                     })
                     .collect();
                 if !forwarded.is_empty() {
-                    work.push_back((path, forwarded, None, false, None));
+                    work.push_back((path, forwarded, None, false, None, false));
                 }
             }
         },
