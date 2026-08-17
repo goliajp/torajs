@@ -26,6 +26,7 @@ pub(super) fn inject_export_inner(
     rename: &HashMap<&str, Vec<&str>>,
     ns: Option<&mut NsAccum>,
     injected: &mut HashSet<String>,
+    demangle: &HashMap<String, String>,
 ) {
     // Type decls always inject — TS doesn't require type
     // names in the value-import list, and downstream
@@ -46,7 +47,10 @@ pub(super) fn inject_export_inner(
     if let Some(ns) = ns
         && let Some(name) = decl_name(&inner)
     {
-        if ns.claim(&name) && injected.insert(name) {
+        // The FIELD keeps the export spelling even when the census
+        // mangled the local decl (423-01 deconflict).
+        let field = demangle.get(&name).cloned().unwrap_or_else(|| name.clone());
+        if ns.claim(&field, &name) && injected.insert(name) {
             injections.push(inner);
         }
         return;
@@ -140,6 +144,7 @@ pub(super) fn inject_bare_exported_decl(
     rename: &HashMap<&str, Vec<&str>>,
     ns: Option<&mut NsAccum>,
     injected: &mut HashSet<String>,
+    demangle: &HashMap<String, String>,
 ) {
     if let Some(dname) = decl_name(&other)
         && let Some(exported) = bare_exports.get(&dname)
@@ -152,7 +157,7 @@ pub(super) fn inject_bare_exported_decl(
             copy_fn_name_tables(ast, &dname, exported);
             rename_decl(&mut inner, exported.clone());
         }
-        inject_export_inner(ast, injections, inner, want, rename, ns, injected);
+        inject_export_inner(ast, injections, inner, want, rename, ns, injected, demangle);
     }
 }
 

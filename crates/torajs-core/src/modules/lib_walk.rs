@@ -32,6 +32,11 @@ pub(super) struct LibRequest<'a> {
     /// again, whichever lane asks) and writes it (so a later NAMED
     /// request for a name this walk injected filters to nothing).
     pub(super) injected: &'a mut HashSet<String>,
+    /// 423-01 deconflict — mangled local name → original export
+    /// spelling, for the decls this walk's census renamed. The
+    /// namespace accumulator claims FIELDS by the original spelling
+    /// while referencing the mangled binding.
+    pub(super) demangle: &'a HashMap<String, String>,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -151,6 +156,7 @@ pub(super) fn walk_lib_stmt(
                 req.rename,
                 req.ns.as_deref_mut(),
                 req.injected,
+                req.demangle,
             );
         }
         Stmt::ExportDecl {
@@ -202,6 +208,7 @@ pub(super) fn walk_lib_stmt(
                 req.rename,
                 req.ns.as_deref_mut(),
                 req.injected,
+                req.demangle,
             );
         }
     }

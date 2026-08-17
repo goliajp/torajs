@@ -271,6 +271,10 @@ fn register_fn_name(
         .map(|(target, _id)| format!("bound {target}"));
     let visible = bound_form.as_deref().unwrap_or_else(|| {
         let base = name.strip_prefix("__forward_").unwrap_or(name);
+        // 423-01 deconflict — a module-mangled decl (`__m<k>_<name>`)
+        // answers the user spelling, mirroring the namespace object's
+        // FIELD face (`B.tag.name` must say "tag").
+        let base = strip_module_mangle(base);
         // RFC 20260729-fn-value-any V4 刀 2 — a hoisted generator
         // EXPRESSION answers the NamedEvaluation verdict the hoist
         // pass recorded (binding name, or its own self-name, or the
@@ -357,6 +361,24 @@ pub(crate) fn intern_fn_source(
 /// `B__f`. Shared with the static `.name` member fold
 /// (`ssa_lower_member_fn_intro`), which sees the same mangled ident
 /// after the checker rewrites `K.sf` to `Ident("__sm_K__sf")`.
+/// `__m<k>_<name>` → `<name>` — the 423-01 module-deconflict mangle
+/// shape (`__m` + decimal sequence + `_`). Anything else — including
+/// other `__m…` synthetics whose next byte is not a digit — passes
+/// through untouched.
+fn strip_module_mangle(n: &str) -> &str {
+    let Some(rest) = n.strip_prefix("__m") else {
+        return n;
+    };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return n;
+    }
+    match rest[digits..].strip_prefix('_') {
+        Some(user) if !user.is_empty() => user,
+        _ => n,
+    }
+}
+
 pub(crate) fn strip_static_method_name<'a>(
     name: &'a str,
     class_parents: &HashMap<String, Option<String>>,

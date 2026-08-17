@@ -22,7 +22,11 @@ use super::{
 /// shadows one reached through a star.
 pub(super) struct NsAccum {
     alias: String,
-    order: Vec<String>,
+    /// (importer-visible field spelling, injected local binding) —
+    /// the two differ when the deconflict pass mangled a colliding
+    /// decl (423-01): the FIELD keeps the export name, the value
+    /// Ident references the mangled top-level binding.
+    order: Vec<(String, String)>,
     seen: HashSet<String>,
 }
 
@@ -40,17 +44,18 @@ impl NsAccum {
         &self.alias
     }
 
-    pub(super) fn fields(&self) -> &[String] {
+    pub(super) fn fields(&self) -> &[(String, String)] {
         &self.order
     }
 
-    /// Claim `name` for this namespace. `false` = another module
-    /// already contributed it, so this occurrence is shadowed and its
-    /// declaration must NOT inject — a second top-level decl of the
-    /// same name is a redeclaration, not an override.
-    pub(super) fn claim(&mut self, name: &str) -> bool {
+    /// Claim the FIELD spelling `name` for this namespace, backed by
+    /// the top-level binding `local`. `false` = another module
+    /// already contributed the field, so this occurrence is shadowed
+    /// and its declaration must NOT inject — a second top-level decl
+    /// of the same name is a redeclaration, not an override.
+    pub(super) fn claim(&mut self, name: &str, local: &str) -> bool {
         if self.seen.insert(name.to_string()) {
-            self.order.push(name.to_string());
+            self.order.push((name.to_string(), local.to_string()));
             true
         } else {
             false
@@ -284,8 +289,11 @@ fn star_ns_locals(
     ns: Option<&mut NsAccum>,
 ) -> Vec<String> {
     if let Some(ns) = ns {
+        // Star-forwarded names re-enter the BFS as NAMED requests, so
+        // the remote decl keeps its exported spelling (the deconflict
+        // census never mangles a requested name) — field == local.
         return ns
-            .claim(exported)
+            .claim(exported, exported)
             .then(|| exported.to_string())
             .into_iter()
             .collect();
@@ -348,7 +356,7 @@ pub(super) fn materialize_pending_namespaces(
     injections: &mut Vec<Stmt>,
     order: &[String],
     accums: &HashMap<String, NsAccum>,
-    dyn_ns_inline: &mut Vec<(String, Vec<String>)>,
+    dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
 ) {
     for alias in order.iter().rev() {
         let Some(accum) = accums.get(alias) else {
@@ -360,8 +368,8 @@ pub(super) fn materialize_pending_namespaces(
         }
         let mut fields: Vec<(String, crate::ast::ExprId)> =
             Vec::with_capacity(accum.fields().len());
-        for name in accum.fields() {
-            let id = ast.add_expr(Expr::Ident(name.clone()));
+        for (name, local) in accum.fields() {
+            let id = ast.add_expr(Expr::Ident(local.clone()));
             fields.push((name.clone(), id));
         }
         let obj_id = ast.add_expr(Expr::ObjectLit { fields });
@@ -410,7 +418,7 @@ pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, Stri
 /// arena scan is name-keyed — sound because `__dyn_ns_<n>` names are
 /// parser-minted and arena-offset-seeded, so no other Ident can
 /// spell one.
-pub(super) fn inline_dyn_ns_objlits(ast: &mut Ast, rewrites: &[(String, Vec<String>)]) {
+pub(super) fn inline_dyn_ns_objlits(ast: &mut Ast, rewrites: &[(String, Vec<(String, String)>)]) {
     for (ns_name, field_names) in rewrites {
         let hits: Vec<usize> = ast
             .exprs
@@ -424,8 +432,8 @@ pub(super) fn inline_dyn_ns_objlits(ast: &mut Ast, rewrites: &[(String, Vec<Stri
         for idx in hits {
             let mut fields: Vec<(String, crate::ast::ExprId)> =
                 Vec::with_capacity(field_names.len());
-            for name in field_names {
-                let id = ast.add_expr(Expr::Ident(name.clone()));
+            for (name, local) in field_names {
+                let id = ast.add_expr(Expr::Ident(local.clone()));
                 fields.push((name.clone(), id));
             }
             ast.exprs[idx] = Expr::ObjectLit { fields };

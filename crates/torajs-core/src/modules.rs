@@ -75,7 +75,7 @@ use std::path::{Path, PathBuf};
 
 /// One named entry in an `import` clause: `(orig_name, alias)`. `alias`
 /// is `Some` for `import { foo as bar }`, `None` otherwise.
-type NamedImport = (String, Option<String>);
+pub(super) type NamedImport = (String, Option<String>);
 
 /// Worklist entry for the BFS resolver — the canonicalized absolute
 /// path of a module to load, plus the named-imports list that drove
@@ -137,6 +137,30 @@ fn seed_entry_requests(
     Ok(())
 }
 
+/// The repeat-default shortcut — a later default request against a
+/// path whose default export already materialized binds the new
+/// alias by reference instead of re-walking (see `default_bound_as`).
+fn shortcut_repeat_default(
+    ast: &mut Ast,
+    target_path: &Path,
+    default_alias: &mut Option<String>,
+    default_bound_as: &HashMap<PathBuf, String>,
+    injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
+) {
+    if let Some(second) = default_alias.as_ref()
+        && let Some(first) = default_bound_as.get(target_path)
+    {
+        if second != first {
+            let stmt = bind_repeat_default_alias(ast, first, second);
+            injections_by_path
+                .entry(target_path.to_path_buf())
+                .or_default()
+                .push(stmt);
+        }
+        *default_alias = None;
+    }
+}
+
 /// A later default request against a path whose default export
 /// already materialized (see `default_bound_as` in
 /// [`resolve_imports`]) — the new alias binds to the first one's
@@ -181,6 +205,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // threading: [`ModuleGraph::edges_since`] reads the tail.
     let mut graph = ModuleGraph::default();
 
+    // 423-01 deconflict state — the committed-name set (entry decls +
+    // entry import bindings, see `deconflict::seed_seen_names`) plus
+    // each path's mangle memory (the same file re-parses per request,
+    // and the same decl must keep the same mangle).
+    let mut seen_names = deconflict::seed_seen_names(ast);
+    let mut mangled_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
+    let mut mangle_seq: usize = 0;
+
     seed_entry_requests(ast, base_dir, &mut work)?;
     // §13.3.10 dynamic import — candidates queue before `graph.roots`
     // records so their injections ride the dependency-order splice.
@@ -200,8 +232,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // body). Field lists are remembered per path so a second
     // `import("...")` of an already-visited module (its request is
     // sentinel-deduped to nothing) still gets its rewrite.
-    let mut dyn_ns_inline: Vec<(String, Vec<String>)> = Vec::new();
-    let mut ns_fields_by_path: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    let mut dyn_ns_inline: Vec<(String, Vec<(String, String)>)> = Vec::new();
+    let mut ns_fields_by_path: HashMap<PathBuf, Vec<(String, String)>> = HashMap::new();
     // Namespace object fields, keyed by the ALIAS rather than the
     // module — a lib's `export * from "m"` pours m's exports into the
     // same namespace, and m is a work item popped later. `ns_order`
@@ -227,18 +259,13 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             dyn_ns_inline.push((ns.clone(), fields.clone()));
             namespace_alias = None;
         }
-        if let Some(second) = &default_alias
-            && let Some(first) = default_bound_as.get(&target_path)
-        {
-            if second != first {
-                let stmt = bind_repeat_default_alias(ast, first, second);
-                injections_by_path
-                    .entry(target_path.clone())
-                    .or_default()
-                    .push(stmt);
-            }
-            default_alias = None;
-        }
+        shortcut_repeat_default(
+            ast,
+            &target_path,
+            &mut default_alias,
+            &default_bound_as,
+            &mut injections_by_path,
+        );
         // Filter the request against per-path injected state — see
         // [`filter_request`].
         let entry = injected_names.entry(target_path.clone()).or_default();
@@ -256,6 +283,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             .map_err(|e| format!("import {}: {e}", target_path.display()))?;
         let tokens = lexer::tokenize(&src_text)
             .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
+        let lib_expr_offset = ast.exprs.len();
         let lib_offset = parser::parse_into(&src_text, &tokens, ast)
             .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
         if closure_paths.insert(target_path.clone()) {
@@ -266,25 +294,20 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             .map(Path::to_path_buf)
             .unwrap_or_else(|| base_dir.to_path_buf());
 
-        let lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
+        let mut lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
 
         if let Some(a) = &default_alias {
             default_bound_as.insert(target_path.clone(), a.clone());
         }
-        let want: HashSet<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
-        // orig → every importer-visible spelling, in clause order
-        // (421-04: `import { fa, fa as renamed }` binds BOTH names —
-        // a single-alias map collapsed them to the last one).
-        let mut rename: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (orig, alias) in &named {
-            let visible = alias.as_deref().unwrap_or(orig.as_str());
-            let entry = rename.entry(orig.as_str()).or_default();
-            if !entry.contains(&visible) {
-                entry.push(visible);
-            }
-        }
-        let bare_exports = collect_bare_exports(&lib_section);
-        let own_exports = collect_own_export_names(&lib_section);
+        let (want, rename, bare_exports, own_exports, demangle) = deconflict::prep_lib_request(
+            ast,
+            &mut lib_section,
+            lib_expr_offset,
+            &named,
+            &mut seen_names,
+            mangled_by_path.entry(target_path.clone()).or_default(),
+            &mut mangle_seq,
+        )?;
 
         // For P13-S2 namespace import: the accumulator collecting the
         // names of every value-export injected (FnDecl / LetDecl /
@@ -316,6 +339,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             // ledger's writer: every decl it injects records here so
             // a later request (any lane) skips it.
             injected: injected_names.entry(target_path.clone()).or_default(),
+            demangle: &demangle,
         };
 
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
@@ -360,61 +384,21 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     Ok(closure_files)
 }
 
-/// Prepend the resolver's injected statements to the entry's own.
-/// An injected lib decl's recorded span indexes the LIB file's text,
-/// but every span consumer downstream (`intern_fn_source` / the
-/// class-method registry) slices the MAIN file's `ast.source`: out of
-/// bounds when the main file is shorter, silently wrong toString text
-/// otherwise. Reset to the (0,0) "no user source" sentinel — toString
-/// answers the native form.
-fn splice_injections(ast: &mut Ast, injections: Vec<Stmt>) {
-    if injections.is_empty() {
-        return;
-    }
-    let mut new_stmts = injections;
-    for s in &mut new_stmts {
-        clear_injected_spans(s);
-    }
-    new_stmts.extend(std::mem::take(&mut ast.stmts));
-    ast.stmts = new_stmts;
-}
-
-/// See the injection-splice comment in [`resolve_imports`] — recurse
-/// through nested fn bodies so every registry-visible declaration
-/// carries the sentinel.
-fn clear_injected_spans(s: &mut Stmt) {
-    match s {
-        Stmt::FnDecl { span, body, .. } => {
-            *span = crate::lexer::Span { start: 0, end: 0 };
-            for inner in body {
-                clear_injected_spans(inner);
-            }
-        }
-        Stmt::ClassDecl {
-            methods,
-            static_methods,
-            ..
-        } => {
-            for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-                m.span = crate::lexer::Span { start: 0, end: 0 };
-            }
-        }
-        _ => {}
-    }
-}
-
+mod deconflict;
 mod dyn_import;
 mod graph;
 mod inject_export;
 mod lib_walk;
 mod resolve_helpers;
+mod splice;
 use graph::ModuleGraph;
 use inject_export::{inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
 use resolve_helpers::{
-    NsAccum, collect_bare_exports, collect_own_export_names, filter_request, inline_dyn_ns_objlits,
-    materialize_pending_namespaces, queue_nested_import, queue_reexport, queue_star_reexport,
+    NsAccum, filter_request, inline_dyn_ns_objlits, materialize_pending_namespaces,
+    queue_nested_import, queue_reexport, queue_star_reexport,
 };
+use splice::splice_injections;
 
 fn check_k2_form(
     _source: &str,

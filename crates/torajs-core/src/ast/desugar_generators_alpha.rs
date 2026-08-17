@@ -126,7 +126,7 @@ fn rebinds_name(stmts: &[Stmt], name: &str) -> bool {
     stmts.iter().any(|s| rebinds_in_stmt(s, name))
 }
 
-fn rebinds_in_stmt(s: &Stmt, name: &str) -> bool {
+pub(crate) fn rebinds_in_stmt(s: &Stmt, name: &str) -> bool {
     match s {
         Stmt::LetDecl { name: n, .. } => n == name,
         Stmt::FnDecl {
