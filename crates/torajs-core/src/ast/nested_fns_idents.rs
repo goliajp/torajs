@@ -271,3 +271,18 @@ pub(super) fn arrow_rebinds(params: &[super::Param], body: &[Stmt], name: &str) 
             _ => false,
         })
 }
+
+/// 421-04 K.2 closure — rewrite a renamed import decl's free
+/// self-references. `import { fact as f1 }` injects the decl spelled
+/// `f1`, but its recursive call still reads `fact`, which is not in
+/// the importer's scope (the long-recorded K.2 corner). Same lexical
+/// walk the nested-fn lift uses for its mangled names; the resolver
+/// lives outside `ast`, so this fronts it. FnDecl-only — a LetDecl
+/// initializer never references its own binding (TDZ), and the other
+/// decl kinds don't rename through this lane.
+pub(crate) fn rename_fn_self_refs(ast: &mut Ast, s: &mut Stmt, orig: &str, new_name: &str) {
+    if let Stmt::FnDecl { body, .. } = s {
+        let renames = HashMap::from([(orig.to_string(), new_name.to_string())]);
+        rewrite_idents_in_body(ast, body, &renames, true);
+    }
+}

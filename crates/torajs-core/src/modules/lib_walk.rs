@@ -6,7 +6,7 @@
 //! further load, or drop? Split out of `modules.rs` when the
 //! `export * from` arm arrived.
 
-use crate::ast::Stmt;
+use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
@@ -22,7 +22,7 @@ pub(super) struct LibRequest<'a> {
     pub(super) side_effect_only: bool,
     pub(super) default_alias: &'a Option<String>,
     pub(super) want: &'a HashSet<&'a str>,
-    pub(super) rename: &'a HashMap<&'a str, &'a str>,
+    pub(super) rename: &'a HashMap<&'a str, Vec<&'a str>>,
     pub(super) ns: Option<&'a mut NsAccum>,
     pub(super) bare_exports: &'a HashMap<String, String>,
     pub(super) own_exports: &'a HashSet<String>,
@@ -99,6 +99,7 @@ fn inject_side_effect_stmt(
 /// Side-effect imports forward whole statements, nested imports /
 /// re-exports queue, export forms inject (see each arm).
 pub(super) fn walk_lib_stmt(
+    ast: &mut Ast,
     work: &mut VecDeque<WorkItem>,
     target_dir: &Path,
     injections: &mut Vec<Stmt>,
@@ -143,6 +144,7 @@ pub(super) fn walk_lib_stmt(
             inner: Some(boxed), ..
         } => {
             inject_export_inner(
+                ast,
                 injections,
                 *boxed,
                 req.want,
@@ -192,6 +194,7 @@ pub(super) fn walk_lib_stmt(
         }
         other => {
             inject_bare_exported_decl(
+                ast,
                 injections,
                 other,
                 req.bare_exports,

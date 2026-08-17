@@ -38,7 +38,24 @@ impl<'a> BodyCloner<'a> {
     pub(crate) fn clone_stmts(&mut self, body: &[Stmt]) -> Vec<Stmt> {
         body.iter().map(|s| self.clone_stmt(s)).collect()
     }
+}
 
+/// Deep-clone ONE top-level stmt with full side-table migration —
+/// the module resolver's import-alias fan-out entry (421-04:
+/// `import { fa, fa as renamed }` injects one decl per spelling).
+/// The resolver lives outside `ast`, so this fronts the
+/// BodyCloner + `clone_body_tables::migrate` pair.
+pub(crate) fn clone_toplevel_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
+    let mut cloner = BodyCloner::new(ast);
+    let cloned = cloner
+        .clone_stmts(std::slice::from_ref(s))
+        .pop()
+        .expect("clone_stmts preserves stmt count");
+    super::clone_body_tables::migrate(&mut cloner);
+    cloned
+}
+
+impl<'a> BodyCloner<'a> {
     pub(crate) fn clone_expr(&mut self, old: ExprId) -> ExprId {
         let e = self.ast.get_expr(old).clone();
         let cloned = match e {

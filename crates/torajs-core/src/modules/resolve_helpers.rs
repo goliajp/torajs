@@ -9,8 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use super::{
-    NamedImport, WorkItem, check_k2_form, decl_name, is_builtin_module_source, rename_decl,
-    resolve_path,
+    NamedImport, WorkItem, check_k2_form, decl_name, is_builtin_module_source, resolve_path,
 };
 
 /// Field accumulator for one namespace alias (`import * as ns from …`).
@@ -133,52 +132,6 @@ pub(super) fn queue_nested_import(
     Ok(())
 }
 
-/// `export <decl>` (inner Some) injection — type decls always inject;
-/// namespace imports inject every value decl under its original name
-/// (accumulating `namespace_fields` for the synthetic object literal);
-/// named imports filter by `want` and apply `rename`.
-pub(super) fn inject_export_inner(
-    injections: &mut Vec<Stmt>,
-    mut inner: Stmt,
-    want: &HashSet<&str>,
-    rename: &HashMap<&str, &str>,
-    ns: Option<&mut NsAccum>,
-    injected: &mut HashSet<String>,
-) {
-    // Type decls always inject — TS doesn't require type
-    // names in the value-import list, and downstream
-    // check.rs needs them to resolve fn return-type
-    // annotations on imported value decls.
-    if matches!(inner, Stmt::TypeDecl { .. }) {
-        injections.push(inner);
-        return;
-    }
-    // P13-S2 namespace import path: inject every value
-    // decl with its original name (no `want` filter, no
-    // alias rename) so the synthetic namespace object
-    // can reference them. The struct literal builds
-    // after the BFS drains. A name an earlier request
-    // already injected under this path still claims its
-    // FIELD — the object references the existing binding
-    // — but must not inject a second decl of it.
-    if let Some(ns) = ns
-        && let Some(name) = decl_name(&inner)
-    {
-        if ns.claim(&name) && injected.insert(name) {
-            injections.push(inner);
-        }
-        return;
-    }
-    if let Some(name) = decl_name(&inner)
-        && want.contains(name.as_str())
-    {
-        if let Some(alias) = rename.get(name.as_str()) {
-            rename_decl(&mut inner, (*alias).to_string());
-        }
-        injections.push(inner);
-    }
-}
-
 /// P13-S4 — `export { a, b as c } from "./other"` re-export.
 /// Translate into a transitive BFS load of `./other` with the lib's
 /// selected names, BUT swap each name's importer-visible alias so
@@ -199,7 +152,7 @@ pub(super) fn queue_reexport(
     lib_named: &[NamedImport],
     lib_source: &str,
     want: &HashSet<&str>,
-    rename: &HashMap<&str, &str>,
+    rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
 ) -> Result<(), String> {
     if is_builtin_module_source(lib_source) {
@@ -209,41 +162,42 @@ pub(super) fn queue_reexport(
     // For each (orig, alias) in the lib's re-export
     // clause, the lib exposes `alias` (or `orig` if no
     // alias). We only need to actually load the names
-    // the caller asked for via `want` / `default_alias`.
+    // the caller asked for via `want` / `default_alias` —
+    // one nested request per importer-visible spelling
+    // (421-04: `import { x, x as y }` wants BOTH).
     let mut nested_named: Vec<NamedImport> = Vec::new();
     for (orig, alias) in lib_named {
         let lib_visible = alias.as_deref().unwrap_or(orig);
-        // Final caller-visible name: the importer's own
-        // alias (`import { x as y }`) if any, otherwise
-        // the lib-visible name.
-        let final_name = if lib_visible == "default" {
+        let final_names: Vec<String> = if lib_visible == "default" {
             let Some(da) = default_alias else {
                 continue;
             };
-            da.clone()
+            vec![da.clone()]
         } else if want.contains(lib_visible) {
             rename
                 .get(lib_visible)
-                .map(|s| (*s).to_string())
-                .unwrap_or_else(|| lib_visible.to_string())
+                .map(|vs| vs.iter().map(|s| (*s).to_string()).collect())
+                .unwrap_or_else(|| vec![lib_visible.to_string()])
         } else {
             continue;
         };
-        if orig == "default" {
-            work.push_back((path.clone(), Vec::new(), Some(final_name), false, None));
-            continue;
+        for final_name in final_names {
+            if orig == "default" {
+                work.push_back((path.clone(), Vec::new(), Some(final_name), false, None));
+                continue;
+            }
+            // Re-export's nested load fetches `orig` from
+            // the source file. The transitive rename
+            // alias is `Some(final_name)` when the final
+            // name differs from the source-side `orig`;
+            // the lib walk's rename map will pick it up.
+            let nested_alias = if final_name == *orig {
+                None
+            } else {
+                Some(final_name)
+            };
+            nested_named.push((orig.clone(), nested_alias));
         }
-        // Re-export's nested load fetches `orig` from
-        // the source file. The transitive rename
-        // alias is `Some(final_name)` when the final
-        // name differs from the source-side `orig`;
-        // the lib walk's rename map will pick it up.
-        let nested_alias = if final_name == *orig {
-            None
-        } else {
-            Some(final_name)
-        };
-        nested_named.push((orig.clone(), nested_alias));
     }
     if !nested_named.is_empty() {
         work.push_back((path, nested_named, None, false, None));
@@ -274,7 +228,7 @@ pub(super) fn queue_star_reexport(
     star: &ExportStar,
     lib_source: &str,
     want: &HashSet<&str>,
-    rename: &HashMap<&str, &str>,
+    rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
     own_exports: &HashSet<String>,
     ns: Option<&mut NsAccum>,
@@ -285,10 +239,11 @@ pub(super) fn queue_star_reexport(
     let path = resolve_path(target_dir, lib_source)?;
     match star {
         ExportStar::AsNamespace(exported) => {
-            let Some(local) = star_ns_local(exported, want, rename, default_alias, ns) else {
-                return Ok(());
-            };
-            work.push_back((path, Vec::new(), None, false, Some(local)));
+            // One namespace load per importer-visible spelling
+            // (421-04) — each alias gets its own accumulator.
+            for local in star_ns_locals(exported, want, rename, default_alias, ns) {
+                work.push_back((path.clone(), Vec::new(), None, false, Some(local)));
+            }
         }
         ExportStar::All => match ns {
             Some(ns) => {
@@ -298,7 +253,13 @@ pub(super) fn queue_star_reexport(
                 let forwarded: Vec<NamedImport> = want
                     .iter()
                     .filter(|n| !own_exports.contains(**n))
-                    .map(|n| ((*n).to_string(), rename.get(*n).map(|a| (*a).to_string())))
+                    .flat_map(|n| match rename.get(*n) {
+                        Some(vs) => vs
+                            .iter()
+                            .map(|a| ((*n).to_string(), (a != n).then(|| (*a).to_string())))
+                            .collect::<Vec<_>>(),
+                        None => vec![((*n).to_string(), None)],
+                    })
                     .collect();
                 if !forwarded.is_empty() {
                     work.push_back((path, forwarded, None, false, None));
@@ -309,33 +270,36 @@ pub(super) fn queue_star_reexport(
     Ok(())
 }
 
-/// The local binding an `export * as <exported> from "m"` clause has
-/// to produce for THIS request, or `None` when the request never asked
-/// for that name. Under an outer namespace request the field keeps its
-/// exported spelling; a named request applies the importer's alias;
+/// The local bindings an `export * as <exported> from "m"` clause has
+/// to produce for THIS request — empty when the request never asked
+/// for that name, one per importer-visible spelling otherwise
+/// (421-04). Under an outer namespace request the field keeps its
+/// exported spelling; a named request applies the importer's aliases;
 /// `export * as default` answers the importer's default binding.
-fn star_ns_local(
+fn star_ns_locals(
     exported: &str,
     want: &HashSet<&str>,
-    rename: &HashMap<&str, &str>,
+    rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
     ns: Option<&mut NsAccum>,
-) -> Option<String> {
+) -> Vec<String> {
     if let Some(ns) = ns {
-        return ns.claim(exported).then(|| exported.to_string());
+        return ns
+            .claim(exported)
+            .then(|| exported.to_string())
+            .into_iter()
+            .collect();
     }
     if exported == "default" {
-        return default_alias.clone();
+        return default_alias.clone().into_iter().collect();
     }
     if !want.contains(exported) {
-        return None;
+        return Vec::new();
     }
-    Some(
-        rename
-            .get(exported)
-            .map(|a| (*a).to_string())
-            .unwrap_or_else(|| exported.to_string()),
-    )
+    rename
+        .get(exported)
+        .map(|vs| vs.iter().map(|a| (*a).to_string()).collect())
+        .unwrap_or_else(|| vec![exported.to_string()])
 }
 
 /// The names a lib hands on under its own roof — `export <decl>`,
@@ -435,30 +399,6 @@ pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, Stri
         }
     }
     bare_exports
-}
-
-/// P13-S4b — a top-level decl a bare named export lists injects
-/// under its EXPORTED name (then the importer's own alias applies
-/// inside `inject_export_inner`). Everything else is a lib-level
-/// non-export statement — dropped.
-pub(super) fn inject_bare_exported_decl(
-    injections: &mut Vec<Stmt>,
-    other: Stmt,
-    bare_exports: &HashMap<String, String>,
-    want: &HashSet<&str>,
-    rename: &HashMap<&str, &str>,
-    ns: Option<&mut NsAccum>,
-    injected: &mut HashSet<String>,
-) {
-    if let Some(dname) = decl_name(&other)
-        && let Some(exported) = bare_exports.get(&dname)
-    {
-        let mut inner = other;
-        if *exported != dname {
-            rename_decl(&mut inner, exported.clone());
-        }
-        inject_export_inner(injections, inner, want, rename, ns, injected);
-    }
 }
 
 /// Dynamic-import namespaces skip the `let` above: the use site may

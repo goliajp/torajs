@@ -58,11 +58,14 @@
 //!     list — TS itself doesn't require type names to appear in the
 //!     value-import list, and check.rs needs the `TypeDecl` to resolve
 //!     return-type annotations on imported functions.
-//!   - `as <alias>` flat-renames the injected decl. Recursive references
-//!     inside the imported decl still bind to the original name — if
-//!     the importer renames `foo` to `bar`, `foo`'s recursive call to
-//!     itself looks up `foo`, which is no longer in scope. This is a
-//!     known K.2 corner; revisit if it bites a real use case.
+//!   - `as <alias>` renames the injected decl AND rewrites a fn's
+//!     free self-references to the new spelling (the old K.2 corner —
+//!     a renamed recursive fn read its original name, no longer in
+//!     scope — closed when 421-04 multi-alias fan-out landed). One
+//!     decl injects per importer-visible spelling: `import { fa,
+//!     fa as renamed }` binds both, the plain spelling keeping the
+//!     original decl, fn aliases deep-cloning, const aliases binding
+//!     by reference.
 
 use crate::ast::{Ast, Stmt};
 use crate::lexer;
@@ -269,10 +272,17 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             default_bound_as.insert(target_path.clone(), a.clone());
         }
         let want: HashSet<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
-        let rename: HashMap<&str, &str> = named
-            .iter()
-            .filter_map(|(orig, alias)| alias.as_deref().map(|a| (orig.as_str(), a)))
-            .collect();
+        // orig → every importer-visible spelling, in clause order
+        // (421-04: `import { fa, fa as renamed }` binds BOTH names —
+        // a single-alias map collapsed them to the last one).
+        let mut rename: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (orig, alias) in &named {
+            let visible = alias.as_deref().unwrap_or(orig.as_str());
+            let entry = rename.entry(orig.as_str()).or_default();
+            if !entry.contains(&visible) {
+                entry.push(visible);
+            }
+        }
         let bare_exports = collect_bare_exports(&lib_section);
         let own_exports = collect_own_export_names(&lib_section);
 
@@ -311,7 +321,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
         let work_mark = work.len();
         for s in lib_section {
-            walk_lib_stmt(&mut work, &target_dir, &mut injections, s, &mut req)?;
+            walk_lib_stmt(ast, &mut work, &target_dir, &mut injections, s, &mut req)?;
         }
 
         let deps = graph.edges_since(&work, work_mark);
@@ -395,13 +405,14 @@ fn clear_injected_spans(s: &mut Stmt) {
 
 mod dyn_import;
 mod graph;
+mod inject_export;
 mod lib_walk;
 mod resolve_helpers;
 use graph::ModuleGraph;
+use inject_export::{inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
 use resolve_helpers::{
-    NsAccum, collect_bare_exports, collect_own_export_names, filter_request,
-    inject_bare_exported_decl, inject_export_inner, inline_dyn_ns_objlits,
+    NsAccum, collect_bare_exports, collect_own_export_names, filter_request, inline_dyn_ns_objlits,
     materialize_pending_namespaces, queue_nested_import, queue_reexport, queue_star_reexport,
 };
 
