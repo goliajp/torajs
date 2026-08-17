@@ -179,6 +179,35 @@ pub(crate) fn rebinds_in_stmt(s: &Stmt, name: &str) -> bool {
             cases.iter().any(|c| rebinds_name(&c.body, name))
                 || default.as_deref().is_some_and(|d| rebinds_name(d, name))
         }
+        // Knife-D preface: a class rebinds its own name, and its
+        // ctor / method / static-block scopes rebind through params
+        // and body decls like any fn. This arm was `_ => false`, so
+        // both callers were blind to class shadows — the deconflict
+        // census would blind-rewrite a reference a method's local
+        // `let` actually owns. Fields don't bind names into any
+        // statement scope; a heritage is an expression (never a
+        // binder).
+        Stmt::ClassDecl {
+            name: n,
+            ctor,
+            methods,
+            static_methods,
+            static_init,
+            ..
+        } => {
+            n == name
+                || ctor.as_ref().is_some_and(|c| {
+                    c.params.iter().any(|p| p.name == name) || rebinds_name(&c.body, name)
+                })
+                || methods
+                    .iter()
+                    .chain(static_methods.iter())
+                    .any(|m| m.params.iter().any(|p| p.name == name) || rebinds_name(&m.body, name))
+                || static_init.iter().any(|si| match si {
+                    super::StaticInit::Block(v) => rebinds_name(v, name),
+                    super::StaticInit::Field(_) => false,
+                })
+        }
         _ => false,
     }
 }
