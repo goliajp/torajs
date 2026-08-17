@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T13:36:00.764Z",
+  "generatedAt": "2026-08-17T15:10:37.657Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-17T13:27:18Z",
-    "headSha": "dc7435f8",
-    "elapsedSec": 362.67,
+    "ranAt": "2026-08-17T14:56:40Z",
+    "headSha": "e9fc6a80",
+    "elapsedSec": 335.26,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25595,
-    "passNoOracle": 894,
-    "passNegative": 4128,
-    "passTotal": 30617,
-    "bug": 12763,
-    "incompatible": 9794,
-    "bunSkip": 6581,
+    "pass": 25617,
+    "passNoOracle": 898,
+    "passNegative": 4140,
+    "passTotal": 30655,
+    "bug": 12811,
+    "incompatible": 9708,
+    "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43380,
-    "passRateInScope": 57.58,
-    "passRateTrAccepted": 70.58
+    "trAccepted": 43466,
+    "passRateInScope": 57.65,
+    "passRateTrAccepted": 70.53
   },
   "torajs": {
-    "commit": "0cf1f06b",
-    "commitSubject": "docs: rotation 429 p-surf snapshot and the sweep artifacts",
+    "commit": "3490929b",
+    "commitSubject": "refactor: resolve_imports seeding and post-bfs judgment fold into static_resolution",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "3490929b",
+      "subject": "refactor: resolve_imports seeding and post-bfs judgment fold into static_resolution"
+    },
+    {
+      "hash": "e9fc6a80",
+      "subject": "feat: entry assignments to import bindings throw TypeError at runtime"
+    },
+    {
+      "hash": "bf236fb3",
+      "subject": "feat: t262 runner stages sibling case files a fixture chain references"
+    },
+    {
+      "hash": "24c8d33e",
+      "subject": "fix: pass 2b shelves construction-less orphan closures as dead stubs"
+    },
+    {
+      "hash": "20927d37",
+      "subject": "feat: t262 runner stages the case under its corpus filename too"
+    },
+    {
+      "hash": "7eb7b02f",
+      "subject": "feat: entry static requests reject loudly on unresolvable or ambiguous exports"
+    },
+    {
+      "hash": "aaf933c5",
+      "subject": "fix: t262 throws anyfn guards callability before invoking"
+    },
+    {
+      "hash": "9532dd76",
+      "subject": "chore: record the rotation 429 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "0cf1f06b",
       "subject": "docs: rotation 429 p-surf snapshot and the sweep artifacts"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "93169487",
       "subject": "feat: ambiguous star exports poison the dyn-import candidate"
-    },
-    {
-      "hash": "7988b5ea",
-      "subject": "fix: class value-reference rewrite respects lexical shadows"
-    },
-    {
-      "hash": "c49d2332",
-      "subject": "feat: unresolved indirect exports reject a dyn-import candidate's promise"
-    },
-    {
-      "hash": "425c9839",
-      "subject": "fix: t262 harness throws thunk drops the zero-arg structural annotation"
-    },
-    {
-      "hash": "5ea8d497",
-      "subject": "feat: arrow declare-arguments param-default evals get real semantics"
-    },
-    {
-      "hash": "7d8aab3f",
-      "subject": "docs: rotation 427-428 P-SURF snapshot and the sweep artifacts"
-    },
-    {
-      "hash": "25dbeb64",
-      "subject": "chore: record the rotation 428 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "37fc80ab",
-      "subject": "feat: a single-aliased class import renames in the census (427-02)"
-    },
-    {
-      "hash": "6d082023",
-      "subject": "feat: a dyn-import candidate's colliding class no longer forces a DROP"
     }
   ],
-  "headSha": "0cf1f06b",
+  "headSha": "3490929b",
   "autorun": {
-    "total": 732,
+    "total": 733,
     "baselineTarget": 10,
-    "bySelf": 727,
+    "bySelf": 728,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786967677-25d0",
-      "at": "2026-08-17T11:54:37Z",
-      "ts": 1786967677,
+      "rotationId": "r-1786973841-18bd",
+      "at": "2026-08-17T13:37:21Z",
+      "ts": 1786973841,
       "trigger": "self",
-      "prevHead": "7d8aab3f",
-      "handoffSha": "sha256:8bc6f81e0aadcc61706ba96c25d0abded3b756de623e24d5a87fb22150c609a1",
-      "handoffAgeSec": 95,
+      "prevHead": "9532dd76",
+      "handoffSha": "sha256:06aa4e5e21aeb9132c84b71efabd6afabebfcc771592f5dad5b79d4c58a09928",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786973841-18bd",
+        "at": "2026-08-17T13:37:21Z",
+        "ts": 1786973841,
+        "trigger": "self",
+        "prevHead": "9532dd76",
+        "handoffSha": "sha256:06aa4e5e21aeb9132c84b71efabd6afabebfcc771592f5dad5b79d4c58a09928",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786967677-25d0",
         "at": "2026-08-17T11:54:37Z",
@@ -876,17 +887,6 @@
         "prevHead": "4e3ed20a",
         "handoffSha": "sha256:9e503bf6a41842507ec7169719e73b57b9af55c4eab8ae2482af31863d05b5e2",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786867511-37b7",
-        "at": "2026-08-16T08:05:11Z",
-        "ts": 1786867511,
-        "trigger": "self",
-        "prevHead": "79791f6a",
-        "handoffSha": "sha256:e711de755965053c7dfe07dce207304747b888c3ec2d72b797fdd275f1918eae",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }

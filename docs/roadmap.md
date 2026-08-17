@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `dc7435f8`** (2026-08-17, rotation 429 — the declare-
+**Latest @ `e9fc6a80`** (2026-08-18, rotation 430 — static-resolution
+loud rejects and the orphan-closure shelf. The entry's static requests
+gain a ledger: named imports plus named `export {x} from` clauses —
+previously ignored entirely — are judged after the BFS drains, and an
+ambiguous (§16.2.1.6.3) or never-landing (§16.2.1.6.2) binding rejects
+compilation with a module-resolution SyntaxError the t262 runner now
+credits as pass-negative (that marker only — every other reject stays
+incompatible). Pass 2B shelves construction-less orphan closures as
+unreachable stubs: a module re-parsed through its own import chain
+strands statement-dead fn literals that the whole-arena lift still
+lifts, and the 65-case capture-types stop clears to ZERO (19 straight
+to pass, the rest run into their next real layer). Entry-side writes
+to import bindings turn into runtime TypeErrors (§16.2.1.5 immutable
+view; lib-side self-writes keep the live-binding path). The runner
+stages the case under its corpus filename plus every sibling `.js` a
+fixture chain references, so self-import families reach their real
+semantics. Sweep vs 429: passTotal 30617 → **30655 (+38)**, bug +48,
+incompatible −86, conservation exact, forward 39 / regression 1
+(instn-iee-iee-cycle, a de-watering: its old pass rode the
+export-from-ignored accident). Gate 3057/0/4. Gate predicate **235
+unattributed clusters / 2700 cases / register 2 · 510 / residue 708 ·
+896 / core 4106**.)
+
+**Prior @ `dc7435f8`** (2026-08-17, rotation 429 — the declare-
 arguments arrow lane and the dyn-import instantiation rejects. The
 §19.2.1.3 legal half lands: a direct eval in a true arrow's default-
 parameter position that var-declares `arguments` gets real
