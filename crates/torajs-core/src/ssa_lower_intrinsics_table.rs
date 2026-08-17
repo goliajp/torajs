@@ -418,6 +418,7 @@ pub(crate) fn build(
         throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
         class_computed_method_define: init_c.class_computed.computed_method_define,
         class_computed_accessor_define: init_c.class_computed.computed_accessor_define,
+        class_source_register: init_c.class_computed.class_source_register,
         ctor_mark_arr_species: init_c.subclass.ctor_mark_arr_species,
         arr_subclass_alloc: init_c.subclass.arr_subclass_alloc,
         arr_subclass_super_len: init_c.subclass.arr_subclass_super_len,

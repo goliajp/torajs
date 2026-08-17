@@ -30,6 +30,7 @@ mod define;
 mod error_family;
 mod generic_alias;
 mod reify;
+mod source;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
@@ -76,7 +77,7 @@ unsafe extern "C" {
     fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
 }
 
-const MAX_CLASSES: usize = 256;
+pub(crate) const MAX_CLASSES: usize = 256;
 
 /// Builtin-proto singleton tag for %Function.prototype% (mirrors
 /// `torajs-rc::builtin_proto`'s tag table; same value genfn.rs uses).
@@ -123,12 +124,12 @@ const fn is_cell_imm(v: u64) -> bool {
 }
 
 #[inline]
-fn in_range(tag: i64) -> bool {
+pub(crate) fn in_range(tag: i64) -> bool {
     (0..MAX_CLASSES as i64).contains(&tag)
 }
 
 static mut PROTOS_BY_TAG_IMM: [u64; MAX_CLASSES] = [0u64; MAX_CLASSES];
-static mut CLASSES_BY_TAG_IMM: [u64; MAX_CLASSES] = [0u64; MAX_CLASSES];
+pub(crate) static mut CLASSES_BY_TAG_IMM: [u64; MAX_CLASSES] = [0u64; MAX_CLASSES];
 
 /// rotation 186 — borrow read of the class object's CURRENT cell
 /// bits (a define may have resized/moved it). ssa_lower emits this

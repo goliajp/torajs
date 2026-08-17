@@ -331,6 +331,26 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                 ],
             ),
         );
+        // 420-06 (§20.2.3.5) — hand the type-erased class source to
+        // the runtime's per-tag table so `C.toString()` answers the
+        // declaration text. Lib / eval classes carry no span (their
+        // parse sites drop the entries — the text would index the
+        // wrong source) and keep the native-form fallback.
+        if let Some(span) = ctx.ast.class_decl_spans.get(&cname).copied()
+            && !(span.start == 0 && span.end == 0)
+        {
+            let erased =
+                crate::fn_source_erase::erase_types(&ctx.ast.source, &ctx.ast.type_ann_spans, span);
+            let src_ptr = ctx.intern_string_literal(&erased);
+            let source_register = ctx.intrinsics.class_source_register;
+            ctx.f.append_void(
+                cur_block,
+                InstKind::Call(
+                    source_register,
+                    vec![Operand::ConstI64(tag as i64), Operand::Value(src_ptr)],
+                ),
+            );
+        }
         emit_ctor_register(ctx, &cname, class_op.clone());
         // rotation 186 — the register kernel defines `constructor`
         // + reified methods onto the PROTOTYPE dynobj, which may

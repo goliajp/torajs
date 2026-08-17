@@ -86,6 +86,25 @@ pub(crate) unsafe fn proto_chain_method(
                 && let Some(mid2) =
                     crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
             {
+                // Rotation 204's family-generic gate, chain leg
+                // (420-06): the mint family picks its lane BEFORE the
+                // shared-mid array-like shortcut. A class object's
+                // chain reaches %Function.prototype%'s `toString`,
+                // and the shortcut ran §23.1.3.31 array-like join on
+                // the ctor dynobj — an empty string, silently — where
+                // the function-family lane answers the recorded class
+                // source (§20.2.3.5).
+                let fam =
+                    crate::method_value::builtin_method_family(crate::nanbox::as_void_ptr(cell));
+                if let Some(out) = crate::method_call_closure::generic_builtin_this(
+                    mid2,
+                    __torajs_anyv_box_pointer(obj),
+                    argv,
+                    argc,
+                    fam,
+                ) {
+                    return Some(out);
+                }
                 if crate::method_call_arraylike_concat::obj_supported(mid2) {
                     return Some(crate::method_call_arraylike_concat::obj_method(
                         obj, mid2, recv_slot, argv, argc,

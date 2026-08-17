@@ -23,6 +23,10 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct ClassComputedIds {
     pub computed_method_define: FuncId,
     pub computed_accessor_define: FuncId,
+    /// 420-06 — `class_source_register(tag, src_str)`: hand the
+    /// type-erased class declaration text to the runtime's per-tag
+    /// source table (§20.2.3.5 class-ctor toString).
+    pub class_source_register: FuncId,
 }
 
 pub(crate) fn declare(
@@ -42,6 +46,13 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_class_computed_accessor_define",
             &[Type::I64, Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Type::Void,
+        ),
+        class_source_register: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_class_source_register",
+            &[Type::I64, Type::Ptr],
             Type::Void,
         ),
     }

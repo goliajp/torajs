@@ -32,6 +32,12 @@ impl<'a> Parser<'a> {
         allow_anon: bool,
         force_synth: bool,
     ) -> Result<Stmt, String> {
+        // 420-06 — the cursor sits at `class`; the byte range through
+        // the body's closing brace feeds the §20.2.3.5 class-ctor
+        // toString source (an `abstract` prefix stays outside — the
+        // erased text starts at `class`, which is the shape the
+        // runtime answers anyway).
+        let class_start = self.pos;
         let h = self.parse_class_header(allow_anon, force_synth)?;
         let ClassHeader {
             name,
@@ -248,6 +254,10 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        // Span recorded BEFORE the trailing `;` consume — the source
+        // text ends at the body's closing brace.
+        let class_span = self.span_from(class_start);
+        self.ast.class_decl_spans.insert(name.clone(), class_span);
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }

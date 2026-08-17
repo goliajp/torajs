@@ -690,6 +690,15 @@ pub struct Ast {
     /// candidate collection and `__torajs_dyn_import` dispatcher
     /// synthesis, so a program without dynamic import pays nothing.
     pub dyn_import_present: bool,
+    /// Byte range of each class declaration (`class` keyword through
+    /// the body's closing brace), keyed by class name. Feeds the
+    /// §20.2.3.5 class-constructor toString source: the class-register
+    /// lowering interns the type-erased slice and hands it to the
+    /// runtime's per-tag source table. Injected/lib classes never
+    /// register here (their spans index the wrong source text — the
+    /// same reason `clear_injected_spans` exists), so they answer the
+    /// native form.
+    pub class_decl_spans: std::collections::HashMap<String, crate::lexer::Span>,
     /// Generator / async function-value EXPRESSIONS parsed for real
     /// (RFC 20260713-generator-fn-value-substrate). Keyed by the
     /// `Expr::ArrowFn` ExprId the parser emitted; `hoist_gen_fn_exprs`

@@ -333,6 +333,16 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
         t if t == Tag::Str as u16 => b"String",
         t if t == Tag::Arr as u16 => b"Array",
         t if t == Tag::Closure as u16 => b"Function",
+        // §20.1.3.6 step 6 — IsCallable answers the "Function" badge.
+        // A class constructor is a dynobj carrying [[Call]] via
+        // FLAG_DYNOBJ_CLASS_CTOR (420-06).
+        t if t == Tag::DynObj as u16
+            && unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() }
+                & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR
+                != 0 =>
+        {
+            b"Function"
+        }
         t if t == Tag::Date as u16 => b"Date",
         t if t == Tag::RegExp as u16 => b"RegExp",
         t if t == Tag::Map as u16 => b"Map",
