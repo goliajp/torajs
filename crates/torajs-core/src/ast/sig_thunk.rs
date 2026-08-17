@@ -221,6 +221,16 @@ pub fn synthesize_sig_thunks(ast: &mut Ast) {
     // narrower call_indirect reads garbage). The recursive spine
     // reaches body-local lets.
     collect_let_sites(ast, &ast.stmts, &faces, &mut sites);
+    // ASSIGN positions (`slot = gb`) deliberately do NOT thunk: a
+    // MUTABLE fn-typed binding is a closure_bindings member, so the
+    // forwarder pass (which runs BEFORE this one) already wraps both
+    // its init and its assign sources into closure cells — that lane
+    // carries the hidden argc and the S2 normalization, which is the
+    // whole §10.2.1.4 story. Substituting a thunk here would hand a
+    // bare-FnSig address to a closure-repr slot (probed: the call
+    // after the assign went silent). The checker-side admit widening
+    // (`fn_slot_admits` in the assign lanes) is all that position
+    // needs.
     if sites.is_empty() {
         return;
     }
@@ -255,7 +265,13 @@ fn collect_let_sites(
     out: &mut Vec<(ExprId, String, Vec<String>, String)>,
 ) {
     for s in stmts {
+        // Immutable bindings only: a MUTABLE fn-typed binding is a
+        // closure_bindings member whose init the forwarder pass
+        // already wrapped into a closure cell (that lane carries the
+        // argc channel) — thunking it would hand a bare-FnSig
+        // address to a closure-repr slot.
         if let Stmt::LetDecl {
+            mutable: false,
             type_ann: Some(ann),
             init,
             ..

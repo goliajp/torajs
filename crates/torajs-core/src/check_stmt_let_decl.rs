@@ -111,23 +111,18 @@ pub(crate) fn check(
             };
             // 423-03 ④ — a fn-typed LET takes the same S2 call-face
             // admit a fn-typed call ARG takes (`const slot: () =>
-            // void = gb` where gb declares a defaulted param —
-            // Function([Any], Void) into Function([], Void)): the
+            // void = gb` where gb declares a defaulted param): the
             // sig-thunk pass reabstracts the mismatched init exactly
             // like a call-arg position, so the checker face and the
-            // lowering face agree. Deliberately NOT widened inside
-            // `is_assignable_to` itself — that predicate also serves
-            // array-literal unification, where the wider admit
-            // collapsed heterogeneous literals (the rotation-355
-            // regression this stays clear of).
-            let fn_slot_widened = matches!(ann_ty, crate::check::Type::Function(..))
-                && crate::check_type_of_call_callback_subtype::matches_resolved(
-                    &ann_ty,
-                    &init_ty,
-                    &checker.class_structs,
-                    &checker.aliases,
-                    &checker.generic_alias_decls,
-                );
+            // lowering face agree. See `fn_slot_admits` on why this
+            // is not widened inside `is_assignable_to` itself.
+            let fn_slot_widened = crate::check_assignable::fn_slot_admits(
+                &ann_ty,
+                &init_ty,
+                &checker.class_structs,
+                &checker.aliases,
+                &checker.generic_alias_decls,
+            );
             if !fn_slot_widened
                 && !is_assignable_to_resolved(
                     &ann_ty,

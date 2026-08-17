@@ -112,6 +112,13 @@ pub(crate) fn check(
     // assignable surface.
     let target_ty = checker.assign_declared_ty(&name, &info.ty);
     let value_ty = checker.type_of(ast, value)?;
+    // NOTE (423-03 ④): the fn-face `fn_slot_admits` widening the LET
+    // position takes is deliberately NOT applied here yet. The assign
+    // lane's value rides the forwarder/closure wrap (probed: the AST
+    // face is right), but the wrapped call still reads a garbage
+    // param — widening the admit before that lane is fixed would
+    // trade today's loud reject for a silent wrong value. Recorded
+    // as the 424-04 residual.
     if !is_assignable_to_resolved(
         &target_ty,
         &value_ty,
