@@ -336,34 +336,16 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         );
     }
 
-    let mut injections: Vec<Stmt> = Vec::new();
-    for path in graph.evaluation_order() {
-        if let Some(stmts) = injections_by_path.remove(&path) {
-            injections.extend(stmts);
-        }
-    }
-    // Dispatcher before `inline_dyn_ns_objlits` — see `synth_dispatcher`.
-    if ast.dyn_import_present {
-        // 426-01 — a candidate whose `__reex_` namespace binding
-        // never materialized (circular / missing indirect export)
-        // gets a SyntaxError-reject entry instead of a namespace.
-        let poisoned =
-            dyn_import::poisoned_candidates(&dyn_table, &ns_accums, &injections, &ambiguous_locals);
-        injections.push(dyn_import::synth_dispatcher(ast, &dyn_table, &poisoned));
-    }
-    // The synthetic `let ns = { … }` bindings only reference decls, so
-    // they land after every module's statements regardless of which
-    // module asked for them.
-    materialize_pending_namespaces(
+    splice::assemble_and_splice(
         ast,
-        &mut injections,
+        &graph,
+        injections_by_path,
+        &dyn_table,
         &ns_order,
         &ns_accums,
         &mut dyn_ns_inline,
+        &ambiguous_locals,
     );
-    inline_dyn_ns_objlits(ast, &dyn_ns_inline);
-
-    splice_injections(ast, injections);
     Ok(closure_files)
 }
 
@@ -425,11 +407,7 @@ mod splice;
 use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
-use resolve_helpers::{
-    NsAccum, inline_dyn_ns_objlits, materialize_pending_namespaces, queue_nested_import,
-    queue_reexport, queue_star_reexport,
-};
-use splice::splice_injections;
+use resolve_helpers::{NsAccum, queue_nested_import, queue_reexport, queue_star_reexport};
 
 fn check_k2_form(
     _source: &str,
