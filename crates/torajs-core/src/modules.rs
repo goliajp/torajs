@@ -371,6 +371,17 @@ fn load_lib_section(
     let lib_expr_offset = ast.exprs.len();
     let lib_offset = parser::parse_into(&src_text, &tokens, ast)
         .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
+    // A lib expression's recorded span indexes the LIB file's text,
+    // but every span consumer slices the MAIN file's `ast.source`
+    // (`splice_injections` clears the Stmt-side spans for the same
+    // reason). The arrow / fn-expr spans ride per-ExprId, and a
+    // lifted closure decl inherits its arrow's span (B1b) — reset
+    // the lib slice to the (0,0) "no user source" sentinel so
+    // `intern_fn_source` answers the native form instead of slicing
+    // out of bounds (or silently wrong text) on the entry's source.
+    for sp in ast.expr_spans[lib_expr_offset..].iter_mut() {
+        *sp = lexer::Span { start: 0, end: 0 };
+    }
     if closure_paths.insert(target_path.to_path_buf()) {
         closure_files.push((target_path.to_path_buf(), src_text.into_bytes()));
     }
