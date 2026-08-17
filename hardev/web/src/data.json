@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T03:12:11.690Z",
+  "generatedAt": "2026-08-17T06:36:18.678Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-17T03:08:42Z",
-    "headSha": "3800ad73",
-    "elapsedSec": 331.68,
+    "ranAt": "2026-08-17T06:28:15Z",
+    "headSha": "3a83d0da",
+    "elapsedSec": 329.94,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25485,
+    "pass": 25498,
     "passNoOracle": 876,
     "passNegative": 4128,
-    "passTotal": 30489,
-    "bug": 12871,
-    "incompatible": 9814,
+    "passTotal": 30502,
+    "bug": 12856,
+    "incompatible": 9816,
     "bunSkip": 6581,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43360,
-    "passRateInScope": 57.34,
-    "passRateTrAccepted": 70.32
+    "trAccepted": 43358,
+    "passRateInScope": 57.36,
+    "passRateTrAccepted": 70.35
   },
   "torajs": {
-    "commit": "3800ad73",
-    "commitSubject": "refactor: the fn-slot admit hardens its lane boundaries",
+    "commit": "3a83d0da",
+    "commitSubject": "refactor: the forwarder pass takes its typedecl snapshots from a helper",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "3a83d0da",
+      "subject": "refactor: the forwarder pass takes its typedecl snapshots from a helper"
+    },
+    {
+      "hash": "e1890420",
+      "subject": "fix: a reserved import binding passes its own module's injection"
+    },
+    {
+      "hash": "34d9ef03",
+      "subject": "feat: two modules exporting the same name deconflict per-module"
+    },
+    {
+      "hash": "32ea107d",
+      "subject": "fix: an aliased async or generator import keeps its nature"
+    },
+    {
+      "hash": "fa05b7a7",
+      "subject": "fix: an objlit method's param-default eval declaring arguments throws"
+    },
+    {
+      "hash": "ef2764de",
+      "subject": "feat: a face-mismatched mutable fn slot dispatches through the boxed dual entry"
+    },
+    {
+      "hash": "0a55fba6",
+      "subject": "chore: record the rotation 424 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "3800ad73",
       "subject": "refactor: the fn-slot admit hardens its lane boundaries"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "1b05fc8c",
       "subject": "feat: a mismatched fn value passed into a fn-typed slot rides a sig-exact thunk"
-    },
-    {
-      "hash": "b564a6b0",
-      "subject": "chore: record the rotation 423 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "d5405c7d",
-      "subject": "fix: every nested parse drops its class spans, not just the two sites that knew to"
-    },
-    {
-      "hash": "74d9e62a",
-      "subject": "feat: a class constructor's toString answers its declaration source"
-    },
-    {
-      "hash": "f679647c",
-      "subject": "fix: a fn value read from a slot dispatches env-first, closing the repr split SIGBUS family"
-    },
-    {
-      "hash": "97b21347",
-      "subject": "feat: dynamic import takes any specifier expression, resolved through a baked candidate table"
-    },
-    {
-      "hash": "099d2d09",
-      "subject": "chore: record the rotation 422 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "c40b5319",
-      "subject": "refactor: extract the computed generator-method key parse"
     }
   ],
-  "headSha": "3800ad73",
+  "headSha": "3a83d0da",
   "autorun": {
-    "total": 727,
+    "total": 728,
     "baselineTarget": 10,
-    "bySelf": 722,
+    "bySelf": 723,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786930499-09d3",
-      "at": "2026-08-17T01:34:59Z",
-      "ts": 1786930499,
+      "rotationId": "r-1786936679-54cd",
+      "at": "2026-08-17T03:17:59Z",
+      "ts": 1786936679,
       "trigger": "self",
-      "prevHead": "b564a6b0",
-      "handoffSha": "sha256:653c946417427422dc1924309227b2e0b22f4f5be89d57ad87480da46af413bc",
-      "handoffAgeSec": 15,
+      "prevHead": "0a55fba6",
+      "handoffSha": "sha256:84a30cc34ad5d9f4f08ced24a7d3c0932387cb9f3a5bf6fa52615c06d07b9272",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786936679-54cd",
+        "at": "2026-08-17T03:17:59Z",
+        "ts": 1786936679,
+        "trigger": "self",
+        "prevHead": "0a55fba6",
+        "handoffSha": "sha256:84a30cc34ad5d9f4f08ced24a7d3c0932387cb9f3a5bf6fa52615c06d07b9272",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786930499-09d3",
         "at": "2026-08-17T01:34:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "c2223746",
         "handoffSha": "sha256:a34d2a10cef2cde560d16504dac777b86492c804188e3242e65adc9ff0925a23",
         "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786815853-3889",
-        "at": "2026-08-15T17:44:13Z",
-        "ts": 1786815853,
-        "trigger": "self",
-        "prevHead": "987a2635",
-        "handoffSha": "sha256:0e5bbbac2f2f04ed180a4b543996ecd56328e460da033475a6c448799afa6198",
-        "handoffAgeSec": 79,
         "conformanceBefore": null,
         "commitsInSession": null
       }
