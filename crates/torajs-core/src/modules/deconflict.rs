@@ -117,9 +117,16 @@ pub(super) fn seed_seen_names(ast: &Ast, base_dir: &std::path::Path) -> SeedName
     seed
 }
 
-/// Commit one walked lib's (post-census) top-level decl names —
-/// hard: whoever comes later collides with them.
-pub(super) fn extend_seen_with_lib(lib_section: &[Stmt], seed: &mut SeedNames) {
+/// Commit one walked lib's (post-census) top-level INJECTED spellings
+/// — hard: whoever comes later collides with them. A bare-exported
+/// decl injects under its face (P13-S4b renames it), so the face is
+/// what later walks must avoid; a census-mangled bare decl's map
+/// entry is the identity, which lands here unchanged.
+pub(super) fn extend_seen_with_lib(
+    lib_section: &[Stmt],
+    bare_exports: &HashMap<String, String>,
+    seed: &mut SeedNames,
+) {
     for s in lib_section {
         let inner = match s {
             Stmt::ExportDecl {
@@ -128,8 +135,9 @@ pub(super) fn extend_seen_with_lib(lib_section: &[Stmt], seed: &mut SeedNames) {
             other => other,
         };
         if let Some(n) = super::decl_name(inner) {
-            seed.reserved.remove(&n);
-            seed.hard.insert(n);
+            let injected = bare_exports.get(&n).cloned().unwrap_or(n);
+            seed.reserved.remove(&injected);
+            seed.hard.insert(injected);
         }
     }
 }
@@ -150,26 +158,39 @@ pub(super) fn deconflict_lib_section(
     current_path: &std::path::Path,
     seed: &SeedNames,
     requested: &HashSet<&str>,
+    bare_exports: &mut HashMap<String, String>,
     prior: &mut HashMap<String, String>,
     mangle_seq: &mut usize,
 ) -> Result<HashMap<String, String>, String> {
+    // orig → mangled (drives the arena rewrite) and mangled → FIELD
+    // spelling (what the namespace accumulator shows the importer —
+    // the export FACE for a bare export, the decl name otherwise).
     let mut mangles: HashMap<String, String> = HashMap::new();
+    let mut demangle: HashMap<String, String> = HashMap::new();
     for i in 0..lib_section.len() {
         let Some(name) = top_value_decl_name(&lib_section[i]) else {
             continue;
         };
-        if requested.contains(name.as_str()) {
+        // A bare-exported decl (`const a = …; export { a as b }`)
+        // injects under its FACE (P13-S4b renames it), so the face is
+        // its collision surface — the decl's own spelling never lands.
+        let bare_face = bare_exports.get(&name).cloned();
+        let surface = bare_face.as_deref().unwrap_or(name.as_str());
+        if requested.contains(surface) {
             if prior.contains_key(&name) {
                 return Err(format!(
-                    "import name `{name}` collides with a same-named export of another module; \
-                     import it through a namespace (`import * as ns`) instead"
+                    "import name `{surface}` collides with a same-named export of another \
+                     module; import it through a namespace (`import * as ns`) instead"
                 ));
             }
             continue;
         }
         let prior_mangle = prior.get(&name).cloned();
-        let collides = seed.hard.contains(&name)
-            || seed.reserved.get(&name).is_some_and(|p| p != current_path);
+        let collides = seed.hard.contains(surface)
+            || seed
+                .reserved
+                .get(surface)
+                .is_some_and(|p| p != current_path);
         if prior_mangle.is_none() && !collides {
             continue;
         }
@@ -183,6 +204,17 @@ pub(super) fn deconflict_lib_section(
         rename_top_decl(&mut lib_section[i], &mangled);
         copy_fn_name_tables(ast, &name, &mangled);
         prior.insert(name.clone(), mangled.clone());
+        if let Some(face) = bare_face {
+            // Re-key so the injection recognizes the mangled decl as
+            // bare-exported but keeps its spelling (the map's value ==
+            // decl name skips the face rename); the FIELD still shows
+            // the face.
+            bare_exports.remove(&name);
+            bare_exports.insert(mangled.clone(), mangled.clone());
+            demangle.insert(mangled.clone(), face);
+        } else {
+            demangle.insert(mangled.clone(), name.clone());
+        }
         mangles.insert(name, mangled);
     }
     if mangles.is_empty() {
@@ -198,7 +230,7 @@ pub(super) fn deconflict_lib_section(
             *e = Expr::Ident(m.clone());
         }
     }
-    Ok(mangles.into_iter().map(|(o, m)| (m, o)).collect())
+    Ok(demangle)
 }
 
 /// The FnDecl / LetDecl name a top-level lib statement declares
@@ -314,13 +346,12 @@ pub(super) fn prep_lib_request<'a>(
             entry.push(visible);
         }
     }
-    let bare_exports = super::resolve_helpers::collect_bare_exports(lib_section);
+    let mut bare_exports = super::resolve_helpers::collect_bare_exports(lib_section);
     let own_exports = super::resolve_helpers::collect_own_export_names(lib_section);
-    let requested: HashSet<&str> = want
-        .iter()
-        .copied()
-        .chain(bare_exports.keys().map(String::as_str))
-        .collect();
+    // The census compares each decl's injected SURFACE (a bare
+    // export's face, the decl name otherwise) against this set — an
+    // importer-requested spelling lands importer-visible on purpose.
+    let requested: HashSet<&str> = want.iter().copied().collect();
     let demangle = deconflict_lib_section(
         ast,
         lib_section,
@@ -328,9 +359,10 @@ pub(super) fn prep_lib_request<'a>(
         current_path,
         seed,
         &requested,
+        &mut bare_exports,
         prior_mangles,
         mangle_seq,
     )?;
-    extend_seen_with_lib(lib_section, seed);
+    extend_seen_with_lib(lib_section, &bare_exports, seed);
     Ok((want, rename, bare_exports, own_exports, demangle))
 }

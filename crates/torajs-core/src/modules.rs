@@ -253,6 +253,24 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             continue;
         };
 
+        // A named request that ALIASES its binding follows this
+        // path's mangle memory: the source-side decl an earlier walk
+        // renamed re-mangles to the same spelling, and the alias is
+        // what the importer sees anyway (the `__reex_` fetches ride
+        // this). A plain-spelling request keeps the orig — the
+        // importer wants the very name the mangle took away, and the
+        // census's loud reject stays right for it.
+        let mut named = named;
+        if let Some(prior) = mangled_by_path.get(&target_path) {
+            for (orig, alias) in named.iter_mut() {
+                if let Some(m) = prior.get(orig)
+                    && alias.as_ref().is_some_and(|a| a != orig)
+                {
+                    *orig = m.clone();
+                }
+            }
+        }
+
         let src_text = std::fs::read_to_string(&target_path)
             .map_err(|e| format!("import {}: {e}", target_path.display()))?;
         let tokens = lexer::tokenize(&src_text)

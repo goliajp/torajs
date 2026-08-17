@@ -218,12 +218,15 @@ fn slot_type_supported(
         && (!name.starts_with("__")
             || name.starts_with("__ccmk_")
             || name.starts_with("__sf_")
-            // …and the resolver's re-export face bindings (rotation
-            // 426): `__reex_<ns>_<face>` is minted, but it holds the
-            // source module's user export, and its reader is the
-            // namespace object a user fn body opens — same category
-            // as the ES5 class binding below.
+            // …and the resolver's re-export face bindings plus the
+            // 423-01 deconflict mangles (rotation 426):
+            // `__reex_<ns>_<face>` / `__m<k>_<name>` are minted, but
+            // what they hold is the user's export, and the readers —
+            // namespace objects opened in user fn bodies — are the
+            // user's too. Same category as the ES5 class binding
+            // below.
             || name.starts_with("__reex_")
+            || crate::ssa_lower_inner::body_passes::strip_module_mangle(name) != name
             // …and the ES5 class binding (rotation 417): the name is
             // minted, but what it holds is the user's class, and the
             // named fns that read it are the user's too. See

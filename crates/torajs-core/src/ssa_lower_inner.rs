@@ -33,7 +33,7 @@
 //! batches / env-drop+promise+signatures / top-level globals /
 //! module finalize become file-local sub-fns below.
 
-mod body_passes;
+pub(crate) mod body_passes;
 mod setup;
 
 pub(crate) use body_passes::{intern_fn_source, strip_static_method_name};

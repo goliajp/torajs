@@ -142,12 +142,15 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
 
 /// Names the walk-time deconflict census cannot rename when this
 /// candidate's section injects: class / type decls (knife C/D scope —
-/// `top_value_decl_name` answers None), Fn/Let decls the lib rebinds
-/// elsewhere (the census declines those to keep the blind arena
-/// rewrite sound), and bare-export (`export { a }`) originals (the
-/// census treats them as requested spellings). A collision on any of
-/// these redeclares at walk time, so the caller must DROP.
+/// `top_value_decl_name` answers None) and Fn/Let decls the lib
+/// rebinds elsewhere (the census declines those to keep the blind
+/// arena rewrite sound). What the set holds is each decl's INJECTED
+/// spelling — a bare-exported decl (`export { a as b }`) injects
+/// under its face, and the census mangles on that surface too, so
+/// only the same two categories stay un-renamable. A collision on
+/// any of these redeclares at walk time, so the caller must DROP.
 fn unmanglable_names(probe: &Ast) -> HashSet<String> {
+    let bare = collect_bare_exports(&probe.stmts);
     let mut out: HashSet<String> = HashSet::new();
     for (i, s) in probe.stmts.iter().enumerate() {
         let inner = match s {
@@ -160,10 +163,9 @@ fn unmanglable_names(probe: &Ast) -> HashSet<String> {
         let manglable =
             top_value_decl_name(s).is_some() && !rebinds_elsewhere(probe, &probe.stmts, 0, i, &n);
         if !manglable {
-            out.insert(n);
+            out.insert(bare.get(&n).cloned().unwrap_or(n));
         }
     }
-    out.extend(collect_bare_exports(&probe.stmts).into_keys());
     out
 }
 

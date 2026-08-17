@@ -365,7 +365,7 @@ pub(crate) fn intern_fn_source(
 /// shape (`__m` + decimal sequence + `_`). Anything else — including
 /// other `__m…` synthetics whose next byte is not a digit — passes
 /// through untouched.
-fn strip_module_mangle(n: &str) -> &str {
+pub(crate) fn strip_module_mangle(n: &str) -> &str {
     let Some(rest) = n.strip_prefix("__m") else {
         return n;
     };
