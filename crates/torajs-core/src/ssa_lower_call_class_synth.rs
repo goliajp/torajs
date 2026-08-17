@@ -333,9 +333,10 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         );
         // 420-06 (§20.2.3.5) — hand the type-erased class source to
         // the runtime's per-tag table so `C.toString()` answers the
-        // declaration text. Lib / eval classes carry no span (their
-        // parse sites drop the entries — the text would index the
-        // wrong source) and keep the native-form fallback.
+        // declaration text. Lib / eval / builtin-injected classes
+        // carry no span (`parse_into` drops every nested parse's
+        // entries — the text would index the wrong source) and keep
+        // the native-form fallback.
         if let Some(span) = ctx.ast.class_decl_spans.get(&cname).copied()
             && !(span.start == 0 && span.end == 0)
         {

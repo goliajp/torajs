@@ -247,21 +247,14 @@ fn has_orphan_jump(stmts: &[Stmt], in_loop: bool, in_switch: bool) -> bool {
 /// into the program as if the user had written them.
 fn parse_once(src: &str, ast: &mut Ast, super_ok: bool) -> Option<Vec<Stmt>> {
     let before = ast.stmts.len();
-    // 420-06 — an eval-source class decl's recorded span indexes the
-    // EVAL string, not `ast.source`; slicing the main text with it
-    // would answer garbage toString source. Drop whatever the nested
-    // parse adds (same posture as the resolver's lib-parse retain).
-    let span_keys: Vec<String> = ast.class_decl_spans.keys().cloned().collect();
     let tokens = lexer::tokenize(src).ok()?;
-    let out = match parser::parse_into_super_prop(src, &tokens, ast, super_ok) {
+    match parser::parse_into_super_prop(src, &tokens, ast, super_ok) {
         Ok(offset) => Some(ast.stmts.drain(offset..).collect()),
         Err(_) => {
             ast.stmts.truncate(before);
             None
         }
-    };
-    ast.class_decl_spans.retain(|k, _| span_keys.contains(k));
-    out
+    }
 }
 
 /// The first line of the offending source, capped, for the error

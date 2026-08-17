@@ -253,14 +253,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             .map_err(|e| format!("import {}: {e}", target_path.display()))?;
         let tokens = lexer::tokenize(&src_text)
             .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
-        // 420-06 — a lib class decl's recorded span indexes the LIB
-        // file's text, not `ast.source` (the same mismatch
-        // `clear_injected_spans` guards); drop what the nested parse
-        // adds so those classes answer the native toString form.
-        let span_keys: Vec<String> = ast.class_decl_spans.keys().cloned().collect();
         let lib_offset = parser::parse_into(&src_text, &tokens, ast)
             .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
-        ast.class_decl_spans.retain(|k, _| span_keys.contains(k));
         if closure_paths.insert(target_path.clone()) {
             closure_files.push((target_path.clone(), src_text.into_bytes()));
         }
