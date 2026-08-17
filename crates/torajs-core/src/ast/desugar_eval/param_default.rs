@@ -13,13 +13,16 @@
 //! site evaluates to a SyntaxError throw, so the rewrite needs no
 //! goal gate.
 //!
-//! Arrow functions are exempt — an arrow has no `arguments` binding
-//! of its own, so the declaration is legal there (the generated
-//! `arrow-func-*` cases assert exactly that). The ownership walk
-//! therefore skips true-arrow defaults, and `mark_subtree` stops at
-//! any nested function boundary: a direct eval inside an arrow that
-//! sits in a default gets the ARROW's variable environment, not the
-//! parameter scope, so the special case does not apply to it.
+//! Arrow functions take a different path — an arrow has no
+//! `arguments` binding of its own, so the declaration is legal there
+//! (the binding lands in the arrow's parameter scope) unless a
+//! parameter is itself named `arguments`. The ownership walk here
+//! therefore skips true-arrow defaults; the sibling
+//! `param_default_arrow` pass owns both arrow verdicts. `mark_subtree`
+//! stops at any nested function boundary: a direct eval inside an
+//! arrow that sits in a default gets the ARROW's variable
+//! environment, not the parameter scope, so the special case does not
+//! apply to it.
 //!
 //! This pass must run BEFORE the value-position collapse: under the
 //! strict assumption that collapse folds a declarations-only source
@@ -73,7 +76,7 @@ pub(super) fn rewrite_param_default_arguments_evals(ast: &mut Ast) {
 /// function declarations both hit the EvalDeclarationInstantiation
 /// check; `let`/`const` spellings die in the eval's own lexical
 /// environment and take a different (lexical) error path — left out.
-fn declares_var_arguments(stmts: &[Stmt]) -> bool {
+pub(super) fn declares_var_arguments(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
         Stmt::LetDecl {
             name, is_var: true, ..
@@ -119,7 +122,7 @@ fn param_default_owned_exprs(ast: &Ast) -> Vec<bool> {
     owned
 }
 
-fn mark_defaults(ast: &Ast, params: &[Param], owned: &mut [bool]) {
+pub(super) fn mark_defaults(ast: &Ast, params: &[Param], owned: &mut [bool]) {
     for p in params {
         if let Some(d) = p.default {
             mark_subtree(ast, d, owned);

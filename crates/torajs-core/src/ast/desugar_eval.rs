@@ -133,6 +133,7 @@ mod completion_stmt;
 mod const_prop;
 mod function_ctor;
 mod param_default;
+mod param_default_arrow;
 mod scope;
 mod source;
 mod walk;
@@ -162,6 +163,12 @@ pub fn desugar_eval(ast: &mut Ast) {
         // function is called, while the collapse would fold the
         // declarations-only source to `undefined` and swallow it.
         param_default::rewrite_param_default_arguments_evals(ast);
+        // The arrow half of the same special case — legal in sloppy
+        // code (the binding lands in the arrow's parameter scope), a
+        // SyntaxError throw when a parameter is itself named
+        // `arguments`. Must also run before the value collapse, for
+        // the same swallowed-throw reason.
+        param_default_arrow::rewrite_arrow_param_default_arguments_evals(ast);
         // Value-position collapses first: a collapsed call is no
         // longer an eval call, so the statement walks below see only
         // the sources that need inlining.
