@@ -197,9 +197,62 @@ pub(super) fn collect_value_argv(
         super::arguments_object_chain::safe_binding_chain(ast, |fn_name| full.contains(fn_name));
     let mut injected: HashSet<String> = candidates.iter().map(|(_, f)| f.clone()).collect();
     injected.extend(collect_hof_anon_argv(ast, &full));
+    injected.extend(collect_spread_site_anon_argv(ast, &full));
     let boxed_params = collect_fn_arg_argv(ast, &full, &mut injected);
     let locals: HashSet<String> = candidates.iter().map(|(b, _)| b.clone()).collect();
     (injected, locals, boxed_params)
+}
+
+/// Spread-site anon track — an anonymous fn-expr invoked (or
+/// constructed) DIRECTLY at a site whose argument list carries a
+/// dynamic `...spread`: `(function () { …arguments… })(a, ...xs)` /
+/// `new (function () { …arguments… })(a, ...xs)` (the t262
+/// `new/spread-mult-*` idiom). The static-argv face refuses these
+/// sites — args.len() cannot count a spread — but the spread lowering
+/// already routes EVERY such call through the spread kernels'
+/// boxed dual entry (`__torajs_any_call_spread` /
+/// `__torajs_anyv_construct_spread`), whose adapter feeds real
+/// argc + argv into the synthetic params. So the argv face is not
+/// merely safe here, it is the channel the call already uses.
+///
+/// Gates, all mechanical (the HOF anon arm's set):
+/// - the body is in `full` (env-carrying, non-length touch, no
+///   unsafe return, not excluded);
+/// - the closure's ONLY arena reference is this callee slot (zero
+///   aliases by construction — the value exists only at this site);
+/// - the body doesn't ride the fnexpr-this promotion (adapter
+///   slot-mapping defense).
+fn collect_spread_site_anon_argv(
+    ast: &Ast,
+    full: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    use std::collections::{HashMap, HashSet};
+    let mut closure_refs: HashMap<&str, usize> = HashMap::new();
+    for e in &ast.exprs {
+        if let Expr::Closure { fn_name, .. } = e {
+            *closure_refs.entry(fn_name).or_insert(0) += 1;
+        }
+    }
+    let mut admitted: HashSet<String> = HashSet::new();
+    for e in &ast.exprs {
+        let (callee, args) = match e {
+            Expr::Call { callee, args } | Expr::NewDynamic { callee, args } => (callee, args),
+            _ => continue,
+        };
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if full.contains(fn_name)
+            && closure_refs.get(fn_name.as_str()) == Some(&1)
+            && !ast.fnexpr_recv_fns.contains(fn_name)
+            && args
+                .iter()
+                .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+        {
+            admitted.insert(fn_name.clone());
+        }
+    }
+    admitted
 }
 
 /// Rotation 365 fn-arg track — an anonymous argv-face fn-expr passed
