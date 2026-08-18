@@ -78,6 +78,31 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
             i += 1;
             continue;
         }
+        // §20.2.1.1 parses the assembled text NON-strict, where a
+        // duplicate parameter name is LEGAL (§15.2.1 refuses it only
+        // under a strict prologue — `strict_early_error` still sees
+        // the duplicate post-parse, since the parse admits it). The
+        // parse admitting it was the problem: two same-named slots
+        // both resolved to the LAST binding, so the materialized
+        // `arguments` snapshot read `[a, a]` and answered the second
+        // argument twice (`Function('a','a','return arguments[0];')`
+        // gave 8 for (7, 8); bun: 7). For the plain
+        // comma-list-of-idents shape the duplicate resolves BEFORE
+        // assembly: every occurrence but the LAST renames to a fresh
+        // synthetic — §8.6.1 initializes duplicates so the NAME
+        // resolves to the last one's argument (reads unchanged), the
+        // earlier slots keep their positions (`.length` and the
+        // `arguments` snapshot are positional, so both come out
+        // right), and §10.4.4's simple-uniqueness test makes the
+        // duplicate case UNMAPPED anyway — a snapshot with no
+        // write-through is exactly its semantics. Out-of-shape
+        // parameter text (defaults, patterns, comments) is left
+        // alone.
+        let params = if strict_body {
+            params
+        } else {
+            dedupe_sloppy_params(&params)
+        };
         let full = format!("function {name}({params}\n) {{\n{body}\n}}");
         let arena_before = ast.exprs.len();
         // super_ok = false — §20.2.1.1 parses the body as an ordinary
@@ -236,6 +261,33 @@ fn strict_param_name_error(params: &str) -> Option<String> {
         .map(str::trim)
         .find(|seg| FUTURE_RESERVED.contains(seg))
         .map(|name| format!("dynamic function: `{name}` as a parameter name in strict mode"))
+}
+
+/// The sloppy half of the duplicate-parameter answer (call-site doc at
+/// the assembly step): rename every occurrence but the last to a fresh
+/// synthetic, only for a plain comma list of simple identifiers.
+fn dedupe_sloppy_params(params: &str) -> String {
+    let segs: Vec<&str> = params.split(',').map(str::trim).collect();
+    if segs.len() < 2 || !segs.iter().all(|s| is_simple_ident(s)) {
+        return params.to_string();
+    }
+    let mut out: Vec<String> = Vec::with_capacity(segs.len());
+    for (i, seg) in segs.iter().enumerate() {
+        if segs[i + 1..].iter().any(|l| l == seg) {
+            out.push(format!("__dupparam_{i}"));
+        } else {
+            out.push((*seg).to_string());
+        }
+    }
+    out.join(",")
+}
+
+fn is_simple_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
 fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option<String> {
