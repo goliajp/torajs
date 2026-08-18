@@ -308,13 +308,19 @@ pub(crate) fn check_index(
             ))
         // Rotation 346 — a STRUCT receiver under an UNDEFINED key:
         // §7.1.19 ToPropertyKey(undefined) is the fixed string key
-        // "undefined" (no element spelling, so none of the recorded
-        // shadow-split concern that keeps dynamic STRING keys out).
-        // The t262 dstr harness's `[ {}[thrower()] ] = it` target —
-        // the key expr throws before any store happens; the lowering
-        // boxes the struct and rides the keyed set kernel.
+        // "undefined". Cluster #3 (rotation 442) — STRING / SYMBOL /
+        // ANY keys join, completing the read-side mirror (the read
+        // gate has admitted this exact domain since chunk 753 / L3b
+        // #13): the keyed set kernel's member_set struct arm
+        // dispatches layout field / inherited accessor / expando
+        // (rotation 441 blade 3c), so the shadow-split concern that
+        // once kept dynamic string keys out no longer holds — the
+        // cpn-class accessor family's `c[String(1 + 1)] = 2`.
         && !(matches!(obj_ty, Type::Struct(_))
-            && matches!(idx_ty, Type::Undefined | Type::Struct(_)))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
+            ))
         // An ARRAY receiver admits an `any` key: §7.1.19 decides
         // element-vs-property from the runtime value, so the write
         // rides the keyed set kernel with the receiver boxed (the
@@ -343,9 +349,16 @@ pub(crate) fn check_index(
     }
     // Rotation 346 — the struct + undefined-key pair the number
     // gate above admitted: the lowering boxes the struct receiver
-    // and rides the keyed set kernel (fixed "undefined" string key
-    // per §7.1.19, no element spelling to shadow-split).
-    if matches!(obj_ty, Type::Struct(_)) && matches!(idx_ty, Type::Undefined | Type::Struct(_)) {
+    // and rides the keyed set kernel. String / Symbol / Any keys
+    // ride the same box (cluster #3, rotation 442 — see the gate
+    // note above); field types are heterogeneous so the static
+    // answer is Any, the read side's mirror.
+    if matches!(obj_ty, Type::Struct(_))
+        && matches!(
+            idx_ty,
+            Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
+        )
+    {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }
