@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T16:35:25.026Z",
+  "generatedAt": "2026-08-18T02:56:44.041Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-17T16:26:24Z",
-    "headSha": "74c3db43",
-    "elapsedSec": 340.37,
+    "ranAt": "2026-08-18T02:35:23Z",
+    "headSha": "e626a596",
+    "elapsedSec": 336.31,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25729,
-    "passNoOracle": 915,
+    "pass": 25787,
+    "passNoOracle": 916,
     "passNegative": 4140,
-    "passTotal": 30784,
-    "bug": 12797,
-    "incompatible": 9593,
+    "passTotal": 30843,
+    "bug": 12799,
+    "incompatible": 9532,
     "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43581,
-    "passRateInScope": 57.89,
-    "passRateTrAccepted": 70.64
+    "trAccepted": 43642,
+    "passRateInScope": 58,
+    "passRateTrAccepted": 70.67
   },
   "torajs": {
-    "commit": "74c3db43",
-    "commitSubject": "feat: map and set receivers join the method-value reify families",
+    "commit": "73fda485",
+    "commitSubject": "docs: record the rotation 432 sweep and roadmap snapshot",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "73fda485",
+      "subject": "docs: record the rotation 432 sweep and roadmap snapshot"
+    },
+    {
+      "hash": "8de0f612",
+      "subject": "refactor: the pre-nullish probe moves to its own file"
+    },
+    {
+      "hash": "818db124",
+      "subject": "refactor: extract the pre-nullish dispatch arms into one probe"
+    },
+    {
+      "hash": "e626a596",
+      "subject": "feat: math.hypot joins the ns-static value family"
+    },
+    {
+      "hash": "d081e7c1",
+      "subject": "feat: object proto family keeps its runtime nullish gate under .call"
+    },
+    {
+      "hash": "39431c95",
+      "subject": "feat: generator field annotations learn Object statics and unannotated fns"
+    },
+    {
+      "hash": "5785d407",
+      "subject": "feat: with-body logical compounds keep one HasBinding guard"
+    },
+    {
+      "hash": "5df6c053",
+      "subject": "feat: with-body new expressions guard their constructor name"
+    },
+    {
+      "hash": "f3f7c43e",
+      "subject": "chore: record the rotation 431 sweep and refresh the dashboard snapshot"
+    },
+    {
       "hash": "74c3db43",
       "subject": "feat: map and set receivers join the method-value reify families"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "a55d93ae",
       "subject": "feat: brand-checked proto families skip the prototype-call rewrite"
-    },
-    {
-      "hash": "92755e4c",
-      "subject": "fix: dead-copy sweep marks side-table-only expr roots live"
-    },
-    {
-      "hash": "a502d787",
-      "subject": "feat: resolver dead-copy sweep tombstones discarded lib exprs"
-    },
-    {
-      "hash": "b8383179",
-      "subject": "chore: record the rotation 430 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "3490929b",
-      "subject": "refactor: resolve_imports seeding and post-bfs judgment fold into static_resolution"
-    },
-    {
-      "hash": "e9fc6a80",
-      "subject": "feat: entry assignments to import bindings throw TypeError at runtime"
-    },
-    {
-      "hash": "bf236fb3",
-      "subject": "feat: t262 runner stages sibling case files a fixture chain references"
-    },
-    {
-      "hash": "24c8d33e",
-      "subject": "fix: pass 2b shelves construction-less orphan closures as dead stubs"
-    },
-    {
-      "hash": "20927d37",
-      "subject": "feat: t262 runner stages the case under its corpus filename too"
-    },
-    {
-      "hash": "7eb7b02f",
-      "subject": "feat: entry static requests reject loudly on unresolvable or ambiguous exports"
     }
   ],
-  "headSha": "74c3db43",
+  "headSha": "73fda485",
   "autorun": {
-    "total": 734,
+    "total": 735,
     "baselineTarget": 10,
-    "bySelf": 729,
+    "bySelf": 730,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786979502-20d4",
-      "at": "2026-08-17T15:11:42Z",
-      "ts": 1786979502,
+      "rotationId": "r-1786984929-1de7",
+      "at": "2026-08-17T16:42:09Z",
+      "ts": 1786984929,
       "trigger": "self",
-      "prevHead": "b8383179",
-      "handoffSha": "sha256:77bdc0b6574be4f3cdf58a49fbb47a8fbf64b1fbd99f528abee423a8a1d0a093",
-      "handoffAgeSec": 15,
+      "prevHead": "f3f7c43e",
+      "handoffSha": "sha256:7115e4c0cdcecd5b71157b0b88b56617e2cfa3b0d200684226e7c4ad6ac11d7d",
+      "handoffAgeSec": 343,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1786984929-1de7",
+        "at": "2026-08-17T16:42:09Z",
+        "ts": 1786984929,
+        "trigger": "self",
+        "prevHead": "f3f7c43e",
+        "handoffSha": "sha256:7115e4c0cdcecd5b71157b0b88b56617e2cfa3b0d200684226e7c4ad6ac11d7d",
+        "handoffAgeSec": 343,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786979502-20d4",
         "at": "2026-08-17T15:11:42Z",
@@ -876,17 +887,6 @@
         "prevHead": "099d2d09",
         "handoffSha": "sha256:df6136025be893df1b1b4d0bae7c91478ed2dee4cb76df7a1ee1347bd9ff2041",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786887295-1f67",
-        "at": "2026-08-16T13:34:55Z",
-        "ts": 1786887295,
-        "trigger": "self",
-        "prevHead": "ea009482",
-        "handoffSha": "sha256:52d183d759eca52f8a9a149a1c87ea86cacdd7f4c15fc9197c1393c2a97f9f02",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
