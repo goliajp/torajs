@@ -123,6 +123,16 @@ pub(crate) fn check(
             checker.type_of(ast, key_eid)?;
             checker.type_of(ast, *eid)?;
             dynobj_lane = true;
+        } else if n == "__proto__" && !ast.objlit_shorthand_proto_exprs.contains(eid) {
+            // Rotation 434 — §B.3.1: a `__proto__: v` PropertyName
+            // field is a [[Prototype]] set, not an own data field;
+            // only the dynobj lane can express it
+            // (`emit_dynobj_proto_field`), so the whole literal
+            // answers Any, the same exit the computed-key arm takes.
+            // The property SHORTHAND spelling stays an ordinary own
+            // field and keeps the struct lane.
+            checker.type_of(ast, *eid)?;
+            dynobj_lane = true;
         } else {
             let ty = checker.type_of(ast, *eid)?;
             if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {

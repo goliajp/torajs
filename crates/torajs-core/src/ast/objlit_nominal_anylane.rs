@@ -39,7 +39,13 @@ use super::{Expr, ExprId, Stmt};
 /// - (g) a computed-key field (`__computed_N__` sentinel) — the
 ///   checker types the whole literal Any at every position (RFC
 ///   20260809 knife 1b), the dynobj lane is the only one that can
-///   ToPropertyKey the key.
+///   ToPropertyKey the key;
+/// - (h) a `__proto__: v` PropertyName field (rotation 434) — §B.3.1
+///   makes it a [[Prototype]] set, which only the dynobj lane can
+///   express (`emit_dynobj_proto_field`); the struct lane would
+///   record it as an own data field, a silent-wrong. The property
+///   SHORTHAND spelling (`{ __proto__ }`) is an ordinary own field
+///   (`objlit_shorthand_proto_exprs`) and keeps the nominal stamp.
 ///
 /// Still NOT covered: closure-valued callees and method-shape calls
 /// whose any params the SSA route serves — those keep the nominal
@@ -48,6 +54,7 @@ use super::{Expr, ExprId, Stmt};
 pub(super) fn collect_anylane_objlits(
     stmts: &[Stmt],
     exprs: &[Expr],
+    shorthand_proto: &std::collections::HashSet<ExprId>,
 ) -> std::collections::HashSet<u32> {
     let mut marked: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut roots: Vec<ExprId> = Vec::new();
@@ -67,6 +74,7 @@ pub(super) fn collect_anylane_objlits(
             Expr::ObjectLit { fields }
                 if fields.iter().any(|(n, fe)| {
                     n.starts_with("__computed_")
+                        || (n == "__proto__" && !shorthand_proto.contains(fe))
                         || matches!(&exprs[fe.0 as usize], Expr::Ident(x) if x == "undefined")
                 }) =>
             {

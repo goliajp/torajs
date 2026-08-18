@@ -64,6 +64,7 @@ pub(crate) fn run(
     sloppy: bool,
     spans: &mut Vec<crate::lexer::Span>,
     objlit_method_exprs: &std::collections::HashSet<ExprId>,
+    objlit_shorthand_proto_exprs: &std::collections::HashSet<ExprId>,
     objlit_method_fields: &mut HashMap<String, Vec<String>>,
     outer_binds: &HashMap<String, String>,
     objlit_site_binds: &HashMap<u32, HashMap<String, String>>,
@@ -76,7 +77,11 @@ pub(crate) fn run(
     // RFC 20260813-detached-objlit-method — widen FIRST: the (a) leg
     // of the collector below is what picks the widened binding up.
     super::objlit_nominal_anylane::widen_detached_method_objlits(stmts, exprs, spans);
-    let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(stmts, exprs);
+    let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(
+        stmts,
+        exprs,
+        objlit_shorthand_proto_exprs,
+    );
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
     let mut any_patches: Vec<(ExprId, String)> = Vec::new();
