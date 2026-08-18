@@ -102,7 +102,17 @@ fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], names: &std::collections::Hash
         while let Expr::As { expr, .. } = &exprs[cur.0 as usize] {
             cur = *expr;
         }
-        if matches!(&exprs[cur.0 as usize], Expr::ObjectLit { .. }) {
+        // A computed-key literal is already served whole by the
+        // anylane (g) leg (the checker types it `any` at every
+        // position), so the widen adds nothing there — and it MOVED
+        // something: the `[Symbol.unscopables]` env shape's deleted-
+        // binding read lost its strict-mode ReferenceError (measured,
+        // rotation 437 sweep regression). The honest §9.1.1.2.6
+        // GetBindingValue strict-reference recheck is an L3b item;
+        // until it exists these literals keep their pre-widen lane.
+        if matches!(&exprs[cur.0 as usize], Expr::ObjectLit { fields }
+            if !fields.iter().any(|(n, _)| n.starts_with("__computed_")))
+        {
             *type_ann = Some("any".to_string());
         }
     }
