@@ -70,11 +70,17 @@ pub(crate) fn check(
     // harness's `{}[thrower()]` shape, where the throwing callee
     // types its result Undefined). `Void` stays out — a Void expr
     // has no SSA value to box.
+    // Cluster #4 (rotation 438) — a STRUCT-typed key joins the any /
+    // struct receivers: §7.1.19 ToPropertyKey coerces an object key
+    // through its own toString/valueOf (OrdinaryToPrimitive), which
+    // only the runtime can run. The lowering boxes the key and rides
+    // the keyed kernel's runtime dispatch (`{}[{toString(){...}}]`,
+    // the t262 target-member-computed-reference shape).
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any | Type::Struct(_))
             && matches!(
                 idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
+                Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
             ))
         // An ARRAY receiver takes the same key domain the `any` and
         // struct receivers do, and for the same reason: `a[k]` is an

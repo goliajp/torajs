@@ -411,11 +411,15 @@ pub(crate) fn check_index(
     // Cluster #1 blade 4 — an `any` key on an `any` receiver rides
     // the keyed set kernel's runtime ToPropertyKey dispatch (mirror
     // of the read-side admit in `check_type_of_index`).
+    // Cluster #4 (rotation 438) — a STRUCT-typed key joins: §7.1.19
+    // ToPropertyKey coerces an object key through toString/valueOf at
+    // runtime, so the lowering boxes it and rides the keyed set
+    // kernel (read-side mirror in `check_type_of_index`).
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any)
             && matches!(
                 idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
+                Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
             ))
         // Rotation 346 — a STRUCT receiver under an UNDEFINED key:
         // §7.1.19 ToPropertyKey(undefined) is the fixed string key
@@ -424,7 +428,8 @@ pub(crate) fn check_index(
         // The t262 dstr harness's `[ {}[thrower()] ] = it` target —
         // the key expr throws before any store happens; the lowering
         // boxes the struct and rides the keyed set kernel.
-        && !(matches!(obj_ty, Type::Struct(_)) && idx_ty == Type::Undefined)
+        && !(matches!(obj_ty, Type::Struct(_))
+            && matches!(idx_ty, Type::Undefined | Type::Struct(_)))
         // An ARRAY receiver admits an `any` key: §7.1.19 decides
         // element-vs-property from the runtime value, so the write
         // rides the keyed set kernel with the receiver boxed (the
@@ -455,7 +460,7 @@ pub(crate) fn check_index(
     // gate above admitted: the lowering boxes the struct receiver
     // and rides the keyed set kernel (fixed "undefined" string key
     // per §7.1.19, no element spelling to shadow-split).
-    if matches!(obj_ty, Type::Struct(_)) && idx_ty == Type::Undefined {
+    if matches!(obj_ty, Type::Struct(_)) && matches!(idx_ty, Type::Undefined | Type::Struct(_)) {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }

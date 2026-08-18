@@ -141,6 +141,7 @@ pub(crate) fn synthesize_main(
             redispatch_lowered: None,
             argv_owned_temps: Vec::new(),
             owned_member_reads: std::collections::HashSet::new(),
+            compound_key_memo: None,
         };
         // T-15.g.5 — prime the binding sets BEFORE lowering any
         // top-level let-decl (an unprimed escape-captured `let`

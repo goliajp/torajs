@@ -110,7 +110,58 @@ impl<'a> LowerCtx<'a> {
     ) -> Operand {
         let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, index);
         let key_transfers = self.expr_transfers_ownership(index);
+        // Cluster #4 T4 — the compound desugar (`o[k] op= v` →
+        // `o[k] = o[k] op v`) shares the obj/index sub-ExprIds
+        // between target and embedded read (the parser's deliberate
+        // fingerprint). §6.2.5 GetValue writes ToPropertyKey's answer
+        // back into the Reference Record, so a coercing key (object
+        // with its own toString) runs ONCE. Mirror: coerce here, pin
+        // the coerced cell in `compound_key_memo`, and both the
+        // embedded read and the store below reuse it.
+        let compound_shared = if let Expr::BinOp { left, .. } = self.ast.get_expr(value) {
+            let left = *left;
+            matches!(self.ast.get_expr(left),
+                Expr::Index { obj: o2, index: i2 } if *o2 == obj && *i2 == index)
+        } else {
+            false
+        };
+        let k_final = if compound_shared {
+            let cur_block = self.cur_block;
+            let p = self.f.append_inst(
+                cur_block,
+                crate::ssa::InstKind::Call(
+                    self.intrinsics.anyv_to_property_key,
+                    vec![k_raw.clone()],
+                ),
+                Type::Ptr,
+                None,
+            );
+            // NULL answer = the key's ToString threw; propagate.
+            self.emit_throw_check(None);
+            if key_transfers {
+                self.emit_drop_value(k_raw, Type::Any);
+            }
+            let cur_block = self.cur_block;
+            // The coerced Str/Symbol cell boxes as a heap tag; the
+            // kernels' cell arm takes it uncoerced.
+            let boxed = self.f.append_inst(
+                cur_block,
+                crate::ssa::InstKind::Call(
+                    self.intrinsics.any_box,
+                    vec![Operand::ConstI64(4), Operand::Value(p)],
+                ),
+                Type::Any,
+                None,
+            );
+            self.compound_key_memo = Some((index, Operand::Value(boxed)));
+            Operand::Value(boxed)
+        } else {
+            k_raw
+        };
         let v_raw = self.lower_expr(value);
+        if compound_shared {
+            self.compound_key_memo = None;
+        }
         let v_ty = self.operand_ty(&v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_slot = self.resolve_any_recv_slot(obj);
@@ -119,12 +170,15 @@ impl<'a> LowerCtx<'a> {
             cur_block,
             crate::ssa::InstKind::Call(
                 self.intrinsics.any_index_set_keyed,
-                vec![obj_val, k_raw.clone(), tag_op, value_op, recv_slot],
+                vec![obj_val, k_final.clone(), tag_op, value_op, recv_slot],
             ),
         );
         self.emit_throw_check(None);
-        if key_transfers {
-            self.emit_drop_value(k_raw, Type::Any);
+        // The coerced cell carries the to_property_key +1 (its box is
+        // a pure encode) — release it; the uncoerced path keeps the
+        // original owned-temp contract.
+        if compound_shared || key_transfers {
+            self.emit_drop_value(k_final, Type::Any);
         }
         crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         v_raw

@@ -492,4 +492,9 @@ pub(crate) struct LowerCtx<'a> {
     /// (the set carries every "this eid's result is owned" verdict
     /// decided at lowering time, not just member reads).
     pub(crate) owned_member_reads: std::collections::HashSet<ExprId>,
+    /// Cluster #4 T4 — compound `o[k] op= v` coerced-key pin: the keyed
+    /// write lane runs ToPropertyKey once and parks (key eid, coerced key)
+    /// here so the embedded read reuses it (§6.2.5 GetValue writes the
+    /// coerced key back into the Reference Record — one coerce total).
+    pub(crate) compound_key_memo: Option<(ExprId, Operand)>,
 }

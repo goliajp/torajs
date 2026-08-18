@@ -46,7 +46,7 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) use crate::ssa_lower_index_any_key::{
     lower_any_index_str_key, lower_any_index_symbol_key, lower_any_key, lower_array_any_index,
-    lower_typed_arr_any_key,
+    lower_struct_like_index, lower_typed_arr_any_key,
 };
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: ExprId) -> Operand {
@@ -65,76 +65,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let arr_val = ctx.lower_expr(obj);
     lower_from_value(ctx, eid, obj, index, arr_val, is_non_deque)
-}
-
-/// The struct-like receiver's dynamic-index read (chunk 753; carved
-/// out of [`lower_from_value`] when the rotation-346 undefined-key
-/// arm pushed it past the 200-line fn limit — body verbatim). The
-/// struct cell encodes as a NaN-box (pure pointer encoding, zero rc
-/// traffic — the receiver binding keeps its stake and the box is a
-/// borrow) and every key shape rides the any-index runtime lane.
-fn lower_struct_like_index(
-    ctx: &mut LowerCtx<'_>,
-    eid: ExprId,
-    index: ExprId,
-    arr_val: Operand,
-) -> Operand {
-    let boxed = ctx.box_to_any(arr_val);
-    if let crate::ast::Expr::String(lit) = ctx.ast.get_expr(index) {
-        let lit = lit.clone();
-        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, &lit);
-    }
-    if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
-        // Chunk 726 convention (OptIndex already does this) —
-        // the dynamic-key probe answers a fresh owned box; the
-        // eid joins the owned track so the consumer releases.
-        let v = lower_any_index_str_key(ctx, boxed, index);
-        ctx.owned_member_reads.insert(eid);
-        return v;
-    }
-    // Cluster #1 blade 5 — an `any`-typed key on the boxed struct
-    // rides the keyed kernel's ToPropertyKey dispatch (mirror of
-    // the Any-receiver arm below). An UNDEFINED key joins
-    // (rotation 346): `lower_any_key` boxes it to ANY_UNDEF.
-    if matches!(
-        ctx.expr_types.get(&index),
-        Some(crate::check::Type::Any | crate::check::Type::Undefined)
-    ) {
-        let k_raw = lower_any_key(ctx, index);
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_index_get_keyed,
-                vec![boxed, k_raw.clone()],
-            ),
-            Type::Any,
-            None,
-        );
-        ctx.emit_throw_check(None);
-        ctx.owned_member_reads.insert(eid);
-        if ctx.expr_transfers_ownership(index) {
-            ctx.emit_drop_value(k_raw, Type::Any);
-        }
-        return Operand::Value(v);
-    }
-    let idx_val = ctx.lower_index_operand(index);
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.any_index_get, vec![boxed, idx_val]),
-        Type::Any,
-        None,
-    );
-    ctx.emit_throw_check(None);
-    // `__torajs_arr_index_get` answers cells with an explicit +1
-    // ("the returned copy takes another") — record the read as
-    // owned so the consumer releases it (chunk 717 convention);
-    // pre-record the +1 was stranded (~128B/iter on the
-    // any-index churn probe). The boxed receiver itself is a
-    // borrow (chunk 753 pure-encoding note above), no release.
-    ctx.owned_member_reads.insert(eid);
-    return Operand::Value(v);
 }
 
 /// Value-based body: the receiver is already lowered (`arr_val`),
@@ -228,12 +158,22 @@ pub(crate) fn lower_from_value(
         // lane (number / string / symbol all possible at runtime);
         // the keyed kernel does the §7.1.19 ToPropertyKey dispatch.
         // Probe borrows the key; same owned-read bookkeeping as the
-        // numeric lane below. An UNDEFINED key joins (rotation 346).
+        // numeric lane below. An UNDEFINED key joins (rotation 346);
+        // a STRUCT key joins (cluster #4, boxed by `lower_any_key`).
         if matches!(
             ctx.expr_types.get(&index),
-            Some(crate::check::Type::Any | crate::check::Type::Undefined)
+            Some(
+                crate::check::Type::Any
+                    | crate::check::Type::Undefined
+                    | crate::check::Type::Struct(_)
+            )
         ) {
-            let k_raw = lower_any_key(ctx, index);
+            // Cluster #4 T4 — reuse a compound write lane's pinned
+            // coerced key (see the boxed-struct twin above).
+            let (k_raw, memoed) = match &ctx.compound_key_memo {
+                Some((mid, mop)) if *mid == index => (mop.clone(), true),
+                _ => (lower_any_key(ctx, index), false),
+            };
             let cur_block = ctx.cur_block;
             let v = ctx.f.append_inst(
                 cur_block,
@@ -247,7 +187,7 @@ pub(crate) fn lower_from_value(
             ctx.emit_throw_check(None);
             ctx.owned_member_reads.insert(eid);
             ctx.release_owned_temp(obj, &arr_val);
-            if ctx.expr_transfers_ownership(index) {
+            if !memoed && ctx.expr_transfers_ownership(index) {
                 ctx.emit_drop_value(k_raw, Type::Any);
             }
             return Operand::Value(v);

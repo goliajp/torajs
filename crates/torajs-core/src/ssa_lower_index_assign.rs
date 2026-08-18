@@ -438,10 +438,15 @@ impl<'a> LowerCtx<'a> {
         // Cluster #1 blade 4 — an `any`-typed key rides the keyed
         // set kernel's runtime ToPropertyKey dispatch. An
         // UNDEFINED key joins (rotation 346, boxed to ANY_UNDEF
-        // inside the lane).
+        // inside the lane); a STRUCT key joins (cluster #4, tag-
+        // boxed inside the lane, kernel runs OrdinaryToPrimitive).
         if matches!(
             self.expr_types.get(&index),
-            Some(crate::check::Type::Any | crate::check::Type::Undefined)
+            Some(
+                crate::check::Type::Any
+                    | crate::check::Type::Undefined
+                    | crate::check::Type::Struct(_)
+            )
         ) {
             return self.lower_any_index_assign_any_key(eid, obj, arr_val, index, value);
         }
