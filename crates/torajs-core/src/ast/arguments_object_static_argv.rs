@@ -17,6 +17,18 @@ use super::{Ast, Expr, Param, Stmt};
 /// A fn spotted at two call sites is skipped defensively (lifted
 /// IIFE closures have exactly one; two means this isn't the shape we
 /// think it is — over-kill only loses the admit, never wrong).
+///
+/// The inline `new (function () { …arguments[i]… })(…)` twin joins
+/// the same face: a NewDynamic callee's closure value exists only at
+/// this construct site, and the construct channel's boxed dual entry
+/// feeds every declared param (injected extras included) from the
+/// site's argument list, so the static fold answers the same truth a
+/// direct call would.
+///
+/// A site carrying a dynamic `...spread` poisons the name: args.len()
+/// counts the spread as ONE argument, so the injected extras would
+/// mis-slot every value after it (silent) — the fn stays off the
+/// face (the named-fn collector's own spread rule).
 pub(super) fn collect_iife_static_argv(
     ast: &Ast,
     iife_real_argc: &std::collections::HashSet<String>,
@@ -25,12 +37,21 @@ pub(super) fn collect_iife_static_argv(
     let mut argc: HashMap<String, usize> = HashMap::new();
     let mut dup: HashSet<String> = HashSet::new();
     for e in &ast.exprs {
-        let Expr::Call { callee, args } = e else {
-            continue;
+        let (callee, args) = match e {
+            Expr::Call { callee, args } => (callee, args),
+            Expr::NewDynamic { callee, args } => (callee, args),
+            _ => continue,
         };
         let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
             continue;
         };
+        if args
+            .iter()
+            .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+        {
+            dup.insert(fn_name.clone());
+            continue;
+        }
         if argc.insert(fn_name.clone(), args.len()).is_some() {
             dup.insert(fn_name.clone());
         }
