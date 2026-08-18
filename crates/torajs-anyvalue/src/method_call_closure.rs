@@ -260,6 +260,29 @@ pub(crate) unsafe fn dispatch(
                 )
             }
             CallTarget::Builtin(mid, fam) => {
+                // A tag-15 cell (%Iterator.prototype%'s helpers) is
+                // STRICT about its receiver — §27.1.4.x step 1 is a
+                // TypeError on a non-Object `this`, never a ToObject
+                // wrap (the redispatch below would wrapper-seed a
+                // primitive and read its `next` — test262 plants a
+                // poisoned `Number.prototype.next` getter to catch
+                // exactly that). An Object rides the shared kernel,
+                // mirror of the dynobj-chain leg.
+                if *fam == 15 && crate::iter_helper::iter_proto_owns_mid(*mid) {
+                    if !crate::iter_zip_shared::av_is_object(this_arg) {
+                        __torajs_throw_type_error(
+                            c"Iterator helper called on a non-object".as_ptr(),
+                        );
+                        return crate::nanbox::VALUE_UNDEFINED;
+                    }
+                    return crate::iter_helper::try_helper_chain(
+                        crate::nanbox::as_void_ptr(this_arg) as *mut c_void,
+                        *mid,
+                        argv as *const AnyValue,
+                        argc,
+                    )
+                    .unwrap_or_else(|| crate::method_call::method_no_such());
+                }
                 if let Some(out) = generic_builtin_this(*mid, this_arg, argv, argc, *fam) {
                     return out;
                 }

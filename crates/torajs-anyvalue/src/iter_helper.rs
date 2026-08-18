@@ -93,7 +93,12 @@ pub(crate) use validation::iter_proto_owns_mid;
 /// # Safety
 /// `recv` / `fn_av` carry valid AnyValue bit patterns.
 pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue) -> AnyValue {
-    if !is_cell(recv) {
+    // §27.1.4.x step 1 — "is an Object", not "is a heap cell": a
+    // primitive Str / Symbol / BigInt cell is still a primitive and
+    // takes the TypeError (rotation 434 — the `.call(0)` reflection
+    // family plants poisoned wrapper-prototype `next` getters to
+    // catch a ToObject here).
+    if !unsafe { crate::iter_zip_shared::av_is_object(recv) } {
         unsafe {
             __torajs_throw_type_error(c"Iterator helper called on a non-object".as_ptr());
         }
