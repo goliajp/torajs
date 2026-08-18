@@ -385,6 +385,66 @@ impl<'a> Parser<'a> {
                 self.at()
             ));
         }
+        // §12.7.2 ReservedWord — never a valid IdentifierReference,
+        // so never an assignment target. The objlit COVER parse
+        // admits these as property names (`{ default: x }` is fine)
+        // and the shorthand spelling synthesizes an Ident value
+        // carrying the keyword text; only the re-read as an
+        // AssignmentPattern sees the difference (`{ default } = o`,
+        // the t262 syntax-error-ident-ref family), so the parse-phase
+        // reject lives here. Contextual keywords (type / async /
+        // await / let) stay out — they ARE valid identifier
+        // references. A user-written ident can never collide: these
+        // spellings lex to their keyword tokens, so an `Ident` node
+        // carrying one only ever comes from the shorthand synthesis
+        // (escaped spellings included).
+        const RESERVED: [&str; 36] = [
+            "break",
+            "case",
+            "catch",
+            "class",
+            "const",
+            "continue",
+            "debugger",
+            "default",
+            "delete",
+            "do",
+            "else",
+            "enum",
+            "export",
+            "extends",
+            "false",
+            "finally",
+            "for",
+            "function",
+            "if",
+            "import",
+            "in",
+            "instanceof",
+            "new",
+            "null",
+            "return",
+            "super",
+            "switch",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "typeof",
+            "var",
+            "void",
+            "while",
+            "with",
+        ];
+        if let Expr::Ident(n) = self.ast.get_expr(target)
+            && RESERVED.contains(&n.as_str())
+        {
+            return Err(format!(
+                "`{n}` is a reserved word and not a valid assignment target in a \
+                 destructuring pattern at {} (ES §13.15.1)",
+                self.at()
+            ));
+        }
         let is_simple = matches!(
             self.ast.get_expr(target),
             Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
