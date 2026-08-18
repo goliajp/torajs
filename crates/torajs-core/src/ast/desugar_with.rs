@@ -238,7 +238,12 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
     // guards the read rewrites put there. A clone taken before those
     // ran would resolve its own free names lexically — the
     // silent-wrong this whole pass exists to avoid.
-    sites.sort_by_key(|(_, p)| u8::from(matches!(p, Position::Assign(..) | Position::NewCtor)));
+    sites.sort_by_key(|(_, p)| {
+        u8::from(matches!(
+            p,
+            Position::Assign(..) | Position::NewCtor | Position::LogicalCompound(_)
+        ))
+    });
     for (eid, pos) in sites {
         // The name a site guards is usually the `Ident` it recorded;
         // a `NewCtor` site has no such node — the parser stored the
@@ -260,6 +265,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
             Position::Wrapping(outer) => rewrite_wrapping(ast, outer, &w, &n),
             Position::Assign(node, lhs) => rewrite_assign(ast, node, lhs, &w, &n),
             Position::NewCtor => rewrite_new(ast, eid, &w, &n),
+            Position::LogicalCompound(outer) => rewrite_logical_compound(ast, outer, &w, &n),
         }
     }
     items.extend(body);
@@ -309,6 +315,14 @@ pub(crate) enum Position {
     /// the lexical `Base` while the object carried one: the parser's
     /// static-callee shortcut silently skipping §9.1.1.2.1.
     NewCtor,
+    /// The recorded `Ident` is the cloned left operand of a LOGICAL
+    /// compound (`n ??= v` / `n ||= v` / `n &&= v`, which the parser
+    /// desugars to `n ?? (n = v)` and kin). The field is the shell
+    /// node — Nullish or the logical BinOp — which is replaced WHOLE,
+    /// one guard for the pair: §13.15.2 resolves the reference once,
+    /// and guarding the read and the write separately would evaluate
+    /// §9.1.1.2.1 HasBinding twice for one resolution.
+    LogicalCompound(ExprId),
 }
 
 mod collect;
@@ -317,6 +331,9 @@ mod scope;
 mod var_split;
 pub(crate) mod walk;
 use collect::collect_body;
-use guard::{rewrite_assign, rewrite_call, rewrite_new, rewrite_read, rewrite_wrapping};
+use guard::{
+    rewrite_assign, rewrite_call, rewrite_logical_compound, rewrite_new, rewrite_read,
+    rewrite_wrapping,
+};
 use var_split::split_var_inits;
 use walk::{arrow_nodes, stmt_children};

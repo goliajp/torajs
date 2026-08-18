@@ -10,7 +10,7 @@
 use super::Position;
 use super::scope::Scope;
 use super::walk::{expr_children, stmt_children_ref, stmt_exprs};
-use crate::ast::{Ast, Expr, ExprId, Param, StaticInit, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Param, StaticInit, Stmt};
 
 /// The synth name the parser leaves at a class EXPRESSION's use site.
 /// Both spellings get one — an anonymous `class {}` and a named
@@ -331,6 +331,20 @@ fn collect_expr(
             }
             return;
         }
+        Expr::Nullish { lhs, rhs } => {
+            if logical_compound(ast, eid, *lhs, *rhs, scope, sites, err) {
+                return;
+            }
+        }
+        Expr::BinOp {
+            op: BinOp::LOr | BinOp::LAnd,
+            left,
+            right,
+        } => {
+            if logical_compound(ast, eid, *left, *right, scope, sites, err) {
+                return;
+            }
+        }
         Expr::New {
             class_name, args, ..
         } => {
@@ -386,6 +400,45 @@ fn collect_expr(
     for c in expr_children(ast, eid) {
         collect_expr(ast, c, scope, sites, err);
     }
+}
+
+/// One logical compound (`n ??= v` / `n ||= v` / `n &&= v`), which the
+/// parser desugars to `n ?? (n = v)` and kin: the left operand is a
+/// CLONE of the assignment's target, the same reference resolved once
+/// per §13.15.2. Walked generically, the clone took a read guard and
+/// the assign took its own — two §9.1.1.2.1 HasBinding evaluations for
+/// one resolution. Recording the SHELL instead keeps the pair under a
+/// single guard; only the value expression is walked on, since the
+/// name's two occurrences are both consumed by the shell rewrite.
+///
+/// A hand-written `n ?? (n = v)` matches too and is merged the same
+/// way — the desugar erased the spelling difference before this pass
+/// runs, exactly as the parser's arithmetic compound desugar already
+/// does for `n = n op v`.
+fn logical_compound(
+    ast: &Ast,
+    outer: ExprId,
+    lhs: ExprId,
+    rhs: ExprId,
+    scope: &Scope,
+    sites: &mut Vec<(ExprId, Position)>,
+    err: &mut Option<String>,
+) -> bool {
+    let Expr::Ident(n) = ast.get_expr(lhs) else {
+        return false;
+    };
+    let Expr::Assign { target, value } = ast.get_expr(rhs) else {
+        return false;
+    };
+    if !matches!(ast.get_expr(*target), Expr::Ident(tn) if tn == n) {
+        return false;
+    }
+    if !object_may_supply(ast, *target, n, scope) {
+        return false;
+    }
+    sites.push((lhs, Position::LogicalCompound(outer)));
+    collect_expr(ast, *value, scope, sites, err);
+    true
 }
 
 /// The sole operand of `typeof` / `++` / `--`, whose WRAPPING node is

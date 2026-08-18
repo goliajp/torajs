@@ -15,6 +15,7 @@
 
 use super::super::{Ast, Expr, ExprId};
 use super::WITH_HAS_FN;
+use crate::ast::BinOp;
 
 /// `n` -> `(__torajs_with_has(w, "n") ? w.n : n)`, written OVER the
 /// original arena slot so no parent link has to be found or rebuilt.
@@ -249,6 +250,67 @@ pub(super) fn rewrite_new(ast: &mut Ast, node: ExprId, w: &str, n: &str) {
         then_branch,
         else_branch,
     };
+}
+
+/// `n ??= v` (arriving as `n ?? (n = v)`, and the `||=` / `&&=` kin
+/// as their logical BinOps) -> `(has ? (w.n ?? (w.n = v)) : (n ?? (n
+/// = v)))`. The SHELL is replaced whole so §9.1.1.2.1 HasBinding runs
+/// once for the read-write pair, matching §13.15.2's single
+/// ResolveBinding — the collect walk records the pair as one site for
+/// exactly this reason. Short-circuit is preserved by construction:
+/// each arm keeps the shell's own operator, so the assign still sits
+/// inside the branch that only runs when the guard fires.
+///
+/// The value expression is cloned for the object arm; the
+/// fall-through arm keeps every original child, so nothing is
+/// consumed and there is no tombstone to leave.
+pub(super) fn rewrite_logical_compound(ast: &mut Ast, outer: ExprId, w: &str, n: &str) {
+    let (lhs, shell_op, assign) = match ast.get_expr(outer) {
+        Expr::Nullish { lhs, rhs } => (*lhs, None, *rhs),
+        Expr::BinOp { op, left, right } => (*left, Some(*op), *right),
+        _ => return,
+    };
+    let Expr::Assign { value, .. } = ast.get_expr(assign) else {
+        return;
+    };
+    let value = *value;
+    let cond = has_call(ast, w, n);
+    let mut cloner = super::super::clone_body::BodyCloner::new(ast);
+    let cloned_value = cloner.clone_expr(value);
+    migrate_side_tables(&mut cloner);
+    let obj_lhs = with_member(ast, w, n);
+    let obj_target = with_member(ast, w, n);
+    let obj_assign = ast.add_expr(Expr::Assign {
+        target: obj_target,
+        value: cloned_value,
+    });
+    let then_branch = ast.add_expr(shell(shell_op, obj_lhs, obj_assign));
+    // The fall-through arm reuses the original children; both name
+    // occurrences get the diagnostic exemption every fall-through
+    // read gets.
+    ast.with_fallthrough_idents.insert(lhs);
+    if let Expr::Assign { target, .. } = ast.get_expr(assign) {
+        let t = *target;
+        ast.with_fallthrough_idents.insert(t);
+    }
+    let else_branch = ast.add_expr(shell(shell_op, lhs, assign));
+    ast.exprs[outer.0 as usize] = Expr::Ternary {
+        cond,
+        then_branch,
+        else_branch,
+    };
+}
+
+/// The shell node kind a logical compound wears: `??` has its own
+/// variant, `||` / `&&` are BinOps.
+fn shell(op: Option<BinOp>, left: ExprId, right: ExprId) -> Expr {
+    match op {
+        None => Expr::Nullish {
+            lhs: left,
+            rhs: right,
+        },
+        Some(op) => Expr::BinOp { op, left, right },
+    }
 }
 
 /// Carry the side-table entries of a cloned arm across to the clone.
