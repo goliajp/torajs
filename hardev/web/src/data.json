@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T02:56:44.041Z",
+  "generatedAt": "2026-08-18T04:56:29.747Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T02:35:23Z",
-    "headSha": "e626a596",
-    "elapsedSec": 336.31,
+    "ranAt": "2026-08-18T04:47:57Z",
+    "headSha": "aa82c5bc",
+    "elapsedSec": 338.23,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25787,
-    "passNoOracle": 916,
+    "pass": 25805,
+    "passNoOracle": 936,
     "passNegative": 4140,
-    "passTotal": 30843,
-    "bug": 12799,
-    "incompatible": 9532,
+    "passTotal": 30881,
+    "bug": 12790,
+    "incompatible": 9503,
     "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43642,
-    "passRateInScope": 58,
-    "passRateTrAccepted": 70.67
+    "trAccepted": 43671,
+    "passRateInScope": 58.08,
+    "passRateTrAccepted": 70.71
   },
   "torajs": {
-    "commit": "73fda485",
-    "commitSubject": "docs: record the rotation 432 sweep and roadmap snapshot",
+    "commit": "22569b3d",
+    "commitSubject": "chore: refresh the test262 sweep artifacts for rotation 433",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "22569b3d",
+      "subject": "chore: refresh the test262 sweep artifacts for rotation 433"
+    },
+    {
+      "hash": "710bad53",
+      "subject": "docs: record the rotation 433 sweep and roadmap snapshot"
+    },
+    {
+      "hash": "aa82c5bc",
+      "subject": "feat: builtin ctor cells learn a construct face"
+    },
+    {
+      "hash": "344c7261",
+      "subject": "feat: builtin ctor cells learn a callable face"
+    },
+    {
+      "hash": "84da5e33",
+      "subject": "feat: function.call rides the dynamic-function inline channel"
+    },
+    {
+      "hash": "8d942839",
+      "subject": "feat: the generator lift learns arrow bodies via an arena scan"
+    },
+    {
+      "hash": "24dcf88e",
+      "subject": "feat: groupby and withresolvers join the ns-static value family"
+    },
+    {
+      "hash": "b99dc4fe",
+      "subject": "chore: refresh the hardev dashboard snapshot"
+    },
+    {
       "hash": "73fda485",
       "subject": "docs: record the rotation 432 sweep and roadmap snapshot"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "e626a596",
       "subject": "feat: math.hypot joins the ns-static value family"
-    },
-    {
-      "hash": "d081e7c1",
-      "subject": "feat: object proto family keeps its runtime nullish gate under .call"
-    },
-    {
-      "hash": "39431c95",
-      "subject": "feat: generator field annotations learn Object statics and unannotated fns"
-    },
-    {
-      "hash": "5785d407",
-      "subject": "feat: with-body logical compounds keep one HasBinding guard"
-    },
-    {
-      "hash": "5df6c053",
-      "subject": "feat: with-body new expressions guard their constructor name"
-    },
-    {
-      "hash": "f3f7c43e",
-      "subject": "chore: record the rotation 431 sweep and refresh the dashboard snapshot"
-    },
-    {
-      "hash": "74c3db43",
-      "subject": "feat: map and set receivers join the method-value reify families"
-    },
-    {
-      "hash": "655120c4",
-      "subject": "feat: date toJSON generic leg consults the receiver's own toISOString"
-    },
-    {
-      "hash": "a55d93ae",
-      "subject": "feat: brand-checked proto families skip the prototype-call rewrite"
     }
   ],
-  "headSha": "73fda485",
+  "headSha": "22569b3d",
   "autorun": {
-    "total": 735,
+    "total": 736,
     "baselineTarget": 10,
-    "bySelf": 730,
+    "bySelf": 731,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1786984929-1de7",
-      "at": "2026-08-17T16:42:09Z",
-      "ts": 1786984929,
+      "rotationId": "r-1787021828-4b57",
+      "at": "2026-08-18T02:57:08Z",
+      "ts": 1787021828,
       "trigger": "self",
-      "prevHead": "f3f7c43e",
-      "handoffSha": "sha256:7115e4c0cdcecd5b71157b0b88b56617e2cfa3b0d200684226e7c4ad6ac11d7d",
-      "handoffAgeSec": 343,
+      "prevHead": "b99dc4fe",
+      "handoffSha": "sha256:5f35a3ea11a1525747781b5360cc1e3b7776a770e8307e8cc1f4b254f7b9c55b",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787021828-4b57",
+        "at": "2026-08-18T02:57:08Z",
+        "ts": 1787021828,
+        "trigger": "self",
+        "prevHead": "b99dc4fe",
+        "handoffSha": "sha256:5f35a3ea11a1525747781b5360cc1e3b7776a770e8307e8cc1f4b254f7b9c55b",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1786984929-1de7",
         "at": "2026-08-17T16:42:09Z",
@@ -876,17 +887,6 @@
         "prevHead": "b564a6b0",
         "handoffSha": "sha256:653c946417427422dc1924309227b2e0b22f4f5be89d57ad87480da46af413bc",
         "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786921288-0c8d",
-        "at": "2026-08-16T23:01:28Z",
-        "ts": 1786921288,
-        "trigger": "self",
-        "prevHead": "099d2d09",
-        "handoffSha": "sha256:df6136025be893df1b1b4d0bae7c91478ed2dee4cb76df7a1ee1347bd9ff2041",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }
