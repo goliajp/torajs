@@ -137,20 +137,84 @@ pub(super) fn has_use_strict_prologue(parsed: &[Stmt], ast: &Ast) -> bool {
 /// (`super_prop_allowed`) does the refusing, so the whole source is
 /// rejected before any of it could run (`(0, eval)('executed = true;
 /// super.x;')` must leave `executed` untouched).
-pub(super) fn parse_eval_source(src: &str, ast: &mut Ast, super_ok: bool) -> Option<Vec<Stmt>> {
-    if let Some(stmts) = parse_once(src, ast, super_ok) {
-        return reject_module_decls(stmts);
+///
+/// `delete_sites` resolves the §13.5.1 goal question for any `delete
+/// <bare name>` in the parsed text. The parser no longer judges the
+/// form (it emits a plain `Delete{Ident}` for the post-parse goal
+/// triage, rotation 372), and the triage refuses the whole PROGRAM at
+/// compile time on the strict goal — the wrong answer for text that
+/// only exists inside an eval. So the sites must be settled here,
+/// before the triage can meet them:
+///
+/// - `Strict` (eval code in a strict program, a strict-prologue
+///   `Function` body): the §13.5.1.1 early error — the parse fails,
+///   which the callers turn into the step-12 runtime throw. The
+///   orphaned sites are neutralized first: a failed parse leaves its
+///   expressions in the arena, and the triage walks the WHOLE arena.
+/// - `SloppyFold` (a `Function(...)` body without a strict prologue,
+///   §20.2.1.1 parses it non-strict): each site folds to the
+///   §13.5.1.2 constant, exactly what the triage does for a sloppy
+///   program.
+///
+/// Under the sloppy script goal (`.cts`) eval code is sloppy too, so
+/// `Strict` demotes to the fold.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum DeleteSites {
+    Strict,
+    SloppyFold,
+}
+
+pub(super) fn parse_eval_source(
+    src: &str,
+    ast: &mut Ast,
+    super_ok: bool,
+    delete_sites: DeleteSites,
+) -> Option<Vec<Stmt>> {
+    let exprs_before = ast.exprs.len();
+    let stmts = parse_once(src, ast, super_ok)
+        .and_then(reject_module_decls)
+        .or_else(|| {
+            // §12.9.1 rule 2 — automatic semicolon insertion at end of
+            // input: when the token stream ends where the grammar still
+            // wants a terminator, a semicolon is inserted. `eval("var
+            // x")` is valid JavaScript by exactly this rule, and it is
+            // how test262 writes it (a file always ends in a newline,
+            // so tr's parser never meets the no-terminator end anywhere
+            // else). Retrying with the semicolon appended IS that rule
+            // — it cannot make an invalid source valid, because a
+            // semicolon only ever terminates a final statement.
+            let with_semi = format!("{src};");
+            parse_once(&with_semi, ast, super_ok).and_then(reject_module_decls)
+        })?;
+    let sites: Vec<(usize, String)> = ast.exprs[exprs_before..]
+        .iter()
+        .enumerate()
+        .filter_map(|(off, e)| match e {
+            Expr::Delete { expr } => match ast.get_expr(*expr) {
+                Expr::Ident(n) => Some((exprs_before + off, n.clone())),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    if sites.is_empty() {
+        return Some(stmts);
     }
-    // §12.9.1 rule 2 — automatic semicolon insertion at end of input:
-    // when the token stream ends where the grammar still wants a
-    // terminator, a semicolon is inserted. `eval("var x")` is valid
-    // JavaScript by exactly this rule, and it is how test262 writes it
-    // (a file always ends in a newline, so tr's parser never meets the
-    // no-terminator end anywhere else). Retrying with the semicolon
-    // appended IS that rule — it cannot make an invalid source valid,
-    // because a semicolon only ever terminates a final statement.
-    let with_semi = format!("{src};");
-    parse_once(&with_semi, ast, super_ok).and_then(reject_module_decls)
+    if delete_sites == DeleteSites::Strict && !ast.sloppy_script_goal {
+        for (i, _) in sites {
+            ast.exprs[i] = Expr::Bool(false);
+        }
+        return None;
+    }
+    let mut declared = std::collections::HashSet::new();
+    crate::ast::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
+    crate::ast::delete_bare_name::collect_declared_names(&stmts, &mut declared);
+    for (i, n) in sites {
+        ast.exprs[i] = Expr::Bool(crate::ast::delete_bare_name::sloppy_delete_answer(
+            &n, &declared,
+        ));
+    }
+    Some(stmts)
 }
 
 /// §19.2.1.1 step 2 parses eval code with the **Script** goal symbol,

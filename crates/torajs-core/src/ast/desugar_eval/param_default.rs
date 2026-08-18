@@ -38,7 +38,7 @@
 use super::super::{Ast, Expr, ExprId, Param, Stmt};
 use super::completion;
 use super::source::{
-    CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
+    CallForm, DeleteSites, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
 };
 
 /// Rewrite every direct literal eval in non-arrow default-parameter
@@ -59,7 +59,7 @@ pub(super) fn rewrite_param_default_arguments_evals(ast: &mut Ast) {
         };
         // A source that fails to parse is not this pass's problem —
         // the completion pass already turns it into the same throw.
-        let Some(body) = parse_eval_source(&src, ast, false) else {
+        let Some(body) = parse_eval_source(&src, ast, false, DeleteSites::Strict) else {
             i += 1;
             continue;
         };

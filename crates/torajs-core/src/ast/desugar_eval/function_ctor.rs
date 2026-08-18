@@ -33,7 +33,7 @@
 
 use super::super::{Ast, Expr, ExprId, Stmt};
 use super::scope::binds_name;
-use super::source::{const_string, parse_eval_source, syntax_error_throw};
+use super::source::{DeleteSites, const_string, parse_eval_source, syntax_error_throw};
 use crate::lexer::{self, Token};
 
 /// Rewrite every argument-bearing `Function(...)` / `new Function(...)`
@@ -109,7 +109,12 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
         // FunctionBody, where `super` is an early SyntaxError in every
         // call context; the parse failure lands in the throw arm below,
         // which is exactly the creation-time SyntaxError the spec wants.
-        match parse_eval_source(&full, ast, false) {
+        let delete_sites = if strict_body {
+            DeleteSites::Strict
+        } else {
+            DeleteSites::SloppyFold
+        };
+        match parse_eval_source(&full, ast, false, delete_sites) {
             Some(mut parsed) => {
                 let is_the_decl = matches!(
                     parsed.as_slice(),
@@ -214,7 +219,7 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
 /// alone.
 fn parses_without_the_prologue(name: &str, params: &str, body: &str, ast: &mut Ast) -> bool {
     let probe = format!("function {name}({params}\n) {{\n;\n{body}\n}}");
-    parse_eval_source(&probe, ast, false).is_some()
+    parse_eval_source(&probe, ast, false, DeleteSites::SloppyFold).is_some()
 }
 
 /// Whether the body text's directive prologue opens with a

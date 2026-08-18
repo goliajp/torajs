@@ -144,8 +144,8 @@ use super::{Ast, Expr, Stmt, free_vars};
 use collapse::{completes_empty_effect_free, decl_names, is_effect_free_decl, name_mentioned};
 use scope::{binds_eval, seal_var_scope};
 use source::{
-    CallForm, first_line, has_use_strict_prologue, literal_eval_call, nonstring_literal_eval_arg,
-    parse_eval_source, syntax_error_throw,
+    CallForm, DeleteSites, first_line, has_use_strict_prologue, literal_eval_call,
+    nonstring_literal_eval_arg, parse_eval_source, syntax_error_throw,
 };
 
 /// Resolve every literal `eval` call this pass can resolve exactly.
@@ -238,7 +238,7 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
         // carriers downstream raise the step-12 SyntaxError.
         let super_ok = form == CallForm::Direct && class_owned.get(i).copied().unwrap_or(false);
         let arena_before = ast.exprs.len();
-        if let Some(parsed) = parse_eval_source(&src, ast, super_ok) {
+        if let Some(parsed) = parse_eval_source(&src, ast, super_ok, DeleteSites::Strict) {
             if let [Stmt::Expr(inner)] = parsed[..] {
                 let at_toplevel = !fn_owned.get(i).copied().unwrap_or(false);
                 let closed = form == CallForm::Direct || {
@@ -361,7 +361,12 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
     if let Stmt::Expr(eid) = s {
         if let Some((src, form)) = literal_eval_call(*eid, ast) {
             let inline_here = form == CallForm::Direct || !in_fn;
-            match parse_eval_source(&src, ast, form == CallForm::Direct && home) {
+            match parse_eval_source(
+                &src,
+                ast,
+                form == CallForm::Direct && home,
+                DeleteSites::Strict,
+            ) {
                 Some(mut inlined) if inline_here => {
                     // An eval inside the inlined text is an eval like
                     // any other; the nesting is finite because each
@@ -407,7 +412,14 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
             let (target, value) = (*target, *value);
             if matches!(ast.exprs.get(target.0 as usize), Some(Expr::Ident(_))) {
                 if let Some((src, form)) = literal_eval_call(value, ast) {
-                    if parse_eval_source(&src, ast, form == CallForm::Direct && home).is_none() {
+                    if parse_eval_source(
+                        &src,
+                        ast,
+                        form == CallForm::Direct && home,
+                        DeleteSites::Strict,
+                    )
+                    .is_none()
+                    {
                         // Same orphan story as the inline above.
                         ast.exprs[value.0 as usize] = Expr::Ident("undefined".to_string());
                         *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);

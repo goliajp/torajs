@@ -21,7 +21,7 @@ use super::super::{Ast, Expr, ExprId, Stmt, free_vars};
 use super::completion_stmt;
 use super::rewrite_list;
 use super::source::{
-    CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
+    CallForm, DeleteSites, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
 };
 use super::walk;
 
@@ -62,7 +62,7 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
         // into the None arm below: the whole source becomes a
         // SyntaxError throw and none of it runs.
         let super_ok = form == CallForm::Direct && class_owned.get(i).copied().unwrap_or(false);
-        match parse_eval_source(&src, ast, super_ok) {
+        match parse_eval_source(&src, ast, super_ok, DeleteSites::Strict) {
             None => {
                 let throw = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
                 wrap_iife(i, vec![throw], ast);

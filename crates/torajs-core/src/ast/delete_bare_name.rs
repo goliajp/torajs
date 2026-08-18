@@ -75,14 +75,28 @@ pub fn triage_delete_bare_names(ast: &mut Ast) -> Option<String> {
         ));
     }
     let mut declared: std::collections::HashSet<String> = std::collections::HashSet::new();
-    crate::ast_collect_bindings::collect_local_binding_names(&ast.stmts, &mut declared);
-    collect_decl_names(&ast.stmts, &mut declared);
+    collect_declared_names(&ast.stmts, &mut declared);
     for (i, n) in sites {
-        let non_configurable = declared.contains(&n)
-            || matches!(n.as_str(), "undefined" | "NaN" | "Infinity" | "globalThis");
-        ast.exprs[i] = Expr::Bool(!non_configurable);
+        ast.exprs[i] = Expr::Bool(sloppy_delete_answer(&n, &declared));
     }
     None
+}
+
+/// Every name §9.1.1.1.7 DeleteBinding would find declared: params,
+/// var/let/for-of/catch bindings, plus FnDecl / ClassDecl names.
+pub(crate) fn collect_declared_names(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
+    crate::ast_collect_bindings::collect_local_binding_names(stmts, out);
+    collect_decl_names(stmts, out);
+}
+
+/// §13.5.1.2 evaluated statically — what `delete <name>` answers in
+/// sloppy code. Declared bindings and the non-configurable global
+/// value properties (§19.1) answer false; an unresolvable name or a
+/// configurable global builtin answers true. Shared with the
+/// `Function(...)` body desugar, which resolves the same sites for a
+/// sloppy body inlined into a strict program.
+pub(crate) fn sloppy_delete_answer(n: &str, declared: &std::collections::HashSet<String>) -> bool {
+    !(declared.contains(n) || matches!(n, "undefined" | "NaN" | "Infinity" | "globalThis"))
 }
 
 /// FnDecl / ClassDecl NAMES (the shared binding collector gathers

@@ -44,7 +44,7 @@ use super::super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use super::completion;
 use super::param_default::{declares_var_arguments, mark_defaults};
 use super::source::{
-    CallForm, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
+    CallForm, DeleteSites, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
 };
 use std::collections::HashMap;
 
@@ -119,7 +119,7 @@ fn collect_declaring_evals(ast: &mut Ast, owned: &[bool]) -> HashMap<usize, (Str
         }
         let eid = ExprId(i as u32);
         if let Some((src, CallForm::Direct)) = literal_eval_call(eid, ast) {
-            if let Some(stmts) = parse_eval_source(&src, ast, false) {
+            if let Some(stmts) = parse_eval_source(&src, ast, false, DeleteSites::Strict) {
                 if declares_var_arguments(&stmts) {
                     found.insert(i, (src, stmts));
                 }
