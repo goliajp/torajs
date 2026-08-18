@@ -74,6 +74,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 if let Some(parent) = user_proto_cell(ptr) {
                     return __torajs_any_member_get_value(parent, key);
                 }
+                // Explicit null proto cuts the chain — tag twin
+                // above (§10.1.8.1 OrdinaryGet step 2).
+                if crate::member_get_own::dynobj_null_proto(ptr) {
+                    return 0;
+                }
                 // G2 globalThis missing-known probe — tag twin
                 // above (the tag channel already threw; answering 0
                 // here keeps the pair protocol coherent).

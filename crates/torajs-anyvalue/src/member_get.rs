@@ -146,6 +146,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if let Some(parent) = user_proto_cell(ptr) {
                 return __torajs_any_member_get_tag(parent, key);
             }
+            // §10.1.8.1 OrdinaryGet step 2 — an explicit null proto
+            // cuts the chain: no builtin reify surface either.
+            if crate::member_get_own::dynobj_null_proto(ptr) {
+                return 5;
+            }
             // RFC 20260807-global-object G2 — a KNOWN builtin the
             // globalThis singleton's fill list is missing must stay
             // LOUD (bun answers a function; a silent undefined here

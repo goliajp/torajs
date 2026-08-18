@@ -30,6 +30,19 @@ unsafe extern "C" {
 /// +6 u16 bit 6) — an `Object.create(null)` dict inherits nothing.
 pub(crate) const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
+/// §10.1.8.1 OrdinaryGet step 2 — is this dynobj's [[Prototype]]
+/// explicitly null? A miss on such a host stops at null: no user
+/// chain and no builtin reify surface (the index walk in
+/// `index_any.rs` already honors this; the named-member get lanes
+/// consult it between the user-chain walk and the builtin tail).
+///
+/// # Safety
+/// `ptr` is a live `Tag::DynObj` heap pointer.
+pub(crate) unsafe fn dynobj_null_proto(ptr: *const c_void) -> bool {
+    let flags = unsafe { ptr.cast::<u8>().add(6).cast::<u16>().read() };
+    flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0
+}
+
 /// The internal [[Prototype]] simulation-slot key — cross-crate twin
 /// of `torajs_meta::reflect::PROTO_SLOT_KEY` (simulation-slot key
 /// separation: the leading NUL keeps the internal proto link out of
