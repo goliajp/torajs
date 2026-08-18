@@ -99,10 +99,18 @@ impl<'a> LowerCtx<'a> {
         // the keyed set kernel below — §7.1.19 decides element vs
         // property from the key's runtime value (the read-side
         // lower_typed_arr_any_key's write mirror; checker admit in
-        // check_assign_target::check_index).
+        // check_assign_target::check_index). String / Symbol keys
+        // join (cluster #3, rotation 442): the kernel routes a
+        // canonical array-index spelling ("0") to the ELEMENT store,
+        // so `x["0"] = 0` and a dynamic string key both box here.
         let key_is_any = matches!(
             self.expr_types.get(&index),
-            Some(crate::check::Type::Any | crate::check::Type::Undefined)
+            Some(
+                crate::check::Type::Any
+                    | crate::check::Type::Undefined
+                    | crate::check::Type::String
+                    | crate::check::Type::Symbol
+            )
         );
         let (arr_val, arr_ty) =
             if matches!(arr_ty, Type::Obj(_)) || (matches!(arr_ty, Type::Arr(_)) && key_is_any) {

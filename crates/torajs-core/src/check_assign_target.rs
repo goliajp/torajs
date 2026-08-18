@@ -326,15 +326,27 @@ pub(crate) fn check_index(
         // rides the keyed set kernel with the receiver boxed (the
         // read-side Array arm's write mirror — S12.6.3_A5's
         // `var x = 0; a[x] = v`, where a `var` binding reads as
-        // Any). A STATIC String/Symbol key stays the loud reject
-        // for now: the literal lane stores by property, and an
-        // element-spelled literal ("0") landing in the expando
-        // dict would shadow-split the element — recorded boundary.
-        && !(matches!(obj_ty, Type::Array(_)) && matches!(idx_ty, Type::Any))
+        // Any). String / Symbol / Undefined keys join (cluster #3,
+        // rotation 442), completing the read-side mirror: the keyed
+        // set kernel spells the key per §7.1.19 and routes a
+        // canonical array-index spelling ("0") to the ELEMENT store
+        // (length update included), so the shadow-split concern that
+        // kept string keys out no longer holds — S15.4_A1.1_T4's
+        // `x["0"] = 0`.
+        && !(matches!(obj_ty, Type::Array(_))
+            && matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
-    if matches!(obj_ty, Type::Array(_)) && matches!(idx_ty, Type::Any) {
+    if matches!(obj_ty, Type::Array(_))
+        && matches!(
+            idx_ty,
+            Type::String | Type::Symbol | Type::Any | Type::Undefined
+        )
+    {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }

@@ -20,6 +20,12 @@ unsafe extern "C" {
     fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
     /// torajs-arr — kind-aware element store (consumes a tag-4 rc).
     fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
+    /// torajs-arr — element store's growing twin (§10.4.2.1
+    /// OrdinarySet past the end: reserve, hole-fill the gap, bump
+    /// len). The cell never moves (grow.rs B1 — only the data
+    /// buffer reallocates), so the returned pointer is `arr` itself
+    /// and needs no write-back.
+    fn __torajs_arr_set_any_grow(arr: *mut c_void, i: u64, tag: u64, value: u64) -> *mut u8;
     /// torajs-arr — per-index attribute flags (RFC
     /// 20260712-arr-exotic-define chunk C writable gate).
     fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
@@ -98,7 +104,14 @@ pub(crate) unsafe fn set_arr_member(
                 }
                 return 0;
             }
-            __torajs_arr_index_set(ptr, idx as i64, tag, value);
+            // Cluster #3 (rotation 442) — the growing store, not the
+            // bounds-checked one: a canonical index key at or past
+            // `len` CREATES the element per §10.4.2.1 OrdinarySet
+            // (S15.4_A1.1_T4's `x["0"] = 0` on an empty array). The
+            // flags probe above already answered writable/extensible
+            // for the in-bounds and frozen shapes; in-bounds writes
+            // behave exactly as `__torajs_arr_index_set` did.
+            __torajs_arr_set_any_grow(ptr, idx, tag, value);
             return 1;
         }
         __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
