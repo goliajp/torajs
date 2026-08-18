@@ -217,13 +217,19 @@ pub enum Token {
     Eof,
 }
 
-/// One slot inside a `Token::Template`. Either a raw literal segment
+/// One slot inside a `Token::Template`. Either a literal segment
 /// (the bytes between backticks / `${` / `}`) or a pre-tokenized
 /// interpolation expression (everything inside `${…}`). The parser at
 /// the Token::Template arm stitches them into `lit0 + expr0 + lit1 + …`.
+///
+/// A literal carries both spellings the spec distinguishes (§12.9.6):
+/// `cooked` is the TV (escapes interpreted — what an untagged template
+/// concatenates), `raw` is the TRV (escapes verbatim, line-terminator
+/// sequences normalized to `\n` — what a tag function reads through
+/// the template object's `.raw`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TemplatePart {
-    Lit(String),
+    Lit { cooked: String, raw: String },
     Expr(Vec<Spanned>),
 }
 

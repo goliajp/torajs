@@ -102,6 +102,16 @@ pub(crate) fn check(
         }
         return Ok(Type::Any);
     }
+    // T-12 tagged templates — the synthetic template-object call the
+    // parser desugar plants: every argument is a compile-time literal
+    // (site number + cooked/raw string pairs), the answer is the
+    // runtime template-object cell. Claimed by exact callee spelling
+    // before every route.
+    if let Expr::Ident(n) = ast.get_expr(*callee)
+        && n == crate::parser::TEMPLATE_OBJECT_CALLEE
+    {
+        return Ok(Type::Any);
+    }
     if let Some(r) = route_early::try_route(checker, ast, eid, callee, args) {
         return r;
     }

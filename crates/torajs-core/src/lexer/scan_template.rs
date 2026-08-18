@@ -28,17 +28,23 @@ pub(super) fn scan_template(
     *i += 1; // consume opening backtick
     let mut parts: Vec<TemplatePart> = Vec::new();
     let mut buf: Vec<u8> = Vec::new();
+    // §12.9.6 TRV — the raw spelling runs in parallel: escapes stay
+    // verbatim, line-terminator sequences normalize to `\n`.
+    let mut raw: Vec<u8> = Vec::new();
     loop {
         if *i >= len {
             return Err(format!("unterminated template literal starting at {start}"));
         }
         let b = bytes[*i as usize];
         if b == b'`' {
-            if !buf.is_empty() || parts.is_empty() {
+            if !buf.is_empty() || !raw.is_empty() || parts.is_empty() {
                 let s = std::str::from_utf8(&buf)
                     .map_err(|_| format!("invalid utf-8 in template at {start}"))?
                     .to_string();
-                parts.push(TemplatePart::Lit(s));
+                let r = std::str::from_utf8(&raw)
+                    .map_err(|_| format!("invalid utf-8 in template at {start}"))?
+                    .to_string();
+                parts.push(TemplatePart::Lit { cooked: s, raw: r });
             }
             *i += 1; // consume closing backtick
             break;
@@ -55,13 +61,16 @@ pub(super) fn scan_template(
             let esc = bytes[(*i + 1) as usize];
             // §12.9.4.3 LineContinuation — `\` + LineTerminator
             // Sequence contributes nothing (TV is the empty
-            // sequence). `\r\n` is one sequence; U+2028 / U+2029
-            // are E2 80 A8 / A9 in UTF-8.
+            // sequence; TRV keeps `\` + the normalized `\n`).
+            // `\r\n` is one sequence; U+2028 / U+2029 are
+            // E2 80 A8 / A9 in UTF-8.
             if esc == b'\n' {
+                raw.extend_from_slice(b"\\\n");
                 *i += 2;
                 continue;
             }
             if esc == b'\r' {
+                raw.extend_from_slice(b"\\\n");
                 *i += 2;
                 if *i < len && bytes[*i as usize] == b'\n' {
                     *i += 1;
@@ -73,6 +82,8 @@ pub(super) fn scan_template(
                 && bytes[(*i + 2) as usize] == 0x80
                 && (bytes[(*i + 3) as usize] == 0xA8 || bytes[(*i + 3) as usize] == 0xA9)
             {
+                raw.push(b'\\');
+                raw.extend_from_slice(&bytes[(*i + 1) as usize..(*i + 4) as usize]);
                 *i += 4;
                 continue;
             }
@@ -92,6 +103,8 @@ pub(super) fn scan_template(
                 other => other,
             };
             buf.push(mapped);
+            raw.push(b'\\');
+            raw.push(esc);
             *i += 2;
             continue;
         }
@@ -101,8 +114,12 @@ pub(super) fn scan_template(
             let s = std::str::from_utf8(&buf)
                 .map_err(|_| format!("invalid utf-8 in template at {start}"))?
                 .to_string();
-            parts.push(TemplatePart::Lit(s));
+            let r = std::str::from_utf8(&raw)
+                .map_err(|_| format!("invalid utf-8 in template at {start}"))?
+                .to_string();
+            parts.push(TemplatePart::Lit { cooked: s, raw: r });
             buf.clear();
+            raw.clear();
             *i += 2; // consume `${`
             let expr_start = *i;
             let mut depth: i32 = 1;
@@ -133,7 +150,19 @@ pub(super) fn scan_template(
             parts.push(TemplatePart::Expr(inner));
             continue;
         }
+        // §12.9.6 — a bare `\r` / `\r\n` normalizes to `\n` in BOTH
+        // spellings (TV and TRV of LineTerminatorSequence).
+        if b == b'\r' {
+            buf.push(b'\n');
+            raw.push(b'\n');
+            *i += 1;
+            if *i < len && bytes[*i as usize] == b'\n' {
+                *i += 1;
+            }
+            continue;
+        }
         buf.push(b);
+        raw.push(b);
         *i += 1;
     }
     emit(out, Token::Template { parts }, start, *i);

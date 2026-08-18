@@ -84,6 +84,9 @@ pub(crate) fn try_lower(
             crate::ssa_lower_call_error_magic::try_lower_error_stack(ctx, args)
         }
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
+        // T-12 §13.2.8.4 GetTemplateObject — the tagged-template
+        // desugar's synthetic site call, per-site cached at runtime.
+        "__torajs_template_object" => crate::ssa_lower_call_template_object::try_lower(ctx, args),
         // RFC 20260730 blades 1-2 — exotic-subclass mint / super
         // magics (`__torajs_<builtin>_subclass_{alloc_self,super*}`),
         // per-builtin kernels resolved in the sibling module.

@@ -41,14 +41,14 @@ impl<'a> Parser<'a> {
         // Special-case all-literal templates → emit a single
         // Expr::String. Common case `\`hello\`` skips the chain entirely.
         if parts.len() == 1 {
-            if let lexer::TemplatePart::Lit(s) = &parts[0] {
+            if let lexer::TemplatePart::Lit { cooked: s, .. } = &parts[0] {
                 return Ok(self.ast.add_expr(Expr::String(s.clone())));
             }
         }
         let mut acc: Option<ExprId> = None;
         for p in parts {
             let id = match p {
-                lexer::TemplatePart::Lit(s) => {
+                lexer::TemplatePart::Lit { cooked: s, .. } => {
                     if s.is_empty() && acc.is_some() {
                         // Skip empty-string filler between adjacent
                         // interpolations — `${a}${b}` shouldn't
@@ -58,108 +58,7 @@ impl<'a> Parser<'a> {
                     self.ast.add_expr(Expr::String(s.clone()))
                 }
                 lexer::TemplatePart::Expr(tokens) => {
-                    let mut sub = Parser {
-                        // Template interpolation tokens were extracted
-                        // from `self.source` — the same slice satisfies
-                        // ASI's byte-span probe for the sub-parse.
-                        source: self.source,
-                        tokens,
-                        pos: 0,
-                        type_close_peel: 0,
-                        type_ann_depth: 0,
-                        ast: std::mem::take(&mut self.ast),
-                        desugar_id: self.desugar_id,
-                        generator_fns: std::mem::take(&mut self.generator_fns),
-                        current_class: self.current_class.clone(),
-                        // `${this.#x}` inside the interpolation must
-                        // park its deferred private-ref site with the
-                        // SAME lexical class stack the surrounding
-                        // body would (the scope tables live on the
-                        // taken `ast`, so the site lands in the shared
-                        // arena directly).
-                        class_stack: self.class_stack.clone(),
-                        // Template interpolation is a parenthesized-
-                        // like nesting — [In] resets.
-                        in_for_init: false,
-                        // Inherited for the same reason `current_class`
-                        // is: `${this.x}` inside a class generator
-                        // method's body must mint the same receiver
-                        // reference the surrounding body does.
-                        in_gen_class_method: self.in_gen_class_method,
-                        // r295 — a `${this.x}` mint inside the
-                        // interpolation must count for the enclosing
-                        // generator-expression body's receiver-param
-                        // decision; the flag flows back below.
-                        gen_recv_minted: self.gen_recv_minted,
-                        // Same inheritance rationale: `${this.x}` in a
-                        // static method body must mint the class-object
-                        // reference the surrounding body does (S2.37).
-                        static_this_class: self.static_this_class.clone(),
-                        // Likewise: `${super.m()}` in a derived ctor is
-                        // as legal as the same call written outside the
-                        // template, so the sub-parse inherits the
-                        // position rather than resetting it.
-                        super_call_allowed: self.super_call_allowed,
-                        // `${super.x}` is as legal as the same read
-                        // outside the template — position inherits.
-                        super_prop_allowed: self.super_prop_allowed,
-                        // A template interpolation cannot contain a
-                        // statement-level `yield*`, but the flag rides
-                        // along like the other position markers.
-                        in_async_gen: self.in_async_gen,
-                        in_generator: self.in_generator,
-                        // §11.2.2 strictness is lexical, and a template
-                        // interpolation is inside whatever function
-                        // encloses the literal — a fn-expr written in
-                        // `${...}` within a strict body is strict.
-                        in_strict_fn: self.in_strict_fn,
-                        pending_async_fn_expr: false,
-                        current_class_has_parent: self.current_class_has_parent,
-                        synth_classes: Vec::new(),
-                        synth_classes_local: Vec::new(),
-                        // Inherited so a block-bodied arrow inside the
-                        // interpolation wraps its class expressions at
-                        // the right nesting (0 would read as top level).
-                        stmt_depth: self.stmt_depth,
-                        // Sub-parser sees outer aliases so a template
-                        // interpolation can do `${new F()}` where F is
-                        // an outer const-class binding. Sub-parser
-                        // never adds aliases itself (only stmt-level
-                        // const-decls register).
-                        class_value_aliases: self.class_value_aliases.clone(),
-                        // `${yield x}` is legal in a generator —
-                        // hoisted YieldIntos flow back to the outer
-                        // buffer below, position marker rides along.
-                        yield_hoist_buf: Vec::new(),
-                        yield_hoist_allowed: self.yield_hoist_allowed,
-                        in_formal_params: self.in_formal_params,
-                        await_allowed: self.await_allowed,
-                    };
-                    let result = sub.parse_expr()?;
-                    // Tokens vec ends with Token::Eof; anything before
-                    // Eof past the parsed expr is leftover input.
-                    if !matches!(sub.peek(), Token::Eof) {
-                        return Err(format!(
-                            "unexpected trailing tokens in template interpolation: {:?}",
-                            sub.peek()
-                        ));
-                    }
-                    self.ast = sub.ast;
-                    self.gen_recv_minted = sub.gen_recv_minted;
-                    self.desugar_id = sub.desugar_id;
-                    self.generator_fns = sub.generator_fns;
-                    // P8.5 — propagate any class expressions parsed
-                    // inside the template interpolation back to the
-                    // outer parser so they flush at the enclosing
-                    // stmt boundary.
-                    self.synth_classes.append(&mut sub.synth_classes);
-                    // 393-01 — likewise for the use-site-local buffer:
-                    // these drain at the enclosing stmt's wrapper.
-                    self.synth_classes_local
-                        .append(&mut sub.synth_classes_local);
-                    // Expression-position yields hoisted inside the
-                    // interpolation drain at the ENCLOSING statement.
-                    self.yield_hoist_buf.append(&mut sub.yield_hoist_buf);
+                    let result = self.parse_template_interpolation(tokens)?;
                     // §13.2.8.5 — a substitution stringifies with the
                     // STRING hint (ToString → toString before
                     // valueOf). The desugared `+` chain can't carry
@@ -201,6 +100,121 @@ impl<'a> Parser<'a> {
         }
         // If acc is still None (everything was empty Lit), produce "".
         Ok(acc.unwrap_or_else(|| self.ast.add_expr(Expr::String(String::new()))))
+    }
+
+    /// Parse one `${…}` interpolation's pre-lexed token stream with a
+    /// sub-Parser that shares the enclosing parser's arena and every
+    /// position marker, flowing mutated state back on return. Shared
+    /// by the untagged template desugar above and the tagged-template
+    /// lowering (`parser/tagged_template.rs`), which differ only in
+    /// what they wrap around the parsed expression.
+    pub(super) fn parse_template_interpolation(
+        &mut self,
+        tokens: &[lexer::Spanned],
+    ) -> Result<ExprId, String> {
+        let mut sub = Parser {
+            // Template interpolation tokens were extracted
+            // from `self.source` — the same slice satisfies
+            // ASI's byte-span probe for the sub-parse.
+            source: self.source,
+            tokens,
+            pos: 0,
+            type_close_peel: 0,
+            type_ann_depth: 0,
+            ast: std::mem::take(&mut self.ast),
+            desugar_id: self.desugar_id,
+            generator_fns: std::mem::take(&mut self.generator_fns),
+            current_class: self.current_class.clone(),
+            // `${this.#x}` inside the interpolation must
+            // park its deferred private-ref site with the
+            // SAME lexical class stack the surrounding
+            // body would (the scope tables live on the
+            // taken `ast`, so the site lands in the shared
+            // arena directly).
+            class_stack: self.class_stack.clone(),
+            // Template interpolation is a parenthesized-
+            // like nesting — [In] resets.
+            in_for_init: false,
+            // Inherited for the same reason `current_class`
+            // is: `${this.x}` inside a class generator
+            // method's body must mint the same receiver
+            // reference the surrounding body does.
+            in_gen_class_method: self.in_gen_class_method,
+            // r295 — a `${this.x}` mint inside the
+            // interpolation must count for the enclosing
+            // generator-expression body's receiver-param
+            // decision; the flag flows back below.
+            gen_recv_minted: self.gen_recv_minted,
+            // Same inheritance rationale: `${this.x}` in a
+            // static method body must mint the class-object
+            // reference the surrounding body does (S2.37).
+            static_this_class: self.static_this_class.clone(),
+            // Likewise: `${super.m()}` in a derived ctor is
+            // as legal as the same call written outside the
+            // template, so the sub-parse inherits the
+            // position rather than resetting it.
+            super_call_allowed: self.super_call_allowed,
+            // `${super.x}` is as legal as the same read
+            // outside the template — position inherits.
+            super_prop_allowed: self.super_prop_allowed,
+            // A template interpolation cannot contain a
+            // statement-level `yield*`, but the flag rides
+            // along like the other position markers.
+            in_async_gen: self.in_async_gen,
+            in_generator: self.in_generator,
+            // §11.2.2 strictness is lexical, and a template
+            // interpolation is inside whatever function
+            // encloses the literal — a fn-expr written in
+            // `${...}` within a strict body is strict.
+            in_strict_fn: self.in_strict_fn,
+            pending_async_fn_expr: false,
+            current_class_has_parent: self.current_class_has_parent,
+            synth_classes: Vec::new(),
+            synth_classes_local: Vec::new(),
+            // Inherited so a block-bodied arrow inside the
+            // interpolation wraps its class expressions at
+            // the right nesting (0 would read as top level).
+            stmt_depth: self.stmt_depth,
+            // Sub-parser sees outer aliases so a template
+            // interpolation can do `${new F()}` where F is
+            // an outer const-class binding. Sub-parser
+            // never adds aliases itself (only stmt-level
+            // const-decls register).
+            class_value_aliases: self.class_value_aliases.clone(),
+            // `${yield x}` is legal in a generator —
+            // hoisted YieldIntos flow back to the outer
+            // buffer below, position marker rides along.
+            yield_hoist_buf: Vec::new(),
+            yield_hoist_allowed: self.yield_hoist_allowed,
+            in_formal_params: self.in_formal_params,
+            await_allowed: self.await_allowed,
+        };
+        let result = sub.parse_expr()?;
+        // Tokens vec ends with Token::Eof; anything before
+        // Eof past the parsed expr is leftover input.
+        if !matches!(sub.peek(), Token::Eof) {
+            return Err(format!(
+                "unexpected trailing tokens in template interpolation: {:?}",
+                sub.peek()
+            ));
+        }
+        self.ast = sub.ast;
+        self.gen_recv_minted = sub.gen_recv_minted;
+        self.desugar_id = sub.desugar_id;
+        self.generator_fns = sub.generator_fns;
+        // P8.5 — propagate any class expressions parsed
+        // inside the template interpolation back to the
+        // outer parser so they flush at the enclosing
+        // stmt boundary.
+        self.synth_classes.append(&mut sub.synth_classes);
+        // 393-01 — likewise for the use-site-local buffer:
+        // these drain at the enclosing stmt's wrapper.
+        self.synth_classes_local
+            .append(&mut sub.synth_classes_local);
+        // Expression-position yields hoisted inside the
+        // interpolation drain at the ENCLOSING statement.
+        self.yield_hoist_buf.append(&mut sub.yield_hoist_buf);
+        Ok(result)
     }
 
     pub(super) fn parse_expr(&mut self) -> Result<ExprId, String> {

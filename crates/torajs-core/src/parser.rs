@@ -72,6 +72,8 @@ mod parse_class_member_method;
 mod parse_fn;
 mod parse_let_decl;
 mod parse_postfix;
+mod tagged_template;
+pub(crate) use tagged_template::TEMPLATE_OBJECT_CALLEE;
 mod parse_stmt;
 mod parse_yield;
 mod primary;

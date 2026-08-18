@@ -119,23 +119,14 @@ impl<'a> Parser<'a> {
                         is_inc,
                     });
                 }
-                Token::Template { .. } => {
-                    // T-12 (v0.4.0) — tagged template literal
-                    // `tag`...${expr}...``. Requires a separate
-                    // substrate item: parser support for the call
-                    // shape, AST node carrying both raw + cooked
-                    // strings arrays, runtime emission of the raw
-                    // array, and `String.raw` dispatch on top. The
-                    // generic parse error ("expected `)`") would be
-                    // confusing — emit a clear deferral pointer
-                    // instead. Lands post-v0.4.0 alongside a full
-                    // tagged-template substrate item.
-                    return Err(format!(
-                        "tagged template literal `tag\\`...\\`` not yet supported \
-                         (planned post-v0.4.0 substrate item; see docs/roadmap.md \
-                         T-12 followup) at {}",
-                        self.at()
-                    ));
+                Token::Template { parts } => {
+                    // T-12 — tagged template literal `tag`…${e}…``
+                    // (§13.3.11): the postfix template applies the
+                    // preceding MemberExpression as a tag function.
+                    // See `parser/tagged_template.rs` for the desugar.
+                    let parts = parts.clone();
+                    self.pos += 1;
+                    node = self.lower_tagged_template(node, &parts)?;
                 }
                 // V3-07 — `expr as T` TS type cast as a postfix
                 // shape. Binding here is tighter than any binary op

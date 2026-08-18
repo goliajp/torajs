@@ -167,6 +167,10 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
 /// `Err(())` = a gate inside the chain refused the program and has
 /// already printed its diagnostic (same contract as the prelude).
 pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
+    // T-12 tagged templates — renumber the parser's `-1` site
+    // placeholders program-wide (arena order, deterministic); must
+    // run after modules splice so ids are unique across files.
+    ast::number_template_sites(ast);
     // RFC 20260807-global-object G1 — `globalThis.<builtin>` member
     // reads rewrite to the bare name before anything consumes member
     // shapes; eval-inlined stmts (prelude) are already in place.
