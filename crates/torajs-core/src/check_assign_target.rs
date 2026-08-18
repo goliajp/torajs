@@ -390,7 +390,19 @@ pub(crate) fn check_index(
     index: ExprId,
     value: ExprId,
 ) -> Result<Type, String> {
-    let obj_ty = checker.type_of(ast, obj)?;
+    // Cluster #6 (rotation 441) — the read side resolves a nominal
+    // class instance to its field struct before dispatching
+    // (`check_type_of_index` since RFC 20260715); the write side
+    // never did, so every keyed WRITE on a `new C()` receiver fell
+    // past all the struct arms into the array reject — the
+    // cpn-class-expr-accessors family's `c[1 + 1] = 2`.
+    let raw_obj_ty = checker.type_of(ast, obj)?;
+    let obj_ty = crate::check::resolve_class_ref(
+        &raw_obj_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
     // Chunk 745 — struct receiver + compile-time literal index:
     // `g[0] = v` ≡ `g."0" = v` per ES ToPropertyKey (§7.1.19);
     // delegate to the member-assignment checker (field lookup /
@@ -461,6 +473,17 @@ pub(crate) fn check_index(
     // and rides the keyed set kernel (fixed "undefined" string key
     // per §7.1.19, no element spelling to shadow-split).
     if matches!(obj_ty, Type::Struct(_)) && matches!(idx_ty, Type::Undefined | Type::Struct(_)) {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
+    // Cluster #6 (rotation 441) — a STRUCT receiver under a DYNAMIC
+    // number key: §7.1.19 spells it in decimal at runtime, and the
+    // keyed set kernel dispatches layout field / accessor / expando
+    // exactly as the literal lane's member store would (the read
+    // side has admitted this pair since chunk 753 — `Struct(_) =>
+    // Ok(Any)` — so the write half was the asymmetry). The lowering
+    // boxes the receiver and rides the keyed kernel.
+    if matches!(obj_ty, Type::Struct(_)) && idx_ty == Type::Number {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }

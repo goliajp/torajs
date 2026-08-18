@@ -71,10 +71,14 @@ impl<'a> LowerCtx<'a> {
         // `g[0] = v` ≡ `g."0" = v` per ES ToPropertyKey (§7.1.19);
         // the member-assignment lane handles the field store (struct
         // layout / setter / rc discipline). Same gate as the checker
-        // lane in `check_assign_target::check_index`.
+        // lane in `check_assign_target::check_index`. ClassRef joins
+        // (rotation 441): the checker resolves a nominal instance to
+        // its struct before delegating, so this gate must see the
+        // recorded (unresolved) type the same way — the read side's
+        // `obj_is_struct_like` shape.
         if matches!(
             self.expr_types.get(&obj),
-            Some(crate::check::Type::Struct(_))
+            Some(crate::check::Type::Struct(_) | crate::check::Type::ClassRef(_))
         ) && let Some(name) = crate::ast::literal_prop_key(self.ast, index)
         {
             return crate::ssa_lower_assign_member::lower(self, eid, obj, name, value);
