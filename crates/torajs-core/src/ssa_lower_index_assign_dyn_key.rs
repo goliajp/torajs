@@ -42,6 +42,90 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// Logical-assignment fingerprint — `o[k] &&= v` desugars to
+    /// `o[k] && (o[k] = v)` with the obj/index sub-ExprIds SHARED
+    /// between the guard read and the assign target (the parser's
+    /// deliberate clone fingerprint). §13.15.2 evaluates the
+    /// Reference once, so the key expression runs ONCE and — for a
+    /// coercing key — ToPropertyKey runs once (§6.2.5 GetValue writes
+    /// it back). When the fingerprint matches, evaluate (and for the
+    /// keyed lanes coerce) the key up front and pin it in
+    /// `compound_key_memo`; every index lane consults the memo. The
+    /// caller clears the memo and, when this returns an owned cell
+    /// (`true`), releases it after the join.
+    ///
+    /// String/Symbol-typed keys stay un-pinned for now — they ride
+    /// dedicated lanes without a memo consult (recorded boundary; a
+    /// bare Ident key there is side-effect-free anyway).
+    pub(crate) fn pin_logical_assign_key(&mut self, left: ExprId, right: ExprId) -> Option<bool> {
+        let Expr::Index { obj: o1, index: i1 } = self.ast.get_expr(left) else {
+            return None;
+        };
+        let (o1, i1) = (*o1, *i1);
+        let Expr::Assign { target, .. } = self.ast.get_expr(right) else {
+            return None;
+        };
+        let Expr::Index { obj: o2, index: i2 } = self.ast.get_expr(*target) else {
+            return None;
+        };
+        if *o2 != o1 || *i2 != i1 {
+            return None;
+        }
+        match self.expr_types.get(&i1) {
+            Some(
+                crate::check::Type::Any
+                | crate::check::Type::Undefined
+                | crate::check::Type::Struct(_),
+            ) => {
+                let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, i1);
+                let transfers = self.expr_transfers_ownership(i1);
+                let cur_block = self.cur_block;
+                let p = self.f.append_inst(
+                    cur_block,
+                    crate::ssa::InstKind::Call(
+                        self.intrinsics.anyv_to_property_key,
+                        vec![k_raw.clone()],
+                    ),
+                    Type::Ptr,
+                    None,
+                );
+                self.emit_throw_check(None);
+                if transfers {
+                    self.emit_drop_value(k_raw, Type::Any);
+                }
+                let cur_block = self.cur_block;
+                let boxed = self.f.append_inst(
+                    cur_block,
+                    crate::ssa::InstKind::Call(
+                        self.intrinsics.any_box,
+                        vec![Operand::ConstI64(4), Operand::Value(p)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                self.compound_key_memo = Some((i1, Operand::Value(boxed)));
+                Some(true)
+            }
+            Some(crate::check::Type::Number) => {
+                let v = self.lower_expr(i1);
+                self.compound_key_memo = Some((i1, v));
+                Some(false)
+            }
+            _ => None,
+        }
+    }
+
+    /// Release the cell [`Self::pin_logical_assign_key`] pinned (when
+    /// it answered `true`) and clear the memo. Runs after the join so
+    /// both the taken and short-circuited paths see the release.
+    pub(crate) fn unpin_logical_assign_key(&mut self, owned: bool) {
+        if let Some((_, op)) = self.compound_key_memo.take()
+            && owned
+        {
+            self.emit_drop_value(op, Type::Any);
+        }
+    }
+
     /// Dynamic string key on an `any` receiver — store through the
     /// key-parameterized member-set core with the runtime Str cell
     /// as the key (a Substr view materializes to an owned temp
@@ -108,6 +192,29 @@ impl<'a> LowerCtx<'a> {
         index: ExprId,
         value: ExprId,
     ) -> Operand {
+        // Cluster #4 logical-assign fingerprint — the guard layer
+        // pinned this key (evaluated + coerced once); reuse it, no
+        // re-lower, no drop (the pinning layer owns the cell).
+        if let Some((mid, mop)) = &self.compound_key_memo
+            && *mid == index
+        {
+            let k = mop.clone();
+            let v_raw = self.lower_expr(value);
+            let v_ty = self.operand_ty(&v_raw);
+            let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
+            let recv_slot = self.resolve_any_recv_slot(obj);
+            let cur_block = self.cur_block;
+            self.f.append_void(
+                cur_block,
+                crate::ssa::InstKind::Call(
+                    self.intrinsics.any_index_set_keyed,
+                    vec![obj_val, k, tag_op, value_op, recv_slot],
+                ),
+            );
+            self.emit_throw_check(None);
+            crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
+            return v_raw;
+        }
         let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, index);
         let key_transfers = self.expr_transfers_ownership(index);
         // Cluster #4 T4 — the compound desugar (`o[k] op= v` →

@@ -60,6 +60,19 @@ use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) -> Operand {
+    // Cluster #4 — `o[k] ??= v` fingerprint: evaluate (and coerce)
+    // the shared key once up front; the guard read and the branch-
+    // side assign both consult the pin (see ssa_lower_logical's
+    // `&&`/`||` twins). Unpinned after every join path below.
+    let key_pin = ctx.pin_logical_assign_key(lhs, rhs);
+    let out = lower_inner(ctx, eid, lhs, rhs);
+    if let Some(owned) = key_pin {
+        ctx.unpin_logical_assign_key(owned);
+    }
+    out
+}
+
+fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) -> Operand {
     let lhs_op = ctx.lower_expr(lhs);
     let lhs_ty = ctx.operand_ty(&lhs_op);
     if matches!(lhs_ty, Type::Any) {

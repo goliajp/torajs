@@ -46,6 +46,10 @@ impl LowerCtx<'_> {
         ) {
             return self.lower_expr(left);
         }
+        // Cluster #4 — `o[k] &&= v` fingerprint: evaluate (and
+        // coerce) the shared key once up front; both the guard read
+        // below and the branch-side assign consult the pin.
+        let key_pin = self.pin_logical_assign_key(left, right);
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
         let truthy = self.coerce_to_bool(a.clone());
@@ -127,6 +131,9 @@ impl LowerCtx<'_> {
         );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = merge;
+        if let Some(owned) = key_pin {
+            self.unpin_logical_assign_key(owned);
+        }
         if join_owned {
             self.owned_member_reads.insert(eid);
         }
@@ -165,6 +172,8 @@ impl LowerCtx<'_> {
             let _ = self.lower_expr(left);
             return self.lower_expr(right);
         }
+        // Cluster #4 — `o[k] ||= v` fingerprint (see the `&&` arm).
+        let key_pin = self.pin_logical_assign_key(left, right);
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
         let truthy = self.coerce_to_bool(a.clone());
@@ -227,6 +236,9 @@ impl LowerCtx<'_> {
             self.emit_owned_result_inc_in(true_blk, a_for_slot, slot_ty.clone());
         }
         self.cur_block = merge;
+        if let Some(owned) = key_pin {
+            self.unpin_logical_assign_key(owned);
+        }
         if join_owned {
             self.owned_member_reads.insert(eid);
         }

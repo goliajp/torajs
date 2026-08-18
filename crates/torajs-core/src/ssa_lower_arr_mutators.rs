@@ -16,7 +16,13 @@ impl<'a> LowerCtx<'a> {
     /// required. Fractional indices keep dynobj property semantics
     /// out of scope (typed-tier truncates, same bar as str charAt).
     pub(crate) fn lower_index_operand(&mut self, index: ExprId) -> Operand {
-        let raw = self.lower_expr(index);
+        // Cluster #4 logical-assign fingerprint — a pinned key was
+        // already evaluated once (§13.15.2 evaluates the Reference
+        // once); reuse the value instead of re-running the expression.
+        let raw = match &self.compound_key_memo {
+            Some((mid, mop)) if *mid == index => mop.clone(),
+            _ => self.lower_expr(index),
+        };
         self.coerce_to_i64(raw)
     }
 

@@ -65,7 +65,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, target: ExprId, is_inc:
         }
         Expr::Ident(name) => lower_ident(ctx, name, is_inc),
         Expr::Member { obj, name: field } => lower_member(ctx, eid, target, obj, field, is_inc),
-        Expr::Index { obj, index } => lower_index(ctx, obj, index, is_inc),
+        Expr::Index { obj, index } => lower_index(ctx, eid, obj, index, is_inc),
         other => panic!("ssa-lower: post-incr target shape not supported: {other:?}"),
     }
 }
@@ -348,10 +348,30 @@ fn lower_arr_length(
     Operand::Value(old)
 }
 
-fn lower_index(ctx: &mut LowerCtx<'_>, obj: ExprId, index: ExprId, is_inc: bool) -> Operand {
+fn lower_index(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    index: ExprId,
+    is_inc: bool,
+) -> Operand {
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let arr_val = ctx.lower_expr(obj);
     let arr_ty = ctx.operand_ty(&arr_val);
+    // Cluster #4 blade 2 — an `any` (or boxed-struct) receiver's
+    // keyed update rides the keyed kernels, mirroring
+    // [`lower_member_any`]. A null/undefined receiver raises inside
+    // the keyed read.
+    if matches!(arr_ty, Type::Any | Type::Obj(_)) {
+        let recv = if matches!(arr_ty, Type::Obj(_)) {
+            ctx.box_to_any(arr_val)
+        } else {
+            arr_val
+        };
+        return crate::ssa_lower_post_incr_keyed::lower_index_any_keyed(
+            ctx, eid, index, recv, is_inc,
+        );
+    }
     let elem_ty = match arr_ty {
         Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
         other => panic!("ssa-lower: post-incr index on non-array {other:?}"),
