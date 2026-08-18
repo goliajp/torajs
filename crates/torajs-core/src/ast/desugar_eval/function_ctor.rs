@@ -405,7 +405,30 @@ fn function_ctor_args(eid: ExprId, ast: &Ast) -> Option<Vec<String>> {
         } if class_name == "Function" && !args.is_empty() => args,
         _ => return None,
     };
-    args.iter().map(|a| const_string(*a, ast)).collect()
+    args.iter().map(|a| const_text(*a, ast)).collect()
+}
+
+/// §20.2.1.1 step 8 — every argument passes through ToString before
+/// the assembly, so a non-string LITERAL folds to its spec string at
+/// compile time (`new Function(undefined)` is a function whose body
+/// text is `undefined`). Only shapes with an exact static answer
+/// qualify: integral doubles below 2^53 print without an exponent
+/// (§6.1.6.1.20), booleans / `null` / `undefined` print their names,
+/// and everything else — fractional or huge numbers, runtime values —
+/// keeps the loud reject rather than risking a formatting divergence.
+fn const_text(eid: ExprId, ast: &Ast) -> Option<String> {
+    if let Some(s) = const_string(eid, ast) {
+        return Some(s);
+    }
+    match ast.exprs.get(eid.0 as usize)? {
+        Expr::Number(n) if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 => {
+            Some(format!("{}", *n as i64))
+        }
+        Expr::Bool(b) => Some(b.to_string()),
+        Expr::Null => Some("null".into()),
+        Expr::Ident(n) if n == "undefined" => Some("undefined".into()),
+        _ => None,
+    }
 }
 
 /// Side-effect-free thisArg shapes — the only ones the
