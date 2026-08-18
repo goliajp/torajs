@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T15:19:57.028Z",
+  "generatedAt": "2026-08-18T16:32:43.826Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T15:11:00Z",
-    "headSha": "f49aedd9",
-    "elapsedSec": 340.6,
+    "ranAt": "2026-08-18T16:20:54Z",
+    "headSha": "3b886b61",
+    "elapsedSec": 342.52,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26223,
+    "pass": 26252,
     "passNoOracle": 943,
     "passNegative": 4140,
-    "passTotal": 31306,
-    "bug": 12784,
-    "incompatible": 9084,
+    "passTotal": 31335,
+    "bug": 12821,
+    "incompatible": 9018,
     "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44090,
-    "passRateInScope": 58.87,
-    "passRateTrAccepted": 71
+    "trAccepted": 44156,
+    "passRateInScope": 58.93,
+    "passRateTrAccepted": 70.96
   },
   "torajs": {
-    "commit": "f49aedd9",
-    "commitSubject": "fix: new import() and optional-chain tagged templates stay syntax errors",
+    "commit": "3b886b61",
+    "commitSubject": "fix: String.raw walks the raw value as an array-like, not an array layout",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "3b886b61",
+      "subject": "fix: String.raw walks the raw value as an array-like, not an array layout"
+    },
+    {
+      "hash": "ff9f03a6",
+      "subject": "feat: indirect and inline-closure callees wrap top-fn value arguments"
+    },
+    {
+      "hash": "f3d39f62",
+      "subject": "feat: spread-site anon fn-exprs join the arguments argv face"
+    },
+    {
+      "hash": "363d6dd7",
+      "subject": "feat: inline new-expression callees join the arguments static-argv face"
+    },
+    {
+      "hash": "b32278d5",
+      "subject": "feat: dynamic-spread argument lists reach new-expression construction"
+    },
+    {
+      "hash": "f635b26e",
+      "subject": "chore(docs,hardev): rotation 438 census at f49aedd9"
+    },
+    {
       "hash": "f49aedd9",
       "subject": "fix: new import() and optional-chain tagged templates stay syntax errors"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "cbb3cbac",
       "subject": "feat: a struct-typed key coerces through topropertykey on keyed index lanes"
-    },
-    {
-      "hash": "4895309e",
-      "subject": "chore(docs,hardev): rotation 437 census at 301a20f3"
-    },
-    {
-      "hash": "301a20f3",
-      "subject": "fix: the with-object widen leaves computed-key literals alone"
-    },
-    {
-      "hash": "408b4130",
-      "subject": "feat: a string plus a regexp concatenates through tostring"
-    },
-    {
-      "hash": "9ffa1dc0",
-      "subject": "fix: the test262 harness message parameter accepts any value"
-    },
-    {
-      "hash": "3739111d",
-      "subject": "feat: an object literal used as a with scope object widens to any"
-    },
-    {
-      "hash": "d337e7c1",
-      "subject": "fix: the receiver censuses recurse through the shared nested-list spine"
     }
   ],
-  "headSha": "f49aedd9",
+  "headSha": "3b886b61",
   "autorun": {
-    "total": 741,
+    "total": 742,
     "baselineTarget": 10,
-    "bySelf": 736,
+    "bySelf": 737,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787058724-7d19",
-      "at": "2026-08-18T13:12:04Z",
-      "ts": 1787058724,
+      "rotationId": "r-1787066459-6c35",
+      "at": "2026-08-18T15:20:59Z",
+      "ts": 1787066459,
       "trigger": "self",
-      "prevHead": "4895309e",
-      "handoffSha": "sha256:d6c2edcea2ff7c6df24037f92a37d5fb69c4127cbf9867955c1d7f4cb41439bb",
-      "handoffAgeSec": 81,
+      "prevHead": "f635b26e",
+      "handoffSha": "sha256:76a676050ea76e883a5a874a7b1c6d47374980047538a843a5e5df954c7b4bd3",
+      "handoffAgeSec": 70,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787066459-6c35",
+        "at": "2026-08-18T15:20:59Z",
+        "ts": 1787066459,
+        "trigger": "self",
+        "prevHead": "f635b26e",
+        "handoffSha": "sha256:76a676050ea76e883a5a874a7b1c6d47374980047538a843a5e5df954c7b4bd3",
+        "handoffAgeSec": 70,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787058724-7d19",
         "at": "2026-08-18T13:12:04Z",
@@ -876,17 +887,6 @@
         "prevHead": "9532dd76",
         "handoffSha": "sha256:06aa4e5e21aeb9132c84b71efabd6afabebfcc771592f5dad5b79d4c58a09928",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786967677-25d0",
-        "at": "2026-08-17T11:54:37Z",
-        "ts": 1786967677,
-        "trigger": "self",
-        "prevHead": "7d8aab3f",
-        "handoffSha": "sha256:8bc6f81e0aadcc61706ba96c25d0abded3b756de623e24d5a87fb22150c609a1",
-        "handoffAgeSec": 95,
         "conformanceBefore": null,
         "commitsInSession": null
       }

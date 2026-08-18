@@ -1530,7 +1530,41 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `301a20f3`** (2026-08-18, rotation 437 — the C1 with-family
+**Latest @ `3b886b61`** (2026-08-19, rotation 439 — the NewDynamic
+spread + FnSig-box + String.raw knives. Handoff 438's instruction #1
+took three cuts: a `__torajs_anyv_construct_spread` kernel (with_argv
+over the fixed-argc construct path) with the call cascade's
+`build_args_arr` reused verbatim on the lowering side and the checker
+walking a spread argument's SOURCE; then the arguments object grew
+both faces for the new shapes — the inline NewDynamic callee joins
+the static-argv face (the IIFE knife's twin), and a spread-carrying
+site poisons the static face (args.len() cannot count a spread — the
+pre-fix census silently mis-slotted every value after the spread, an
+existing silent-wrong now closed) while its anon closure joins the
+argv face instead, because the spread lowering already routes every
+such call through the boxed dual entry. The FnSig-box residue fell to
+one axis extension: a Call / NewDynamic CALLEE is the r290 indirect
+shape one level up (`f()(fn)`, the tagged
+argument-list-evaluation idiom), and an inline Closure callee's
+un-annotated params ride the Any lanes — both now wrap top-fn
+arguments (explicit fn-type annotations keep raw-FnSig dispatch).
+String.raw's direct-call kernel read `raw.length` at the torajs-arr
+cell offset, so a plain-object `raw` dereferenced garbage as a length
+and crashed (the t262 return-empty-string family's SIGSEGV, 7 cases)
+— it now runs §22.1.2.4 steps 3-5 exactly (LengthOfArrayLike through
+the owned length kernel + ToLength clamp, shape-blind indexed
+element reads). Sweep vs 438: passTotal 31306 → **31335 (+29)**, bug
++37, incompatible **−66**, trAccepted +66 (conservation +66 = +29 +
+37 ✓), **zero pass regressions** (case-level diff). Forward 29:
+new/spread 14, String/raw 8, call 4, tagged-template 2, sm/class 1.
+Gate 3093 → **3098/0/4** across five substrate commits (+5
+fixtures). Gate predicate **216 unattributed clusters / 2266 cases /
+register 2 · 354 (SR-1 266, SR-2 92) / residue 681 · 853 / core
+3473**. Rotation 438's sweep @ `f49aedd9` (31306 / 217 / 2289 /
+core 3496) was banked to hardev but never stamped here — this entry
+carries both deltas.)
+
+**Prior @ `301a20f3`** (2026-08-18, rotation 437 — the C1 with-family
 knives. Three root causes stacked under the 21 S12.10 with cases fell
 in sequence: var_hoist's keep-the-fn-type escape hatch is
 top-level-only, so a nested-block `var f = function(){…this…}` escaped
