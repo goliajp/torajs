@@ -24,7 +24,15 @@ impl<'a> Parser<'a> {
         let mut param_destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
-                if matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                // §15.3 rest parameter — `(...args) => ...`, the
+                // parse_fn wedge's arrow mirror (cluster #13,
+                // rotation 442). A rest pattern param stays the
+                // named-fn path's reject.
+                let is_rest = matches!(self.peek(), Token::DotDotDot);
+                if is_rest {
+                    self.pos += 1;
+                }
+                if !is_rest && matches!(self.peek(), Token::LBracket | Token::LBrace) {
                     let synth = self.parse_destr_param(&mut param_destr_lets)?;
                     let type_ann = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
@@ -80,29 +88,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                let pname = match self.peek() {
-                    Token::Ident(n) => n.clone(),
-                    // §15.3 — ArrowParameters inherit the ENCLOSING
-                    // [Yield] bit; arrows never swap it.
-                    Token::Yield if self.yield_reads_as_ident() => {
-                        let at = self.at();
-                        self.ast.yield_ident_positions.push(at);
-                        "yield".to_string()
-                    }
-                    // §12.7.2 — a sloppy arrow parameter may be
-                    // named `let`.
-                    Token::Let if self.let_reads_as_ident() => {
-                        self.record_strict_goal_site("let");
-                        "let".to_string()
-                    }
-                    t => {
-                        return Err(format!(
-                            "expected parameter name, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                };
-                self.pos += 1;
+                let pname = self.expect_arrow_param_name()?;
                 // V3-18 wedge — optional parameter in arrow fn:
                 // `(x?: T) => ...`. Same modeling as parse_fn.
                 let optional = matches!(self.peek(), Token::Question);
@@ -132,11 +118,20 @@ impl<'a> Parser<'a> {
                     // synthesize the null default.
                     None
                 };
+                // An unannotated rest defaults to `any[]` — the
+                // collected value IS an array, and a fresh implicit-
+                // generic TypeVar here mis-lowers the closure (the
+                // destr-default force-`any` precedent above).
+                let type_ann = if is_rest && type_ann.is_none() {
+                    Some("any[]".to_string())
+                } else {
+                    type_ann
+                };
                 params.push(Param {
                     name: pname,
                     type_ann,
                     default,
-                    is_rest: false,
+                    is_rest,
                 });
                 match self.peek() {
                     Token::Comma => {
@@ -255,5 +250,36 @@ impl<'a> Parser<'a> {
                 body,
             },
         ))
+    }
+
+    /// Per-param-name admission for the arrow list — Ident, the
+    /// sloppy `yield` / `let` spellings, reject otherwise. §15.3 —
+    /// ArrowParameters inherit the ENCLOSING [Yield] bit (arrows
+    /// never swap it), so this reads whatever bit is in force.
+    /// `param_list.rs` carries the same match for the fn-own-bit
+    /// callers — a shared extraction is blocked on its file budget
+    /// (480/500 at rotation 442).
+    fn expect_arrow_param_name(&mut self) -> Result<String, String> {
+        let pname = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            Token::Yield if self.yield_reads_as_ident() => {
+                let at = self.at();
+                self.ast.yield_ident_positions.push(at);
+                "yield".to_string()
+            }
+            // §12.7.2 — a sloppy arrow parameter may be named `let`.
+            Token::Let if self.let_reads_as_ident() => {
+                self.record_strict_goal_site("let");
+                "let".to_string()
+            }
+            t => {
+                return Err(format!(
+                    "expected parameter name, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        Ok(pname)
     }
 }
