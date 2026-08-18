@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T20:29:11.198Z",
+  "generatedAt": "2026-08-18T22:14:51.549Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T20:19:00Z",
-    "headSha": "c251a747",
-    "elapsedSec": 361.43,
+    "ranAt": "2026-08-18T22:06:36Z",
+    "headSha": "20ac850b",
+    "elapsedSec": 395.2,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26366,
-    "passNoOracle": 948,
+    "pass": 26550,
+    "passNoOracle": 951,
     "passNegative": 4140,
-    "passTotal": 31454,
-    "bug": 12858,
-    "incompatible": 8862,
-    "bunSkip": 6590,
+    "passTotal": 31641,
+    "bug": 12926,
+    "incompatible": 8607,
+    "bunSkip": 6589,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44312,
-    "passRateInScope": 59.15,
-    "passRateTrAccepted": 70.98
+    "trAccepted": 44567,
+    "passRateInScope": 59.5,
+    "passRateTrAccepted": 71
   },
   "torajs": {
-    "commit": "eff74d65",
-    "commitSubject": "refactor: accessor-setter family to check_assign_target/setter.rs",
+    "commit": "20ac850b",
+    "commitSubject": "fix: arrow rest parameter early errors, no initializer and must-be-last",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "20ac850b",
+      "subject": "fix: arrow rest parameter early errors, no initializer and must-be-last"
+    },
+    {
+      "hash": "498e57d0",
+      "subject": "feat: rest parameters on arrow functions"
+    },
+    {
+      "hash": "cdbfc49d",
+      "subject": "feat: a multiply-declared var never takes the typed escape hatch"
+    },
+    {
+      "hash": "9593e83c",
+      "subject": "fix: propertyHelper port takes a null verifyProp like stock"
+    },
+    {
+      "hash": "5ff90921",
+      "subject": "feat: null joins a nullable or match-result array in typevar inference"
+    },
+    {
+      "hash": "1ca19d97",
+      "subject": "feat: an un-narrowed match result rides the string-concat lane"
+    },
+    {
+      "hash": "0d0db30e",
+      "subject": "feat: string and symbol keys write through typed array receivers"
+    },
+    {
+      "hash": "7add0b34",
+      "subject": "feat: dynamic string, symbol, any keys write through struct receivers"
+    },
+    {
+      "hash": "d09e3760",
+      "subject": "chore(docs,hardev): rotation 441 census at eff74d65"
+    },
+    {
       "hash": "eff74d65",
       "subject": "refactor: accessor-setter family to check_assign_target/setter.rs"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "f55f5887",
       "subject": "feat: integer-keyed struct reads walk the class prototype chain"
-    },
-    {
-      "hash": "16def1ec",
-      "subject": "feat: keyed writes on class instances, resolve_class_ref + dynamic number key"
-    },
-    {
-      "hash": "ba8e55e0",
-      "subject": "feat: symbol wrapper answers instanceof Symbol via Tag::SymbolWrapper dispatch"
-    },
-    {
-      "hash": "69759af1",
-      "subject": "feat: deepEqual.js harness port, faithful _compare chain with cycle cache"
-    },
-    {
-      "hash": "c251a747",
-      "subject": "chore(docs,hardev): rotation 440 census at f7bab07f"
-    },
-    {
-      "hash": "f7bab07f",
-      "subject": "fix: reserved words reject as destructuring assignment targets"
-    },
-    {
-      "hash": "89c009eb",
-      "subject": "feat: destructuring assignment in a declaration's init position"
-    },
-    {
-      "hash": "089dd07a",
-      "subject": "feat: super property reads in object-literal methods"
-    },
-    {
-      "hash": "36990d64",
-      "subject": "feat: computed keys in destructuring patterns, all three lanes"
-    },
-    {
-      "hash": "f76ad9fe",
-      "subject": "refactor: the parse entry family moves to parser/entry.rs"
     }
   ],
-  "headSha": "eff74d65",
+  "headSha": "20ac850b",
   "autorun": {
-    "total": 744,
+    "total": 745,
     "baselineTarget": 10,
-    "bySelf": 739,
+    "bySelf": 740,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787078188-3cec",
-      "at": "2026-08-18T18:36:28Z",
-      "ts": 1787078188,
+      "rotationId": "r-1787084985-76d4",
+      "at": "2026-08-18T20:29:45Z",
+      "ts": 1787084985,
       "trigger": "self",
-      "prevHead": "c251a747",
-      "handoffSha": "sha256:2443eb7041ef1146b43bfec086cd0292793774b893ef2c9eb0b3eac29908f0c3",
-      "handoffAgeSec": 20,
+      "prevHead": "d09e3760",
+      "handoffSha": "sha256:ed1ccbe60ac972a260056ad8df6217e6239e5db86abc22697407a275eba64a09",
+      "handoffAgeSec": 51,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787084985-76d4",
+        "at": "2026-08-18T20:29:45Z",
+        "ts": 1787084985,
+        "trigger": "self",
+        "prevHead": "d09e3760",
+        "handoffSha": "sha256:ed1ccbe60ac972a260056ad8df6217e6239e5db86abc22697407a275eba64a09",
+        "handoffAgeSec": 51,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787078188-3cec",
         "at": "2026-08-18T18:36:28Z",
@@ -876,17 +887,6 @@
         "prevHead": "b99dc4fe",
         "handoffSha": "sha256:5f35a3ea11a1525747781b5360cc1e3b7776a770e8307e8cc1f4b254f7b9c55b",
         "handoffAgeSec": 29,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786984929-1de7",
-        "at": "2026-08-17T16:42:09Z",
-        "ts": 1786984929,
-        "trigger": "self",
-        "prevHead": "f3f7c43e",
-        "handoffSha": "sha256:7115e4c0cdcecd5b71157b0b88b56617e2cfa3b0d200684226e7c4ad6ac11d7d",
-        "handoffAgeSec": 343,
         "conformanceBefore": null,
         "commitsInSession": null
       }
