@@ -1530,7 +1530,48 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `177a2709`** (2026-08-19, rotation 439 — the NewDynamic
+**Latest @ `f7bab07f`** (2026-08-19, rotation 440 — the computed-key
+destructuring + objlit-super + decl-init dstr-assign knives. Handoff
+439's instruction #1 opened top cluster #4: `{ [expr]: binding }`
+(§14.3.3 ComputedPropertyName) landed across all three destructuring
+lanes — the declaration PatShape machine grew a FieldKey enum, the
+param walker moved to destr_obj_param.rs and grew a computed-field
+method, and the assignment lane un-folds the objlit cover's
+`__computed_N__` sentinel through objlit_computed_keys (that lane
+used to parse and then silently assign nothing — an existing
+silent-wrong now closed). One shared recipe: the key hoists into a
+`__ck_N` temp in field order, the load is an any-key index read;
+computed-key-alongside-rest rejects loud in every lane (the omit-set
+protocol carries static names only). Then §10.2.4 [[HomeObject]] super
+reads in object-literal methods: a new pass right after
+desugar_classes claims the declaration-init shape (home binding
+pre-declares mutable-undefined and assigns back — the closure capture
+is a box), each `__superbase__` read marker rewrites in place to
+`Object.getPrototypeOf(__home_N)` re-minted per site; supercalls,
+writes and nested homes stay loud (the `__superbase__` cluster fell
+49 → 25). Then cluster #5's real gap: `var y = { p: x } = src`
+(§13.15.2 — a destructuring assignment as a declaration INIT) expands
+through the shared desugar with the binding reading back the hoisted
+RHS temp. The sweep then caught what five green gates could not: the
+init expansion let keyword SHORTHANDS (`var x = { default } = src`)
+through to runtime — 37 syntax-error-ident-ref cases flipped
+pass-negative → negative-phase-mismatch — fixed in-rotation with a
+§12.7.2 ReservedWord table in emit_dstr_assign_slot (contextual
+keywords stay valid). Sweep vs 439: passTotal 31343 → **31430
+(+87)**, bug +27, incompatible **−114**, trAccepted +114
+(conservation +114 = +87 + 27 ✓), **zero pass regressions** in the
+final case-level diff (the 37 mid-rotation regressions were caught
+and repaired before close). Forward 87: class 24, super 9,
+for-await-of 8, object 7, for-of 5, async-generator 4, import-defer
+4, the rest spread across the dstr template families. Gate 3099 →
+**3104/0/4** across five substrate commits (+5 fixtures). Gate
+predicate **214 unattributed clusters / 2192 cases / register 2 ·
+309 (SR-1 221, SR-2 92) / residue 683 · 858 / core 3359**. Next
+largest attackable: deepEqual.js harness port (45, dirs=13) and the
+class computed-property-name accessor family (40, `index assignment
+target must be an array, got ClassRef`).)
+
+**Prior @ `177a2709`** (2026-08-19, rotation 439 — the NewDynamic
 spread + FnSig-box + String.raw knives. Handoff 438's instruction #1
 took three cuts: a `__torajs_anyv_construct_spread` kernel (with_argv
 over the fixed-argc construct path) with the call cascade's
