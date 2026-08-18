@@ -233,7 +233,10 @@ pub(super) fn classify_argc_mode(
         && (body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body))
     {
         ArgcMode::KeepLoud
-    } else if super::arguments_object_mutation::body_mutates_args_view(ast, body, &params) {
+    } else if (body_has_arguments_length(ast, body)
+        || body_has_non_length_arguments_touch(ast, body))
+        && super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
+    {
         // FoldArity tier (no static argc), mutating body —
         // the literal-index substitution wrote through
         // (`arguments[0] = 5` mutated `a`; module code is
@@ -242,6 +245,15 @@ pub(super) fn classify_argc_mode(
         // declared-==-actual assumption: length folds and
         // beyond-declared reads stay wrong-at-parity with
         // the FoldArity baseline, but writes are isolated.
+        // The touch gate is load-bearing: the mutation scan's
+        // param-write trigger fires on bodies that never
+        // mention `arguments` at all (any `p = v` is a hit),
+        // and Unmapped materializes unconditionally — every
+        // plain fn that reassigns a param paid an allocated,
+        // never-read `__torajs_arguments` prologue per call
+        // (gcd1m went 36ms -> 57ms, bisected to 55f0464a).
+        // A body with no `arguments` spelling has nothing to
+        // observe; FoldArity is a no-op for it.
         ArgcMode::Unmapped(params.len())
     } else {
         ArgcMode::FoldArity
