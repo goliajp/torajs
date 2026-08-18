@@ -85,6 +85,52 @@ pub(super) fn collect_this_fnexpr_decl_names(
     }
 }
 
+/// Rotation 437 — the HOISTED-VAR spelling of the zero-face profile.
+/// `try { var f = function () { …this… }; f(); }` is the dominant
+/// test262 spelling of the direct-call shape (the S12.10 with-family
+/// wraps everything in `try`), and the decl census above cannot see
+/// it: `var_hoist`'s keep-the-fn-type escape hatch is top-level-only
+/// (rotation 264), so a nested-block `var f = fn-expr` arrives here
+/// split into a fn-scope prelude `let f: any = Uninit` plus an
+/// in-place `f = fn-expr` assignment — the LetDecl's init is Uninit
+/// and the fn-expr hangs off an `Expr::Assign` instead.
+///
+/// Collected here: every name whose Assign-target Ident appears
+/// EXACTLY ONCE program-wide, where that one assignment's value
+/// (as-peeled) is a marked fn-expr Closure still carrying `__this`.
+/// One write = the hoisted init; a second write of ANY value is a
+/// rebind and the name drops out (its extra target would fail the
+/// use-parity anyway — filtering here keeps the two proofs aligned,
+/// and keeps the caller's one-target exemption unambiguous). The
+/// caller still demands the matching prelude decl (a single LetDecl
+/// whose init IS Uninit) before treating the assignment as the init.
+pub(super) fn collect_hoisted_fnexpr_assigns(
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<super::ExprId>,
+) -> std::collections::HashMap<String, (super::ExprId, super::ExprId)> {
+    let mut target_counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    let mut cands: std::collections::HashMap<String, (super::ExprId, super::ExprId)> =
+        std::collections::HashMap::new();
+    for e in exprs {
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        let Expr::Ident(n) = &exprs[target.0 as usize] else {
+            continue;
+        };
+        *target_counts.entry(n.as_str()).or_default() += 1;
+        let v = peel_as(exprs, *value);
+        if fn_expr_exprs.contains(&v)
+            && matches!(&exprs[v.0 as usize], Expr::Closure { captures, .. }
+                if captures.iter().any(|c| c == "__this"))
+        {
+            cands.insert(n.clone(), (*target, v));
+        }
+    }
+    cands.retain(|n, _| target_counts.get(n.as_str()) == Some(&1));
+    cands
+}
+
 /// See past an `as` suffix to the value it ascribes.
 ///
 /// `const K = function () { …this… } as any` and `const K: any =

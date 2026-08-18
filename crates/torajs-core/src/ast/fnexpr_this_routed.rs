@@ -4,7 +4,10 @@
 //! stays in the parent, which hands its Ident candidates here.
 
 use super::fnexpr_this_faces::FacePatch;
-use super::fnexpr_this_names::{collect_this_fnexpr_decl_names, name_shadowed_elsewhere, peel_as};
+use super::fnexpr_this_names::{
+    collect_hoisted_fnexpr_assigns, collect_this_fnexpr_decl_names, name_shadowed_elsewhere,
+    peel_as,
+};
 use super::fnexpr_this_pairing::pair_decls_scoped;
 use super::fnexpr_this_shapes::UseShapes;
 use super::{Expr, ExprId, Stmt};
@@ -38,6 +41,67 @@ use super::{Expr, ExprId, Stmt};
 /// list must be unique too (the pre-2W per-entry `uses == 1` check
 /// tolerated duplicates implicitly).
 
+/// The BY-NAME candidate seeding — every profile that enters the
+/// promote loop with an empty face list, injected before the parity
+/// walk. Returns `(no_static_seed, hoisted_inits)`.
+///
+/// * Rotation 328 — the ZERO-FACE all-direct-call profile:
+///   `var f = function () { …this… }; f();` never stands in a face
+///   position, but every guard in the loop already covers it — the
+///   use-vs-face parity degenerates to "every use is a direct-call
+///   callee", and knife-2W cut 2's `closure_local` lane seeds a boxed
+///   `undefined` into the promoted `__this` slot at each such call
+///   (§10.2.1.2 strict call-site `this`, the `this_param.rs` blade-1
+///   framing — matching bun's module-goal answer). Injecting the
+///   binding with an empty face list is the whole knife; any use
+///   shape besides a direct call still rejects in the parity check.
+/// * 398-06 — the annotated names promote alongside the plain ones
+///   but land in `no_static_seed`: their calls take the runtime recv
+///   gate instead of the static seed (doc on the census).
+/// * Rotation 437 — the hoisted-var spelling of the same profile: a
+///   nested-block `var f = function () { …this… }` reaches this pass
+///   as a fn-scope `let f: any = Uninit` prelude plus one in-place
+///   `f = fn-expr` assignment (doc on the census). The name joins the
+///   candidate set here; the init resolves through the assignment in
+///   the loop, and only on the ZERO-FACE profile — a face read of a
+///   hoisted binding keeps today's loud reject (`fnexpr_recv_locals`
+///   registration is what the HOF face consumers key on, and a
+///   hoisted name deliberately stays off that list — its any-typed
+///   calls ride the runtime recv gate, the 398-06 lane).
+#[allow(clippy::type_complexity)]
+fn seed_censused_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    faces_by_name: &mut std::collections::HashMap<String, Vec<ExprId>>,
+) -> (
+    std::collections::HashSet<String>,
+    std::collections::HashMap<String, (ExprId, ExprId)>,
+) {
+    let mut call_only: Vec<String> = Vec::new();
+    let mut annotated_only: Vec<String> = Vec::new();
+    collect_this_fnexpr_decl_names(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        &mut call_only,
+        &mut annotated_only,
+    );
+    for name in call_only {
+        faces_by_name.entry(name).or_default();
+    }
+    let no_static_seed: std::collections::HashSet<String> =
+        annotated_only.iter().cloned().collect();
+    for name in annotated_only {
+        faces_by_name.entry(name).or_default();
+    }
+    let hoisted_inits = collect_hoisted_fnexpr_assigns(exprs, fn_expr_exprs);
+    for name in hoisted_inits.keys() {
+        faces_by_name.entry(name.clone()).or_default();
+    }
+    (no_static_seed, hoisted_inits)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn promote_variable_routed(
     stmts: &[Stmt],
@@ -59,36 +123,8 @@ pub(super) fn promote_variable_routed(
             v.push(face_eid);
         }
     }
-    // Rotation 328 — the ZERO-FACE all-direct-call profile:
-    // `var f = function () { …this… }; f();` never stands in a face
-    // position, but every guard below already covers it — the
-    // use-vs-face parity degenerates to "every use is a direct-call
-    // callee", and knife-2W cut 2's `closure_local` lane seeds a boxed
-    // `undefined` into the promoted `__this` slot at each such call
-    // (§10.2.1.2 strict call-site `this`, the `this_param.rs` blade-1
-    // framing — matching bun's module-goal answer). Injecting the
-    // binding with an empty face list is the whole knife; any use
-    // shape besides a direct call still rejects in the parity check.
-    let mut call_only: Vec<String> = Vec::new();
-    // 398-06 — the annotated names promote alongside the plain ones
-    // but skip `fnexpr_recv_locals`: their calls take the runtime
-    // recv gate instead of the static seed (doc on the census).
-    let mut annotated_only: Vec<String> = Vec::new();
-    collect_this_fnexpr_decl_names(
-        stmts,
-        exprs,
-        fn_expr_exprs,
-        &mut call_only,
-        &mut annotated_only,
-    );
-    for name in call_only {
-        faces_by_name.entry(name).or_default();
-    }
-    let no_static_seed: std::collections::HashSet<String> =
-        annotated_only.iter().cloned().collect();
-    for name in annotated_only {
-        faces_by_name.entry(name).or_default();
-    }
+    let (no_static_seed, hoisted_inits) =
+        seed_censused_names(stmts, exprs, fn_expr_exprs, &mut faces_by_name);
     // Every receiver-safe use POSITION in the program, by kind, with
     // the two proof families documented on the module. A binding
     // promotes only if all of its non-face uses land in one of them.
@@ -100,9 +136,15 @@ pub(super) fn promote_variable_routed(
             .filter(|(_, e)| matches!(e, Expr::Ident(n) if n == name))
             .map(|(i, _)| ExprId(i as u32))
             .collect();
+        // The hoisted init-assignment's target is the ONE write the
+        // profile admits — the census guarantees it is the only
+        // Assign-target of this name program-wide, so exempting it
+        // leaves every other write to fail the parity as before.
+        let hoist_init = hoisted_inits.get(name.as_str());
         let mixed_calls: Vec<ExprId> = use_eids
             .iter()
             .filter(|e| !face_eids.contains(e))
+            .filter(|e| hoist_init.is_none_or(|(t, _)| **e != *t))
             .copied()
             .collect();
         if !mixed_calls.iter().all(|e| shapes.admits(*e, name)) {
@@ -143,7 +185,19 @@ pub(super) fn promote_variable_routed(
         // this binding — so those keep the loud reject for var and
         // const alike (the decls-count guard only sees LetDecls).
         let (_mutable, decl_init) = decls[0];
-        let init = peel_as(exprs, decl_init);
+        let mut init = peel_as(exprs, decl_init);
+        // Hoisted-var profile: the prelude decl's init is Uninit and
+        // the fn-expr hangs off the one admitted assignment. Only the
+        // zero-face shape resolves through it (doc at the census
+        // injection above).
+        let mut from_hoist = false;
+        if matches!(exprs[init.0 as usize], Expr::Uninit)
+            && face_eids.is_empty()
+            && let Some((_, v)) = hoist_init
+        {
+            init = *v;
+            from_hoist = true;
+        }
         if fn_expr_exprs.contains(&init)
             && let Expr::Closure { fn_name, captures } = &exprs[init.0 as usize]
             && captures.iter().any(|c| c == "__this")
@@ -209,8 +263,12 @@ pub(super) fn promote_variable_routed(
             // an actual bare-name call, which a pure-face profile
             // has none of. 398-06 — annotated bindings stay off the
             // static list and take the runtime recv gate instead
-            // (doc on the census).
-            if !no_static_seed.contains(name) {
+            // (doc on the census). Rotation 437 — hoisted-var
+            // bindings stay off it too: their prelude decl is
+            // any-typed, so every call already rides the runtime
+            // recv gate, and the zero-face gate above means no HOF
+            // consumer ever needs the name.
+            if !no_static_seed.contains(name) && !from_hoist {
                 fnexpr_recv_locals.insert(name.clone());
             }
         }

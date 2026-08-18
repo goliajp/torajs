@@ -93,19 +93,27 @@ const WITH_HAS_FN: &str = "__torajs_with_has";
 /// `in` operator IS that abstract operation), then the `@@unscopables`
 /// filter, which is why `with ([]) { values }` still answers the outer
 /// `values` rather than `Array.prototype.values`.
+/// The locals wear the `__twith_` prefix, not spec-reader names: the
+/// helpers are spliced into the USER arena, and every by-name census
+/// downstream (the fnexpr-this promotes, the shadow guards) walks
+/// Idents program-wide — a user binding named `w` or `k` collided
+/// with the helper's internals and lost its promotion (rotation 437,
+/// measured: renaming `var f` to `var w` in a with-program flipped it
+/// from promoted to refused). Injected code may not occupy user
+/// namespace.
 const HELPER_SRC: &str = r#"
-function __torajs_with_obj(v: any): any {
-  if (v === null || v === undefined) {
+function __torajs_with_obj(__twith_v: any): any {
+  if (__twith_v === null || __twith_v === undefined) {
     throw new TypeError("Cannot convert undefined or null to object");
   }
-  return Object(v);
+  return Object(__twith_v);
 }
-function __torajs_with_has(w: any, k: any): boolean {
-  if (!(k in w)) { return false; }
-  const u: any = w[Symbol.unscopables];
-  if (u === null || u === undefined) { return true; }
-  if (typeof u !== "object" && typeof u !== "function") { return true; }
-  return !u[k];
+function __torajs_with_has(__twith_w: any, __twith_k: any): boolean {
+  if (!(__twith_k in __twith_w)) { return false; }
+  const __twith_u: any = __twith_w[Symbol.unscopables];
+  if (__twith_u === null || __twith_u === undefined) { return true; }
+  if (typeof __twith_u !== "object" && typeof __twith_u !== "function") { return true; }
+  return !__twith_u[__twith_k];
 }
 "#;
 
