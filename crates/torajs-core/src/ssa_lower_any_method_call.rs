@@ -80,6 +80,18 @@ pub(crate) fn try_lower(
             && matches!(ctx.ast.get_expr(*obj), Expr::Member { obj: ns, name: m }
                 if matches!(ctx.ast.get_expr(*ns), Expr::Ident(n)
                     if torajs_rc::ns_static::ns_static_id(n, m) >= 0));
+        // The same surfaces on a builtin CONSTRUCTOR value
+        // (`Number.bind(null)` / `Promise.call(p, fn)`): the bare
+        // namespace ident lowers to the interned ctor cell
+        // (`try_builtin_ctor_ident`), whose boxed entry runs the
+        // per-family ctor-as-function conversion or the catchable
+        // TypeError. Checker mirror: route_early's
+        // `is_builtin_ctor_read` (same proto-tag table + unbound
+        // gate — the obj types Object(ns) here, not Function).
+        let builtin_ctor_fn = matches!(name.as_str(), "call" | "apply" | "bind")
+            && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Object(_)))
+            && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n)
+                if crate::ssa_lower_member_builtin_namespace::proto_method_tag(n).is_some());
         // Cluster #4 (test262) — a CONCRETE receiver whose member
         // read types Any: the per-family member tables' catch-all
         // answered the read (`arr.hasOwnProperty` / `fn.caller` /
@@ -111,6 +123,7 @@ pub(crate) fn try_lower(
         if !sugar_fn_on_any
             && !builtin_mv
             && !ns_static_fn
+            && !builtin_ctor_fn
             && !any_member_read
             && !shadowed_builtin
             && !detached_method

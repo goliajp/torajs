@@ -46,10 +46,130 @@ pub(crate) fn builtin_ctor_cell(proto_tag: i64) -> *mut u8 {
         *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = native_entry as *const () as u64;
         *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
-        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = bare_entry as *const () as u64;
+        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = ctor_call_entry as *const () as u64;
         *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = torajs_rc::ANY_METHOD_UNKNOWN as u64;
         slot.store(cell as u64, Ordering::Relaxed);
         cell
+    }
+}
+
+/// The interned empty-string cell of the `String()` zero-arg call —
+/// lazily minted, immortal (strings compare by value, so one
+/// identity serves every call).
+static EMPTY_STR_CELL: AtomicU64 = AtomicU64::new(0);
+
+fn empty_str_cell() -> *mut u8 {
+    let p = EMPTY_STR_CELL.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    let cell = super::mint_immortal_str(b"");
+    EMPTY_STR_CELL.store(cell as u64, Ordering::Relaxed);
+    cell
+}
+
+unsafe extern "C" {
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
+    /// torajs-arr — the §23.1.1.1 length-form mint (its own
+    /// RangeError gate on a non-index length).
+    fn __torajs_arr_alloc_any_filled_f64(len: f64) -> *mut u8;
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    /// torajs-date — fresh now-valued Date cell (rc 1) + the
+    /// §21.4.4.41 rendering (fresh owned Str).
+    fn __torajs_date_now() -> *mut c_void;
+    fn __torajs_date_to_string(d_ptr: *const c_void) -> *mut u8;
+    fn __torajs_value_drop_heap(p: *mut c_void);
+}
+
+/// [[Call]] of a builtin-constructor value — `const N = Number; N(42)`,
+/// `Number.call(null, x)`, and calls through a `.bind` mint all land
+/// here (the boxed entry of every interned ctor cell). Families whose
+/// ctor-as-function semantics are pure conversions run them: Number =
+/// ToNumber (§21.1.1.1), String = the display coercion (§22.1.1.1 —
+/// symbols stringify here), Boolean = ToBoolean, Object = ToObject
+/// with the fresh-object nullish arm, Array = the §23.1.1.1
+/// length-form, Date = the current-time string (§21.4.2 ignores its
+/// arguments). Everything else keeps the loud catchable TypeError —
+/// including Function (dynamic code has no runtime channel in tr; the
+/// compile-time inline lane owns the constant forms).
+unsafe extern "C" fn ctor_call_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
+    use crate::nanbox::{VALUE_UNDEFINED, box_bool, box_double, box_void_ptr};
+    let Some(tag) = ctor_tag_of_cell(env as *const c_void) else {
+        return unsafe { bare_entry(env, argv, argc) };
+    };
+    let arg0 = |i: i64| -> u64 {
+        if i < argc {
+            unsafe { argv.add(i as usize).read() }
+        } else {
+            VALUE_UNDEFINED
+        }
+    };
+    unsafe {
+        match tag {
+            // Number — absent argument answers +0 (§21.1.1.1 step 1).
+            0 => {
+                if argc == 0 {
+                    return box_double(0.0);
+                }
+                let n = crate::nanbox_ffi::__torajs_anyv_to_number(arg0(0));
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
+                box_double(n)
+            }
+            // String — absent argument answers the empty string
+            // (§22.1.1.1 step 2.a; coercing the absent-arg undefined
+            // would answer "undefined" instead).
+            3 => {
+                if argc == 0 {
+                    return box_void_ptr(empty_str_cell() as *mut c_void);
+                }
+                let s = crate::nanbox_ffi::__torajs_anyv_to_display_str(arg0(0));
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
+                box_void_ptr(s)
+            }
+            4 => box_bool(argc > 0 && crate::nanbox_ffi::__torajs_anyv_to_bool(arg0(0))),
+            1 => crate::to_object::__torajs_any_to_object(arg0(0)),
+            // Array — the length-form and the empty call; the
+            // elements form (§23.1.1.3) keeps a loud reject until a
+            // caller shape demands it (no silent half-array).
+            2 => {
+                if argc == 0 {
+                    return box_void_ptr(__torajs_arr_alloc_any(0) as *mut c_void);
+                }
+                let n0 = arg0(0);
+                if argc > 1 || !(crate::nanbox::is_int32(n0) || crate::nanbox::is_double(n0)) {
+                    __torajs_throw_type_error(
+                        c"Array constructor elements form is not supported through a first-class ctor value".as_ptr(),
+                    );
+                    return VALUE_UNDEFINED;
+                }
+                let len = crate::nanbox_ffi::__torajs_anyv_to_number(arg0(0));
+                let arr = __torajs_arr_alloc_any_filled_f64(len);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
+                box_void_ptr(arr as *mut c_void)
+            }
+            // Date as a function — §21.4.2: arguments ignored, the
+            // answer is the current time rendered as a string.
+            8 => {
+                let d = __torajs_date_now();
+                let s = __torajs_date_to_string(d);
+                __torajs_value_drop_heap(d);
+                box_void_ptr(s as *mut c_void)
+            }
+            _ => {
+                __torajs_throw_type_error(
+                    c"this constructor cannot be called as a function through a first-class value"
+                        .as_ptr(),
+                );
+                VALUE_UNDEFINED
+            }
+        }
     }
 }
 

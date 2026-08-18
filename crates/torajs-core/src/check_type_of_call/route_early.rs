@@ -285,10 +285,12 @@ fn try_builtin_mv_fn_surface(
     let Expr::Member { obj, name } = ast.get_expr(*callee) else {
         return None;
     };
-    if !matches!(name.as_str(), "call" | "apply" | "bind")
-        || !matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
-        || !(is_builtin_mv_read(checker, ast, *obj) || is_ns_static_read(ast, *obj))
-    {
+    if !matches!(name.as_str(), "call" | "apply" | "bind") {
+        return None;
+    }
+    let fn_face = matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
+        && (is_builtin_mv_read(checker, ast, *obj) || is_ns_static_read(ast, *obj));
+    if !fn_face && !is_builtin_ctor_read(checker, ast, *obj) {
         return None;
     }
     for a in args {
@@ -319,6 +321,20 @@ fn is_builtin_mv_read(checker: &mut Checker, ast: &Ast, obj: ExprId) -> bool {
         }
         _ => false,
     }
+}
+
+/// A builtin CONSTRUCTOR read as the receiver (`Number.bind(null)` /
+/// `Promise.call(p, fn)`) — the bare namespace ident whose value
+/// face is the interned ctor cell. Gated on the same proto-tag
+/// table the ident lowering's `try_builtin_ctor_ident` uses (so
+/// JSON / Math — no ctor cell — keep their no-member reject) and on
+/// the name being unbound (a user binding owns it). The cell's
+/// runtime dispatch runs the per-family ctor-as-function conversion
+/// or raises the catchable TypeError — never a silent value.
+fn is_builtin_ctor_read(checker: &mut Checker, ast: &Ast, obj: ExprId) -> bool {
+    matches!(ast.get_expr(obj), Expr::Ident(n)
+        if crate::ssa_lower_member_builtin_namespace::proto_method_tag(n).is_some()
+            && checker.lookup(n).is_none())
 }
 
 /// A reified namespace-static read (`Array.from` / `Math.max` — the
