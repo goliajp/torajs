@@ -225,8 +225,20 @@ pub(crate) fn try_match(
                 return Some(Ok(resolved_ret));
             }
         }
-        // Regular path — params.len() == args.len() required.
-        if params.len() != args.len() {
+        // Regular path. Beyond-arity calls are admitted (the S3.5
+        // general-path rule mirrored — ES §13.3.6.1: every argument
+        // evaluates, extras never bind a parameter): the extras
+        // typecheck loud, then drop out of the pairing (the zip
+        // below stops at the param list). Fewer args than params
+        // stays the loud reject (the trailing-pad branch above
+        // already admitted the independent-typevar shapes).
+        if args.len() > params.len() {
+            for a in &args[params.len()..] {
+                if let Err(e) = checker.type_of(ast, *a) {
+                    return Some(Err(e));
+                }
+            }
+        } else if params.len() != args.len() {
             return Some(Err(format!(
                 "expected {} argument(s) to `{name}`, got {}",
                 params.len(),
