@@ -106,7 +106,11 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                let default = if matches!(self.peek(), Token::Eq) {
+                // §15.3 — a RestParameter takes no Initializer; the
+                // `!is_rest` gate lets a rest-then-`=` fall through
+                // to the loop-tail reject (early error, the
+                // dflt-params-rest negative family).
+                let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
                     Some(self.with_in_formal_params(|p| p.parse_expr())?)
                 } else {
@@ -135,6 +139,13 @@ impl<'a> Parser<'a> {
                 });
                 match self.peek() {
                     Token::Comma => {
+                        // §15.3 — the rest parameter must be last,
+                        // and even a trailing comma after it is an
+                        // early error (the rest-params-trailing-comma
+                        // negative family; parse_fn's mirror).
+                        if is_rest {
+                            return Err(format!("rest parameter must be last at {}", self.at()));
+                        }
                         self.pos += 1;
                         // V3-18 wedge — trailing comma in arrow-fn params.
                         if matches!(self.peek(), Token::RParen) {
