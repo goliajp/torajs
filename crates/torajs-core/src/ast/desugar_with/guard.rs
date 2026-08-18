@@ -206,6 +206,51 @@ pub(super) fn rewrite_assign(
     };
 }
 
+/// `new C(a…)` -> `(has ? new (w.C)(a…) : new C(a…))`. The whole `New`
+/// is replaced: the parser resolved the constructor to a STRING on the
+/// node, so there is no callee child to swap and the two arms are
+/// different node kinds — the object arm is a `NewDynamic` whose
+/// callee is the member read (the runtime construct path decides
+/// whether `w.C` is a constructor at all, §13.3.5 step 6), while the
+/// fall-through arm keeps the parser's static factory binding by
+/// minting a fresh `New` with the same name.
+///
+/// The argument subtrees stay in the OBJECT arm and the fall-through
+/// takes the clone — this rewrite runs in the cloning group (after
+/// every read guard), so both copies already carry their guards.
+/// Nothing is consumed: the name was never a node, so there is no
+/// tombstone to leave.
+pub(super) fn rewrite_new(ast: &mut Ast, node: ExprId, w: &str, n: &str) {
+    let Expr::New {
+        class_name,
+        args,
+        type_args,
+    } = ast.get_expr(node)
+    else {
+        return;
+    };
+    let (class_name, args, type_args) = (class_name.clone(), args.clone(), type_args.clone());
+    let cond = has_call(ast, w, n);
+    let callee = with_member(ast, w, n);
+    let then_branch = ast.add_expr(Expr::NewDynamic {
+        callee,
+        args: args.clone(),
+    });
+    let mut cloner = super::super::clone_body::BodyCloner::new(ast);
+    let cloned: Vec<ExprId> = args.iter().map(|a| cloner.clone_expr(*a)).collect();
+    migrate_side_tables(&mut cloner);
+    let else_branch = ast.add_expr(Expr::New {
+        class_name,
+        args: cloned,
+        type_args,
+    });
+    ast.exprs[node.0 as usize] = Expr::Ternary {
+        cond,
+        then_branch,
+        else_branch,
+    };
+}
+
 /// Carry the side-table entries of a cloned arm across to the clone.
 ///
 /// A guard's two arms are the same source expression, so whatever a

@@ -233,16 +233,21 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
     split_var_inits(ast, &mut body);
     let mut sites: Vec<(ExprId, Position)> = Vec::new();
     collect_body(ast, &body, &mut sites, err);
-    // Writes last: the then-arm CLONES the value expression, and the
-    // clone has to carry the guards the read rewrites put there. A
-    // clone taken before those ran would resolve its own free names
-    // lexically — the silent-wrong this whole pass exists to avoid.
-    sites.sort_by_key(|(_, p)| u8::from(matches!(p, Position::Assign(..))));
+    // Cloning rewrites last: their arms CLONE a subtree (an assign's
+    // value, a `new`'s arguments), and the clone has to carry the
+    // guards the read rewrites put there. A clone taken before those
+    // ran would resolve its own free names lexically — the
+    // silent-wrong this whole pass exists to avoid.
+    sites.sort_by_key(|(_, p)| u8::from(matches!(p, Position::Assign(..) | Position::NewCtor)));
     for (eid, pos) in sites {
-        let Expr::Ident(n) = ast.get_expr(eid) else {
-            continue;
+        // The name a site guards is usually the `Ident` it recorded;
+        // a `NewCtor` site has no such node — the parser stored the
+        // constructor as a string on the `New` itself.
+        let n = match (ast.get_expr(eid), &pos) {
+            (Expr::New { class_name, .. }, Position::NewCtor) => class_name.clone(),
+            (Expr::Ident(n), _) => n.clone(),
+            _ => continue,
         };
-        let n = n.clone();
         // Compiler-minted names are never the user's free names — the
         // shadowing question (`__with_<n>` itself, the helpers, the
         // loop temporaries) is settled by their spelling.
@@ -254,6 +259,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, err: &mut Option<String>) {
             Position::Callee(call) => rewrite_call(ast, call, eid, &w, &n),
             Position::Wrapping(outer) => rewrite_wrapping(ast, outer, &w, &n),
             Position::Assign(node, lhs) => rewrite_assign(ast, node, lhs, &w, &n),
+            Position::NewCtor => rewrite_new(ast, eid, &w, &n),
         }
     }
     items.extend(body);
@@ -296,6 +302,13 @@ pub(crate) enum Position {
     /// arrives as `n = n op v`), which the rewrite fills in per branch
     /// instead of guarding separately.
     Assign(ExprId, Option<ExprId>),
+    /// The constructor name of this `New`, which the parser resolved
+    /// to a STRING rather than an `Ident` node — so the site is the
+    /// `New` node itself and the name is read back out of it at
+    /// rewrite time. Without this arm `with (o) { new Base() }` used
+    /// the lexical `Base` while the object carried one: the parser's
+    /// static-callee shortcut silently skipping §9.1.1.2.1.
+    NewCtor,
 }
 
 mod collect;
@@ -304,6 +317,6 @@ mod scope;
 mod var_split;
 pub(crate) mod walk;
 use collect::collect_body;
-use guard::{rewrite_assign, rewrite_call, rewrite_read, rewrite_wrapping};
+use guard::{rewrite_assign, rewrite_call, rewrite_new, rewrite_read, rewrite_wrapping};
 use var_split::split_var_inits;
 use walk::{arrow_nodes, stmt_children};

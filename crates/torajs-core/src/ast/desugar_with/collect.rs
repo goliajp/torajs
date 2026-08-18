@@ -331,6 +331,24 @@ fn collect_expr(
             }
             return;
         }
+        Expr::New {
+            class_name, args, ..
+        } => {
+            // The constructor is a STRING on the node, not a child —
+            // the parser resolved `new Base()` statically — so the
+            // generic child walk never sees the name and the object
+            // could not shadow it. The site is the `New` node itself;
+            // the rewrite reads the name back out of it. Synth
+            // spellings (`__ClassExpr_<n>`) are never names the
+            // object can supply, same rule as everywhere else.
+            if !class_name.starts_with("__") && object_may_supply(ast, eid, class_name, scope) {
+                sites.push((eid, Position::NewCtor));
+            }
+            for a in args {
+                collect_expr(ast, *a, scope, sites, err);
+            }
+            return;
+        }
         Expr::PostIncr { target, .. } => {
             wrapping_operand(ast, eid, *target, scope, sites, err);
             return;
