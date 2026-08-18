@@ -183,6 +183,9 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::desugar_prototype_call(ast);
     ast::inject_builtin_classes(ast);
     ast::desugar_classes(ast);
+    // Object-literal method [[HomeObject]] super sites — right after
+    // the class pass has consumed the markers it owns.
+    ast::desugar_objlit_super(ast);
     ast::desugar_dflt_param_tdz(ast);
     ast::materialize_expr_defaults(ast);
     ast::bind_this_param(ast);
