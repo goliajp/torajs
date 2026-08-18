@@ -68,9 +68,9 @@ function $DONOTEVALUATE(): void {
   throw "Test262: This statement should not be evaluated.";
 }
 
-function __t262_assert(actual: boolean, msg: string = ""): void {
+function __t262_assert(actual: boolean, msg: any = ""): void {
   if (!actual) {
-    throw new Test262Error(msg);
+    throw new Test262Error(String(msg));
   }
 }
 
@@ -117,15 +117,15 @@ function __t262_sameValueCheck<T>(actual: T, expected: T): boolean {
   return true;
 }
 
-function __t262_sameValue<T>(actual: T, expected: T, msg: string = ""): void {
+function __t262_sameValue<T>(actual: T, expected: T, msg: any = ""): void {
   if (!__t262_sameValueCheck(actual, expected)) {
-    throw new Test262Error(msg);
+    throw new Test262Error(String(msg));
   }
 }
 
-function __t262_notSameValue<T>(actual: T, expected: T, msg: string = ""): void {
+function __t262_notSameValue<T>(actual: T, expected: T, msg: any = ""): void {
   if (__t262_sameValueCheck(actual, expected)) {
-    throw new Test262Error(msg);
+    throw new Test262Error(String(msg));
   }
 }
 
@@ -145,7 +145,7 @@ function __t262_notSameValue<T>(actual: T, expected: T, msg: string = ""): void 
 // semantics under test, and the structural annotation rejected those
 // cases at typecheck; the any-call lane pads missing arguments with
 // undefined.
-function __t262_throws_anyfn(thunk: any, msg: string = ""): void {
+function __t262_throws_anyfn(thunk: any, msg: any = ""): void {
   // Real test262 assert.js guards callability BEFORE invoking: a
   // non-function second argument must raise Test262Error, not
   // whatever the call-of-non-callable would raise downstream
@@ -164,11 +164,11 @@ function __t262_throws_anyfn(thunk: any, msg: string = ""): void {
     threw = true;
   }
   if (!threw) {
-    throw new Test262Error(msg);
+    throw new Test262Error(String(msg));
   }
 }
 
-function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
+function __t262_throws_runtime(thunk: () => void, msg: any = ""): void {
   let threw: boolean = false;
   try {
     thunk();
@@ -183,7 +183,7 @@ function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
     threw = true;
   }
   if (!threw) {
-    throw new Test262Error(msg);
+    throw new Test262Error(String(msg));
   }
 }
 
@@ -664,9 +664,9 @@ function __t262_compareArray(actual: any, expected: any): boolean {
 
 // `assert.compareArray(actual, expected)` — like compareArray but
 // THROWS on mismatch (vs the bare-call form that returns boolean).
-function __t262_compareArray_assert(actual: any, expected: any, msg: string = ""): void {
+function __t262_compareArray_assert(actual: any, expected: any, msg: any = ""): void {
   if (!__t262_compareArray(actual, expected)) {
-    throw new Test262Error("compareArray mismatch: " + msg);
+    throw new Test262Error("compareArray mismatch: " + String(msg));
   }
 }
 
