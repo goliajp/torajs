@@ -173,9 +173,12 @@ fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {
         return match class_name {
             // RFC 20260716 刀 2 — `x instanceof {Number,String,Boolean}`
             // for Any x now dispatches at runtime against
-            // Tag::*Wrapper. BigInt / Symbol still compile-time false
-            // (primitives with no dedicated wrapper substrate).
-            "BigInt" | "Symbol" => Some(false),
+            // Tag::*Wrapper; Symbol joined 2026-08-19 (`Object(sym)`
+            // mints a Tag::SymbolWrapper = 24 cell, surfaced by the
+            // deepEqual.js boxed-symbol self-test). BigInt stays
+            // compile-time false — `Object(bigint)` performs no
+            // boxing today, so no wrapper cell can ever exist.
+            "BigInt" => Some(false),
             _ => None,
         };
     }
@@ -329,10 +332,12 @@ fn builtin_type_tag(class_name: &str) -> Option<i64> {
         "WeakSet" => Some(13),
         "WeakRef" => Some(11),
         // RFC 20260716 刀 2 — Tag::NumberWrapper = 21,
-        // Tag::StringWrapper = 22, Tag::BooleanWrapper = 23.
+        // Tag::StringWrapper = 22, Tag::BooleanWrapper = 23;
+        // Tag::SymbolWrapper = 24 (2026-08-19).
         "Number" => Some(21),
         "String" => Some(22),
         "Boolean" => Some(23),
+        "Symbol" => Some(24),
         _ => None,
     }
 }

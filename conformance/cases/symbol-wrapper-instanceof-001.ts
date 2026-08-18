@@ -1,0 +1,10 @@
+const s: any = Symbol("k");
+const w: any = Object(s);
+console.log(typeof Symbol);
+console.log(w instanceof Symbol);
+console.log(s instanceof Symbol);
+console.log(w.valueOf() === s);
+const n: any = Object(1);
+console.log(n instanceof Symbol);
+console.log(w instanceof Number);
+console.log(({}) instanceof Symbol);
