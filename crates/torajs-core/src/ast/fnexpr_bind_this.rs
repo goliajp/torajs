@@ -183,6 +183,38 @@ pub fn register_bind_receiver_recv_fns(ast: &mut Ast) {
             found.push(fn_name.clone());
         }
     }
+    // C5 — the inline receiver's lifted mint stands directly in
+    // `.bind` position; there is no binding whose use profile could
+    // say otherwise (one parent per expression node), so membership
+    // needs only the promoted `__this` first param (post-`__env`).
+    // Capture-carrying mints qualify too — the kernel lane is
+    // exactly where the flag matters.
+    for e in &ast.exprs {
+        let Expr::Member { obj, name } = e else {
+            continue;
+        };
+        if name != "bind" {
+            continue;
+        }
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*obj) else {
+            continue;
+        };
+        if !fn_name.starts_with("__closure_") {
+            continue;
+        }
+        let Some(params) = ast.stmts.iter().find_map(|s| match s {
+            Stmt::FnDecl {
+                name: n, params, ..
+            } if n == fn_name => Some(params),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let user_start = usize::from(params.first().is_some_and(|p| p.name == "__env"));
+        if params.get(user_start).is_some_and(|p| p.name == "__this") {
+            found.push(fn_name.clone());
+        }
+    }
     for f in found {
         ast.fnexpr_recv_fns.insert(f);
     }
@@ -295,6 +327,42 @@ pub fn promote_bind_receiver_this(ast: &mut Ast) {
         {
             wanted.push(*init);
         }
+    }
+    // C5 (rotation 435) — the INLINE receiver:
+    // `(function () { …this… }).bind(obj)` has no binding to
+    // profile — the fn-expr node itself stands in `.bind`-receiver
+    // position, and an expression node has exactly one parent, so
+    // the zero-other-uses proof the binding walk needs holds by
+    // construction (the `.apply` inline arm in the cb-slot face
+    // argues the same way). The lifted mint then rides the runtime
+    // bind kernel lane (the desugar's sig resolve only reads Ident
+    // receivers), which is why step 3 registers it below.
+    let n_exprs = ast.exprs.len();
+    for i in 0..n_exprs {
+        let Expr::Member { obj, name } = &ast.exprs[i] else {
+            continue;
+        };
+        if name != "bind" {
+            continue;
+        }
+        let obj = *obj;
+        if !ast.fn_expr_exprs.contains(&obj) {
+            continue;
+        }
+        let Expr::ArrowFn { params, body, .. } = ast.get_expr(obj) else {
+            continue;
+        };
+        if params.iter().any(|p| p.is_rest || p.name == "__this") {
+            continue;
+        }
+        let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        if !super::free_vars::free_vars_of_body(ast, &param_names, body)
+            .iter()
+            .any(|v| v == "__this")
+        {
+            continue;
+        }
+        wanted.push(obj);
     }
     for init in wanted {
         let Expr::ArrowFn { params, .. } = &mut ast.exprs[init.0 as usize] else {
