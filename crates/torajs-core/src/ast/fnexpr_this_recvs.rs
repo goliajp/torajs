@@ -2,6 +2,18 @@
 //! syntactically-certain HOF receivers) — split out so the parent
 //! stays under the 500-prod-LOC file-size hard limit. Bodies
 //! verbatim.
+//!
+//! Every census here recurses through the SHARED nested-list spine
+//! ([`super::stmt_nested_lists::for_each_nested_list`]) — rotation
+//! 437. The hand-rolled FnDecl/Block-only recursion these walks
+//! carried before skipped every other compound form, exactly the
+//! failure `stmt_nested_lists`' doc warns about: a `with` statement
+//! inside a `try` desugars to a Block holding the `__with_<n>`
+//! binding, the any-census never saw that declaration, and the
+//! store-face promote on `__with_<n>.f = function () { …this… }`
+//! silently did not fire — the same program promoted at top level
+//! and refused inside `try`. The by-name conflict sets widen on the
+//! same spine, so the over-removal posture is unchanged.
 
 use super::{Expr, Stmt};
 
@@ -48,14 +60,11 @@ fn collect_binding_names_inner(
                     other_names.insert(name.clone());
                 }
             }
-            Stmt::FnDecl { body, .. } => {
-                collect_binding_names_inner(body, exprs, any_names, other_names);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_binding_names_inner(inner, exprs, any_names, other_names);
-            }
             _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_binding_names_inner(inner, exprs, any_names, other_names)
+        });
     }
 }
 
@@ -132,14 +141,11 @@ fn collect_props_receiver_inner(
                     other.insert(name.clone());
                 }
             }
-            Stmt::FnDecl { body, .. } => {
-                collect_props_receiver_inner(body, exprs, names, other);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_props_receiver_inner(inner, exprs, names, other);
-            }
             _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_props_receiver_inner(inner, exprs, names, other)
+        });
     }
 }
 
@@ -163,14 +169,11 @@ fn collect_arraylit_names_inner(
             Stmt::LetDecl { name, .. } => {
                 other.insert(name.clone());
             }
-            Stmt::FnDecl { body, .. } => {
-                collect_arraylit_names_inner(body, exprs, names, other);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_arraylit_names_inner(inner, exprs, names, other);
-            }
             _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_arraylit_names_inner(inner, exprs, names, other)
+        });
     }
 }
 
@@ -206,14 +209,11 @@ pub(super) fn collect_any_arraylit_inits(
                     out.insert(*init);
                 }
             }
-            Stmt::FnDecl { body, .. } => {
-                collect_any_arraylit_inits(body, exprs, any_recvs, out);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_any_arraylit_inits(inner, exprs, any_recvs, out);
-            }
             _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_any_arraylit_inits(inner, exprs, any_recvs, out)
+        });
     }
 }
 
@@ -264,14 +264,11 @@ fn collect_mapset_names_inner(
             Stmt::LetDecl { name, .. } => {
                 other.insert(name.clone());
             }
-            Stmt::FnDecl { body, .. } => {
-                collect_mapset_names_inner(body, exprs, names, other);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_mapset_names_inner(inner, exprs, names, other);
-            }
             _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_mapset_names_inner(inner, exprs, names, other)
+        });
     }
 }
 
@@ -307,18 +304,17 @@ fn collect_gen_fn_names(stmts: &[Stmt], out: &mut std::collections::HashSet<Stri
             Stmt::FnDecl {
                 name,
                 return_type: Some(rt),
-                body,
                 ..
             } => {
                 if rt.starts_with("__Gen_") {
                     out.insert(name.clone());
                 }
-                collect_gen_fn_names(body, out);
             }
-            Stmt::FnDecl { body, .. } => collect_gen_fn_names(body, out),
-            Stmt::Block(inner) | Stmt::Multi(inner) => collect_gen_fn_names(inner, out),
             _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_gen_fn_names(inner, out)
+        });
     }
 }
 
@@ -341,13 +337,10 @@ fn collect_gen_iter_names_inner(
             Stmt::LetDecl { name, .. } => {
                 other.insert(name.clone());
             }
-            Stmt::FnDecl { body, .. } => {
-                collect_gen_iter_names_inner(body, exprs, gen_fns, names, other);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_gen_iter_names_inner(inner, exprs, gen_fns, names, other);
-            }
             _ => {}
         }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_gen_iter_names_inner(inner, exprs, gen_fns, names, other)
+        });
     }
 }
