@@ -229,6 +229,13 @@ unsafe fn is_constructor_cell(ptr: *mut c_void) -> bool {
     if hdr.flags & FLAG_FN_PROTO != 0 {
         return true;
     }
+    // A builtin-constructor cell (`Number` / `Array` … read as a
+    // value) — [[Construct]] is real for the wrapper / container
+    // families; the per-tag dispatch raises the loud TypeError for
+    // the rest, so answering true here never turns a refusal silent.
+    if crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some() {
+        return true;
+    }
     match unsafe { crate::method_bind::bound_cell_meta(ptr) } {
         Some((1, target, _)) => unsafe { is_constructor_cell(target as *mut c_void) },
         _ => false,
@@ -297,6 +304,11 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
             return unsafe {
                 __torajs_anyv_construct(target_av, merged.as_ptr(), (bn + cn) as i64)
             };
+        }
+        // A builtin-constructor cell — the per-family [[Construct]]
+        // (wrapper mints, containers, the loud reject for the rest).
+        if let Some(tag) = crate::method_value::ctor::ctor_tag_of_cell(cell) {
+            return unsafe { crate::method_value::ctor::ctor_construct(tag, argv, argc) };
         }
         return unsafe { construct_plain_fn(cell, argv, argc) };
     }

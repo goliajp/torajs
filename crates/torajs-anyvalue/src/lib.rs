@@ -1594,6 +1594,8 @@ mod tests {
     link_stub!(
         __torajs_arr_alloc_any_filled_f64,
         __torajs_date_now,
+        __torajs_date_from_ms,
+        __torajs_map_create,
         __torajs_accessor_invoke_getter,
         __torajs_accessor_invoke_setter,
         __torajs_accessor_name_kind,
