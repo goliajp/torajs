@@ -1,30 +1,13 @@
-// ES §13.3 — the callee of `new` is a MemberExpression, and the
-// constructor it names is only known once that expression has been
-// evaluated.
-class Point {
-  x: number;
-  y: number;
-  constructor(x: number, y: number) {
-    this.x = x;
-    this.y = y;
-  }
+function t(f: any): string {
+  try { f(); return "no-throw"; } catch (e) { var x: any = e; return x.name; }
 }
-
-const registry: any = { Point: Point };
-const p = new registry.Point(3, 4);
-console.log(p.x + p.y);
-
-const table: any = [Point];
-const q = new table[0](1, 2);
-console.log(q.x * q.y);
-
-class Holder {
-  Inner = class {
-    label(): string {
-      return "inner";
-    }
-  };
-}
-const h: any = new Holder();
-const inner = new h.Inner();
-console.log(inner.label());
+console.log(t(function(): void { new (true as any)(); }));
+console.log(t(function(): void { var n: any = 1; new n(); }));
+console.log(t(function(): void { new ("s" as any)(); }));
+var F: any = function(): void {};
+var inst: any = new F();
+console.log(typeof inst);
+var G: any = function(): void { var s: any = this; s.v = 7; };
+var g: any = new G();
+console.log(g.v);
+console.log(typeof new function(): void {}());

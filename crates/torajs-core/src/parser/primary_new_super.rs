@@ -274,12 +274,15 @@ impl<'a> Parser<'a> {
                     _ => NewHead::Dynamic(inner),
                 }
             }
-            t => {
-                return Err(format!(
-                    "expected class name after `new`, got {t:?} at {}",
-                    self.at()
-                ));
-            }
+            // Cluster #6 (rotation 438) — ES §13.3.5: the callee of a
+            // NewExpression is a MemberExpression, so ANY primary is
+            // legal here (`new true`, `new 1`, `new function(){}`,
+            // `new /z/`, a nested `new X`). Whether it is a
+            // constructor is §7.2.4 IsConstructor — a RUNTIME
+            // question `__torajs_anyv_construct` answers with a
+            // TypeError. Parse the primary and ride the
+            // dynamic-construct path; `.`/`[` tails extend below.
+            _ => NewHead::Dynamic(self.parse_primary()?),
         };
         // ES §13.3 NewExpression: what follows `new` is a
         // MemberExpression, so a `.` or `[` here is part of the
