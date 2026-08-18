@@ -168,11 +168,13 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
 /// `Tag::Obj` get arm — decimal-stringify the key and probe the class
 /// layout through [`crate::member_get::struct_field_pair`]; the probe
 /// is a borrow, the returned box owns its own reference (the
-/// `dynobj_index_get` shape). A field miss falls to the accessor lane
-/// (`get 0() {…}` parses into a `__getter_0` layout slot — the same
-/// spelling the named-getter member lane resolves; ES §7.1.19
-/// ToPropertyKey makes `o[0]` ≡ `o["0"]`), which also answers
-/// `undefined` for a genuinely absent key.
+/// `dynobj_index_get` shape). A field miss probes the expando dict,
+/// then the own named-accessor lane (`get 0() {…}` parses into a
+/// `__getter_0` layout slot — the same spelling the named-getter
+/// member lane resolves; ES §7.1.19 ToPropertyKey makes `o[0]` ≡
+/// `o["0"]`), then the class prototype chain (rotation 441 — where
+/// runtime-computed members reify), and a full miss answers
+/// `undefined`.
 unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
     let mut buf = [0u8; 20];
     let (start, len) = i64_dec(&mut buf, idx);
@@ -192,12 +194,40 @@ unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
                 crate::payload_rc_inc(etag as i64, eval as i64);
                 return crate::nanbox_encode::__torajs_anyv_box_from_pair(etag as i64, eval as i64);
             }
-            __torajs_str_drop(key as *mut c_void);
-            return crate::struct_probe::__torajs_struct_accessor_get(
-                obj,
-                buf[start..].as_ptr(),
-                len as u32,
+            // Own named accessor (`get 0() {…}` parses into a
+            // `__getter_0` layout slot) — presence-tested so a
+            // genuine miss can keep walking instead of swallowing
+            // the chain behind an unconditional undefined.
+            if crate::struct_probe::struct_accessor_key(obj, key as *const c_void) {
+                __torajs_str_drop(key as *mut c_void);
+                return crate::struct_probe::__torajs_struct_accessor_get(
+                    obj,
+                    buf[start..].as_ptr(),
+                    len as u32,
+                );
+            }
+            // Rotation 441 — §10.1.8.1 step 3: the class prototype
+            // chain under the decimal spelling. A runtime-computed
+            // member (`get [1 + 1]() {…}`) reifies onto `__proto_<C>`
+            // keyed "2"; the string/symbol lanes have walked that
+            // chain since L3b ⑧ / RFC 20260802 刀 3a, so the
+            // integer-key lane was the one read shape still blind to
+            // it (`c[2]` answered undefined while `c["2"]` invoked
+            // the getter). Accessor entries invoke with the STRUCT
+            // as receiver; data pairs are borrows the box promotes.
+            let (ptag, pval) = crate::struct_error_msg::struct_proto_chain_pair(
+                obj as *const c_void,
+                key as *const c_void,
             );
+            __torajs_str_drop(key as *mut c_void);
+            if ptag == INDEX_ANY_ACCESSOR_TAG {
+                return __torajs_accessor_invoke_getter(
+                    pval as *const c_void,
+                    crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
+                );
+            }
+            crate::payload_rc_inc(ptag as i64, pval as i64);
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(ptag as i64, pval as i64);
         };
         __torajs_str_drop(key as *mut c_void);
         crate::payload_rc_inc(ftag as i64, fval as i64);
