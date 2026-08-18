@@ -8,6 +8,44 @@ use crate::ast::{Expr, ExprId, is_fn_like_ann};
 use crate::ast_collect_fn_closure::FnToClosureCollector;
 
 impl<'a> FnToClosureCollector<'a> {
+    /// Inline-closure callee — `(function (site, n, f) { … })(…)` and
+    /// its tagged-template spelling: the lifted FnDecl's un-annotated
+    /// user params ride the implicit-generic / Any lanes, and a raw
+    /// top-FnDecl-Ident argument cannot box into them (the arg-conv
+    /// BoxAny reject, the t262 tagged-template
+    /// member-expression-argument-list-evaluation idiom). Wrap the
+    /// arguments landing on un-annotated / `any` params; a param with
+    /// an explicit fn-type annotation keeps its raw-FnSig direct
+    /// dispatch (the declared-param axis's own rule), so those
+    /// positions stay untouched.
+    fn mark_inline_closure_callee_args(&mut self, callee: &ExprId, args: &[ExprId]) {
+        let Expr::Closure { fn_name, .. } = self.ast.get_expr(*callee) else {
+            return;
+        };
+        let fname = fn_name.clone();
+        let anns: Option<Vec<Option<String>>> = self.ast.stmts.iter().find_map(|s| match s {
+            crate::ast::Stmt::FnDecl { name, params, .. } if *name == fname => Some(
+                params
+                    .iter()
+                    .filter(|p| p.name != "__env" && p.name != "__this")
+                    .map(|p| p.type_ann.clone())
+                    .collect(),
+            ),
+            _ => None,
+        });
+        let Some(anns) = anns else {
+            return;
+        };
+        for (i, &arg) in args.iter().enumerate() {
+            let unannotated = anns
+                .get(i)
+                .is_none_or(|a| a.is_none() || a.as_deref() == Some("any"));
+            if unannotated {
+                self.try_mark(arg);
+            }
+        }
+    }
+
     /// The known-fn-callee axes — L3b #8: a bare top-FnDecl Ident
     /// passed where the callee's declared param is `any`-annotated
     /// boxes into the any world; wrap it. Fn-typed params stay raw
@@ -106,6 +144,7 @@ impl<'a> FnToClosureCollector<'a> {
             let cname = cname.clone();
             self.mark_known_callee_args(&cname, args);
         }
+        self.mark_inline_closure_callee_args(callee, args);
         // Rotation 372 — a spread-carrying call whose callee is a
         // top-FnDecl Ident deliberately does NOT wrap: the static
         // expanders run AFTER this pass (apply_spread_args'
@@ -125,9 +164,18 @@ impl<'a> FnToClosureCollector<'a> {
         // declared-param axis above (typed params keep raw-FnSig
         // direct dispatch), and a typed closure param is already
         // Closure-repr, so the wrap agrees with it.
-        if let Expr::Ident(cname) = self.ast.get_expr(*callee)
-            && !self.fn_sigs.contains_key(cname)
-        {
+        //
+        // A Call / NewDynamic CALLEE is the same indirect shape one
+        // level up — `f()(fn)` / `(function(){…})()`tag`${fn}`` (the
+        // t262 tagged-template argument-list-evaluation idiom) — no
+        // static signature can exist, so the args pack any-boxed
+        // the same way.
+        let callee_is_indirect = match self.ast.get_expr(*callee) {
+            Expr::Ident(cname) => !self.fn_sigs.contains_key(cname),
+            Expr::Call { .. } | Expr::NewDynamic { .. } => true,
+            _ => false,
+        };
+        if callee_is_indirect {
             for &arg in args {
                 self.try_mark(arg);
             }
