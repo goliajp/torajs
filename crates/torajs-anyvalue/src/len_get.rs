@@ -187,6 +187,31 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             __torajs_str_drop(key as *mut c_void);
             return box_probe_pair(dtag, dval, recv);
         }
+        if tag == Tag::Obj as u16 {
+            // Struct cell (an inline object literal's anon struct, or
+            // a class instance) — the member_get chunk-744 struct arm
+            // specialized to `.length`: own field probe first, then
+            // the +24 expando dict, then undefined. Pre-fix this tag
+            // fell through to the tail undefined, so String.raw's
+            // array-like walk counted an inline `{length: n, …}` raw
+            // as 0.
+            if let Some((dtag, dval)) = crate::struct_probe::struct_field_pair_bytes(ptr, b"length")
+            {
+                return box_probe_pair(dtag, dval, recv);
+            }
+            let props = crate::member_get_layout::struct_props(ptr);
+            if !props.is_null() {
+                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+                let present = __torajs_dynobj_has(props, key as *const c_void) != 0;
+                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                if present {
+                    return box_probe_pair(dtag, dval, recv);
+                }
+            }
+            return VALUE_UNDEFINED;
+        }
         if tag == Tag::Closure as u16 {
             // §10.1.6.3 — a define/write that landed in the expando
             // is a REDEFINED own `length` and shadows every virtual
