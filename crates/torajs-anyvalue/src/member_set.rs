@@ -295,6 +295,29 @@ unsafe fn any_member_set_impl(
                     .cast::<u8>()
                     .add(crate::member_get_layout::OBJ_PROPS_OFF)
                     as *mut *mut c_void;
+                // Rotation 441 (3c) — §10.1.9.2: an own miss (layout,
+                // own accessor, expando dict all silent) consults the
+                // CLASS prototype chain before the own create — a
+                // runtime-computed accessor reified on `__proto_<C>`
+                // writes through its setter with this receiver (or
+                // refuses get-only), instead of minting an own expando
+                // entry that would shadow the getter on every later
+                // read. An own expando key stays an ordinary own
+                // write — OrdinarySet never consults the chain for it.
+                let own_expando = !(*props_slot).is_null()
+                    && __torajs_dynobj_has(*props_slot, key as *const c_void) != 0;
+                if !own_expando
+                    && let Some(r) = crate::member_set_dynobj::inherited_set_from_class_proto(
+                        ptr,
+                        recv,
+                        key,
+                        tag,
+                        value,
+                        throw_on_refusal,
+                    )
+                {
+                    return r;
+                }
                 if hdr_flags & torajs_rc::FLAG_NON_EXTENSIBLE != 0 {
                     let key_present = !(*props_slot).is_null()
                         && __torajs_dynobj_has(*props_slot, key as *const c_void) != 0;

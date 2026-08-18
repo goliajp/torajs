@@ -27,6 +27,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-meta — borrow read of `PROTOS_BY_TAG_IMM[tag]` (the
+    /// struct seed's chain root; 0 = unregistered tag).
+    fn __torajs_proto_cell_raw(tag: i64) -> u64;
 }
 
 /// `DYNOBJ_HDR_FLAG_NULL_PROTO` mirror (torajs-dynobj layout, header
@@ -66,7 +69,56 @@ pub(crate) unsafe fn inherited_set_handled(
     throw_on_refusal: bool,
 ) -> Option<i64> {
     unsafe {
-        let mut level = crate::member_get_own::user_proto_cell(ptr);
+        let level = crate::member_get_own::user_proto_cell(ptr);
+        inherited_set_walk(level, recv, key, tag, value, throw_on_refusal)
+    }
+}
+
+/// Rotation 441 (3c) — the STRUCT receiver's seed of the same
+/// §10.1.9.2 walk. A struct cell carries no user [[Prototype]] slot;
+/// its chain root is the class prototype (`__proto_<C>`, where
+/// runtime-computed accessors reify). Pre-entry a keyed write whose
+/// key a proto AccessorPair owned fell straight to the +24 expando
+/// create — the own entry then shadowed the getter, so
+/// `c[k] = v; c[k]` answered `v` instead of the getter's result.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell that `recv` boxes; `key` is a live
+/// key cell; `(tag, value)` carries the caller's +1 on heap payloads.
+pub(crate) unsafe fn inherited_set_from_class_proto(
+    ptr: *mut c_void,
+    recv: AnyValue,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> Option<i64> {
+    unsafe {
+        let class_tag = ptr.cast::<u8>().add(8).cast::<u32>().read();
+        // Borrow read of the registry slot (process-lifetime); 0 =
+        // unregistered tag, no chain.
+        let root = __torajs_proto_cell_raw(class_tag as i64);
+        if !crate::nanbox::is_cell(root) {
+            return None;
+        }
+        inherited_set_walk(Some(root), recv, key, tag, value, throw_on_refusal)
+    }
+}
+
+/// The walk both seeds share — see [`inherited_set_handled`] for the
+/// verdict contract.
+///
+/// # Safety
+/// `level` is `None` or a live cell; the rest per the seeds.
+unsafe fn inherited_set_walk(
+    mut level: Option<u64>,
+    recv: AnyValue,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> Option<i64> {
+    unsafe {
         let mut depth = 0usize;
         while let Some(cell) = level {
             // Simulated-slot cycle guard (obj_forin_keys mirror).
