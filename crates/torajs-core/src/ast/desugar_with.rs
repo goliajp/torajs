@@ -82,7 +82,7 @@ pub(crate) const WITH_OBJ_FN: &str = "__torajs_with_obj";
 
 /// §9.1.1.2.1 HasBinding for an object environment record, including
 /// the §9.1.1.2.1 step 3 `@@unscopables` filter.
-const WITH_HAS_FN: &str = "__torajs_with_has";
+pub(crate) const WITH_HAS_FN: &str = "__torajs_with_has";
 
 /// Both helpers as ordinary TS, spliced in through the `parse_into`
 /// convention (`desugar_using` / `inject_disposable_stack`先例) rather
