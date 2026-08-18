@@ -287,6 +287,17 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // lane inlines sum²+sqrt at SSA level, this row is the VALUE
     // face (`Math.hypot.length` / `.name` / not-a-constructor).
     row("Math", "hypot", 2),
+    // §20.1.2.10 / §24.2.2.4 groupBy pair as VALUES — the call lanes
+    // lower per-shape (Array items wedge), these rows serve `.length`
+    // / `.name` and the detached call (groupBy reads no |this|, so
+    // the dispatch arm runs the real torajs-meta kernels).
+    row("Object", "groupBy", 2),
+    row("Map", "groupBy", 2),
+    // §27.2.4.8 Promise.withResolvers as a VALUE — the direct call
+    // lowers through the Promise.<static> arm; a detached call has an
+    // undefined |this| and step 1 requires a constructor, so the
+    // dispatch arm raises the same catchable TypeError bun/JSC does.
+    row("Promise", "withResolvers", 0),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

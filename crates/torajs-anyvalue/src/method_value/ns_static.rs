@@ -103,6 +103,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             }
             Disp::MinMax { is_max } => super::ns_static_math::min_max_fold(*is_max, argv, argc),
             Disp::Hypot => super::ns_static_math::hypot_fold(argv, argc),
+            Disp::GroupBy { map } => super::ns_static_ctor::group_by(*map, argv, argc),
             Disp::I32Pair(f) => {
                 let Ok(x) = arg_num(argv, argc, 0) else {
                     return VALUE_UNDEFINED;

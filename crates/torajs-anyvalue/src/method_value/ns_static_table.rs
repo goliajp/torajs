@@ -233,6 +233,13 @@ pub(super) enum Disp {
         encode: bool,
         component: bool,
     },
+    /// §20.1.2.10 Object.groupBy / §24.2.2.4 Map.groupBy — neither
+    /// reads |this|, so the detached call IS the real semantics:
+    /// (items, cb) straight into the torajs-meta kernels (fresh
+    /// null-proto dynobj / fresh Map out, owned).
+    GroupBy {
+        map: bool,
+    },
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -383,4 +390,7 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ConsoleLog { to_stderr: true }, // console.error
     Disp::ConsoleLog { to_stderr: true }, // console.warn
     Disp::Hypot,
+    Disp::GroupBy { map: false },
+    Disp::GroupBy { map: true },
+    Disp::PromiseSettle, // Promise.withResolvers — §27.2.4.8 step 1 needs a ctor |this|
 ];

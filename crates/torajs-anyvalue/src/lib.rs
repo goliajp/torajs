@@ -451,6 +451,14 @@ mod tests {
         core::ptr::null_mut()
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_object_group_by(_items: u64, _cb: u64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_map_group_by(_items: u64, _cb: u64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_own_keys_all(_v: u64) -> *mut c_void {
         core::ptr::null_mut()
     }

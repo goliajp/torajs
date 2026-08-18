@@ -153,6 +153,23 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Promise"), "resolve" | "reject" | "all" | "allSettled" | "any" | "race") => {
             Type::Function(vec![Type::Any], Box::new(Type::Any))
         }
+        // §27.2.4.8 Promise.withResolvers read as a VALUE — the
+        // direct call hits the Promise.<static> call checker first;
+        // a detached call's undefined |this| is not a constructor,
+        // so the reified cell's PromiseSettle arm raises the same
+        // catchable TypeError as the six statics above. The empty
+        // param list matches the spec arity (.length = 0 — the
+        // reflection face reads the sig, not only the table row).
+        (Type::Object("Promise"), "withResolvers") => {
+            Type::Function(Vec::new(), Box::new(Type::Any))
+        }
+        // §24.2.2.4 Map.groupBy read as a VALUE — call positions hit
+        // the route_arity_widen wedge first; the reified cell's
+        // dispatch arm runs the real torajs-meta kernel (groupBy has
+        // no |this| step, so a detached call IS the real semantics).
+        (Type::Object("Map"), "groupBy") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
+        }
         // §27.2.4.8 Promise.try read as a VALUE (rotation 275 刀 2)
         // — the direct-call form desugars at the AST layer and never
         // reaches here; the reified cell's PromiseSettle arm raises
@@ -252,6 +269,11 @@ fn try_match_object(name: &str) -> Option<Result<Type, String>> {
         "freeze" => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         /* Object.isFrozen(obj) — reads the FROZEN bit. */
         "isFrozen" => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
+        // §20.1.2.10 Object.groupBy read as a VALUE — sister to the
+        // Map.groupBy arm in the parent match (call positions hit
+        // the route_arity_widen wedge first; the reified cell's
+        // dispatch arm runs the real torajs-meta kernel).
+        "groupBy" => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any)),
         _ => return None,
     };
     Some(Ok(ty))

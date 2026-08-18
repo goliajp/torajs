@@ -74,6 +74,12 @@ unsafe extern "C" {
     pub(super) fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
     pub(super) fn __torajs_anyv_own_values(v: u64) -> *mut c_void;
     pub(super) fn __torajs_anyv_own_entries(v: u64) -> *mut c_void;
+    /// torajs-meta — §20.1.2.10 / §24.2.2.4 groupBy pair (Array
+    /// items lane). Args are borrowed; each answers a FRESH owned
+    /// result (null-proto dynobj / Map cell) with the throw paths
+    /// recorded on the pending-throw channel.
+    pub(super) fn __torajs_object_group_by(items: u64, cb: u64) -> u64;
+    pub(super) fn __torajs_map_group_by(items: u64, cb: u64) -> u64;
     /// torajs-meta — §20.1.2.1 single-source copy. Guards a
     /// null/undefined TARGET itself (the arm leans on that instead
     /// of re-deriving step 1); a null/undefined SOURCE is a no-op.

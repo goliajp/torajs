@@ -10,9 +10,9 @@ use crate::nanbox::{VALUE_UNDEFINED, box_double, box_void_ptr, is_null, is_undef
 use super::ns_static::{arg_at, arg_num};
 use super::ns_static_table::{
     __torajs_bigint_as_int_n, __torajs_bigint_as_uint_n, __torajs_bigint_drop_rc,
-    __torajs_date_parse_iso, __torajs_date_utc_components, __torajs_str_from_char_code,
-    __torajs_str_from_code_point, __torajs_throw_check, __torajs_throw_range_error,
-    __torajs_throw_type_error,
+    __torajs_date_parse_iso, __torajs_date_utc_components, __torajs_map_group_by,
+    __torajs_object_group_by, __torajs_str_from_char_code, __torajs_str_from_code_point,
+    __torajs_throw_check, __torajs_throw_range_error, __torajs_throw_type_error,
 };
 
 /// §21.4.3.2 — ToString(arg0) into the ISO parse kernel (NaN on
@@ -358,6 +358,23 @@ pub(super) unsafe fn bigint_as_n(signed: bool, argv: *const u64, argc: i64) -> u
 pub(super) unsafe fn promise_settle() -> u64 {
     unsafe { __torajs_throw_type_error(c"|this| is not an object".as_ptr()) };
     VALUE_UNDEFINED
+}
+
+/// §20.1.2.10 Object.groupBy / §24.2.2.4 Map.groupBy — neither
+/// algorithm has a |this| step, so the detached call IS the real
+/// semantics: (items, cb) borrowed into the torajs-meta kernels,
+/// fresh owned result (null-proto dynobj / Map cell) out, throw
+/// paths on the pending-throw channel.
+pub(super) unsafe fn group_by(map: bool, argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let items = arg_at(argv, argc, 0);
+        let cb = arg_at(argv, argc, 1);
+        if map {
+            __torajs_map_group_by(items, cb)
+        } else {
+            __torajs_object_group_by(items, cb)
+        }
+    }
 }
 
 unsafe extern "C" {
