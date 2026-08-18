@@ -80,6 +80,23 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         if ns == "Object" && method_name == "toString" {
             continue;
         }
+        // §20.1.3 — the other Object.prototype methods run ToObject
+        // on their receiver, which throws a runtime TypeError on
+        // null / undefined; the rewrite turns that into a compile-
+        // time member reject (`undefined.hasOwnProperty`). Same
+        // literal-receiver rule as Function's `call`/`apply` below:
+        // skip exactly when the receiver is the `null` literal or
+        // the `undefined` name — the reified cell's `.call`
+        // short-circuit runs the real ToObject gate (and
+        // `isPrototypeOf`'s primitive-V-first ordering) — and every
+        // other receiver keeps the rewrite the checker resolves.
+        if ns == "Object" {
+            let nullish_literal = matches!(ast.get_expr(args[0]), Expr::Null)
+                || matches!(ast.get_expr(args[0]), Expr::Ident(n) if n == "undefined");
+            if nullish_literal {
+                continue;
+            }
+        }
         // §20.5.3.4 — `Error.prototype.toString.call(x)` SKIPS the
         // rewrite for the same reason: `x.toString()` is the
         // receiver's OWN toString (a plain object answers the badge),

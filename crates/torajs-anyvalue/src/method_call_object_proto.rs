@@ -416,11 +416,13 @@ unsafe fn badge_string(badge: &'static [u8]) -> AnyValue {
 
 /// `Object.prototype.isPrototypeOf(V)` — §20.1.3.3 (RFC
 /// 20260717-user-proto-chain knife 4): a primitive V is `false`
-/// (step 1); otherwise walk V's [[Prototype]] chain comparing cell
-/// identity with the receiver. A primitive receiver is `false` too —
-/// its ToObject wrapper is minted fresh and can never sit on a
-/// chain. Each chain step's answer is owned (the getter incs) and
-/// released as the walk moves past it.
+/// (step 1), BEFORE step 2's ToObject can reject the receiver — so
+/// a null / undefined receiver only throws when V is an object (the
+/// dispatcher routes this mid ahead of its nullish guard for exactly
+/// that ordering). A primitive receiver is `false` — its ToObject
+/// wrapper is minted fresh and can never sit on a chain. Each chain
+/// step's answer is owned (the getter incs) and released as the walk
+/// moves past it.
 ///
 /// # Safety
 /// `recv` carries a valid AnyValue bit pattern; `argv` points at
@@ -431,7 +433,16 @@ pub(crate) unsafe fn is_prototype_of(recv: AnyValue, argv: *const u64, argc: i64
     } else {
         VALUE_UNDEFINED
     };
-    if !crate::nanbox::is_cell(v) || !crate::nanbox::is_cell(recv) {
+    if !crate::nanbox::is_cell(v) {
+        return crate::nanbox::VALUE_FALSE;
+    }
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());
+        }
+        return VALUE_UNDEFINED;
+    }
+    if !crate::nanbox::is_cell(recv) {
         return crate::nanbox::VALUE_FALSE;
     }
     let target = crate::nanbox::as_void_ptr(recv);

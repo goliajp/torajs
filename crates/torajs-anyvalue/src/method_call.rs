@@ -257,6 +257,14 @@ unsafe fn any_method_call_dispatch(
         }
         return VALUE_UNDEFINED;
     }
+    // §20.1.3.3 — universal chain-walk probe (knife 4). Sits BEFORE
+    // the nullish guard: step 1 answers `false` for a non-Object V
+    // before step 2's ToObject(this) can throw, so
+    // `isPrototypeOf.call(null, 5)` is `false`, not a TypeError.
+    // The kernel runs both steps in that order.
+    if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
+        return unsafe { crate::method_call_object_proto::is_prototype_of(recv, argv, argc) };
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());
@@ -284,10 +292,6 @@ unsafe fn any_method_call_dispatch(
     // arms.
     if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
         return unsafe { crate::method_call_object_proto::own_prop_probe(recv, mid, argv, argc) };
-    }
-    // §20.1.3.3 — universal chain-walk probe (knife 4).
-    if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
-        return unsafe { crate::method_call_object_proto::is_prototype_of(recv, argv, argc) };
     }
     // §20.4.3.3 / §20.4.3.4 — the reified Symbol.prototype.toString
     // / valueOf cells: thisSymbolValue throws a TypeError on every
