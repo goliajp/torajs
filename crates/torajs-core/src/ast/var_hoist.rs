@@ -48,8 +48,22 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
 /// decls are inserted at the top of `body`.
 fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
     use std::collections::BTreeMap;
+    // Cluster #11 (rotation 442) — pre-scan the whole fn scope for
+    // names `var`-declared more than once. The typed escape hatch is
+    // sound only for a single-declaration name: §14.3.2 shares ONE
+    // binding across every same-name `var`, so a second declarator
+    // with a different shape (`var o = {a:1}; var o = {b:"x"}`) must
+    // land in a slot both shapes fit — the Any prelude — not in the
+    // first shape's pinned `let`.
+    let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    count_var_names(body, &mut counts);
+    let multi: std::collections::HashSet<String> = counts
+        .into_iter()
+        .filter(|(_, c)| *c > 1)
+        .map(|(n, _)| n)
+        .collect();
     let mut hoisted: BTreeMap<String, Option<String>> = BTreeMap::new();
-    collect_and_rewrite_var(body, &mut hoisted, exprs, false);
+    collect_and_rewrite_var(body, &mut hoisted, exprs, false, &multi);
     if hoisted.is_empty() {
         return;
     }
@@ -81,11 +95,74 @@ fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
     body.extend(tail);
 }
 
+/// Count every `var`-declared name in this stmt list, recursing the
+/// same nested positions the rewrite walks (FnDecl bodies excluded —
+/// their own hoist pass counts separately). Feeds the multi-decl
+/// escape-hatch gate in [`hoist_vars_in_block`].
+fn count_var_names(stmts: &[Stmt], counts: &mut std::collections::HashMap<String, u32>) {
+    for s in stmts {
+        count_var_names_stmt(s, counts);
+    }
+}
+
+fn count_var_names_stmt(s: &Stmt, counts: &mut std::collections::HashMap<String, u32>) {
+    match s {
+        Stmt::LetDecl {
+            name, is_var: true, ..
+        } => *counts.entry(name.clone()).or_insert(0) += 1,
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            count_var_names_stmt(then_branch, counts);
+            if let Some(eb) = else_branch.as_deref() {
+                count_var_names_stmt(eb, counts);
+            }
+        }
+        Stmt::Block(b) | Stmt::Multi(b) => count_var_names(b, counts),
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+            count_var_names_stmt(body, counts)
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(init_box) = init.as_deref() {
+                count_var_names_stmt(init_box, counts);
+            }
+            count_var_names_stmt(body, counts);
+        }
+        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
+            count_var_names_stmt(body, counts)
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            count_var_names(body, counts);
+            count_var_names(catch_body, counts);
+            if let Some(fb) = finally_body {
+                count_var_names(fb, counts);
+            }
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for case in cases {
+                count_var_names(&case.body, counts);
+            }
+            if let Some(dflt) = default {
+                count_var_names(dflt, counts);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn collect_and_rewrite_var(
     stmts: &mut Vec<Stmt>,
     hoisted: &mut std::collections::BTreeMap<String, Option<String>>,
     exprs: &mut Vec<Expr>,
     nested: bool,
+    multi: &std::collections::HashSet<String>,
 ) {
     let mut new_stmts: Vec<Stmt> = Vec::with_capacity(stmts.len());
     // Rotation 205 — names the escape hatch already declared as a
@@ -171,7 +248,15 @@ fn collect_and_rewrite_var(
                 // since P5 (length / index / methods / field reads /
                 // invocation all dispatch), so a nested var always
                 // hoists to the Any prelude slot per §14.3.2.1.
-                if (type_ann.is_some() || init_keeps_type) && !redeclared && !nested {
+                // Cluster #11 (rotation 442) — a multiply-declared
+                // name never escapes: the second declarator's shape
+                // may differ, and §14.3.2's one shared binding must
+                // fit both. An explicit annotation keeps its escape
+                // (the writer pinned the type on purpose).
+                if (type_ann.is_some() || (init_keeps_type && !multi.contains(&name)))
+                    && !redeclared
+                    && !nested
+                {
                     escaped.insert(name.clone());
                     new_stmts.push(Stmt::LetDecl {
                         mutable,
@@ -197,7 +282,7 @@ fn collect_and_rewrite_var(
                 }
             }
             mut other => {
-                hoist_recurse_stmt(&mut other, hoisted, exprs);
+                hoist_recurse_stmt(&mut other, hoisted, exprs, multi);
                 new_stmts.push(other);
             }
         }
@@ -209,6 +294,7 @@ fn hoist_recurse_stmt(
     s: &mut Stmt,
     hoisted: &mut std::collections::BTreeMap<String, Option<String>>,
     exprs: &mut Vec<Expr>,
+    multi: &std::collections::HashSet<String>,
 ) {
     match s {
         Stmt::If {
@@ -216,19 +302,19 @@ fn hoist_recurse_stmt(
             else_branch,
             ..
         } => {
-            hoist_recurse_stmt(then_branch, hoisted, exprs);
+            hoist_recurse_stmt(then_branch, hoisted, exprs, multi);
             if let Some(eb) = else_branch.as_deref_mut() {
-                hoist_recurse_stmt(eb, hoisted, exprs);
+                hoist_recurse_stmt(eb, hoisted, exprs, multi);
             }
         }
         Stmt::Block(b) => {
-            collect_and_rewrite_var(b, hoisted, exprs, true);
+            collect_and_rewrite_var(b, hoisted, exprs, true, multi);
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            hoist_recurse_stmt(body, hoisted, exprs);
+            hoist_recurse_stmt(body, hoisted, exprs, multi);
         }
         Stmt::Labeled { body, .. } => {
-            hoist_recurse_stmt(body, hoisted, exprs);
+            hoist_recurse_stmt(body, hoisted, exprs, multi);
         }
         Stmt::For { body, init, .. } => {
             // Special-case: a single `var i = 0` in the for-init slot
@@ -270,13 +356,13 @@ fn hoist_recurse_stmt(
                         *init = None;
                     }
                 } else {
-                    hoist_recurse_stmt(init_box, hoisted, exprs);
+                    hoist_recurse_stmt(init_box, hoisted, exprs, multi);
                 }
             }
-            hoist_recurse_stmt(body, hoisted, exprs);
+            hoist_recurse_stmt(body, hoisted, exprs, multi);
         }
         Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
-            hoist_recurse_stmt(body, hoisted, exprs);
+            hoist_recurse_stmt(body, hoisted, exprs, multi);
         }
         Stmt::Try {
             body,
@@ -284,22 +370,22 @@ fn hoist_recurse_stmt(
             finally_body,
             ..
         } => {
-            collect_and_rewrite_var(body, hoisted, exprs, true);
-            collect_and_rewrite_var(catch_body, hoisted, exprs, true);
+            collect_and_rewrite_var(body, hoisted, exprs, true, multi);
+            collect_and_rewrite_var(catch_body, hoisted, exprs, true, multi);
             if let Some(fb) = finally_body {
-                collect_and_rewrite_var(fb, hoisted, exprs, true);
+                collect_and_rewrite_var(fb, hoisted, exprs, true, multi);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for case in cases {
-                collect_and_rewrite_var(&mut case.body, hoisted, exprs, true);
+                collect_and_rewrite_var(&mut case.body, hoisted, exprs, true, multi);
             }
             if let Some(dflt) = default {
-                collect_and_rewrite_var(dflt, hoisted, exprs, true);
+                collect_and_rewrite_var(dflt, hoisted, exprs, true, multi);
             }
         }
         Stmt::Multi(inner) => {
-            collect_and_rewrite_var(inner, hoisted, exprs, true);
+            collect_and_rewrite_var(inner, hoisted, exprs, true, multi);
         }
         // Bare LetDecl that's NOT is_var=true — leave alone. (The
         // is_var=true path is handled by the caller's match arm.)
