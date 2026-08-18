@@ -107,6 +107,7 @@ pub(crate) fn run(ast: &mut Ast) {
         ast_exprs_view,
         &fn_sigs,
         objlit_method_exprs,
+        fn_expr_exprs,
     );
     let cap_anns = &site_anns.closures;
 

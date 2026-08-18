@@ -50,11 +50,13 @@ pub(crate) fn collect_closure_capture_anns(
     exprs: AstExprsView,
     fn_sigs: &HashMap<String, String>,
     objlit_method_exprs: &HashSet<ExprId>,
+    fn_expr_exprs: &HashSet<ExprId>,
 ) -> SiteAnns {
     let mut ctx = Ctx {
         exprs,
         fn_sigs,
         objlit_method_exprs,
+        fn_expr_exprs,
         snapshots: SiteAnns {
             closures: HashMap::new(),
             objlits: HashMap::new(),
@@ -148,6 +150,7 @@ struct Ctx<'a> {
     exprs: AstExprsView<'a>,
     fn_sigs: &'a HashMap<String, String>,
     objlit_method_exprs: &'a HashSet<ExprId>,
+    fn_expr_exprs: &'a HashSet<ExprId>,
     snapshots: SiteAnns,
 }
 
@@ -303,8 +306,23 @@ impl<'a> Ctx<'a> {
         let exprs: AstExprsView<'a> = self.exprs;
         match &exprs[eid.0 as usize] {
             Expr::Closure { fn_name, captures } => {
+                // A FUNCTION EXPRESSION's `this` is its own receiver,
+                // never the enclosing scope's: whichever receiver rule
+                // later claims the body strips the `__this` capture
+                // and hands it an own `__this: any` param (a slot the
+                // spec fills per call). Snapshotting the enclosing
+                // `__this` ann here pinned the ENCLOSING receiver's
+                // class on the callee's own `this` — a nested
+                // `function` in a class method sniffed `return this`
+                // as the class, and the plain call's `undefined` then
+                // flowed through a C-typed slot (store/drop SIGSEGV).
+                // An ARROW keeps the entry: §8.3.4 says its `this` IS
+                // the enclosing one, and the capture survives to the
+                // checker with exactly this ann.
+                let own_this = self.fn_expr_exprs.contains(&eid);
                 let snap: Binds = captures
                     .iter()
+                    .filter(|c| !(own_this && c.as_str() == "__this"))
                     .filter_map(|c| binds.get(c).map(|a| (c.clone(), a.clone())))
                     .collect();
                 // First construction site wins (one placeholder per
