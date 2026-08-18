@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `aa82c5bc`** (2026-08-18, rotation 433 — the builtin
+**Latest @ `a9537e62`** (2026-08-18, rotation 434 — two recon agents
+split the `__this` cluster into five structural shapes and the
+Struct-write-through cluster into four, then the four biggest honest
+cuts landed. Destructuring pattern field loads take the §13.15.5.4
+lenient mark on EVERY slot, not just the defaulted ones (~31 cases —
+the mark's insert sat below the no-default early return). A thrown
+fn name wraps into its canonical `__forward_` cell (the throw
+lowering packed a raw code address under the heap tag — typeof
+"object", identity false, SIGBUS on the scope-end drop, a silent
+EXIT=138 the probe chain caught while chasing `__this`). A
+`__proto__: v` PropertyName literal rides the dynobj lane (anylane
+(h) leg + checker twin; the struct lane recorded it as an own data
+field with no chain at all), and a null-proto dynobj's named-member
+miss stops at null instead of falling into the builtin reify tail.
+%Iterator.prototype% grows its helper method surface: a tag-15
+ownership row, the dynobj-chain re-dispatch shunts the child
+receiver straight into `try_helper_chain`, validation failures run
+§7.4.9 IteratorClose (original abrupt wins, ToNumber poison
+preserved, close-time throw discarded), and the `.call` reflection
+family keeps the strict no-ToObject receiver rule — the mid-rotation
+sweep caught 14 regressions from the wrapper-seeded redispatch and
+the family-15 shunt took them all back. Sweep vs 433: passTotal
+30881 → **31043 (+162)**, bug −102, incompatible −60, conservation
+exact (+60 = +162 − 102), **zero pass regressions** in the final
+sweep; 118 bug→pass + 41 incompat→pass forward, 22 newly-running
+exposures (9 exit-1 + 6 async-failure + 3 exit-3 + 1
+stdout-mismatch + 3 rebucketed not-yet-supported). Gate 3070 →
+**3077/0/4** across six sequential substrate commits (+6 fixtures).
+Gate predicate **224 unattributed clusters / 2513 cases / register
+2 · 463 / residue 684 · 865 / core 3841**.)
+
+**Prior @ `aa82c5bc`** (2026-08-18, rotation 433 — the builtin
 constructor cells grow real behavior on every first-class face. The
 groupBy pair and Promise.withResolvers join the ns-static value
 family (length / name / detached calls — groupBy has no |this| step
