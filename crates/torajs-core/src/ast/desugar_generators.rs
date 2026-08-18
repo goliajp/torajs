@@ -98,7 +98,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         return;
     }
 
-    let fn_sigs = collect_declared_fn_return_types(ast);
+    let fn_sigs = super::desugar_generators_field_ann::collect_declared_fn_return_types(ast);
     let mut appended: Vec<Stmt> = Vec::new();
     for (idx, gen_name, gen_params, gen_ret, gen_body) in gen_indices {
         desugar_one_generator(
@@ -113,64 +113,6 @@ pub fn desugar_generators(ast: &mut Ast) {
         );
     }
     ast.stmts.extend(appended);
-}
-
-/// Every top-level function's *declared* return type, keyed by name —
-/// the `fn_sigs` map D0's let-lift consults when a generator local is
-/// initialized by a call.
-///
-/// Declared, not inferred: this pass runs well before
-/// `desugar_implicit_generics`, so an inferred signature does not
-/// exist yet. A call to a function that never wrote its return type
-/// is simply absent from the map, and the lift falls back exactly as
-/// it did before.
-///
-/// A `function*` is the exception, and the reason is that its
-/// declared return type describes what it YIELDS, not what calling it
-/// answers. `function* ag(): any` called as `ag()` answers the
-/// iterator object — which this very pass is about to mint as
-/// `__Gen_ag` — so that is what the map says. Reading the annotation
-/// instead pinned `const it = ag()` to the yield type and every
-/// `it.next()` after it failed ("no member `.next` on type Number").
-fn collect_declared_fn_return_types(ast: &Ast) -> std::collections::HashMap<String, String> {
-    ast.stmts
-        .iter()
-        .filter_map(|s| match s {
-            Stmt::FnDecl {
-                name,
-                is_generator: true,
-                ..
-            } => Some((name.clone(), format!("__Gen_{name}"))),
-            Stmt::FnDecl {
-                name,
-                return_type: Some(rt),
-                ..
-            } => Some((name.clone(), normalize_void(rt))),
-            // A function with no value return answers `undefined`
-            // (§14.10) whether or not it wrote `: void` — the same
-            // rule `preinfer_closure_sigs` applies to a lifted
-            // closure. Without it `const a = sideEffectOnly()` took
-            // the `number` fallback and would not compile ("field is
-            // Number, value is Undefined").
-            Stmt::FnDecl { name, body, .. } if !super::body_has_value_return(body) => {
-                Some((name.clone(), "any".to_string()))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-/// `void` as a FIELD annotation, which is what a lifted local becomes:
-/// `any`. A field has to be able to hold the value, and the value a
-/// void call produces is `undefined` — which is what an `any` slot
-/// holds and a `void` slot cannot. Left as written, `const b =
-/// voidCall()` yielded `null`.
-fn normalize_void(rt: &str) -> String {
-    if rt == "void" {
-        "any".into()
-    } else {
-        rt.into()
-    }
 }
 
 /// Snapshot every top-level `function*` decl's index + signature +

@@ -9,7 +9,7 @@
 //! to `number`.
 
 use super::desugar_generators_walkers::LiftCtx;
-use super::{Ast, BinOp, Expr};
+use super::{Ast, BinOp, Expr, Stmt};
 
 /// This file's answer for `eid`, or the shared sniff's.
 ///
@@ -73,6 +73,9 @@ fn call_result_ann(
             {
                 if ns == "Promise" {
                     return promise_static_ann(ast, name, args, ctx);
+                }
+                if ns == "Object" {
+                    return object_static_ann(name);
                 }
             }
             let recv = field_ann(ast, *obj, ctx)?;
@@ -139,6 +142,42 @@ fn global_ctor_ann(name: &str) -> Option<String> {
         "Symbol" => Some("symbol".into()),
         _ => None,
     }
+}
+
+/// What an `Object` static answers, mirroring the checker's own
+/// signatures (`check_type_of_member_object_meta` /
+/// `check_type_of_member_reflect` / `check_type_of_member_namespace`)
+/// — the sniff wanted the receiver's annotation and `Object` is a
+/// namespace, not a value it can type, so every one of these declined
+/// and the field took the `number` fallback. `let d = Object.
+/// getOwnPropertyDescriptor(o, "k")` in a generator printed `0`, and
+/// `d.configurable` after it said "no member `.configurable` on type
+/// Number" (the t262 forbidden-ext b2 family, 45 cases).
+///
+/// Only the signatures whose checker answer is settled are listed; an
+/// absent name declines to the fallback exactly as before, because a
+/// wrong answer here pins the field just as badly (the rule
+/// `promise_static_ann` already follows for the combinators).
+fn object_static_ann(name: &str) -> Option<String> {
+    Some(
+        match name {
+            "getOwnPropertyDescriptor"
+            | "getOwnPropertyDescriptors"
+            | "getPrototypeOf"
+            | "setPrototypeOf"
+            | "create"
+            | "assign"
+            | "fromEntries"
+            | "freeze"
+            | "defineProperty"
+            | "defineProperties" => "any",
+            "keys" | "getOwnPropertyNames" => "string[]",
+            "values" => "any[]",
+            "is" | "isFrozen" | "hasOwn" => "boolean",
+            _ => return None,
+        }
+        .into(),
+    )
 }
 
 /// What a `Promise` static answers, or None to leave the call alone.
@@ -364,4 +403,74 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
             .unwrap_or_else(|| "any".into()),
     };
     Some(format!("__cls({})->{}", param_anns.join("|"), ret))
+}
+
+/// Every top-level function's *declared* return type, keyed by name —
+/// the `fn_sigs` map D0's let-lift consults when a generator local is
+/// initialized by a call.
+///
+/// Declared, not inferred: this pass runs well before
+/// `desugar_implicit_generics`, so an inferred signature does not
+/// exist yet. A call to a function that never wrote its return type
+/// is simply absent from the map, and the lift falls back exactly as
+/// it did before.
+///
+/// A `function*` is the exception, and the reason is that its
+/// declared return type describes what it YIELDS, not what calling it
+/// answers. `function* ag(): any` called as `ag()` answers the
+/// iterator object — which this very pass is about to mint as
+/// `__Gen_ag` — so that is what the map says. Reading the annotation
+/// instead pinned `const it = ag()` to the yield type and every
+/// `it.next()` after it failed ("no member `.next` on type Number").
+pub(super) fn collect_declared_fn_return_types(
+    ast: &Ast,
+) -> std::collections::HashMap<String, String> {
+    ast.stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl {
+                name,
+                is_generator: true,
+                ..
+            } => Some((name.clone(), format!("__Gen_{name}"))),
+            Stmt::FnDecl {
+                name,
+                return_type: Some(rt),
+                ..
+            } => Some((name.clone(), normalize_void(rt))),
+            // A function with no value return answers `undefined`
+            // (§14.10) whether or not it wrote `: void` — the same
+            // rule `preinfer_closure_sigs` applies to a lifted
+            // closure. Without it `const a = sideEffectOnly()` took
+            // the `number` fallback and would not compile ("field is
+            // Number, value is Undefined").
+            Stmt::FnDecl { name, body, .. } if !super::body_has_value_return(body) => {
+                Some((name.clone(), "any".to_string()))
+            }
+            // An UNANNOTATED function with a value return: JS's
+            // untyped slot is `any` — the same answer `undefined` /
+            // `null` initializers get in `direct_field_ann`, and for
+            // the same reason. Absent from the map, the call declined
+            // and the field took the `number` fallback, which is a
+            // CLAIM about the value: a function answering a symbol
+            // (the t262 forbidden-ext `inner()` shape) had its result
+            // stored through a number slot and surfaced as a raw
+            // pointer error.
+            Stmt::FnDecl { name, .. } => Some((name.clone(), "any".to_string())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `void` as a FIELD annotation, which is what a lifted local becomes:
+/// `any`. A field has to be able to hold the value, and the value a
+/// void call produces is `undefined` — which is what an `any` slot
+/// holds and a `void` slot cannot. Left as written, `const b =
+/// voidCall()` yielded `null`.
+fn normalize_void(rt: &str) -> String {
+    if rt == "void" {
+        "any".into()
+    } else {
+        rt.into()
+    }
 }
