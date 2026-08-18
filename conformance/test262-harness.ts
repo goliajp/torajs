@@ -423,7 +423,7 @@ function __t262_isEnumerable(obj: any, name: any): boolean {
   return true;
 }
 
-function __t262_isWritable(obj: any, name: any, verifyProp: string = "", value: any = undefined): boolean {
+function __t262_isWritable(obj: any, name: any, verifyProp: any = "", value: any = undefined): boolean {
   const hadValue: any = obj.hasOwnProperty(name);
   const oldValue: any = obj[name];
   let newValue: any = value;
@@ -444,7 +444,10 @@ function __t262_isWritable(obj: any, name: any, verifyProp: string = "", value: 
       throw new Test262Error("Expected TypeError, got " + e);
     }
   }
-  const readProp: any = verifyProp !== "" ? verifyProp : name;
+  // stock: `obj[verifyProp || name]` — cases pass null for "no
+  // verify prop" (cluster #7, rotation 442), so the gate is
+  // truthiness, not the empty-string default.
+  const readProp: any = verifyProp ? verifyProp : name;
   const writeSucceeded: boolean = __t262_isSameValue(obj[readProp], newValue);
   // Revert only successful writes (reverting a refused write may
   // itself throw for certain property configurations).
@@ -534,8 +537,8 @@ function __t262_verifyEqualTo(obj: any, name: any, value: any): void {
   }
 }
 
-function __t262_verifyWritable(obj: any, name: any, verifyProp: string = "", value: any = undefined): void {
-  if (verifyProp === "") {
+function __t262_verifyWritable(obj: any, name: any, verifyProp: any = "", value: any = undefined): void {
+  if (!verifyProp) {
     const d: any = Object.getOwnPropertyDescriptor(obj, name);
     if (!d.writable) {
       throw new Test262Error("Expected obj[" + String(name) + "] to have writable:true.");
@@ -546,14 +549,16 @@ function __t262_verifyWritable(obj: any, name: any, verifyProp: string = "", val
   }
 }
 
-function __t262_verifyNotWritable(obj: any, name: any, verifyProp: string = "", value: any = undefined): void {
-  if (verifyProp === "") {
+function __t262_verifyNotWritable(obj: any, name: any, verifyProp: any = "", value: any = undefined): void {
+  if (!verifyProp) {
     const d: any = Object.getOwnPropertyDescriptor(obj, name);
     if (d.writable) {
       throw new Test262Error("Expected obj[" + String(name) + "] to have writable:false.");
     }
   }
-  if (__t262_isWritable(obj, name, verifyProp, value)) {
+  // stock verifyNotWritable calls isWritable WITHOUT the value —
+  // the probe writes "unlikelyValue", never the caller's 4th arg.
+  if (__t262_isWritable(obj, name, verifyProp)) {
     throw new Test262Error("Expected obj[" + String(name) + "] NOT to be writable, but was.");
   }
 }
