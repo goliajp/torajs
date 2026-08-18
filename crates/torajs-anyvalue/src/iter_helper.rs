@@ -79,6 +79,12 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
 }
 
+// Validation faces — the IfAbruptCloseIterator close + the tag-15
+// ownership predicate (`validation.rs` sibling, file-size cap).
+mod validation;
+use validation::close_on_validation_abrupt;
+pub(crate) use validation::iter_proto_owns_mid;
+
 /// Mint a helper cell over `recv` (§27.1.4.x steps 1-4). Non-object
 /// receivers and non-callable callbacks take the spec TypeError and
 /// answer undefined (the pending throw propagates through the
@@ -98,15 +104,26 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
     // (§27.1.4.x step 2 precedes GetIteratorDirect). take/drop run
     // §27.1.4.9/.3 steps 3-6: ToNumber, NaN or negative →
     // RangeError; the (possibly +∞) count rides the fn slot as f64
-    // bits.
+    // bits. A validation abrupt is IfAbruptCloseIterator (the
+    // Iterator Record exists from step 2, its next method not yet
+    // read): close the underlying FIRST, then land the error —
+    // the receiver-not-an-object TypeError above stays close-free
+    // (it precedes the record).
     let fn_slot: u64 = if numeric_kind {
         let (t, p) = (
             crate::__torajs_anyv_unbox_tag(fn_av),
             crate::__torajs_anyv_unbox_value(fn_av),
         );
         let n = unsafe { crate::coerce::any_to_number(t, p) };
+        if unsafe { __torajs_throw_check() } != 0 {
+            // ToNumber itself threw (a valueOf poison) — close and
+            // let the poison's throw win (§7.4.9 step 5).
+            unsafe { close_on_validation_abrupt(recv) };
+            return VALUE_UNDEFINED;
+        }
         if n.is_nan() || n < 0.0 {
             unsafe {
+                close_on_validation_abrupt(recv);
                 __torajs_throw_range_error(c"Iterator helper limit must be non-negative".as_ptr());
             }
             return VALUE_UNDEFINED;
@@ -117,6 +134,7 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
             || unsafe { closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) }.is_none()
         {
             unsafe {
+                close_on_validation_abrupt(recv);
                 __torajs_throw_type_error(c"Iterator helper callback is not a function".as_ptr());
             }
             return VALUE_UNDEFINED;

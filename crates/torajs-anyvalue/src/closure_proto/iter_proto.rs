@@ -41,7 +41,7 @@ const METHOD_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 <
 /// a user object's is a dict entry; both answer the by-name lane).
 static RETURN_NAME_CELL: AtomicU64 = AtomicU64::new(0);
 
-fn return_name_cell() -> *mut u8 {
+pub(crate) fn return_name_cell() -> *mut u8 {
     let p = RETURN_NAME_CELL.load(Ordering::Relaxed);
     if p != 0 {
         return p as *mut u8;

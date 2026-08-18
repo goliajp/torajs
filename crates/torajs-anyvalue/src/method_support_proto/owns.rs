@@ -123,6 +123,10 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         11 => map_supports(mid),
         12 => set_supports(mid),
         13 => closure_supports(mid),
+        // %Iterator.prototype% (§27.1.4) owns the lazy helpers and
+        // the eager consumers — one predicate shared with the dynobj
+        // chain re-dispatch (`iter_helper::iter_proto_owns_mid`).
+        15 => crate::iter_helper::iter_proto_owns_mid(mid),
         // %WeakMap.prototype% / %WeakSet.prototype% (§24.3.3 /
         // §24.4.3) read off the SAME per-arm tables the instance
         // dispatch uses — the pair the rotation-148 drift lesson

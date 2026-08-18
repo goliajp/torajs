@@ -216,6 +216,12 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // reflection faces reading this table (`.name` / `.length` /
         // the own-name enumeration) could not see it.
         m if m == crate::any_method_iter::ANY_METHOD_DEREF => ("deref", 0),
+        // §27.1.4.3 / §27.1.4.10 — %Iterator.prototype% drop /
+        // toArray (rotation 434: the tag-15 ownership row made the
+        // reflection faces reach them; the name-table guard caught
+        // the missing rows).
+        m if m == crate::any_method_iter::ANY_METHOD_DROP => ("drop", 1),
+        m if m == crate::any_method_iter::ANY_METHOD_TO_ARRAY => ("toArray", 0),
         _ => return None,
     })
 }

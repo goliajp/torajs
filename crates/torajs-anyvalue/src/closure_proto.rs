@@ -35,7 +35,7 @@ mod gen_step;
 /// `%Iterator.prototype%`'s own `[Symbol.iterator]` / `[Symbol.dispose]`
 /// entries (RFC 20260809 B6) — a child for the same reach into the
 /// private mint plumbing.
-mod iter_proto;
+pub(crate) mod iter_proto;
 
 unsafe extern "C" {
     /// torajs-dynobj — fresh empty entry table.

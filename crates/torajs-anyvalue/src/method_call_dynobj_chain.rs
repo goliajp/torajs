@@ -96,6 +96,23 @@ pub(crate) unsafe fn proto_chain_method(
                 // source (§20.2.3.5).
                 let fam =
                     crate::method_value::builtin_method_family(crate::nanbox::as_void_ptr(cell));
+                // A tag-15 cell (%Iterator.prototype%'s helpers)
+                // routes the CHILD receiver straight into the shared
+                // helper kernel — re-entering the generic dispatch
+                // would walk the same chain back here and loop. The
+                // kernel's mint already validates (§27.1.4.x steps
+                // 1-4) and drives any iterator-protocol cell.
+                if fam == 15 && crate::iter_helper::iter_proto_owns_mid(mid2) {
+                    return Some(
+                        crate::iter_helper::try_helper_chain(
+                            obj,
+                            mid2,
+                            argv as *const AnyValue,
+                            argc,
+                        )
+                        .unwrap_or_else(|| crate::method_call::method_no_such()),
+                    );
+                }
                 if let Some(out) = crate::method_call_closure::generic_builtin_this(
                     mid2,
                     __torajs_anyv_box_pointer(obj),
