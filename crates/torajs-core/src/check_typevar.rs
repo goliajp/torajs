@@ -164,6 +164,23 @@ fn any_absorbing_join(a: &Type, b: &Type) -> Option<Type> {
         (Type::Array(ae), Type::Array(be)) => {
             Some(Type::Array(Box::new(any_absorbing_join(ae, be)?)))
         }
+        // Cluster #6 sibling (rotation 442) — Null is a legal
+        // inhabitant of every Nullable(T) and of a match result's
+        // decayed Array, so those pairs join instead of conflicting
+        // (the t262 harness's `sameValue(s.match(re), null)` shape,
+        // both call orders). The join is Any, not the Nullable: a
+        // Nullable binding monomorphizes to a bare-Arr param whose
+        // retarget-site null guard would throw on the very null the
+        // join just admitted, while the boxed-any lane carries null
+        // end-to-end (ANY_NULL: `=== null`, print, concat all
+        // measured correct). The bare-Array pair rides along because
+        // an argument-position match result decays its Nullable
+        // before reaching the typevar.
+        (Type::Nullable(_), Type::Null)
+        | (Type::Null, Type::Nullable(_))
+        | (Type::Nullable(_), Type::Nullable(_))
+        | (Type::Array(_), Type::Null)
+        | (Type::Null, Type::Array(_)) => Some(Type::Any),
         _ => None,
     }
 }

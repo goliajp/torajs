@@ -116,10 +116,20 @@ pub(crate) fn emit(
     // param at the checker (generic_ident decay_nullable_arr); guard
     // the runtime null before it enters the monomorphized callee as
     // a bare Arr. Only retargeted (generic) call sites qualify —
-    // non-generic calls never see the decay.
+    // non-generic calls never see the decay. Cluster #6 sibling
+    // (rotation 442) — only a bare-Arr param slot qualifies: a
+    // Null⊔Nullable typevar join now instantiates at Any, whose
+    // boxed lane carries the null legally, so guarding by source
+    // shape alone would throw on an argument the checker admitted.
     if ctx.call_retargets.contains_key(&eid) {
-        for (a, op) in args.iter().zip(argv.clone().iter()) {
-            crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, *a, op);
+        for (i, (a, op)) in args.iter().zip(argv.clone().iter()).enumerate() {
+            let param_is_arr = param_tys
+                .as_ref()
+                .and_then(|ps| ps.get(i + hidden_off))
+                .is_some_and(|t| matches!(t, Type::Arr(_)));
+            if param_is_arr {
+                crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, *a, op);
+            }
         }
     }
     // RFC 20260705 chunk 548 — snapshot owned-shape arg temps
