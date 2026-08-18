@@ -39,6 +39,7 @@ mod cache;
 mod fixtures;
 mod frontmatter;
 mod harness_shake;
+mod strict_shell;
 mod summary_json;
 mod verdict;
 
@@ -396,6 +397,20 @@ fn run_case(
     };
     let fm = frontmatter::parse(&case_src);
 
+    // sm/non262-strict-shell.js is ported by CALL-SITE EXPANSION (the
+    // stock helpers eval a runtime string, which tr's literal-only
+    // eval desugar cannot meet — see `strict_shell`). A case whose
+    // every helper reference expands runs on the expanded source; one
+    // with a computed code string keeps the attributable reject below.
+    let expanded = fm
+        .includes
+        .iter()
+        .any(|s| s == "sm/non262-strict-shell.js")
+        .then(|| strict_shell::expand(&case_src))
+        .flatten();
+    let strict_shell_ported = expanded.is_some();
+    let case_src = expanded.unwrap_or(case_src);
+
     // Harness includes beyond assert/sta classify by whether the typed
     // harness has ported them. A case whose every include is ported
     // runs normally (the `__t262_*` rewrites in transform_source bind
@@ -437,6 +452,7 @@ fn run_case(
         .iter()
         .map(String::as_str)
         .filter(|inc| !PORTED_INCLUDES.contains(inc))
+        .filter(|inc| !(*inc == "sm/non262-strict-shell.js" && strict_shell_ported))
         .collect();
     if !unported.is_empty() {
         return Outcome::Incompatible {
