@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T04:56:29.747Z",
+  "generatedAt": "2026-08-18T07:02:03.918Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T04:47:57Z",
-    "headSha": "aa82c5bc",
-    "elapsedSec": 338.23,
+    "ranAt": "2026-08-18T06:43:52Z",
+    "headSha": "a9537e62",
+    "elapsedSec": 338.9,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 25805,
-    "passNoOracle": 936,
+    "pass": 25964,
+    "passNoOracle": 939,
     "passNegative": 4140,
-    "passTotal": 30881,
-    "bug": 12790,
-    "incompatible": 9503,
+    "passTotal": 31043,
+    "bug": 12688,
+    "incompatible": 9443,
     "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43671,
-    "passRateInScope": 58.08,
-    "passRateTrAccepted": 70.71
+    "trAccepted": 43731,
+    "passRateInScope": 58.38,
+    "passRateTrAccepted": 70.99
   },
   "torajs": {
-    "commit": "22569b3d",
-    "commitSubject": "chore: refresh the test262 sweep artifacts for rotation 433",
+    "commit": "73d97447",
+    "commitSubject": "docs: record the rotation 434 sweep and roadmap snapshot",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "73d97447",
+      "subject": "docs: record the rotation 434 sweep and roadmap snapshot"
+    },
+    {
+      "hash": "5d1dba07",
+      "subject": "refactor: extract the iter meta rows and the LetDecl walk arm"
+    },
+    {
+      "hash": "a9537e62",
+      "subject": "fix: iterator helpers through .call keep the strict receiver rules"
+    },
+    {
+      "hash": "b5963ea2",
+      "subject": "feat: Iterator.prototype helpers resolve through the proto chain"
+    },
+    {
+      "hash": "be3c1d4d",
+      "subject": "fix: a null-proto dynobj miss answers undefined, not the builtin face"
+    },
+    {
+      "hash": "1bd2c94b",
+      "subject": "feat: a proto-setting object literal rides the dynobj lane"
+    },
+    {
+      "hash": "3f736926",
+      "subject": "fix: a thrown fn name wraps into its canonical closure cell"
+    },
+    {
+      "hash": "ae3cd77a",
+      "subject": "feat: destructuring pattern field loads are lenient on every slot"
+    },
+    {
+      "hash": "eee24e85",
+      "subject": "chore: refresh the hardev dashboard snapshot"
+    },
+    {
       "hash": "22569b3d",
       "subject": "chore: refresh the test262 sweep artifacts for rotation 433"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "aa82c5bc",
       "subject": "feat: builtin ctor cells learn a construct face"
-    },
-    {
-      "hash": "344c7261",
-      "subject": "feat: builtin ctor cells learn a callable face"
-    },
-    {
-      "hash": "84da5e33",
-      "subject": "feat: function.call rides the dynamic-function inline channel"
-    },
-    {
-      "hash": "8d942839",
-      "subject": "feat: the generator lift learns arrow bodies via an arena scan"
-    },
-    {
-      "hash": "24dcf88e",
-      "subject": "feat: groupby and withresolvers join the ns-static value family"
-    },
-    {
-      "hash": "b99dc4fe",
-      "subject": "chore: refresh the hardev dashboard snapshot"
-    },
-    {
-      "hash": "73fda485",
-      "subject": "docs: record the rotation 432 sweep and roadmap snapshot"
-    },
-    {
-      "hash": "8de0f612",
-      "subject": "refactor: the pre-nullish probe moves to its own file"
-    },
-    {
-      "hash": "818db124",
-      "subject": "refactor: extract the pre-nullish dispatch arms into one probe"
-    },
-    {
-      "hash": "e626a596",
-      "subject": "feat: math.hypot joins the ns-static value family"
     }
   ],
-  "headSha": "22569b3d",
+  "headSha": "73d97447",
   "autorun": {
-    "total": 736,
+    "total": 737,
     "baselineTarget": 10,
-    "bySelf": 731,
+    "bySelf": 732,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787021828-4b57",
-      "at": "2026-08-18T02:57:08Z",
-      "ts": 1787021828,
+      "rotationId": "r-1787029010-0fc3",
+      "at": "2026-08-18T04:56:50Z",
+      "ts": 1787029010,
       "trigger": "self",
-      "prevHead": "b99dc4fe",
-      "handoffSha": "sha256:5f35a3ea11a1525747781b5360cc1e3b7776a770e8307e8cc1f4b254f7b9c55b",
-      "handoffAgeSec": 29,
+      "prevHead": "eee24e85",
+      "handoffSha": "sha256:437564c14f81419ad4e176f4aea79b45925ccb50a729c1a6e4d25458b1b6ef0c",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787029010-0fc3",
+        "at": "2026-08-18T04:56:50Z",
+        "ts": 1787029010,
+        "trigger": "self",
+        "prevHead": "eee24e85",
+        "handoffSha": "sha256:437564c14f81419ad4e176f4aea79b45925ccb50a729c1a6e4d25458b1b6ef0c",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787021828-4b57",
         "at": "2026-08-18T02:57:08Z",
@@ -876,17 +887,6 @@
         "prevHead": "0a55fba6",
         "handoffSha": "sha256:84a30cc34ad5d9f4f08ced24a7d3c0932387cb9f3a5bf6fa52615c06d07b9272",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786930499-09d3",
-        "at": "2026-08-17T01:34:59Z",
-        "ts": 1786930499,
-        "trigger": "self",
-        "prevHead": "b564a6b0",
-        "handoffSha": "sha256:653c946417427422dc1924309227b2e0b22f4f5be89d57ad87480da46af413bc",
-        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       }
