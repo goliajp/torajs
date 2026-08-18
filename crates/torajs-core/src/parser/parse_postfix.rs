@@ -12,6 +12,11 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_postfix(&mut self) -> Result<ExprId, String> {
         let start_pos = self.pos;
         let mut node = self.parse_primary()?;
+        // §13.3 OptionalChain early error — once a `?.` link joins
+        // the chain, a tagged template anywhere in its tail is a
+        // SyntaxError (a parenthesized chain resets: the paren is a
+        // fresh primary and this flag starts false again).
+        let mut in_optional_chain = false;
         loop {
             match self.peek() {
                 Token::Dot => {
@@ -34,6 +39,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::QuestionDot => {
                     self.pos += 1;
+                    in_optional_chain = true;
                     if matches!(self.peek(), Token::LBracket) {
                         node = self.parse_optchain_index(node, start_pos)?;
                     } else if matches!(self.peek(), Token::LParen) {
@@ -124,6 +130,15 @@ impl<'a> Parser<'a> {
                     // (§13.3.11): the postfix template applies the
                     // preceding MemberExpression as a tag function.
                     // See `parser/tagged_template.rs` for the desugar.
+                    if in_optional_chain {
+                        // §13.3 OptionalChain early error — a tagged
+                        // template may not follow a `?.` chain.
+                        return Err(format!(
+                            "tagged template after an optional chain is a SyntaxError \
+                             (ES §13.3) at {}",
+                            self.at()
+                        ));
+                    }
                     let parts = parts.clone();
                     self.pos += 1;
                     node = self.lower_tagged_template(node, &parts)?;

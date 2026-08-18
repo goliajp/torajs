@@ -274,6 +274,19 @@ impl<'a> Parser<'a> {
                     _ => NewHead::Dynamic(inner),
                 }
             }
+            // §13.3.5 grammar carve — `new import(...)` is a
+            // SyntaxError: ImportCall is its own CallExpression
+            // production, never a MemberExpression, so `new` cannot
+            // apply to it (the t262 dynamic-import
+            // `*no-new-call-expression` family). Keep the loud
+            // parse-phase reject.
+            Token::Import => {
+                return Err(format!(
+                    "`new` cannot be applied to `import(...)` (ImportCall is not a \
+                     MemberExpression, ES §13.3) at {}",
+                    self.at()
+                ));
+            }
             // Cluster #6 (rotation 438) — ES §13.3.5: the callee of a
             // NewExpression is a MemberExpression, so ANY primary is
             // legal here (`new true`, `new 1`, `new function(){}`,
