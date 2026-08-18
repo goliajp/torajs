@@ -318,10 +318,33 @@ fn wrap_throw_iife(i: usize, throw: Stmt, ast: &mut Ast) {
 /// body text, the rest are parameter texts. `None` for anything else,
 /// including the zero-argument shape (owned elsewhere, see above).
 fn function_ctor_args(eid: ExprId, ast: &Ast) -> Option<Vec<String>> {
-    let args = match ast.exprs.get(eid.0 as usize)? {
+    let args: &[ExprId] = match ast.exprs.get(eid.0 as usize)? {
         Expr::Call { callee, args } if !args.is_empty() => {
             match ast.exprs.get(callee.0 as usize)? {
                 Expr::Ident(n) if n == "Function" => args,
+                // §20.2.3.3 → §20.2.1.1 — `Function.call(thisArg,
+                // ...texts)`: CreateDynamicFunction never reads the
+                // this argument (t262 S15.3_A3 asserts exactly that),
+                // so the shape is the direct call with the first
+                // argument peeled. Peeling drops the thisArg's
+                // EVALUATION, so only a side-effect-free thisArg
+                // qualifies — anything else keeps the loud reject
+                // (the prototype-methods pass records the same rule:
+                // "dropping surplus args would drop their
+                // evaluation"). The no-text form (`Function.call(x)`)
+                // stays rejected too — the zero-arg sibling pass owns
+                // the empty-body semantics and does not know this
+                // spelling (recorded follow-up).
+                Expr::Member { obj, name } if name == "call" => {
+                    let is_fn_ctor = matches!(
+                        ast.exprs.get(obj.0 as usize)?,
+                        Expr::Ident(n) if n == "Function"
+                    );
+                    if !is_fn_ctor || args.len() < 2 || !expr_is_pure(args[0], ast) {
+                        return None;
+                    }
+                    &args[1..]
+                }
                 _ => return None,
             }
         }
@@ -331,4 +354,20 @@ fn function_ctor_args(eid: ExprId, ast: &Ast) -> Option<Vec<String>> {
         _ => return None,
     };
     args.iter().map(|a| const_string(*a, ast)).collect()
+}
+
+/// Side-effect-free thisArg shapes — the only ones the
+/// `Function.call` peel may silently drop.
+fn expr_is_pure(eid: ExprId, ast: &Ast) -> bool {
+    matches!(
+        ast.exprs.get(eid.0 as usize),
+        Some(
+            Expr::Ident(_)
+                | Expr::This
+                | Expr::String(_)
+                | Expr::Number(_)
+                | Expr::Bool(_)
+                | Expr::Null
+        )
+    )
 }
