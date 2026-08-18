@@ -14,12 +14,13 @@
 //!   always lexical. Only the names the SOURCE wrote take the
 //!   declaration's `is_var`, because only those are what §14.3.2
 //!   hoists.
-//! - Load recipes are the shared `dstra_elem_load` / `dstra_field_load`
-//!   (array defaults carry the length-guard, object defaults the
-//!   undefined-gate), so §13.3.3 default semantics cannot drift
-//!   between the declaration and assignment lanes.
+//! - The shared load recipes (`dstra_elem_load` / `dstra_field_load` /
+//!   `dstra_computed_load`) live HERE — array defaults carry the
+//!   length-guard, object defaults the undefined-gate — so §13.3.3
+//!   default semantics cannot drift between the declaration, param
+//!   and assignment lanes (all three read them).
 
-use super::destr_shape::{AryElem, ObjBinding, ObjField, PatShape, RestShape};
+use super::destr_shape::{AryElem, FieldKey, ObjBinding, ObjField, PatShape, RestShape};
 use super::*;
 
 impl Parser<'_> {
@@ -156,13 +157,13 @@ impl Parser<'_> {
         // throws even for `{}`.
         let guard = self.emit_object_coercible_guard(&src_name);
         out.push(guard);
-        for ObjField { field, binding } in fields {
+        for ObjField { key, binding } in fields {
             match binding {
                 ObjBinding::Bind { name, default } => {
                     if let Some(d) = default {
                         self.record_dstr_default_name(*d, name);
                     }
-                    let init = self.dstra_field_load(&src_name, field, *default);
+                    let init = self.dstra_key_load(&src_name, key, *default, out);
                     out.push(Stmt::LetDecl {
                         mutable,
                         name: name.clone(),
@@ -172,16 +173,90 @@ impl Parser<'_> {
                     });
                 }
                 ObjBinding::Nested { pat, default } => {
-                    let loaded = self.dstra_field_load(&src_name, field, *default);
+                    let loaded = self.dstra_key_load(&src_name, key, *default, out);
                     self.emit_pattern_binds(pat, loaded, mutable, is_var, out);
                 }
             }
         }
         if let Some(rest_name) = rest {
-            let omit: Vec<&str> = fields.iter().map(|f| f.field.as_str()).collect();
+            // Named keys only — the reader rejects a computed key
+            // alongside rest (recorded boundary), so no key is lost.
+            let omit: Vec<&str> = fields
+                .iter()
+                .filter_map(|f| match &f.key {
+                    FieldKey::Named(n) => Some(n.as_str()),
+                    FieldKey::Computed(_) => None,
+                })
+                .collect();
             let bind = self.emit_obj_rest_let(&src_name, &omit, rest_name, mutable, is_var);
             out.push(bind);
         }
+    }
+
+    /// One field's load, key-kind dispatched. A named key reads
+    /// through the shared `dstra_field_load` recipe; a computed key
+    /// first hoists its expression into a `__ck_N` temp (pushed onto
+    /// `out`, so §14.3.3.3 order holds: the key evaluates after the
+    /// previous field's bind and before this field's load), then reads
+    /// through `dstra_computed_load`.
+    fn dstra_key_load(
+        &mut self,
+        src_name: &str,
+        key: &FieldKey,
+        default: Option<ExprId>,
+        out: &mut Vec<Stmt>,
+    ) -> ExprId {
+        match key {
+            FieldKey::Named(field) => self.dstra_field_load(src_name, field, default),
+            FieldKey::Computed(key_expr) => {
+                let id = self.mint_desugar_id();
+                let kname = format!("__ck_{id}");
+                out.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: kname.clone(),
+                    type_ann: None,
+                    init: *key_expr,
+                    is_var: false,
+                });
+                self.dstra_computed_load(src_name, &kname, default)
+            }
+        }
+    }
+
+    /// `__t[__ck]`, optionally wrapped in the §13.15.5.4 default
+    /// ternary (undefined and ONLY undefined fires the default). The
+    /// key temp is a plain ident read, so the double reference in the
+    /// ternary re-reads the property — the same double-GetV the static
+    /// field recipe carries. The any-key index lane answers
+    /// `undefined` for an absent key, so no lenient mark is needed.
+    /// `pub(super)`: shared with the param walker (destr_helpers) and
+    /// the assignment lane (dstr_assign).
+    pub(super) fn dstra_computed_load(
+        &mut self,
+        src_name: &str,
+        key_name: &str,
+        default: Option<ExprId>,
+    ) -> ExprId {
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let key_ref = self.ast.add_expr(Expr::Ident(key_name.to_string()));
+        let load = self.ast.add_expr(Expr::Index {
+            obj: src_ref,
+            index: key_ref,
+        });
+        let Some(default_expr) = default else {
+            return load;
+        };
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left: load,
+            right: undef,
+        });
+        self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch: default_expr,
+            else_branch: load,
+        })
     }
 
     /// ES §14.3.3.1 RestBindingInitialization for object patterns —
@@ -209,5 +284,103 @@ impl Parser<'_> {
             init: obj,
             is_var,
         }
+    }
+
+    /// `__t[i]`, optionally wrapped in the §13.15.5.3 default ternary
+    /// (mirrors maybe_parse_destr_default: fires past-end — the
+    /// length guard also keeps typed-lane OOB reads out — and on an
+    /// explicit undefined element; null / 0 / '' keep their value).
+    /// `pub(super)`: shared with the declaration-position PatShape
+    /// emitter (destr_shape.rs) so both lanes read one recipe.
+    pub(super) fn dstra_elem_load(
+        &mut self,
+        src_name: &str,
+        idx: usize,
+        default: Option<ExprId>,
+    ) -> ExprId {
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let idx_e = self.ast.add_expr(Expr::Number(idx as f64));
+        let load = self.ast.add_expr(Expr::Index {
+            obj: src_ref,
+            index: idx_e,
+        });
+        let Some(default_expr) = default else {
+            return load;
+        };
+        let src_ref2 = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let len_member = self.ast.add_expr(Expr::Member {
+            obj: src_ref2,
+            name: "length".into(),
+        });
+        let idx_lit = self.ast.add_expr(Expr::Number(idx as f64));
+        let len_ok = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Gt,
+            left: len_member,
+            right: idx_lit,
+        });
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        let not_undef = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Neq,
+            left: load,
+            right: undef,
+        });
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::LAnd,
+            left: len_ok,
+            right: not_undef,
+        });
+        self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch: load,
+            else_branch: default_expr,
+        })
+    }
+
+    /// `__t.f`, optionally wrapped in the §13.15.5.4 default ternary
+    /// (mirrors maybe_parse_object_destr_default: undefined and ONLY
+    /// undefined fires the default). `pub(super)`: shared with
+    /// destr_shape.rs, same as dstra_elem_load.
+    pub(super) fn dstra_field_load(
+        &mut self,
+        src_name: &str,
+        field: &str,
+        default: Option<ExprId>,
+    ) -> ExprId {
+        // §13.3.3 PropertyName : NumericLiteral — an all-digit field
+        // (`{ 0: v }`) is an index read, not a member read (`src.0`
+        // is not a member the lowering can express; `src[0]` is the
+        // canonical access for arrays-as-objects and dynobjs alike).
+        // The elem-load recipe carries the length-guard, so a
+        // past-end key answers undefined (and fires the default)
+        // instead of the typed lane's OOB RangeError.
+        if !field.is_empty() && field.bytes().all(|b| b.is_ascii_digit()) {
+            let idx = field.parse::<usize>().unwrap_or(0);
+            return self.dstra_elem_load(src_name, idx, default);
+        }
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let load = self.ast.add_expr(Expr::Member {
+            obj: src_ref,
+            name: field.to_string(),
+        });
+        // §13.15.5.4 GetV answers `undefined` for an absent field on
+        // EVERY pattern slot — a default only changes what replaces
+        // that `undefined`, not whether the read is allowed. So the
+        // lenient mark goes on every load this recipe mints, not just
+        // the default-guarded ones; see `Ast::dstr_default_member_loads`.
+        self.ast.dstr_default_member_loads.insert(load);
+        let Some(default_expr) = default else {
+            return load;
+        };
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left: load,
+            right: undef,
+        });
+        self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch: default_expr,
+            else_branch: load,
+        })
     }
 }

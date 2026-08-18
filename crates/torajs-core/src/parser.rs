@@ -43,6 +43,7 @@ mod delete_expr;
 mod destr_defaults;
 mod destr_emit;
 mod destr_helpers;
+mod destr_obj_param;
 mod destr_shape;
 mod dstr_assign;
 mod entry;

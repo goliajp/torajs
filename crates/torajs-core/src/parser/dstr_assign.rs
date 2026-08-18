@@ -269,9 +269,64 @@ impl<'a> Parser<'a> {
                         self.at()
                     ));
                 }
+                // Recorded boundary (loud, never silent): the omit
+                // set carries static names only — a computed key's
+                // `__computed_N__` sentinel in it would omit the
+                // wrong property, so the coexistence rejects (same
+                // rule as the declaration lanes).
+                if fields[..i]
+                    .iter()
+                    .any(|(n, _)| n.starts_with("__computed_"))
+                {
+                    return Err(format!(
+                        "not yet supported: object rest alongside a computed key \
+                         in the same destructuring pattern at {}",
+                        self.at()
+                    ));
+                }
                 let omit: Vec<&str> = fields[..i].iter().map(|(n, _)| n.as_str()).collect();
                 let rest_obj = self.emit_obj_rest_expr(src_name, &omit);
                 self.emit_dstr_assign_slot(*val, rest_obj, out)?;
+                continue;
+            }
+            // §13.15.5.4 with a ComputedPropertyName — the objlit
+            // cover parse folded `[expr]:` into a `__computed_N__`
+            // sentinel plus the `objlit_computed_keys` side table
+            // (value ExprId → key expr); un-fold it here instead of
+            // member-reading the sentinel name. The key hoists into a
+            // `__ck_N` temp in field order, the load is the shared
+            // any-key recipe.
+            if let Some(&key_expr) = self.ast.objlit_computed_keys.get(val) {
+                let id = self.mint_desugar_id();
+                let kname = format!("__ck_{id}");
+                out.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: kname.clone(),
+                    type_ann: None,
+                    init: key_expr,
+                    is_var: false,
+                });
+                let (target, default) = match self.ast.get_expr(*val) {
+                    Expr::Assign { target, value } => (*target, Some(*value)),
+                    _ => (*val, None),
+                };
+                if let Some(d) = default
+                    && super::yield_expr_hoist::expr_reads_yield_temp(&self.ast, d)
+                {
+                    return Err(format!(
+                        "not yet supported: `yield` in a destructuring-assignment \
+                         default (conditional position) at {}",
+                        self.at()
+                    ));
+                }
+                if let Some(d) = default
+                    && let Expr::Ident(b) = self.ast.get_expr(target)
+                {
+                    let b = b.clone();
+                    self.record_dstr_default_name(d, &b);
+                }
+                let load = self.dstra_computed_load(src_name, &kname, default);
+                self.emit_dstr_assign_slot(target, load, out)?;
                 continue;
             }
             let (target, default) = match self.ast.get_expr(*val) {
@@ -362,103 +417,5 @@ impl<'a> Parser<'a> {
             "invalid destructuring assignment target at {}",
             self.at()
         ))
-    }
-
-    /// `__t[i]`, optionally wrapped in the §13.15.5.3 default ternary
-    /// (mirrors maybe_parse_destr_default: fires past-end — the
-    /// length guard also keeps typed-lane OOB reads out — and on an
-    /// explicit undefined element; null / 0 / '' keep their value).
-    /// `pub(super)`: shared with the declaration-position PatShape
-    /// emitter (destr_shape.rs) so both lanes read one recipe.
-    pub(super) fn dstra_elem_load(
-        &mut self,
-        src_name: &str,
-        idx: usize,
-        default: Option<ExprId>,
-    ) -> ExprId {
-        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
-        let idx_e = self.ast.add_expr(Expr::Number(idx as f64));
-        let load = self.ast.add_expr(Expr::Index {
-            obj: src_ref,
-            index: idx_e,
-        });
-        let Some(default_expr) = default else {
-            return load;
-        };
-        let src_ref2 = self.ast.add_expr(Expr::Ident(src_name.to_string()));
-        let len_member = self.ast.add_expr(Expr::Member {
-            obj: src_ref2,
-            name: "length".into(),
-        });
-        let idx_lit = self.ast.add_expr(Expr::Number(idx as f64));
-        let len_ok = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Gt,
-            left: len_member,
-            right: idx_lit,
-        });
-        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
-        let not_undef = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Neq,
-            left: load,
-            right: undef,
-        });
-        let cond = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::LAnd,
-            left: len_ok,
-            right: not_undef,
-        });
-        self.ast.add_expr(Expr::Ternary {
-            cond,
-            then_branch: load,
-            else_branch: default_expr,
-        })
-    }
-
-    /// `__t.f`, optionally wrapped in the §13.15.5.4 default ternary
-    /// (mirrors maybe_parse_object_destr_default: undefined and ONLY
-    /// undefined fires the default). `pub(super)`: shared with
-    /// destr_shape.rs, same as dstra_elem_load.
-    pub(super) fn dstra_field_load(
-        &mut self,
-        src_name: &str,
-        field: &str,
-        default: Option<ExprId>,
-    ) -> ExprId {
-        // §13.3.3 PropertyName : NumericLiteral — an all-digit field
-        // (`{ 0: v }`) is an index read, not a member read (`src.0`
-        // is not a member the lowering can express; `src[0]` is the
-        // canonical access for arrays-as-objects and dynobjs alike).
-        // The elem-load recipe carries the length-guard, so a
-        // past-end key answers undefined (and fires the default)
-        // instead of the typed lane's OOB RangeError.
-        if !field.is_empty() && field.bytes().all(|b| b.is_ascii_digit()) {
-            let idx = field.parse::<usize>().unwrap_or(0);
-            return self.dstra_elem_load(src_name, idx, default);
-        }
-        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
-        let load = self.ast.add_expr(Expr::Member {
-            obj: src_ref,
-            name: field.to_string(),
-        });
-        // §13.15.5.4 GetV answers `undefined` for an absent field on
-        // EVERY pattern slot — a default only changes what replaces
-        // that `undefined`, not whether the read is allowed. So the
-        // lenient mark goes on every load this recipe mints, not just
-        // the default-guarded ones; see `Ast::dstr_default_member_loads`.
-        self.ast.dstr_default_member_loads.insert(load);
-        let Some(default_expr) = default else {
-            return load;
-        };
-        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
-        let cond = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Eq,
-            left: load,
-            right: undef,
-        });
-        self.ast.add_expr(Expr::Ternary {
-            cond,
-            then_branch: default_expr,
-            else_branch: load,
-        })
     }
 }

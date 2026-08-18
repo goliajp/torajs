@@ -12,9 +12,10 @@
 //! `dstra_field_load`) so the §13.3.3 default semantics can never
 //! drift between lanes.
 //!
-//! Recorded boundaries (loud, never silent): computed / numeric /
-//! string keys in object patterns; `for (let PAT in obj)` pattern
-//! heads; CoverInitializedName in assignment-position object heads.
+//! Recorded boundaries (loud, never silent): object rest alongside a
+//! computed key (the omit-set protocol carries static names only);
+//! `for (let PAT in obj)` pattern heads; CoverInitializedName in
+//! assignment-position object heads.
 
 use super::*;
 
@@ -53,8 +54,19 @@ pub(super) enum AryElem {
 }
 
 pub(super) struct ObjField {
-    pub(super) field: String,
+    pub(super) key: FieldKey,
     pub(super) binding: ObjBinding,
+}
+
+/// An object field's property name — §14.3.3 PropertyName is either a
+/// static name (identifier / keyword / numeric / string literal, all
+/// folded to a String at parse time) or a `[expr]`
+/// ComputedPropertyName. A computed key stays a raw expression here;
+/// the emitter evaluates it in field order (§14.3.3.3 binds each
+/// field's key before its load, after the previous field's bind).
+pub(super) enum FieldKey {
+    Named(String),
+    Computed(ExprId),
 }
 
 pub(super) enum ObjBinding {
@@ -162,6 +174,20 @@ impl<'a> Parser<'a> {
         let mut rest: Option<String> = None;
         while !matches!(self.peek(), Token::RBrace) {
             if matches!(self.peek(), Token::DotDotDot) {
+                // Recorded boundary (loud, never silent): `{ [k]: v,
+                // ...rest }` — the rest omit-set protocol carries
+                // static names only, and §14.3.3.1 wants the evaluated
+                // key excluded from the remainder copy.
+                if fields
+                    .iter()
+                    .any(|f| matches!(f.key, FieldKey::Computed(_)))
+                {
+                    return Err(format!(
+                        "not yet supported: object rest alongside a computed key \
+                         in the same destructuring pattern at {}",
+                        self.at()
+                    ));
+                }
                 self.pos += 1;
                 let n = match self.peek() {
                     Token::Ident(n) => n.clone(),
@@ -174,6 +200,42 @@ impl<'a> Parser<'a> {
                 };
                 self.pos += 1;
                 rest = Some(n);
+                break;
+            }
+            // §14.3.3 ComputedPropertyName — `{ [expr]: binding }`.
+            // The key parses as a real expression and evaluates at
+            // bind time; a computed key has no shorthand form, so the
+            // `:` is mandatory (grammar, not a recorded boundary).
+            if matches!(self.peek(), Token::LBracket) {
+                self.pos += 1;
+                let key_expr = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
+                match self.peek() {
+                    Token::RBracket => self.pos += 1,
+                    t => {
+                        return Err(format!(
+                            "expected `]` after computed key in object destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+                match self.peek() {
+                    Token::Colon => self.pos += 1,
+                    t => {
+                        return Err(format!(
+                            "expected `:` after computed key in object destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+                let binding = self.read_obj_binding_target()?;
+                fields.push(ObjField {
+                    key: FieldKey::Computed(key_expr),
+                    binding,
+                });
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
                 break;
             }
             // Reserved-word tokens are valid field NAMES but need an
@@ -211,25 +273,7 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             let binding = if matches!(self.peek(), Token::Colon) {
                 self.pos += 1;
-                match self.peek() {
-                    Token::Ident(n) => {
-                        let name = n.clone();
-                        self.pos += 1;
-                        let default = self.read_pattern_default()?;
-                        ObjBinding::Bind { name, default }
-                    }
-                    Token::LBracket | Token::LBrace => {
-                        let pat = self.read_pattern_shape()?;
-                        let default = self.read_pattern_default()?;
-                        ObjBinding::Nested { pat, default }
-                    }
-                    t => {
-                        return Err(format!(
-                            "expected rename target after `:` in destructuring, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                }
+                self.read_obj_binding_target()?
             } else {
                 if field_is_kw {
                     return Err(format!(
@@ -243,7 +287,10 @@ impl<'a> Parser<'a> {
                     default,
                 }
             };
-            fields.push(ObjField { field, binding });
+            fields.push(ObjField {
+                key: FieldKey::Named(field),
+                binding,
+            });
             if matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
             } else {
@@ -260,6 +307,29 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(PatShape::Obj { fields, rest })
+    }
+
+    /// The binding half after a field's `:` — a fresh name (with an
+    /// optional default) or a nested pattern. Shared by the static and
+    /// computed key arms of [`Self::read_obj_pattern`].
+    fn read_obj_binding_target(&mut self) -> Result<ObjBinding, String> {
+        match self.peek() {
+            Token::Ident(n) => {
+                let name = n.clone();
+                self.pos += 1;
+                let default = self.read_pattern_default()?;
+                Ok(ObjBinding::Bind { name, default })
+            }
+            Token::LBracket | Token::LBrace => {
+                let pat = self.read_pattern_shape()?;
+                let default = self.read_pattern_default()?;
+                Ok(ObjBinding::Nested { pat, default })
+            }
+            t => Err(format!(
+                "expected rename target after `:` in destructuring, got {t:?} at {}",
+                self.at()
+            )),
+        }
     }
 
     /// Optional `= <default>` after a binding / nested pattern slot.
