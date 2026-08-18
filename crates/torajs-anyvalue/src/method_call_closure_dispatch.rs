@@ -158,6 +158,32 @@ pub unsafe extern "C" fn __torajs_any_call(
     }
 }
 
+/// The explicit-`this` twin of [`__torajs_any_call`] — a dyn kernel
+/// that owes its callback a real thisArg (`Array.fromAsync`'s
+/// proposal §2.1.1 step 3.j.ii.6.a is `Call(mapfn, thisArg,
+/// «value, k»)`) routes here; [`invoke_with_this`] owns the
+/// recv-first shift exactly as the plain lane does, so a non-`this`
+/// body drops the receiver per §10.2.1.2. `this_arg` is a borrow
+/// like the argv slots.
+///
+/// # Safety
+/// `argv` points at `argc` AnyValue slots the caller keeps alive
+/// across the call; `this_arg` stays alive across the call too.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_call_with_this(
+    recv: AnyValue,
+    this_arg: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        if let Some((env, entry)) = closure_boxed_entry(recv) {
+            return invoke_with_this(env, entry, this_arg, argv, argc);
+        }
+        not_callable()
+    }
+}
+
 /// §6.2.6.5 steps 7-8 IsCallable over an Any-typed accessor face —
 /// `defineProperty(o, k, {get: g})` where `g`'s static type erased
 /// to `any`. A closure cell answers its pointer with a fresh stake

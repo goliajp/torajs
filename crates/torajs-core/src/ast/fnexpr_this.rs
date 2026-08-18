@@ -335,7 +335,7 @@ fn collect_call_position_face(
                 patches,
             );
         }
-        Expr::Member { obj, name } if name == "from" => {
+        Expr::Member { obj, name } if name == "from" || name == "fromAsync" => {
             super::fnexpr_this_cb_slots::collect_array_from_face(
                 stmts,
                 exprs,

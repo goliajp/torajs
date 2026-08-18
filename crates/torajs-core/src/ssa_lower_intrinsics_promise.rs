@@ -358,7 +358,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_array_from_async_map_dyn",
-            &[Type::Any, Type::Any],
+            &[Type::Any, Type::Any, Type::Any],
             Type::Promise,
         ),
         promise_with_resolvers: declare_intrinsic(

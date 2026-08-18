@@ -132,6 +132,9 @@ pub(super) fn collect_call_apply_face(
 /// static mapFn slot. Only the INLINE fn-expr promotes (zero aliases
 /// by construction); the from lowering's map loop threads the boxed
 /// thisArg ahead of (elem, i) exactly like the trio kernels.
+/// `Array.fromAsync` rides the same face (rotation 435): its mapped
+/// dyn kernel takes the §2.1.1 step 3.j.ii.6.a receiver as a third
+/// operand and hands it to every mapfn call.
 pub(super) fn collect_array_from_face(
     stmts: &[Stmt],
     exprs: &[Expr],

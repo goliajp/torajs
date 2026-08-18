@@ -46,6 +46,11 @@ unsafe extern "C" {
     /// any-held callee (argv slots BORROWED, return caller-owned;
     /// non-callable mints a catchable TypeError).
     fn __torajs_any_call(recv: u64, argv: *const u64, argc: i64) -> u64;
+    /// torajs-anyvalue — the explicit-`this` twin: §2.1.1 step
+    /// 3.j.ii.6.a is `Call(mapfn, thisArg, «value, k»)`, so the
+    /// mapped kernel hands its receiver through (borrowed, like
+    /// the argv slots).
+    fn __torajs_any_call_with_this(recv: u64, this_arg: u64, argv: *const u64, argc: i64) -> u64;
     /// torajs-anyvalue — §7.2.4 IsConstructor over an any box.
     fn __torajs_is_constructor(v: u64) -> bool;
     fn __torajs_anyv_rc_inc(v: u64);
@@ -275,11 +280,19 @@ unsafe fn close_swallow(iter_slot: u64) {
 /// `return()` runs once, its own throw swallowed — and answers the
 /// rejection.
 ///
+/// `this_arg` is the §2.1.1 step 3.j.ii.6.a receiver — every
+/// `Call(mapfn, thisArg, «value, k»)` hands it through (the
+/// undefined box when the call site passed none).
+///
 /// # Safety
-/// `v` and `cb` are live any-boxed values the caller owns for the
-/// duration of the call.
+/// `v`, `cb` and `this_arg` are live any-boxed values the caller
+/// owns for the duration of the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(v: u64, cb: u64) -> *mut c_void {
+pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(
+    v: u64,
+    cb: u64,
+    this_arg: u64,
+) -> *mut c_void {
     unsafe {
         unsafe extern "C" {
             fn __torajs_iter_close_abrupt(iter: u64);
@@ -320,7 +333,7 @@ pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(v: u64, cb: u64) -> *
             // argv slots are borrows; the index is an immediate.
             let argv = [elem, __torajs_anyv_box_from_pair(2, i as i64)];
             i += 1;
-            let ret = __torajs_any_call(cb, argv.as_ptr(), 2);
+            let ret = __torajs_any_call_with_this(cb, this_arg, argv.as_ptr(), 2);
             if elem_owned {
                 __torajs_anyv_rc_dec(elem);
             }
