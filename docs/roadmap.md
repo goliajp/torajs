@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `e626a596`** (2026-08-18, rotation 432 — the with desugar's
+**Latest @ `aa82c5bc`** (2026-08-18, rotation 433 — the builtin
+constructor cells grow real behavior on every first-class face. The
+groupBy pair and Promise.withResolvers join the ns-static value
+family (length / name / detached calls — groupBy has no |this| step
+so the detached call runs the real kernels; withResolvers' detached
+call raises the step-1 TypeError; the reflection face reads the
+checker sig for .length, so withResolvers' sig takes an empty param
+list). The generator lift learns arrow bodies through a flat
+expr-arena scan (the stmt spine never sees ExprId-hung bodies — the
+GeneratorPrototype not-a-constructor trio was this). Function.call
+rides the dynamic-function inline channel (thisArg peeled when
+side-effect-free, §20.2.1.1 never reads it). And the interned ctor
+cells get a callable face (Number = ToNumber, String = display
+coercion with the empty-string zero-arg arm, Boolean, Object =
+ToObject, Array = length form, Date = current-time string; families
+without [[Call]] raise the catchable TypeError) plus a construct
+face (wrapper mints / containers / Date ms — the fifteen
+is-a-constructor probes flip). Sweep vs 432: passTotal 30843 →
+**30881 (+38)**, bug −9, incompatible −29, conservation exact (+29 =
++38 − 9), all 38 forward — **zero pass regressions**. Gate 3070/0/4
+(+5 fixtures). Gate predicate **227 unattributed clusters / 2570
+cases / register 2 · 465 / residue 687 · 866 / core 3901**.)
+
+**Prior @ `e626a596`** (2026-08-18, rotation 432 — the with desugar's
 two probe-confirmed silent-wrong gaps close (`new Base()` names its
 constructor as a string the free-name walk never saw — the object arm
 now constructs through NewDynamic; a logical compound's cloned left
