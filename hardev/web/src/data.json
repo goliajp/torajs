@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T13:11:31.969Z",
+  "generatedAt": "2026-08-18T15:19:57.028Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T13:02:30Z",
-    "headSha": "301a20f3",
-    "elapsedSec": 348.12,
+    "ranAt": "2026-08-18T15:11:00Z",
+    "headSha": "f49aedd9",
+    "elapsedSec": 340.6,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26099,
-    "passNoOracle": 941,
+    "pass": 26223,
+    "passNoOracle": 943,
     "passNegative": 4140,
-    "passTotal": 31180,
-    "bug": 12745,
-    "incompatible": 9249,
+    "passTotal": 31306,
+    "bug": 12784,
+    "incompatible": 9084,
     "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 43925,
-    "passRateInScope": 58.64,
-    "passRateTrAccepted": 70.98
+    "trAccepted": 44090,
+    "passRateInScope": 58.87,
+    "passRateTrAccepted": 71
   },
   "torajs": {
-    "commit": "301a20f3",
-    "commitSubject": "fix: the with-object widen leaves computed-key literals alone",
+    "commit": "f49aedd9",
+    "commitSubject": "fix: new import() and optional-chain tagged templates stay syntax errors",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "f49aedd9",
+      "subject": "fix: new import() and optional-chain tagged templates stay syntax errors"
+    },
+    {
+      "hash": "cce8bd18",
+      "subject": "fix: the generic-ident call route admits beyond-arity calls"
+    },
+    {
+      "hash": "8d39bf01",
+      "subject": "feat: tagged template literals with the per-site template object"
+    },
+    {
+      "hash": "a3c89b57",
+      "subject": "feat: any primary is a legal new callee via the dynamic-construct path"
+    },
+    {
+      "hash": "d4a219af",
+      "subject": "feat: keyed update and logical-assignment lanes evaluate the shared key once"
+    },
+    {
+      "hash": "cbb3cbac",
+      "subject": "feat: a struct-typed key coerces through topropertykey on keyed index lanes"
+    },
+    {
+      "hash": "4895309e",
+      "subject": "chore(docs,hardev): rotation 437 census at 301a20f3"
+    },
+    {
       "hash": "301a20f3",
       "subject": "fix: the with-object widen leaves computed-key literals alone"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "d337e7c1",
       "subject": "fix: the receiver censuses recurse through the shared nested-list spine"
-    },
-    {
-      "hash": "de598cf1",
-      "subject": "feat: a nested-block var fn-expr reading this promotes via its hoisted assignment"
-    },
-    {
-      "hash": "e27b1755",
-      "subject": "chore(docs,hardev): rotation 436 census at 54cbac3f"
-    },
-    {
-      "hash": "54cbac3f",
-      "subject": "feat: a dynamic function's non-string literal argument folds via tostring"
-    },
-    {
-      "hash": "219b7b68",
-      "subject": "fix: a dynamic function's duplicate parameter renames before assembly"
-    },
-    {
-      "hash": "7cd16026",
-      "subject": "fix: a fnexpr this capture never takes the enclosing receiver's type"
-    },
-    {
-      "hash": "30198e98",
-      "subject": "feat: an unclaimed fnexpr this rejects honestly, not cryptically"
-    },
-    {
-      "hash": "ed9fdae5",
-      "subject": "chore: record the confirmation bench run at head - 44/44 cells still faster than bun"
     }
   ],
-  "headSha": "301a20f3",
+  "headSha": "f49aedd9",
   "autorun": {
-    "total": 740,
+    "total": 741,
     "baselineTarget": 10,
-    "bySelf": 735,
+    "bySelf": 736,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787049584-3b6b",
-      "at": "2026-08-18T10:39:44Z",
-      "ts": 1787049584,
+      "rotationId": "r-1787058724-7d19",
+      "at": "2026-08-18T13:12:04Z",
+      "ts": 1787058724,
       "trigger": "self",
-      "prevHead": "e27b1755",
-      "handoffSha": "sha256:ccda700047da8232963a1c628bf611cef79f91e57ae6b8970fa88e27b9bb7fef",
-      "handoffAgeSec": 25,
+      "prevHead": "4895309e",
+      "handoffSha": "sha256:d6c2edcea2ff7c6df24037f92a37d5fb69c4127cbf9867955c1d7f4cb41439bb",
+      "handoffAgeSec": 81,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787058724-7d19",
+        "at": "2026-08-18T13:12:04Z",
+        "ts": 1787058724,
+        "trigger": "self",
+        "prevHead": "4895309e",
+        "handoffSha": "sha256:d6c2edcea2ff7c6df24037f92a37d5fb69c4127cbf9867955c1d7f4cb41439bb",
+        "handoffAgeSec": 81,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787049584-3b6b",
         "at": "2026-08-18T10:39:44Z",
@@ -876,17 +887,6 @@
         "prevHead": "7d8aab3f",
         "handoffSha": "sha256:8bc6f81e0aadcc61706ba96c25d0abded3b756de623e24d5a87fb22150c609a1",
         "handoffAgeSec": 95,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786961696-05b2",
-        "at": "2026-08-17T10:14:56Z",
-        "ts": 1786961696,
-        "trigger": "self",
-        "prevHead": "0481bb82",
-        "handoffSha": "sha256:e79294ef9889eb392ebe096e515efe0561fa70a725b502fcc51147100b179322",
-        "handoffAgeSec": 38,
         "conformanceBefore": null,
         "commitsInSession": null
       }
