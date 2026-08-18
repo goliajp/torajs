@@ -56,6 +56,21 @@ enum ScanFor {
     /// value position is not a closure-shaped value this late in the
     /// pipeline — typeof answered "object").
     CalleeTouch,
+    /// ANY `arguments` spelling in the body, every position —
+    /// including the two spots the classifier scans deliberately
+    /// leave dark: the `arguments.length` member node itself (Length
+    /// only answers it, NonLengthTouch absorbs it) and the inside of
+    /// a `delete` (invisible to both, by the arm's own doc). This is
+    /// the Unmapped-arm gate's question (rotation 435): a body with
+    /// NO spelling must never ride the materialized array (every fn
+    /// that reassigned a param paid a never-read prologue — the
+    /// gcd1m bench regression), while a body with ANY spelling must
+    /// stay eligible — `delete arguments.length` was classified off
+    /// the ride by the narrower Length∪NonLengthTouch gate and its
+    /// rewrite then read a `__torajs_arguments` that was never
+    /// materialized (S10.6_A5_T3 pass regression). Face admissions
+    /// keep their own narrower scans untouched.
+    AnyTouch,
 }
 
 /// `Ident("arguments")` — the bare-binding shape the BareAssign
@@ -139,6 +154,14 @@ pub(super) fn collect_face_excluded_fns(
 pub(crate) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter()
         .any(|s| stmt_scan(ast, s, ScanFor::NonLengthTouch))
+}
+
+/// True if the body spells `arguments` anywhere at all — see
+/// [`ScanFor::AnyTouch`] for why neither Length nor NonLengthTouch
+/// alone can answer this (the `.length` member and the inside of a
+/// `delete` each fall dark in one of them).
+pub(super) fn body_has_any_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_scan(ast, s, ScanFor::AnyTouch))
 }
 
 pub(super) fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
@@ -400,7 +423,7 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
             if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") {
                 // `arguments.length` — the Length target hit; the
                 // NonLengthTouch scan absorbs it (obj not recursed).
-                return what == ScanFor::Length;
+                return matches!(what, ScanFor::Length | ScanFor::AnyTouch);
             }
             expr_scan(ast, *obj, what)
         }
@@ -441,8 +464,10 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         // would silently change face admissions keyed on those
         // scans); only the two callee probes look inside.
         Expr::Delete { expr } => {
-            matches!(what, ScanFor::CalleeWrite | ScanFor::CalleeTouch)
-                && (is_arguments_callee(ast, *expr) || expr_scan(ast, *expr, what))
+            matches!(
+                what,
+                ScanFor::CalleeWrite | ScanFor::CalleeTouch | ScanFor::AnyTouch
+            ) && (is_arguments_callee(ast, *expr) || expr_scan(ast, *expr, what))
         }
         Expr::Call { callee, args } => {
             expr_scan(ast, *callee, what) || args.iter().any(|a| expr_scan(ast, *a, what))
@@ -459,7 +484,9 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         Expr::Array(items) => items.iter().any(|e| expr_scan(ast, *e, what)),
         Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_scan(ast, *e, what)),
         Expr::Spread { expr } => expr_scan(ast, *expr, what),
-        Expr::Ident(n) if n == "arguments" => what == ScanFor::NonLengthTouch,
+        Expr::Ident(n) if n == "arguments" => {
+            matches!(what, ScanFor::NonLengthTouch | ScanFor::AnyTouch)
+        }
         Expr::Ternary {
             cond,
             then_branch,
