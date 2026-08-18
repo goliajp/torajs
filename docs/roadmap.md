@@ -1530,7 +1530,24 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `74c3db43`** (2026-08-18, rotation 431 — the resolver's
+**Latest @ `e626a596`** (2026-08-18, rotation 432 — the with desugar's
+two probe-confirmed silent-wrong gaps close (`new Base()` names its
+constructor as a string the free-name walk never saw — the object arm
+now constructs through NewDynamic; a logical compound's cloned left
+operand took a second HasBinding guard — the shell now rewrites whole
+under one), and the no-member rescan's top faces land: generator field
+annotations learn Object statics and unannotated value-returning
+functions (the forbidden-ext b2 family's 45 cases stored descriptors
+through a number slot), the Object proto family keeps its runtime
+nullish gate under `.call` with isPrototypeOf's primitive-V-first
+ordering, and Math.hypot joins the ns-static value family. Sweep vs
+431: passTotal 30784 → **30843 (+59)**, bug +2, incompatible −61,
+conservation exact (+61 = +59 + 2), moved 62 — **zero pass
+regressions**. Gate 3065/0/4 (+5 fixtures). Gate predicate **227
+unattributed clusters / 2597 cases / register 2 · 465 / residue 688 ·
+868 / core 3930**.)
+
+**Prior @ `74c3db43`** (2026-08-18, rotation 431 — the resolver's
 dead-copy sweep and the no-member cluster's largest face. The module
 channel that stranded orphan expressions closes at its single exit:
 after the final splice, everything unreachable from the spliced
