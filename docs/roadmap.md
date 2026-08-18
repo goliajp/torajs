@@ -5884,7 +5884,8 @@ port the rest first.)
 - [ ] **S6.1** `isConstructor.js` — **377** across 40 directories
 - [ ] **S6.2** `asyncHelpers.js` — **341**
 - [ ] **S6.3** `fnGlobalObject.js` 130, `nativeFunctionMatcher.js` 69,
-      `deepEqual.js` 40, sm shells ~60
+      ~~`deepEqual.js` 40~~ (ported 2026-08-19, rotation 441 —
+      faithful `_compare` chain, 54 cases unlocked), sm shells ~60
 - [ ] **S6.4** Make `Test262Error` carry its message through. **289 of
       the 695 bug-bucket cases (41.6 %) report bare `uncaught
       Test262Error` with no detail**, which makes the largest bug

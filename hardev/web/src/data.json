@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T18:35:07.150Z",
+  "generatedAt": "2026-08-18T20:29:11.198Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T18:25:27Z",
-    "headSha": "f7bab07f",
-    "elapsedSec": 356.96,
+    "ranAt": "2026-08-18T20:19:00Z",
+    "headSha": "c251a747",
+    "elapsedSec": 361.43,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26343,
-    "passNoOracle": 947,
+    "pass": 26366,
+    "passNoOracle": 948,
     "passNegative": 4140,
-    "passTotal": 31430,
-    "bug": 12840,
-    "incompatible": 8904,
-    "bunSkip": 6578,
+    "passTotal": 31454,
+    "bug": 12858,
+    "incompatible": 8862,
+    "bunSkip": 6590,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44270,
-    "passRateInScope": 59.11,
-    "passRateTrAccepted": 71
+    "trAccepted": 44312,
+    "passRateInScope": 59.15,
+    "passRateTrAccepted": 70.98
   },
   "torajs": {
-    "commit": "f7bab07f",
-    "commitSubject": "fix: reserved words reject as destructuring assignment targets",
+    "commit": "eff74d65",
+    "commitSubject": "refactor: accessor-setter family to check_assign_target/setter.rs",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "eff74d65",
+      "subject": "refactor: accessor-setter family to check_assign_target/setter.rs"
+    },
+    {
+      "hash": "7d9efa5a",
+      "subject": "feat: keyed struct writes consult inherited class-proto accessors"
+    },
+    {
+      "hash": "f55f5887",
+      "subject": "feat: integer-keyed struct reads walk the class prototype chain"
+    },
+    {
+      "hash": "16def1ec",
+      "subject": "feat: keyed writes on class instances, resolve_class_ref + dynamic number key"
+    },
+    {
+      "hash": "ba8e55e0",
+      "subject": "feat: symbol wrapper answers instanceof Symbol via Tag::SymbolWrapper dispatch"
+    },
+    {
+      "hash": "69759af1",
+      "subject": "feat: deepEqual.js harness port, faithful _compare chain with cycle cache"
+    },
+    {
+      "hash": "c251a747",
+      "subject": "chore(docs,hardev): rotation 440 census at f7bab07f"
+    },
+    {
       "hash": "f7bab07f",
       "subject": "fix: reserved words reject as destructuring assignment targets"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "f76ad9fe",
       "subject": "refactor: the parse entry family moves to parser/entry.rs"
-    },
-    {
-      "hash": "325ab094",
-      "subject": "chore(docs,hardev): rotation 439 final census at 177a2709"
-    },
-    {
-      "hash": "177a2709",
-      "subject": "feat: the any-lane length getter reads struct cells"
-    },
-    {
-      "hash": "8c576f7d",
-      "subject": "chore(docs,hardev): rotation 439 census at 3b886b61"
-    },
-    {
-      "hash": "3b886b61",
-      "subject": "fix: String.raw walks the raw value as an array-like, not an array layout"
-    },
-    {
-      "hash": "ff9f03a6",
-      "subject": "feat: indirect and inline-closure callees wrap top-fn value arguments"
-    },
-    {
-      "hash": "f3d39f62",
-      "subject": "feat: spread-site anon fn-exprs join the arguments argv face"
-    },
-    {
-      "hash": "363d6dd7",
-      "subject": "feat: inline new-expression callees join the arguments static-argv face"
     }
   ],
-  "headSha": "f7bab07f",
+  "headSha": "eff74d65",
   "autorun": {
-    "total": 743,
+    "total": 744,
     "baselineTarget": 10,
-    "bySelf": 738,
+    "bySelf": 739,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787071933-7fc9",
-      "at": "2026-08-18T16:52:13Z",
-      "ts": 1787071933,
+      "rotationId": "r-1787078188-3cec",
+      "at": "2026-08-18T18:36:28Z",
+      "ts": 1787078188,
       "trigger": "self",
-      "prevHead": "325ab094",
-      "handoffSha": "sha256:c1ea2e51742d68d0ccb9b8ce671bf6e9e94415fbe487325e0d815c55d6f8902b",
-      "handoffAgeSec": 0,
+      "prevHead": "c251a747",
+      "handoffSha": "sha256:2443eb7041ef1146b43bfec086cd0292793774b893ef2c9eb0b3eac29908f0c3",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787078188-3cec",
+        "at": "2026-08-18T18:36:28Z",
+        "ts": 1787078188,
+        "trigger": "self",
+        "prevHead": "c251a747",
+        "handoffSha": "sha256:2443eb7041ef1146b43bfec086cd0292793774b893ef2c9eb0b3eac29908f0c3",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787071933-7fc9",
         "at": "2026-08-18T16:52:13Z",
@@ -876,17 +887,6 @@
         "prevHead": "f3f7c43e",
         "handoffSha": "sha256:7115e4c0cdcecd5b71157b0b88b56617e2cfa3b0d200684226e7c4ad6ac11d7d",
         "handoffAgeSec": 343,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1786979502-20d4",
-        "at": "2026-08-17T15:11:42Z",
-        "ts": 1786979502,
-        "trigger": "self",
-        "prevHead": "b8383179",
-        "handoffSha": "sha256:77bdc0b6574be4f3cdf58a49fbb47a8fbf64b1fbd99f528abee423a8a1d0a093",
-        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       }
