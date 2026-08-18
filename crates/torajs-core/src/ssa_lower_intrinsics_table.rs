@@ -661,6 +661,7 @@ pub(crate) fn build(
         set_setop_setlike: init_c.set_like.setop_setlike,
         any_call_spread: init_c.spread_call.any_call_spread,
         any_method_call_spread: init_c.spread_call.any_method_call_spread,
+        anyv_construct_spread: init_c.spread_call.anyv_construct_spread,
         map_clone: init_c.map_set.map_clone,
         map_set: init_c.map_set.map_set,
         map_get: init_c.map_set.map_get,

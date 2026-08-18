@@ -83,6 +83,28 @@ pub unsafe extern "C" fn __torajs_any_call_spread(
     }
 }
 
+/// `new callee(a, ...xs)` where `callee` is a runtime value — the
+/// spread flavor of [`crate::construct::__torajs_anyv_construct`]
+/// (§13.3.5.1 EvaluateNew with a spread-carrying Arguments). Same
+/// verdict split: the §7.2.4 IsConstructor gate and the base-kind /
+/// bound-function construct paths all live in the fixed-argc twin
+/// this enters.
+///
+/// # Safety
+/// `callee` is a valid AnyValue; `args_arr` is a live `Array<Any>`
+/// the caller keeps alive across the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_construct_spread(
+    callee: AnyValue,
+    args_arr: *const c_void,
+) -> AnyValue {
+    unsafe {
+        with_argv(args_arr, |argv, argc| {
+            crate::construct::__torajs_anyv_construct(callee, argv, argc)
+        })
+    }
+}
+
 /// `super.m(a, ...xs)` in a builtin-heritage subclass method — the
 /// spread flavor of
 /// [`crate::method_call_subclass::__torajs_super_builtin_method`]

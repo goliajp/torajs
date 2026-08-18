@@ -19,6 +19,10 @@ pub(crate) struct SpreadCallIds {
     /// `recv.name(a, ...xs)`; same dispatch tail as
     /// `any_method_call` (inner + proto-patch consult + TypeError).
     pub any_method_call_spread: FuncId,
+    /// `(callee_any, args_arr)` — `new callee(a, ...xs)`; enters the
+    /// fixed-argc `anyv_construct` (IsConstructor gate + construct
+    /// paths) with the runtime argc read off the array.
+    pub anyv_construct_spread: FuncId,
 }
 
 pub(crate) fn declare(
@@ -45,6 +49,13 @@ pub(crate) fn declare(
                 Type::Ptr,
                 Type::Ptr,
             ][..],
+            Type::Any,
+        ),
+        anyv_construct_spread: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_construct_spread",
+            &[Type::Any, Type::Ptr][..],
             Type::Any,
         ),
     }

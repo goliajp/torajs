@@ -798,6 +798,7 @@ pub(crate) struct Intrinsics {
      * materialized Array<Any> argument list (spread declare group). */
     pub(crate) any_call_spread: FuncId,
     pub(crate) any_method_call_spread: FuncId,
+    pub(crate) anyv_construct_spread: FuncId,
     pub(crate) map_clone: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,

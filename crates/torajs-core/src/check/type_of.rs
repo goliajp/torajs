@@ -160,10 +160,21 @@ impl Checker {
             // `__torajs_anyv_construct`, which raises a TypeError when
             // it is not. The callee and arguments are still walked so
             // anything wrong inside them is reported on its own terms.
+            // A dynamic `...spread` argument walks its SOURCE, not
+            // the spread node (the call route's spread lane, mirrored
+            // here — argc is §13.3.8.1's runtime fact; iterability of
+            // the source is §7.4.2 GetIterator's runtime question).
             Expr::NewDynamic { callee, args } => {
                 let callee = *callee;
                 for a in args.clone() {
-                    self.type_of(ast, a)?;
+                    match ast.get_expr(a) {
+                        Expr::Spread { expr } => {
+                            self.type_of(ast, *expr)?;
+                        }
+                        _ => {
+                            self.type_of(ast, a)?;
+                        }
+                    }
                 }
                 self.type_of(ast, callee)?;
                 Ok(Type::Any)
