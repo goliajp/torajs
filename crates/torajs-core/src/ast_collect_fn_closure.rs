@@ -161,6 +161,64 @@ impl<'a> FnToClosureCollector<'a> {
         false
     }
 
+    /// The `Stmt::LetDecl` arm of [`Self::walk_stmt`] — extracted
+    /// verbatim (rotation 434: the Throw arm pushed the walker past
+    /// the 200-line cap; this is the walker's biggest arm).
+    fn walk_let_decl(
+        &mut self,
+        mutable: bool,
+        type_ann: Option<&str>,
+        init: ExprId,
+        is_var: bool,
+        name: &str,
+    ) {
+        self.collect_objectlit_field_sites(init, type_ann);
+        // r293 — the for-in head hoist (`let __forin_obj_N =
+        // <src>`, parser-minted): a bare fn-name src wraps so
+        // the keys call sees a boxable closure cell — for-in
+        // over a function enumerates its expando props
+        // (§14.7.5; none on a plain fn), which the any-lane
+        // `anyv_forin_keys` already answers. Raw FnSig had no
+        // arm anywhere on that path (13.2-23-s family).
+        if name.starts_with("__forin_obj_") {
+            self.try_mark(init);
+        }
+        // RFC 20260729-fn-value-any V4 刀 3 — a `var` slot is
+        // an `any` destination whatever the source says: the
+        // hoist pass (which runs AFTER this collector) mints
+        // every hoisted binding as `any` on purpose, since a
+        // pre-init read is `undefined` and a var may be
+        // reassigned across types. Reading only the written
+        // annotation left `var b = foo` — the plainest fn-value
+        // alias there is — panicking the whole program at
+        // box_to_any while the `let` / `const` forms worked.
+        if is_var || type_ann.is_some_and(|a| a.trim() == "any") {
+            self.collect_any_init_sites(init);
+        }
+        // Chunk 733 — `const fns: ((n)=>n)[] = [top_fn, ...]`:
+        // the element slot is Closure-repr, wrap each bare
+        // named-fn element.
+        if type_ann.is_some_and(crate::ast::is_fn_arr_ann) {
+            self.mark_array_lit_elems(init);
+        }
+        // Chunk 736 — a MUTABLE fn-typed binding initialized
+        // with a bare named fn (`let cb: (n)=>n = take`): the
+        // slot re-reprs Closure (chunk 732 local / K.3b
+        // global), so the raw-FnSig init wraps. The rewrite
+        // also turns the init into Expr::Closure, steering
+        // the lowerer off the immutable-only fn_addr_let
+        // direct-dispatch lane naturally. Variadic anns keep
+        // their own boxed-dual route (chunk-4 axis mirror).
+        if mutable
+            && type_ann
+                .as_deref()
+                .is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest("))
+        {
+            self.try_mark(init);
+        }
+        self.walk_expr(init);
+    }
+
     /// Walk one Stmt (and any Stmts / Exprs it contains) looking for
     /// store-sites. `ret_is_any` carries the enclosing fn's declared
     /// `any` return annotation down to `Return` sites.
@@ -173,53 +231,7 @@ impl<'a> FnToClosureCollector<'a> {
                 is_var,
                 name,
                 ..
-            } => {
-                self.collect_objectlit_field_sites(*init, type_ann.as_deref());
-                // r293 — the for-in head hoist (`let __forin_obj_N =
-                // <src>`, parser-minted): a bare fn-name src wraps so
-                // the keys call sees a boxable closure cell — for-in
-                // over a function enumerates its expando props
-                // (§14.7.5; none on a plain fn), which the any-lane
-                // `anyv_forin_keys` already answers. Raw FnSig had no
-                // arm anywhere on that path (13.2-23-s family).
-                if name.starts_with("__forin_obj_") {
-                    self.try_mark(*init);
-                }
-                // RFC 20260729-fn-value-any V4 刀 3 — a `var` slot is
-                // an `any` destination whatever the source says: the
-                // hoist pass (which runs AFTER this collector) mints
-                // every hoisted binding as `any` on purpose, since a
-                // pre-init read is `undefined` and a var may be
-                // reassigned across types. Reading only the written
-                // annotation left `var b = foo` — the plainest fn-value
-                // alias there is — panicking the whole program at
-                // box_to_any while the `let` / `const` forms worked.
-                if *is_var || type_ann.as_deref().is_some_and(|a| a.trim() == "any") {
-                    self.collect_any_init_sites(*init);
-                }
-                // Chunk 733 — `const fns: ((n)=>n)[] = [top_fn, ...]`:
-                // the element slot is Closure-repr, wrap each bare
-                // named-fn element.
-                if type_ann.as_deref().is_some_and(crate::ast::is_fn_arr_ann) {
-                    self.mark_array_lit_elems(*init);
-                }
-                // Chunk 736 — a MUTABLE fn-typed binding initialized
-                // with a bare named fn (`let cb: (n)=>n = take`): the
-                // slot re-reprs Closure (chunk 732 local / K.3b
-                // global), so the raw-FnSig init wraps. The rewrite
-                // also turns the init into Expr::Closure, steering
-                // the lowerer off the immutable-only fn_addr_let
-                // direct-dispatch lane naturally. Variadic anns keep
-                // their own boxed-dual route (chunk-4 axis mirror).
-                if *mutable
-                    && type_ann
-                        .as_deref()
-                        .is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest("))
-                {
-                    self.try_mark(*init);
-                }
-                self.walk_expr(*init);
-            }
+            } => self.walk_let_decl(*mutable, type_ann.as_deref(), *init, *is_var, name),
             Stmt::FnDecl {
                 return_type,
                 params,

@@ -205,23 +205,37 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §22.1.3.36 — String.prototype[Symbol.iterator] (own id,
         // never interns back; the spec function name has brackets).
         ANY_METHOD_STR_ITERATOR => ("[Symbol.iterator]", 0),
+        // The `any_method_iter` id block (iterator protocol + weak
+        // deref) rows live in [`iter_method_meta`] — the r405 watch
+        // said the next mid added here must extract a family first,
+        // and rotation 434's drop/toArray rows were that mid.
+        _ => return iter_method_meta(mid),
+    })
+}
+
+/// The `any_method_iter` id block's rows of [`any_method_meta`] —
+/// extracted family (the parent's `_` arm delegates here, so a miss
+/// still answers `None`).
+fn iter_method_meta(mid: i64) -> Option<(&'static str, u32)> {
+    use crate::any_method_iter as it;
+    Some(match mid {
         // §27.1.2.1 — %Iterator.prototype%[Symbol.iterator]
         // return-this (own id, never interns back).
-        m if m == crate::any_method_iter::ANY_METHOD_ITER_SELF => ("[Symbol.iterator]", 0),
+        m if m == it::ANY_METHOD_ITER_SELF => ("[Symbol.iterator]", 0),
         // §27.1.4.1 — %Iterator.prototype%[Symbol.dispose] (own id,
         // never interns back; RFC 20260809 B6).
-        m if m == crate::any_method_iter::ANY_METHOD_ITER_DISPOSE => ("[Symbol.dispose]", 0),
+        m if m == it::ANY_METHOD_ITER_DISPOSE => ("[Symbol.dispose]", 0),
         // §26.1.3.2 — WeakRef.prototype.deref. Missing until rotation
         // 383: the dispatch arm resolved it, so calls worked, but the
         // reflection faces reading this table (`.name` / `.length` /
         // the own-name enumeration) could not see it.
-        m if m == crate::any_method_iter::ANY_METHOD_DEREF => ("deref", 0),
+        m if m == it::ANY_METHOD_DEREF => ("deref", 0),
         // §27.1.4.3 / §27.1.4.10 — %Iterator.prototype% drop /
         // toArray (rotation 434: the tag-15 ownership row made the
         // reflection faces reach them; the name-table guard caught
         // the missing rows).
-        m if m == crate::any_method_iter::ANY_METHOD_DROP => ("drop", 1),
-        m if m == crate::any_method_iter::ANY_METHOD_TO_ARRAY => ("toArray", 0),
+        m if m == it::ANY_METHOD_DROP => ("drop", 1),
+        m if m == it::ANY_METHOD_TO_ARRAY => ("toArray", 0),
         _ => return None,
     })
 }
