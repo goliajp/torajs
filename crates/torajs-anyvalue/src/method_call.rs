@@ -223,39 +223,6 @@ pub(crate) unsafe fn any_method_redispatch(
     }
 }
 
-/// The mids that dispatch BEFORE the shared nullish guard — each has
-/// its own answer for a null / undefined receiver, so the guard must
-/// not see them: §20.1.3.6's badge classifier answers on EVERY
-/// this-value (steps 1-2, no ToObject throw; reached only through the
-/// reified badge cell — a plain `toString` name never interns to this
-/// mid), §10.2.4 %ThrowTypeError% raises ITS message whatever the
-/// receiver, and §20.1.3.3 orders step 1's primitive-V `false` before
-/// step 2's ToObject(this) can throw (so `isPrototypeOf.call(null,
-/// 5)` is `false`, not a TypeError — the kernel runs both steps in
-/// that order).
-unsafe fn pre_nullish_arm(
-    recv: AnyValue,
-    mid: i64,
-    argv: *const u64,
-    argc: i64,
-) -> Option<AnyValue> {
-    if mid == torajs_rc::ANY_METHOD_OBJECT_TO_STRING {
-        return Some(unsafe { crate::method_call_object_proto::object_proto_to_string(recv) });
-    }
-    if mid == torajs_rc::ANY_METHOD_THROW_TYPE_ERROR {
-        unsafe {
-            __torajs_throw_type_error(
-                c"'caller', 'callee', and 'arguments' properties may not be accessed".as_ptr(),
-            );
-        }
-        return Some(VALUE_UNDEFINED);
-    }
-    if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
-        return Some(unsafe { crate::method_call_object_proto::is_prototype_of(recv, argv, argc) });
-    }
-    None
-}
-
 /// The dispatch body behind the two entries above —
 /// `skip_wrapper_expando` marks a reified-builtin re-dispatch
 /// (method body execution; own-property probing is over).
@@ -268,7 +235,7 @@ unsafe fn any_method_call_dispatch(
     argc: i64,
     skip_wrapper_expando: bool,
 ) -> AnyValue {
-    if let Some(v) = unsafe { pre_nullish_arm(recv, mid, argv, argc) } {
+    if let Some(v) = unsafe { crate::method_call_prelude::pre_nullish_arm(recv, mid, argv, argc) } {
         return v;
     }
     if is_null(recv) || is_undefined(recv) {
