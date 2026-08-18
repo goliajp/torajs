@@ -343,7 +343,18 @@ impl<'a> FnToClosureCollector<'a> {
                     }
                 }
             }
-            Stmt::Throw(eid) | Stmt::Yield(eid) => self.walk_expr(*eid),
+            Stmt::Throw(eid) => {
+                // §14.14 — the thrown operand crosses into the
+                // (tag, value) pending-throw slot, an any-shaped
+                // store: wrap so the slot holds a closure cell. A
+                // raw FnSig there made every heap read the catch
+                // binding performs land on a code address (typeof
+                // answered "object", the scope-end drop SIGBUSed).
+                if !self.try_mark(*eid) {
+                    self.walk_expr(*eid);
+                }
+            }
+            Stmt::Yield(eid) => self.walk_expr(*eid),
             // r293 — for-of / for-in loops were invisible to the walk
             // (the catch-all swallowed them), so every store-site
             // inside a loop body escaped the wrap axes (`box.cb =
