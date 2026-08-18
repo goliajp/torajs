@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `54cbac3f`** (2026-08-18, rotation 436 — takagi asked for a
+**Latest @ `301a20f3`** (2026-08-18, rotation 437 — the C1 with-family
+knives. Three root causes stacked under the 21 S12.10 with cases fell
+in sequence: var_hoist's keep-the-fn-type escape hatch is
+top-level-only, so a nested-block `var f = function(){…this…}` escaped
+the promote census (a by-name hoisted-assignment census now admits
+it); the with helpers' params were spelled `w`/`k` and, spliced into
+the user arena, collided with same-named user bindings (renamed
+`__twith_*` — injected code may not occupy user namespace); and all
+seven receiver censuses recursed FnDecl/Block-only, so a `with`
+inside a `try` hid its `__with_<n>` binding from the any-census
+(shared nested-list spine now). Then the instruction-#2 cluster
+turned out to be one shape — an object literal used as a `with`
+scope object is dynamic by contract — and a declaration widen to
+`: any` (the detached-objlit-method move) opened the whole S11.13.2
+compound-assignment family plus the prefix/postfix twins. Two thin
+knives beside it: the test262 harness's assert-family `msg`
+parameters accept `any` (real test262 only ToStrings the message on
+failure), and Str + RegExp concatenates through §22.2.6.14 toString
+(checker and lowering landed together — the checker alone printed
+the heap pointer as a number). The mid-close sweep caught ONE pass
+regression (the `[Symbol.unscopables]` deleted-binding strict read),
+A/B attributed it to the widen, and the fix — computed-key literals
+keep their (g)-leg lane — re-verified to zero. Sweep vs 436:
+passTotal 31056 → **31180 (+124)**, bug +69, incompatible **−193**,
+trAccepted +193 (conservation +193 = +124 + 69 ✓). Gate 3083 →
+**3088/0/4** across five substrate commits + one harness commit
+(+5 fixtures). Gate predicate **222 unattributed clusters / 2438
+cases / register 2 · 355 (SR-1 267, −107: a batch of sloppy-surface
+cases genuinely fixed out of the attribution into pass) / residue
+685 · 863 / core 3656**.)
+
+**Prior @ `54cbac3f`** (2026-08-18, rotation 436 — takagi asked for a
 confirmation bench of the perf fix, then the `__this` C1 honest-reject
 gate plus three knives landed. The full bench at HEAD holds **44/44
 cells faster than bun** (median 0.513×, zero drift from the post-fix
