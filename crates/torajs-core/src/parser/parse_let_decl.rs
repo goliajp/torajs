@@ -151,7 +151,13 @@ impl<'a> Parser<'a> {
                 return self.parse_let_yield_init(mutable, is_var, name, type_ann);
             }
             let init = self.parse_expr()?;
-            self.register_class_value_alias(&name, init);
+            let init = match self.expand_dstr_assign_init(init, &mut decls)? {
+                Some(rhs_temp) => rhs_temp,
+                None => {
+                    self.register_class_value_alias(&name, init);
+                    init
+                }
+            };
             decls.push(Stmt::LetDecl {
                 mutable,
                 name,
@@ -173,6 +179,38 @@ impl<'a> Parser<'a> {
         } else {
             Stmt::Multi(decls)
         });
+    }
+
+    /// §13.15.2 — a destructuring assignment in the INIT position
+    /// (`var y = { p: x } = src`): the value of a destructuring
+    /// assignment is the RHS itself, so the pattern assignments run
+    /// first (pushed onto `decls` through the shared
+    /// `desugar_dstr_assign`) and the declared binding reads back the
+    /// hoisted src temp — `Some(temp)` replaces the init. The
+    /// statement lane (expr_stmt_or_dstr_assign) never sees this
+    /// shape: the Assign is an init subexpression.
+    fn expand_dstr_assign_init(
+        &mut self,
+        init: ExprId,
+        decls: &mut Vec<Stmt>,
+    ) -> Result<Option<ExprId>, String> {
+        let Expr::Assign { target, value } = self.ast.get_expr(init) else {
+            return Ok(None);
+        };
+        if !matches!(
+            self.ast.get_expr(*target),
+            Expr::Array(_) | Expr::ObjectLit { .. }
+        ) {
+            return Ok(None);
+        }
+        let (t, v) = (*target, *value);
+        let stmts = self.desugar_dstr_assign(t, v)?;
+        let src_name = match &stmts[0] {
+            Stmt::LetDecl { name, .. } => name.clone(),
+            _ => unreachable!("desugar_dstr_assign always hoists the src first"),
+        };
+        decls.extend(stmts);
+        Ok(Some(self.ast.add_expr(Expr::Ident(src_name))))
     }
 
     /// J.4 — `let name(:T)? = yield <expr>?;` / `= yield* src;` init.
