@@ -1530,7 +1530,39 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `a9537e62`** (2026-08-18, rotation 434 — two recon agents
+**Latest @ `15c22e20`** (2026-08-18, rotation 435 — takagi called for a
+full bench re-measure and a perf-first rotation, and the re-measure
+found the one broken cell: gcd1m at 1.38× slower than bun, the only
+AOT cell violating the no-cell-slower invariant. A nine-probe
+release-build bisect (same-day hyperfine judge, good 36.0ms / bad
+56.9ms, every reading consistent) landed on 55f0464a (rotation 272):
+the FoldArity catch-all's mutation scan counts ANY param write as a
+hit without ever asking whether the body spells `arguments`, and
+ArgcMode::Unmapped materializes unconditionally — every plain fn that
+reassigns a param paid an allocated, never-read
+`__torajs_arguments: any[]` prologue per call. The arm now gates on an
+actual arguments spelling; gcd1m 57 → 37.6ms, collatz −5.2%, and the
+post-fix full run has **44/44 cells faster than bun** (median 0.514×).
+The first gate (Length ∪ NonLengthTouch) left one pass behind —
+`delete arguments.length` is dark in both scans — so a new
+ScanFor::AnyTouch answers "any spelling, any position" and took
+S10.6_A5_T3 back the same rotation. The `__this` recon's C4b and C5
+landed alongside: Array.fromAsync hands its thisArg to every mapfn
+call (an `__torajs_any_call_with_this` dispatch twin, a third borrowed
+kernel operand, the lowering boxes args[2], the cb-slot face admits
+fromAsync), and an inline fn-expr promotes as a `.bind` receiver (one
+parent per expression node = alias-free by construction; the lifted
+mint rides the kernel lane via FLAG_CLOSURE_RECV_FIRST). Sweep vs 434:
+passTotal 31043 → **31046 (+3)**, bug +1, incompatible −4,
+conservation exact (+4 = +3 + 1), **zero pass regressions** in the
+final sweep; forward = fromAsync thisarg ×2 + flatMap
+bound-function-argument, and thisarg-primitive-sloppy now runs for
+real (stdout-mismatch — the sloppy ToObject wrap, recorded). Gate
+3077 → **3080/0/4** across four substrate commits (+3 fixtures).
+Gate predicate **224 unattributed clusters / 2510 cases / register
+2 · 462 / residue 684 · 865 / core 3837**.)
+
+**Prior @ `a9537e62`** (2026-08-18, rotation 434 — two recon agents
 split the `__this` cluster into five structural shapes and the
 Struct-write-through cluster into four, then the four biggest honest
 cuts landed. Destructuring pattern field loads take the §13.15.5.4
