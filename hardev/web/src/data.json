@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T16:32:43.826Z",
+  "generatedAt": "2026-08-18T16:51:45.811Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T16:20:54Z",
-    "headSha": "3b886b61",
-    "elapsedSec": 342.52,
+    "ranAt": "2026-08-18T16:50:04Z",
+    "headSha": "177a2709",
+    "elapsedSec": 339.2,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26252,
+    "pass": 26260,
     "passNoOracle": 943,
     "passNegative": 4140,
-    "passTotal": 31335,
-    "bug": 12821,
+    "passTotal": 31343,
+    "bug": 12813,
     "incompatible": 9018,
     "bunSkip": 6578,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 44156,
-    "passRateInScope": 58.93,
-    "passRateTrAccepted": 70.96
+    "passRateInScope": 58.94,
+    "passRateTrAccepted": 70.98
   },
   "torajs": {
-    "commit": "3b886b61",
-    "commitSubject": "fix: String.raw walks the raw value as an array-like, not an array layout",
+    "commit": "177a2709",
+    "commitSubject": "feat: the any-lane length getter reads struct cells",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "177a2709",
+      "subject": "feat: the any-lane length getter reads struct cells"
+    },
+    {
+      "hash": "8c576f7d",
+      "subject": "chore(docs,hardev): rotation 439 census at 3b886b61"
+    },
+    {
       "hash": "3b886b61",
       "subject": "fix: String.raw walks the raw value as an array-like, not an array layout"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "a3c89b57",
       "subject": "feat: any primary is a legal new callee via the dynamic-construct path"
-    },
-    {
-      "hash": "d4a219af",
-      "subject": "feat: keyed update and logical-assignment lanes evaluate the shared key once"
-    },
-    {
-      "hash": "cbb3cbac",
-      "subject": "feat: a struct-typed key coerces through topropertykey on keyed index lanes"
     }
   ],
-  "headSha": "3b886b61",
+  "headSha": "177a2709",
   "autorun": {
     "total": 742,
     "baselineTarget": 10,

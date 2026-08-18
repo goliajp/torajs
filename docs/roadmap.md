@@ -1530,7 +1530,7 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `3b886b61`** (2026-08-19, rotation 439 — the NewDynamic
+**Latest @ `177a2709`** (2026-08-19, rotation 439 — the NewDynamic
 spread + FnSig-box + String.raw knives. Handoff 438's instruction #1
 took three cuts: a `__torajs_anyv_construct_spread` kernel (with_argv
 over the fixed-argc construct path) with the call cascade's
@@ -1553,12 +1553,16 @@ cell offset, so a plain-object `raw` dereferenced garbage as a length
 and crashed (the t262 return-empty-string family's SIGSEGV, 7 cases)
 — it now runs §22.1.2.4 steps 3-5 exactly (LengthOfArrayLike through
 the owned length kernel + ToLength clamp, shape-blind indexed
-element reads). Sweep vs 438: passTotal 31306 → **31335 (+29)**, bug
-+37, incompatible **−66**, trAccepted +66 (conservation +66 = +29 +
-37 ✓), **zero pass regressions** (case-level diff). Forward 29:
-new/spread 14, String/raw 8, call 4, tagged-template 2, sm/class 1.
-Gate 3093 → **3098/0/4** across five substrate commits (+5
-fixtures). Gate predicate **216 unattributed clusters / 2266 cases /
+element reads). A TRIG-2 gap knife closed the length getter's
+struct arm (an inline object literal's anon struct fell to the tail
+undefined, so an inline `{length: n, …}` array-like counted as 0
+while the bound spelling answered — the indexed half already had its
+chunk-744 struct arm). Sweep vs 438: passTotal 31306 → **31343
+(+37)**, bug +29, incompatible **−66**, trAccepted +66 (conservation
++66 = +37 + 29 ✓), **zero pass regressions** (case-level diff).
+Forward 37: new/spread 14, String/raw 12, call 4, tagged-template 2,
+sm/class 1, Array HOF 4 (the struct-length arm). Gate 3093 →
+**3099/0/4** across six substrate commits (+6 fixtures). Gate predicate **216 unattributed clusters / 2266 cases /
 register 2 · 354 (SR-1 266, SR-2 92) / residue 681 · 853 / core
 3473**. Rotation 438's sweep @ `f49aedd9` (31306 / 217 / 2289 /
 core 3496) was banked to hardev but never stamped here — this entry
