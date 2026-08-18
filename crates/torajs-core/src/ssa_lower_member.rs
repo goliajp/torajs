@@ -179,15 +179,16 @@ pub(crate) fn lower_with_val(
         Type::Obj(sid) => sid,
         _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
     };
-    // S2.24 刀 4 — a desugar-minted default-guarded pattern load
-    // (`Ast::dstr_default_member_loads`) whose ANCHOR layout lacks
-    // the field becomes a RUNTIME GetV (§13.15.5.4): a static miss is
-    // not a runtime miss — a prefix-compatible heterogeneous array
-    // types its elements by the anchor (`[{}, {b: 3}]` → Struct([])),
-    // and the wider element really carries the field. Box the
-    // receiver and ride the any-member IC + runtime probe: a hit
-    // answers the value, a true miss answers ANY_UNDEF and the
-    // guard's default fires. User reads keep the layout panic.
+    // S2.24 刀 4 — a desugar-minted pattern field load
+    // (`Ast::dstr_default_member_loads`, every slot with or without a
+    // default) whose ANCHOR layout lacks the field becomes a RUNTIME
+    // GetV (§13.15.5.4): a static miss is not a runtime miss — a
+    // prefix-compatible heterogeneous array types its elements by the
+    // anchor (`[{}, {b: 3}]` → Struct([])), and the wider element
+    // really carries the field. Box the receiver and ride the
+    // any-member IC + runtime probe: a hit answers the value, a true
+    // miss answers ANY_UNDEF (the guard's default, if any, fires on
+    // it). User reads keep the layout panic.
     if ctx.ast.dstr_default_member_loads.contains(&eid)
         && !ctx.struct_layouts[sid.0 as usize]
             .iter()

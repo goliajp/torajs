@@ -374,16 +374,17 @@ pub struct Ast {
     /// rejects members of this set. The comma is consumed at parse
     /// time; this side table is the only carrier of that fact.
     pub arrlit_trailing_comma_after_rest: std::collections::HashSet<ExprId>,
-    /// S2.24 刀 4 — Member ExprIds minted by `dstra_field_load` for a
-    /// DEFAULT-guarded pattern field (`{ f = D }` / `{ f: y = D }`,
-    /// both lanes — declaration and assignment share the recipe).
-    /// §13.15.5.4 GetV answers `undefined` for an absent field, so
-    /// these reads are LENIENT on a static miss: the checker answers
-    /// `Any` instead of "no member" and the lowering rides the
-    /// any-member runtime read — a static miss is not a runtime miss
-    /// (prefix-widened heterogeneous array elements type by the
-    /// anchor but may really carry the field). Only marked reads —
-    /// a user member read keeps the hard error (TS posture).
+    /// S2.24 刀 4 (widened rotation 434) — Member ExprIds minted by
+    /// `dstra_field_load` for EVERY pattern field (`{ f }` / `{ f = D }`
+    /// / `{ f: y = D }`, both lanes — declaration and assignment share
+    /// the recipe). §13.15.5.4 GetV answers `undefined` for an absent
+    /// field on every slot — a default only changes what replaces that
+    /// `undefined` — so these reads are LENIENT on a static miss: the
+    /// checker answers `Any` instead of "no member" and the lowering
+    /// rides the any-member runtime read — a static miss is not a
+    /// runtime miss (prefix-widened heterogeneous array elements type
+    /// by the anchor but may really carry the field). Only marked
+    /// reads — a user member read keeps the hard error (TS posture).
     pub dstr_default_member_loads: std::collections::HashSet<ExprId>,
     /// rotation 233 — Member ExprIds minted by the parser's `await e`
     /// desugar (`e.value`, expr_prec L.2). §27.7.5.1 Await: a Promise

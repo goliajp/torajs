@@ -29,7 +29,8 @@ use crate::check::{Checker, Type, resolve_class_ref};
 use crate::check_type_of_member_accessor::{class_name_of, enforce_visibility};
 
 /// `lenient_missing` — S2.24 刀 4: true for a desugar-minted
-/// default-guarded pattern load (`Ast::dstr_default_member_loads`);
+/// pattern field load (`Ast::dstr_default_member_loads`, every slot
+/// with or without a default);
 /// the terminal "no member" reject answers `Type::Any` instead — the
 /// read becomes a RUNTIME GetV (§13.15.5.4) at the lowering, because
 /// a static miss is not a runtime miss: a prefix-compatible
