@@ -107,6 +107,7 @@ mod fnexpr_this_pairing;
 pub(crate) mod fnexpr_this_recvs;
 pub(crate) mod fnexpr_this_routed;
 mod fnexpr_this_shapes;
+mod fnexpr_this_unclaimed;
 mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;
@@ -203,6 +204,7 @@ pub use fnexpr_bind_this::{
     normalize_function_bind_call, promote_bind_receiver_this, register_bind_receiver_recv_fns,
 };
 pub use fnexpr_this_default::bind_fnexpr_this_default;
+pub use fnexpr_this_unclaimed::unclaimed_fnexpr_this;
 pub use fold_fromentries::fold_fromentries;
 pub use forwarders::synthesize_forwarders;
 pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};

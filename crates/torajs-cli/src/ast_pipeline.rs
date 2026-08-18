@@ -159,7 +159,9 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     Ok(())
 }
 
-pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
+/// `Err(())` = a gate inside the chain refused the program and has
+/// already printed its diagnostic (same contract as the prelude).
+pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // RFC 20260807-global-object G1 — `globalThis.<builtin>` member
     // reads rewrite to the bare name before anything consumes member
     // shapes; eval-inlined stmts (prelude) are already in place.
@@ -213,6 +215,16 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     // what still carries a `__this` capture by now is a fn-expr nobody
     // supplies a receiver for, and gets the plain-call answer.
     ast::bind_fnexpr_this_default(ast);
+    // C1 honest-reject gate — right after the LAST receiver rule: a
+    // `__this` capture still standing is a fn-expr `this` nobody
+    // claims, and the checker's spelling of the same reject leaks two
+    // internal names (`closure __closure_N references unknown
+    // identifier __this`). Same accept/reject line, honest words —
+    // see `fnexpr_this_unclaimed`'s module doc.
+    if let Some(msg) = ast::unclaimed_fnexpr_this(ast) {
+        eprintln!("not yet supported: {msg}");
+        return Err(());
+    }
     ast::apply_default_args(ast);
     // After the arguments/default passes (their side-tables gate the
     // wrap), before the static expanders (whose declined spread
@@ -227,4 +239,5 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     // spellings, and its thunk bodies pass every argument
     // explicitly, so nothing after it needs to run again.
     ast::synthesize_sig_thunks(ast);
+    Ok(())
 }

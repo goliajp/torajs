@@ -219,7 +219,9 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> Exit
     }
     // Shared 31-pass desugar chain — see ast_pipeline.rs for the
     // per-pass ordering notes.
-    ast_pipeline::run_ast_desugar_pipeline(&mut ast);
+    if ast_pipeline::run_ast_desugar_pipeline(&mut ast).is_err() {
+        return ExitCode::from(1);
+    }
     if matches!(stage, Stage::Parse) {
         ast.print();
         return ExitCode::SUCCESS;

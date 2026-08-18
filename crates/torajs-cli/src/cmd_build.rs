@@ -147,7 +147,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast_pipeline::run_ast_prelude(&mut ast).map_err(|()| ExitCode::from(1))?;
     // Shared 31-pass desugar chain — see ast_pipeline.rs for the
     // per-pass ordering notes.
-    ast_pipeline::run_ast_desugar_pipeline(&mut ast);
+    ast_pipeline::run_ast_desugar_pipeline(&mut ast).map_err(|()| ExitCode::from(1))?;
 
     let (artifacts, warnings) = check::check_with_arity_warn(&ast).map_err(|e| {
         eprintln!("type error: {e}");
