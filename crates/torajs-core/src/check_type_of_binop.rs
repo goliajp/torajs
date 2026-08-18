@@ -89,6 +89,14 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
         // ToPrimitive(fn) → toString() → the erased source text.
         || (l == Type::String && matches!(r, Type::Function(..)))
         || (matches!(l, Type::Function(..)) && r == Type::String)
+        // Rotation 437 — Str + RegExp: §13.15.3 ToPrimitive reaches
+        // §22.2.6.14 `toString` → "/source/flags". The regex-literal
+        // binding already concatenated through this family; the
+        // `new RegExp(...)` spelling types Type::RegExp and was the
+        // one shape left refusing (the S15.10.1_A1 error-message
+        // interpolations).
+        || (l == Type::String && r == Type::RegExp)
+        || (l == Type::RegExp && r == Type::String)
     {
         return Ok(Type::String);
     }

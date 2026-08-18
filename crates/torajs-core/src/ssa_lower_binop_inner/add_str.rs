@@ -98,7 +98,14 @@ pub(crate) fn try_lower(
         || (str_or_substr(a_ty) && arr_or_obj(b_ty))
         || (str_or_substr(b_ty) && arr_or_obj(a_ty))
         || (str_or_substr(a_ty) && fn_like(b_ty))
-        || (str_or_substr(b_ty) && fn_like(a_ty));
+        || (str_or_substr(b_ty) && fn_like(a_ty))
+        // Rotation 437 — Str + RegExp: §13.15.3 ToPrimitive →
+        // §22.2.6.14 toString → "/source/flags". Without this pair
+        // the operand fell through to the numeric arms and printed
+        // the heap pointer as a number (measured on the checker-side
+        // widening probe).
+        || (str_or_substr(a_ty) && b_ty == Type::RegExp)
+        || (str_or_substr(b_ty) && a_ty == Type::RegExp);
     // Any Substr operand: route through view-aware concat
     // helpers. One alloc + two memcpys (vs. 2 allocs + 3
     // memcpys via substr_to_owned + str_concat).
@@ -325,6 +332,29 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
                 None,
             );
             (Operand::Value(r), true)
+        }
+        // Rotation 437 — the RegExp side of a Str concat: the
+        // §22.2.6.14 toString kernel ("/source/flags"), reached
+        // through the any-lane heap dispatch the same way the Obj
+        // arm below is (tag 4 = the Heap slot tag; the header tag
+        // routes to the regex kernel).
+        Type::RegExp => {
+            let raw = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::PtrToInt(v.clone()),
+                Type::I64,
+                None,
+            );
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_to_str_prim,
+                    vec![Operand::ConstI64(4), Operand::Value(raw)],
+                ),
+                Type::Str,
+                None,
+            );
+            (Operand::Value(s), true)
         }
         // S138 — Arr / Obj sides reuse the S137 dispatch.
         Type::Arr(elem_arr_id) => {
