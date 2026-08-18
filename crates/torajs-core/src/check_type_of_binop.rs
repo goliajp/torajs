@@ -97,6 +97,15 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
         // interpolations).
         || (l == Type::String && r == Type::RegExp)
         || (l == Type::RegExp && r == Type::String)
+        // Cluster #6 (rotation 442) — Str + Nullable(Array): the
+        // un-narrowed `match`/`exec` result rides the concat lane
+        // directly (`"got: " + s.match(re)`). §13.15.3 with a String
+        // side always concatenates, and ToString covers both arms:
+        // null → "null", an array → its join — so the answer is
+        // String either way. The lowering guards the in-band 0
+        // sentinel before the array coerce.
+        || (l == Type::String && matches!(&r, Type::Nullable(inner) if matches!(&**inner, Type::Array(_))))
+        || (matches!(&l, Type::Nullable(inner) if matches!(&**inner, Type::Array(_))) && r == Type::String)
     {
         return Ok(Type::String);
     }

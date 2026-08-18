@@ -10,7 +10,7 @@
 //! file-local [`coerce_to_str`] fn.
 
 use crate::ast::BinOp as AstBinOp;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
@@ -143,8 +143,20 @@ pub(crate) fn try_lower(
     if mixed_string {
         let a_undefable = ctx.binop.left_f64_undefable;
         let b_undefable = ctx.binop.right_f64_undefable;
-        let (a_str, a_fresh) = coerce_to_str(ctx, a, a_undefable);
-        let (b_str, b_fresh) = coerce_to_str(ctx, b, b_undefable);
+        // Cluster #6 (rotation 442) — a nullable-arr operand (an
+        // un-narrowed `match`/`exec` result; SSA repr a plain Arr
+        // pointer with the in-band 0 sentinel) guards the sentinel
+        // before the Arr coerce would hand NULL to `arr_join`.
+        let (a_str, a_fresh) = if ctx.binop.left_nullable_arr && matches!(a_ty, Type::Arr(_)) {
+            coerce_nullable_arr_to_str(ctx, a)
+        } else {
+            coerce_to_str(ctx, a, a_undefable)
+        };
+        let (b_str, b_fresh) = if ctx.binop.right_nullable_arr && matches!(b_ty, Type::Arr(_)) {
+            coerce_nullable_arr_to_str(ctx, b)
+        } else {
+            coerce_to_str(ctx, b, b_undefable)
+        };
         let concat = ctx.intrinsics.str_concat;
         let v = ctx.f.append_inst(
             ctx.cur_block,
@@ -233,6 +245,59 @@ fn drop_minted_temps(ctx: &mut LowerCtx, a: Operand, a_temp: bool, b: Operand, b
     if b_temp {
         ctx.emit_drop_value(b, Type::Str);
     }
+}
+
+/// Cluster #6 (rotation 442) — the nullable-arr operand's coerce:
+/// branch on the in-band 0 sentinel (§13.15.3 ToString(null) →
+/// "null" via the same `null_to_str` kernel the Str+Null pair uses)
+/// before handing a live pointer to the plain Arr coerce
+/// (`arr_join`). The merge rides an alloca'd Str slot (this IR has
+/// no phi). Both arms mint a fresh Str, so the answer is always
+/// minted=true and the caller's temp drop balances either path.
+fn coerce_nullable_arr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
+    let slot = ctx.alloca(Type::Str, None);
+    let null_blk = ctx.f.add_block();
+    let arr_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let is_null = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, v.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_null),
+            then_blk: null_blk,
+            else_blk: arr_blk,
+        },
+    );
+    ctx.cur_block = null_blk;
+    let n = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.null_to_str, vec![]),
+        Type::Str,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(n), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = arr_blk;
+    let (s, _minted) = coerce_to_str(ctx, v, false);
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Store(s, Operand::Value(slot), 0));
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let out = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(slot), 0),
+        Type::Str,
+        None,
+    );
+    (Operand::Value(out), true)
 }
 
 /// One operand → owned Str for the mixed-concat path (body is the

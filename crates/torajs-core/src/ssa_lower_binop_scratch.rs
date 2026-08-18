@@ -37,6 +37,14 @@ pub(crate) struct BinopScratch {
     /// fold.
     pub(crate) left_f64_undefable: bool,
     pub(crate) right_f64_undefable: bool,
+    /// Cluster #6 (rotation 442) — the operand is a nullable-arr
+    /// source (an un-narrowed `match`/`exec` result; checker type
+    /// Nullable(Array), SSA repr a plain Arr pointer with the
+    /// in-band 0 sentinel). The string-concat coerce reads these to
+    /// guard the sentinel and answer "null" per §13.15.3
+    /// ToString(null) instead of handing NULL to `arr_join`.
+    pub(crate) left_nullable_arr: bool,
+    pub(crate) right_nullable_arr: bool,
     /// S9 square carve — set when both Mul operands are the same identifier
     /// (`x * x`): a value times itself can never be negative×zero, so -0 is
     /// unmintable and the int path keeps (mirrors the `width_of` square
