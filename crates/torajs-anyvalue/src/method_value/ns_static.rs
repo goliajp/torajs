@@ -32,8 +32,8 @@ use super::ns_static_table::{
     __torajs_anyv_freeze, __torajs_anyv_from_entries, __torajs_anyv_get_proto_of_any,
     __torajs_anyv_is_extensible, __torajs_anyv_is_sealed, __torajs_anyv_prevent_extensions,
     __torajs_anyv_seal, __torajs_anyv_set_prototype_of, __torajs_date_now_static,
-    __torajs_math_max, __torajs_math_min, __torajs_obj_is_frozen_any, __torajs_str_drop,
-    __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp,
+    __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_throw_check, __torajs_throw_type_error,
+    DISPATCH, Disp,
 };
 
 use super::{
@@ -101,7 +101,8 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 };
                 box_double(f(x, y))
             }
-            Disp::MinMax { is_max } => min_max_fold(*is_max, argv, argc),
+            Disp::MinMax { is_max } => super::ns_static_math::min_max_fold(*is_max, argv, argc),
+            Disp::Hypot => super::ns_static_math::hypot_fold(argv, argc),
             Disp::I32Pair(f) => {
                 let Ok(x) = arg_num(argv, argc, 0) else {
                     return VALUE_UNDEFINED;
@@ -259,31 +260,6 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 super::ns_static_coerce::uri_kernel_value(*encode, *component, argv, argc)
             }
         }
-    }
-}
-
-/// §21.3.2.24/25 Math.min / Math.max arm — coerce every arg in
-/// source order, fold pairwise through the typed-tier kernel (NaN
-/// propagation and ±0 ordering live there). A coercion throw
-/// answers undefined with the pending throw recorded.
-unsafe fn min_max_fold(is_max: bool, argv: *const u64, argc: i64) -> u64 {
-    unsafe {
-        let mut acc = if is_max {
-            f64::NEG_INFINITY
-        } else {
-            f64::INFINITY
-        };
-        for i in 0..argc {
-            let Ok(x) = arg_num(argv, argc, i) else {
-                return VALUE_UNDEFINED;
-            };
-            acc = if is_max {
-                __torajs_math_max(acc, x)
-            } else {
-                __torajs_math_min(acc, x)
-            };
-        }
-        box_double(acc)
     }
 }
 

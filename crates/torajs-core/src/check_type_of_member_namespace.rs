@@ -277,7 +277,10 @@ fn try_match_math(name: &str) -> Option<Result<Type, String>> {
         ),
         "random" => Type::Function(Vec::new(), Box::new(Type::Number)),
         // Two-arg methods: pow(x, y), min(a, b), max(a, b), atan2(y, x).
-        "pow" | "min" | "max" | "atan2" => {
+        // `hypot` is variadic at the call lane (its own SSA arm
+        // inlines sum²+sqrt); this member arm is the VALUE face,
+        // whose declared arity per §21.3.2.18 is 2.
+        "pow" | "min" | "max" | "atan2" | "hypot" => {
             Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number))
         }
         // Constants — read directly without parens.

@@ -25,6 +25,9 @@ pub(super) enum Disp {
     MinMax {
         is_max: bool,
     },
+    /// §21.3.2.18 variadic sum²+sqrt (empty → +0; any Infinity wins
+    /// over NaN per steps 3-4, which a plain sum cannot express).
+    Hypot,
     /// ToInt32 pair → i32 result (imul).
     I32Pair(unsafe extern "C" fn(i64, i64) -> i64),
     /// ToUint32 unary → i32-ranged result (clz32).
@@ -379,4 +382,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     },
     Disp::ConsoleLog { to_stderr: true }, // console.error
     Disp::ConsoleLog { to_stderr: true }, // console.warn
+    Disp::Hypot,
 ];

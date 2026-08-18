@@ -82,6 +82,7 @@ mod ns_static_externs;
 mod ns_static_ctor;
 pub(crate) mod symbol_static;
 // Object / Symbol arm bodies (file-size split, batch 6).
+mod ns_static_math;
 mod ns_static_obj;
 mod ns_static_reflect;
 mod ns_static_table;

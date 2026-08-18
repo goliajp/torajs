@@ -282,6 +282,11 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // path serves both streams (no `_err` walker duplication).
     row("console", "error", 0),
     row("console", "warn", 0),
+    // §21.3.2.18 — appended behind the console pair (id = index, so
+    // the Math family block above cannot take insertions): the call
+    // lane inlines sum²+sqrt at SSA level, this row is the VALUE
+    // face (`Math.hypot.length` / `.name` / not-a-constructor).
+    row("Math", "hypot", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
