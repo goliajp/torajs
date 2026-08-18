@@ -15,11 +15,11 @@
 //! fails loud after the lift (unknown identifier at the top-level
 //! body) — same waterline as before, now past the yield gate.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
 use super::stmt_nested_lists::for_each_nested_vec_mut;
-use super::{Ast, Stmt};
+use super::{Ast, Expr, Stmt};
 
 /// Lift every nested `is_generator` FnDecl to the top level under a
 /// mangled name (`__nestedgen_<parent>_<name>_<uid>`), rewriting the
@@ -27,6 +27,14 @@ use super::{Ast, Stmt};
 /// The original site becomes an empty Block. Block-scoped semantics
 /// are the plain ES2015 ones — no Annex B branch carve-outs apply
 /// to generator declarations.
+///
+/// Two claim surfaces, same logic: the top-level stmt spine (nested
+/// blocks / fn bodies), and every `Expr::ArrowFn` body in the expr
+/// arena — arrow bodies hang off ExprIds the stmt spine never sees,
+/// so a `function* g() {}` inside `() => { ... }` kept its `yield`
+/// and died loud at check exactly like the pre-393-03 nested form.
+/// A flat arena scan covers every nesting depth (each arrow owns an
+/// arena slot), the `hoist_gen_fn_exprs` walk shape.
 pub(super) fn lift_nested_generators(ast: &mut Ast) {
     let mut counter = 0u32;
     // Cloned up front — the collect closure below runs while `ast`
@@ -41,54 +49,14 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
         };
         let mut renames: HashMap<String, String> = HashMap::new();
         let mut lifted: Vec<Stmt> = Vec::new();
-        for_each_nested_vec_mut(stmt, &mut |list| {
-            for slot in list.iter_mut() {
-                let Stmt::FnDecl {
-                    name,
-                    is_generator: true,
-                    ..
-                } = slot
-                else {
-                    continue;
-                };
-                if name.starts_with("__nestedgen_") {
-                    continue;
-                }
-                // A nested ASYNC generator stays put: its channel
-                // (the parser's `async_generator_fns` registry + the
-                // async desugar's drive) is keyed by the original
-                // name and does not survive the rename — lifting it
-                // turned the pre-existing loud compile error into a
-                // SIGSEGV (A/B probed). It keeps today's loud reject.
-                if ast_async_gens.contains(name.as_str()) {
-                    continue;
-                }
-                let mangled = format!("__nestedgen_{parent}_{name}_{counter}");
-                counter += 1;
-                renames.insert(name.clone(), mangled.clone());
-                let taken = std::mem::replace(slot, Stmt::Block(Vec::new()));
-                let Stmt::FnDecl {
-                    type_params,
-                    params,
-                    return_type,
-                    body,
-                    span,
-                    ..
-                } = taken
-                else {
-                    unreachable!();
-                };
-                lifted.push(Stmt::FnDecl {
-                    name: mangled,
-                    type_params,
-                    params,
-                    return_type,
-                    body,
-                    is_generator: true,
-                    span,
-                });
-            }
-        });
+        claim_generators_in(
+            stmt,
+            &parent,
+            &mut counter,
+            &ast_async_gens,
+            &mut renames,
+            &mut lifted,
+        );
         if !renames.is_empty() {
             // The stmt rewriter has no FnDecl arm (the general
             // nested-fns pass hands FnDecl BODIES to the body
@@ -107,8 +75,110 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
         }
         all_lifted.extend(lifted);
     }
+    // Arena surface — arrow bodies. Each body is taken out whole
+    // (no aliasing against the rewrite calls that need `ast`),
+    // wrapped in a Block so the claim walk offers the body's OWN
+    // list too (it is not a top-level list), then put back. A
+    // generator that captures an arrow local still fails loud after
+    // the lift (unknown identifier) — the recorded 393-03 waterline.
+    for i in 0..ast.exprs.len() {
+        let body_taken = match &mut ast.exprs[i] {
+            Expr::ArrowFn { body, .. } => std::mem::take(body),
+            _ => continue,
+        };
+        let mut renames: HashMap<String, String> = HashMap::new();
+        let mut lifted: Vec<Stmt> = Vec::new();
+        let mut block = Stmt::Block(body_taken);
+        claim_generators_in(
+            &mut block,
+            "__arrow",
+            &mut counter,
+            &ast_async_gens,
+            &mut renames,
+            &mut lifted,
+        );
+        if !renames.is_empty() {
+            rewrite_idents_in_stmt(ast, &mut block, &renames, true);
+            remap_parser_gen_anns(&mut block, &renames);
+            for lf in lifted.iter_mut() {
+                if let Stmt::FnDecl { body, .. } = lf {
+                    rewrite_idents_in_body(ast, body, &renames, true);
+                    remap_parser_gen_anns(lf, &renames);
+                }
+            }
+        }
+        let Stmt::Block(body_back) = block else {
+            unreachable!();
+        };
+        let Expr::ArrowFn { body, .. } = &mut ast.exprs[i] else {
+            unreachable!();
+        };
+        *body = body_back;
+        all_lifted.extend(lifted);
+    }
     top.extend(all_lifted);
     ast.stmts = top;
+}
+
+/// The shared claim walk — every nested `function*` decl under
+/// `stmt` swaps for an empty Block and lands in `lifted` under its
+/// mangled top-level name.
+fn claim_generators_in(
+    stmt: &mut Stmt,
+    parent: &str,
+    counter: &mut u32,
+    async_gens: &HashSet<String>,
+    renames: &mut HashMap<String, String>,
+    lifted: &mut Vec<Stmt>,
+) {
+    for_each_nested_vec_mut(stmt, &mut |list| {
+        for slot in list.iter_mut() {
+            let Stmt::FnDecl {
+                name,
+                is_generator: true,
+                ..
+            } = slot
+            else {
+                continue;
+            };
+            if name.starts_with("__nestedgen_") {
+                continue;
+            }
+            // A nested ASYNC generator stays put: its channel
+            // (the parser's `async_generator_fns` registry + the
+            // async desugar's drive) is keyed by the original
+            // name and does not survive the rename — lifting it
+            // turned the pre-existing loud compile error into a
+            // SIGSEGV (A/B probed). It keeps today's loud reject.
+            if async_gens.contains(name.as_str()) {
+                continue;
+            }
+            let mangled = format!("__nestedgen_{parent}_{name}_{counter}");
+            *counter += 1;
+            renames.insert(name.clone(), mangled.clone());
+            let taken = std::mem::replace(slot, Stmt::Block(Vec::new()));
+            let Stmt::FnDecl {
+                type_params,
+                params,
+                return_type,
+                body,
+                span,
+                ..
+            } = taken
+            else {
+                unreachable!();
+            };
+            lifted.push(Stmt::FnDecl {
+                name: mangled,
+                type_params,
+                params,
+                return_type,
+                body,
+                is_generator: true,
+                span,
+            });
+        }
+    });
 }
 
 /// The parser's for-of fast path bakes `__Gen_<name>` /
