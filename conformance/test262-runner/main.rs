@@ -426,6 +426,11 @@ fn run_case(
         // (ASCII-narrowed identifier classes; builtin names are
         // ASCII, non-ASCII fails loud).
         "nativeFunctionMatcher.js",
+        // 2026-08-19 — real structural equality (`__t262_deCompare`
+        // chain: optionality → primitive → object with cycle cache);
+        // the stock lazy-template format() is a depth-capped renderer
+        // (failure-message only, bun runs the same port).
+        "deepEqual.js",
     ];
     let unported: Vec<&str> = fm
         .includes

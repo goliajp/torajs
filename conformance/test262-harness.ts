@@ -916,7 +916,315 @@ function checkSettledPromises(settleds: any, expected: any, message: string = ""
     }
   }
 }
-function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
+// ─── deepEqual.js port (2026-08-19) ───
+//
+// Structural equality, faithful to the stock `_compare` chain:
+// optionality → primitive (boxed unwrap, NaN equates) → object
+// (identity → @@toStringTag → Date valueOf → RegExp toString →
+// array-like elementwise → structural for-in with sorted keys →
+// iterable protocol → fail). The cycle cache is a Map keyed by both
+// operands in both directions; an object pair is provisionally
+// cached EQUAL before descending so circular graphs compare equal.
+// Which branches write the cache mirrors the stock helper exactly —
+// the Date/RegExp branches there call compareIf WITHOUT the cache,
+// so a NOT_EQUAL from them leaves the provisional EQUAL entry in
+// place, and a faithful port keeps that behavior.
+//
+// Verdict domain: 1 = EQUAL, -1 = NOT_EQUAL, 0 = cache miss.
+//
+// The stock format() (lazy tagged-template machinery for `ref #N`
+// back-references) is replaced by a depth-capped renderer: it only
+// runs inside the failure message, the harness self-tests assert
+// compare behavior not message text, and bun runs this same port so
+// the rendered text agrees byte-for-byte.
+
+function __t262_deepEqual(actual: any, expected: any, msg: any = ""): void {
+  if (__t262_deCompare(actual, expected, undefined) !== 1) {
+    __t262_assert(
+      false,
+      "Expected " + __t262_deFormat(actual, 0) + " to be structurally equal to " +
+        __t262_deFormat(expected, 0) + ". " + (msg || "")
+    );
+  }
+}
+
+function __t262_deCompare(a: any, b: any, cache: any): number {
+  const aOpt: boolean = a === undefined || a === null;
+  const bOpt: boolean = b === undefined || b === null;
+  if (aOpt || bOpt) {
+    if (!aOpt || !bOpt) return -1;
+    return a === b ? 1 : -1;
+  }
+  const aPrim: boolean = __t262_deIsPrimitive(a);
+  const bPrim: boolean = __t262_deIsPrimitive(b);
+  if (aPrim || bPrim) {
+    if (!aPrim || !bPrim) return -1;
+    return __t262_deComparePrimitive(a, b);
+  }
+  const aObj: boolean = typeof a === "object" || typeof a === "function";
+  const bObj: boolean = typeof b === "object" || typeof b === "function";
+  if (aObj || bObj) {
+    if (!aObj || !bObj) return -1;
+    return __t262_deCompareObject(a, b, cache ? cache : new Map());
+  }
+  return -1;
+}
+
+function __t262_deIsBoxed(v: any): boolean {
+  return (
+    v instanceof String ||
+    v instanceof Number ||
+    v instanceof Boolean ||
+    (typeof Symbol === "function" && v instanceof Symbol) ||
+    (typeof BigInt === "function" && v instanceof BigInt)
+  );
+}
+
+function __t262_deIsPrimitive(v: any): boolean {
+  const t: any = typeof v;
+  if (t === "string" || t === "number" || t === "bigint" || t === "boolean" || t === "symbol") {
+    return true;
+  }
+  return __t262_deIsBoxed(v);
+}
+
+function __t262_deComparePrimitive(a: any, b: any): number {
+  const x: any = __t262_deIsBoxed(a) ? a.valueOf() : a;
+  const y: any = __t262_deIsBoxed(b) ? b.valueOf() : b;
+  if (x === y) return 1;
+  if (typeof x !== typeof y) return -1;
+  // same typeof, not strictly equal — only NaN can still equate
+  if (typeof x === "number") return isNaN(x) && isNaN(y) ? 1 : -1;
+  return -1;
+}
+
+// valueOf / toString probes (Date, RegExp): both sides reduce to a
+// primitive pair, or the branch answers NOT_EQUAL.
+function __t262_deComparePrimPair(x: any, y: any): number {
+  if (!__t262_deIsPrimitive(x) || !__t262_deIsPrimitive(y)) return -1;
+  return __t262_deComparePrimitive(x, y);
+}
+
+function __t262_deIsArrayLike(v: any): boolean {
+  if (Array.isArray(v)) return true;
+  return (
+    (typeof Uint8Array === "function" && v instanceof Uint8Array) ||
+    (typeof Uint8ClampedArray === "function" && v instanceof Uint8ClampedArray) ||
+    (typeof Uint16Array === "function" && v instanceof Uint16Array) ||
+    (typeof Uint32Array === "function" && v instanceof Uint32Array) ||
+    (typeof Int8Array === "function" && v instanceof Int8Array) ||
+    (typeof Int16Array === "function" && v instanceof Int16Array) ||
+    (typeof Int32Array === "function" && v instanceof Int32Array) ||
+    (typeof Float32Array === "function" && v instanceof Float32Array) ||
+    (typeof Float64Array === "function" && v instanceof Float64Array) ||
+    (typeof BigUint64Array === "function" && v instanceof BigUint64Array) ||
+    (typeof BigInt64Array === "function" && v instanceof BigInt64Array)
+  );
+}
+
+// Everything object-shaped EXCEPT reference-only (Promise, WeakMap,
+// WeakSet) and @@iterator-compared (Map, Set) containers.
+function __t262_deIsStructural(v: any): boolean {
+  return !(
+    (typeof Promise === "function" && v instanceof Promise) ||
+    (typeof WeakMap === "function" && v instanceof WeakMap) ||
+    (typeof WeakSet === "function" && v instanceof WeakSet) ||
+    (typeof Map === "function" && v instanceof Map) ||
+    (typeof Set === "function" && v instanceof Set)
+  );
+}
+
+function __t262_deIsIterable(v: any): boolean {
+  return typeof Symbol === "function" && typeof v[Symbol.iterator] === "function";
+}
+
+function __t262_deCompareObject(a: any, b: any, cache: any): number {
+  const hit: number = __t262_deGetCache(cache, a, b);
+  if (hit !== 0) return hit;
+  __t262_deSetCache(cache, a, b, 1); // provisional: cycles compare equal
+  if (a === b) {
+    __t262_deSetCache(cache, a, b, 1);
+    return 1;
+  }
+  const aTag: any = Symbol.toStringTag in a ? a[Symbol.toStringTag] : undefined;
+  const bTag: any = Symbol.toStringTag in b ? b[Symbol.toStringTag] : undefined;
+  if (aTag !== bTag) {
+    __t262_deSetCache(cache, a, b, -1);
+    return -1;
+  }
+  // Date — valueOf pair (stock passes no cache on this branch)
+  const aDate: boolean = a instanceof Date;
+  const bDate: boolean = b instanceof Date;
+  if (aDate || bDate) {
+    if (!aDate || !bDate) return -1;
+    return __t262_deComparePrimPair(a.valueOf(), b.valueOf());
+  }
+  // RegExp — toString pair (uncached, same as Date)
+  const aRe: boolean = a instanceof RegExp;
+  const bRe: boolean = b instanceof RegExp;
+  if (aRe || bRe) {
+    if (!aRe || !bRe) return -1;
+    return __t262_deComparePrimPair(a.toString(), b.toString());
+  }
+  const aArr: boolean = __t262_deIsArrayLike(a);
+  const bArr: boolean = __t262_deIsArrayLike(b);
+  if (aArr || bArr) {
+    if (!aArr || !bArr) return -1;
+    const r: number = __t262_deCompareArrayLike(a, b, cache);
+    __t262_deSetCache(cache, a, b, r);
+    return r;
+  }
+  const aSt: boolean = __t262_deIsStructural(a);
+  const bSt: boolean = __t262_deIsStructural(b);
+  if (aSt || bSt) {
+    if (!aSt || !bSt) return -1;
+    const r: number = __t262_deCompareStructural(a, b, cache);
+    __t262_deSetCache(cache, a, b, r);
+    return r;
+  }
+  const aIt: boolean = __t262_deIsIterable(a);
+  const bIt: boolean = __t262_deIsIterable(b);
+  if (aIt || bIt) {
+    if (!aIt || !bIt) return -1;
+    const r: number = __t262_deCompareIterable(a, b, cache);
+    __t262_deSetCache(cache, a, b, r);
+    return r;
+  }
+  __t262_deSetCache(cache, a, b, -1);
+  return -1;
+}
+
+function __t262_deCompareArrayLike(a: any, b: any, cache: any): number {
+  if (a.length !== b.length) return -1;
+  for (let i = 0; i < a.length; i++) {
+    if (__t262_deCompare(a[i], b[i], cache) === -1) return -1;
+  }
+  return 1;
+}
+
+function __t262_deCompareStructural(a: any, b: any, cache: any): number {
+  const aKeys: any = [];
+  for (const k in a) aKeys.push(k);
+  const bKeys: any = [];
+  for (const k in b) bKeys.push(k);
+  if (aKeys.length !== bKeys.length) return -1;
+  aKeys.sort();
+  bKeys.sort();
+  for (let i = 0; i < aKeys.length; i++) {
+    if (__t262_deCompare(aKeys[i], bKeys[i], cache) === -1) return -1;
+    if (__t262_deCompare(a[aKeys[i]], b[bKeys[i]], cache) === -1) return -1;
+  }
+  const aIt: boolean = __t262_deIsIterable(a);
+  const bIt: boolean = __t262_deIsIterable(b);
+  if (aIt || bIt) {
+    if (!aIt || !bIt) return -1;
+    return __t262_deCompareIterable(a, b, cache);
+  }
+  return 1;
+}
+
+function __t262_deCompareIterable(a: any, b: any, cache: any): number {
+  // size probe — early exit before walking entries
+  if (typeof Map === "function" && a instanceof Map && b instanceof Map && a.size !== b.size) {
+    return -1;
+  }
+  if (typeof Set === "function" && a instanceof Set && b instanceof Set && a.size !== b.size) {
+    return -1;
+  }
+  const ai: any = a[Symbol.iterator]();
+  const bi: any = b[Symbol.iterator]();
+  while (true) {
+    const ar: any = ai.next();
+    const br: any = bi.next();
+    if (ar.done) {
+      if (br.done) return 1;
+      if (bi.return) bi.return();
+      return -1;
+    }
+    if (br.done) {
+      if (ai.return) ai.return();
+      return -1;
+    }
+    if (__t262_deCompare(ar.value, br.value, cache) === -1) {
+      if (ai.return) ai.return();
+      if (bi.return) bi.return();
+      return -1;
+    }
+  }
+}
+
+// cache: Map<operand, Map<operand, verdict>>, written symmetrically.
+function __t262_deGetCache(cache: any, left: any, right: any): number {
+  let oc: any = cache.get(left);
+  let r: any = oc ? oc.get(right) : undefined;
+  if (r) return r;
+  oc = cache.get(right);
+  r = oc ? oc.get(left) : undefined;
+  if (r) return r;
+  return 0;
+}
+
+function __t262_deSetCache(cache: any, left: any, right: any, result: number): void {
+  let oc: any = cache.get(left);
+  if (!oc) {
+    oc = new Map();
+    cache.set(left, oc);
+  }
+  oc.set(right, result);
+  oc = cache.get(right);
+  if (!oc) {
+    oc = new Map();
+    cache.set(right, oc);
+  }
+  oc.set(left, result);
+}
+
+// Failure-message renderer. Depth-capped instead of the stock
+// `ref #N` graph annotation — termination on cycles without an
+// identity-keyed seen set, and both runtimes render identically.
+function __t262_deFormat(v: any, depth: number): string {
+  if (v === null) return "null";
+  const t: any = typeof v;
+  if (t === "string") return '"' + v + '"';
+  if (t === "bigint") return String(v) + "n";
+  if (t === "undefined" || t === "number" || t === "boolean" || t === "symbol") return String(v);
+  if (t === "function") return "function" + (v.name ? " " + String(v.name) : "");
+  if (depth > 3) return "...";
+  if (Array.isArray(v)) {
+    const parts: any = [];
+    for (let i = 0; i < v.length; i++) parts.push(__t262_deFormat(v[i], depth + 1));
+    return "[" + parts.join(", ") + "]";
+  }
+  if (v instanceof Date) return "Date(" + String(v.valueOf()) + ")";
+  if (v instanceof Error) {
+    return "error " + (v.name ? String(v.name) : "Error") + "(" + __t262_deFormat(v.message, depth + 1) + ")";
+  }
+  if (v instanceof RegExp) return String(v);
+  if (typeof Map === "function" && v instanceof Map) {
+    const parts: any = [];
+    const it: any = v[Symbol.iterator]();
+    while (true) {
+      const r: any = it.next();
+      if (r.done) break;
+      parts.push(__t262_deFormat(r.value[0], depth + 1) + " => " + __t262_deFormat(r.value[1], depth + 1));
+    }
+    return "Map {" + parts.join(", ") + "}";
+  }
+  if (typeof Set === "function" && v instanceof Set) {
+    const parts: any = [];
+    const it: any = v[Symbol.iterator]();
+    while (true) {
+      const r: any = it.next();
+      if (r.done) break;
+      parts.push(__t262_deFormat(r.value, depth + 1));
+    }
+    return "Set {" + parts.join(", ") + "}";
+  }
+  const parts: any = [];
+  for (const k in v) parts.push(k + ": " + __t262_deFormat(v[k], depth + 1));
+  return "Object {" + parts.join(", ") + "}";
+}
+
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 
 // ─── nativeFunctionMatcher.js port (2026-08-12) ───
