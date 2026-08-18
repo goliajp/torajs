@@ -1530,7 +1530,40 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `15c22e20`** (2026-08-18, rotation 435 — takagi called for a
+**Latest @ `54cbac3f`** (2026-08-18, rotation 436 — takagi asked for a
+confirmation bench of the perf fix, then the `__this` C1 honest-reject
+gate plus three knives landed. The full bench at HEAD holds **44/44
+cells faster than bun** (median 0.513×, zero drift from the post-fix
+run); gcd1m 36.4ms vs bun 42.1 — the "residual 3ms vs the 7/31
+baseline" measured down to ~0.4ms, inside the layout-noise band, so
+that L3b item closes. C1: a closure mint still capturing `__this`
+after the LAST receiver rule rejects in the pipeline with `not yet
+supported: fnexpr this in unclaimed receiver position` instead of the
+checker's internal-name-leaking unknown-ident spelling — ~60 cases
+re-bucketed onto one self-describing signature (dirs=13). The recon's
+C3 shape turned out deeper than a census gap: the construction-site
+snapshot typed a fn-expr's `__this` capture from the MINT scope, so a
+nested `function` in a class method sniffed `return this` as the
+class, and storing the plain-call undefined through the class-typed
+slot was a store/drop SIGSEGV — the snapshot now skips `__this`
+exactly when the mint is a registered function expression (arrows
+keep the entry, §8.3.4). Two dynamic-function knives: duplicate
+parameter names rename before assembly (the parse ADMITTED them and
+both slots resolved to the last binding, so `arguments[0]` answered
+the second argument — the rename makes the positional snapshot exact,
+and §10.4.4 makes the duplicate case unmapped anyway), and non-string
+literal arguments fold through ToString (`new Function(undefined)`).
+Sweep vs 435: passTotal 31046 → **31056 (+10)**, bug −13,
+incompatible +3, conservation exact (−3 = +10 − 13), **zero pass
+regressions**; forward = 8 bug→pass + 2 incompat→pass, all Function
+ctor family; 3 Function cases now run far enough to expose the next
+gap (`delete` on a fn object's typed layout) and 2 staging cases take
+the C1 reject at compile time instead of the same not-yet-supported
+at runtime. Gate 3080 → **3083/0/4** across four substrate commits
+(+3 fixtures). Gate predicate **224 unattributed clusters / 2514
+cases / register 2 · 462 / residue 686 · 864 / core 3840**.)
+
+**Prior @ `15c22e20`** (2026-08-18, rotation 435 — takagi called for a
 full bench re-measure and a perf-first rotation, and the re-measure
 found the one broken cell: gcd1m at 1.38× slower than bun, the only
 AOT cell violating the no-cell-slower invariant. A nine-probe
