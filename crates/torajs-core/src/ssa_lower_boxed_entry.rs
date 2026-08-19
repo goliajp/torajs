@@ -81,53 +81,6 @@ fn boxable(ty: &Type) -> bool {
         ) || ty.is_refcounted())
 }
 
-/// S-NEW 刀 2 — factory adapters exist only so
-/// `__torajs_anyv_construct` can reach a class through a value. A
-/// program that never constructs from a value gets none of them: one
-/// extra function per class is a real cost to an artifact whose size
-/// is a differentiator. r293 — `Reflect.construct` reaches the same
-/// registry through its own kernel, so its call shape arms the
-/// synthesis too.
-pub(crate) fn program_constructs_from_value(ast: &Ast) -> bool {
-    ast.exprs.iter().any(|e| match e {
-        crate::ast::Expr::NewDynamic { .. } => true,
-        // A `.construct(...)` call arms regardless of the receiver
-        // shape: the direct `Reflect.construct` form is provable,
-        // but an alias (`const R: any = Reflect; R.construct(C,
-        // ...)`) reaches the same kernel through the ns-object
-        // singleton's cell, and the AST cannot see through the
-        // binding. The method NAME is the signal; a user object's
-        // own `construct` method false-positives into one adapter
-        // per class — the pay-for-use trade the species
-        // `constructor`-write arm below already makes.
-        crate::ast::Expr::Call { callee, .. } => matches!(
-            ast.get_expr(*callee),
-            crate::ast::Expr::Member { name, .. } if name == "construct"
-        ),
-        // A bare `Reflect.construct` member READ detaches the cell
-        // (`const c = Reflect.construct; c(C, ...)`) — the call
-        // through the detached value is invisible, so the read
-        // itself arms.
-        crate::ast::Expr::Member { obj, name } => {
-            name == "construct"
-                && matches!(ast.get_expr(*obj), crate::ast::Expr::Ident(ns) if ns == "Reflect")
-        }
-        // RFC 20260808-construct-channel B5 — a `constructor`
-        // property write is the ArraySpeciesCreate consumption
-        // signal (§9.4.2.3 step 5 reads it back and step 10
-        // constructs through the value; an `extends Array` class
-        // needs no explicit `@@species` write — the inherited
-        // default getter answers the class itself). Without the
-        // adapters the species construct dead-ends on a loud
-        // entry-miss for a class the program clearly wired up.
-        crate::ast::Expr::Assign { target, .. } => matches!(
-            ast.get_expr(*target),
-            crate::ast::Expr::Member { name, .. } if name == "constructor"
-        ),
-        _ => false,
-    })
-}
-
 /// Head-param classification of one FnDecl: `(first_is_env,
 /// first_is_this, is_twin)`. Env-first (lifted closure) and
 /// this-first (`__cm_` mono method) bodies feed the adapter's env
@@ -278,6 +231,10 @@ pub(crate) fn synthesize_boxed_entries(
     entries
 }
 
+mod admit;
+pub(crate) use admit::program_constructs_from_value;
+use admit::promise_heir_classes;
+
 /// The per-FnDecl classification walk — which bodies get an adapter
 /// and with what argv-window shape (env/this head, static / factory
 /// head-less forms, argc/argv synthetic slots, the knife-2 receiver
@@ -292,6 +249,7 @@ fn collect_boxed_targets(
     arr_layouts: &[Type],
 ) -> Vec<BoxedEntryTarget> {
     let constructs_from_value = program_constructs_from_value(ast);
+    let promise_heirs = promise_heir_classes(ast);
     let mut targets: Vec<BoxedEntryTarget> = Vec::new();
     for stmt in &ast.stmts {
         let Stmt::FnDecl { name, params, .. } = stmt else {
@@ -313,8 +271,13 @@ fn collect_boxed_targets(
         // S-NEW 刀 2 — the `__new_<C>` factories, same head-less shape
         // as a static method: their params ARE the constructor's, so
         // argv maps straight onto them. `__torajs_anyv_construct`
-        // reaches a class object's factory through this adapter.
-        let is_factory = constructs_from_value && name.starts_with("__new_");
+        // reaches a class object's factory through this adapter. A
+        // Promise-heir class's factory is admitted unconditionally:
+        // the inherited settle statics run NewPromiseCapability(C)
+        // through the construct channel at runtime (rotation 451),
+        // and no syntactic probe can see that consumer.
+        let is_factory = name.starts_with("__new_")
+            && (constructs_from_value || promise_heirs.contains(&name["__new_".len()..]));
         if !first_is_env && !first_is_this && !is_static && !is_factory && !is_twin {
             continue;
         }

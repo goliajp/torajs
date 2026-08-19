@@ -58,6 +58,29 @@ pub(super) fn is_subclassable_builtin(name: &str) -> bool {
     SUBCLASSABLE_BUILTINS.contains(&name) || EXOTIC_SUBCLASSABLE.contains(&name)
 }
 
+/// The builtin name at the root of `cname`'s ctor chain when that
+/// root is an exotic-parent class — `class CP2 extends CP` (CP
+/// extends Promise) answers "Promise" for CP2 and CP alike; `None`
+/// for ordinary classes. A user descendant of an exotic class needs
+/// the SAME exotic mint (its instances must be real builtin cells or
+/// the inherited builtin surface has nothing to run on). Walks
+/// `class_parents`, which the strip below has already rooted (a
+/// stripped class keeps `None` there and its builtin in
+/// `exotic_parent`); the 64 cap mirrors `builtin_heritage_root`.
+pub(crate) fn exotic_root_parent<'a>(ast: &'a Ast, cname: &str) -> Option<&'a str> {
+    let mut cur = cname.to_string();
+    for _ in 0..64 {
+        if let Some(p) = ast.exotic_parent.get(&cur) {
+            return Some(p.as_str());
+        }
+        match ast.class_parents.get(&cur) {
+            Some(Some(p)) => cur = p.clone(),
+            _ => return None,
+        }
+    }
+    None
+}
+
 /// The factory's zero-arg mint magic for an exotic parent (the class
 /// resolves from the enclosing `__new_<C>` fn name at lower time).
 pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {

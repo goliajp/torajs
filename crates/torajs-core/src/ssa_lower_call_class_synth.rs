@@ -399,7 +399,9 @@ fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
     // class itself. Not gated on the factory adapter below — the
     // mark is a property-read fact; a missing adapter surfaces as
     // the construct kernel's own loud miss.
-    if ctx.ast.exotic_parent.get(cname).map(String::as_str) == Some("Array") {
+    if crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ctx.ast, cname)
+        == Some("Array")
+    {
         let cur_block = ctx.cur_block;
         let mark = ctx.intrinsics.ctor_mark_arr_species;
         ctx.f

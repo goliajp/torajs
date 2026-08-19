@@ -251,13 +251,14 @@ pub(super) fn rewrite_classdecls_pass3(
         // the any world (RFC 20260730 blade 1) — typing __this by the
         // class name would send member access down the Obj-layout
         // typed tier against it.
-        let this_ann = if ast.exotic_parent.contains_key(cname) {
-            "any".to_string()
-        } else if type_params.is_empty() {
-            cname.clone()
-        } else {
-            format!("{cname}<{}>", type_params.join("|"))
-        };
+        let this_ann =
+            if super::desugar_classes_builtin_heritage::exotic_root_parent(ast, cname).is_some() {
+                "any".to_string()
+            } else if type_params.is_empty() {
+                cname.clone()
+            } else {
+                format!("{cname}<{}>", type_params.join("|"))
+            };
 
         // Constructor → C__ctor(__this: C, params...): void { body }
         // — see `emit_ctor_fn` doc (default-ctor synthesis +

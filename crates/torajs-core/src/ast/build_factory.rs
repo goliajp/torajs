@@ -15,17 +15,27 @@ pub(crate) fn build_factory_body(
     prelude: Vec<Stmt>,
     ctor: Option<&ClassCtor>,
 ) -> Vec<Stmt> {
-    let exotic = ast.exotic_parent.contains_key(cname);
-    let obj_lit = if exotic {
+    let exotic_root =
+        super::desugar_classes_builtin_heritage::exotic_root_parent(ast, cname).map(str::to_owned);
+    let exotic = exotic_root.is_some();
+    let obj_lit = if let Some(root) = exotic_root {
         // RFC 20260730 blades 1-2 — an exotic-parent class mints a
-        // REAL builtin cell, not an ObjectLit. The zero-arg magic
-        // call is resolved by the lowerer from the enclosing
-        // `__new_<C>` fn name (same channel write_class_tag uses);
-        // `super(...)` in the ctor applies the builtin's semantics
-        // afterwards.
-        let magic = super::desugar_classes_builtin_heritage::exotic_alloc_self_magic(
-            &ast.exotic_parent[cname],
-        );
+        // REAL builtin cell, not an ObjectLit; a user DESCENDANT of
+        // one mints the same root cell (rotation 451 — `class CP2
+        // extends CP` instances must be real Promise cells). The
+        // zero-arg magic call is resolved by the lowerer from the
+        // enclosing `__new_<C>` fn name (same channel
+        // write_class_tag uses); `super(...)` in the ctor applies
+        // the builtin's semantics afterwards.
+        if !field_inits.is_empty() {
+            // Same loud bucket as the strip's direct-class check —
+            // exotic cells have no fixed field region.
+            panic!(
+                "M5.N: `{cname}` — declared fields on an exotic builtin \
+                 subclass chain are not yet supported"
+            );
+        }
+        let magic = super::desugar_classes_builtin_heritage::exotic_alloc_self_magic(&root);
         let callee = ast.add_expr(Expr::Ident(magic.to_string()));
         ast.add_expr(Expr::Call {
             callee,

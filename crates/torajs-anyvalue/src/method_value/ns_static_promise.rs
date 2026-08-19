@@ -114,17 +114,27 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
 /// (rotation 449 — the `this_aware_id` recv-first shape, RFC
 /// 20260720 刀 6's recorded follow-up face): argv[0] is the thisArg
 /// every honoring caller prepended (`.call` / `.apply` / bind /
-/// HOF), undefined on a bare detached call. A |this| reaching the
-/// interned builtin Promise constructor cell
-/// ([`this_reaches_promise_ctor`]) runs the real settle through the
-/// any-lane kernels — `r.apply(Promise, [v])`, `r.call(Promise, v)`
-/// and the inherited `CP.resolve(v)` answer what the direct spelling
-/// does. Any other thisValue keeps the step-1 TypeError — loud beats
-/// a wrong-identity promise.
+/// HOF), undefined on a bare detached call. |this| = the interned
+/// builtin Promise constructor cell runs the real settle through
+/// the any-lane kernels; a builtin-heir CLASS OBJECT (`CP.resolve`
+/// on `class CP extends Promise`) takes the §27.2.4.7/.6 custom-C
+/// path — NewPromiseCapability(C), Call(cap.resolve/reject, v),
+/// answer cap.promise — so the answer IS a C instance and the
+/// subclass ctor chain observably runs. Any other thisValue keeps
+/// the step-1 TypeError. Recorded boundary: PromiseResolve's step-2
+/// identity fast path (`C.resolve(x) === x` when x.constructor is
+/// C) is not taken — a C-instance argument mints a fresh C promise
+/// that adopts it.
 pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64) -> u64 {
     unsafe {
         let this = arg_at(argv, argc, 0);
-        if !this_reaches_promise_ctor(this) {
+        let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
+        let is_builtin =
+            !promise_ctor.is_null() && is_cell(this) && as_void_ptr(this) == promise_ctor.cast();
+        if !is_builtin {
+            if this_reaches_promise_ctor(this) {
+                return settle_via_capability(this, reject, arg_at(argv, argc, 1));
+            }
             return promise_settle();
         }
         let v = arg_at(argv, argc, 1);
@@ -137,6 +147,33 @@ pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64
             __torajs_promise_resolve_any(v as i64)
         };
         box_void_ptr(p)
+    }
+}
+
+/// The custom-species settle: NewPromiseCapability(C) mints the C
+/// instance through the runtime construct channel, then
+/// Call(cap.resolve / cap.reject, undefined, «v») settles it. The
+/// capability's function boxes are released here; the promise
+/// transfers to the caller (undefined with the pending throw when
+/// the ctor chain or the capability check raised).
+unsafe fn settle_via_capability(c: u64, reject: bool, v: u64) -> u64 {
+    unsafe {
+        let Some((promise, resolve_f, reject_f)) =
+            crate::promise_capability::new_promise_capability(c)
+        else {
+            return VALUE_UNDEFINED;
+        };
+        let f = if reject { reject_f } else { resolve_f };
+        let one = [v];
+        let out = crate::method_call_closure_dispatch::__torajs_any_call(f, one.as_ptr(), 1);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(resolve_f);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(reject_f);
+        if __torajs_throw_check() != 0 {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(promise);
+            return VALUE_UNDEFINED;
+        }
+        promise
     }
 }
 
