@@ -166,14 +166,16 @@ pub(super) enum DeleteSites {
 
 /// Why a parse attempt refused the text. `NoParse` is a lex / parse /
 /// Script-goal failure — a real syntax error OR a shape tr's subset
-/// does not cover, indistinguishable here. `StrictDelete` is the
-/// §13.5.1.1 early error, resolved post-parse: a DEFINITE syntax
-/// error, so callers that must separate "creation-time SyntaxError"
-/// from "honest reject" (the `Function(...)` desugar) can throw on it
-/// without probing.
+/// does not cover, indistinguishable here. `StrictEarlyError` is a
+/// strict-code early error resolved post-parse — `delete <bare name>`
+/// (§13.5.1.1) or an assignment / update targeting `eval` /
+/// `arguments` (§13.15.1, §13.4 via AssignmentTargetType): a DEFINITE
+/// syntax error, so callers that must separate "creation-time
+/// SyntaxError" from "honest reject" (the `Function(...)` desugar)
+/// can throw on it without probing.
 pub(super) enum EvalRefusal {
     NoParse,
-    StrictDelete,
+    StrictEarlyError,
 }
 
 pub(super) fn parse_eval_source(
@@ -199,7 +201,10 @@ pub(super) fn parse_eval_source(
             parse_once(&with_semi, ast, super_ok).and_then(reject_module_decls)
         })
         .ok_or(EvalRefusal::NoParse)?;
-    let sites: Vec<(usize, String)> = ast.exprs[exprs_before..]
+    // §13.5.1.1 sites — `delete <bare name>` — carry their name for
+    // the sloppy fold and must be neutralized on refusal (the goal
+    // triage walks the WHOLE arena, orphans included).
+    let del_sites: Vec<(usize, String)> = ast.exprs[exprs_before..]
         .iter()
         .enumerate()
         .filter_map(|(off, e)| match e {
@@ -210,7 +215,28 @@ pub(super) fn parse_eval_source(
             _ => None,
         })
         .collect();
-    if sites.is_empty() {
+    // Assignment / update sites targeting `eval` or `arguments` —
+    // §15.2.1's AssignmentTargetType early errors. Pre-increment
+    // desugars to the Assign shape at parse time, so the two variants
+    // cover every spelling. In sloppy code the forms are LEGAL and
+    // are left alone (their runtime semantics are a separate,
+    // unresolved surface); orphaned copies bother no later pass — the
+    // checker walks the statement tree, not the arena.
+    let ea_sites: Vec<usize> = ast.exprs[exprs_before..]
+        .iter()
+        .enumerate()
+        .filter_map(|(off, e)| {
+            let target = match e {
+                Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => target,
+                _ => return None,
+            };
+            match ast.get_expr(*target) {
+                Expr::Ident(n) if n == "eval" || n == "arguments" => Some(exprs_before + off),
+                _ => None,
+            }
+        })
+        .collect();
+    if del_sites.is_empty() && ea_sites.is_empty() {
         return Ok(stmts);
     }
     let strict_goal = !ast.sloppy_script_goal;
@@ -222,25 +248,28 @@ pub(super) fn parse_eval_source(
         true
     } else if strict_goal {
         let strict_owned = super::walk::strict_owned_exprs(ast, &stmts);
-        sites
-            .iter()
-            .any(|(i, _)| strict_owned.get(*i).copied().unwrap_or(false))
+        let in_strict = |i: &usize| strict_owned.get(*i).copied().unwrap_or(false);
+        del_sites.iter().any(|(i, _)| in_strict(i)) || ea_sites.iter().any(in_strict)
     } else {
         false
     };
     if strict_hit {
-        // The whole text is refused, so every site — strict or not —
-        // is neutralized: a failed parse leaves its expressions in the
-        // arena, and the goal triage walks the WHOLE arena.
-        for (i, _) in sites {
-            ast.exprs[i] = Expr::Bool(false);
+        // The whole text is refused, so the WHOLE freshly parsed
+        // segment is neutralized, not just the offending sites: the
+        // dropped statements leave their expressions orphaned in the
+        // arena, and arena-walking passes pick orphans up — the goal
+        // triage meets a `Delete{Ident}`, the closure collector meets
+        // a complete `ArrowFn` (a fn expression out of the refused
+        // text) and lowers it as if the user had written it.
+        for e in ast.exprs[exprs_before..].iter_mut() {
+            *e = Expr::Bool(false);
         }
-        return Err(EvalRefusal::StrictDelete);
+        return Err(EvalRefusal::StrictEarlyError);
     }
     let mut declared = std::collections::HashSet::new();
     crate::ast::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
     crate::ast::delete_bare_name::collect_declared_names(&stmts, &mut declared);
-    for (i, n) in sites {
+    for (i, n) in del_sites {
         ast.exprs[i] = Expr::Bool(crate::ast::delete_bare_name::sloppy_delete_answer(
             &n, &declared,
         ));
