@@ -390,7 +390,9 @@ fn has_orphan_jump(stmts: &[Stmt], in_loop: bool, in_switch: bool) -> bool {
 /// into the program as if the user had written them.
 fn parse_once(src: &str, ast: &mut Ast, super_ok: bool) -> Option<Vec<Stmt>> {
     let before = ast.stmts.len();
-    let tokens = lexer::tokenize(src).ok()?;
+    // Script goal — eval / dynamic-Function text is script code, so
+    // the annexB §B.1.3 HTML-like comments are comments here.
+    let tokens = lexer::tokenize_script(src).ok()?;
     match parser::parse_into_super_prop(src, &tokens, ast, super_ok) {
         Ok(offset) => Some(ast.stmts.drain(offset..).collect()),
         Err(_) => {

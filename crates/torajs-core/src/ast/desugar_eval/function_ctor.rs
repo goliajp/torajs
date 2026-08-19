@@ -355,14 +355,14 @@ fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option
 /// string literal does not disqualify; an unlexable body answers
 /// false and the parse-failure arm keeps it loud anyway.
 fn body_lexes_fn_keyword(body: &str) -> bool {
-    let Ok(ts) = lexer::tokenize(body) else {
+    let Ok(ts) = lexer::tokenize_script(body) else {
         return false;
     };
     ts.iter().any(|s| matches!(&s.token, Token::Function))
 }
 
 fn body_lexes_bare_with(body: &str) -> bool {
-    let Ok(ts) = lexer::tokenize(body) else {
+    let Ok(ts) = lexer::tokenize_script(body) else {
         return false;
     };
     ts.iter().enumerate().any(|(idx, s)| {

@@ -17,10 +17,30 @@ pub use types::{Span, Spanned, TemplatePart, Token};
 use util::{advance, emit, peek};
 
 pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
+    tokenize_goal(src, false)
+}
+
+/// Script-goal token stream — annexB §B.1.3 HTML-like comments
+/// (`<!--` anywhere on a line, `-->` when nothing but whitespace or
+/// comments precedes it on its line) are comments under this goal and
+/// nowhere else. tr's main source stays on the module-shaped
+/// `tokenize` above; the eval / dynamic-Function channel parses
+/// script code and enters here.
+pub fn tokenize_script(src: &str) -> Result<Vec<Spanned>, String> {
+    tokenize_goal(src, true)
+}
+
+fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String> {
     let bytes = src.as_bytes();
     let len = bytes.len() as u32;
     let mut out = Vec::new();
     let mut i: u32 = 0;
+    // §B.1.3 — whether the current line has produced a token yet. A
+    // `-->` close-comment is only a comment when it hasn't: the
+    // grammar puts it after a LineTerminator (or a multi-line comment
+    // that contains one), never mid-expression, which keeps `a --> b`
+    // meaning postfix-decrement-then-greater.
+    let mut fresh_line = true;
 
     // ES2023 §12.5 HashbangComment — `#!` runs to the end of the line and
     // is permitted only at the very start of the source text, so this is
@@ -45,14 +65,34 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             && let Some((cp, w)) = util::decode_utf8(bytes, i)
             && is_whitespace_cp(cp)
         {
+            if cp == 0x2028 || cp == 0x2029 {
+                fresh_line = true;
+            }
             i += w;
             continue;
         }
+        let toks_before = out.len();
         match b {
             // ES2024 §12.2 WhiteSpace + §12.3 LineTerminator, ASCII half:
             // <TAB> <VT> <FF> <SP> <LF> <CR>.
             b' ' | b'\t' | 0x0B | 0x0C | b'\r' | b'\n' => {
+                if b == b'\r' || b == b'\n' {
+                    fresh_line = true;
+                }
                 i += 1;
+                continue;
+            }
+            // §B.1.3 SingleLineHTMLOpenComment — `<!--` starts a
+            // comment anywhere (script goal only), running to
+            // end-of-line like `//`.
+            b'<' if html_comments && bytes[i as usize..].starts_with(b"<!--") => {
+                skip_single_line_html(bytes, &mut i, len);
+                continue;
+            }
+            // §B.1.3 SingleLineHTMLCloseComment — `-->` on a line
+            // that has produced no token yet (script goal only).
+            b'-' if html_comments && fresh_line && bytes[i as usize..].starts_with(b"-->") => {
+                skip_single_line_html(bytes, &mut i, len);
                 continue;
             }
             b'.' => scan_number::scan_dot(bytes, &mut i, &mut out, start),
@@ -188,9 +228,50 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             }
             _ => return Err(format!("unexpected byte {b:#x} at {start}")),
         }
+        // A token landed → the line is no longer fresh. A comment
+        // landed nothing; it keeps the line fresh only if it spans a
+        // line break (§B.1.3 admits `-->` after a multi-line comment
+        // containing one) or leaves the current line's state alone.
+        if out.len() != toks_before {
+            fresh_line = false;
+        } else if has_line_break(&bytes[start as usize..i as usize]) {
+            fresh_line = true;
+        }
     }
     emit(&mut out, Token::Eof, len, len);
     Ok(out)
+}
+
+/// Consume an HTML-like comment opener and everything to end-of-line;
+/// the terminator itself stays for the whitespace arm (same posture as
+/// `scan_slash`'s line comment).
+fn skip_single_line_html(bytes: &[u8], i: &mut u32, len: u32) {
+    while *i < len {
+        let c = bytes[*i as usize];
+        if c == b'\n' || c == b'\r' {
+            break;
+        }
+        if c == 0xE2
+            && (*i as usize) + 2 < len as usize
+            && bytes[*i as usize + 1] == 0x80
+            && (bytes[*i as usize + 2] == 0xA8 || bytes[*i as usize + 2] == 0xA9)
+        {
+            break;
+        }
+        *i += 1;
+    }
+}
+
+/// Whether a byte slice contains any §12.3 LineTerminator — LF, CR, or
+/// the UTF-8 spellings of U+2028 / U+2029.
+fn has_line_break(bytes: &[u8]) -> bool {
+    bytes.iter().enumerate().any(|(k, &c)| {
+        c == b'\n'
+            || c == b'\r'
+            || (c == 0xE2
+                && bytes.get(k + 1) == Some(&0x80)
+                && matches!(bytes.get(k + 2), Some(&0xA8) | Some(&0xA9)))
+    })
 }
 
 /// The non-ASCII members of ES2024 §12.2 `WhiteSpace` — <NBSP>,
