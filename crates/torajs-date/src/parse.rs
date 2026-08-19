@@ -1,6 +1,11 @@
-//! ISO 8601 parser — port of `runtime_date.c` L164-265.
+//! ISO 8601 parser — port of `runtime_date.c` L164-265 — plus the
+//! two non-ISO shapes §21.4.3.2 requires `Date.parse` to round-trip:
+//! `Date.prototype.toString` (`Wed Aug 19 2026 12:58:39 GMT+0900
+//! (Japan Standard Time)`) and `Date.prototype.toUTCString`
+//! (`Wed, 19 Aug 2026 03:58:39 GMT`), tried when the ISO parse
+//! declines.
 //!
-//! Accepts the canonical extended format
+//! The ISO arm accepts the canonical extended format
 //! `YYYY-MM-DDTHH:MM:SS.sssZ` and several relaxations:
 //! - date-only (`YYYY-MM-DD`) → midnight UTC
 //! - extended year sign (`+YYYYYY` / `-YYYYYY`, 6-digit year)
@@ -74,7 +79,91 @@ pub unsafe fn parse_iso(str_ptr: *const c_void) -> i64 {
     }
     let len = unsafe { *((str_ptr as *const u8).add(8) as *const u64) } as usize;
     let s = unsafe { core::slice::from_raw_parts((str_ptr as *const u8).add(STR_HDR_SIZE), len) };
-    parse_iso_bytes(s).unwrap_or(DATE_PARSE_FAIL)
+    parse_iso_bytes(s)
+        .or_else(|| parse_tostring_bytes(s))
+        .unwrap_or(DATE_PARSE_FAIL)
+}
+
+/// The three-letter month names `toString` / `toUTCString` emit,
+/// in month order.
+const MONTH_NAMES: &[&[u8]; 12] = &[
+    b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec",
+];
+
+fn month_from_name(s: &[u8], i: &mut usize) -> Option<i64> {
+    let name = s.get(*i..*i + 3)?;
+    let m = MONTH_NAMES.iter().position(|n| *n == name)?;
+    *i += 3;
+    Some(m as i64)
+}
+
+fn eat(s: &[u8], i: &mut usize, lit: &[u8]) -> Option<()> {
+    if s.get(*i..*i + lit.len())? == lit {
+        *i += lit.len();
+        Some(())
+    } else {
+        None
+    }
+}
+
+/// §21.4.3.2 — the two non-ISO shapes `Date.parse` must accept:
+///
+/// - `toString`:    `Wed Aug 19 2026 12:58:39 GMT+0900 (Japan Standard Time)`
+/// - `toUTCString`: `Wed, 19 Aug 2026 03:58:39 GMT`
+///
+/// The weekday is required in shape but not validated against the
+/// date (matching the major engines). A trailing parenthesized zone
+/// name is ignored.
+fn parse_tostring_bytes(s: &[u8]) -> Option<i64> {
+    let mut i = 0;
+    // Three-letter weekday.
+    if !s.get(0..3)?.iter().all(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    i += 3;
+    let (year, mon, day);
+    if s.get(i) == Some(&b',') {
+        // toUTCString: `, DD MMM YYYY`.
+        i += 1;
+        eat(s, &mut i, b" ")?;
+        day = read_int(s, &mut i, 2)?;
+        eat(s, &mut i, b" ")?;
+        mon = month_from_name(s, &mut i)?;
+        eat(s, &mut i, b" ")?;
+        year = read_int(s, &mut i, 4)?;
+    } else {
+        // toString: ` MMM DD YYYY`.
+        eat(s, &mut i, b" ")?;
+        mon = month_from_name(s, &mut i)?;
+        eat(s, &mut i, b" ")?;
+        day = read_int(s, &mut i, 2)?;
+        eat(s, &mut i, b" ")?;
+        year = read_int(s, &mut i, 4)?;
+    }
+    eat(s, &mut i, b" ")?;
+    let hour = read_int(s, &mut i, 2)?;
+    eat(s, &mut i, b":")?;
+    let minute = read_int(s, &mut i, 2)?;
+    eat(s, &mut i, b":")?;
+    let second = read_int(s, &mut i, 2)?;
+    eat(s, &mut i, b" GMT")?;
+    let mut off_ms = 0;
+    if let Some(&c) = s.get(i)
+        && (c == b'+' || c == b'-')
+    {
+        i += 1;
+        let h = read_int(s, &mut i, 2)?;
+        let m = read_int(s, &mut i, 2)?;
+        off_ms = (h * 60 + m) * 60_000 * if c == b'+' { 1 } else { -1 };
+    }
+    // Optional ` (Zone Name)` tail, ignored.
+    if s.get(i) == Some(&b' ') && s.get(i + 1) == Some(&b'(') && s.last() == Some(&b')') {
+        i = s.len();
+    }
+    if i != s.len() {
+        return None;
+    }
+    Some(utc_components_to_ms(year, mon, day, hour, minute, second, 0) - off_ms)
 }
 
 fn parse_iso_bytes(s: &[u8]) -> Option<i64> {
@@ -209,6 +298,30 @@ mod tests {
         let s = b"2x24";
         let mut i = 0;
         assert_eq!(read_int(s, &mut i, 4), None);
+    }
+
+    #[test]
+    fn tostring_shape() {
+        let ms = parse_tostring_bytes(b"Wed Aug 19 2026 03:58:39 GMT+0000").unwrap();
+        assert_eq!(ms, utc_components_to_ms(2026, 7, 19, 3, 58, 39, 0));
+    }
+
+    #[test]
+    fn tostring_shape_with_offset_and_zone_name() {
+        let ms = parse_tostring_bytes(b"Wed Aug 19 2026 12:58:39 GMT+0900 (Japan Standard Time)")
+            .unwrap();
+        assert_eq!(ms, utc_components_to_ms(2026, 7, 19, 3, 58, 39, 0));
+    }
+
+    #[test]
+    fn utcstring_shape() {
+        let ms = parse_tostring_bytes(b"Wed, 19 Aug 2026 03:58:39 GMT").unwrap();
+        assert_eq!(ms, utc_components_to_ms(2026, 7, 19, 3, 58, 39, 0));
+    }
+
+    #[test]
+    fn tostring_shape_rejects_garbage_tail() {
+        assert_eq!(parse_tostring_bytes(b"Wed Aug 19 2026 03:58:39 GMTx"), None);
     }
 
     #[test]
