@@ -43,10 +43,13 @@ enum Mode {
     Outer,
     /// Crossed >=1 arrow boundary — reads belong to the enclosing fn.
     Arrow,
-    /// A formal parameter named `arguments` (legal in sloppy code —
-    /// §14.2.16, the t262 lexical-bindings-overriden case) shadows
-    /// the object for the whole lexical subtree: nothing here may be
-    /// rewritten, however many more arrows the walk crosses.
+    /// No `arguments` object is reachable from here: either a formal
+    /// parameter named `arguments` (legal in sloppy code — §14.2.16,
+    /// the t262 lexical-bindings-overriden case) shadows the object
+    /// for the whole lexical subtree, or the walk is at the top
+    /// level, which is not a function scope at all. Nothing here may
+    /// be rewritten, however many more arrows the walk crosses; an
+    /// own-scope fn-expr still opens a fresh scope as usual.
     Shadowed,
 }
 
@@ -69,6 +72,20 @@ pub fn alias_arrow_arguments(ast: &mut Ast) {
                 unreachable!()
             };
             *body = b;
+        } else {
+            // The top level is not a function scope — there is no
+            // `arguments` to alias here, so the walk starts in
+            // Shadowed (nothing may be rewritten at this depth). The
+            // walk exists to reach fn-exprs stored by top-level
+            // statements (`Promise.resolve = function () {...}`,
+            // `const f = function () {...}`): their own-scope branch
+            // in `scan_expr` opens a real fn scope and aliases
+            // arrow-interior `arguments` reads exactly as if the
+            // fn-expr sat inside a FnDecl body.
+            let mut s = std::mem::replace(&mut ast.stmts[i], Stmt::Multi(Vec::new()));
+            let mut hits: Vec<ExprId> = Vec::new();
+            scan_stmt(ast, &mut s, Mode::Shadowed, &mut hits);
+            ast.stmts[i] = s;
         }
     }
 }
