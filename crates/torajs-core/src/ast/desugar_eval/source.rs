@@ -240,18 +240,26 @@ pub(super) fn parse_eval_source(
         return Ok(stmts);
     }
     let strict_goal = !ast.sloppy_script_goal;
+    // Under the sloppy SCRIPT goal (`.cts`) every site is left to the
+    // goal triage. The triage runs AFTER the `with` desugar for a
+    // reason its own doc records — §14.11 resolves a with-body
+    // reference through the scope object, so `eval("with(o){ delete
+    // p }")` is a PROPERTY delete that an early fold here silently
+    // broke (r443: the S12.10_A5 family folded `delete p1` to a
+    // constant and deleted nothing).
+    if !strict_goal {
+        return Ok(stmts);
+    }
     // Which sites sit in strict code? Under `Strict` every one does;
     // under `SloppyFold` only those inside a nested 'use strict'
     // function (or class code) — §11.2.1 arms the prologue's body
     // even when the outermost text is sloppy.
-    let strict_hit = if delete_sites == DeleteSites::Strict && strict_goal {
+    let strict_hit = if delete_sites == DeleteSites::Strict {
         true
-    } else if strict_goal {
+    } else {
         let strict_owned = super::walk::strict_owned_exprs(ast, &stmts);
         let in_strict = |i: &usize| strict_owned.get(*i).copied().unwrap_or(false);
         del_sites.iter().any(|(i, _)| in_strict(i)) || ea_sites.iter().any(in_strict)
-    } else {
-        false
     };
     if strict_hit {
         // The whole text is refused, so the WHOLE freshly parsed
@@ -265,6 +273,17 @@ pub(super) fn parse_eval_source(
             *e = Expr::Bool(false);
         }
         return Err(EvalRefusal::StrictEarlyError);
+    }
+    // A sloppy `Function(...)` body that ALSO contains a `with`
+    // somewhere in the program cannot take the fold — a with-body
+    // site is a property reference (§14.11), and the flag is
+    // program-wide, so which body owns the `with` is not knowable
+    // here. Honest reject, segment neutralized (orphans, see above).
+    if !del_sites.is_empty() && ast.has_with_stmt {
+        for e in ast.exprs[exprs_before..].iter_mut() {
+            *e = Expr::Bool(false);
+        }
+        return Err(EvalRefusal::NoParse);
     }
     let mut declared = std::collections::HashSet::new();
     crate::ast::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);

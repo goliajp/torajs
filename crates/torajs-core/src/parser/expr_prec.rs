@@ -405,40 +405,8 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return self.parse_delete_operand();
         }
-        // V3-18 m1.h.30 — `void <expr>` evaluates expr (for side
-        // effects) then yields `undefined`. Desugars to
-        // `Expr::Sequence { left: <expr>, right: Expr::Ident
-        // ("undefined") }` so `void 0` is the same value as the
-        // `undefined` Ident everywhere: Type::Undefined at check
-        // time (binop undef-id hints fire), ConstPtrNull at SSA.
-        // RC-4 F1b-1: the earlier String("undefined") stand-in
-        // made `x !== void 0` a *content* compare (str_eq) — a
-        // real "undefined" string compared equal to the undefined
-        // literal, and a null-slot Str operand SIGSEGV'd inside
-        // str_eq (test262 S15.5.4.10 family).
         if matches!(self.peek(), Token::Void) {
-            self.pos += 1;
-            let inner = self.parse_unary()?;
-            // RFC 20260713-array-proto-residual blade 5 — a pure
-            // literal operand folds to the plain `undefined` ident
-            // (ES §13.5.2 evaluates then discards; literals have no
-            // effects). The Sequence wrapper defeated every
-            // undefined-shape probe downstream (any-literal pack /
-            // let-binding lanes tagged `void 0` as null — printed
-            // "null", typeof "object"). Effectful operands keep the
-            // Sequence (evaluation order preserved).
-            if matches!(
-                self.ast.get_expr(inner),
-                Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null
-            ) || matches!(self.ast.get_expr(inner), Expr::Ident(n) if n == "undefined")
-            {
-                return Ok(self.ast.add_expr(Expr::Ident("undefined".into())));
-            }
-            let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
-            return Ok(self.ast.add_expr(Expr::Sequence {
-                left: inner,
-                right: undef,
-            }));
+            return self.parse_void_expr();
         }
         // L.2 — `await <expr>` extracts the resolved value from a
         // Promise. MVP desugar: `await e` ⇒ `e.value` (synchronous

@@ -47,6 +47,7 @@ mod destr_obj_param;
 mod destr_shape;
 mod dstr_assign;
 mod entry;
+mod void_expr;
 pub use entry::{parse, parse_into, parse_into_super_prop};
 mod expr_entry;
 mod expr_prec;
@@ -183,6 +184,14 @@ struct Parser<'a> {
     /// param (the class-method form's forwarder passes `this`
     /// explicitly, so it never needs the flag or the default).
     gen_recv_minted: bool,
+    /// §13.15.1 — arena ids of the `undefined` idents minted by the
+    /// `void <literal>` fold in `expr_prec`. The fold makes `void 0`
+    /// indistinguishable from the plain `undefined` ident, but as an
+    /// assignment TARGET the two differ: a void expression's
+    /// AssignmentTargetType is invalid (parse-time SyntaxError), while
+    /// `undefined = x` parses and fails at runtime (§6.2.5.6).
+    /// `reject_invalid_assignment_target` consults this set.
+    void_folds: std::collections::HashSet<u32>,
     /// F2/F3 (RFC 20260728-gen-forof-yieldstar) — whether the cursor
     /// is inside an `async function*` body. The generic `yield* e`
     /// desugar reads it to stamp `is_await` on its ForOf (F3: the F1

@@ -77,6 +77,7 @@ pub fn parse_into_super_prop(
         in_for_init: false,
         in_gen_class_method: false,
         gen_recv_minted: false,
+        void_folds: std::collections::HashSet::new(),
         in_async_gen: false,
         in_generator: false,
         in_strict_fn: false,
