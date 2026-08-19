@@ -201,6 +201,7 @@ pub(crate) struct Intrinsics {
     pub(crate) regexp_from_any: FuncId,
     pub(crate) regexp_drop_if_coerced: FuncId,
     pub(crate) str_replace_any_pattern: FuncId,
+    pub(crate) str_replace_any_repl: FuncId,
     pub(crate) str_replace_any_pattern_fn: FuncId,
     /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — AOT-baked DFA
     /// variant. See the declare site for the contract.

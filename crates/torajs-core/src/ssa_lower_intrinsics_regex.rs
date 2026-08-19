@@ -66,6 +66,9 @@ pub(crate) struct RegexIds {
     /// a RegExp cell rides the regex kernel, everything else is a
     /// literal search over `ToString(searchValue)`.
     pub str_replace_any_pattern: FuncId,
+    /// §22.1.3.19 step 5 over an `any` replaceValue — runtime
+    /// IsCallable picks the functional vs ToString kernels.
+    pub str_replace_any_repl: FuncId,
     /// The callback-replacer twin — `n_caps` is what the CALLBACK
     /// declares, since a pattern known only as `any` cannot be
     /// counted at compile time.
@@ -160,6 +163,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_replace_any_pattern",
             &[Type::Str, Type::Any, Type::Str, Type::I64],
+            Type::Str,
+        ),
+        str_replace_any_repl: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_replace_any_repl",
+            &[Type::Str, Type::Str, Type::Any, Type::I64],
             Type::Str,
         ),
         str_replace_any_pattern_fn: declare_intrinsic(

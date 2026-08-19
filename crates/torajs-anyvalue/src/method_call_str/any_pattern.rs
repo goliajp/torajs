@@ -244,3 +244,56 @@ pub unsafe extern "C" fn __torajs_str_replace_any_pattern(
         out
     }
 }
+
+/// §22.1.3.19 step 5 for a replaceValue that arrived in an `any`
+/// slot — `functionalReplace = IsCallable(replaceValue)` is a
+/// RUNTIME question there, and the static lanes deciding it by
+/// checker type alone spliced a function's source text into the
+/// output (`"ab".replace("b", getFn())` — the fn-return face's
+/// promoted values are exactly `any`-typed, rotation 446). A
+/// Closure cell rides the functional kernels (their boxed entry
+/// adapts to the callback's own declared arity — the literal
+/// needle has no capture groups, so «matched, position, string»
+/// is the whole spread); everything else is §22.1.3.18 step 12's
+/// ToString(replaceValue) over the literal kernels.
+///
+/// The needle arrives as a Str the CALLER coerced (its static
+/// pattern gate mirrors [`crate::ssa_lower_str_replace_fn`]'s) —
+/// the pattern-`any` twin stays with the two kernels above.
+///
+/// # Safety
+/// `s` and `needle` are live Str cells; `repl_av` carries a valid
+/// AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_replace_any_repl(
+    s: *const c_void,
+    needle: *const c_void,
+    repl_av: AnyValue,
+    all: i64,
+) -> *mut c_void {
+    unsafe {
+        if is_cell(repl_av) {
+            let p = as_void_ptr(repl_av);
+            let tag = (p.cast::<u8>().add(4) as *const u16).read();
+            if tag == Tag::Closure as u16 {
+                return if all != 0 {
+                    __torajs_str_replace_all_fn(s, needle, p)
+                } else {
+                    __torajs_str_replace_fn(s, needle, p)
+                };
+            }
+        }
+        let repl = __torajs_anyv_to_str(repl_av) as *const c_void;
+        if __torajs_throw_check() != 0 {
+            __torajs_str_drop(repl as *mut c_void);
+            return core::ptr::null_mut();
+        }
+        let out = if all != 0 {
+            __torajs_str_replace_all(s, needle, repl)
+        } else {
+            __torajs_str_replace(s, needle, repl)
+        };
+        __torajs_str_drop(repl as *mut c_void);
+        out
+    }
+}

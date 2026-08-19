@@ -35,10 +35,19 @@ pub(crate) fn try_lower(
     if !matches!(method, "replace" | "replaceAll") || args.len() < 2 {
         return None;
     }
-    if !matches!(
-        ctx.expr_types.get(&args[1]),
-        Some(crate::check::Type::Function(..))
-    ) {
+    // Rotation 446 — an `any`-typed replaceValue makes §22.1.3.19
+    // step 5's IsCallable a RUNTIME question (a fn-return face's
+    // promoted value is exactly `any`); deciding it statically
+    // spliced the function's source text into the output. Same
+    // pattern gate as the functional lane below, one kernel that
+    // branches on the cell tag.
+    let repl_is_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
+    if !repl_is_any
+        && !matches!(
+            ctx.expr_types.get(&args[1]),
+            Some(crate::check::Type::Function(..))
+        )
+    {
         return None;
     }
     // Pattern gate decides on the CHECKER type before lowering (a
@@ -61,6 +70,31 @@ pub(crate) fn try_lower(
         }
         _ => return None,
     };
+    if repl_is_any {
+        let raw = ctx.lower_expr(args[1]);
+        let repl_av = ctx.box_to_any_from_expr(args[1], raw);
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.str_replace_any_repl,
+                vec![
+                    recv_op,
+                    pat,
+                    repl_av,
+                    Operand::ConstI64(i64::from(method == "replaceAll")),
+                ],
+            ),
+            Type::Str,
+            None,
+        );
+        // ToString(replaceValue) may throw (a Symbol replacement),
+        // and a functional replacement's callback may too.
+        ctx.emit_throw_check(None);
+        return Some(Operand::Value(v));
+    }
     let repl = ctx.lower_expr(args[1]);
     let repl_ty = ctx.operand_ty(&repl);
     if !matches!(repl_ty, Type::Closure(_)) {
