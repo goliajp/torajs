@@ -62,6 +62,9 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-str — release an owned Str temp.
     fn __torajs_str_drop(s: *mut c_void);
+    /// Borrowed heap-pointer box (no rc_inc) — the ctor-static
+    /// invoke's thisValue encode.
+    fn __torajs_anyv_box_pointer(p: *mut c_void) -> AnyValue;
 }
 
 /// Closure-cell lazy props slot — mirror of torajs-core
@@ -179,7 +182,12 @@ pub(crate) unsafe fn closure_method(
                     )
                     && let Some(target) = call_target(cell as *mut c_void)
                 {
-                    return dispatch(&target, VALUE_UNDEFINED, argv, argc);
+                    // §13.3.6 EvaluateCall — the member base IS the
+                    // thisValue: the this-insensitive statics ignore
+                    // it, and the recv-first cells (Array.of /
+                    // Array.from / the Promise settle pair) read the
+                    // ctor they were called off. Borrowed box.
+                    return dispatch(&target, __torajs_anyv_box_pointer(ptr), argv, argc);
                 }
                 // 405-01 substrate — a re-parented function value
                 // resolves inherited methods through its user

@@ -111,6 +111,12 @@ pub(super) enum Disp {
     /// (species ctor, step 1), so the arm always raises the bun/JSC
     /// TypeError; the cell exists for the reflection surface.
     PromiseSettle,
+    /// §27.2.4.7/.6 resolve / reject — the receiver-channel pair
+    /// (`this_aware_id`): argv[0] carries the thisArg, and the
+    /// builtin-Promise |this| runs the real settle.
+    PromiseSettleFn {
+        reject: bool,
+    },
     /// §20.1.2.8 Object.getOwnPropertyDescriptor — ToString(P) into
     /// the meta descriptor kernel (fresh descriptor dynobj /
     /// undefined; kernel gates the nullish receiver).
@@ -330,8 +336,8 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ObjectIsSealed,
     Disp::BigIntAsN { signed: true },
     Disp::BigIntAsN { signed: false },
-    Disp::PromiseSettle,
-    Disp::PromiseSettle,
+    Disp::PromiseSettleFn { reject: false },
+    Disp::PromiseSettleFn { reject: true },
     Disp::Gopd,
     Disp::DefineFace, // getOwnPropertyDescriptors
     Disp::DefineFace, // create

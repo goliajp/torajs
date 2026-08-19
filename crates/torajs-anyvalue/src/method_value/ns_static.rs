@@ -186,7 +186,10 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ObjectSeal => own(__torajs_anyv_seal(arg_at(argv, argc, 0))),
             Disp::ObjectIsSealed => box_bool(__torajs_anyv_is_sealed(arg_at(argv, argc, 0))),
             Disp::BigIntAsN { signed } => super::ns_static_ctor::bigint_as_n(*signed, argv, argc),
-            Disp::PromiseSettle => super::ns_static_ctor::promise_settle(),
+            Disp::PromiseSettle => super::ns_static_promise::promise_settle(),
+            Disp::PromiseSettleFn { reject } => {
+                super::ns_static_promise::promise_settle_fn(*reject, argv, argc)
+            }
             Disp::Gopd => super::ns_static_ctor::gopd_static(argv, argc),
             Disp::DefineFace => super::ns_static_ctor::define_face_reject(),
             Disp::OwnSymbols => super::ns_static_obj::own_symbols_value(arg_at(argv, argc, 0)),
@@ -350,7 +353,12 @@ fn this_aware_id(id: i64) -> bool {
     id >= 0
         && matches!(
             DISPATCH.get(id as usize),
-            Some(Disp::ArrayFromFace | Disp::FromAsyncDyn | Disp::ArrayOf)
+            Some(
+                Disp::ArrayFromFace
+                    | Disp::FromAsyncDyn
+                    | Disp::ArrayOf
+                    | Disp::PromiseSettleFn { .. }
+            )
         )
 }
 

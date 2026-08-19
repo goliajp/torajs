@@ -214,6 +214,19 @@ pub unsafe extern "C" fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void 
     }
 }
 
+/// §27.2.4.6 through the ANY lane — a fresh REJECTED promise whose
+/// reason is the boxed value verbatim (step 3 rejects WITH the
+/// value; no thenable absorption, a promise reason included). The
+/// caller transfers one ref on the box — `resolve_any`'s ledger.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_reject_any(bits: i64) -> *mut c_void {
+    unsafe {
+        let p = __torajs_promise_alloc_rejected_heap(bits);
+        (*as_promise(p)).value_repr = crate::layout::REPR_ANY;
+        p
+    }
+}
+
 /// `Promise.resolve(p)` thenable absorption. When `p` is itself a
 /// Promise, return a fresh Promise with the same state + value
 /// (per ES2015 spec). PENDING inner → rejected outer with placeholder
