@@ -177,6 +177,16 @@ impl Type {
     /// catchable TypeError. Both sides call THIS predicate — single
     /// source. Conservative measured set; types not listed keep the
     /// loud compile reject.
+    /// The nullish value types — a member read or method call on one
+    /// is the §13.2.3 GetValue runtime TypeError, not a compile stop.
+    /// The checker admits such sites (typed Any) and the lowering
+    /// boxes the receiver into the any lane, whose runtime kernels
+    /// raise the catchable TypeError. `Void` rides along: a void
+    /// call's value IS undefined at runtime (§14.10.1).
+    pub(crate) fn is_nullish_value(&self) -> bool {
+        matches!(self, Type::Null | Type::Undefined | Type::Void)
+    }
+
     pub(crate) fn is_uncallable_value(&self) -> bool {
         matches!(
             self,

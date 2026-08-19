@@ -40,7 +40,15 @@ pub(crate) fn try_lower(
     let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any)) {
+    // A NULLISH receiver (`undefined.toString()`) rides this lane
+    // too: the checker admitted the site (§13.2.3 GetValue is a
+    // runtime TypeError) and the recv box below carries it into the
+    // kernel, whose nullish arm raises the catchable TypeError.
+    let recv_is_nullish = ctx
+        .expr_types
+        .get(obj)
+        .is_some_and(|t| t.is_nullish_value());
+    if !recv_is_nullish && !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any)) {
         // RFC 20260713-array-proto-residual blade 2 — the
         // `<any>.toString.call(x)` family: the member sugar arms
         // type the read as a concrete Function, but the read

@@ -232,6 +232,14 @@ fn answer_terminal_miss(
     if lenient_missing {
         return Ok(Type::Any);
     }
+    // NULLISH receiver (`undefined.toString` / `null.constructor`)
+    // → Any: §13.2.3 GetValue on a nullish base is a RUNTIME
+    // TypeError, reached when the read evaluates — not a compile
+    // stop. The lowering boxes the receiver into the any-member /
+    // any-method lane, whose kernels raise the catchable TypeError.
+    if obj_ty.is_nullish_value() {
+        return Ok(Type::Any);
+    }
     if matches!(obj_ty, Type::ClassRef(_)) {
         if let Some(rest) = name.strip_prefix("__priv_") {
             let field = rest.split_once("__").map(|(_, f)| f).unwrap_or(rest);

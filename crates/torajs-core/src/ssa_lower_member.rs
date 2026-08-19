@@ -148,6 +148,19 @@ pub(crate) fn lower_with_val(
     if matches!(obj_ty, Type::Any) {
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, obj_val, name);
     }
+    // NULLISH receiver (`undefined.toString` / `null.constructor`) —
+    // the checker admitted the site (§13.2.3 GetValue is a RUNTIME
+    // TypeError, see `answer_terminal_miss`); box the receiver
+    // type-aware (an undefined literal must ride ANY_UNDEF) and let
+    // the any-member kernel raise the catchable TypeError.
+    if ctx
+        .expr_types
+        .get(&obj)
+        .is_some_and(|t| t.is_nullish_value())
+    {
+        let boxed = ctx.box_to_any_from_expr(obj, obj_val);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, name);
+    }
     if obj_ty == Type::Promise {
         // Typed Promise receiver expando read — box into the any
         // member lane, whose Tag::Promise arm probes the +32 bag and
