@@ -1,10 +1,9 @@
 // ES2025 Promise.try / §27.2.4.8 Promise.withResolvers through the
 // receiver channel: `.call(Promise, ...)`, the builtin-heir
-// class-object chain, and the detached TypeError. The thenable
-// completion is created LAST: tr resolves it through PromiseResolve
-// (one tick fewer than the spec capability.resolve absorption — the
-// NewPromiseCapability(C) recorded follow-up), so cross-chain
-// ordering before it would diverge from bun.
+// class-object chain, and the detached TypeError. Both arms ride
+// the §27.2.1.5 capability shape (rotation 451), so the thenable
+// completion settles through the spec §27.2.1.3.2 adoption
+// microtask — cross-chain ordering matches bun tick for tick.
 const t: any = (Promise as any).try;
 t.call(Promise, (a: number, b: number) => a + b, 20, 22).then((v: any) => console.log("args", v));
 t.call(Promise, () => {

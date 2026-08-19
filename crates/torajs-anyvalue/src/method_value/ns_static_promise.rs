@@ -15,6 +15,10 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     fn __torajs_throw_take() -> i64;
     fn __torajs_throw_take_tag() -> i64;
+    /// torajs-promise — fresh pending cell (the builtin trio mint).
+    fn __torajs_promise_alloc_pending() -> *mut c_void;
+    /// torajs-dynobj — the withResolvers result-object alloc.
+    fn __torajs_dynobj_alloc() -> *mut c_void;
     /// torajs-promise — §27.2.4.7 step 2 / §27.2.4.6 step 3 through
     /// the ANY lane. Both adopt one ref on the box.
     fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void;
@@ -177,19 +181,54 @@ unsafe fn settle_via_capability(c: u64, reject: bool, v: u64) -> u64 {
     }
 }
 
-/// ES2025 Promise.try with a receiver channel — same gate, then
-/// Call(callbackfn = argv[1], undefined, argv[2..]) runs
-/// synchronously (step 4): a normal completion resolves the answered
-/// promise with it (thenable absorption inside the resolve kernel),
-/// an abrupt completion — a non-callable callback's TypeError
-/// included — pops the pending throw and REJECTS instead of
-/// propagating. The call answer is owned and the kernels adopt one
-/// ref, so both hand-offs are stake transfers.
+/// The §27.2.1.5 capability behind the try / withResolvers arms —
+/// `(promise, resolve, reject)` boxes, all owned. A builtin |this|
+/// mints the trio directly (NewPromiseCapability(%Promise%) with no
+/// user ctor to observe — a pending cell plus the §27.2.1.3
+/// resolving pair, exactly the withResolvers kernel's front half); a
+/// builtin-heir class object goes through the real construct-channel
+/// capability. `None` = the TypeError is recorded (wrong |this|, or
+/// the heir ctor chain raised).
+unsafe fn capability_for(this: u64) -> Option<(u64, u64, u64)> {
+    unsafe {
+        let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
+        let is_builtin =
+            !promise_ctor.is_null() && is_cell(this) && as_void_ptr(this) == promise_ctor.cast();
+        if is_builtin {
+            use crate::promise_with_resolvers as wr;
+            let p = __torajs_promise_alloc_pending();
+            p.cast::<u8>().add(wr::P_REPR_OFF).write(wr::REPR_ANY);
+            p.cast::<u8>().add(wr::P_IS_HEAP_OFF).write(1);
+            torajs_rc::__torajs_rc_inc(p);
+            let r = wr::mint_resolver(p, wr::resolver_resolve_entry);
+            torajs_rc::__torajs_rc_inc(p);
+            let j = wr::mint_resolver(p, wr::resolver_reject_entry);
+            return Some((
+                crate::nanbox_encode::__torajs_anyv_box_pointer(p),
+                crate::nanbox_encode::__torajs_anyv_box_pointer(r as *mut c_void),
+                crate::nanbox_encode::__torajs_anyv_box_pointer(j as *mut c_void),
+            ));
+        }
+        if this_reaches_promise_ctor(this) {
+            return crate::promise_capability::new_promise_capability(this);
+        }
+        promise_settle();
+        None
+    }
+}
+
+/// ES2025 Promise.try with a receiver channel — capability first,
+/// then Call(callbackfn = argv[1], undefined, argv[2..]) runs
+/// synchronously (step 4): a normal completion goes through
+/// Call(cap.resolve) — spec tick semantics, a thenable answer
+/// settles via the §27.2.1.3.2 adoption microtask — and an abrupt
+/// completion (a non-callable callback's TypeError included) pops
+/// the pending throw into Call(cap.reject).
 pub(super) unsafe fn promise_try_fn(argv: *const u64, argc: i64) -> u64 {
     unsafe {
-        if !this_reaches_promise_ctor(arg_at(argv, argc, 0)) {
-            return promise_settle();
-        }
+        let Some((promise, resolve_f, reject_f)) = capability_for(arg_at(argv, argc, 0)) else {
+            return VALUE_UNDEFINED;
+        };
         let f = arg_at(argv, argc, 1);
         let (rest, n) = if argc >= 2 {
             (argv.add(2), argc - 2)
@@ -201,20 +240,40 @@ pub(super) unsafe fn promise_try_fn(argv: *const u64, argc: i64) -> u64 {
             let tag = __torajs_throw_take_tag();
             let value = __torajs_throw_take();
             let boxed = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag, value);
-            return box_void_ptr(__torajs_promise_reject_any(boxed as i64));
+            let one = [boxed];
+            let out =
+                crate::method_call_closure_dispatch::__torajs_any_call(reject_f, one.as_ptr(), 1);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(boxed);
+        } else {
+            let one = [r];
+            let out =
+                crate::method_call_closure_dispatch::__torajs_any_call(resolve_f, one.as_ptr(), 1);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(r);
         }
-        box_void_ptr(__torajs_promise_resolve_any(r as i64))
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(resolve_f);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(reject_f);
+        if __torajs_throw_check() != 0 {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(promise);
+            return VALUE_UNDEFINED;
+        }
+        promise
     }
 }
 
-/// §27.2.4.8 Promise.withResolvers with a receiver channel — same
-/// gate, then the trio mint the direct lowering bakes (fresh owned
-/// `{promise, resolve, reject}` dynobj out).
+/// §27.2.4.8 Promise.withResolvers with a receiver channel —
+/// capability first (a heir |this| answers a C-instance promise),
+/// then the spec result object; all three stakes transfer into it.
 pub(super) unsafe fn promise_with_resolvers_fn(argv: *const u64, argc: i64) -> u64 {
     unsafe {
-        if !this_reaches_promise_ctor(arg_at(argv, argc, 0)) {
-            return promise_settle();
-        }
-        crate::promise_with_resolvers::__torajs_promise_with_resolvers()
+        let Some((promise, resolve_f, reject_f)) = capability_for(arg_at(argv, argc, 0)) else {
+            return VALUE_UNDEFINED;
+        };
+        let mut obj = __torajs_dynobj_alloc();
+        crate::promise_with_resolvers::set_field(&mut obj, b"promise", promise);
+        crate::promise_with_resolvers::set_field(&mut obj, b"resolve", resolve_f);
+        crate::promise_with_resolvers::set_field(&mut obj, b"reject", reject_f);
+        crate::nanbox_encode::__torajs_anyv_box_pointer(obj)
     }
 }

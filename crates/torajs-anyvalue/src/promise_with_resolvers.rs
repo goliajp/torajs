@@ -147,7 +147,7 @@ pub unsafe extern "C" fn __torajs_promise_with_resolvers() -> u64 {
 /// Ordinary W1/E1/C1 data entry on the result object — the value is
 /// a fresh heap cell whose ref TRANSFERS into the bucket; the key is
 /// borrowed (the store incs its own on insert).
-unsafe fn set_field(obj_slot: *mut *mut c_void, name: &[u8], value: u64) {
+pub(crate) unsafe fn set_field(obj_slot: *mut *mut c_void, name: &[u8], value: u64) {
     unsafe {
         let key = __torajs_str_alloc(name.as_ptr(), name.len() as i64);
         __torajs_dynobj_set(obj_slot, key as *mut c_void, ANY_HEAP, value);
