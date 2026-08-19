@@ -78,6 +78,7 @@ mod parse_let_decl;
 mod parse_postfix;
 mod tagged_template;
 pub(crate) use tagged_template::TEMPLATE_OBJECT_CALLEE;
+mod dstr_assign_slot;
 mod parse_stmt;
 mod parse_yield;
 mod primary;
