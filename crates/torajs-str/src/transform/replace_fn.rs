@@ -250,3 +250,34 @@ pub unsafe extern "C" fn __torajs_str_replace_all_fn(
 ) -> *mut c_void {
     unsafe { replace_fn_inner(s, needle, closure, true) }
 }
+
+/// `s.replace(needle, cb)` / `replaceAll` glue for a FUNCTIONAL
+/// replaceValue that arrived through the any method dispatch —
+/// §22.1.3.19 step 5's functionalReplace leg the REPLACE arm's
+/// ToString twin (`__torajs_str_any_replace`) cannot serve. Operands
+/// materialize through [`crate::method_any::owned_src`] exactly like
+/// that twin (a Substr-view receiver would otherwise be misread as
+/// an owned Str header); the closure invokes through its boxed
+/// entry, whose pending-throw path hands back a placeholder the
+/// caller's throw-check discards — never null, so the cell pointer
+/// is the boxed return as-is.
+///
+/// # Safety
+/// `s` / `needle` are live Str/Substr cells; `closure` is a live
+/// closure heap block whose +32 slot holds the boxed entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_replace_fn(
+    s: *const u8,
+    needle: *const u8,
+    closure: *mut c_void,
+    all: i64,
+) -> u64 {
+    unsafe {
+        let (src, t0) = crate::method_any::owned_src(s);
+        let (nd, t1) = crate::method_any::owned_src(needle);
+        let out = replace_fn_inner(src.cast(), nd.cast(), closure, all != 0);
+        crate::method_any::drop_tmp(t1);
+        crate::method_any::drop_tmp(t0);
+        out as u64
+    }
+}

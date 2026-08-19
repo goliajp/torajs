@@ -60,6 +60,14 @@ unsafe extern "C" {
     fn __torajs_str_any_match(s: *const u8, re: *const c_void) -> u64;
     /// torajs-str — replace/replaceAll glue, string-pattern lane.
     fn __torajs_str_any_replace(s: *const u8, needle: *const u8, repl: *const u8, all: i64) -> u64;
+    /// torajs-str — replace/replaceAll glue, functional-replaceValue
+    /// leg of the string-pattern lane (§22.1.3.19 step 5).
+    fn __torajs_str_any_replace_fn(
+        s: *const u8,
+        needle: *const u8,
+        closure: *mut c_void,
+        all: i64,
+    ) -> u64;
     /// torajs-str — replace/replaceAll glue, RegExp-pattern lane.
     fn __torajs_str_any_replace_regex(
         s: *const u8,
@@ -370,6 +378,18 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                         __torajs_str_drop(needle);
                         return VALUE_UNDEFINED;
                     }
+                    // §22.1.3.19 step 5 — a Closure-cell replaceValue
+                    // is functionalReplace: invoke per match through
+                    // the boxed-entry kernels (rotation 446, the
+                    // static lane's runtime twin). ToString serves
+                    // only the non-callable rest. The regex-pattern
+                    // lane above keeps its recorded follow-up — its
+                    // fn kernels want the pattern's capture count.
+                    if let Some(cl) = closure_cell(arg_at(1)) {
+                        let out = __torajs_str_any_replace_fn(s, needle as *const u8, cl, all);
+                        __torajs_str_drop(needle);
+                        return out;
+                    }
                     let repl = __torajs_anyv_to_str(arg_at(1));
                     let out =
                         __torajs_str_any_replace(s, needle as *const u8, repl as *const u8, all);
@@ -389,6 +409,22 @@ mod regex_gate;
 mod split;
 
 pub(crate) use regex_gate::reject_non_global_regex_search;
+
+/// The argument's Closure cell pointer, or `None` for any
+/// non-closure value — §22.1.3.19 step 5's IsCallable, spelled on
+/// the cell tag exactly like [`regexp_cell`] below.
+unsafe fn closure_cell(av: AnyValue) -> Option<*mut c_void> {
+    if !is_cell(av) {
+        return None;
+    }
+    let p = as_void_ptr(av);
+    let tag = unsafe { (p.cast::<u8>().add(4) as *const u16).read() };
+    if tag == Tag::Closure as u16 {
+        Some(p)
+    } else {
+        None
+    }
+}
 
 /// The argument's RegExp cell pointer, or `None` for any non-RegExp
 /// value (primitives, other cell tags).
