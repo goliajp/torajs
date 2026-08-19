@@ -66,10 +66,22 @@ const NEW_ONLY_CTORS: &[&str] = &[
     "BigUint64Array",
 ];
 
+/// What a resolved site becomes.
+enum SiteKind {
+    /// The §13.3.6.2 step-6 TypeError, with this message.
+    Throw(String),
+    /// §21.4.2.1 `Date(...)` without `new` — NOT uncallable, but the
+    /// one builtin whose call form ignores its arguments entirely:
+    /// the arguments evaluate (step 4) and are then discarded, and
+    /// the call returns the current time as a String, exactly
+    /// `new Date().toString()`. No ToPrimitive ever runs on them.
+    DateString,
+}
+
 pub fn resolve_uncallable_builtin_calls(ast: &mut Ast) {
     let mut declared = std::collections::HashSet::new();
     super::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
-    let sites: Vec<(usize, Vec<ExprId>, String)> = ast
+    let sites: Vec<(usize, Vec<ExprId>, SiteKind)> = ast
         .exprs
         .iter()
         .enumerate()
@@ -83,38 +95,60 @@ pub fn resolve_uncallable_builtin_calls(ast: &mut Ast) {
             if declared.contains(n) {
                 return None;
             }
-            let msg = if UNCALLABLE_NAMESPACES.contains(&n.as_str()) {
-                format!("{n} is not a function")
+            let kind = if UNCALLABLE_NAMESPACES.contains(&n.as_str()) {
+                SiteKind::Throw(format!("{n} is not a function"))
             } else if NEW_ONLY_CTORS.contains(&n.as_str()) {
-                format!("calling {n} constructor without new is invalid")
+                SiteKind::Throw(format!("calling {n} constructor without new is invalid"))
+            } else if n == "Date" {
+                SiteKind::DateString
             } else {
                 return None;
             };
-            Some((i, args.clone(), msg))
+            Some((i, args.clone(), kind))
         })
         .collect();
-    for (i, args, msg) in sites {
+    for (i, args, kind) in sites {
         // §13.3.6.2 — ArgumentListEvaluation (step 4) runs before
         // the IsCallable check (step 6): sequence each argument
-        // ahead of the throw so its side effects happen in order.
+        // ahead of the payload so its side effects happen in order.
         // The nested nodes are freshly added; the old Call slot is
         // overwritten with the outermost, whose fresh slot goes
         // orphaned (nothing references it).
-        let msg_e = ast.add_expr(Expr::String(msg));
-        let exc = ast.add_expr(Expr::New {
-            class_name: "TypeError".to_string(),
-            args: vec![msg_e],
-            type_args: Vec::new(),
-        });
-        let arrow = ast.add_expr(Expr::ArrowFn {
-            params: Vec::new(),
-            return_type: None,
-            body: vec![Stmt::Throw(exc)],
-        });
-        let mut site = ast.add_expr(Expr::Call {
-            callee: arrow,
-            args: Vec::new(),
-        });
+        let payload = match kind {
+            SiteKind::Throw(msg) => {
+                let msg_e = ast.add_expr(Expr::String(msg));
+                let exc = ast.add_expr(Expr::New {
+                    class_name: "TypeError".to_string(),
+                    args: vec![msg_e],
+                    type_args: Vec::new(),
+                });
+                let arrow = ast.add_expr(Expr::ArrowFn {
+                    params: Vec::new(),
+                    return_type: None,
+                    body: vec![Stmt::Throw(exc)],
+                });
+                ast.add_expr(Expr::Call {
+                    callee: arrow,
+                    args: Vec::new(),
+                })
+            }
+            SiteKind::DateString => {
+                let date = ast.add_expr(Expr::New {
+                    class_name: "Date".to_string(),
+                    args: Vec::new(),
+                    type_args: Vec::new(),
+                });
+                let to_string = ast.add_expr(Expr::Member {
+                    obj: date,
+                    name: "toString".to_string(),
+                });
+                ast.add_expr(Expr::Call {
+                    callee: to_string,
+                    args: Vec::new(),
+                })
+            }
+        };
+        let mut site = payload;
         for a in args.into_iter().rev() {
             site = ast.add_expr(Expr::Sequence {
                 left: a,
