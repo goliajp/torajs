@@ -142,13 +142,24 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
     // free-variable check: fn / let / var / class names. (Classes are
     // still Stmt::ClassDecl here — this pass runs before
     // desugar_classes.)
+    // `var a, b, c;` parses to a Stmt::Multi of LetDecls — without
+    // unwrapping it, the trailing names read as free variables and a
+    // genexpr writing one gets refused as a reassigned capture (the
+    // test262 dstr-yield cases all declare `var iter, x;` this way).
     let mut global_names: Vec<String> = Vec::new();
+    let collect = |s: &Stmt, names: &mut Vec<String>| match s {
+        Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } | Stmt::ClassDecl { name, .. } => {
+            names.push(name.clone())
+        }
+        _ => {}
+    };
     for s in &ast.stmts {
-        match s {
-            Stmt::FnDecl { name, .. }
-            | Stmt::LetDecl { name, .. }
-            | Stmt::ClassDecl { name, .. } => global_names.push(name.clone()),
-            _ => {}
+        if let Stmt::Multi(inner) = s {
+            for i in inner {
+                collect(i, &mut global_names);
+            }
+        } else {
+            collect(s, &mut global_names);
         }
     }
 
