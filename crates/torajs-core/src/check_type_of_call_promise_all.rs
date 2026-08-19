@@ -107,10 +107,15 @@ pub(crate) fn try_match(
                 // `allsettled_sync_any` ({status, value: any} settled
                 // structs).
                 Type::Any => Type::Any,
-                other => {
-                    return Some(Err(format!(
-                        "Promise.{m_name}: arg must be Array<Promise<T>>, got Array<{other:?}>"
-                    )));
+                // §27.2.4.1.3 step 6.i resolve-wraps every plain
+                // element, so `Promise.all([1, 2, 3])` is a legal
+                // spelling for ANY element type. The lowering
+                // (rotation 449) boxes a non-{Promise,Any}-element
+                // array onto the dyn road, whose result is
+                // any-shaped — Promise<Any> is the honest word, same
+                // as the statically non-Array arm below.
+                _ => {
+                    return Some(Ok(Type::Promise(Box::new(Type::Any))));
                 }
             },
             // RFC 20260730 knives A+B — §27.2.4 GetIterator runs at
@@ -120,13 +125,6 @@ pub(crate) fn try_match(
             // non-iterable value answers a REJECTED promise instead
             // of tr rejecting the whole program. All four combinators
             // share the collect-then-delegate dyn entry.
-            //
-            // `Array<non-Promise>` element shapes are matched above
-            // and stay rejected: the lowering routes statically
-            // Arr-typed operands onto the raw-pointer sync walk, so
-            // admitting them here would hand that walk non-promise
-            // slots (the resolve-wrap element face is its own
-            // registered follow-up).
             _ => {
                 return Some(Ok(Type::Promise(Box::new(Type::Any))));
             }
