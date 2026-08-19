@@ -73,6 +73,11 @@ unsafe extern "C" fn ns_native_entry() -> u64 {
     0
 }
 
+// CARVE-OUT: dispatch table — one thin delegation arm per `Disp`
+// variant (1-6 lines each, index-lockstep with NS_STATIC_TABLE);
+// splitting would break the dispatch locality the table exists for.
+// Same family as `check/stmt.rs::check_stmt` and
+// `ssa_lower_expr_inner::lower` (both carry the same marker).
 unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
     let Some(disp) = (if id < 0 {
         None
