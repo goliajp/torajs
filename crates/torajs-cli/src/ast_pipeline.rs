@@ -146,6 +146,12 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // strict throws TypeError at the site, sloppy folds to the rhs.
     // Same placement rationale as the delete triage above.
     ast::resolve_readonly_global_writes(ast);
+    // Sloppy-goal implicit globals (§9.1.1.4.6) — synthesize a hoisted
+    // `var <name>;` per never-declared assignment target, so the write
+    // creates the binding instead of the checker rejecting the program.
+    // After the readonly sibling (its folds already consumed the §19.1
+    // names), before the checker.
+    ast::synthesize_sloppy_implicit_globals(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
     ast::desugar_using(ast);

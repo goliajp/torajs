@@ -97,6 +97,14 @@ pub struct Ast {
     /// parked here by `check_monomorph` on the owned post-check AST, so
     /// the lowerer reads it straight off `ctx.ast`. Empty pre-check.
     pub iter_destr_srcs: std::collections::HashMap<ExprId, i64>,
+    /// Sloppy-goal implicit globals (§9.1.1.4.6, goal-triage family) —
+    /// the names whose hoisted `var` declaration the
+    /// `sloppy_implicit_globals` pass synthesized from never-declared
+    /// assignment targets. These are USER names (sputnik convention
+    /// spells them `__x`), so the data-global promote gate's
+    /// synthesized-sentinel `__` filter must not localize them — a
+    /// named-fn body writing one needs the global slot.
+    pub sloppy_implicit_global_names: std::collections::HashSet<String>,
     /// RFC 20260730-undeclared-ident — expression-position occurrences
     /// of identifiers that resolve nowhere (§6.2.5.5 GetValue /
     /// §6.2.5.6 PutValue on an unresolvable Reference), ExprId → name.

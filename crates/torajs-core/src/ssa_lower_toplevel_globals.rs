@@ -150,7 +150,7 @@ pub(crate) fn collect_toplevel_globals(
             {
                 continue;
             }
-            if !slot_type_supported(&ty, name, &binding_refs) {
+            if !slot_type_supported(&ty, name, &binding_refs, ast) {
                 continue;
             }
             if *mutable && ty.is_refcounted() && !mutable_promotes(&ty, name, &binding_refs) {
@@ -192,6 +192,7 @@ fn slot_type_supported(
     ty: &Type,
     name: &str,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+    ast: &Ast,
 ) -> bool {
     matches!(
         ty,
@@ -231,7 +232,13 @@ fn slot_type_supported(
             // minted, but what it holds is the user's class, and the
             // named fns that read it are the user's too. See
             // `capturing_classes::is_es5_class_binding`.
-            || crate::ast::capturing_classes::is_es5_class_binding(name)))
+            || crate::ast::capturing_classes::is_es5_class_binding(name)
+            // …and the sloppy-goal implicit globals (goal-triage
+            // family third member): USER names — the sputnik corpus
+            // spells them `__x` — whose hoisted `var` the
+            // `sloppy_implicit_globals` pass synthesized; a named-fn
+            // body writing one needs the global slot.
+            || ast.sloppy_implicit_global_names.contains(name)))
 }
 
 /// Whether a MUTABLE refcounted binding still promotes to a data
