@@ -142,6 +142,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                 if needs_retain {
                     ctx.emit_rc_inc(v.clone());
                 }
+                // Any-dynamic-access S1 — a throw IS a boxing
+                // boundary: the catch binding re-boxes this pointer
+                // as ANY_HEAP, so a typed array block must be
+                // self-describing before it crosses (`catch (e)
+                // { e[0] }` reads kind-aware; an unmarked block
+                // answers undefined). Self-gates on the type.
+                ctx.emit_arr_mark_kind(&v);
                 (Operand::ConstI64(4), v)
             }
             _ => (Operand::ConstI64(4), v),
