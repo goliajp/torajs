@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T08:03:07.515Z",
+  "generatedAt": "2026-08-19T09:44:56.454Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T07:41:35Z",
-    "headSha": "71df1ed8",
-    "elapsedSec": 345.65,
+    "ranAt": "2026-08-19T09:34:51Z",
+    "headSha": "502ce156",
+    "elapsedSec": 378.05,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26798,
-    "passNoOracle": 953,
+    "pass": 26802,
+    "passNoOracle": 955,
     "passNegative": 4140,
-    "passTotal": 31891,
-    "bug": 12877,
-    "incompatible": 8406,
-    "bunSkip": 6599,
+    "passTotal": 31897,
+    "bug": 12885,
+    "incompatible": 8392,
+    "bunSkip": 6596,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44768,
-    "passRateInScope": 59.97,
-    "passRateTrAccepted": 71.24
+    "trAccepted": 44782,
+    "passRateInScope": 59.99,
+    "passRateTrAccepted": 71.23
   },
   "torajs": {
-    "commit": "c4f21315",
-    "commitSubject": "refactor: the call-position face arms move to their own sibling",
+    "commit": "502ce156",
+    "commitSubject": "feat: a promise static patch fnexpr joins the store-position this face",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "502ce156",
+      "subject": "feat: a promise static patch fnexpr joins the store-position this face"
+    },
+    {
+      "hash": "98642497",
+      "subject": "feat: the promise combinators invoke a patched resolve per element"
+    },
+    {
+      "hash": "3bef2db5",
+      "subject": "fix: the async desugar settle spellings bypass the promise patch consult"
+    },
+    {
+      "hash": "c1555ea2",
+      "subject": "feat: the static promise resolve and reject slots accept a patch write"
+    },
+    {
+      "hash": "13e828e5",
+      "subject": "feat: promise static resolve and reject calls consult the ctor cell patch slot"
+    },
+    {
+      "hash": "753f8ddb",
+      "subject": "chore(hardev): dashboard snapshot post-refactor"
+    },
+    {
       "hash": "c4f21315",
       "subject": "refactor: the call-position face arms move to their own sibling"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "2dbc2702",
       "subject": "feat: wrapper-receiver replace calls join the cb-slot face"
-    },
-    {
-      "hash": "dd071236",
-      "subject": "feat: a closure replacevalue over a regexp pattern joins the runtime replace dispatch"
-    },
-    {
-      "hash": "3abb92d6",
-      "subject": "chore(docs,hardev): rotation 446 roadmap snapshot + sweep artifacts"
-    },
-    {
-      "hash": "a50b07bf",
-      "subject": "feat: the any method dispatch invokes a closure replacevalue in the replace family"
-    },
-    {
-      "hash": "b88ef214",
-      "subject": "feat: variable-routed replacers join the replace cb-slot face"
-    },
-    {
-      "hash": "616c7a89",
-      "subject": "feat: an any-typed replacevalue answers iscallable at runtime in the replace family"
-    },
-    {
-      "hash": "c1bc85fe",
-      "subject": "fix: injected builtin params stop shadowing user names via __bi_ prefix"
     }
   ],
-  "headSha": "c4f21315",
+  "headSha": "502ce156",
   "autorun": {
-    "total": 750,
+    "total": 751,
     "baselineTarget": 10,
-    "bySelf": 745,
+    "bySelf": 746,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787121361-2527",
-      "at": "2026-08-19T06:36:01Z",
-      "ts": 1787121361,
+      "rotationId": "r-1787126767-20be",
+      "at": "2026-08-19T08:06:07Z",
+      "ts": 1787126767,
       "trigger": "self",
-      "prevHead": "3abb92d6",
-      "handoffSha": "sha256:9628fa32172e1b74e7bee76efc897cc666c45be82380775dd31a974c8e382e03",
-      "handoffAgeSec": 67,
+      "prevHead": "753f8ddb",
+      "handoffSha": "sha256:c4eab047615d54c24d217cb8c66c582274b6f0ae2fc740e0c74e9ebba9d226a6",
+      "handoffAgeSec": 328,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787126767-20be",
+        "at": "2026-08-19T08:06:07Z",
+        "ts": 1787126767,
+        "trigger": "self",
+        "prevHead": "753f8ddb",
+        "handoffSha": "sha256:c4eab047615d54c24d217cb8c66c582274b6f0ae2fc740e0c74e9ebba9d226a6",
+        "handoffAgeSec": 328,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787121361-2527",
         "at": "2026-08-19T06:36:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "f635b26e",
         "handoffSha": "sha256:76a676050ea76e883a5a874a7b1c6d47374980047538a843a5e5df954c7b4bd3",
         "handoffAgeSec": 70,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787058724-7d19",
-        "at": "2026-08-18T13:12:04Z",
-        "ts": 1787058724,
-        "trigger": "self",
-        "prevHead": "4895309e",
-        "handoffSha": "sha256:d6c2edcea2ff7c6df24037f92a37d5fb69c4127cbf9867955c1d7f4cb41439bb",
-        "handoffAgeSec": 81,
         "conformanceBefore": null,
         "commitsInSession": null
       }

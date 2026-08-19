@@ -1530,7 +1530,47 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `71df1ed8`** (2026-08-19, rotation 447 — the replace
+**Latest @ `502ce156`** (2026-08-19, rotation 448 — the Promise
+static-slot monkey-patch family landed in five knives, handoff 447's
+instruction #1 off the survey's knife plan. Ground truth correction
+first: a bare `Promise` in value position answers
+`builtin_ctor_cell(10)` — a Closure-shape immortal cell whose
+expando dict (CLOSURE_PROPS_OFF) is the patch's single store — not
+the injected-class registry the survey had guessed. Knife 1: every
+static `Promise.resolve` / `Promise.reject` call site now emits a
+patch probe first (§13.3.6.1 callee GetValue order; two loads and a
+compare when unpatched) and branches to the any-method dispatcher
+against the boxed ctor cell when patched, with an Any→Promise
+return contract (a non-promise answer is a LOUD TypeError — the
+typed slot cannot hold it). Knife 2: the checker accepts
+`Promise.resolve = fn` / `.reject = fn` (only the two consulted
+names — a write nobody reads back would be a silent-wrong faucet).
+Knife 3 (the fix the probe forced): the async desugar spells its
+internal settles as `Promise.resolve(e)`, which must NOT see a user
+patch (§27.7.5.2 works the capability directly) — a synthesized-call
+side table + a monomorph clone carry routes them straight to the
+typed lane. Knife 4: all four combinator kernels gate on the probe
+and detour to a collect-then-delegate lane that runs
+`Call(promiseResolve, C, «v»)` per element (this = the ctor cell,
+abrupt = IfAbruptRejectPromise). Knife 5: `Promise.resolve =
+function(){this}` joins the store-position fnexpr-this face, so
+`this === Promise` holds on both read-back channels. Sweep vs 447:
+passTotal 31891 → **31897 (+6)**, bug **+8**, incompatible **−14**,
+conservation +14 = +6 + 8 ✓, **zero pass regressions**; forward:
+`resolve-non-callable` ×4 → pass, keyed `resolve-not-callable` ×2 →
+pass-no-oracle, invoke-resolve ×3 → bug:exit 3 (now blocked on
+`arguments`-in-fnexpr + detached-builtin `.apply` thisArg, both
+probed loud), every-iteration-of-custom ×5 → bug:exit 1. New
+exposure: `invoke-resolve-error-close` ×4 incompatible →
+**tr-timeout** — an infinite iterator + poisoned resolve expects a
+first-element close, but the dyn lane collects before the sync
+entry's consult; the fix (per-element consult inside
+`combinator_iter::dyn_iter`'s loop) is next rotation's instruction.
+Gate 3142 → **3148/0/4** across five substrate commits. The gate
+predicate: **192 unattributed clusters / 1720 cases / register 2 ·
+282 / residue 681 · 856 / core 2858**.)
+
+**Prior @ `71df1ed8`** (2026-08-19, rotation 447 — the replace
 family closed out in five knives. Handoff 446's instruction #1
 candidate ①: the runtime REPLACE arm's regex-cell branch still
 ToString'd a functional replaceValue (source-text splicing, the
