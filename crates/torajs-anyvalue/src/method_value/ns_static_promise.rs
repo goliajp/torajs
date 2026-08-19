@@ -17,6 +17,12 @@ unsafe extern "C" {
     fn __torajs_throw_take_tag() -> i64;
     /// torajs-promise — fresh pending cell (the builtin trio mint).
     fn __torajs_promise_alloc_pending() -> *mut c_void;
+    /// torajs-meta — a subclassed cell's class tag (-1 = none) and
+    /// the registered class object for a tag (0 = unregistered);
+    /// together they answer the §27.2.4.7 step-2 constructor
+    /// comparison without a property read.
+    fn __torajs_subclass_class_tag(cell: *const c_void) -> i64;
+    fn __torajs_class_cell_raw(tag: i64) -> u64;
     /// torajs-dynobj — the withResolvers result-object alloc.
     fn __torajs_dynobj_alloc() -> *mut c_void;
     /// torajs-promise — §27.2.4.7 step 2 / §27.2.4.6 step 3 through
@@ -162,6 +168,24 @@ pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64
 /// the ctor chain or the capability check raised).
 unsafe fn settle_via_capability(c: u64, reject: bool, v: u64) -> u64 {
     unsafe {
+        // §27.2.4.7 step 2 (PromiseResolve step 1-2) — a resolve
+        // whose argument is already a C instance answers it by
+        // identity (`CP.resolve(cpInst) === cpInst`). The subclass
+        // registry stands in for the `constructor` read: the cell's
+        // class tag resolving to THIS class object is the unpatched
+        // SameValue(x.constructor, C); a patched `constructor` slip
+        // past this into a fresh C promise is the recorded residue.
+        if !reject && is_cell(v) {
+            let p = as_void_ptr(v);
+            // Universal heap header `type_tag` — a Promise cell.
+            if (p.cast::<u8>().add(4) as *const u16).read() == 8 {
+                let ctag = __torajs_subclass_class_tag(p);
+                if ctag >= 0 && __torajs_class_cell_raw(ctag) == c {
+                    crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
+                    return v;
+                }
+            }
+        }
         let Some((promise, resolve_f, reject_f)) =
             crate::promise_capability::new_promise_capability(c)
         else {

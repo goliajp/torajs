@@ -1814,6 +1814,7 @@ mod tests {
         __torajs_str_index_get,
         __torajs_string_wrapper_new,
         __torajs_subclass_class_tag,
+        __torajs_class_cell_raw,
         __torajs_symbol_to_str,
         __torajs_symbol_wrapper_new,
         __torajs_weak_key_from_any,
