@@ -72,10 +72,10 @@ pub(super) fn build_error_data_subclass(
     sub_name: &str,
     data_params: &[&str],
 ) -> Stmt {
-    let msg_ident = ast.add_expr(Expr::Ident("message".to_string()));
+    let msg_ident = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     // §20.5.8.1 — forward `options` to Error's ctor, which owns the
     // single copy of the InstallErrorCause test.
-    let opts_ident = ast.add_expr(Expr::Ident("options".to_string()));
+    let opts_ident = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let super_call = ast.add_expr(Expr::Super {
         args: vec![msg_ident, opts_ident],
     });
@@ -93,7 +93,7 @@ pub(super) fn build_error_data_subclass(
             obj: this_ref,
             name: (*p).to_string(),
         });
-        let value = ast.add_expr(Expr::Ident((*p).to_string()));
+        let value = ast.add_expr(Expr::Ident(format!("__bi_{p}")));
         let assign = ast.add_expr(Expr::Assign {
             target: field,
             value,
@@ -107,14 +107,14 @@ pub(super) fn build_error_data_subclass(
     let mut params: Vec<Param> = data_params
         .iter()
         .map(|p| Param {
-            name: (*p).to_string(),
+            name: format!("__bi_{p}"),
             type_ann: Some("any".to_string()),
             default: optional.then(|| ast.add_expr(Expr::Ident("undefined".to_string()))),
             is_rest: false,
         })
         .collect();
     params.push(Param {
-        name: "message".to_string(),
+        name: "__bi_message".to_string(),
         type_ann: Some("any".to_string()),
         default: Some(msg_default),
         is_rest: false,

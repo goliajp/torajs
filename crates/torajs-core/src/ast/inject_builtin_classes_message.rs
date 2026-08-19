@@ -48,7 +48,7 @@ pub(super) fn build_message_install(ast: &mut Ast) -> Stmt {
         Stmt::Expr(assign)
     };
 
-    let msg_u = ast.add_expr(Expr::Ident("message".to_string()));
+    let msg_u = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     let undef = ast.add_expr(Expr::Ident("undefined".to_string()));
     let is_undef = ast.add_expr(Expr::BinOp {
         op: BinOp::Eq,
@@ -58,7 +58,7 @@ pub(super) fn build_message_install(ast: &mut Ast) -> Stmt {
     let sentinel = build_absent_sentinel(ast);
     let absent_arm = assign_to_message(ast, sentinel);
 
-    let msg0 = ast.add_expr(Expr::Ident("message".to_string()));
+    let msg0 = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     let type_of = ast.add_expr(Expr::TypeOf { expr: msg0 });
     let str_lit = ast.add_expr(Expr::String("string".to_string()));
     let is_str = ast.add_expr(Expr::BinOp {
@@ -66,11 +66,11 @@ pub(super) fn build_message_install(ast: &mut Ast) -> Stmt {
         left: type_of,
         right: str_lit,
     });
-    let msg_then = ast.add_expr(Expr::Ident("message".to_string()));
+    let msg_then = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     let verbatim_arm = assign_to_message(ast, msg_then);
 
     let empty = ast.add_expr(Expr::String(String::new()));
-    let msg_else = ast.add_expr(Expr::Ident("message".to_string()));
+    let msg_else = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     let concat = ast.add_expr(Expr::BinOp {
         op: BinOp::Add,
         left: empty,

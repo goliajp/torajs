@@ -125,7 +125,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
     let ctor = ClassCtor {
         params: vec![
             Param {
-                name: "message".to_string(),
+                name: "__bi_message".to_string(),
                 type_ann: Some("any".to_string()),
                 default: Some(msg_default),
                 is_rest: false,
@@ -145,7 +145,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
     // `__sm_Error__isError`, class_globals reifies the own function
     // entry on `__class_Error`); the body is the runtime
     // [[ErrorData]] probe (`FLAG_ERROR` header bit).
-    let probe_arg = ast.add_expr(Expr::Ident("x".to_string()));
+    let probe_arg = ast.add_expr(Expr::Ident("__bi_x".to_string()));
     let probe_callee = ast.add_expr(Expr::Ident("__torajs_error_is_error".to_string()));
     let probe_call = ast.add_expr(Expr::Call {
         callee: probe_callee,
@@ -155,7 +155,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         name: "isError".to_string(),
         type_params: Vec::new(),
         params: vec![Param {
-            name: "x".to_string(),
+            name: "__bi_x".to_string(),
             type_ann: Some("any".to_string()),
             default: None,
             is_rest: false,
@@ -201,10 +201,10 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
 /// ctor now resolves the name off the receiver's own prototype chain,
 /// so the header line it writes already reads `<N>: msg`.
 fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
-    let msg_ident = ast.add_expr(Expr::Ident("message".to_string()));
+    let msg_ident = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     // §20.5.8.1 is installed once, in Error's ctor; every subclass
     // only has to forward `options` to it rather than repeat the test.
-    let opts_ident = ast.add_expr(Expr::Ident("options".to_string()));
+    let opts_ident = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let super_call = ast.add_expr(Expr::Super {
         args: vec![msg_ident, opts_ident],
     });
@@ -218,7 +218,7 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
     let ctor = ClassCtor {
         params: vec![
             Param {
-                name: "message".to_string(),
+                name: "__bi_message".to_string(),
                 type_ann: Some("any".to_string()),
                 default: Some(msg_default),
                 is_rest: false,

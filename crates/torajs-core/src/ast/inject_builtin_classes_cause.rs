@@ -19,7 +19,7 @@ use super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 pub(super) fn build_options_param(ast: &mut Ast) -> Param {
     let undef = ast.add_expr(Expr::Ident("undefined".to_string()));
     Param {
-        name: "options".to_string(),
+        name: "__bi_options".to_string(),
         type_ann: Some("any".to_string()),
         default: Some(undef),
         is_rest: false,
@@ -66,7 +66,7 @@ pub(super) fn build_options_param(ast: &mut Ast) -> Param {
 /// (T-45), so synthesized code builds that call directly.
 pub(super) fn build_install_cause(ast: &mut Ast) -> Stmt {
     // options !== null
-    let opts_null = ast.add_expr(Expr::Ident("options".to_string()));
+    let opts_null = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let null_lit = ast.add_expr(Expr::Null);
     let not_null = ast.add_expr(Expr::BinOp {
         op: BinOp::Neq,
@@ -86,7 +86,7 @@ pub(super) fn build_install_cause(ast: &mut Ast) -> Stmt {
 
     // "cause" in options
     let key = ast.add_expr(Expr::String("cause".to_string()));
-    let opts_in = ast.add_expr(Expr::Ident("options".to_string()));
+    let opts_in = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let in_callee = ast.add_expr(Expr::Ident("__torajs_in_op".to_string()));
     let has_cause = ast.add_expr(Expr::Call {
         callee: in_callee,
@@ -106,7 +106,7 @@ pub(super) fn build_install_cause(ast: &mut Ast) -> Stmt {
 
     // __torajs_error_install_cause(this, options.cause);
     let this_expr = ast.add_expr(Expr::This);
-    let opts_read = ast.add_expr(Expr::Ident("options".to_string()));
+    let opts_read = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let value = ast.add_expr(Expr::Member {
         obj: opts_read,
         name: "cause".to_string(),
@@ -127,7 +127,7 @@ pub(super) fn build_install_cause(ast: &mut Ast) -> Stmt {
 /// `typeof options === "<want>"` — the two arms of the
 /// [`build_install_cause`] Object test.
 fn build_typeof_eq(ast: &mut Ast, want: &str) -> ExprId {
-    let opts = ast.add_expr(Expr::Ident("options".to_string()));
+    let opts = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let t = ast.add_expr(Expr::TypeOf { expr: opts });
     let lit = ast.add_expr(Expr::String(want.to_string()));
     ast.add_expr(Expr::BinOp {
