@@ -40,6 +40,13 @@ unsafe extern "C" {
     ) -> i64;
     fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-anyvalue — §27.2.4.1.1 GetPromiseResolve(%Promise%):
+    /// one real Get over the patched ctor slot (accessor getters
+    /// invoke; owned box or undefined with the throw pending) and
+    /// the boxed ctor cell (immortal borrow) the per-element call
+    /// passes as C.
+    fn __torajs_promise_ctor_get_static(name_id: i64) -> u64;
+    fn __torajs_promise_ctor_box() -> u64;
 }
 
 /// Pop the in-flight throw off the TLS and answer a promise rejected
@@ -122,6 +129,38 @@ pub(crate) unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_
     unsafe { crate::combinator::__torajs_promise_all_sync(arr, 0) }
 }
 
+/// The builtin dyn entries' GetPromiseResolve front half —
+/// §27.2.4.1 step 1 runs ONCE, before GetIterator: when the
+/// `resolve` slot wears a user patch (data or accessor), one real
+/// Get fetches promiseResolve — a getter's abrupt or a non-callable
+/// answer rejects HERE, before the iterable is ever touched (t262's
+/// invoke-resolve-get-error family asserts that order), and the
+/// get-once family counts exactly this one read — and the loop then
+/// calls it per element with this = the ctor cell. Unpatched runs
+/// pay the existence probe only and ride the 0/0 fast shape.
+unsafe fn dyn_with_builtin_resolve(
+    m: u8,
+    v: u64,
+    sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+) -> *mut c_void {
+    unsafe {
+        let (ctor, pr) = if crate::combinator_patched::consult_active() {
+            let pr = __torajs_promise_ctor_get_static(0);
+            if __torajs_throw_check() != 0 {
+                return reject_with_pending_throw();
+            }
+            (__torajs_promise_ctor_box(), pr)
+        } else {
+            (0, 0)
+        };
+        let out = crate::combinator_iter::dyn_iter(v, __torajs_any_iter_next, m, sync, ctor, pr);
+        if pr != 0 {
+            __torajs_anyv_rc_dec(pr);
+        }
+        out
+    }
+}
+
 /// # Safety
 /// `v` is a live any-boxed value the caller owns for the duration
 /// of the call.
@@ -133,13 +172,10 @@ pub(crate) unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_all_dyn(v: u64) -> *mut c_void {
     unsafe {
-        crate::combinator_iter::dyn_iter(
-            v,
-            __torajs_any_iter_next,
+        dyn_with_builtin_resolve(
             crate::combinator_all_fanin::MODE_ALL,
+            v,
             all_sync_untargeted,
-            0,
-            0,
         )
     }
 }
@@ -149,13 +185,10 @@ pub unsafe extern "C" fn __torajs_promise_all_dyn(v: u64) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_race_dyn(v: u64) -> *mut c_void {
     unsafe {
-        crate::combinator_iter::dyn_iter(
-            v,
-            __torajs_any_iter_next,
+        dyn_with_builtin_resolve(
             crate::combinator_all_fanin::MODE_RACE,
+            v,
             crate::combinator::__torajs_promise_race_sync,
-            0,
-            0,
         )
     }
 }
@@ -165,13 +198,10 @@ pub unsafe extern "C" fn __torajs_promise_race_dyn(v: u64) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_any_dyn(v: u64) -> *mut c_void {
     unsafe {
-        crate::combinator_iter::dyn_iter(
-            v,
-            __torajs_any_iter_next,
+        dyn_with_builtin_resolve(
             crate::combinator_all_fanin::MODE_ANY,
+            v,
             crate::combinator::__torajs_promise_any_sync,
-            0,
-            0,
         )
     }
 }
@@ -221,13 +251,10 @@ pub(crate) unsafe extern "C" fn allsettled_sync_untagged(arr: *mut c_void) -> *m
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_allsettled_dyn(v: u64) -> *mut c_void {
     unsafe {
-        crate::combinator_iter::dyn_iter(
-            v,
-            __torajs_any_iter_next,
+        dyn_with_builtin_resolve(
             crate::combinator_all_fanin::MODE_ALLSETTLED,
+            v,
             allsettled_sync_untagged,
-            0,
-            0,
         )
     }
 }

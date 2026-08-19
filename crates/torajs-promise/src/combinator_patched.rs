@@ -32,10 +32,14 @@ use core::ffi::c_void;
 use crate::combinator::{arr_len, arr_slot_ptr};
 
 unsafe extern "C" {
-    /// torajs-anyvalue — the patch probe + the per-element patched
-    /// invocation (owned Any answer, throw left pending).
+    /// torajs-anyvalue — the patch probe, the once-per-run
+    /// GetPromiseResolve fetch (owned box or undefined with the
+    /// throw pending; accessor getters invoke), the boxed ctor cell
+    /// (immortal borrow), and the explicit-`this` call.
     fn __torajs_promise_ctor_patched(name_id: i64) -> i64;
-    fn __torajs_promise_call_patched(name_id: i64, arg: u64) -> u64;
+    fn __torajs_promise_ctor_get_static(name_id: i64) -> u64;
+    fn __torajs_promise_ctor_box() -> u64;
+    fn __torajs_any_call_with_this(recv: u64, this_arg: u64, argv: *const u64, argc: i64) -> u64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_rc_dec(v: u64);
     fn __torajs_throw_check() -> i64;
@@ -54,6 +58,15 @@ pub(crate) unsafe fn consult_active() -> bool {
 /// abrupt element produced.
 unsafe fn resolve_elements(arr: *mut c_void) -> Result<*mut c_void, *mut c_void> {
     unsafe {
+        // §27.2.4.1 step 1 — GetPromiseResolve runs ONCE before the
+        // element walk (the get-once family counts the read; an
+        // accessor getter's abrupt rejects before any element is
+        // resolved, and so does a non-callable slot).
+        let pr = __torajs_promise_ctor_get_static(0);
+        if __torajs_throw_check() != 0 {
+            return Err(crate::combinator_dyn::reject_with_pending_throw());
+        }
+        let ctor = __torajs_promise_ctor_box();
         let len = arr_len(arr);
         let is_any = crate::combinator_any::arr_is_any(arr);
         let mut items: Vec<u64> = Vec::with_capacity(len as usize);
@@ -66,7 +79,8 @@ unsafe fn resolve_elements(arr: *mut c_void) -> Result<*mut c_void, *mut c_void>
             } else {
                 __torajs_anyv_box_from_pair(4, arr_slot_ptr(arr, i) as i64)
             };
-            let ret = __torajs_promise_call_patched(0, v);
+            let one = [v];
+            let ret = __torajs_any_call_with_this(pr, ctor, one.as_ptr(), 1);
             if __torajs_throw_check() == 0 && crate::combinator_any::slot_promise(ret).is_none() {
                 // The typed lane's return contract — see module doc.
                 __torajs_anyv_rc_dec(ret);
@@ -79,10 +93,12 @@ unsafe fn resolve_elements(arr: *mut c_void) -> Result<*mut c_void, *mut c_void>
                 for it in items {
                     __torajs_anyv_rc_dec(it);
                 }
+                __torajs_anyv_rc_dec(pr);
                 return Err(crate::combinator_dyn::reject_with_pending_throw());
             }
             items.push(ret);
         }
+        __torajs_anyv_rc_dec(pr);
         Ok(crate::combinator_dyn::items_to_any_arr(items))
     }
 }

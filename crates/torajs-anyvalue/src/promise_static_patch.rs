@@ -13,10 +13,15 @@
 //! loads and a compare, patched ones ride the any method dispatcher
 //! against the ctor cell (this = the ctor, per §27.2.4.7 step 1).
 //!
-//! Two entries:
+//! Entries:
 //! - [`__torajs_promise_ctor_patched`] — the call-site gate: 1 iff
 //!   the ctor cell was ever minted AND its props dict holds an own
 //!   entry under the method's name.
+//! - [`__torajs_promise_ctor_get_static`] — §27.2.4.1.1
+//!   GetPromiseResolve(%Promise%): the ONE real Get the combinator
+//!   lanes run before iterating (accessor getters invoke; IsCallable
+//!   gate), paired with [`__torajs_promise_ctor_box`] for the
+//!   per-element thisArg.
 //! - [`__torajs_promise_patched_result`] — the typed lane's return
 //!   contract: the patched call answered an owned Any; a heap
 //!   %Promise% cell transfers through, anything else is a LOUD
@@ -40,7 +45,14 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-meta — §10.1.7.1 accessor read with an explicit
+    /// receiver (owned answer; a getter throw leaves the TLS set).
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+    fn __torajs_throw_check() -> i64;
 }
+
+/// dynobj accessor bucket tag (torajs-dynobj `layout.rs` mirror).
+const ANY_ACCESSOR_TAG: u64 = 6;
 
 /// The builtin-proto family tag of `Promise` (the
 /// `builtin_proto_tag` row the bare ident read lowers with).
@@ -78,55 +90,55 @@ pub extern "C" fn __torajs_promise_ctor_patched(name_id: i64) -> i64 {
     unsafe { i64::from(__torajs_dynobj_has(props, patch_key_cell(name_id)) != 0) }
 }
 
-/// §27.2.4.1 GetPromiseResolve + the per-element
-/// `Call(promiseResolve, C, «v»)` — the combinator kernels' way to
-/// run one patched-`resolve` invocation. Reads the patched value off
-/// the ctor cell's dict (the probe already said it is present),
-/// requires a callable per GetPromiseResolve step 2 (TypeError
-/// otherwise, left pending for the caller's check), and rides
-/// [`crate::method_call_closure_dispatch::invoke_with_this`] with
-/// the boxed ctor cell as thisValue — §27.2.4.1.3's `C`. The arg is
-/// BORROWED; the answer is an owned Any (or undefined with a throw
-/// in flight). The patched cell takes a +1 across the call so a
-/// self-replacing override cannot free itself mid-invocation.
+/// §27.2.4.1.1 GetPromiseResolve(C = %Promise%) — one REAL Get over
+/// the patched ctor cell's expando dict, the observable the
+/// existence probe alone cannot see: a data entry answers its value,
+/// an accessor entry INVOKES its getter with this = the ctor cell
+/// (a getter throw propagates as the pending abrupt), and the
+/// answer then passes the step-2 IsCallable gate (TypeError
+/// otherwise). The combinator lanes call this exactly ONCE before
+/// iterating — t262's get-once family counts the read — and drive
+/// every element through the returned callable. Answers an OWNED
+/// box, or undefined with the throw pending.
 #[unsafe(no_mangle)]
-pub extern "C" fn __torajs_promise_call_patched(name_id: i64, arg: AnyValue) -> AnyValue {
+pub extern "C" fn __torajs_promise_ctor_get_static(name_id: i64) -> AnyValue {
     let cell = crate::method_value::ctor::ctor_cell_peek(PROMISE_PROTO_TAG);
     // SAFETY: the probe gated on a live cell + props dict; keys are
-    // immortal Str cells.
+    // immortal Str cells; an accessor value slot holds a live pair.
     unsafe {
         let props = crate::member_get_layout::closure_props(cell.cast());
         let key = patch_key_cell(name_id);
         let tag = __torajs_dynobj_get_tag(props, key);
         let value = __torajs_dynobj_get_value(props, key);
-        let patched = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
-        let callable = is_cell(patched)
-            && (as_void_ptr(patched).cast::<u8>().add(4) as *const u16).read()
-                == Tag::Closure as u16;
-        if !callable {
-            // GetPromiseResolve step 2 — IsCallable false.
+        let f = if tag == ANY_ACCESSOR_TAG {
+            let got =
+                __torajs_accessor_invoke_getter(value as *const c_void, box_void_ptr(cell.cast()));
+            if __torajs_throw_check() != 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+                return VALUE_UNDEFINED;
+            }
+            got
+        } else {
+            let b = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(b);
+            b
+        };
+        if !crate::promise_capability::is_callable(f) {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
             __torajs_throw_type_error(c"Promise.resolve is not a function".as_ptr());
             return VALUE_UNDEFINED;
         }
-        let p = as_void_ptr(patched);
-        crate::nanbox_ffi::__torajs_anyv_rc_inc(patched);
-        let Some((env, entry)) = crate::method_call_closure_dispatch::closure_cell_entry(p) else {
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(patched);
-            __torajs_throw_type_error(c"Promise.resolve is not a function".as_ptr());
-            return VALUE_UNDEFINED;
-        };
-        let this_box = box_void_ptr(cell.cast());
-        let argv = [arg];
-        let ret = crate::method_call_closure_dispatch::invoke_with_this(
-            env,
-            entry,
-            this_box,
-            argv.as_ptr(),
-            1,
-        );
-        crate::nanbox_ffi::__torajs_anyv_rc_dec(patched);
-        ret
+        f
     }
+}
+
+/// The interned Promise constructor cell as a boxed thisArg — the
+/// `C` every per-element `Call(promiseResolve, C, «v»)` passes. The
+/// cell is immortal (interned), so the box is a borrow; callers
+/// neither inc nor dec it.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_promise_ctor_box() -> AnyValue {
+    box_void_ptr(crate::method_value::ctor::ctor_cell_peek(PROMISE_PROTO_TAG).cast())
 }
 
 /// The typed lane's return contract over a patched call — see

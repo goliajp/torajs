@@ -66,9 +66,6 @@ unsafe extern "C" {
     /// (stash, close, swallow the close's own throw, restore).
     fn __torajs_iter_close_abrupt(iter: u64);
     fn __torajs_promise_reject(p: *mut c_void, reason: i64);
-    /// torajs-anyvalue — one patched-`Promise.resolve` invocation
-    /// (arg borrowed, owned Any answer, throw left pending).
-    fn __torajs_promise_call_patched(name_id: i64, arg: u64) -> u64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
@@ -95,14 +92,12 @@ pub(crate) unsafe fn dyn_iter(
     resolve_f: u64,
 ) -> *mut c_void {
     unsafe {
+        // §27.2.4.1 step 1 GetPromiseResolve already ran in the
+        // caller (the dyn entries' builtin wrapper, or the heir
+        // static arm) — `resolve_f` is its answer, fetched exactly
+        // once. Zero means the slot is the unpatched builtin and
+        // the loop skips the call entirely.
         let heir = resolve_f != 0;
-        // §27.2.4.1 step 1 GetPromiseResolve — the patch probe runs
-        // once, before the first step, like the spec's single fetch
-        // (the patched fn itself is re-read per call; a data write
-        // is not observable through either read). The heir lane
-        // already carries its own promiseResolve, so the builtin
-        // probe never fires on it.
-        let patched = !heir && crate::combinator_patched::consult_active();
         let mut idx: i64 = 0;
         let mut iter_slot: u64 = undef();
         let mut out_v: u64 = undef();
@@ -132,21 +127,17 @@ pub(crate) unsafe fn dyn_iter(
             }
             let mut elem = out_v;
             // §27.2.4.1.3 step 6.i — `Call(promiseResolve, C,
-            // «nextValue»)` runs INSIDE the loop when the slot wears
-            // a user patch or the run is a heir's: its abrupt — or a
+            // «nextValue»)` runs INSIDE the loop when a
+            // promiseResolve was fetched: its abrupt — or a
             // non-promise answer, the typed lane's recorded return
             // contract — closes the iterator per §27.2.4.1 step 8.a
             // and rejects with the original completion. The sync
             // kernels' consult fires only after full collection,
             // which has no answer for an infinite iterable; this one
             // does.
-            if patched || heir {
-                let ret = if heir {
-                    let one = [elem];
-                    __torajs_any_call_with_this(resolve_f, ctor, one.as_ptr(), 1)
-                } else {
-                    __torajs_promise_call_patched(0, elem)
-                };
+            if heir {
+                let one = [elem];
+                let ret = __torajs_any_call_with_this(resolve_f, ctor, one.as_ptr(), 1);
                 __torajs_anyv_rc_dec(elem);
                 if __torajs_throw_check() == 0 && crate::combinator_any::slot_promise(ret).is_none()
                 {
@@ -199,13 +190,13 @@ pub(crate) unsafe fn dyn_iter(
         __torajs_anyv_rc_dec(iter_slot);
         if b.is_null() {
             // Never activated — the exact delegate this lane
-            // replaced. A patched or heir run already resolved every
+            // replaced. A resolve-fetched run already resolved every
             // element above, so it hands the collected promises
             // straight to the any-lane sibling: the `no_mangle` sync
             // entry would probe the patch again and run resolve
             // twice per element.
             let arr = crate::combinator_dyn::items_to_any_arr(items);
-            let out = if patched || heir {
+            let out = if heir {
                 match mode {
                     MODE_ALL => crate::combinator_any::all_sync_any(arr),
                     MODE_RACE => crate::combinator_any::race_sync_any(arr),
