@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T16:44:47.067Z",
+  "generatedAt": "2026-08-19T18:32:44.133Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T16:35:23Z",
-    "headSha": "9016cc2a",
-    "elapsedSec": 365.47,
+    "ranAt": "2026-08-19T18:22:34Z",
+    "headSha": "76673ad9",
+    "elapsedSec": 363.63,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26823,
-    "passNoOracle": 955,
+    "pass": 26866,
+    "passNoOracle": 967,
     "passNegative": 4147,
-    "passTotal": 31925,
-    "bug": 12861,
-    "incompatible": 8388,
+    "passTotal": 31980,
+    "bug": 12856,
+    "incompatible": 8338,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44786,
-    "passRateInScope": 60.04,
-    "passRateTrAccepted": 71.28
+    "trAccepted": 44836,
+    "passRateInScope": 60.14,
+    "passRateTrAccepted": 71.33
   },
   "torajs": {
-    "commit": "9016cc2a",
-    "commitSubject": "feat: inherited combinators answer c-instance result promises",
+    "commit": "359f382e",
+    "commitSubject": "chore(hardev): rotation 452 test262 sweep artifacts",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "359f382e",
+      "subject": "chore(hardev): rotation 452 test262 sweep artifacts"
+    },
+    {
+      "hash": "76673ad9",
+      "subject": "fix: restore the zero-arg-handler fixture the no-handler probe overwrote"
+    },
+    {
+      "hash": "e57dfb8c",
+      "subject": "feat: bare then and catch ride the passthrough kernel"
+    },
+    {
+      "hash": "31c30a3f",
+      "subject": "feat: keyed combinators join the ns-static value surface"
+    },
+    {
+      "hash": "708f2fb5",
+      "subject": "feat: getpromiseresolve runs one real get before iteration"
+    },
+    {
+      "hash": "157aad7b",
+      "subject": "feat: combinators admit plain-element arrays onto the dyn road"
+    },
+    {
+      "hash": "95ca9c0e",
+      "subject": "feat: heir combinators run getpromiseresolve(c) per element"
+    },
+    {
+      "hash": "3735a1f4",
+      "subject": "chore(hardev): rotation 451 test262 sweep artifacts"
+    },
+    {
+      "hash": "d3890a9d",
+      "subject": "chore(hardev): rotation 451 sweep snapshot"
+    },
+    {
       "hash": "9016cc2a",
       "subject": "feat: inherited combinators answer c-instance result promises"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "5e94d9b8",
       "subject": "feat: try and withresolvers arms ride the capability shape"
-    },
-    {
-      "hash": "13a75056",
-      "subject": "feat: inherited settle statics construct real subclass instances"
-    },
-    {
-      "hash": "2fa316b7",
-      "subject": "feat: promise try and withresolvers cells join the recv-first channel"
-    },
-    {
-      "hash": "20629b44",
-      "subject": "feat: promise settle statics admit a builtin-heir class-object receiver"
-    },
-    {
-      "hash": "434c0008",
-      "subject": "feat: builtin-parent class objects chain to the interned ctor cell"
-    },
-    {
-      "hash": "ab332e88",
-      "subject": "chore(hardev): rotation 450 sweep snapshot"
-    },
-    {
-      "hash": "dea9966d",
-      "subject": "fix: keyed combinators consume the ordinary dynobj records directly"
-    },
-    {
-      "hash": "3a95dcc6",
-      "subject": "fix: tag-less allsettled records build readable dynobj records"
-    },
-    {
-      "hash": "c7b1493d",
-      "subject": "docs: reseat promise_settle_fn doc displaced by the combinator insert"
-    },
-    {
-      "hash": "05b8498c",
-      "subject": "feat: promise combinator cells join the recv-first receiver channel"
     }
   ],
-  "headSha": "9016cc2a",
+  "headSha": "359f382e",
   "autorun": {
-    "total": 754,
+    "total": 755,
     "baselineTarget": 10,
-    "bySelf": 749,
+    "bySelf": 750,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787151691-5d6c",
-      "at": "2026-08-19T15:01:31Z",
-      "ts": 1787151691,
+      "rotationId": "r-1787157969-011e",
+      "at": "2026-08-19T16:46:09Z",
+      "ts": 1787157969,
       "trigger": "self",
-      "prevHead": "ab332e88",
-      "handoffSha": "sha256:a1ef6a0cb84924b2e3560fb1705e4ea0b378ae213230419bd0c74c4376560dfd",
-      "handoffAgeSec": 8,
+      "prevHead": "3735a1f4",
+      "handoffSha": "sha256:6e0161ce2226b5f081bc9fdf2f6c61ec263b01a0d16a649008b8d62288bd3edd",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787157969-011e",
+        "at": "2026-08-19T16:46:09Z",
+        "ts": 1787157969,
+        "trigger": "self",
+        "prevHead": "3735a1f4",
+        "handoffSha": "sha256:6e0161ce2226b5f081bc9fdf2f6c61ec263b01a0d16a649008b8d62288bd3edd",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787151691-5d6c",
         "at": "2026-08-19T15:01:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "2af6a04e",
         "handoffSha": "sha256:bde740fabc9636efa616856cebe12c8f21deb2a2609a5f328d2ed6c9121275a5",
         "handoffAgeSec": 98,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787084985-76d4",
-        "at": "2026-08-18T20:29:45Z",
-        "ts": 1787084985,
-        "trigger": "self",
-        "prevHead": "d09e3760",
-        "handoffSha": "sha256:ed1ccbe60ac972a260056ad8df6217e6239e5db86abc22697407a275eba64a09",
-        "handoffAgeSec": 51,
         "conformanceBefore": null,
         "commitsInSession": null
       }
