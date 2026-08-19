@@ -1754,6 +1754,7 @@ mod tests {
         __torajs_promise_reject,
         __torajs_promise_resolve,
         __torajs_regex_compile,
+        __torajs_regex_compile_inplace,
         __torajs_regex_drop,
         __torajs_regex_exec,
         __torajs_regex_get_last_index,

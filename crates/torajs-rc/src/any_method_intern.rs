@@ -99,6 +99,7 @@ pub fn any_method_id(name: &str) -> i64 {
         "endsWith" => ANY_METHOD_ENDS_WITH,
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
+        "compile" => ANY_METHOD_COMPILE,
         "then" => ANY_METHOD_THEN,
         "catch" => ANY_METHOD_CATCH,
         "finally" => ANY_METHOD_FINALLY,

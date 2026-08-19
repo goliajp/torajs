@@ -205,6 +205,8 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §22.1.3.36 — String.prototype[Symbol.iterator] (own id,
         // never interns back; the spec function name has brackets).
         ANY_METHOD_STR_ITERATOR => ("[Symbol.iterator]", 0),
+        // Annex B §B.2.4.1 — RegExp.prototype.compile(pattern, flags).
+        ANY_METHOD_COMPILE => ("compile", 2),
         // The `any_method_iter` id block (iterator protocol + weak
         // deref) rows live in [`iter_method_meta`] — the r405 watch
         // said the next mid added here must extract a family first,

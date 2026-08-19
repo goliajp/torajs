@@ -24,8 +24,8 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_EXEC, ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_REPLACE, ANY_METHOD_SEARCH,
-    ANY_METHOD_SPLIT, ANY_METHOD_TEST, ANY_METHOD_TO_STRING,
+    ANY_METHOD_COMPILE, ANY_METHOD_EXEC, ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL,
+    ANY_METHOD_REPLACE, ANY_METHOD_SEARCH, ANY_METHOD_SPLIT, ANY_METHOD_TEST, ANY_METHOD_TO_STRING,
 };
 
 use crate::method_call::method_no_such;
@@ -42,6 +42,9 @@ unsafe extern "C" {
     fn __torajs_regex_exec(re: *const c_void, s: *const c_void) -> *mut c_void;
     /// torajs-regex — `/source/flags` rendering, fresh +1 Str.
     fn __torajs_regex_to_string(re: *const c_void) -> *mut c_void;
+    /// torajs-regex — Annex B §B.2.4.1 in-place recompile; answers
+    /// an OWNED share of the receiver, or null with a throw pending.
+    fn __torajs_regex_compile_inplace(re: *mut c_void, pat: u64, flags: u64) -> *mut c_void;
     /// torajs-str — release a heap Str/Substr reference (the owned
     /// haystack temp).
     fn __torajs_str_drop(s: *mut c_void);
@@ -91,6 +94,16 @@ pub(crate) unsafe fn regexp_method(
             }
             m if m == ANY_METHOD_TO_STRING => {
                 __torajs_anyv_box_from_pair(4, __torajs_regex_to_string(re) as i64)
+            }
+            // Annex B §B.2.4.1 — RegExp.prototype.compile(pattern,
+            // flags): in-place recompile of the receiver. The kernel
+            // answers an owned share of the receiver (§B.2.4.1
+            // step 5 returns O), or null with a throw pending — the
+            // null box rides out under the pending throw and the
+            // caller's throw check discards it.
+            m if m == ANY_METHOD_COMPILE => {
+                let fresh = __torajs_regex_compile_inplace(re, arg_at(0), arg_at(1));
+                __torajs_anyv_box_from_pair(4, fresh as i64)
             }
             // §22.2.6.8/.11/.12/.13/.14 — the @@match / @@matchAll /
             // @@replace / @@search / @@split protocol methods (r289).

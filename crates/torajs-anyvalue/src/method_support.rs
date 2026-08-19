@@ -198,7 +198,7 @@ pub(crate) fn set_supports(mid: i64) -> bool {
 pub(crate) fn regexp_supports(mid: i64) -> bool {
     matches!(
         mid,
-        ANY_METHOD_TEST | ANY_METHOD_EXEC | ANY_METHOD_TO_STRING
+        ANY_METHOD_TEST | ANY_METHOD_EXEC | ANY_METHOD_TO_STRING | torajs_rc::ANY_METHOD_COMPILE
     )
 }
 
