@@ -686,6 +686,9 @@ pub(crate) struct Intrinsics {
     /// §27.2.4.7 step 2 any-lane probe: pass a boxed %Promise%
     /// through, else fulfilled_heap + REPR_ANY (kernel-side stamp).
     pub(crate) promise_resolve_any: FuncId,
+    /// §27.2.4 static-slot patch consult pair (rotation 448).
+    pub(crate) promise_ctor_patched: FuncId,
+    pub(crate) promise_patched_result: FuncId,
     /// RFC 20260720-anylane-promise-methods knife 1 — stamp the
     /// cell's `value_repr` at a mint site whose static arg type
     /// fixes the storage form.

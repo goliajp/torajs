@@ -13,23 +13,10 @@
 //!   Falls through (returns `None`) when `args.is_empty()` so a more
 //!   generic call lowering can fire.
 //!
-//! - **P10.2-A1** — 0-arg `Promise.resolve()` / `Promise.reject()`.
-//!   Spec-equivalent to `Promise.{resolve,reject}(undefined)` which
-//!   shares the i64-0 sentinel ABI with `null`; synthesize
-//!   `ConstI64(0)` and dispatch the non-heap fulfilled/rejected
-//!   allocator (same path 1-arg primitive takes).
-//!
-//! - **T-15.g.1 / T-15.g.5** — 1+arg `Promise.resolve(v)` /
-//!   `Promise.reject(e)`. S322 lower-and-drop trailing `args[1..]` per
-//!   S272 idiom. §27.2.4.7 step 2: `Promise.resolve(p)` on a
-//!   `Type::Promise` arg passes the SAME object through (identity,
-//!   no mint) — reject side keeps the simple-heap path per spec
-//!   (§27.2.4.6 always mints). Heap-vs-primitive dispatch by
-//!   `arg_ty`; `Bool` → `coerce_bool_to_i64`; `F64` → `BitCastF64ToI64`
-//!   so the value slot uniformly holds 8 bytes the receiver decodes
-//!   per the promise's value class (②.6b). When `arg_ty == I64` but
-//!   the field width table says this anon-ExprId slot is f64-shaped,
-//!   `coerce_to_f64` + `BitCastF64ToI64` first.
+//! - **`Promise.resolve` / `Promise.reject`** — the zero-arg,
+//!   pass-through, any-lane and heap/primitive allocator arms plus
+//!   the §27.2.4 static-slot patch consult live in
+//!   [`crate::ssa_lower_call_promise_resolve`] (rotation 448 split).
 //!
 //! - **§27.2.4.8 (ES2024)** — `Promise.withResolvers()`. 0-arg
 //!   kernel call; the runtime mints the pending promise + the two
@@ -74,8 +61,9 @@ pub(crate) fn try_lower(
         "allKeyed" | "allSettledKeyed" if !args.is_empty() => Some(
             crate::ssa_lower_call_promise_keyed::lower_keyed(ctx, m, args),
         ),
-        "resolve" | "reject" if args.is_empty() => Some(lower_zero_arg(ctx, m)),
-        "resolve" | "reject" => Some(lower_one_plus(ctx, eid, m, args)),
+        "resolve" | "reject" => Some(crate::ssa_lower_call_promise_resolve::lower_resolve_reject(
+            ctx, eid, m, args,
+        )),
         "withResolvers" => Some(lower_with_resolvers(ctx, args)),
         _ => None,
     }
@@ -319,178 +307,4 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
     // (RFC 20260705 ledger #3, 35MB probe). Owned temps release here.
     ctx.release_owned_temp(args[0], &arr_op);
     Operand::Value(v)
-}
-
-/// `Promise.{resolve,reject}()` — synthesize the undefined sentinel
-/// and route to the primitive fulfilled/rejected allocator.
-fn lower_zero_arg(ctx: &mut LowerCtx<'_>, method: &str) -> Operand {
-    let fid = match method {
-        "resolve" => ctx.intrinsics.promise_alloc_fulfilled,
-        "reject" => ctx.intrinsics.promise_alloc_rejected,
-        _ => unreachable!(),
-    };
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(fid, vec![Operand::ConstI64(0)]),
-        Type::Promise,
-        None,
-    );
-    // RFC 20260720-anylane-promise-methods knife 1 — the zero-arg
-    // form settles with undefined; the any-lane bridge answers it
-    // as such.
-    let out = Operand::Value(v);
-    ctx.emit_promise_stamp_repr(&out, crate::ssa_lower_promise_repr_mark::REPR_VOID);
-    out
-}
-
-/// `Promise.{resolve,reject}(v, ...)` — thenable absorption + heap /
-/// primitive dispatch + S322 trailing-arg side-effect.
-fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[ExprId]) -> Operand {
-    // §27.2.4.7 — `Promise.resolve(undefined)` settles with exactly
-    // what `Promise.resolve()` settles with, so it takes the zero-arg
-    // lane rather than boxing `undefined` as an ordinary value. Below,
-    // an undefined-typed operand is not heap-shaped, so it went to the
-    // primitive allocator WITHOUT the void repr stamp the zero-arg
-    // form applies — and the any-lane bridge then read a tag it did
-    // not recognise (`[unknown-any-tag]`, `typeof` answering
-    // "object"). The arguments still lower, for effect.
-    if method == "resolve"
-        && matches!(
-            ctx.expr_types.get(&args[0]),
-            Some(crate::check::Type::Undefined | crate::check::Type::Void)
-        )
-    {
-        for &a in args {
-            let _ = ctx.lower_expr(a);
-        }
-        return lower_zero_arg(ctx, method);
-    }
-    let arg_op = ctx.lower_expr(args[0]);
-    for &a in args.iter().skip(1) {
-        let _ = ctx.lower_expr(a);
-    }
-    let arg_ty = ctx.operand_ty(&arg_op);
-    // §27.2.4.7 step 2 — PromiseResolve on a promise whose
-    // constructor is %Promise% answers the SAME object
-    // (`Promise.resolve(p) === p`; tr has no Promise subclassing, so
-    // the pass-through is unconditional). Replaces the pre-spec
-    // T-19.f absorption mint (`promise_resolve_thenable` — kernel
-    // kept for future any-lane use). Owned-result convention: a
-    // borrow-shaped arg shares (+1); an owned temp transfers as-is.
-    if matches!(arg_ty, Type::Promise) && method == "resolve" {
-        if !ctx.expr_transfers_ownership(args[0]) {
-            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
-        }
-        return arg_op;
-    }
-    // §27.2.4.7 step 2 through the ANY lane — the runtime kernel
-    // probes the box for a %Promise% cell (pass-through, adopting
-    // the caller's transferred ref) and otherwise folds the
-    // fulfilled_heap + REPR_ANY stamp pair itself, so the
-    // pass-through can never be stamped over. Borrow-shaped args
-    // share (+1) exactly like the heap lane below.
-    if matches!(arg_ty, Type::Any) && method == "resolve" {
-        if !ctx.expr_transfers_ownership(args[0]) {
-            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
-        }
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![arg_op]),
-            Type::Promise,
-            None,
-        );
-        return Operand::Value(v);
-    }
-    let is_heap = matches!(
-        arg_ty,
-        Type::Str
-            | Type::Substr
-            | Type::Obj(_)
-            | Type::Arr(_)
-            | Type::Closure(_)
-            | Type::RegExp
-            | Type::Date
-            | Type::Symbol
-            | Type::Promise
-            | Type::Any
-    );
-    let fid = match (method, is_heap) {
-        ("resolve", false) => ctx.intrinsics.promise_alloc_fulfilled,
-        ("reject", false) => ctx.intrinsics.promise_alloc_rejected,
-        ("resolve", true) => ctx.intrinsics.promise_alloc_fulfilled_heap,
-        ("reject", true) => ctx.intrinsics.promise_alloc_rejected_heap,
-        _ => unreachable!(),
-    };
-    // `promise_alloc_*_heap` ADOPTS the value (caller transfers one
-    // ref, pool.rs contract). A borrow-shaped arg therefore shares:
-    // +1 so the source binding keeps its own stake — the old consume
-    // path stole it (UAF once the promise dropped first, reuse-window
-    // probe printed filler vs bun val42). Owned temps transfer their
-    // fresh ref as-is.
-    if is_heap && !ctx.expr_transfers_ownership(args[0]) {
-        ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
-    }
-    // RFC 20260720-anylane-promise-methods knife 1 — the repr stamp
-    // mirrors the STORED form this site emits (the I64→f64-slot
-    // widening below changes it), so capture the predicates the
-    // coercion chain is about to consume.
-    let is_null = matches!(arg_op, Operand::ConstPtrNull);
-    let stored_as_f64 = matches!(arg_ty, Type::F64)
-        || (matches!(arg_ty, Type::I64)
-            && ctx
-                .num_f64_slots
-                .field_is_f64(&crate::num_width::SlotKey::Anon(eid.0), "value"));
-    mark_arr_value(ctx, &arg_op, &arg_ty);
-    let arg_i64 = if matches!(arg_ty, Type::Bool) {
-        ctx.coerce_bool_to_i64(arg_op)
-    } else if matches!(arg_ty, Type::F64) {
-        let cur_block = ctx.cur_block;
-        Operand::Value(ctx.f.append_inst(
-            cur_block,
-            InstKind::BitCastF64ToI64(arg_op),
-            Type::I64,
-            None,
-        ))
-    } else if matches!(arg_ty, Type::I64)
-        && ctx
-            .num_f64_slots
-            .field_is_f64(&crate::num_width::SlotKey::Anon(eid.0), "value")
-    {
-        let as_f64 = ctx.coerce_to_f64(arg_op);
-        let cur_block = ctx.cur_block;
-        Operand::Value(ctx.f.append_inst(
-            cur_block,
-            InstKind::BitCastF64ToI64(as_f64),
-            Type::I64,
-            None,
-        ))
-    } else {
-        arg_op
-    };
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(fid, vec![arg_i64]),
-        Type::Promise,
-        None,
-    );
-    let out = Operand::Value(v);
-    if let Some(repr) =
-        crate::ssa_lower_promise_repr_mark::promise_value_repr(&arg_ty, stored_as_f64, is_null)
-    {
-        ctx.emit_promise_stamp_repr(&out, repr);
-    }
-    out
-}
-
-/// The repr stamp makes the cell any-consumable, so a typed-Arr
-/// value settles as an any-readable cell too: mark its elem kind
-/// (RFC 20260704 S1 self-describing posture — the bridge's boxed
-/// hand-off is exactly the typed→any crossing the mark exists for).
-fn mark_arr_value(ctx: &mut LowerCtx<'_>, arg_op: &Operand, arg_ty: &Type) {
-    if matches!(arg_ty, Type::Arr(_)) {
-        ctx.emit_arr_mark_kind(arg_op);
-    }
 }

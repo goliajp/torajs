@@ -63,6 +63,11 @@ pub(crate) struct PromiseIds {
     /// value for a %Promise% cell (pass-through) before falling back
     /// to the fulfilled_heap + REPR_ANY pair.
     pub promise_resolve_any: FuncId,
+    /// §27.2.4 static-slot patch consult pair (rotation 448) — the
+    /// call-site gate over the ctor cell's expando dict, and the
+    /// typed lane's Any→Promise return contract on a patched call.
+    pub promise_ctor_patched: FuncId,
+    pub promise_patched_result: FuncId,
     pub promise_stamp_repr: FuncId,
     pub promise_drop: FuncId,
     pub promise_get_value: FuncId,
@@ -185,6 +190,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_promise_resolve_any",
             i641,
+            Type::Promise,
+        ),
+        promise_ctor_patched: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_ctor_patched",
+            i641,
+            Type::I64,
+        ),
+        promise_patched_result: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_patched_result",
+            &[Type::Any, Type::I64],
             Type::Promise,
         ),
         promise_drop: declare_intrinsic(

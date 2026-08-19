@@ -53,6 +53,14 @@ pub(crate) fn builtin_ctor_cell(proto_tag: i64) -> *mut u8 {
     }
 }
 
+/// The interned ctor cell WITHOUT minting — the promise patch-consult
+/// probe asks "has anyone stored on it", and a cell nobody ever
+/// minted cannot have been written through, so a null peek answers
+/// "unpatched" without paying the allocation.
+pub(crate) fn ctor_cell_peek(proto_tag: i64) -> *mut u8 {
+    CTOR_CELLS[proto_tag as usize].load(Ordering::Relaxed) as *mut u8
+}
+
 /// The interned empty-string cell of the `String()` zero-arg call —
 /// lazily minted, immortal (strings compare by value, so one
 /// identity serves every call).
