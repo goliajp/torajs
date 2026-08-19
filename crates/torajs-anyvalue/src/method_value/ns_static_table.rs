@@ -116,11 +116,6 @@ pub(super) enum Disp {
     BigIntAsN {
         signed: bool,
     },
-    /// §27.2.4.7/.6 Promise.resolve / reject — a bare cell call has
-    /// an undefined |this| and both statics require an object this
-    /// (species ctor, step 1), so the arm always raises the bun/JSC
-    /// TypeError; the cell exists for the reflection surface.
-    PromiseSettle,
     /// §27.2.4.7/.6 resolve / reject — the receiver-channel pair
     /// (`this_aware_id`): argv[0] carries the thisArg, and the
     /// builtin-Promise |this| runs the real settle.
@@ -137,6 +132,17 @@ pub(super) enum Disp {
     PromiseCombinator {
         kind: PromiseComb,
     },
+    /// ES2025 Promise.try — the receiver-channel form: argv[1] is
+    /// the callback, argv[2..] its arguments; Call(fn, undefined,
+    /// args) runs synchronously and the completion settles the
+    /// answered promise (an abrupt completion REJECTS — a
+    /// non-callable argv[1] included, per the Call throw).
+    PromiseTryFn,
+    /// §27.2.4.8 Promise.withResolvers — the receiver-channel form:
+    /// a Promise-reaching |this| mints the {promise, resolve,
+    /// reject} trio through the same kernel the direct lowering
+    /// bakes.
+    PromiseWithResolversFn,
     /// §20.1.2.8 Object.getOwnPropertyDescriptor — ToString(P) into
     /// the meta descriptor kernel (fresh descriptor dynobj /
     /// undefined; kernel gates the nullish receiver).
@@ -393,7 +399,7 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectApply,
     Disp::ReflectSet,
     Disp::FromAsyncDyn,
-    Disp::PromiseSettle,
+    Disp::PromiseTryFn, // Promise.try — recv-first, ES2025
     Disp::JsonRawJson,
     Disp::JsonIsRawJson,
     Disp::JsonParse,
@@ -426,5 +432,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::Hypot,
     Disp::GroupBy { map: false },
     Disp::GroupBy { map: true },
-    Disp::PromiseSettle, // Promise.withResolvers — §27.2.4.8 step 1 needs a ctor |this|
+    Disp::PromiseWithResolversFn, // Promise.withResolvers — recv-first, §27.2.4.8
 ];

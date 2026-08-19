@@ -10,6 +10,11 @@ use super::ns_static::arg_at;
 use super::ns_static_table::{__torajs_throw_type_error, PromiseComb};
 
 unsafe extern "C" {
+    /// torajs-throw — pending-throw pair take (tag peek first, then
+    /// value + clear; the `: any`-typed catch order).
+    fn __torajs_throw_check() -> i64;
+    fn __torajs_throw_take() -> i64;
+    fn __torajs_throw_take_tag() -> i64;
     /// torajs-promise — §27.2.4.7 step 2 / §27.2.4.6 step 3 through
     /// the ANY lane. Both adopt one ref on the box.
     fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void;
@@ -132,5 +137,47 @@ pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64
             __torajs_promise_resolve_any(v as i64)
         };
         box_void_ptr(p)
+    }
+}
+
+/// ES2025 Promise.try with a receiver channel — same gate, then
+/// Call(callbackfn = argv[1], undefined, argv[2..]) runs
+/// synchronously (step 4): a normal completion resolves the answered
+/// promise with it (thenable absorption inside the resolve kernel),
+/// an abrupt completion — a non-callable callback's TypeError
+/// included — pops the pending throw and REJECTS instead of
+/// propagating. The call answer is owned and the kernels adopt one
+/// ref, so both hand-offs are stake transfers.
+pub(super) unsafe fn promise_try_fn(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        if !this_reaches_promise_ctor(arg_at(argv, argc, 0)) {
+            return promise_settle();
+        }
+        let f = arg_at(argv, argc, 1);
+        let (rest, n) = if argc >= 2 {
+            (argv.add(2), argc - 2)
+        } else {
+            (core::ptr::null(), 0)
+        };
+        let r = crate::method_call_closure_dispatch::__torajs_any_call(f, rest, n);
+        if __torajs_throw_check() != 0 {
+            let tag = __torajs_throw_take_tag();
+            let value = __torajs_throw_take();
+            let boxed = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag, value);
+            return box_void_ptr(__torajs_promise_reject_any(boxed as i64));
+        }
+        box_void_ptr(__torajs_promise_resolve_any(r as i64))
+    }
+}
+
+/// §27.2.4.8 Promise.withResolvers with a receiver channel — same
+/// gate, then the trio mint the direct lowering bakes (fresh owned
+/// `{promise, resolve, reject}` dynobj out).
+pub(super) unsafe fn promise_with_resolvers_fn(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        if !this_reaches_promise_ctor(arg_at(argv, argc, 0)) {
+            return promise_settle();
+        }
+        crate::promise_with_resolvers::__torajs_promise_with_resolvers()
     }
 }
