@@ -166,4 +166,28 @@ impl Type {
         // never witness their own end-of-fn drop walk (monomorphization
         // produces concrete-type bodies before the SSA layer runs).
     }
+
+    /// §13.3.6.2 step 6 — value types statically KNOWN to have no
+    /// [[Call]]: invoking one is a runtime TypeError under every
+    /// goal, not a compile stop (arguments still evaluate, step 4).
+    /// The checker types such a call `Any` (its value is
+    /// unreachable) and the lowering wedge
+    /// (`ssa_lower_call_uncallable`) routes it through the runtime
+    /// any-call dispatcher, whose non-closure arm raises the
+    /// catchable TypeError. Both sides call THIS predicate — single
+    /// source. Conservative measured set; types not listed keep the
+    /// loud compile reject.
+    pub(crate) fn is_uncallable_value(&self) -> bool {
+        matches!(
+            self,
+            Type::Number
+                | Type::String
+                | Type::Boolean
+                | Type::Void
+                | Type::Null
+                | Type::Undefined
+                | Type::RegExp
+                | Type::BigInt
+        )
+    }
 }

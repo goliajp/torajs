@@ -78,6 +78,12 @@ pub(crate) fn lower(
     if let Some(op) = crate::ssa_lower_any_call::try_lower(ctx, callee, args) {
         return op;
     }
+    // A callee statically KNOWN uncallable (`true()` / `f.length()`)
+    // — §13.3.6.2 runtime TypeError via the any-call kernel's
+    // non-closure arm; checker mirror in check_type_of_call::general.
+    if let Some(op) = crate::ssa_lower_call_uncallable::try_lower(ctx, callee, args) {
+        return op;
+    }
     if let Some(op) = try_dispatch_a(ctx, eid, callee, args) {
         return op;
     }

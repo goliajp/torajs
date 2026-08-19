@@ -36,6 +36,19 @@ pub(crate) fn general_call(
             }
             return Ok(Type::Any);
         }
+        // A callee whose static type is a KNOWN uncallable value
+        // (`true()` / `f.length()` / `/re/()`) — §13.3.6.2 makes
+        // that a RUNTIME TypeError (step 6), reached after the
+        // arguments evaluate (step 4), so it must not stop the
+        // compile. Typed Any: the call's value is unreachable.
+        // Lowering mirror: `ssa_lower_call_uncallable`, keyed on
+        // the same `is_uncallable_value` predicate.
+        if callee_ty.is_uncallable_value() {
+            for a in args {
+                checker.type_of(ast, *a)?;
+            }
+            return Ok(Type::Any);
+        }
         return Err(format!("not callable: type {callee_ty:?}"));
     };
     // Chunk 806 — a void call USED AS A VALUE is `undefined` (ES
