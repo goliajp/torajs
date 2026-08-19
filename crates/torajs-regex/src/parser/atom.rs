@@ -49,6 +49,18 @@ impl<'p> Parser<'p> {
                 self.set_err();
                 None
             }
+            b'{' | b'}' | b']' if super::unicode_mode(self.flags) => {
+                // §22.2.1 Pattern[+UnicodeMode] — `{`, `}`, `]` are
+                // SyntaxCharacters, and a SyntaxCharacter is not a
+                // PatternCharacter; the annexB
+                // ExtendedPatternCharacter escape hatch that lets
+                // them read as literals exists only OUTSIDE Unicode
+                // mode. Bare occurrences here (a malformed brace
+                // body like `/x{/u`, a stray `}` or `]`) are
+                // SyntaxErrors under u/v.
+                self.set_err();
+                None
+            }
             b'{' if lookahead_valid_brace_quantifier(self.p, self.i) => {
                 // §22.2.1.1 Term / Quantifier Early Error: a
                 // well-formed `{n}` / `{n,}` / `{n,m}` here has no
