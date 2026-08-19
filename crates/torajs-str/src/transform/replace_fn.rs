@@ -37,6 +37,15 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_str_drop(p: *mut c_void);
     fn __torajs_throw_check() -> i64;
+    /// torajs-regex — the boxed-entry callback replacer over a
+    /// RegExp pattern (n_caps read off the cell's own capture
+    /// count; `all` picks replaceAll's non-global rejection).
+    fn __torajs_str_replace_regex_fn_boxed(
+        s: *const c_void,
+        re: *const c_void,
+        closure: *mut c_void,
+        all: i64,
+    ) -> *mut c_void;
 }
 
 /// Boxed closure entry ABI — mirrors the `__boxed_<fn>` wrappers
@@ -277,6 +286,35 @@ pub unsafe extern "C" fn __torajs_str_any_replace_fn(
         let (nd, t1) = crate::method_any::owned_src(needle);
         let out = replace_fn_inner(src.cast(), nd.cast(), closure, all != 0);
         crate::method_any::drop_tmp(t1);
+        crate::method_any::drop_tmp(t0);
+        out as u64
+    }
+}
+
+/// The RegExp-pattern twin of [`__torajs_str_any_replace_fn`] —
+/// §22.1.3.19 step 5's functionalReplace leg when the pattern is a
+/// live RegExp cell AND the replaceValue's callable-ness was only
+/// discoverable at runtime. The receiver materializes through
+/// [`crate::method_any::owned_src`] (a Substr view would be misread
+/// as an owned Str header by the regex kernel's `str_slice`); the
+/// kernel reads the capture count off the cell itself and drives the
+/// closure's boxed entry, so any callback arity lands on its spec
+/// slots.
+///
+/// # Safety
+/// `s` is a live Str/Substr cell; `re` is a live RegExp cell;
+/// `closure` is a live closure heap block whose +32 slot holds the
+/// boxed entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_replace_regex_fn(
+    s: *const u8,
+    re: *const c_void,
+    closure: *mut c_void,
+    all: i64,
+) -> u64 {
+    unsafe {
+        let (src, t0) = crate::method_any::owned_src(s);
+        let out = __torajs_str_replace_regex_fn_boxed(src.cast(), re, closure, all);
         crate::method_any::drop_tmp(t0);
         out as u64
     }

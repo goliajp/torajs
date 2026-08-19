@@ -129,6 +129,16 @@ pub unsafe extern "C" fn __torajs_anyv_unbox_value(_v: u64) -> i64 {
 pub unsafe extern "C" fn __torajs_anyv_to_str(_v: u64) -> *mut core::ffi::c_void {
     panic!("torajs-regex test stub: __torajs_anyv_to_str");
 }
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
+    panic!("torajs-regex test stub: __torajs_anyv_unbox_tag");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_check() -> i64 {
+    panic!("torajs-regex test stub: __torajs_throw_check");
+}
 
 #[cfg(test)]
 #[unsafe(no_mangle)]

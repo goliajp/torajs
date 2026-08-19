@@ -75,6 +75,15 @@ unsafe extern "C" {
         repl: *const u8,
         all: i64,
     ) -> u64;
+    /// torajs-str — replace/replaceAll glue, functional-replaceValue
+    /// leg of the RegExp-pattern lane (capture count read off the
+    /// cell, boxed-entry dispatch).
+    fn __torajs_str_any_replace_regex_fn(
+        s: *const u8,
+        re: *const c_void,
+        closure: *mut c_void,
+        all: i64,
+    ) -> u64;
     /// torajs-str — annexB B.2.2 html-method glue (`mid` picks the
     /// CreateHTML form; NULL `val` rides as the JS `undefined`).
     fn __torajs_str_any_html(s: *const u8, mid: i64, val: *const u8) -> u64;
@@ -341,64 +350,82 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 out
             }
             m if m == ANY_METHOD_REPLACE || m == ANY_METHOD_REPLACE_ALL => {
-                // RC-2c — the pattern argument's cell tag picks the
-                // lane; both replacement operands ToString through
-                // owned temps this arm drops. A closure replacement
-                // (the `_regex_fn` kernels) is a recorded follow-up.
-                //
-                // RFC 20260716 刀 21 — spec §22.1.3.15 step 4 (search
-                // ToString) fires BEFORE step 6a (replace ToString).
-                // The prior "repl first" ordering evaluated
-                // `ToString(replaceValue)` before `ToString(searchValue)`
-                // and, when both user-toString methods threw, clobbered
-                // the earlier pending throw (test262
-                // S15.5.4.11_A1_T12). Regex-cell pattern lane skips
-                // the searchValue ToString path (§22.1.3.15 step 2
-                // hands off to `@@replace` on the RegExp cell).
-                let all = (m == ANY_METHOD_REPLACE_ALL) as i64;
-                // §22.1.3.20 step 2.b precedes step 6.a — a
-                // non-global RegExp searchValue disqualifies the call
-                // before ToString(replaceValue) may run its user hook.
-                if reject_non_global_regex_search(m, argv, argc) {
-                    return VALUE_UNDEFINED;
-                }
-                if let Some(re_ptr) = regexp_cell(arg_at(0)) {
-                    let repl = __torajs_anyv_to_str(arg_at(1));
-                    let out = __torajs_str_any_replace_regex(s, re_ptr, repl as *const u8, all);
-                    __torajs_str_drop(repl);
-                    out
-                } else {
-                    let needle = __torajs_anyv_to_str(arg_at(0));
-                    // A pending throw from ToString(searchValue) leaves
-                    // `needle` as a placeholder — drop it and return
-                    // early so ToString(replaceValue) does not stash a
-                    // second pending throw that would clobber the
-                    // first. Caller's emit_throw_check unwinds.
-                    if __torajs_throw_check() != 0 {
-                        __torajs_str_drop(needle);
-                        return VALUE_UNDEFINED;
-                    }
-                    // §22.1.3.19 step 5 — a Closure-cell replaceValue
-                    // is functionalReplace: invoke per match through
-                    // the boxed-entry kernels (rotation 446, the
-                    // static lane's runtime twin). ToString serves
-                    // only the non-callable rest. The regex-pattern
-                    // lane above keeps its recorded follow-up — its
-                    // fn kernels want the pattern's capture count.
-                    if let Some(cl) = closure_cell(arg_at(1)) {
-                        let out = __torajs_str_any_replace_fn(s, needle as *const u8, cl, all);
-                        __torajs_str_drop(needle);
-                        return out;
-                    }
-                    let repl = __torajs_anyv_to_str(arg_at(1));
-                    let out =
-                        __torajs_str_any_replace(s, needle as *const u8, repl as *const u8, all);
-                    __torajs_str_drop(needle);
-                    __torajs_str_drop(repl);
-                    out
-                }
+                str_replace_arm(s, m, argv, argc)
             }
             _ => ext::str_method_pad(s, mid, argv, argc),
+        }
+    }
+}
+
+/// REPLACE / REPLACE_ALL arm — RC-2c: the pattern argument's cell
+/// tag picks the lane; a Closure-cell replaceValue rides the
+/// functional kernels on BOTH lanes (§22.1.3.19 step 5), and only
+/// the non-callable rest ToStrings through owned temps this arm
+/// drops.
+///
+/// RFC 20260716 刀 21 — spec §22.1.3.15 step 4 (search ToString)
+/// fires BEFORE step 6a (replace ToString). The prior "repl first"
+/// ordering evaluated `ToString(replaceValue)` before
+/// `ToString(searchValue)` and, when both user-toString methods
+/// threw, clobbered the earlier pending throw (test262
+/// S15.5.4.11_A1_T12). Regex-cell pattern lane skips the
+/// searchValue ToString path (§22.1.3.15 step 2 hands off to
+/// `@@replace` on the RegExp cell).
+unsafe fn str_replace_arm(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
+    let arg_at = |i: i64| -> u64 {
+        if i < argc {
+            unsafe { *argv.add(i as usize) }
+        } else {
+            VALUE_UNDEFINED
+        }
+    };
+    unsafe {
+        let all = (mid == ANY_METHOD_REPLACE_ALL) as i64;
+        // §22.1.3.20 step 2.b precedes step 6.a — a non-global
+        // RegExp searchValue disqualifies the call before
+        // ToString(replaceValue) may run its user hook.
+        if reject_non_global_regex_search(mid, argv, argc) {
+            return VALUE_UNDEFINED;
+        }
+        if let Some(re_ptr) = regexp_cell(arg_at(0)) {
+            // §22.1.3.19 step 5 — the RegExp lane's functional leg:
+            // the kernel reads the capture count off the cell and
+            // drives the closure's boxed entry, so the callback sees
+            // «matched, p1..pn, position, string» on its spec slots
+            // instead of the function's spliced source text.
+            if let Some(cl) = closure_cell(arg_at(1)) {
+                return __torajs_str_any_replace_regex_fn(s, re_ptr, cl, all);
+            }
+            let repl = __torajs_anyv_to_str(arg_at(1));
+            let out = __torajs_str_any_replace_regex(s, re_ptr, repl as *const u8, all);
+            __torajs_str_drop(repl);
+            out
+        } else {
+            let needle = __torajs_anyv_to_str(arg_at(0));
+            // A pending throw from ToString(searchValue) leaves
+            // `needle` as a placeholder — drop it and return early
+            // so ToString(replaceValue) does not stash a second
+            // pending throw that would clobber the first. Caller's
+            // emit_throw_check unwinds.
+            if __torajs_throw_check() != 0 {
+                __torajs_str_drop(needle);
+                return VALUE_UNDEFINED;
+            }
+            // §22.1.3.19 step 5 — a Closure-cell replaceValue is
+            // functionalReplace: invoke per match through the
+            // boxed-entry kernels (rotation 446, the static lane's
+            // runtime twin). ToString serves only the non-callable
+            // rest.
+            if let Some(cl) = closure_cell(arg_at(1)) {
+                let out = __torajs_str_any_replace_fn(s, needle as *const u8, cl, all);
+                __torajs_str_drop(needle);
+                return out;
+            }
+            let repl = __torajs_anyv_to_str(arg_at(1));
+            let out = __torajs_str_any_replace(s, needle as *const u8, repl as *const u8, all);
+            __torajs_str_drop(needle);
+            __torajs_str_drop(repl);
+            out
         }
     }
 }

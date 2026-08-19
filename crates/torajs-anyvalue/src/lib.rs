@@ -1790,6 +1790,7 @@ mod tests {
         __torajs_str_any_pad,
         __torajs_str_any_repeat,
         __torajs_str_any_replace_fn,
+        __torajs_str_any_replace_regex_fn,
         __torajs_str_any_replace_regex,
         __torajs_str_any_replace,
         __torajs_str_any_search,
