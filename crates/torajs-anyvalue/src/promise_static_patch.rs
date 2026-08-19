@@ -30,11 +30,14 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use torajs_rc::Tag;
 
-use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, box_void_ptr, is_cell};
 
 unsafe extern "C" {
-    /// torajs-dynobj — own-entry existence probe.
+    /// torajs-dynobj — own-entry existence probe + the (tag, value)
+    /// read pair.
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -73,6 +76,57 @@ pub extern "C" fn __torajs_promise_ctor_patched(name_id: i64) -> i64 {
     }
     // SAFETY: props is a live dynobj; the key is an immortal Str.
     unsafe { i64::from(__torajs_dynobj_has(props, patch_key_cell(name_id)) != 0) }
+}
+
+/// §27.2.4.1 GetPromiseResolve + the per-element
+/// `Call(promiseResolve, C, «v»)` — the combinator kernels' way to
+/// run one patched-`resolve` invocation. Reads the patched value off
+/// the ctor cell's dict (the probe already said it is present),
+/// requires a callable per GetPromiseResolve step 2 (TypeError
+/// otherwise, left pending for the caller's check), and rides
+/// [`crate::method_call_closure_dispatch::invoke_with_this`] with
+/// the boxed ctor cell as thisValue — §27.2.4.1.3's `C`. The arg is
+/// BORROWED; the answer is an owned Any (or undefined with a throw
+/// in flight). The patched cell takes a +1 across the call so a
+/// self-replacing override cannot free itself mid-invocation.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_promise_call_patched(name_id: i64, arg: AnyValue) -> AnyValue {
+    let cell = crate::method_value::ctor::ctor_cell_peek(PROMISE_PROTO_TAG);
+    // SAFETY: the probe gated on a live cell + props dict; keys are
+    // immortal Str cells.
+    unsafe {
+        let props = crate::member_get_layout::closure_props(cell.cast());
+        let key = patch_key_cell(name_id);
+        let tag = __torajs_dynobj_get_tag(props, key);
+        let value = __torajs_dynobj_get_value(props, key);
+        let patched = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+        let callable = is_cell(patched)
+            && (as_void_ptr(patched).cast::<u8>().add(4) as *const u16).read()
+                == Tag::Closure as u16;
+        if !callable {
+            // GetPromiseResolve step 2 — IsCallable false.
+            __torajs_throw_type_error(c"Promise.resolve is not a function".as_ptr());
+            return VALUE_UNDEFINED;
+        }
+        let p = as_void_ptr(patched);
+        crate::nanbox_ffi::__torajs_anyv_rc_inc(patched);
+        let Some((env, entry)) = crate::method_call_closure_dispatch::closure_cell_entry(p) else {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(patched);
+            __torajs_throw_type_error(c"Promise.resolve is not a function".as_ptr());
+            return VALUE_UNDEFINED;
+        };
+        let this_box = box_void_ptr(cell.cast());
+        let argv = [arg];
+        let ret = crate::method_call_closure_dispatch::invoke_with_this(
+            env,
+            entry,
+            this_box,
+            argv.as_ptr(),
+            1,
+        );
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(patched);
+        ret
+    }
 }
 
 /// The typed lane's return contract over a patched call — see

@@ -203,6 +203,11 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     if unsafe { crate::combinator::sparse_input_rejects(promises_arr) } {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
+    // §27.2.4 static-slot patch consult (rotation 448) — see
+    // `combinator_patched`.
+    if unsafe { crate::combinator_patched::consult_active() } {
+        return unsafe { crate::combinator_patched::run_allsettled(promises_arr, record_tags) };
+    }
     // An `Array<Any>` input carries NaN-box slots — route to the
     // any-lane sibling (same gate as all / race / any).
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
