@@ -1530,7 +1530,46 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `f7bab07f`** (2026-08-19, rotation 440 — the computed-key
+**Latest @ `330a056e`** (2026-08-19, rotation 443 — the strict-shell
+harness port and the eval-text early-error knives. Handoff 442's
+instruction #1 (`sm/non262-strict-shell.js`, 35 cases) turned out to
+be unportable as a harness function — the stock helpers eval a
+RUNTIME string, which tr's literal-only eval desugar cannot meet — so
+the runner grew a call-site EXPANSION (strict_shell.rs): every
+`testLenientAndStrict('code', L, S)` becomes the literal eval /
+Function IIFE pair the desugar resolves, strict predicate first, the
+code literal re-embedded raw; a computed code string keeps the
+attributable reject (3 of 35). The recon surfaced three substrate
+bugs the port then rode on: a strict-code early error inside
+eval/Function literal TEXT — `delete <bare name>`, then
+assign/update targeting `eval`/`arguments` — bubbled up as a
+whole-program compile refusal where §19.2.1.1 step 12 wants a
+catchable runtime SyntaxError (parse_eval_source grew a DeleteSites
+gate, then a Result refusal split NoParse/StrictEarlyError, then a
+Mode::StrictOwned arena walk so a nested 'use strict' prologue arms
+its body inside a sloppy Function text); and writes to the
+non-writable globals (NaN/Infinity/undefined) got their §6.2.5.6
+runtime semantics per goal (strict = throw-IIFE at the site, `.cts` =
+fold-to-rhs). The MID-ROTATION sweep then caught what six green
+gates could not: the eval inline's early sloppy fold broke
+`eval("with(o){delete p}")` (§14.11 property reference — the goal
+triage's own ordering bug re-created inside inlined text), and the
+`void <literal>` fold let `void 1 = 1` reach the readonly-globals
+rewrite (parse-phase SyntaxError became runtime) — both repaired
+in-rotation (Parser::void_folds + `.cts` defers every delete site to
+the triage). Sweep vs 442: passTotal 31641 → **31654 (+13)**, bug
++16, incompatible **−29**, trAccepted +29 (conservation +29 = +13 +
+16 ✓), **zero pass regressions** in the final case-level diff.
+Forward 13: readonly-globals 6, eval-assignment 4, strict-shell 3.
+Gate 3114 → **3119/0/4** across five substrate commits (+5
+fixtures). Gate predicate **202 unattributed clusters / 1872 cases /
+register 2 · 303 (SR-1 215, SR-2 92) / residue 690 · 866 / core
+3041**. Next largest attackable: fnexpr-this unclaimed (43,
+dirs=13), field-assignment-on-Object("X") (37, Promise 30 needing
+patched-resolve, RFC-grade), catch destructure default (32, dirs=2,
+parser lane).)
+
+**Prior @ `f7bab07f`** (2026-08-19, rotation 440 — the computed-key
 destructuring + objlit-super + decl-init dstr-assign knives. Handoff
 439's instruction #1 opened top cluster #4: `{ [expr]: binding }`
 (§14.3.3 ComputedPropertyName) landed across all three destructuring

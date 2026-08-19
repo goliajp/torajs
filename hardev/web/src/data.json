@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T22:14:51.549Z",
+  "generatedAt": "2026-08-19T01:09:01.575Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-18T22:06:36Z",
-    "headSha": "20ac850b",
-    "elapsedSec": 395.2,
+    "ranAt": "2026-08-19T01:00:12Z",
+    "headSha": "330a056e",
+    "elapsedSec": 343.37,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26550,
+    "pass": 26563,
     "passNoOracle": 951,
     "passNegative": 4140,
-    "passTotal": 31641,
-    "bug": 12926,
-    "incompatible": 8607,
-    "bunSkip": 6589,
+    "passTotal": 31654,
+    "bug": 12942,
+    "incompatible": 8578,
+    "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44567,
-    "passRateInScope": 59.5,
-    "passRateTrAccepted": 71
+    "trAccepted": 44596,
+    "passRateInScope": 59.53,
+    "passRateTrAccepted": 70.98
   },
   "torajs": {
-    "commit": "20ac850b",
-    "commitSubject": "fix: arrow rest parameter early errors, no initializer and must-be-last",
+    "commit": "330a056e",
+    "commitSubject": "fix: two r443 regressions the sweep caught — with-body delete in sloppy eval, void as assignment target",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "330a056e",
+      "subject": "fix: two r443 regressions the sweep caught — with-body delete in sloppy eval, void as assignment target"
+    },
+    {
+      "hash": "6511118e",
+      "subject": "feat: a write to NaN, Infinity or undefined resolves to its runtime semantics per goal"
+    },
+    {
+      "hash": "70fd9aee",
+      "subject": "fix: assignment or update targeting eval or arguments in strict eval text is the step-12 throw"
+    },
+    {
+      "hash": "c05e3db6",
+      "subject": "fix: a nested 'use strict' prologue arms its body inside a sloppy Function text"
+    },
+    {
+      "hash": "be4f42ae",
+      "subject": "feat: port sm/non262-strict-shell.js by call-site expansion in the test262 runner"
+    },
+    {
+      "hash": "edaac28d",
+      "subject": "fix: delete on a bare name inside eval or Function text resolves per the text's goal"
+    },
+    {
+      "hash": "2af6a04e",
+      "subject": "chore(docs,hardev): rotation 442 census at 20ac850b"
+    },
+    {
       "hash": "20ac850b",
       "subject": "fix: arrow rest parameter early errors, no initializer and must-be-last"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "5ff90921",
       "subject": "feat: null joins a nullable or match-result array in typevar inference"
-    },
-    {
-      "hash": "1ca19d97",
-      "subject": "feat: an un-narrowed match result rides the string-concat lane"
-    },
-    {
-      "hash": "0d0db30e",
-      "subject": "feat: string and symbol keys write through typed array receivers"
-    },
-    {
-      "hash": "7add0b34",
-      "subject": "feat: dynamic string, symbol, any keys write through struct receivers"
-    },
-    {
-      "hash": "d09e3760",
-      "subject": "chore(docs,hardev): rotation 441 census at eff74d65"
-    },
-    {
-      "hash": "eff74d65",
-      "subject": "refactor: accessor-setter family to check_assign_target/setter.rs"
-    },
-    {
-      "hash": "7d9efa5a",
-      "subject": "feat: keyed struct writes consult inherited class-proto accessors"
-    },
-    {
-      "hash": "f55f5887",
-      "subject": "feat: integer-keyed struct reads walk the class prototype chain"
     }
   ],
-  "headSha": "20ac850b",
+  "headSha": "330a056e",
   "autorun": {
-    "total": 745,
+    "total": 746,
     "baselineTarget": 10,
-    "bySelf": 740,
+    "bySelf": 741,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787084985-76d4",
-      "at": "2026-08-18T20:29:45Z",
-      "ts": 1787084985,
+      "rotationId": "r-1787091450-5a55",
+      "at": "2026-08-18T22:17:30Z",
+      "ts": 1787091450,
       "trigger": "self",
-      "prevHead": "d09e3760",
-      "handoffSha": "sha256:ed1ccbe60ac972a260056ad8df6217e6239e5db86abc22697407a275eba64a09",
-      "handoffAgeSec": 51,
+      "prevHead": "2af6a04e",
+      "handoffSha": "sha256:bde740fabc9636efa616856cebe12c8f21deb2a2609a5f328d2ed6c9121275a5",
+      "handoffAgeSec": 98,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787091450-5a55",
+        "at": "2026-08-18T22:17:30Z",
+        "ts": 1787091450,
+        "trigger": "self",
+        "prevHead": "2af6a04e",
+        "handoffSha": "sha256:bde740fabc9636efa616856cebe12c8f21deb2a2609a5f328d2ed6c9121275a5",
+        "handoffAgeSec": 98,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787084985-76d4",
         "at": "2026-08-18T20:29:45Z",
@@ -876,17 +887,6 @@
         "prevHead": "eee24e85",
         "handoffSha": "sha256:437564c14f81419ad4e176f4aea79b45925ccb50a729c1a6e4d25458b1b6ef0c",
         "handoffAgeSec": 21,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787021828-4b57",
-        "at": "2026-08-18T02:57:08Z",
-        "ts": 1787021828,
-        "trigger": "self",
-        "prevHead": "b99dc4fe",
-        "handoffSha": "sha256:5f35a3ea11a1525747781b5360cc1e3b7776a770e8307e8cc1f4b254f7b9c55b",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
