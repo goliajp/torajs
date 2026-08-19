@@ -61,6 +61,10 @@ unsafe extern "C" {
     /// (stash, close, swallow the close's own throw, restore).
     fn __torajs_iter_close_abrupt(iter: u64);
     fn __torajs_promise_reject(p: *mut c_void, reason: i64);
+    /// torajs-anyvalue — one patched-`Promise.resolve` invocation
+    /// (arg borrowed, owned Any answer, throw left pending).
+    fn __torajs_promise_call_patched(name_id: i64, arg: u64) -> u64;
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// The undefined box — no stake to account for.
@@ -78,6 +82,11 @@ pub(crate) unsafe fn dyn_iter(
     sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
 ) -> *mut c_void {
     unsafe {
+        // §27.2.4.1 step 1 GetPromiseResolve — the patch probe runs
+        // once, before the first step, like the spec's single fetch
+        // (the patched fn itself is re-read per call; a data write
+        // is not observable through either read).
+        let patched = crate::combinator_patched::consult_active();
         let mut idx: i64 = 0;
         let mut iter_slot: u64 = undef();
         let mut out_v: u64 = undef();
@@ -105,7 +114,31 @@ pub(crate) unsafe fn dyn_iter(
             if has == 0 {
                 break;
             }
-            let elem = out_v;
+            let mut elem = out_v;
+            // §27.2.4.1.3 step 6.i — `Call(promiseResolve, C,
+            // «nextValue»)` runs INSIDE the loop when the slot wears
+            // a user patch: its abrupt — or a non-promise answer,
+            // the typed lane's recorded return contract — closes the
+            // iterator per §27.2.4.1 step 8.a and rejects with the
+            // original completion. The sync kernels' consult fires
+            // only after full collection, which has no answer for an
+            // infinite iterable; this one does.
+            if patched {
+                let ret = __torajs_promise_call_patched(0, elem);
+                __torajs_anyv_rc_dec(elem);
+                if __torajs_throw_check() == 0 && crate::combinator_any::slot_promise(ret).is_none()
+                {
+                    __torajs_anyv_rc_dec(ret);
+                    __torajs_throw_type_error(
+                        c"the patched Promise.resolve answered a non-promise into a typed slot"
+                            .as_ptr(),
+                    );
+                }
+                if __torajs_throw_check() != 0 {
+                    return close_and_reject(items, iter_slot, b);
+                }
+                elem = ret;
+            }
             // Per-element `then` observation — promise cells only
             // (a plain value's promiseResolve wrapper wears the
             // builtin `then`; the user-thenable protocol is the
@@ -143,9 +176,25 @@ pub(crate) unsafe fn dyn_iter(
         }
         __torajs_anyv_rc_dec(iter_slot);
         if b.is_null() {
-            // Never activated — the exact delegate this lane replaced.
+            // Never activated — the exact delegate this lane
+            // replaced. A patched run already resolved every element
+            // above, so it hands the collected promises straight to
+            // the any-lane sibling: the `no_mangle` sync entry would
+            // probe the patch again and run resolve twice per
+            // element.
             let arr = crate::combinator_dyn::items_to_any_arr(items);
-            let out = sync(arr);
+            let out = if patched {
+                match mode {
+                    MODE_ALL => crate::combinator_any::all_sync_any(arr),
+                    MODE_RACE => crate::combinator_any::race_sync_any(arr),
+                    MODE_ANY => crate::combinator_any::any_sync_any(arr),
+                    // allSettled — the dyn entry has no record tags
+                    // to give (`allsettled_sync_untagged` posture).
+                    _ => crate::combinator_any::allsettled_sync_any(arr, 0),
+                }
+            } else {
+                sync(arr)
+            };
             __torajs_value_drop_heap(arr);
             return out;
         }
