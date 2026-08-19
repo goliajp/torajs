@@ -1530,7 +1530,45 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `74c35f75`** (2026-08-19, rotation 449 — handoff 448's
+**Latest @ `76673ad9`** (2026-08-20, rotation 452 — GetPromiseResolve
+lands whole: heir, builtin, and the checker face. Knife 1 (handoff
+451's instruction #1): the inherited combinators
+(`Promise.all.call(CP, xs)`) reorder to spec —
+NewPromiseCapability(C) first, then GetPromiseResolve(C)
+(Get(C, "resolve") through the any-lane read, IsCallable gate,
+abrupt settles the capability per IfAbruptRejectPromise), then the
+new `__torajs_promise_combinator_dyn_c` kernel entry runs
+`Call(promiseResolve, C, «v»)` per element on dyn_iter's new heir
+channel — every-iteration-of-custom went 5/5. Knife 2: the
+checker's `Array<non-{Promise,Any}>` combinator reject predates
+rotation 449's dyn routing — the arm now answers `Promise<Any>`
+(step 6.i resolve-wraps any element), unlocking the bare
+`Promise.all([1,2,3])` spelling and the every-iteration-of-promise
+family. Knife 3: the builtin lane runs ONE REAL Get before
+iteration (`__torajs_promise_ctor_get_static`: accessor getters
+invoke with this = the ctor cell, get-once counted, abrupt rejects
+before GetIterator), both dyn and sync detours ride it, and the
+per-element re-reading `call_patched` retired with no caller.
+Knife 4: the await-dictionary keyed pair joins the ns-static value
+surface (recv-first rows, `.length`/`.name`/proto/ctx-non-ctor).
+Knife 5: bare `p.then()` / `p.catch()` — §27.2.5.4's absent
+handlers — ride a new passthrough kernel (mint pending + repr
+stamp + adopt, has-handler marked); the then checker's 500-line
+watch tripped on the wiring and `try_then_undefined` moved to its
+own sibling (r310's recorded cut). Sweep vs 451: passTotal 31925 →
+**31980 (+55)**, bug **−5**, incompatible **−50**, conservation
++50 = +55 − 5 ✓, **zero pass regressions** (verdict diff 69 rows
+all forward). New exposure: 14 combinator thenable-observation
+cases (reject-deferred / resolve-poisoned-then families)
+incompatible → bug — knife 2 compiles them now and they surface
+the recorded PromiseResolveThenableJob gap. Gate 3167 →
+**3172/0/4** across five substrate commits + one fixture-collision
+fix (+5 fixtures net). The gate predicate: **188 unattributed
+clusters / 1683 cases / register 2 · 282 (SR-1 194, SR-2 92) /
+residue 671 · 839 / core 2804** — clusters and cases down
+together.)
+
+**Prior @ `74c35f75`** (2026-08-19, rotation 449 — handoff 448's
 instruction #1 plus all three alternates landed in five knives, and
 a probe-chase rooted out a real SIGSEGV. Knife 1: the dyn combinator
 lane (`combinator_iter::dyn_iter`) probes the patch once at entry
