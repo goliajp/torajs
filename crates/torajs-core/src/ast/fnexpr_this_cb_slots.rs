@@ -180,3 +180,39 @@ pub(super) fn collect_array_from_face(
         collect_ident_face(exprs, *cb, ident_cands);
     }
 }
+
+/// Rotation 447 — `<regex-literal>[Symbol.replace](str, <fn-expr>)`:
+/// the §22.2.6.11 protocol spelling of the replace cb slot. The
+/// computed symbol call lowers through the runtime index-method
+/// dispatch, whose symbol probe reifies the RegExp proto's
+/// `@@replace` cell and re-enters the by-mid dispatch — the regexp
+/// arm flips the operands back into the Str home
+/// (`method_call_regexp.rs`), which is the SAME receiver-flag-aware
+/// functional kernel chain the `.replace` spelling rides (the regex
+/// lane's boxed kernel reads `FLAG_CLOSURE_RECV_FIRST` with the
+/// pattern's own capture count). Inline regex-literal receivers
+/// only — every other computed-callee shape keeps the loud reject.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn collect_symbol_replace_face(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    obj: ExprId,
+    index: ExprId,
+    args: &[ExprId],
+    patches: &mut Vec<FacePatch>,
+    ident_cands: &mut Vec<(String, ExprId)>,
+) {
+    if !matches!(&exprs[index.0 as usize], Expr::Member { obj: s, name }
+        if name == "replace" && matches!(&exprs[s.0 as usize], Expr::Ident(n) if n == "Symbol"))
+    {
+        return;
+    }
+    if !matches!(&exprs[obj.0 as usize], Expr::Regex { .. }) {
+        return;
+    }
+    if let Some(cb) = args.get(1) {
+        collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+        collect_ident_face(exprs, *cb, ident_cands);
+    }
+}

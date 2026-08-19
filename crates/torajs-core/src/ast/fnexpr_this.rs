@@ -408,6 +408,20 @@ fn collect_call_position_face(
                 ident_cands,
             );
         }
+        // Rotation 447 — the `@@replace` protocol spelling (doc on
+        // the collector in sibling `fnexpr_this_cb_slots.rs`).
+        Expr::Index { obj, index } => {
+            super::fnexpr_this_cb_slots::collect_symbol_replace_face(
+                stmts,
+                exprs,
+                fn_expr_exprs,
+                *obj,
+                *index,
+                args,
+                patches,
+                ident_cands,
+            );
+        }
         _ => {}
     }
 }
