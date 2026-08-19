@@ -24,4 +24,15 @@ function* g3() {
 const i3 = g3();
 i3.next();
 console.log(JSON.stringify(i3.next("r")), z.r);
+// nested-array pattern in a for-of head (the r453 sweep regression
+// pair): the nested src temp crosses the suspension and lifts to a
+// state-machine field — its annotation must stay indexable.
+const w: any = {};
+function* g4() {
+  for ([[w[yield]]] of [[[22]]]) {
+  }
+}
+const i4 = g4();
+i4.next();
+console.log(JSON.stringify(i4.next("s")), w.s);
 console.log("done");
