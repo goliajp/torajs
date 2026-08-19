@@ -121,33 +121,15 @@ pub(crate) fn try_lower(
     // name so the three share the SSA arm.
     let is_keys_only = m_name == "keys" || m_name == "__forinKeys";
 
-    // W-N-b — Arr<T> receiver: every surface boxes the cell
-    // (borrow-shaped, RC-NEUTRAL) and rides the full kernel arm.
-    // The old per-surface helpers minted index strings off `arr.len`
-    // alone, so expando keys living in the props bag never appeared
-    // — `a.p = 2; Object.getOwnPropertyNames(a)` answered without
-    // "p" (r330 registered defect #4, sm/object/15.2.3.4-02), and
-    // `for (k in a)` skipped enumerable expandos the same way (RFC
-    // 20260808 knife 5 — `anyv_forin_keys` starts from the same
-    // arr_cell_keys walk, enumerable-filtered).
     if matches!(arg_ty, Type::Arr(_)) {
-        let boxed = ctx.box_to_any(arg_op);
-        let call = if m_name == "__forinKeys" {
-            InstKind::Call(ctx.intrinsics.anyv_forin_keys, vec![boxed])
-        } else {
-            InstKind::Call(
-                ctx.intrinsics.anyv_own_keys,
-                vec![boxed, Operand::ConstI64(if is_keys_only { 0 } else { 1 })],
-            )
-        };
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            call,
-            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
-            None,
-        );
-        ctx.release_owned_temp(args[0], &arg_raw);
-        return Some(Operand::Value(v));
+        return Some(lower_arr_receiver_keys(
+            ctx,
+            args[0],
+            arg_op,
+            &arg_raw,
+            &m_name,
+            is_keys_only,
+        ));
     }
     if matches!(arg_ty, Type::Str) {
         return Some(lower_str_receiver_keys(
@@ -196,22 +178,8 @@ pub(crate) fn try_lower(
         ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
-    // §14.7.5.6 — a for-in head whose source is STATICALLY non-struct
-    // (an undefined / null literal types Ptr and used to hit the
-    // struct-arm panic below) enumerates through the same kernel arm
-    // the Any receiver rides: `anyv_forin_keys` answers the empty key
-    // set for a nullish receiver instead of ToObject's TypeError.
     if m_name == "__forinKeys" && !matches!(arg_ty, Type::Obj(_)) {
-        let boxed = ctx.box_to_any(arg_op);
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_forin_keys, vec![boxed]),
-            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
-            None,
-        );
-        ctx.emit_throw_check(None);
-        ctx.release_owned_temp(args[0], &arg_raw);
-        return Some(Operand::Value(v));
+        return Some(lower_forin_nonstruct_keys(ctx, args[0], arg_op, &arg_raw));
     }
     let field_names: Vec<String> = match arg_ty {
         Type::Obj(sid) => {
@@ -322,6 +290,65 @@ fn lower_symbols_arm(
 /// helper reads the u32 length at `STR_LEN_OFF=8` internally and
 /// delegates to its Arr counterpart, so the SSA arm just passes
 /// the Str ptr through.
+/// W-N-b — Arr<T> receiver: every surface boxes the cell
+/// (borrow-shaped, RC-NEUTRAL) and rides the full kernel arm. The old
+/// per-surface helpers minted index strings off `arr.len` alone, so
+/// expando keys living in the props bag never appeared — `a.p = 2;
+/// Object.getOwnPropertyNames(a)` answered without "p" (r330
+/// registered defect #4, sm/object/15.2.3.4-02), and `for (k in a)`
+/// skipped enumerable expandos the same way (RFC 20260808 knife 5 —
+/// `anyv_forin_keys` starts from the same arr_cell_keys walk,
+/// enumerable-filtered).
+/// §14.7.5.6 — a for-in head whose source is STATICALLY non-struct
+/// (an undefined / null literal types Ptr and used to hit the
+/// struct-arm panic) enumerates through the same kernel arm the Any
+/// receiver rides: `anyv_forin_keys` answers the empty key set for a
+/// nullish receiver instead of ToObject's TypeError.
+fn lower_forin_nonstruct_keys(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    arg_raw: &Operand,
+) -> Operand {
+    let boxed = ctx.box_to_any(arg_op);
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.anyv_forin_keys, vec![boxed]),
+        Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+        None,
+    );
+    ctx.emit_throw_check(None);
+    ctx.release_owned_temp(arg_eid, arg_raw);
+    Operand::Value(v)
+}
+
+fn lower_arr_receiver_keys(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    arg_raw: &Operand,
+    m_name: &str,
+    is_keys_only: bool,
+) -> Operand {
+    let boxed = ctx.box_to_any(arg_op);
+    let call = if m_name == "__forinKeys" {
+        InstKind::Call(ctx.intrinsics.anyv_forin_keys, vec![boxed])
+    } else {
+        InstKind::Call(
+            ctx.intrinsics.anyv_own_keys,
+            vec![boxed, Operand::ConstI64(if is_keys_only { 0 } else { 1 })],
+        )
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        call,
+        Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+        None,
+    );
+    ctx.release_owned_temp(arg_eid, arg_raw);
+    Operand::Value(v)
+}
+
 fn lower_str_receiver_keys(
     ctx: &mut LowerCtx<'_>,
     recv_eid: ExprId,
