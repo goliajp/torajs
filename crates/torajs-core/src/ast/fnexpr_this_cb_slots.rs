@@ -60,6 +60,17 @@ pub(super) fn collect_json_face(
 /// replaceValue now answers §22.1.3.19 step 5's IsCallable at
 /// runtime (`__torajs_str_replace_any_repl`), so the fn-return
 /// faces and this slot compose instead of colliding.
+///
+/// Rotation 447 — an inline `new String(...)` receiver admits with
+/// NO pattern gate: the wrapper mint checker-types `Any`
+/// (`check_type_of_new.rs`), so the whole call rides the runtime
+/// any-dispatch, where BOTH pattern lanes now serve a functional
+/// replaceValue through receiver-flag-aware kernels (the literal
+/// glue reads FLAG_CLOSURE_RECV_FIRST; the regex lane's boxed
+/// kernel does the same with the pattern's own capture count).
+/// Fail-safe: this shape was an unconditional unclaimed loud
+/// reject before, so admitting it can only turn a compile error
+/// into the spec answer.
 pub(super) fn collect_replace_face(
     stmts: &[Stmt],
     exprs: &[Expr],
@@ -69,14 +80,20 @@ pub(super) fn collect_replace_face(
     patches: &mut Vec<FacePatch>,
     ident_cands: &mut Vec<(String, ExprId)>,
 ) {
-    if !matches!(&exprs[obj.0 as usize], Expr::String(_)) {
-        return;
-    }
-    if !args
-        .first()
-        .is_some_and(|p| is_str_pattern_literal(exprs, *p))
-    {
-        return;
+    let wrapper_recv = matches!(
+        &exprs[obj.0 as usize],
+        Expr::New { class_name, .. } if class_name == "String"
+    );
+    if !wrapper_recv {
+        if !matches!(&exprs[obj.0 as usize], Expr::String(_)) {
+            return;
+        }
+        if !args
+            .first()
+            .is_some_and(|p| is_str_pattern_literal(exprs, *p))
+        {
+            return;
+        }
     }
     if let Some(cb) = args.get(1) {
         collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
