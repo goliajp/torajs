@@ -50,14 +50,16 @@ pub(super) fn collect_json_face(
 /// (§22.1.3.18 step 10's Call(replaceValue, undefined, «…»)). A
 /// non-literal receiver or a regex pattern keeps the loud reject —
 /// the regex replacer lane dispatches by typed transmute and has no
-/// receiver slot (L3b 375-01). ONLY the inline fn-expr admits. The
-/// IIFE-return spelling (`replace("b", (function () { return
-/// function () {…this…} })())`) was tried and REVERTED in-knife: the
-/// checker types the IIFE call's result as non-Function, so the
-/// lowering falls to the ToString replaceValue path and splices the
-/// fn's source text — promoting the inner fn-expr turned a loud
-/// reject into that silent-wrong. It needs the IIFE return-type
-/// inference first (L3b 375-01).
+/// receiver slot (L3b 375-01). The inline fn-expr and the
+/// variable-routed Ident (knife 2's zero-alias profile, rotation
+/// 446) both admit. The IIFE-return spelling was tried and REVERTED
+/// in rotation 375 — the checker typed the IIFE call's result as
+/// non-Function, the lowering fell to the ToString replaceValue
+/// path, and the promote turned a loud reject into source-text
+/// splicing — and rotation 446 unblocked it at the root: an `any`
+/// replaceValue now answers §22.1.3.19 step 5's IsCallable at
+/// runtime (`__torajs_str_replace_any_repl`), so the fn-return
+/// faces and this slot compose instead of colliding.
 pub(super) fn collect_replace_face(
     stmts: &[Stmt],
     exprs: &[Expr],
@@ -65,6 +67,7 @@ pub(super) fn collect_replace_face(
     obj: ExprId,
     args: &[ExprId],
     patches: &mut Vec<FacePatch>,
+    ident_cands: &mut Vec<(String, ExprId)>,
 ) {
     if !matches!(&exprs[obj.0 as usize], Expr::String(_)) {
         return;
@@ -77,6 +80,7 @@ pub(super) fn collect_replace_face(
     }
     if let Some(cb) = args.get(1) {
         collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+        collect_ident_face(exprs, *cb, ident_cands);
     }
 }
 

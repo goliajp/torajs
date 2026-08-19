@@ -333,6 +333,7 @@ fn collect_call_position_face(
                 *obj,
                 args,
                 patches,
+                ident_cands,
             );
         }
         Expr::Member { obj, name } if name == "from" || name == "fromAsync" => {
