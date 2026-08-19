@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T09:44:56.454Z",
+  "generatedAt": "2026-08-19T13:27:02.212Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T09:34:51Z",
-    "headSha": "502ce156",
-    "elapsedSec": 378.05,
+    "ranAt": "2026-08-19T13:03:31Z",
+    "headSha": "74c35f75",
+    "elapsedSec": 362.25,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26802,
+    "pass": 26818,
     "passNoOracle": 955,
     "passNegative": 4140,
-    "passTotal": 31897,
-    "bug": 12885,
-    "incompatible": 8392,
-    "bunSkip": 6596,
+    "passTotal": 31913,
+    "bug": 12873,
+    "incompatible": 8388,
+    "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44782,
-    "passRateInScope": 59.99,
-    "passRateTrAccepted": 71.23
+    "trAccepted": 44786,
+    "passRateInScope": 60.02,
+    "passRateTrAccepted": 71.26
   },
   "torajs": {
-    "commit": "502ce156",
-    "commitSubject": "feat: a promise static patch fnexpr joins the store-position this face",
+    "commit": "74c35f75",
+    "commitSubject": "feat: the detached promise settle cells read this as the constructor",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "74c35f75",
+      "subject": "feat: the detached promise settle cells read this as the constructor"
+    },
+    {
+      "hash": "5fd5f168",
+      "subject": "feat: regexp compile joins the any method lane"
+    },
+    {
+      "hash": "98d46014",
+      "subject": "fix: a plain-element typed array rides the dynamic combinator entries"
+    },
+    {
+      "hash": "5e08c0c2",
+      "subject": "feat: a promise static slot store joins the boxed-face arguments profile"
+    },
+    {
+      "hash": "f8751763",
+      "subject": "feat: the dyn combinator lane consults a patched resolve per element"
+    },
+    {
+      "hash": "366b24de",
+      "subject": "chore(hardev): rotation 448 sweep snapshot + roadmap p-surf update"
+    },
+    {
       "hash": "502ce156",
       "subject": "feat: a promise static patch fnexpr joins the store-position this face"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "753f8ddb",
       "subject": "chore(hardev): dashboard snapshot post-refactor"
-    },
-    {
-      "hash": "c4f21315",
-      "subject": "refactor: the call-position face arms move to their own sibling"
-    },
-    {
-      "hash": "cd68e591",
-      "subject": "chore(docs,hardev): rotation 447 roadmap snapshot + sweep artifacts"
-    },
-    {
-      "hash": "71df1ed8",
-      "subject": "feat: regexp.prototype.compile reinitializes the receiver in place per annexb"
-    },
-    {
-      "hash": "62e4076b",
-      "subject": "feat: the symbol.replace protocol spelling joins the replace cb-slot face"
-    },
-    {
-      "hash": "2964d86f",
-      "subject": "feat: variable-routed string-wrapper receivers join the replace cb-slot face"
-    },
-    {
-      "hash": "2dbc2702",
-      "subject": "feat: wrapper-receiver replace calls join the cb-slot face"
     }
   ],
-  "headSha": "502ce156",
+  "headSha": "74c35f75",
   "autorun": {
-    "total": 751,
+    "total": 752,
     "baselineTarget": 10,
-    "bySelf": 746,
+    "bySelf": 747,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787126767-20be",
-      "at": "2026-08-19T08:06:07Z",
-      "ts": 1787126767,
+      "rotationId": "r-1787132772-43c9",
+      "at": "2026-08-19T09:46:12Z",
+      "ts": 1787132772,
       "trigger": "self",
-      "prevHead": "753f8ddb",
-      "handoffSha": "sha256:c4eab047615d54c24d217cb8c66c582274b6f0ae2fc740e0c74e9ebba9d226a6",
-      "handoffAgeSec": 328,
+      "prevHead": "366b24de",
+      "handoffSha": "sha256:b1e626bbdf50975124edf31cdcbb8db7ba8c3544c01a4dc05c35a2d856930710",
+      "handoffAgeSec": 24,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787132772-43c9",
+        "at": "2026-08-19T09:46:12Z",
+        "ts": 1787132772,
+        "trigger": "self",
+        "prevHead": "366b24de",
+        "handoffSha": "sha256:b1e626bbdf50975124edf31cdcbb8db7ba8c3544c01a4dc05c35a2d856930710",
+        "handoffAgeSec": 24,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787126767-20be",
         "at": "2026-08-19T08:06:07Z",
@@ -876,17 +887,6 @@
         "prevHead": "325ab094",
         "handoffSha": "sha256:c1ea2e51742d68d0ccb9b8ce671bf6e9e94415fbe487325e0d815c55d6f8902b",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787066459-6c35",
-        "at": "2026-08-18T15:20:59Z",
-        "ts": 1787066459,
-        "trigger": "self",
-        "prevHead": "f635b26e",
-        "handoffSha": "sha256:76a676050ea76e883a5a874a7b1c6d47374980047538a843a5e5df954c7b4bd3",
-        "handoffAgeSec": 70,
         "conformanceBefore": null,
         "commitsInSession": null
       }

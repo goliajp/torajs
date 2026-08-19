@@ -1530,7 +1530,53 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `502ce156`** (2026-08-19, rotation 448 — the Promise
+**Latest @ `74c35f75`** (2026-08-19, rotation 449 — handoff 448's
+instruction #1 plus all three alternates landed in five knives, and
+a probe-chase rooted out a real SIGSEGV. Knife 1: the dyn combinator
+lane (`combinator_iter::dyn_iter`) probes the patch once at entry
+(the spec's single GetPromiseResolve fetch) and runs
+`Call(promiseResolve, C, «v»)` per element INSIDE the iteration —
+an abrupt (or non-promise answer) closes the iterator per §27.2.4.1
+step 8.a; the never-activated exit of a patched run delegates
+straight to the `*_sync_any` sibling so the sync entry cannot probe
+again. The 448 timeout ×4 family is gone. Knife 2 (alternate ①): a
+fn-expression stored into `Promise.resolve`/`.reject` whose body
+touches `arguments` joins the boxed-face store profile
+(`boxed_face_store_target` admits the two consulted names,
+As-peeled, shadow-gated) — both read-back channels are the boxed
+dual entry with real argc/argv, so the argv face is exactly right.
+Knife 3 (probe): `Promise.all([1,2] as any)` — a typed value-kind
+array reaching the sync kernels through the as-cast road — read raw
+scalar slots as promise pointers (silent-forever-pending unpatched;
+rc_inc(0x1) SIGSEGV patched, crash-stack proven). The aggregate
+lowering now routes plain-element arrays through the dyn entries
+(boxing stamps the elem kind). Knife 4 (alternate ③):
+`RegExp.prototype.compile` joins the any method lane — mid 177
+threads the four append-only tables and the receiver arm hands the
+existing in-place kernel its two AnyValues. Knife 5 (alternate ②):
+the detached `Promise.resolve`/`.reject` cells ride the
+`this_aware_id` recv-first channel — `r.apply(Promise, [v])`,
+`r.call(Promise, v)` and the member spelling run the real settle
+(new `__torajs_promise_reject_any` mirror kernel); the bare call
+keeps the step-1 TypeError, and the ctor-static dynamic-key invoke
+now passes the member base as thisValue per §13.3.6. Sweep vs 448:
+passTotal 31897 → **31913 (+16)**, bug **−12**, incompatible
+**−4**, conservation +4 = +16 − 12 ✓. Forward: annexB compile
+family ×13 → pass, invoke-resolve ×3 → pass, invoke-resolve-error-
+close ×4 tr-timeout → 1 pass + 3 bug:no-oracle:exit 1,
+sm/RegExp/flags-param-handling → pass. Two compile-family cases
+moved pass → bug:exit 1 (`pattern-string-invalid-u`,
+`this-subclass-instance`) — **de-watering, not regression**: the
+harness's `assert.throws` rewrite drops the constructor arg, so the
+old "pass" was a wrong-typed TypeError from the pre-compile
+not-callable path; the real call now exposes the kernel's lax
+u-mode parse (`{` under `u` must be a SyntaxError) — an upstream
+tr-regex strictness gap newly reachable, recorded. Gate 3148 →
+**3155/0/4** across five substrate commits. The gate predicate:
+**192 unattributed clusters / 1716 cases / register 2 · 282 /
+residue 681 · 856 / core 2854**.)
+
+**Prior @ `502ce156`** (2026-08-19, rotation 448 — the Promise
 static-slot monkey-patch family landed in five knives, handoff 447's
 instruction #1 off the survey's knife plan. Ground truth correction
 first: a bare `Promise` in value position answers
