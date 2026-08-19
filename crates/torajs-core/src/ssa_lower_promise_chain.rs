@@ -335,7 +335,9 @@ impl crate::ssa_lower::LowerCtx<'_> {
             return None;
         };
         if !((m_name == "then" || m_name == "catch" || m_name == "finally")
-            && (args.len() == 1 || (m_name == "then" && args.len() == 2)))
+            && (args.len() == 1
+                || (m_name == "then" && args.len() == 2)
+                || (m_name != "finally" && args.is_empty())))
         {
             return None;
         }
@@ -344,8 +346,22 @@ impl crate::ssa_lower::LowerCtx<'_> {
         }
         let src_op = self.lower_expr(*src_id);
         // 2-arg form only fires for `.then` — `.catch` / `.finally`
-        // are 1-arg only.
-        let v = if m_name == "then" && args.len() == 2 {
+        // are 1-arg only. The 0-arg form (`p.then()` / `p.catch()`,
+        // §27.2.5.4 with both handlers absent) rides the
+        // passthrough kernel: the derived promise adopts the source
+        // (Identity / Thrower semantics, one reaction tick).
+        let v = if args.is_empty() {
+            let cur_block = self.cur_block;
+            self.f.append_inst(
+                cur_block,
+                InstKind::Call(
+                    self.intrinsics.promise_then_passthrough,
+                    vec![src_op.clone()],
+                ),
+                Type::Promise,
+                None,
+            )
+        } else if m_name == "then" && args.len() == 2 {
             self.lower_then_two_arg(src_op.clone(), args)
         } else {
             let m_name = m_name.as_str();

@@ -158,6 +158,8 @@ pub(crate) mod check_type_of_call_promise_all;
 pub(crate) mod check_type_of_call_promise_finally;
 pub(crate) mod check_type_of_call_promise_then;
 pub(crate) mod check_type_of_call_promise_then_nullable;
+pub(crate) mod check_type_of_call_promise_then_undefined;
+pub(crate) mod check_type_of_call_promise_then_zero;
 pub(crate) mod check_type_of_call_reduce_1arg;
 pub(crate) mod check_type_of_call_regexp_test_exec;
 pub(crate) mod check_type_of_call_rest_param;

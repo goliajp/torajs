@@ -169,3 +169,37 @@ pub unsafe extern "C" fn __torajs_promise_adopt_if_thenable(
         1
     }
 }
+
+/// §27.2.5.4 with both handlers absent — `p.then()` / `p.catch()`:
+/// onFulfilled falls back to Identity and onRejected to Thrower, so
+/// the derived promise settles exactly as the source does, one
+/// reaction tick later — which is this module's adoption contract.
+/// The derived cell mints pending (its repr is overwritten by
+/// [`adopt_dispatch`]'s inner-to-outer copy when the source
+/// settles), the source takes the has-handler mark (its rejection
+/// is handled — the derived promise is the live complaint), and the
+/// job's source stake is a fresh inc since the caller's box is a
+/// borrow.
+///
+/// # Safety
+/// `src` is a live promise cell the caller keeps alive across the
+/// call. The answer is an owned pending cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_then_passthrough(src: *mut c_void) -> *mut c_void {
+    unsafe {
+        let d = crate::pool::__torajs_promise_alloc_pending();
+        let sp = as_promise(src);
+        let dp = as_promise(d);
+        // The derived settles with the source's own value form, so
+        // its repr stamp is the source's — a downstream any-param
+        // attach reads it while the derived is still pending
+        // (`refuse_unstamped`), and the adopt job re-copies it at
+        // settle time anyway.
+        (*dp).value_repr = (*sp).value_repr;
+        (*dp).value_is_heap = (*sp).value_is_heap;
+        (*sp).has_handler = 1;
+        __torajs_rc_inc(src);
+        adopt_into(d, src);
+        d
+    }
+}
