@@ -1530,7 +1530,41 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `18fd74ef`** (2026-08-19, rotation 445 — the not-callable
+**Latest @ `a50b07bf`** (2026-08-19, rotation 446 — the fnexpr-this
+unclaimed scatter, three claim knives plus two cross-cutting root
+causes. Handoff 445's instruction #1 (45 unclaimed-receiver cases,
+scattered dirs) opened with shape claims: computed-key object-literal
+fn-expr VALUES join the method receiver channel (both computed value
+paths — folded literal key and runtime `__computed_N__` sentinel —
+were missing the RFC-20260725 marking the name-keyed path had), and
+the fn-expr RETURN face widened from the flattened class-member synth
+names to every top-level FnDecl (fail-safe on the reject line).
+Probing the dominant `var x = function () { …this… }` spelling then
+exposed root cause one: the injected Error-family builtins flatten to
+`__cm_/__sm_` FnDecls whose params carried bare user-spellable names
+(`message` / `options` / `x` / `errors`), and every program-wide
+by-name census saw a same-named user binding as shadowed — renamed to
+`__bi_<name>` (param names are unobservable), making every census
+immune to injected code at the root. Root cause two: the widened
+return face made §22.1.3.19 step 5's IsCallable a runtime question —
+the static replace lanes' checker-type dispatch would have turned the
+rotation-375 loud reject into source-text splicing — so both the
+static lane (`__torajs_str_replace_any_repl`) and the runtime
+any-dispatch REPLACE arm (`__torajs_str_any_replace_fn`, closure-cell
+probe over owned_src glue) now branch on the cell tag; the
+variable-routed replacer joined the cb-slot face on top. Sweep vs
+445: passTotal 31873 → **31880 (+7)**, bug ±0, incompatible **−7**,
+conservation +7 = +7 + 0 ✓, **zero pass regressions, zero new
+timeouts**. Gate 3131 → **3137/0/4** across six substrate commits
+(+6 fixtures). fnexpr-this unclaimed 45 → **37**. Gate predicate
+**190 unattributed clusters / 1743 cases / register 2 · 283 (SR-1
+195, SR-2 92) / residue 683 · 854 / core 2880**. Next attackable:
+the unclaimed residue's Promise monkey-patch family (7-8, needs
+builtin static-slot override semantics), regex-pattern + closure
+replaceValue n_caps threading (unblocks the replace face's any-recv
+widening), class-field-init arrow `this` (sm ×2).)
+
+**Prior @ `18fd74ef`** (2026-08-19, rotation 445 — the not-callable
 cluster taken apart by callee semantics, six knives. Handoff 444's
 instruction #1 (not-callable `Object("X")`, 65 grep-total) split
 four ways: A (13, closed-set builtins — no-[[Call]] namespaces and

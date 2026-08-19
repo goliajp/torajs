@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T04:48:32.806Z",
+  "generatedAt": "2026-08-19T06:35:38.091Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T04:44:14Z",
-    "headSha": "18fd74ef",
-    "elapsedSec": 349.39,
+    "ranAt": "2026-08-19T06:26:32Z",
+    "headSha": "a50b07bf",
+    "elapsedSec": 345.47,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26780,
+    "pass": 26787,
     "passNoOracle": 953,
     "passNegative": 4140,
-    "passTotal": 31873,
+    "passTotal": 31880,
     "bug": 12880,
-    "incompatible": 8421,
+    "incompatible": 8414,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44753,
-    "passRateInScope": 59.94,
+    "trAccepted": 44760,
+    "passRateInScope": 59.95,
     "passRateTrAccepted": 71.22
   },
   "torajs": {
-    "commit": "18fd74ef",
-    "commitSubject": "feat: member reads on object-rest bindings ride the runtime get probe past the static anchor",
+    "commit": "a50b07bf",
+    "commitSubject": "feat: the any method dispatch invokes a closure replacevalue in the replace family",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "a50b07bf",
+      "subject": "feat: the any method dispatch invokes a closure replacevalue in the replace family"
+    },
+    {
+      "hash": "b88ef214",
+      "subject": "feat: variable-routed replacers join the replace cb-slot face"
+    },
+    {
+      "hash": "616c7a89",
+      "subject": "feat: an any-typed replacevalue answers iscallable at runtime in the replace family"
+    },
+    {
+      "hash": "c1bc85fe",
+      "subject": "fix: injected builtin params stop shadowing user names via __bi_ prefix"
+    },
+    {
+      "hash": "0427ece7",
+      "subject": "feat: fn-expr return faces widen from class members to every top-level fndecl"
+    },
+    {
+      "hash": "7d4bfd25",
+      "subject": "feat: computed-key objlit fn-expr values join the method receiver channel"
+    },
+    {
+      "hash": "43dcf76c",
+      "subject": "chore(docs,hardev): rotation 445 roadmap snapshot + sweep artifacts"
+    },
+    {
       "hash": "18fd74ef",
       "subject": "feat: member reads on object-rest bindings ride the runtime get probe past the static anchor"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "83834f64",
       "subject": "feat: date() without new returns the current-time string — args evaluated then discarded per spec"
-    },
-    {
-      "hash": "562525b9",
-      "subject": "feat: calls to uncallable builtins resolve to runtime typeerror — goal-triage family fifth member"
-    },
-    {
-      "hash": "412f8342",
-      "subject": "chore(docs,hardev): rotation 444 roadmap snapshot + sweep artifacts"
-    },
-    {
-      "hash": "4ede29ac",
-      "subject": "chore(docs,hardev): rotation 444 census at 322e0287"
-    },
-    {
-      "hash": "ca7b9061",
-      "subject": "refactor: extract the arr-receiver and forin-nonstruct arms — try_lower back under the fn cap"
-    },
-    {
-      "hash": "322e0287",
-      "subject": "fix: implicit-global synthesis respects strict bodies, deleted names, with programs and multi-name lets — sweep regressions closed"
-    },
-    {
-      "hash": "186940cf",
-      "subject": "feat: writes to non-writable builtin-namespace properties resolve per goal — readonly family fourth member"
-    },
-    {
-      "hash": "24926535",
-      "subject": "fix: a statically non-struct for-in source rides the kernel keys arm — nullish enumerates nothing instead of the struct-arm panic"
     }
   ],
-  "headSha": "18fd74ef",
+  "headSha": "a50b07bf",
   "autorun": {
-    "total": 748,
+    "total": 749,
     "baselineTarget": 10,
-    "bySelf": 743,
+    "bySelf": 744,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787109799-331b",
-      "at": "2026-08-19T03:23:19Z",
-      "ts": 1787109799,
+      "rotationId": "r-1787115203-0e73",
+      "at": "2026-08-19T04:53:23Z",
+      "ts": 1787115203,
       "trigger": "self",
-      "prevHead": "412f8342",
-      "handoffSha": "sha256:2b1c17810eb0f50943b9b44b9ff602ec9941279f73e3e03997366fb736e16f49",
-      "handoffAgeSec": 5,
+      "prevHead": "43dcf76c",
+      "handoffSha": "sha256:5789882e30da728baee351fe9361f5a523fba308053abaa2617ea570e04c2c47",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787115203-0e73",
+        "at": "2026-08-19T04:53:23Z",
+        "ts": 1787115203,
+        "trigger": "self",
+        "prevHead": "43dcf76c",
+        "handoffSha": "sha256:5789882e30da728baee351fe9361f5a523fba308053abaa2617ea570e04c2c47",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787109799-331b",
         "at": "2026-08-19T03:23:19Z",
@@ -876,17 +887,6 @@
         "prevHead": "e27b1755",
         "handoffSha": "sha256:ccda700047da8232963a1c628bf611cef79f91e57ae6b8970fa88e27b9bb7fef",
         "handoffAgeSec": 25,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787044072-7909",
-        "at": "2026-08-18T09:07:52Z",
-        "ts": 1787044072,
-        "trigger": "self",
-        "prevHead": "08ec28d7",
-        "handoffSha": "sha256:37b0d2670398ec6aa217523a466c2eccbbba4069f5f27d4be284be7aa4984682",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
