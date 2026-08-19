@@ -20,10 +20,14 @@
 //!   `.flags` each would otherwise allocate an intermediate Str +
 //!   need explicit drops). S266 trailing args silent-drop.
 //!
+//! - `compile(pattern?, flags?)` — annexB §B.2.4.1 in-place
+//!   receiver re-init (rotation 447); both operands ride as boxed
+//!   AnyValues into `__torajs_regex_compile_inplace`.
+//!
 //! Returns `Some(op)` on hit; `None` on miss (callee not a
-//! Member-call, method name not in {test, exec, toString}, or
-//! receiver isn't `Type::RegExp`) so the caller falls through to the
-//! `<Str>.{replace|split|match|matchAll}` regex-receiver arm and
+//! Member-call, method name not in {test, exec, toString, compile},
+//! or receiver isn't `Type::RegExp`) so the caller falls through to
+//! the `<Str>.{replace|split|match|matchAll}` regex-receiver arm and
 //! beyond.
 
 use crate::ast::{Expr, ExprId};
@@ -38,7 +42,7 @@ pub(crate) fn try_lower(
     let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if !matches!(name.as_str(), "test" | "exec" | "toString") {
+    if !matches!(name.as_str(), "test" | "exec" | "toString" | "compile") {
         return None;
     }
     let recv_id = *obj;
@@ -108,6 +112,40 @@ pub(crate) fn try_lower(
             if s_owned {
                 ctx.emit_drop_value(s, Type::Str);
             }
+            Some(Operand::Value(v))
+        }
+        "compile" => {
+            // annexB §B.2.4.1 (rotation 447) — in-place receiver
+            // re-init. The kernel owns the whole argument story
+            // (RegExp donor / ToString coercion / TypeError /
+            // SyntaxError all record pending throws BEFORE the
+            // receiver changes); absent arguments ride as boxed
+            // undefined, which the kernel maps to §22.2.3.2's
+            // empty string.
+            let pat = match args.first() {
+                Some(&a) => {
+                    let raw = ctx.lower_expr(a);
+                    ctx.box_to_any_from_expr(a, raw)
+                }
+                None => Operand::Value(crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx)),
+            };
+            let fl = match args.get(1) {
+                Some(&a) => {
+                    let raw = ctx.lower_expr(a);
+                    ctx.box_to_any_from_expr(a, raw)
+                }
+                None => Operand::Value(crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx)),
+            };
+            for a in args.iter().skip(2) {
+                let _ = ctx.lower_expr(*a);
+            }
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.regex_compile_inplace, vec![recv_op, pat, fl]),
+                Type::RegExp,
+                None,
+            );
+            ctx.emit_throw_check(None);
             Some(Operand::Value(v))
         }
         _ => unreachable!("regex method `{method}` not yet wired"),

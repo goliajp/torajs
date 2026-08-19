@@ -171,6 +171,7 @@ pub(crate) fn build(
         regexp_escape_any: init_b.regex.regexp_escape_any,
         regex_compile: init_b.regex.regex_compile,
         regex_compile_or_throw: init_b.regex.regex_compile_or_throw,
+        regex_compile_inplace: init_b.regex.regex_compile_inplace,
         regex_compile_any: init_b.regex.regex_compile_any,
         regexp_from_any: init_b.regex.regexp_from_any,
         regexp_drop_if_coerced: init_b.regex.regexp_drop_if_coerced,

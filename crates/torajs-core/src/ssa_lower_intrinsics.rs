@@ -197,6 +197,7 @@ pub(crate) struct Intrinsics {
     /// `lower_regexp` follows the call). Literal `/pat/flags` still
     /// calls the plain `regex_compile` — literal-time throw is L3b.
     pub(crate) regex_compile_or_throw: FuncId,
+    pub(crate) regex_compile_inplace: FuncId,
     pub(crate) regex_compile_any: FuncId,
     pub(crate) regexp_from_any: FuncId,
     pub(crate) regexp_drop_if_coerced: FuncId,

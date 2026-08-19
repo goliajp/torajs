@@ -311,3 +311,125 @@ pub(crate) fn flag_letters(f: u8) -> Vec<u8> {
     }
     out
 }
+
+unsafe extern "C" {
+    /// torajs-anyvalue — the boxed value's slot tag / payload.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-anyvalue — ToString over a boxed value (fresh Str;
+    /// a Symbol argument or a throwing user toString records a
+    /// pending throw and the caller's check unwinds).
+    fn __torajs_anyv_to_str(v: u64) -> *mut c_void;
+    /// torajs-throw — pending-throw plumbing (`throw_type_error`
+    /// rides the crate-wide declaration in `super`).
+    fn __torajs_throw_check() -> i64;
+    /// torajs-str — release a Str temp.
+    fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-rc — take a share of the returned receiver.
+    fn __torajs_rc_inc(p: *mut c_void);
+}
+
+/// AnySlotTag mirrors (`__torajs_anyv_box_from_pair` contract).
+const ANYTAG_HEAP: i64 = 4;
+const ANYTAG_UNDEF: i64 = 5;
+
+/// The argument's RegExp cell, or `None` for everything else.
+unsafe fn anyv_regexp_cell(av: u64) -> Option<*const RegExp> {
+    if unsafe { __torajs_anyv_unbox_tag(av) } != ANYTAG_HEAP {
+        return None;
+    }
+    let p = unsafe { __torajs_anyv_unbox_value(av) } as *const RegExp;
+    if p.is_null() || unsafe { (*p).header.type_tag } != TAG_REGEX {
+        return None;
+    }
+    Some(p)
+}
+
+/// `av`'s ToString bytes, or `None` when the coercion recorded a
+/// pending throw (Symbol → TypeError, user toString raise). An
+/// undefined argument is §22.2.3.2 RegExpInitialize step 1/3's
+/// empty string, not the text "undefined".
+unsafe fn anyv_pattern_bytes(av: u64) -> Option<Vec<u8>> {
+    if unsafe { __torajs_anyv_unbox_tag(av) } == ANYTAG_UNDEF {
+        return Some(Vec::new());
+    }
+    let s = unsafe { __torajs_anyv_to_str(av) };
+    if unsafe { __torajs_throw_check() } != 0 {
+        unsafe { __torajs_str_drop(s) };
+        return None;
+    }
+    let bytes = unsafe { str_slice(s as *const c_void) };
+    unsafe { __torajs_str_drop(s) };
+    Some(bytes)
+}
+
+/// Annex B §B.2.4.1 `RegExp.prototype.compile(pattern, flags)` —
+/// re-initialize the RECEIVER cell in place and return it.
+///
+/// Steps: a RegExp `pattern` with a present `flags` is a TypeError
+/// (step 3.a); a RegExp pattern otherwise donates its own source
+/// and flags (step 3.b); anything else takes
+/// `ToString(pattern) / ToString(flags)` with undefined mapping to
+/// the empty string (step 4 → §22.2.3.2 steps 1-3). Coercion
+/// throws propagate BEFORE the receiver changes — the four
+/// annexB/compile cases pin `lastIndex` unmoved across a throwing
+/// call. A rejected parse records the same catchable SyntaxError
+/// as `new RegExp(...)` and leaves the receiver untouched; success
+/// swaps the freshly compiled body under the receiver's own header
+/// (refcount, subclass flag) and resets `lastIndex` to +0
+/// (§22.2.3.2 step 12), releasing the old body — including a
+/// boxed-form lastIndex stake — through the ordinary drop path.
+///
+/// # Safety
+/// `re_ptr` is null or a live `*RegExp`; `pat` / `flags` carry
+/// valid AnyValue bit patterns. Returns an OWNED share of the
+/// receiver (rc+1), or null when a pending throw is recorded.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_compile_inplace(
+    re_ptr: *mut c_void,
+    pat: u64,
+    flags: u64,
+) -> *mut c_void {
+    unsafe {
+        if re_ptr.is_null() {
+            return core::ptr::null_mut();
+        }
+        let (p_bytes, f_bytes) = if let Some(src) = anyv_regexp_cell(pat) {
+            if __torajs_anyv_unbox_tag(flags) != ANYTAG_UNDEF {
+                super::__torajs_throw_type_error(
+                    b"RegExp.prototype.compile: cannot supply flags when compiling a RegExp\0"
+                        .as_ptr(),
+                );
+                return core::ptr::null_mut();
+            }
+            ((*src).src_bytes.clone(), flag_letters((*src).flags))
+        } else {
+            let Some(p) = anyv_pattern_bytes(pat) else {
+                return core::ptr::null_mut();
+            };
+            let Some(f) = anyv_pattern_bytes(flags) else {
+                return core::ptr::null_mut();
+            };
+            (p, f)
+        };
+        let fresh = compile_bytes(p_bytes, f_bytes) as *mut RegExp;
+        throw_if_rejected(fresh as *mut c_void);
+        if __torajs_throw_check() != 0 {
+            super::lifecycle::__torajs_regex_drop(fresh as *mut c_void);
+            return core::ptr::null_mut();
+        }
+        // Swap the compiled body under the receiver's header: the
+        // whole-struct swap moves every field (program, source,
+        // capture tables, the zeroed lastIndex pair, the empty
+        // caches), then the header swap hands the receiver back its
+        // own refcount + subclass flag. The old body — old boxed
+        // lastIndex stake included — rides out on the fresh cell's
+        // rc=1 header through the ordinary drop.
+        let old = &mut *(re_ptr as *mut RegExp);
+        core::mem::swap(old, &mut *fresh);
+        core::mem::swap(&mut old.header, &mut (*fresh).header);
+        super::lifecycle::__torajs_regex_drop(fresh as *mut c_void);
+        __torajs_rc_inc(re_ptr);
+        re_ptr
+    }
+}

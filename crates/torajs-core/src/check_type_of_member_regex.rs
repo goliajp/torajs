@@ -70,6 +70,12 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
                 Type::String,
             ))))),
         ),
+        // Annex B §B.2.4.1 — `re.compile(pattern?, flags?)`
+        // re-initializes the receiver in place and returns it
+        // (rotation 447). Both slots take anything: a RegExp donor
+        // pattern, ToString-coercible values, or nothing at all
+        // (the lowering pads boxed undefined).
+        "compile" => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::RegExp)),
         _ => return None,
     };
     Some(Ok(ty))
