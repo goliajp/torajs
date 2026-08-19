@@ -63,11 +63,11 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
         // SyntaxError throw and none of it runs.
         let super_ok = form == CallForm::Direct && class_owned.get(i).copied().unwrap_or(false);
         match parse_eval_source(&src, ast, super_ok, DeleteSites::Strict) {
-            None => {
+            Err(_) => {
                 let throw = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
                 wrap_iife(i, vec![throw], ast);
             }
-            Some(mut body)
+            Ok(mut body)
                 if body.len() >= 2
                     && matches!(body.last(), Some(Stmt::Expr(_)))
                     && (form == CallForm::Direct
@@ -86,7 +86,7 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
             // A trailing statement (switch / loop / if / try / block)
             // leaves the completion inside its own V accumulation —
             // the UpdateEmpty desugar in `completion_stmt.rs`.
-            Some(mut body)
+            Ok(mut body)
                 if !body.is_empty()
                     && (form == CallForm::Direct
                         || scope_transparent(&body, ast, i, &fn_owned, &nested_lexical)) =>
@@ -95,7 +95,7 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 let body = completion_stmt::rewrite_trailing_stmt_completion(body, ast);
                 wrap_iife(i, body, ast);
             }
-            Some(_) => {}
+            Ok(_) => {}
         }
         i += 1;
     }

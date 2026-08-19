@@ -238,7 +238,7 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
         // carriers downstream raise the step-12 SyntaxError.
         let super_ok = form == CallForm::Direct && class_owned.get(i).copied().unwrap_or(false);
         let arena_before = ast.exprs.len();
-        if let Some(parsed) = parse_eval_source(&src, ast, super_ok, DeleteSites::Strict) {
+        if let Ok(parsed) = parse_eval_source(&src, ast, super_ok, DeleteSites::Strict) {
             if let [Stmt::Expr(inner)] = parsed[..] {
                 let at_toplevel = !fn_owned.get(i).copied().unwrap_or(false);
                 let closed = form == CallForm::Direct || {
@@ -367,7 +367,7 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
                 form == CallForm::Direct && home,
                 DeleteSites::Strict,
             ) {
-                Some(mut inlined) if inline_here => {
+                Ok(mut inlined) if inline_here => {
                     // An eval inside the inlined text is an eval like
                     // any other; the nesting is finite because each
                     // level is a literal written in the level above.
@@ -387,8 +387,8 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
                     *s = Stmt::Block(inlined);
                     return;
                 }
-                Some(_) => {}
-                None => {
+                Ok(_) => {}
+                Err(_) => {
                     // The text does not parse. §19.2.1.1 step 12 wants
                     // a SyntaxError at evaluation time — see
                     // `syntax_error_throw` on why this is a throw and
@@ -418,7 +418,7 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
                         form == CallForm::Direct && home,
                         DeleteSites::Strict,
                     )
-                    .is_none()
+                    .is_err()
                     {
                         // Same orphan story as the inline above.
                         ast.exprs[value.0 as usize] = Expr::Ident("undefined".to_string());

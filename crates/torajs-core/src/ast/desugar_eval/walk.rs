@@ -133,6 +133,13 @@ enum Mode {
     /// at an ordinary `FnDecl` body (its own `this` cuts the home
     /// chain), and rides through arrows unchanged (they pierce).
     ClassOwned,
+    /// "Inside strict code" for a text whose OUTERMOST level is sloppy
+    /// (a `Function(...)` body, §20.2.1.1 parses it non-strict). Flips
+    /// true at a function body whose directive prologue opens with
+    /// 'use strict' (§11.2.1) and at every class member body (§10.2.1
+    /// makes all class code strict); once true it never flips back —
+    /// strictness is inherited by nested functions.
+    StrictOwned,
 }
 
 /// One flag per arena slot: is this expression inside a function body?
@@ -166,6 +173,16 @@ pub(crate) fn body_owned_exprs(ast: &Ast, body: &[Stmt], owned: &mut [bool]) {
     mark_stmts(ast, body, true, Mode::FnOwned, owned);
 }
 
+/// One flag per arena slot: is this expression inside STRICT code,
+/// for a text parsed at a sloppy outermost level? Sized to the whole
+/// arena so a freshly parsed segment indexes directly; only the given
+/// stmt list's sub-tree is walked.
+pub(super) fn strict_owned_exprs(ast: &Ast, stmts: &[Stmt]) -> Vec<bool> {
+    let mut owned = vec![false; ast.exprs.len()];
+    mark_stmts(ast, stmts, false, Mode::StrictOwned, &mut owned);
+    owned
+}
+
 fn mark_stmts(ast: &Ast, stmts: &[Stmt], in_fn: bool, mode: Mode, owned: &mut [bool]) {
     for s in stmts {
         mark_stmt(ast, s, in_fn, mode, owned);
@@ -184,7 +201,9 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, mode: Mode, owned: &mut [bool]) {
     // The flag a callee-scope body is marked with: FnOwned flips true
     // at any function boundary; ClassOwned flips FALSE at an ordinary
     // function body (own `this`, no home) — class members below flip
-    // true in both modes.
+    // true in every mode (all class code is strict, §10.2.1);
+    // StrictOwned flips true only on a 'use strict' prologue and is
+    // never lowered by a nested function.
     let fn_body_flag = matches!(mode, Mode::FnOwned);
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => mark_expr(ast, *e, in_fn, mode, owned),
@@ -272,8 +291,12 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, mode: Mode, owned: &mut [bool]) {
         }
         Stmt::Block(b) | Stmt::Multi(b) => mark_stmts(ast, b, in_fn, mode, owned),
         Stmt::FnDecl { params, body, .. } => {
-            mark_params(ast, params, fn_body_flag, mode, owned);
-            mark_stmts(ast, body, fn_body_flag, mode, owned);
+            let flag = match mode {
+                Mode::StrictOwned => in_fn || super::source::has_use_strict_prologue(body, ast),
+                _ => fn_body_flag,
+            };
+            mark_params(ast, params, flag, mode, owned);
+            mark_stmts(ast, body, flag, mode, owned);
         }
         Stmt::ClassDecl {
             static_init,
@@ -380,6 +403,10 @@ fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, mode: Mode, owned: &mut [bool]
             let body_flag = match mode {
                 Mode::FnOwned => true,
                 Mode::ClassOwned => in_fn,
+                // A true arrow inherits its enclosure's strictness and
+                // a fn expression (desugared to this variant) is
+                // strict on its own prologue — one formula serves both.
+                Mode::StrictOwned => in_fn || super::source::has_use_strict_prologue(body, ast),
             };
             mark_params(ast, params, body_flag, mode, owned);
             mark_stmts(ast, body, body_flag, mode, owned);

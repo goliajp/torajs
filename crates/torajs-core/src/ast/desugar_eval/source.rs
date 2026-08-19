@@ -164,12 +164,24 @@ pub(super) enum DeleteSites {
     SloppyFold,
 }
 
+/// Why a parse attempt refused the text. `NoParse` is a lex / parse /
+/// Script-goal failure — a real syntax error OR a shape tr's subset
+/// does not cover, indistinguishable here. `StrictDelete` is the
+/// §13.5.1.1 early error, resolved post-parse: a DEFINITE syntax
+/// error, so callers that must separate "creation-time SyntaxError"
+/// from "honest reject" (the `Function(...)` desugar) can throw on it
+/// without probing.
+pub(super) enum EvalRefusal {
+    NoParse,
+    StrictDelete,
+}
+
 pub(super) fn parse_eval_source(
     src: &str,
     ast: &mut Ast,
     super_ok: bool,
     delete_sites: DeleteSites,
-) -> Option<Vec<Stmt>> {
+) -> Result<Vec<Stmt>, EvalRefusal> {
     let exprs_before = ast.exprs.len();
     let stmts = parse_once(src, ast, super_ok)
         .and_then(reject_module_decls)
@@ -185,7 +197,8 @@ pub(super) fn parse_eval_source(
             // semicolon only ever terminates a final statement.
             let with_semi = format!("{src};");
             parse_once(&with_semi, ast, super_ok).and_then(reject_module_decls)
-        })?;
+        })
+        .ok_or(EvalRefusal::NoParse)?;
     let sites: Vec<(usize, String)> = ast.exprs[exprs_before..]
         .iter()
         .enumerate()
@@ -198,13 +211,31 @@ pub(super) fn parse_eval_source(
         })
         .collect();
     if sites.is_empty() {
-        return Some(stmts);
+        return Ok(stmts);
     }
-    if delete_sites == DeleteSites::Strict && !ast.sloppy_script_goal {
+    let strict_goal = !ast.sloppy_script_goal;
+    // Which sites sit in strict code? Under `Strict` every one does;
+    // under `SloppyFold` only those inside a nested 'use strict'
+    // function (or class code) — §11.2.1 arms the prologue's body
+    // even when the outermost text is sloppy.
+    let strict_hit = if delete_sites == DeleteSites::Strict && strict_goal {
+        true
+    } else if strict_goal {
+        let strict_owned = super::walk::strict_owned_exprs(ast, &stmts);
+        sites
+            .iter()
+            .any(|(i, _)| strict_owned.get(*i).copied().unwrap_or(false))
+    } else {
+        false
+    };
+    if strict_hit {
+        // The whole text is refused, so every site — strict or not —
+        // is neutralized: a failed parse leaves its expressions in the
+        // arena, and the goal triage walks the WHOLE arena.
         for (i, _) in sites {
             ast.exprs[i] = Expr::Bool(false);
         }
-        return None;
+        return Err(EvalRefusal::StrictDelete);
     }
     let mut declared = std::collections::HashSet::new();
     crate::ast::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
@@ -214,7 +245,7 @@ pub(super) fn parse_eval_source(
             &n, &declared,
         ));
     }
-    Some(stmts)
+    Ok(stmts)
 }
 
 /// §19.2.1.1 step 2 parses eval code with the **Script** goal symbol,

@@ -33,7 +33,9 @@
 
 use super::super::{Ast, Expr, ExprId, Stmt};
 use super::scope::binds_name;
-use super::source::{DeleteSites, const_string, parse_eval_source, syntax_error_throw};
+use super::source::{
+    DeleteSites, EvalRefusal, const_string, parse_eval_source, syntax_error_throw,
+};
 use crate::lexer::{self, Token};
 
 /// Rewrite every argument-bearing `Function(...)` / `new Function(...)`
@@ -115,7 +117,7 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
             DeleteSites::SloppyFold
         };
         match parse_eval_source(&full, ast, false, delete_sites) {
-            Some(mut parsed) => {
+            Ok(mut parsed) => {
                 let is_the_decl = matches!(
                     parsed.as_slice(),
                     [Stmt::FnDecl { name: n, .. }] if *n == name
@@ -189,7 +191,18 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                     synth += 1;
                 }
             }
-            None => {
+            // A definite §13.5.1.1 early error resolved post-parse —
+            // in the body's own strict code, or a nested 'use strict'
+            // function inside a sloppy body. Creation-time SyntaxError
+            // either way (§20.2.1.1 step 22).
+            Err(EvalRefusal::StrictDelete) => {
+                let throw = syntax_error_throw(
+                    "dynamic function: `delete` on a bare name in strict code".into(),
+                    ast,
+                );
+                wrap_throw_iife(i, throw, ast);
+            }
+            Err(EvalRefusal::NoParse) => {
                 // A strict body that fails to parse has two possible
                 // causes, and they want opposite answers: a §15.2.1
                 // early error the parser itself refuses (assignment to
@@ -219,7 +232,10 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
 /// alone.
 fn parses_without_the_prologue(name: &str, params: &str, body: &str, ast: &mut Ast) -> bool {
     let probe = format!("function {name}({params}\n) {{\n;\n{body}\n}}");
-    parse_eval_source(&probe, ast, false, DeleteSites::SloppyFold).is_some()
+    matches!(
+        parse_eval_source(&probe, ast, false, DeleteSites::SloppyFold),
+        Ok(_) | Err(EvalRefusal::StrictDelete)
+    )
 }
 
 /// Whether the body text's directive prologue opens with a

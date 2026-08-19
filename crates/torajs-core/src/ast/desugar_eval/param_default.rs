@@ -59,7 +59,7 @@ pub(super) fn rewrite_param_default_arguments_evals(ast: &mut Ast) {
         };
         // A source that fails to parse is not this pass's problem —
         // the completion pass already turns it into the same throw.
-        let Some(body) = parse_eval_source(&src, ast, false, DeleteSites::Strict) else {
+        let Ok(body) = parse_eval_source(&src, ast, false, DeleteSites::Strict) else {
             i += 1;
             continue;
         };
