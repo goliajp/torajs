@@ -188,11 +188,17 @@ unsafe fn record_settle(env: *mut c_void, argv: *const u64, argc: i64, state: u8
             if (*b).done == 0 {
                 let v = arg0(argv, argc);
                 crate::combinator_any::box_share(v);
-                let rec = crate::combinator_allsettled::alloc_settled_struct(
-                    state,
-                    v as i64,
-                    (*b).record_tags,
-                );
+                // Tag-less site → readable dynobj record (the fresh
+                // share transfers); stamped site → class-shape record.
+                let rec = if (*b).record_tags == 0 {
+                    crate::combinator_allsettled::alloc_settled_dynobj(state, v)
+                } else {
+                    crate::combinator_allsettled::alloc_settled_struct(
+                        state,
+                        v as i64,
+                        (*b).record_tags,
+                    )
+                };
                 crate::combinator_fanin_slot::store_slot(
                     (*b).result_arr,
                     cell_index(env),

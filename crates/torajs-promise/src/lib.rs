@@ -147,6 +147,41 @@ pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_tag: i64, _value: i64) -> 
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
+    panic!("torajs-promise test stub: anyv_unbox_tag should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unbox_value(_v: u64) -> i64 {
+    panic!("torajs-promise test stub: anyv_unbox_value should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut core::ffi::c_void {
+    panic!("torajs-promise test stub: dynobj_alloc should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set(
+    _obj_slot: *mut *mut core::ffi::c_void,
+    _key: *mut core::ffi::c_void,
+    _tag: u64,
+    _value: u64,
+) {
+    panic!("torajs-promise test stub: dynobj_set should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
+    panic!("torajs-promise test stub: str_drop should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_str_slot(_s: *mut core::ffi::c_void) -> u64 {
     panic!("torajs-promise test stub: anyv_box_str_slot should not be called from cargo test");
 }

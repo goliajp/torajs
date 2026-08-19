@@ -33,6 +33,15 @@ unsafe extern "C" {
     fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
     fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
+
+    /// torajs-dynobj + torajs-anyvalue + torajs-str — the tag-less
+    /// record path ([`alloc_settled_dynobj`]) builds an ordinary
+    /// object instead of a class-shape cell.
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// The value the record's second slot must hold.
@@ -100,6 +109,47 @@ fn value_field_is_owned(target_repr: u8) -> bool {
 
 const STATUS_FULFILLED_LIT: &[u8] = b"fulfilled";
 const STATUS_REJECTED_LIT: &[u8] = b"rejected";
+
+/// The record for a site with NO layout to point at — `record_tags
+/// == 0` with a boxed value, which is every dyn / recv-first entry
+/// (their iterable never came through a typed call site that could
+/// mint a stamp). A class-shape record with tag 0 is 48 anonymous
+/// bytes nothing can read a field out of (`r.status` through the any
+/// lane answered undefined — the recorded "record anonymity"
+/// defect); an ordinary object needs no layout at all, so this
+/// builds the §27.2.4.3.1 steps 9-12 dynobj directly: `{status,
+/// value}` when fulfilled, `{status, reason}` when rejected.
+///
+/// `boxed` is an OWNED AnyValue: its stake (or the fresh Str a
+/// ShortStr materializes into under `unbox_value`) transfers into
+/// the entry, so the caller neither incs nor drops it after this.
+pub(crate) unsafe fn alloc_settled_dynobj(state: u8, boxed: u64) -> *mut c_void {
+    unsafe {
+        let mut obj = __torajs_dynobj_alloc();
+        let fulfilled = state == STATE_FULFILLED;
+        let k_status = make_settled_str(b"status");
+        let status = make_settled_str(if fulfilled {
+            STATUS_FULFILLED_LIT
+        } else {
+            STATUS_REJECTED_LIT
+        });
+        // Entry pairs use the AnySlotTag numbering; 4 = Heap, and
+        // the entry adopts the fresh status Str. Keys are cloned by
+        // the store — the caller-side Str drops after each set.
+        __torajs_dynobj_set(&mut obj, k_status, 4, status as u64);
+        __torajs_str_drop(k_status);
+        let k_val = make_settled_str(if fulfilled {
+            b"value" as &[u8]
+        } else {
+            b"reason"
+        });
+        let t = __torajs_anyv_unbox_tag(boxed) as u64;
+        let v = __torajs_anyv_unbox_value(boxed) as u64;
+        __torajs_dynobj_set(&mut obj, k_val, t, v);
+        __torajs_str_drop(k_val);
+        obj
+    }
+}
 
 unsafe fn make_settled_str(literal: &[u8]) -> *mut c_void {
     let len = literal.len() as u64;

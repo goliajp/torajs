@@ -281,21 +281,32 @@ pub(crate) unsafe fn allsettled_sync_any(
                 Some(pp) => {
                     let v = box_settled_owned((*pp).value_repr, (*pp).value)
                         .unwrap_or_else(|| __torajs_anyv_box_from_pair(5, 0));
-                    crate::combinator_allsettled::alloc_settled_struct(
-                        (*pp).state,
-                        v as i64,
-                        record_tags,
-                    )
+                    // A tag-less site (dyn / recv-first — no typed
+                    // call site to mint a stamp) gets the readable
+                    // dynobj record; the box's stake transfers.
+                    if record_tags == 0 {
+                        crate::combinator_allsettled::alloc_settled_dynobj((*pp).state, v)
+                    } else {
+                        crate::combinator_allsettled::alloc_settled_struct(
+                            (*pp).state,
+                            v as i64,
+                            record_tags,
+                        )
+                    }
                 }
                 None => {
                     // Plain value — already fulfilled (§27.2.4.3
                     // resolve-wrap), stored boxed verbatim.
                     __torajs_anyv_rc_inc(bits);
-                    crate::combinator_allsettled::alloc_settled_struct(
-                        STATE_FULFILLED,
-                        bits as i64,
-                        record_tags,
-                    )
+                    if record_tags == 0 {
+                        crate::combinator_allsettled::alloc_settled_dynobj(STATE_FULFILLED, bits)
+                    } else {
+                        crate::combinator_allsettled::alloc_settled_struct(
+                            STATE_FULFILLED,
+                            bits as i64,
+                            record_tags,
+                        )
+                    }
                 }
             };
             result_arr = __torajs_arr_push(result_arr, s as i64);
