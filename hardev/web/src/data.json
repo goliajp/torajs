@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T07:50:00.451Z",
+  "generatedAt": "2026-08-19T08:03:07.515Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 71.24
   },
   "torajs": {
-    "commit": "71df1ed8",
-    "commitSubject": "feat: regexp.prototype.compile reinitializes the receiver in place per annexb",
+    "commit": "c4f21315",
+    "commitSubject": "refactor: the call-position face arms move to their own sibling",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "c4f21315",
+      "subject": "refactor: the call-position face arms move to their own sibling"
+    },
+    {
+      "hash": "cd68e591",
+      "subject": "chore(docs,hardev): rotation 447 roadmap snapshot + sweep artifacts"
+    },
+    {
       "hash": "71df1ed8",
       "subject": "feat: regexp.prototype.compile reinitializes the receiver in place per annexb"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "c1bc85fe",
       "subject": "fix: injected builtin params stop shadowing user names via __bi_ prefix"
-    },
-    {
-      "hash": "0427ece7",
-      "subject": "feat: fn-expr return faces widen from class members to every top-level fndecl"
-    },
-    {
-      "hash": "7d4bfd25",
-      "subject": "feat: computed-key objlit fn-expr values join the method receiver channel"
     }
   ],
-  "headSha": "71df1ed8",
+  "headSha": "c4f21315",
   "autorun": {
     "total": 750,
     "baselineTarget": 10,
