@@ -14,6 +14,16 @@
 
 pub(super) use super::ns_static_externs::*;
 
+/// Which §27.2.4 combinator a [`Disp::PromiseCombinator`] row runs —
+/// one variant per dyn-kernel symbol.
+#[derive(Clone, Copy)]
+pub(super) enum PromiseComb {
+    All,
+    AllSettled,
+    Any,
+    Race,
+}
+
 /// Per-id dispatch shape. Index-lockstep with
 /// [`torajs_rc::ns_static::NS_STATIC_TABLE`].
 pub(super) enum Disp {
@@ -116,6 +126,16 @@ pub(super) enum Disp {
     /// builtin-Promise |this| runs the real settle.
     PromiseSettleFn {
         reject: bool,
+    },
+    /// §27.2.4.{1,3,5,6} all / allSettled / any / race — the
+    /// receiver-channel form (`this_aware_id`): argv[0] carries the
+    /// thisArg every honoring caller prepended, and a
+    /// builtin-Promise |this| runs the iterator-interleaved dyn
+    /// kernel over the iterable in argv[1]. Any other thisValue
+    /// keeps the step-1/2 TypeError — a custom species constructor C
+    /// needs NewPromiseCapability(C), the recorded follow-up.
+    PromiseCombinator {
+        kind: PromiseComb,
     },
     /// §20.1.2.8 Object.getOwnPropertyDescriptor — ToString(P) into
     /// the meta descriptor kernel (fresh descriptor dynobj /
@@ -345,10 +365,18 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::DefineFace, // defineProperties
     Disp::OwnSymbols,
     Disp::ArrayFromFace,
-    Disp::PromiseSettle, // Promise.all
-    Disp::PromiseSettle, // Promise.allSettled
-    Disp::PromiseSettle, // Promise.any
-    Disp::PromiseSettle, // Promise.race
+    Disp::PromiseCombinator {
+        kind: PromiseComb::All,
+    },
+    Disp::PromiseCombinator {
+        kind: PromiseComb::AllSettled,
+    },
+    Disp::PromiseCombinator {
+        kind: PromiseComb::Any,
+    },
+    Disp::PromiseCombinator {
+        kind: PromiseComb::Race,
+    },
     Disp::IteratorFrom,
     Disp::IteratorConcat,
     Disp::IteratorZip { keyed: false },
