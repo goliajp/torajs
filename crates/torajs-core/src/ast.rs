@@ -241,6 +241,7 @@ pub use ns_alias::desugar_ns_alias_members;
 pub use prop_key::{literal_prop_key, number_prop_key};
 pub use prototype_call::desugar_prototype_call;
 pub use readonly_globals::resolve_readonly_global_writes;
+pub use readonly_globals::resolve_readonly_ns_prop_writes;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use sig_thunk::synthesize_sig_thunks;
 pub use sloppy_implicit_globals::synthesize_sloppy_implicit_globals;

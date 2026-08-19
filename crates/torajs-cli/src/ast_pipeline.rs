@@ -146,6 +146,10 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // strict throws TypeError at the site, sloppy folds to the rhs.
     // Same placement rationale as the delete triage above.
     ast::resolve_readonly_global_writes(ast);
+    // …and their member-write mirror: the non-writable
+    // builtin-namespace properties (`Number.NaN = 1`), same goal
+    // split, same placement.
+    ast::resolve_readonly_ns_prop_writes(ast);
     // Sloppy-goal implicit globals (§9.1.1.4.6) — synthesize a hoisted
     // `var <name>;` per never-declared assignment target, so the write
     // creates the binding instead of the checker rejecting the program.
