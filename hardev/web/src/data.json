@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T06:35:38.091Z",
+  "generatedAt": "2026-08-19T07:50:00.451Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T06:26:32Z",
-    "headSha": "a50b07bf",
-    "elapsedSec": 345.47,
+    "ranAt": "2026-08-19T07:41:35Z",
+    "headSha": "71df1ed8",
+    "elapsedSec": 345.65,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26787,
+    "pass": 26798,
     "passNoOracle": 953,
     "passNegative": 4140,
-    "passTotal": 31880,
-    "bug": 12880,
-    "incompatible": 8414,
+    "passTotal": 31891,
+    "bug": 12877,
+    "incompatible": 8406,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44760,
-    "passRateInScope": 59.95,
-    "passRateTrAccepted": 71.22
+    "trAccepted": 44768,
+    "passRateInScope": 59.97,
+    "passRateTrAccepted": 71.24
   },
   "torajs": {
-    "commit": "a50b07bf",
-    "commitSubject": "feat: the any method dispatch invokes a closure replacevalue in the replace family",
+    "commit": "71df1ed8",
+    "commitSubject": "feat: regexp.prototype.compile reinitializes the receiver in place per annexb",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "71df1ed8",
+      "subject": "feat: regexp.prototype.compile reinitializes the receiver in place per annexb"
+    },
+    {
+      "hash": "62e4076b",
+      "subject": "feat: the symbol.replace protocol spelling joins the replace cb-slot face"
+    },
+    {
+      "hash": "2964d86f",
+      "subject": "feat: variable-routed string-wrapper receivers join the replace cb-slot face"
+    },
+    {
+      "hash": "2dbc2702",
+      "subject": "feat: wrapper-receiver replace calls join the cb-slot face"
+    },
+    {
+      "hash": "dd071236",
+      "subject": "feat: a closure replacevalue over a regexp pattern joins the runtime replace dispatch"
+    },
+    {
+      "hash": "3abb92d6",
+      "subject": "chore(docs,hardev): rotation 446 roadmap snapshot + sweep artifacts"
+    },
+    {
       "hash": "a50b07bf",
       "subject": "feat: the any method dispatch invokes a closure replacevalue in the replace family"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "7d4bfd25",
       "subject": "feat: computed-key objlit fn-expr values join the method receiver channel"
-    },
-    {
-      "hash": "43dcf76c",
-      "subject": "chore(docs,hardev): rotation 445 roadmap snapshot + sweep artifacts"
-    },
-    {
-      "hash": "18fd74ef",
-      "subject": "feat: member reads on object-rest bindings ride the runtime get probe past the static anchor"
-    },
-    {
-      "hash": "e739f165",
-      "subject": "feat: member reads and method calls on nullish receivers throw at runtime — terminal-miss nullish posture"
-    },
-    {
-      "hash": "a2c9fc86",
-      "subject": "fix: date.parse accepts the tostring and toutcstring shapes per spec round-trip requirement"
-    },
-    {
-      "hash": "99045152",
-      "subject": "feat: known-uncallable value callees throw at runtime via the any-call kernel — checker admits, lowering wedge routes"
-    },
-    {
-      "hash": "83834f64",
-      "subject": "feat: date() without new returns the current-time string — args evaluated then discarded per spec"
     }
   ],
-  "headSha": "a50b07bf",
+  "headSha": "71df1ed8",
   "autorun": {
-    "total": 749,
+    "total": 750,
     "baselineTarget": 10,
-    "bySelf": 744,
+    "bySelf": 745,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787115203-0e73",
-      "at": "2026-08-19T04:53:23Z",
-      "ts": 1787115203,
+      "rotationId": "r-1787121361-2527",
+      "at": "2026-08-19T06:36:01Z",
+      "ts": 1787121361,
       "trigger": "self",
-      "prevHead": "43dcf76c",
-      "handoffSha": "sha256:5789882e30da728baee351fe9361f5a523fba308053abaa2617ea570e04c2c47",
-      "handoffAgeSec": 25,
+      "prevHead": "3abb92d6",
+      "handoffSha": "sha256:9628fa32172e1b74e7bee76efc897cc666c45be82380775dd31a974c8e382e03",
+      "handoffAgeSec": 67,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787121361-2527",
+        "at": "2026-08-19T06:36:01Z",
+        "ts": 1787121361,
+        "trigger": "self",
+        "prevHead": "3abb92d6",
+        "handoffSha": "sha256:9628fa32172e1b74e7bee76efc897cc666c45be82380775dd31a974c8e382e03",
+        "handoffAgeSec": 67,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787115203-0e73",
         "at": "2026-08-19T04:53:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "4895309e",
         "handoffSha": "sha256:d6c2edcea2ff7c6df24037f92a37d5fb69c4127cbf9867955c1d7f4cb41439bb",
         "handoffAgeSec": 81,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787049584-3b6b",
-        "at": "2026-08-18T10:39:44Z",
-        "ts": 1787049584,
-        "trigger": "self",
-        "prevHead": "e27b1755",
-        "handoffSha": "sha256:ccda700047da8232963a1c628bf611cef79f91e57ae6b8970fa88e27b9bb7fef",
-        "handoffAgeSec": 25,
         "conformanceBefore": null,
         "commitsInSession": null
       }

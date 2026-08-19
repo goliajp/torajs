@@ -1530,7 +1530,41 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `a50b07bf`** (2026-08-19, rotation 446 — the fnexpr-this
+**Latest @ `71df1ed8`** (2026-08-19, rotation 447 — the replace
+family closed out in five knives. Handoff 446's instruction #1
+candidate ①: the runtime REPLACE arm's regex-cell branch still
+ToString'd a functional replaceValue (source-text splicing, the
+pre-existing silent-wrong residue) — rooted out by generalizing the
+regex replace walk over two invoke strategies and adding
+`__torajs_str_replace_regex_fn_boxed`, which reads **n_caps off the
+RegExp cell's own `n_captures`** and drives the closure's boxed
+entry (spec-full «matched, p1..pn, position, string» argv, real
+undefined for non-participating groups, RECV_FIRST shift). That
+unblocked the face widening: inline and variable-routed
+`new String(...)` receivers (a syntactically-certain strwrapper
+census over both post-var-hoist decl spellings) and the
+`[Symbol.replace]` protocol spelling all joined the replace cb-slot
+face. Fifth knife: annexB §B.2.4.1 `RegExp.prototype.compile` —
+checker arm + lowering + an in-place kernel that swaps the freshly
+compiled body under the receiver's header (throws propagate before
+the receiver changes, pinning lastIndex; rejected parses record the
+same catchable SyntaxError as `new RegExp`). Sweep vs 446: passTotal
+31880 → **31891 (+11)**, bug **−3**, incompatible **−8**,
+conservation +8 = +11 − 3 ✓, **zero pass regressions, zero new
+timeouts/crashes**; the Symbol.replace bug family (fn-coerce ×2 /
+fn-err / poisoned-stdlib, all exit-1) flipped to pass as a side
+effect of the boxed kernel. Gate 3137 → **3142/0/4** across five
+substrate commits (+5 fixtures). fnexpr-this unclaimed 37 → **33**;
+one forward re-shape: Symbol.replace fn-invoke-this-no-strict moved
+incompatible → bug (sloppy-this residue now runs). Gate predicate
+**189 unattributed clusters / 1733 cases / register 2 · 282 (SR-1
+194, SR-2 92) / residue 684 · 857 / core 2872**. Next attackable:
+the Promise monkey-patch family (6-7, needs builtin static-slot
+override semantics — survey first), class-field-init arrow `this`
+(sm ×2), tagged-template call-expression-context ×2, any-receiver
+`.compile` (mid wiring, loud today).)
+
+**Prior @ `a50b07bf`** (2026-08-19, rotation 446 — the fnexpr-this
 unclaimed scatter, three claim knives plus two cross-cutting root
 causes. Handoff 445's instruction #1 (45 unclaimed-receiver cases,
 scattered dirs) opened with shape claims: computed-key object-literal
