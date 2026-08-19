@@ -41,6 +41,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_lock_builtin_fn_class_slots(obj: *mut c_void);
     fn __torajs_dynobj_mark_class_ctor(obj: *mut c_void);
     fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+    /// torajs-anyvalue — the interned builtin-ctor cell for a
+    /// builtin-proto tag, as a cell AnyValue (immortal singleton).
+    fn __torajs_builtin_ctor_value(proto_tag: i64) -> u64;
     fn __torajs_dynobj_define(
         obj_slot: *mut *mut c_void,
         key: *const u8,
@@ -190,6 +193,7 @@ pub extern "C" fn __torajs_anyv_class_register(
     class_anyv: u64,
     is_synth_gen: i64,
     parent_tag: i64,
+    builtin_parent_tag: i64,
 ) {
     if !in_range(tag) {
         return;
@@ -205,7 +209,7 @@ pub extern "C" fn __torajs_anyv_class_register(
         unsafe { __torajs_dynobj_lock_builtin_fn_class_slots(class_anyv as *mut c_void) };
         if is_synth_gen == 0 {
             // SAFETY: same cell; each wiring step re-guards shape itself.
-            unsafe { wire_first_class_links(tag, class_anyv, parent_tag) };
+            unsafe { wire_first_class_links(tag, class_anyv, parent_tag, builtin_parent_tag) };
         }
     }
 }
@@ -231,7 +235,12 @@ pub extern "C" fn __torajs_anyv_class_register(
 /// `class_anyv` is a cell-encoded AnyValue pointing at a live heap
 /// object; `PROTOS_BY_TAG_IMM[tag]` was registered by the emit
 /// sequence just before this call (class_globals.rs emit order).
-unsafe fn wire_first_class_links(tag: i64, class_anyv: u64, parent_tag: i64) {
+unsafe fn wire_first_class_links(
+    tag: i64,
+    class_anyv: u64,
+    parent_tag: i64,
+    builtin_parent_tag: i64,
+) {
     unsafe {
         let class_cell = class_anyv as *mut c_void;
         __torajs_dynobj_mark_class_ctor(class_cell);
@@ -253,6 +262,14 @@ unsafe fn wire_first_class_links(tag: i64, class_anyv: u64, parent_tag: i64) {
         };
         if is_cell_imm(parent) && heap_type_tag(parent as *const c_void) == TAG_DYNOBJ {
             crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, parent);
+        } else if builtin_parent_tag >= 0 {
+            // A stripped BUILTIN parent (`class CP extends Promise`) —
+            // §15.7.14 still applies: `getPrototypeOf(CP) === Promise`,
+            // so static inheritance (`CP.resolve`) resolves through
+            // the ordinary member-get chain walk onto the interned
+            // builtin ctor cell (immortal; the set rc_incs the link).
+            let ctor = __torajs_builtin_ctor_value(builtin_parent_tag);
+            crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, ctor);
         } else {
             let func_proto = __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG);
             if !func_proto.is_null() {

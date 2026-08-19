@@ -318,6 +318,21 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         .flatten()
         .and_then(|p| ctx.class_name_to_tag.get(&p).copied())
         .map_or(-1, |t| t as i64);
+    // A stripped BUILTIN parent has no class tag — its ctor lives in
+    // the interned builtin-ctor registry instead, keyed by the
+    // builtin-proto tag. `builtin_ctor_meta` is the single source
+    // for that tag's name, so the reverse scan here can never drift
+    // from the runtime's `ctor_ns_name` table.
+    let builtin_parent_tag = ctx
+        .ast
+        .builtin_class_parents
+        .get(&cname)
+        .and_then(|p| {
+            (0..torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS as i64).find(|&t| {
+                torajs_rc::builtin_proto::builtin_ctor_meta(t).map(|(n, _)| n) == Some(p)
+            })
+        })
+        .unwrap_or(-1);
     let class_op = ctx.lower_expr(args[0]);
     let cur_block = ctx.cur_block;
     if let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() {
@@ -331,6 +346,7 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                     class_op,
                     Operand::ConstI64(is_gen),
                     Operand::ConstI64(parent_tag),
+                    Operand::ConstI64(builtin_parent_tag),
                 ],
             ),
         );

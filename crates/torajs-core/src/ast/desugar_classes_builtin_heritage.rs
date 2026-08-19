@@ -166,6 +166,11 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         if let Some(tag) = builtin_proto_heir_tag(p) {
             ast.builtin_proto_heirs.insert(cname.clone(), tag);
         }
+        // §15.7.14 — the class OBJECT's [[Prototype]] is the parent
+        // constructor; a builtin parent resolves at register time
+        // through this table (the strip erases the heritage below,
+        // so the ordinary class_parents lane can't see it).
+        ast.builtin_class_parents.insert(cname.clone(), p.clone());
         // Rotation 371 — a ctor-less exotic subclass gets the spec
         // derived default ctor's observable half: `new MySet(iter)`
         // must hand its argument to the builtin's [[Construct]]

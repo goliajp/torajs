@@ -300,7 +300,11 @@ pub(crate) fn declare(
         anyv_json_stringify: decl!("__torajs_anyv_json_stringify", [Any], Str),
         anyv_json_stringify_gap: decl!("__torajs_anyv_json_stringify_gap", [Any, Str, I64], Str),
         anyv_json_gap_str: decl!("__torajs_anyv_json_gap_str", [Any], Str),
-        class_register: decl!("__torajs_anyv_class_register", [I64, Any, I64, I64], Void),
+        class_register: decl!(
+            "__torajs_anyv_class_register",
+            [I64, Any, I64, I64, I64],
+            Void
+        ),
         error_proto_install: decl!("__torajs_error_proto_install", [I64, Str], Void),
         error_is_error: decl!("__torajs_error_is_error", [Any], Bool),
         static_method_define: decl!(

@@ -216,6 +216,18 @@ pub struct Ast {
     /// `__torajs_proto_chain_builtin` emit (RFC
     /// 20260730-iterator-global 刀 1).
     pub builtin_proto_heirs: std::collections::HashMap<String, i64>,
+    /// Every class whose stripped `extends` parent is a BUILTIN
+    /// constructor (exotic and ordinary alike): class name → builtin
+    /// name. §15.7.14 class heritage makes the class object's own
+    /// [[Prototype]] the parent constructor, and for a builtin parent
+    /// that link cannot resolve through `class_name_to_tag` (the
+    /// builtin has no class tag) — the register lowering reads this
+    /// table instead and hands the builtin-proto tag to the runtime
+    /// wire, which chains the class object to the interned builtin
+    /// ctor cell so static inheritance (`CP.resolve` on
+    /// `class CP extends Promise`) reads through the ordinary
+    /// member-get chain walk.
+    pub builtin_class_parents: std::collections::HashMap<String, String>,
     /// Type arguments written at a call site, by the ExprId of the
     /// call. `new Box<number>()` states what `T` is; the rewrite to
     /// the synthesized factory turns it into a plain call, and there
