@@ -98,6 +98,7 @@ mod type_decl;
 mod using_decl;
 mod with_stmt;
 mod yield_expr_hoist;
+mod yield_hoist_events;
 use class_member::ClassMemberModifierPrefix;
 use type_ann_helpers::{is_identifier_name, unwrap_generator_return_ann};
 
