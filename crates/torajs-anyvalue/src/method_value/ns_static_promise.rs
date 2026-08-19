@@ -38,6 +38,19 @@ unsafe extern "C" {
     fn __torajs_promise_allsettled_dyn(v: u64) -> *mut c_void;
     fn __torajs_promise_any_dyn(v: u64) -> *mut c_void;
     fn __torajs_promise_race_dyn(v: u64) -> *mut c_void;
+    /// torajs-promise — the heir combinator kernel (§27.2.4.1 steps
+    /// 4-8 with per-element `Call(promiseResolve, C, «v»)`); mode
+    /// follows the PromiseComb order. All three boxes are borrowed;
+    /// the answer is an owned Promise cell.
+    fn __torajs_promise_combinator_dyn_c(
+        mode: i64,
+        v: u64,
+        ctor: u64,
+        resolve_f: u64,
+    ) -> *mut c_void;
+    /// torajs-str — the GetPromiseResolve(C) key cell.
+    fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// §27.2.4.{1,3,5,6,8} combinator / withResolvers reified cells —
@@ -109,41 +122,92 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
         let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
         let is_builtin =
             !promise_ctor.is_null() && is_cell(this) && as_void_ptr(this) == promise_ctor.cast();
-        if !is_builtin && !this_reaches_promise_ctor(this) {
+        let v = arg_at(argv, argc, 1);
+        if !is_builtin {
+            if this_reaches_promise_ctor(this) {
+                return combinator_via_capability(kind, this, v);
+            }
             return promise_settle();
         }
-        let v = arg_at(argv, argc, 1);
         let p = match kind {
             PromiseComb::All => __torajs_promise_all_dyn(v),
             PromiseComb::AllSettled => __torajs_promise_allsettled_dyn(v),
             PromiseComb::Any => __torajs_promise_any_dyn(v),
             PromiseComb::Race => __torajs_promise_race_dyn(v),
         };
-        if !is_builtin {
-            // §27.2.4.1 step 2 — resultCapability = NewPromiseCapability(C):
-            // the answer must be a C INSTANCE. The element walk still
-            // rides the builtin kernel (GetPromiseResolve(C) per
-            // element is the next layer); its plain result promise is
-            // resolved INTO the capability, whose resolver adopts it
-            // (§27.2.1.3.2), so the C instance settles when the
-            // combinator does.
-            let Some((promise, resolve_f, reject_f)) =
-                crate::promise_capability::new_promise_capability(this)
-            else {
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(box_void_ptr(p));
-                return VALUE_UNDEFINED;
-            };
-            let inner = box_void_ptr(p);
-            let one = [inner];
-            let out =
-                crate::method_call_closure_dispatch::__torajs_any_call(resolve_f, one.as_ptr(), 1);
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(inner);
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(resolve_f);
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(reject_f);
-            return promise;
-        }
         box_void_ptr(p)
+    }
+}
+
+/// §27.2.4.1.1 GetPromiseResolve(C) — Get(C, "resolve") through the
+/// any-lane member read (a patched slot answers the patch, an
+/// unpatched heir answers the inherited recv-first static cell),
+/// then the step-2 IsCallable gate. Answers an OWNED box (the pair
+/// walk is borrow-shaped, and a patch body could `delete C.resolve`
+/// mid-run — the extra stake keeps the callee alive across the
+/// element loop), or 0 with the throw pending (a getter's abrupt or
+/// the TypeError).
+unsafe fn get_promise_resolve(c: u64) -> u64 {
+    unsafe {
+        let key = __torajs_str_alloc(b"resolve".as_ptr(), 7);
+        let tag = crate::member_get::__torajs_any_member_get_tag(c, key.cast());
+        let value = crate::member_get_value::__torajs_any_member_get_value(c, key.cast());
+        __torajs_str_drop(key.cast());
+        if __torajs_throw_check() != 0 {
+            return 0;
+        }
+        let f = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+        if !crate::promise_capability::is_callable(f) {
+            __torajs_throw_type_error(c"Promise resolve function is not callable".as_ptr());
+            return 0;
+        }
+        crate::nanbox_ffi::__torajs_anyv_rc_inc(f);
+        f
+    }
+}
+
+/// §27.2.4.1 steps 2-8 on a builtin-heir C, in spec order: mint
+/// resultCapability = NewPromiseCapability(C) first (the C ctor
+/// chain runs, observably), then GetPromiseResolve(C) — whose
+/// abrupt settles the capability per step 3's
+/// IfAbruptRejectPromise — then hand the iterable to the heir
+/// kernel, which runs `Call(promiseResolve, C, «v»)` per element.
+/// The kernel's plain result promise is resolved INTO the
+/// capability, whose resolver adopts it (§27.2.1.3.2), so the C
+/// instance settles when the combinator does.
+unsafe fn combinator_via_capability(kind: PromiseComb, c: u64, v: u64) -> u64 {
+    unsafe {
+        let Some((promise, resolve_f, reject_f)) =
+            crate::promise_capability::new_promise_capability(c)
+        else {
+            return VALUE_UNDEFINED;
+        };
+        let pr = get_promise_resolve(c);
+        let settled = if pr == 0 {
+            // IfAbruptRejectPromise — the pending throw becomes the
+            // capability's rejection reason.
+            let tag = __torajs_throw_take_tag();
+            let value = __torajs_throw_take();
+            crate::nanbox_encode::__torajs_anyv_box_from_pair(tag, value)
+        } else {
+            let mode = match kind {
+                PromiseComb::All => 0,
+                PromiseComb::AllSettled => 1,
+                PromiseComb::Any => 2,
+                PromiseComb::Race => 3,
+            };
+            let p = __torajs_promise_combinator_dyn_c(mode, v, c, pr);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(pr);
+            box_void_ptr(p)
+        };
+        let f = if pr == 0 { reject_f } else { resolve_f };
+        let one = [settled];
+        let out = crate::method_call_closure_dispatch::__torajs_any_call(f, one.as_ptr(), 1);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(settled);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(resolve_f);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(reject_f);
+        promise
     }
 }
 

@@ -57,6 +57,11 @@ unsafe extern "C" {
     fn __torajs_promise_then_observed(cell: *mut c_void) -> u64;
     /// torajs-anyvalue — `f(args…)` over an any-boxed callee.
     fn __torajs_any_call(recv: u64, argv: *const u64, argc: i64) -> u64;
+    /// torajs-anyvalue — the explicit-`this` twin: the heir lane's
+    /// per-element `Call(promiseResolve, C, «v»)` needs C as the
+    /// thisArg (§27.2.4.1.3 step 6.i), and a recv-first builtin
+    /// static cell reads it from there.
+    fn __torajs_any_call_with_this(recv: u64, this_arg: u64, argv: *const u64, argc: i64) -> u64;
     /// torajs-anyvalue — §7.4.9 IteratorClose under a pending throw
     /// (stash, close, swallow the close's own throw, restore).
     fn __torajs_iter_close_abrupt(iter: u64);
@@ -74,19 +79,30 @@ unsafe fn undef() -> u64 {
 
 /// One interleaved combinator run. `step` is the for-of any-lane
 /// protocol fn (GetIterator + IteratorStepValue folded); `sync` is
-/// where the never-activated exit delegates.
+/// where the never-activated exit delegates. A builtin-heir run
+/// (`Promise.all.call(CP, xs)` — the recv-first static arm) passes
+/// its class object and the GetPromiseResolve(C) answer in `ctor` /
+/// `resolve_f` (both BORROWED, 0/0 on the builtin path): every
+/// element then runs `Call(resolve_f, C, «v»)` in the loop, and the
+/// builtin `Promise.resolve` patch lane stays silent — C's own
+/// `resolve` is the only observable per §27.2.4.1.2.
 pub(crate) unsafe fn dyn_iter(
     v: u64,
     step: IterStepFn,
     mode: u8,
     sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+    ctor: u64,
+    resolve_f: u64,
 ) -> *mut c_void {
     unsafe {
+        let heir = resolve_f != 0;
         // §27.2.4.1 step 1 GetPromiseResolve — the patch probe runs
         // once, before the first step, like the spec's single fetch
         // (the patched fn itself is re-read per call; a data write
-        // is not observable through either read).
-        let patched = crate::combinator_patched::consult_active();
+        // is not observable through either read). The heir lane
+        // already carries its own promiseResolve, so the builtin
+        // probe never fires on it.
+        let patched = !heir && crate::combinator_patched::consult_active();
         let mut idx: i64 = 0;
         let mut iter_slot: u64 = undef();
         let mut out_v: u64 = undef();
@@ -117,14 +133,20 @@ pub(crate) unsafe fn dyn_iter(
             let mut elem = out_v;
             // §27.2.4.1.3 step 6.i — `Call(promiseResolve, C,
             // «nextValue»)` runs INSIDE the loop when the slot wears
-            // a user patch: its abrupt — or a non-promise answer,
-            // the typed lane's recorded return contract — closes the
-            // iterator per §27.2.4.1 step 8.a and rejects with the
-            // original completion. The sync kernels' consult fires
-            // only after full collection, which has no answer for an
-            // infinite iterable; this one does.
-            if patched {
-                let ret = __torajs_promise_call_patched(0, elem);
+            // a user patch or the run is a heir's: its abrupt — or a
+            // non-promise answer, the typed lane's recorded return
+            // contract — closes the iterator per §27.2.4.1 step 8.a
+            // and rejects with the original completion. The sync
+            // kernels' consult fires only after full collection,
+            // which has no answer for an infinite iterable; this one
+            // does.
+            if patched || heir {
+                let ret = if heir {
+                    let one = [elem];
+                    __torajs_any_call_with_this(resolve_f, ctor, one.as_ptr(), 1)
+                } else {
+                    __torajs_promise_call_patched(0, elem)
+                };
                 __torajs_anyv_rc_dec(elem);
                 if __torajs_throw_check() == 0 && crate::combinator_any::slot_promise(ret).is_none()
                 {
@@ -177,13 +199,13 @@ pub(crate) unsafe fn dyn_iter(
         __torajs_anyv_rc_dec(iter_slot);
         if b.is_null() {
             // Never activated — the exact delegate this lane
-            // replaced. A patched run already resolved every element
-            // above, so it hands the collected promises straight to
-            // the any-lane sibling: the `no_mangle` sync entry would
-            // probe the patch again and run resolve twice per
-            // element.
+            // replaced. A patched or heir run already resolved every
+            // element above, so it hands the collected promises
+            // straight to the any-lane sibling: the `no_mangle` sync
+            // entry would probe the patch again and run resolve
+            // twice per element.
             let arr = crate::combinator_dyn::items_to_any_arr(items);
-            let out = if patched {
+            let out = if patched || heir {
                 match mode {
                     MODE_ALL => crate::combinator_any::all_sync_any(arr),
                     MODE_RACE => crate::combinator_any::race_sync_any(arr),

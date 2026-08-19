@@ -138,6 +138,8 @@ pub unsafe extern "C" fn __torajs_promise_all_dyn(v: u64) -> *mut c_void {
             __torajs_any_iter_next,
             crate::combinator_all_fanin::MODE_ALL,
             all_sync_untargeted,
+            0,
+            0,
         )
     }
 }
@@ -152,6 +154,8 @@ pub unsafe extern "C" fn __torajs_promise_race_dyn(v: u64) -> *mut c_void {
             __torajs_any_iter_next,
             crate::combinator_all_fanin::MODE_RACE,
             crate::combinator::__torajs_promise_race_sync,
+            0,
+            0,
         )
     }
 }
@@ -166,7 +170,40 @@ pub unsafe extern "C" fn __torajs_promise_any_dyn(v: u64) -> *mut c_void {
             __torajs_any_iter_next,
             crate::combinator_all_fanin::MODE_ANY,
             crate::combinator::__torajs_promise_any_sync,
+            0,
+            0,
         )
+    }
+}
+
+/// §27.2.4.1 steps 4-8 on a builtin-heir C — the recv-first static
+/// arm (`Promise.all.call(CP, xs)`) already minted the capability
+/// and ran GetPromiseResolve(C); `ctor` is C and `resolve_f` is
+/// that answer (both BORROWED). The interleaved lane then runs
+/// `Call(resolve_f, C, «v»)` per element — a patched `C.resolve`
+/// observes every iteration, and the builtin `Promise.resolve`
+/// patch lane stays silent. `mode` follows the anyvalue-side
+/// PromiseComb order: 0 all / 1 allSettled / 2 any / 3 race.
+///
+/// # Safety
+/// `v`, `ctor`, `resolve_f` are live any-boxed values the caller
+/// owns across the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_combinator_dyn_c(
+    mode: i64,
+    v: u64,
+    ctor: u64,
+    resolve_f: u64,
+) -> *mut c_void {
+    unsafe {
+        use crate::combinator_all_fanin::{MODE_ALL, MODE_ALLSETTLED, MODE_ANY, MODE_RACE};
+        let (m, sync): (u8, unsafe extern "C" fn(*mut c_void) -> *mut c_void) = match mode {
+            0 => (MODE_ALL, all_sync_untargeted),
+            1 => (MODE_ALLSETTLED, allsettled_sync_untagged),
+            2 => (MODE_ANY, crate::combinator::__torajs_promise_any_sync),
+            _ => (MODE_RACE, crate::combinator::__torajs_promise_race_sync),
+        };
+        crate::combinator_iter::dyn_iter(v, __torajs_any_iter_next, m, sync, ctor, resolve_f)
     }
 }
 
@@ -189,6 +226,8 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_dyn(v: u64) -> *mut c_void 
             __torajs_any_iter_next,
             crate::combinator_all_fanin::MODE_ALLSETTLED,
             allsettled_sync_untagged,
+            0,
+            0,
         )
     }
 }

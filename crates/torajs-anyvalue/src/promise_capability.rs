@@ -181,8 +181,9 @@ unsafe fn mint_cap_executor(rec: *mut CapRecord) -> *mut u8 {
 
 /// Is `v` a callable value in the §27.2.1.5 step-8/9 sense — a
 /// closure cell with a boxed dual entry (exactly what Call would
-/// accept)?
-fn is_callable(v: u64) -> bool {
+/// accept)? Shared with the settle statics' GetPromiseResolve(C)
+/// gate (§27.2.4.1.1 step 2 asks the same question).
+pub(crate) fn is_callable(v: u64) -> bool {
     is_cell(v)
         && unsafe { crate::method_call_closure_dispatch::closure_cell_entry(as_void_ptr(v)) }
             .is_some()

@@ -1750,6 +1750,7 @@ mod tests {
         __torajs_promise_adopt_if_thenable,
         __torajs_promise_all_dyn,
         __torajs_promise_alloc_pending,
+        __torajs_promise_combinator_dyn_c,
         __torajs_promise_allsettled_dyn,
         __torajs_promise_any_dyn,
         __torajs_promise_attach_then,
