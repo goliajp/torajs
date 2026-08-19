@@ -42,4 +42,18 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         })
         .collect();
     owned_ast.default_padded_argc.extend(argc);
+    // `synth_promise_static_calls` — the async desugar's internal
+    // settle spellings (rotation 448): a cloned async body reproduces
+    // those Call sites verbatim, and the clone must bypass the
+    // Promise-static patch probe exactly like the original.
+    let synth: Vec<ExprId> = id_map
+        .iter()
+        .filter_map(|&(old, new)| {
+            owned_ast
+                .synth_promise_static_calls
+                .contains(&old)
+                .then_some(new)
+        })
+        .collect();
+    owned_ast.synth_promise_static_calls.extend(synth);
 }

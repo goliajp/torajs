@@ -692,6 +692,17 @@ pub struct Ast {
     /// Avoids adding an `is_async: bool` to every FnDecl construction
     /// site.
     pub async_fns: std::collections::HashSet<String>,
+    /// §27.2.4 patch-consult bypass (rotation 448) — the
+    /// `Promise.resolve(e)` / `Promise.reject(err)` Call exprs the
+    /// async desugar synthesizes (return rewrites, the tail-safety
+    /// return, the catch wrapper). Spec-wise those are the async
+    /// machinery's INTERNAL settle operations (§27.7.5.2 works the
+    /// promise capability directly), so a user patch on the Promise
+    /// statics must never see them: the static call lowering routes
+    /// members of this set straight to the typed fast lane, no patch
+    /// probe emitted. Monomorph clones carry entries across the id
+    /// map (`check_monomorph_clone_tables`).
+    pub synth_promise_static_calls: std::collections::HashSet<ExprId>,
     /// `async function*` declarations (RFC 20260713 blade 4). The
     /// parser records the intersection HERE instead of `async_fns` so
     /// `desugar_async` never Promise-wraps the generator FACTORY

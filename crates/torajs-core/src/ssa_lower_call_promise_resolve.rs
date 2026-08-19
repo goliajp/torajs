@@ -37,6 +37,20 @@ pub(crate) fn lower_resolve_reject(
     method: &str,
     args: &[ExprId],
 ) -> Operand {
+    // The async desugar's synthesized settle spellings are the
+    // machinery's own §27.7 capability operations, never the user's
+    // patchable slot — no probe, straight to the typed lane.
+    if ctx.ast.synth_promise_static_calls.contains(&eid) {
+        let mut arg_ops: Vec<Operand> = Vec::with_capacity(args.len());
+        for &a in args {
+            arg_ops.push(ctx.lower_expr(a));
+        }
+        return if zero_shaped(ctx, method, args) {
+            lower_zero_arg(ctx, method)
+        } else {
+            lower_one_plus_op(ctx, eid, method, args[0], arg_ops[0].clone())
+        };
+    }
     let name_id: i64 = if method == "resolve" { 0 } else { 1 };
     let cur_block = ctx.cur_block;
     let probe = ctx.f.append_inst(
@@ -52,18 +66,7 @@ pub(crate) fn lower_resolve_reject(
     for &a in args {
         arg_ops.push(ctx.lower_expr(a));
     }
-    // §27.2.4.7 — `Promise.resolve(undefined)` settles with exactly
-    // what `Promise.resolve()` settles with; the collapse is decided
-    // here (compile-time, off the checker's word) so the fast block
-    // takes the zero-arg allocator with its void repr stamp. The
-    // patched block ignores the collapse — the override receives the
-    // real (boxed-undefined) argument.
-    let zero_shaped = args.is_empty()
-        || (method == "resolve"
-            && matches!(
-                ctx.expr_types.get(&args[0]),
-                Some(crate::check::Type::Undefined | crate::check::Type::Void)
-            ));
+    let zero_shaped = zero_shaped(ctx, method, args);
     let cond = ctx.coerce_to_bool(Operand::Value(probe));
     let patched_blk = ctx.f.add_block();
     let fast_blk = ctx.f.add_block();
@@ -109,6 +112,21 @@ pub(crate) fn lower_resolve_reject(
         None,
     );
     Operand::Value(r)
+}
+
+/// §27.2.4.7 — `Promise.resolve(undefined)` settles with exactly
+/// what `Promise.resolve()` settles with; the collapse is decided at
+/// compile time off the checker's word, so the fast lane takes the
+/// zero-arg allocator with its void repr stamp. The patched block
+/// ignores the collapse — the override receives the real
+/// (boxed-undefined) argument.
+fn zero_shaped(ctx: &LowerCtx<'_>, method: &str, args: &[ExprId]) -> bool {
+    args.is_empty()
+        || (method == "resolve"
+            && matches!(
+                ctx.expr_types.get(&args[0]),
+                Some(crate::check::Type::Undefined | crate::check::Type::Void)
+            ))
 }
 
 /// The patched block's body — the any-lane method call against the

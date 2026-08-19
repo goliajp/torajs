@@ -268,6 +268,9 @@ pub(super) fn build_async_body(
         callee: reject_member,
         args: vec![err_ident_for_arg],
     });
+    // Internal settle spelling — never the user's patchable slot
+    // (see `Ast::synth_promise_static_calls`).
+    ast.synth_promise_static_calls.insert(reject_call);
     let catch_body = vec![Stmt::Return(Some(reject_call))];
     let wrapped_body = vec![Stmt::Try {
         body: new_body,
@@ -355,10 +358,14 @@ fn build_async_resolve(ast: &mut Ast, raw_value: ExprId, inner_ty: &str) -> Expr
         obj: promise_ident,
         name: "resolve".into(),
     });
-    ast.add_expr(Expr::Call {
+    let call = ast.add_expr(Expr::Call {
         callee: resolve_member,
         args: vec![value],
-    })
+    });
+    // Internal settle spelling — never the user's patchable slot
+    // (see `Ast::synth_promise_static_calls`).
+    ast.synth_promise_static_calls.insert(call);
+    call
 }
 
 /// T-15.h (v0.5.0) — recursively rewrite `Stmt::Return(Some(e))` /
