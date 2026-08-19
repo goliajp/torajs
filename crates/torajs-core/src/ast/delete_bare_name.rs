@@ -78,6 +78,11 @@ pub fn triage_delete_bare_names(ast: &mut Ast) -> Option<String> {
     collect_declared_names(&ast.stmts, &mut declared);
     for (i, n) in sites {
         ast.exprs[i] = Expr::Bool(sloppy_delete_answer(&n, &declared));
+        // Leave the name behind for the implicit-globals sibling —
+        // a name the program deletes must not gain a synthesized
+        // `var` (non-configurable where the deleted property must
+        // go away).
+        ast.sloppy_deleted_bare_names.insert(n);
     }
     None
 }

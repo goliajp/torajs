@@ -229,7 +229,12 @@ pub(crate) fn collect_local_binding_names(body: &[Stmt], out: &mut HashSet<Strin
                     collect_local_binding_names(fb, out);
                 }
             }
-            Stmt::Block(inner) => collect_local_binding_names(inner, out),
+            // `let a, b;` parses into a Multi of per-name LetDecls —
+            // without this arm both names were invisible to every
+            // consumer (delete triage / readonly shadows / implicit
+            // globals), and a synthesized `var` collided with the
+            // real `let` (rotation 444 sweep regression).
+            Stmt::Block(inner) | Stmt::Multi(inner) => collect_local_binding_names(inner, out),
             Stmt::If {
                 then_branch,
                 else_branch,

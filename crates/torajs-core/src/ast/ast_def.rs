@@ -105,6 +105,13 @@ pub struct Ast {
     /// synthesized-sentinel `__` filter must not localize them — a
     /// named-fn body writing one needs the global slot.
     pub sloppy_implicit_global_names: std::collections::HashSet<String>,
+    /// The bare names the sloppy delete triage folded — recorded so
+    /// the implicit-globals sibling never synthesizes a `var` for a
+    /// name the program deletes (`x = 1; delete x; x` wants the
+    /// unresolvable-name ReferenceError, and a var binding is
+    /// non-configurable where the implicit global's property must
+    /// delete away).
+    pub sloppy_deleted_bare_names: std::collections::HashSet<String>,
     /// RFC 20260730-undeclared-ident — expression-position occurrences
     /// of identifiers that resolve nowhere (§6.2.5.5 GetValue /
     /// §6.2.5.6 PutValue on an unresolvable Reference), ExprId → name.
