@@ -323,6 +323,24 @@ pub(super) fn collect_store_face(
         collect_ident_face(exprs, value, ident_cands);
         return;
     }
+    // §27.2.4 static-slot patch (rotation 448) — `Promise.resolve =
+    // function () { this }` / `.reject`: the store lands in the
+    // interned ctor cell's expando dict, and BOTH read-back channels
+    // (the any method dispatch and the combinators' patch-consult
+    // `invoke_with_this`) shift argv on FLAG_CLOSURE_RECV_FIRST, so a
+    // promoted closure reads `this` = the ctor cell on every path —
+    // §27.2.4.1.3's `C`. Only the two CONSULTED names admit (the
+    // checker's write-face bar), and only while nothing in the
+    // program shadows the builtin name.
+    if let Expr::Member { obj, name } = &exprs[target.0 as usize]
+        && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
+        && matches!(name.as_str(), "resolve" | "reject")
+        && !super::fnexpr_this_names::name_shadowed_elsewhere(stmts, "Promise")
+    {
+        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
+        collect_ident_face(exprs, value, ident_cands);
+        return;
+    }
     let store_recv = match &exprs[target.0 as usize] {
         Expr::Member { obj, .. } => Some(*obj),
         Expr::Index { obj, .. } => Some(*obj),
