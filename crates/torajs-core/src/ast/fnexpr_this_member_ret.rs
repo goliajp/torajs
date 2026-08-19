@@ -1,16 +1,30 @@
-//! The CLASS-member-return face — a marked fn-expr returned from a
-//! flattened class member body — plus the 399-01 annotation seeding
-//! that lets the bare (unannotated) spelling join it. Split out of
-//! [`super::fnexpr_this_faces`] (rotation 400 file-size split; that
-//! file stood at 482 of the 500 line limit). Bodies verbatim except
-//! where noted.
+//! The FUNCTION-body-return face — a marked fn-expr returned from a
+//! top-level FnDecl body — plus the 399-01 annotation seeding that
+//! lets the bare (unannotated) spelling join it. Split out of
+//! [`super::fnexpr_this_faces`] (rotation 400 file-size split).
+//!
+//! Born as the CLASS-member half of the objlit method-return
+//! position; rotation 446 widened both gates from the flattened
+//! class-member synth names to EVERY top-level FnDecl (ctor
+//! excluded). The widening is fail-safe on the reject line: a body
+//! whose every value-return is a `__this`-capturing marked fn-expr
+//! either has no `__this` provider in scope — today's unclaimed
+//! reject — or borrows an enclosing provider by coincidence, the
+//! arrow-semantics wrong answer the class-member collector was built
+//! to fix (its doc below). Either way the promote only turns rejects
+//! into spec answers or wrong receivers into call-site ones; no
+//! program that compiles correctly today changes shape. The
+//! overlapping objlit / class collectors re-patch the same faces
+//! harmlessly (`promote_recv_any` is idempotent per face).
 
 use super::fnexpr_this_faces::{FacePatch, collect_face};
 use super::{Expr, ExprId, Stmt};
 
-/// 399-01 — a class member with NO return annotation whose every
+/// 399-01 — a top-level FnDecl with NO return annotation whose every
 /// value-return is a marked fn-expr still carrying `__this` gets its
 /// return annotation seeded to `any`, BEFORE the face walk runs.
+/// (Class-member-only until rotation 446; the widened gate's
+/// fail-safe argument is the module doc's.)
 ///
 /// The face collector below demands an annotation spelled exactly
 /// `any`, and rotation 399 measured why merely admitting the absent
@@ -46,7 +60,7 @@ pub(super) fn seed_bare_member_return_ann(
         else {
             continue;
         };
-        if !is_class_member_fn(name) || return_type.is_some() {
+        if name.ends_with("__ctor") || return_type.is_some() {
             continue;
         }
         let mut rets = Vec::new();
@@ -84,10 +98,15 @@ fn body_value_returns(body: &[Stmt], out: &mut Vec<ExprId>) {
     }
 }
 
-/// The CLASS-method half of the objlit method-return position: a
-/// marked fn-expr returned from a class member body whose return
+/// The FnDecl-body half of the method-return position: a marked
+/// fn-expr returned from a top-level FnDecl body whose return
 /// annotation is spelled exactly `any` — spelled by the program, or
-/// seeded by [`seed_bare_member_return_ann`] just above.
+/// seeded by [`seed_bare_member_return_ann`] just above. Until
+/// rotation 446 the gate demanded a flattened class-member synth
+/// name; the plain-FnDecl and lifted-closure spellings
+/// (`function getFn() { return function () { …this… } }`, the
+/// replace-callback and tagged-template t262 families) now ride the
+/// identical channel under the module doc's fail-safe argument.
 ///
 /// `desugar_classes` flattens each member into a top-level FnDecl
 /// (`__cm_<C>__<m>`, plus the receiver-polymorphic `__cmany_` /
@@ -114,7 +133,7 @@ fn body_value_returns(body: &[Stmt], out: &mut Vec<ExprId>) {
 /// handed the returned function the METHOD's receiver — the same
 /// arrow-semantics answer the object-literal spelling used to give, and
 /// one the method's own receiver only satisfies by coincidence.
-pub(super) fn collect_class_method_return_faces(
+pub(super) fn collect_fn_return_faces(
     stmts: &[Stmt],
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
@@ -130,22 +149,11 @@ pub(super) fn collect_class_method_return_faces(
         else {
             continue;
         };
-        if !is_class_member_fn(name) || return_type.as_deref() != Some("any") {
+        if name.ends_with("__ctor") || return_type.as_deref() != Some("any") {
             continue;
         }
         collect_return_faces_in(body, stmts, exprs, fn_expr_exprs, patches);
     }
-}
-
-/// The flattened class-member FnDecl names, constructor excluded. All
-/// four prefixes are synthesized — no source can spell one — the same
-/// test the boxed-adapter synthesis reads them by.
-fn is_class_member_fn(name: &str) -> bool {
-    let member = name.starts_with("__cm_")
-        || name.starts_with("__cmany_")
-        || name.starts_with("__sm_")
-        || name.starts_with("__smany_");
-    member && !name.ends_with("__ctor")
 }
 
 /// Every `return <marked fn-expr>` in the METHOD's own body — nested
