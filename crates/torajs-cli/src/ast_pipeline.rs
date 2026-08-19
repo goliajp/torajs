@@ -141,6 +141,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // Writes to the non-writable global value properties (NaN /
+    // Infinity / undefined) — §6.2.5.6 runtime semantics per goal:
+    // strict throws TypeError at the site, sloppy folds to the rhs.
+    // Same placement rationale as the delete triage above.
+    ast::resolve_readonly_global_writes(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
     ast::desugar_using(ast);
