@@ -14,6 +14,7 @@
 //! internal to this cluster. All promoted `pub(super)` per the
 //! sibling-impl pack pattern. Body unchanged.
 
+use super::destr_shape::PatShape;
 use super::*;
 
 impl<'a> Parser<'a> {
@@ -59,16 +60,13 @@ impl<'a> Parser<'a> {
         let mut catch_type: Option<String> = None;
         let mut catch_body: Vec<Stmt> = Vec::new();
         let mut had_catch = false;
-        // P4.7 — captured (binding-name, source-key, is_obj) tuples
-        // when the catch param is a destructure pattern. After parsing
-        // the catch body, we synthesize lets at the top of the body
-        // that read each binding from the synthetic catch ident.
-        let mut destr_bindings: Vec<(String, String, bool)> = Vec::new();
-        // Some(is_obj) when the catch param was a binding pattern —
-        // tracked independently of `destr_bindings` because the empty
-        // object pattern (`catch ({})`) binds nothing yet still owes
-        // the §13.3.3.5 RequireObjectCoercible throw on nullish.
-        let mut destr_pattern_is_obj: Option<bool> = None;
+        // §14.15 CatchParameter : BindingPattern — parsed by the shared
+        // declaration-position PatShape machine (destr_shape.rs), so
+        // defaults / nesting / rest / elision all work in a catch head
+        // exactly as they do in `let PAT = src`. After the catch body
+        // parses, emit_pattern_binds prepends the desugared lets
+        // reading from the synthetic catch ident.
+        let mut destr_pattern: Option<PatShape> = None;
         if matches!(self.peek(), Token::Catch) {
             had_catch = true;
             self.pos += 1;
@@ -89,70 +87,15 @@ impl<'a> Parser<'a> {
                         self.note_strict_binding(&s, self.in_strict_fn)?;
                         s
                     }
-                    // P4.7 — destructuring catch parameter
-                    // (`catch ({ x, y }) {}`). ES2018+ BindingPattern
-                    // syntax. tora parses the pattern at depth 1,
-                    // captures the binding names, and (after the
-                    // catch body parses) prepends synthetic
-                    // `const x: any = __catch.x;` lets so the body's
-                    // refs resolve. The synth catch param is typed
-                    // `any` so the Member accesses route through
-                    // dynobj_get via the Any-tier. Array destructure
-                    // `catch ([a, b])` follows the same shape with
-                    // string-keyed numeric indices.
+                    // §14.15 CatchParameter : BindingPattern
+                    // (`catch ({ x = 1, ...r })`, `catch ([a, [b] = [],
+                    // ...rest])`). The shared PatShape reader parses the
+                    // pattern; the binds emit after the body parses. The
+                    // synth catch param is typed `any` so the desugared
+                    // reads route through the Any-tier.
                     Token::LBrace | Token::LBracket => {
-                        let is_obj = matches!(self.peek(), Token::LBrace);
-                        destr_pattern_is_obj = Some(is_obj);
                         let synth_name = format!("__catch_destr_{}", self.pos);
-                        self.pos += 1; // skip opener
-                        let mut idx = 0u32;
-                        while !matches!(self.peek(), Token::RBrace | Token::RBracket | Token::Eof) {
-                            let bind_name = match self.peek() {
-                                Token::Ident(n) => {
-                                    let s = n.clone();
-                                    self.pos += 1;
-                                    s
-                                }
-                                t => {
-                                    return Err(format!(
-                                        "expected identifier in catch destructure, got {t:?} at {}",
-                                        self.at()
-                                    ));
-                                }
-                            };
-                            let stored_name = if is_obj && matches!(self.peek(), Token::Colon) {
-                                self.pos += 1;
-                                match self.peek() {
-                                    Token::Ident(n) => {
-                                        let s = n.clone();
-                                        self.pos += 1;
-                                        s
-                                    }
-                                    t => {
-                                        return Err(format!(
-                                            "expected alias after `:` in catch destructure, got {t:?} at {}",
-                                            self.at()
-                                        ));
-                                    }
-                                }
-                            } else {
-                                bind_name.clone()
-                            };
-                            let src_key = if is_obj {
-                                bind_name
-                            } else {
-                                format!("{}", idx)
-                            };
-                            destr_bindings.push((stored_name, src_key, is_obj));
-                            idx += 1;
-                            if matches!(self.peek(), Token::Comma) {
-                                self.pos += 1;
-                            }
-                        }
-                        match self.peek() {
-                            Token::RBrace | Token::RBracket => self.pos += 1,
-                            _ => {}
-                        }
+                        destr_pattern = Some(self.read_pattern_shape()?);
                         synth_name
                     }
                     t => {
@@ -179,42 +122,25 @@ impl<'a> Parser<'a> {
                 }
                 catch_param = Some(n.clone());
                 catch_type = ty;
-                // P4.7 — destructure forces `: any` catch type so the
-                // synthesized Member-reads route through the Any-tier.
-                if destr_pattern_is_obj.is_some() {
+                // Destructure forces `: any` catch type so the
+                // synthesized reads route through the Any-tier.
+                if destr_pattern.is_some() {
                     catch_type = Some("any".to_string());
                 }
             }
             catch_body = self.parse_block_stmts("catch")?;
-            // P4.7 — synthesize `const <bind>: any = <__catch>.<src_key>;`
-            // for each destructure binding and prepend to catch_body.
-            // An object pattern additionally owes the §13.3.3.5
-            // RequireObjectCoercible guard even when it binds nothing.
-            if let (Some(is_obj), Some(catch_n)) =
-                (destr_pattern_is_obj, catch_param.as_ref().cloned())
-            {
-                let mut prepend: Vec<Stmt> = Vec::with_capacity(destr_bindings.len() + 1);
-                if is_obj {
-                    prepend.push(self.emit_object_coercible_guard(&catch_n));
-                }
-                for (bind_name, src_key, _is_obj) in destr_bindings.iter() {
-                    let obj_eid = self.ast.add_expr(Expr::Ident(catch_n.clone()));
-                    let member_eid = self.ast.add_expr(Expr::Member {
-                        obj: obj_eid,
-                        name: src_key.clone(),
-                    });
-                    prepend.push(Stmt::LetDecl {
-                        mutable: false,
-                        name: bind_name.clone(),
-                        type_ann: Some("any".to_string()),
-                        init: member_eid,
-                        is_var: false,
-                    });
-                }
-                let mut new_body: Vec<Stmt> = Vec::with_capacity(catch_body.len() + prepend.len());
-                new_body.extend(prepend);
-                new_body.extend(catch_body.drain(..));
-                catch_body = new_body;
+            // Desugar the catch pattern: emit_pattern_binds prepends
+            // the bind chain reading from the synthetic catch ident.
+            // The object lane's §13.3.3.5 RequireObjectCoercible guard
+            // comes with the emitter (fires even for `catch ({})`).
+            // Bindings are mutable — a catch parameter is an ordinary
+            // lexical binding, assignable in the body.
+            if let (Some(pat), Some(catch_n)) = (destr_pattern.take(), catch_param.clone()) {
+                let src = self.ast.add_expr(Expr::Ident(catch_n));
+                let mut prepend: Vec<Stmt> = Vec::new();
+                self.emit_pattern_binds(&pat, src, true, false, &mut prepend);
+                prepend.extend(catch_body.drain(..));
+                catch_body = prepend;
             }
         }
         let finally_body = if matches!(self.peek(), Token::Finally) {
