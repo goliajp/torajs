@@ -1530,7 +1530,45 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `330a056e`** (2026-08-19, rotation 443 — the strict-shell
+**Latest @ `322e0287`** (2026-08-19, rotation 444 — the catch
+destructure port and the goal-triage family growth. Handoff 443's
+instruction #1 (catch destructure default, measured 73 cases across
+six signatures) fell to one structural move: the catch parameter's
+ad-hoc flat destructure walk was replaced by the shared PatShape
+machine (`read_pattern_shape` + `emit_pattern_binds`), so defaults /
+nesting / rest / elision / alias-to-pattern all work in a catch head
+exactly as in `let PAT = src` (net −31 lines). The recon first
+surfaced a deeper substrate bug: a `throw` is a boxing boundary, and
+a thrown typed array crossed into the catch `any` unmarked —
+`catch (e) { e[0] }` read `undefined` from every slot while
+`e.length` answered fine (one-line fix: the refcounted throw arm now
+emits `arr_mark_kind`). Then the goal-triage family grew two members:
+sloppy implicit globals (§9.1.1.4.6 — a never-declared assignment
+target synthesizes a hoisted `var`, with a positional strict-body
+tree walk, delete-name / with-program / contextual-keyword
+exclusions, and the `slot_type_supported` `__`-sentinel whitelist so
+sputnik's `__x` user names promote to data globals), and the
+non-writable builtin-namespace properties (§21.1.2 / §20.2.2 /
+§21.3.1 — `Number.NaN = 1` folds sloppy, throws strict). A for-in
+head over a statically non-struct source (`for (k in undefined)`)
+now rides the kernel keys arm instead of the struct-arm panic. The
+mid-rotation sweep caught 16 regressions from the first
+implicit-globals cut (strict-prologue bodies, deleted names, `with`,
+and the `let a, b;` Multi-arm blind spot in
+collect_local_binding_names — a whole-family fix); the final sweep
+is clean. Sweep vs 443: passTotal 31654 → **31836 (+182)**, bug −87,
+incompatible **−95**, trAccepted +95 (conservation +95 = +182 − 87
+✓), **zero pass regressions** in the final case-level diff. Gate
+3119 → **3125/0/4** across six substrate commits (+6 fixtures; a
+seventh commit is a behavior-equal fn-cap refactor). Gate predicate
+**194 unattributed clusters / 1793 cases / register 2 · 288 (SR-1
+200, SR-2 92) / residue 689 · 865 / core 2946**. Next largest
+attackable: not-callable Object("X") (50, dirs=17), fnexpr-this
+unclaimed (42, dirs=13); #7 dstr-assignment-default-yield (32) was
+reconned RFC-grade — conditional-position yield needs the
+state-machine CPS face, not a parser fix.)
+
+**Prior @ `330a056e`** (2026-08-19, rotation 443 — the strict-shell
 harness port and the eval-text early-error knives. Handoff 442's
 instruction #1 (`sm/non262-strict-shell.js`, 35 cases) turned out to
 be unportable as a harness function — the stock helpers eval a
