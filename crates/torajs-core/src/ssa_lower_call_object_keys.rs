@@ -196,6 +196,23 @@ pub(crate) fn try_lower(
         ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
+    // §14.7.5.6 — a for-in head whose source is STATICALLY non-struct
+    // (an undefined / null literal types Ptr and used to hit the
+    // struct-arm panic below) enumerates through the same kernel arm
+    // the Any receiver rides: `anyv_forin_keys` answers the empty key
+    // set for a nullish receiver instead of ToObject's TypeError.
+    if m_name == "__forinKeys" && !matches!(arg_ty, Type::Obj(_)) {
+        let boxed = ctx.box_to_any(arg_op);
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_forin_keys, vec![boxed]),
+            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+            None,
+        );
+        ctx.emit_throw_check(None);
+        ctx.release_owned_temp(args[0], &arg_raw);
+        return Some(Operand::Value(v));
+    }
     let field_names: Vec<String> = match arg_ty {
         Type::Obj(sid) => {
             // RFC 20260714-objlit-accessor — an accessor lives in the
