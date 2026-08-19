@@ -1,0 +1,5 @@
+function 1 allKeyed
+function 1 allSettledKeyed
+true
+TypeError true
+keyed 1 2

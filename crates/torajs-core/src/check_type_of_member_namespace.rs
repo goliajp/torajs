@@ -153,6 +153,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Promise"), "resolve" | "reject" | "all" | "allSettled" | "any" | "race") => {
             Type::Function(vec![Type::Any], Box::new(Type::Any))
         }
+        // await-dictionary Promise.allKeyed / allSettledKeyed read
+        // as VALUES (rotation 452) — the direct call hits the keyed
+        // call checker first; the reified cell serves `.length` /
+        // `.name` / gOPD identity, and its dispatch arm keeps the
+        // step-1 IsConstructor TypeError on a non-Promise |this|.
+        (Type::Object("Promise"), "allKeyed" | "allSettledKeyed") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Any))
+        }
         // §27.2.4.8 Promise.withResolvers read as a VALUE — the
         // direct call hits the Promise.<static> call checker first;
         // a detached call's undefined |this| is not a constructor,

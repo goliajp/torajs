@@ -298,6 +298,14 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // undefined |this| and step 1 requires a constructor, so the
     // dispatch arm raises the same catchable TypeError bun/JSC does.
     row("Promise", "withResolvers", 0),
+    // await-dictionary proposal — Promise.allKeyed / allSettledKeyed
+    // as VALUES (the direct call lowers per-shape through the keyed
+    // dyn kernels): these rows serve `.length` / `.name` / gOPD
+    // identity, and the dispatch arm runs the same kernels behind
+    // the recv-first Promise gate (step 1 IsConstructor keeps the
+    // TypeError on any other |this|, `.call(eval)` included).
+    row("Promise", "allKeyed", 1),
+    row("Promise", "allSettledKeyed", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

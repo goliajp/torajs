@@ -51,6 +51,11 @@ unsafe extern "C" {
     /// torajs-str — the GetPromiseResolve(C) key cell.
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-promise — the await-dictionary keyed kernels (object
+    /// of promises in, null-proto result object out through a
+    /// fulfilled promise; borrowed box, owned Promise answer).
+    fn __torajs_promise_all_keyed_dyn(v: u64) -> *mut c_void;
+    fn __torajs_promise_allsettled_keyed_dyn(v: u64) -> *mut c_void;
 }
 
 /// §27.2.4.{1,3,5,6,8} combinator / withResolvers reified cells —
@@ -135,6 +140,52 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
             PromiseComb::Any => __torajs_promise_any_dyn(v),
             PromiseComb::Race => __torajs_promise_race_dyn(v),
         };
+        box_void_ptr(p)
+    }
+}
+
+/// await-dictionary proposal Promise.allKeyed / allSettledKeyed with
+/// a receiver channel — the same gate as the §27.2.4 combinators:
+/// |this| (argv[0]) must reach the interned builtin Promise
+/// constructor cell, and the object of promises in argv[1] rides the
+/// keyed dyn kernel. A builtin-heir class object mints
+/// resultCapability = NewPromiseCapability(C) and resolves the
+/// kernel's plain answer into it, so the caller sees a C instance
+/// (the element walk stays on the builtin kernel — per-element
+/// GetPromiseResolve(C) for the keyed pair is recorded residue).
+/// Any other thisValue keeps the step-1 IsConstructor TypeError.
+pub(super) unsafe fn promise_keyed_fn(settled: bool, argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let this = arg_at(argv, argc, 0);
+        let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
+        let is_builtin =
+            !promise_ctor.is_null() && is_cell(this) && as_void_ptr(this) == promise_ctor.cast();
+        if !is_builtin && !this_reaches_promise_ctor(this) {
+            return promise_settle();
+        }
+        let v = arg_at(argv, argc, 1);
+        let p = if settled {
+            __torajs_promise_allsettled_keyed_dyn(v)
+        } else {
+            __torajs_promise_all_keyed_dyn(v)
+        };
+        if !is_builtin {
+            let Some((promise, resolve_f, reject_f)) =
+                crate::promise_capability::new_promise_capability(this)
+            else {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(box_void_ptr(p));
+                return VALUE_UNDEFINED;
+            };
+            let inner = box_void_ptr(p);
+            let one = [inner];
+            let out =
+                crate::method_call_closure_dispatch::__torajs_any_call(resolve_f, one.as_ptr(), 1);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(inner);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(resolve_f);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(reject_f);
+            return promise;
+        }
         box_void_ptr(p)
     }
 }

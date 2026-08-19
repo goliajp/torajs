@@ -196,6 +196,9 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::PromiseWithResolversFn => {
                 super::ns_static_promise::promise_with_resolvers_fn(argv, argc)
             }
+            Disp::PromiseKeyed { settled } => {
+                super::ns_static_promise::promise_keyed_fn(*settled, argv, argc)
+            }
             Disp::Gopd => super::ns_static_ctor::gopd_static(argv, argc),
             Disp::DefineFace => super::ns_static_ctor::define_face_reject(),
             Disp::OwnSymbols => super::ns_static_obj::own_symbols_value(arg_at(argv, argc, 0)),
@@ -367,6 +370,7 @@ fn this_aware_id(id: i64) -> bool {
                     | Disp::PromiseCombinator { .. }
                     | Disp::PromiseTryFn
                     | Disp::PromiseWithResolversFn
+                    | Disp::PromiseKeyed { .. }
             )
         )
 }

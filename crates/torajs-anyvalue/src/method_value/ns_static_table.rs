@@ -143,6 +143,16 @@ pub(super) enum Disp {
     /// reject} trio through the same kernel the direct lowering
     /// bakes.
     PromiseWithResolversFn,
+    /// await-dictionary proposal Promise.allKeyed / allSettledKeyed
+    /// — the receiver-channel form: a builtin |this| runs the keyed
+    /// dyn kernel over the object of promises in argv[1]; a
+    /// builtin-heir class object rides NewPromiseCapability(C) so
+    /// the answer is a C instance (the element walk stays on the
+    /// builtin kernel — per-element GetPromiseResolve(C) for the
+    /// keyed pair is recorded residue).
+    PromiseKeyed {
+        settled: bool,
+    },
     /// §20.1.2.8 Object.getOwnPropertyDescriptor — ToString(P) into
     /// the meta descriptor kernel (fresh descriptor dynobj /
     /// undefined; kernel gates the nullish receiver).
@@ -433,4 +443,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::GroupBy { map: false },
     Disp::GroupBy { map: true },
     Disp::PromiseWithResolversFn, // Promise.withResolvers — recv-first, §27.2.4.8
+    Disp::PromiseKeyed { settled: false }, // Promise.allKeyed — recv-first, await-dictionary
+    Disp::PromiseKeyed { settled: true }, // Promise.allSettledKeyed — recv-first, await-dictionary
 ];
