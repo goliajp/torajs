@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T01:09:01.575Z",
+  "generatedAt": "2026-08-19T03:22:02.616Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T01:00:12Z",
-    "headSha": "330a056e",
-    "elapsedSec": 343.37,
+    "ranAt": "2026-08-19T03:05:14Z",
+    "headSha": "322e0287",
+    "elapsedSec": 354.27,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26563,
-    "passNoOracle": 951,
+    "pass": 26743,
+    "passNoOracle": 953,
     "passNegative": 4140,
-    "passTotal": 31654,
-    "bug": 12942,
-    "incompatible": 8578,
+    "passTotal": 31836,
+    "bug": 12855,
+    "incompatible": 8483,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44596,
-    "passRateInScope": 59.53,
-    "passRateTrAccepted": 70.98
+    "trAccepted": 44691,
+    "passRateInScope": 59.87,
+    "passRateTrAccepted": 71.24
   },
   "torajs": {
-    "commit": "330a056e",
-    "commitSubject": "fix: two r443 regressions the sweep caught — with-body delete in sloppy eval, void as assignment target",
+    "commit": "ca7b9061",
+    "commitSubject": "refactor: extract the arr-receiver and forin-nonstruct arms — try_lower back under the fn cap",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "ca7b9061",
+      "subject": "refactor: extract the arr-receiver and forin-nonstruct arms — try_lower back under the fn cap"
+    },
+    {
+      "hash": "322e0287",
+      "subject": "fix: implicit-global synthesis respects strict bodies, deleted names, with programs and multi-name lets — sweep regressions closed"
+    },
+    {
+      "hash": "186940cf",
+      "subject": "feat: writes to non-writable builtin-namespace properties resolve per goal — readonly family fourth member"
+    },
+    {
+      "hash": "24926535",
+      "subject": "fix: a statically non-struct for-in source rides the kernel keys arm — nullish enumerates nothing instead of the struct-arm panic"
+    },
+    {
+      "hash": "813e4ee7",
+      "subject": "feat: a sloppy assignment to a never-declared name creates the binding — goal-triage family third member"
+    },
+    {
+      "hash": "f7434b98",
+      "subject": "feat: catch parameter binding patterns go through the shared PatShape machine — defaults, nesting, rest, elision, alias-to-pattern"
+    },
+    {
+      "hash": "42f9ac5e",
+      "subject": "fix: a throw is a boxing boundary — kind-mark a typed array before it crosses into the catch any"
+    },
+    {
+      "hash": "779473a8",
+      "subject": "chore(docs,hardev): rotation 443 census at 330a056e"
+    },
+    {
       "hash": "330a056e",
       "subject": "fix: two r443 regressions the sweep caught — with-body delete in sloppy eval, void as assignment target"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "c05e3db6",
       "subject": "fix: a nested 'use strict' prologue arms its body inside a sloppy Function text"
-    },
-    {
-      "hash": "be4f42ae",
-      "subject": "feat: port sm/non262-strict-shell.js by call-site expansion in the test262 runner"
-    },
-    {
-      "hash": "edaac28d",
-      "subject": "fix: delete on a bare name inside eval or Function text resolves per the text's goal"
-    },
-    {
-      "hash": "2af6a04e",
-      "subject": "chore(docs,hardev): rotation 442 census at 20ac850b"
-    },
-    {
-      "hash": "20ac850b",
-      "subject": "fix: arrow rest parameter early errors, no initializer and must-be-last"
-    },
-    {
-      "hash": "498e57d0",
-      "subject": "feat: rest parameters on arrow functions"
-    },
-    {
-      "hash": "cdbfc49d",
-      "subject": "feat: a multiply-declared var never takes the typed escape hatch"
-    },
-    {
-      "hash": "9593e83c",
-      "subject": "fix: propertyHelper port takes a null verifyProp like stock"
-    },
-    {
-      "hash": "5ff90921",
-      "subject": "feat: null joins a nullable or match-result array in typevar inference"
     }
   ],
-  "headSha": "330a056e",
+  "headSha": "ca7b9061",
   "autorun": {
-    "total": 746,
+    "total": 747,
     "baselineTarget": 10,
-    "bySelf": 741,
+    "bySelf": 742,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787091450-5a55",
-      "at": "2026-08-18T22:17:30Z",
-      "ts": 1787091450,
+      "rotationId": "r-1787102101-038f",
+      "at": "2026-08-19T01:15:01Z",
+      "ts": 1787102101,
       "trigger": "self",
-      "prevHead": "2af6a04e",
-      "handoffSha": "sha256:bde740fabc9636efa616856cebe12c8f21deb2a2609a5f328d2ed6c9121275a5",
-      "handoffAgeSec": 98,
+      "prevHead": "779473a8",
+      "handoffSha": "sha256:34cd2023f93ab0a1cd499459525060154ef95ed65c6a7ec3d1a7ebd396713171",
+      "handoffAgeSec": 30,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787102101-038f",
+        "at": "2026-08-19T01:15:01Z",
+        "ts": 1787102101,
+        "trigger": "self",
+        "prevHead": "779473a8",
+        "handoffSha": "sha256:34cd2023f93ab0a1cd499459525060154ef95ed65c6a7ec3d1a7ebd396713171",
+        "handoffAgeSec": 30,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787091450-5a55",
         "at": "2026-08-18T22:17:30Z",
@@ -876,17 +887,6 @@
         "prevHead": "aa091411",
         "handoffSha": "sha256:2a256ceb7fb77154a1db5605f3403eb20998af510b22b246deae98fea393c584",
         "handoffAgeSec": 77,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787029010-0fc3",
-        "at": "2026-08-18T04:56:50Z",
-        "ts": 1787029010,
-        "trigger": "self",
-        "prevHead": "eee24e85",
-        "handoffSha": "sha256:437564c14f81419ad4e176f4aea79b45925ccb50a729c1a6e4d25458b1b6ef0c",
-        "handoffAgeSec": 21,
         "conformanceBefore": null,
         "commitsInSession": null
       }
