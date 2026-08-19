@@ -258,6 +258,17 @@ fn answer_terminal_miss(
     {
         return Ok(Type::Undefined);
     }
+    // Object-rest binding (`{a, ...rest} = o; rest.a`) → Any: the
+    // rest object's Struct shape is only the source-minus-omit
+    // anchor; the object is ordinary and extensible, so the miss is
+    // a runtime [[Get]] — the lowering boxes the receiver onto the
+    // any-member probe (hit → value, true miss → undefined).
+    if matches!(obj_ty, Type::Struct(_))
+        && let crate::ast::Expr::Ident(n) = ast.get_expr(*obj)
+        && ast.obj_rest_names.contains(n)
+    {
+        return Ok(Type::Any);
+    }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
 }
 

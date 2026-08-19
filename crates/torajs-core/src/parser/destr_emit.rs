@@ -277,6 +277,11 @@ impl Parser<'_> {
         is_var: bool,
     ) -> Stmt {
         let obj = self.emit_obj_rest_expr(src_name, omit);
+        // The rest object is extensible — record the binding so a
+        // member read missing its static anchor rides the runtime
+        // [[Get]] probe instead of the typo reject (consumers:
+        // `answer_terminal_miss` / `ssa_lower_member`).
+        self.ast.obj_rest_names.insert(rest_name.to_string());
         Stmt::LetDecl {
             mutable,
             name: rest_name.to_string(),

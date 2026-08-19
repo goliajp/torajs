@@ -210,6 +210,19 @@ pub(crate) fn lower_with_val(
         let boxed_recv = ctx.box_to_any(obj_val);
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
     }
+    // Object-rest binding receiver (`{a, ...rest} = o; rest.a`) —
+    // the checker admitted the anchor miss (`answer_terminal_miss`);
+    // ride the same any-member probe (hit → value, miss →
+    // undefined, §10.1.8.1 [[Get]]).
+    if matches!(ctx.ast.get_expr(obj), crate::ast::Expr::Ident(n)
+            if ctx.ast.obj_rest_names.contains(n))
+        && !ctx.struct_layouts[sid.0 as usize]
+            .iter()
+            .any(|(f, _)| f == name)
+    {
+        let boxed_recv = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
+    }
     // S2.34 — a class-instance read whose name misses the layout but
     // IS a method of the receiver's class (own or inherited; private
     // names arrive pre-mangled as `__priv_<C>__<m>`; generator

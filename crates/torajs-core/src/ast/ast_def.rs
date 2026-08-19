@@ -112,6 +112,17 @@ pub struct Ast {
     /// non-configurable where the implicit global's property must
     /// delete away).
     pub sloppy_deleted_bare_names: std::collections::HashSet<String>,
+    /// Bindings minted by object-rest destructuring (`{a, ...rest}`,
+    /// §14.3.3.1 RestBindingInitialization) — the rest object's
+    /// static Struct shape is the source-minus-omit ANCHOR, but the
+    /// object itself is an ordinary extensible object, so a member
+    /// read that misses the anchor is a RUNTIME [[Get]]
+    /// (§10.1.8.1): the checker admits it (Any) and the lowering
+    /// boxes the receiver onto the any-member probe (hit → value,
+    /// miss → undefined). Keyed by binding NAME — a same-named
+    /// non-rest binding over-admits, which fails safe: the probe
+    /// answers the [[Get]] semantics either way.
+    pub obj_rest_names: std::collections::HashSet<String>,
     /// RFC 20260730-undeclared-ident — expression-position occurrences
     /// of identifiers that resolve nowhere (§6.2.5.5 GetValue /
     /// §6.2.5.6 PutValue on an unresolvable Reference), ExprId → name.
