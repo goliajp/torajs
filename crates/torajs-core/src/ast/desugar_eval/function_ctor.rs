@@ -211,10 +211,8 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                 // the old silent call-site keep was a whole-program
                 // compile error that took every other assertion in
                 // the file down with it.
-                let throw = syntax_error_throw(
-                    format!("dynamic function: {}", first_line(&body)),
-                    ast,
-                );
+                let throw =
+                    syntax_error_throw(format!("dynamic function: {}", first_line(&body)), ast);
                 wrap_throw_iife(i, throw, ast);
             }
         }
@@ -342,8 +340,10 @@ fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option
 /// NoParse throw arm.
 fn has_labeled_fn(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
-        Stmt::Labeled { body, .. } => matches!(body.as_ref(), Stmt::FnDecl { .. })
-            || has_labeled_fn(std::slice::from_ref(body)),
+        Stmt::Labeled { body, .. } => {
+            matches!(body.as_ref(), Stmt::FnDecl { .. })
+                || has_labeled_fn(std::slice::from_ref(body))
+        }
         Stmt::Block(inner) => has_labeled_fn(inner),
         _ => false,
     })
