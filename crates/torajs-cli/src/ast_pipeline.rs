@@ -150,6 +150,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // builtin-namespace properties (`Number.NaN = 1`), same goal
     // split, same placement.
     ast::resolve_readonly_ns_prop_writes(ast);
+    // …and the call-face member of the family: calls to builtin
+    // values the spec makes uncallable (`Map()` / `JSON()`) become
+    // their §13.3.6.2 runtime TypeError — no goal split, both goals
+    // throw. Same placement rationale.
+    ast::resolve_uncallable_builtin_calls(ast);
     // Sloppy-goal implicit globals (§9.1.1.4.6) — synthesize a hoisted
     // `var <name>;` per never-declared assignment target, so the write
     // creates the binding instead of the checker rejecting the program.
