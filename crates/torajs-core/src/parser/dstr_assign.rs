@@ -217,13 +217,6 @@ impl<'a> Parser<'a> {
                     target,
                     value: default,
                 } => {
-                    if super::yield_expr_hoist::expr_reads_yield_temp(&self.ast, default) {
-                        return Err(format!(
-                            "not yet supported: `yield` in a destructuring-assignment \
-                             default (conditional position) at {}",
-                            self.at()
-                        ));
-                    }
                     // §8.4.5 NamedEvaluation reaches assignment-pattern
                     // defaults too — and the registry entry is ALSO the
                     // hoisted-generator wrap axis's key (`[g =
@@ -233,8 +226,18 @@ impl<'a> Parser<'a> {
                         let b = b.clone();
                         self.record_dstr_default_name(default, &b);
                     }
-                    let load = self.dstra_elem_load(src_name, i, Some(default));
-                    self.emit_dstr_assign_slot(target, load, out)?;
+                    if let Some(recovered) = self.recover_yield_temps(default)? {
+                        // A yield in the default — the recipe's
+                        // literal-undefined default keeps the OOB /
+                        // hole answer while the real default (and its
+                        // yield) moves under the statement guard.
+                        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+                        let plain = self.dstra_elem_load(src_name, i, Some(undef));
+                        self.emit_conditional_default(target, plain, default, recovered, out)?;
+                    } else {
+                        let load = self.dstra_elem_load(src_name, i, Some(default));
+                        self.emit_dstr_assign_slot(target, load, out)?;
+                    }
                 }
                 _ => {
                     let load = self.dstra_elem_load(src_name, i, None);
@@ -311,19 +314,17 @@ impl<'a> Parser<'a> {
                     _ => (*val, None),
                 };
                 if let Some(d) = default
-                    && super::yield_expr_hoist::expr_reads_yield_temp(&self.ast, d)
-                {
-                    return Err(format!(
-                        "not yet supported: `yield` in a destructuring-assignment \
-                         default (conditional position) at {}",
-                        self.at()
-                    ));
-                }
-                if let Some(d) = default
                     && let Expr::Ident(b) = self.ast.get_expr(target)
                 {
                     let b = b.clone();
                     self.record_dstr_default_name(d, &b);
+                }
+                if let Some(d) = default
+                    && let Some(recovered) = self.recover_yield_temps(d)?
+                {
+                    let plain = self.dstra_computed_load(src_name, &kname, None);
+                    self.emit_conditional_default(target, plain, d, recovered, out)?;
+                    continue;
                 }
                 let load = self.dstra_computed_load(src_name, &kname, default);
                 self.emit_dstr_assign_slot(target, load, out)?;
@@ -335,15 +336,6 @@ impl<'a> Parser<'a> {
                 Expr::Assign { target, value } => (*target, Some(*value)),
                 _ => (*val, None),
             };
-            if let Some(d) = default
-                && super::yield_expr_hoist::expr_reads_yield_temp(&self.ast, d)
-            {
-                return Err(format!(
-                    "not yet supported: `yield` in a destructuring-assignment \
-                     default (conditional position) at {}",
-                    self.at()
-                ));
-            }
             // §8.4.5 NamedEvaluation for the field default (also the
             // hoisted-generator wrap axis's key — see the array lane).
             if let Some(d) = default
@@ -351,6 +343,13 @@ impl<'a> Parser<'a> {
             {
                 let b = b.clone();
                 self.record_dstr_default_name(d, &b);
+            }
+            if let Some(d) = default
+                && let Some(recovered) = self.recover_yield_temps(d)?
+            {
+                let plain = self.dstra_field_load(src_name, fname, None);
+                self.emit_conditional_default(target, plain, d, recovered, out)?;
+                continue;
             }
             let load = self.dstra_field_load(src_name, fname, default);
             self.emit_dstr_assign_slot(target, load, out)?;
@@ -361,7 +360,7 @@ impl<'a> Parser<'a> {
     /// One pattern slot: a simple target gets a direct assign; a
     /// nested pattern hoists the loaded value into a fresh temp and
     /// recurses; anything else is the spec's early error.
-    fn emit_dstr_assign_slot(
+    pub(super) fn emit_dstr_assign_slot(
         &mut self,
         target: ExprId,
         loaded: ExprId,

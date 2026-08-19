@@ -7,28 +7,36 @@
 
 use super::*;
 
-/// Evaluation-order events collected by the guard walk.
+/// Evaluation-order events collected by the guard walk. A temp read
+/// carries its `__yx_<n>` name so the destructuring-default lane can
+/// recover the matching `YieldInto` from the hoist buffer.
 #[derive(PartialEq)]
 enum Ev {
-    Temp,
+    Temp(String),
     SideEffect,
 }
 
-/// True when the expression tree reads a `__yx_` hoist temp. Used by
-/// the destructuring-ASSIGNMENT desugar (`dstr_assign.rs`) to reject
-/// defaults that contained a yield: the cover grammar parses
+/// The `__yx_` temp names an expression reads, in source evaluation
+/// order — the recovery key the destructuring-ASSIGNMENT desugar uses
+/// to move a default's `YieldInto` stmts out of the hoist buffer and
+/// into the conditional-default branch (the cover grammar parses
 /// `[a = yield] = src` as a plain Assign rhs, where the hoist cannot
-/// see that the position is conditional.
-pub(super) fn expr_reads_yield_temp(ast: &Ast, eid: ExprId) -> bool {
+/// see that the position is conditional).
+pub(super) fn expr_yield_temps(ast: &Ast, eid: ExprId) -> Vec<String> {
     let mut evs = Vec::new();
     expr_events(ast, eid, &mut evs);
-    evs.contains(&Ev::Temp)
+    evs.into_iter()
+        .filter_map(|e| match e {
+            Ev::Temp(n) => Some(n),
+            Ev::SideEffect => None,
+        })
+        .collect()
 }
 
 pub(super) fn check_hoist_eval_order(p: &Parser, stmt: &Stmt) -> Result<(), String> {
     let mut evs: Vec<Ev> = Vec::new();
     stmt_events(&p.ast, stmt, &mut evs);
-    let last_temp = evs.iter().rposition(|e| *e == Ev::Temp);
+    let last_temp = evs.iter().rposition(|e| matches!(e, Ev::Temp(_)));
     let first_se = evs.iter().position(|e| *e == Ev::SideEffect);
     if let (Some(t), Some(s)) = (last_temp, first_se)
         && s < t
@@ -50,7 +58,7 @@ fn expr_events(ast: &Ast, eid: ExprId, evs: &mut Vec<Ev>) {
     match ast.get_expr(eid) {
         Expr::Ident(n) => {
             if n.starts_with("__yx_") {
-                evs.push(Ev::Temp);
+                evs.push(Ev::Temp(n.clone()));
             }
         }
         Expr::String(_)

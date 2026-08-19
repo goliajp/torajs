@@ -388,4 +388,61 @@ impl Parser<'_> {
             else_branch: load,
         })
     }
+
+    /// §13.15.5.3/4 with a `yield` in the Initializer — the spec
+    /// evaluates the default only when the slot answered undefined,
+    /// so its yield is CONDITIONAL, and the expression-level ternary
+    /// the plain recipes mint cannot carry it (the hoist already
+    /// moved the `YieldInto` in front of the whole statement). This
+    /// lane re-emits the recovered `YieldInto` stmts inside a
+    /// statement-level undefined-guard instead:
+    ///
+    /// ```text
+    /// let __dv = <plain load>;
+    /// if (__dv === undefined) { <YieldInto ...>; __dv = <default>; }
+    /// <target> = __dv;
+    /// ```
+    ///
+    /// `plain_load` must already answer undefined for an absent slot
+    /// (the callers pass the undefined-defaulted elem recipe or the
+    /// bare field/computed load).
+    pub(super) fn emit_conditional_default(
+        &mut self,
+        target: ExprId,
+        plain_load: ExprId,
+        default: ExprId,
+        recovered: Vec<Stmt>,
+        out: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        let id = self.mint_desugar_id();
+        let dv = format!("__dv_{id}");
+        out.push(Stmt::LetDecl {
+            mutable: true,
+            name: dv.clone(),
+            type_ann: Some("any".into()),
+            init: plain_load,
+            is_var: false,
+        });
+        let dv_read = self.ast.add_expr(Expr::Ident(dv.clone()));
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left: dv_read,
+            right: undef,
+        });
+        let mut then = recovered;
+        let dv_write = self.ast.add_expr(Expr::Ident(dv.clone()));
+        let assign = self.ast.add_expr(Expr::Assign {
+            target: dv_write,
+            value: default,
+        });
+        then.push(Stmt::Expr(assign));
+        out.push(Stmt::If {
+            cond,
+            then_branch: Box::new(Stmt::Block(then)),
+            else_branch: None,
+        });
+        let dv_val = self.ast.add_expr(Expr::Ident(dv));
+        self.emit_dstr_assign_slot(target, dv_val, out)
+    }
 }

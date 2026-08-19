@@ -219,6 +219,14 @@ fn promise_static_ann(
 /// at all — widens to `any[]` rather than being stamped with the
 /// anchor's type. An empty literal declines, as it does there.
 fn array_ann(ast: &Ast, elems: &[super::ExprId], ctx: &LiftCtx) -> Option<String> {
+    // `[]` — nothing to sniff, and declining here reached the
+    // `number` fallback, which rejected the very store that
+    // initializes the field ("field is Number, value is Array(Any)"
+    // — the dstr-assign src temp of `[x = yield] = []`). The empty
+    // array's honest answer is `any[]`.
+    if elems.is_empty() {
+        return Some("any[]".into());
+    }
     let first = field_ann(ast, *elems.first()?, ctx)?;
     let uniform = elems
         .iter()

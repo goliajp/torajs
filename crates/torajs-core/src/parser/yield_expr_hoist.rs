@@ -126,7 +126,7 @@ impl<'a> Parser<'a> {
     ///   back as a `__yx_` temp, so a target that IS the temp ident
     ///   can only come from a parenthesized yield in target position
     ///   (`__yx_` is the reserved desugar namespace, same assumption
-    ///   `expr_reads_yield_temp` already makes).
+    ///   `expr_yield_temps` already makes).
     /// - A CallExpression target (`f() = v`, `import(x)++` — the
     ///   ImportCall rewrites to a `Promise.resolve(...)` Call) has
     ///   AssignmentTargetType invalid (rotation 288: the
@@ -233,7 +233,44 @@ impl<'a> Parser<'a> {
         v.push(stmt);
         Ok(Stmt::Multi(v))
     }
+
+    /// Recover the `YieldInto` stmts a destructuring DEFAULT's hoisted
+    /// yields left in the buffer, so the caller can re-emit them
+    /// inside the undefined-guard the spec puts the default under
+    /// (§13.15.5.3 step 4 evaluates Initializer only when the slot
+    /// answered undefined — a hoisted yield ran it unconditionally).
+    ///
+    /// `Ok(None)`: the default reads no yield temp — take the plain
+    /// ternary lane. `Ok(Some(stmts))`: every temp's `YieldInto` was
+    /// found and removed from the buffer, in buffer (= source) order.
+    /// `Err`: some temp has no plain `YieldInto` in the buffer — a
+    /// `yield*` default hoists a multi-stmt drive loop this recovery
+    /// does not model, so the position keeps its loud reject.
+    pub(super) fn recover_yield_temps(
+        &mut self,
+        default: ExprId,
+    ) -> Result<Option<Vec<Stmt>>, String> {
+        let temps = super::yield_hoist_events::expr_yield_temps(&self.ast, default);
+        if temps.is_empty() {
+            return Ok(None);
+        }
+        let mut recovered = Vec::new();
+        self.yield_hoist_buf.retain(|s| match s {
+            Stmt::YieldInto { var, .. } if temps.contains(var) => {
+                recovered.push(s.clone());
+                false
+            }
+            _ => true,
+        });
+        if recovered.len() != temps.len() {
+            return Err(format!(
+                "not yet supported: `yield` in a destructuring-assignment \
+                 default (conditional position) at {}",
+                self.at()
+            ));
+        }
+        Ok(Some(recovered))
+    }
 }
 
 use super::yield_hoist_events::check_hoist_eval_order;
-pub(super) use super::yield_hoist_events::expr_reads_yield_temp;
