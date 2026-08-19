@@ -34,7 +34,7 @@
 use super::super::{Ast, Expr, ExprId, Stmt};
 use super::scope::binds_name;
 use super::source::{
-    DeleteSites, EvalRefusal, const_string, parse_eval_source, syntax_error_throw,
+    DeleteSites, EvalRefusal, const_string, first_line, parse_eval_source, syntax_error_throw,
 };
 use crate::lexer::{self, Token};
 
@@ -202,39 +202,24 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                 wrap_throw_iife(i, throw, ast);
             }
             Err(EvalRefusal::NoParse) => {
-                // A strict body that fails to parse has two possible
-                // causes, and they want opposite answers: a §15.2.1
-                // early error the parser itself refuses (assignment to
-                // `eval`, a reserved binding) is the creation-time
-                // SyntaxError the spec asks for, while a shape tr's
-                // subset does not cover yet is the honest reject this
-                // arm otherwise keeps. Asking which is which needs no
-                // message sniffing — it is the same question §15.2.1
-                // asks: does this text parse when it is NOT strict?
-                if strict_body && parses_without_the_prologue(&name, &params, &body, ast) {
-                    let throw = syntax_error_throw(
-                        "dynamic function: strict-mode early error in body".into(),
-                        ast,
-                    );
-                    wrap_throw_iife(i, throw, ast);
-                }
+                // §20.2.1.1 steps 11/17 — the assembled text failing
+                // to parse IS the spec answer: a creation-time
+                // SyntaxError. Same posture as the eval channel
+                // (§19.2.1.1 step 12). A shape the spec admits but
+                // tr's parser does not lands here too and throws —
+                // an honest runtime failure a fixture can see, where
+                // the old silent call-site keep was a whole-program
+                // compile error that took every other assertion in
+                // the file down with it.
+                let throw = syntax_error_throw(
+                    format!("dynamic function: {}", first_line(&body)),
+                    ast,
+                );
+                wrap_throw_iife(i, throw, ast);
             }
         }
         i += 1;
     }
-}
-
-/// Re-assemble with an empty statement ahead of the body, which closes
-/// the directive prologue before it opens: the `"use strict"` that
-/// follows is then an ordinary string expression and arms nothing. A
-/// text that parses this way and not the other failed on strictness
-/// alone.
-fn parses_without_the_prologue(name: &str, params: &str, body: &str, ast: &mut Ast) -> bool {
-    let probe = format!("function {name}({params}\n) {{\n;\n{body}\n}}");
-    matches!(
-        parse_eval_source(&probe, ast, false, DeleteSites::SloppyFold),
-        Ok(_) | Err(EvalRefusal::StrictEarlyError)
-    )
 }
 
 /// Whether the body text's directive prologue opens with a
@@ -311,9 +296,15 @@ fn is_simple_ident(s: &str) -> bool {
 }
 
 fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option<String> {
-    let [Stmt::FnDecl { params, .. }] = parsed else {
+    let [Stmt::FnDecl { params, body, .. }] = parsed else {
         return None;
     };
+    // §B.3.2 admits a labelled FunctionDeclaration in SLOPPY code
+    // only; under a strict prologue it is a LabelledItem early error
+    // (§14.13.1 via §15.2.1's strict-code restrictions).
+    if has_labeled_fn(body) {
+        return Some("dynamic function: labelled function declaration in strict mode".into());
+    }
     let mut seen: Vec<&str> = Vec::new();
     for p in params {
         let name = &p.name;
@@ -342,6 +333,20 @@ fn strict_early_error(parsed: &[Stmt], ast: &Ast, arena_before: usize) -> Option
         }
     }
     None
+}
+
+/// A labelled FunctionDeclaration anywhere down the label / block
+/// spine — `d: function w() {}`, `a: b: function w() {}`, or the same
+/// inside a bare block. Deeper carriers (if / loop bodies) already
+/// fail tr's parse via `reject_decl_in_single_stmt` and land in the
+/// NoParse throw arm.
+fn has_labeled_fn(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Labeled { body, .. } => matches!(body.as_ref(), Stmt::FnDecl { .. })
+            || has_labeled_fn(std::slice::from_ref(body)),
+        Stmt::Block(inner) => has_labeled_fn(inner),
+        _ => false,
+    })
 }
 
 /// Whether the body text lexes a BARE `with` identifier token — one
