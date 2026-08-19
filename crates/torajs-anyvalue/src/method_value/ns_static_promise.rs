@@ -106,7 +106,10 @@ fn this_reaches_promise_ctor(this: u64) -> bool {
 pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, argc: i64) -> u64 {
     unsafe {
         let this = arg_at(argv, argc, 0);
-        if !this_reaches_promise_ctor(this) {
+        let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
+        let is_builtin =
+            !promise_ctor.is_null() && is_cell(this) && as_void_ptr(this) == promise_ctor.cast();
+        if !is_builtin && !this_reaches_promise_ctor(this) {
             return promise_settle();
         }
         let v = arg_at(argv, argc, 1);
@@ -116,6 +119,30 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
             PromiseComb::Any => __torajs_promise_any_dyn(v),
             PromiseComb::Race => __torajs_promise_race_dyn(v),
         };
+        if !is_builtin {
+            // §27.2.4.1 step 2 — resultCapability = NewPromiseCapability(C):
+            // the answer must be a C INSTANCE. The element walk still
+            // rides the builtin kernel (GetPromiseResolve(C) per
+            // element is the next layer); its plain result promise is
+            // resolved INTO the capability, whose resolver adopts it
+            // (§27.2.1.3.2), so the C instance settles when the
+            // combinator does.
+            let Some((promise, resolve_f, reject_f)) =
+                crate::promise_capability::new_promise_capability(this)
+            else {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(box_void_ptr(p));
+                return VALUE_UNDEFINED;
+            };
+            let inner = box_void_ptr(p);
+            let one = [inner];
+            let out =
+                crate::method_call_closure_dispatch::__torajs_any_call(resolve_f, one.as_ptr(), 1);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(inner);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(resolve_f);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(reject_f);
+            return promise;
+        }
         box_void_ptr(p)
     }
 }
