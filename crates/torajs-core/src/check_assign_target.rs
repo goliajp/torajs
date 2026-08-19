@@ -90,6 +90,19 @@ pub(crate) fn check_member(
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }
+    // §27.2.4 static-slot patch (rotation 448) — `Promise.resolve =
+    // fn` / `Promise.reject = fn` rides the any lanes into the
+    // interned ctor cell's expando dict, the one store the static
+    // call sites' patch consult reads back
+    // (`ssa_lower_call_promise_resolve`). Only the two CONSULTED
+    // names are admitted: an accepted write nobody reads back is a
+    // silent-wrong faucet (`Promise.all = fn` would still run the
+    // builtin), so every other name keeps the loud reject.
+    if matches!(*obj_ty, Type::Object("Promise")) && matches!(field.as_str(), "resolve" | "reject")
+    {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
     if matches!(*obj_ty, Type::RegExp) && field == "lastIndex" {
         let value_ty = checker.type_of(ast, value)?;
         if !matches!(value_ty, Type::Number) {
