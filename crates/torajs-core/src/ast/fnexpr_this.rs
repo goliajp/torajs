@@ -55,7 +55,7 @@ use super::fnexpr_this_faces::{
 use super::fnexpr_this_recvs::{
     collect_any_arraylit_inits, collect_any_binding_names, collect_arraylit_binding_names,
     collect_gen_iter_binding_names, collect_mapset_binding_names,
-    collect_props_receiver_binding_names,
+    collect_props_receiver_binding_names, collect_strwrapper_binding_names,
 };
 use super::fnexpr_this_routed::promote_variable_routed;
 use super::{Expr, ExprId, Stmt};
@@ -168,6 +168,7 @@ fn collect_position_faces(
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let props_recvs = collect_props_receiver_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
+    let strwrapper_recvs = collect_strwrapper_binding_names(stmts, exprs);
     let any_this_fields = super::fnexpr_this_faces::any_typed_this_fields(stmts);
     let mut any_arraylit_inits = std::collections::HashSet::new();
     collect_any_arraylit_inits(stmts, exprs, &any_recvs, &mut any_arraylit_inits);
@@ -222,6 +223,7 @@ fn collect_position_faces(
             &gen_recvs,
             &arraylit_recvs,
             &mapset_recvs,
+            &strwrapper_recvs,
             *callee,
             args,
             patches,
@@ -252,6 +254,7 @@ fn collect_call_position_face(
     gen_recvs: &std::collections::HashSet<String>,
     arraylit_recvs: &std::collections::HashSet<String>,
     mapset_recvs: &std::collections::HashSet<String>,
+    strwrapper_recvs: &std::collections::HashSet<String>,
     callee: ExprId,
     args: &[ExprId],
     patches: &mut Vec<FacePatch>,
@@ -332,6 +335,7 @@ fn collect_call_position_face(
                 fn_expr_exprs,
                 *obj,
                 args,
+                &strwrapper_recvs,
                 patches,
                 ident_cands,
             );

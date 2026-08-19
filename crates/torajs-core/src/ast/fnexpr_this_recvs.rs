@@ -344,3 +344,103 @@ fn collect_gen_iter_names_inner(
         });
     }
 }
+
+/// Bindings that are syntactically-certain String-wrapper receivers
+/// — every reaching value is a `new String(...)` mint, so a method
+/// call on the name rides the runtime any-dispatch's StringWrapper
+/// view-through into `str_method`, whose replace-family functional
+/// kernels all read `FLAG_CLOSURE_RECV_FIRST` (rotation 447; the
+/// inline-New admission lives in
+/// `fnexpr_this_cb_slots::collect_replace_face`).
+///
+/// Two decl spellings reach here because the census runs AFTER
+/// `desugar_var_hoist`: a kept decl (annotated `var`, or
+/// `let`/`const`) still carries its `new String` init, while a
+/// hoisted `var` splits into the prelude's `: any` + `Uninit` decl
+/// plus exactly one `Expr::Assign` whose value is the mint — that
+/// neutral decl shape neither admits nor blocks, the assign walk
+/// decides.
+///
+/// Over-removal posture: a same-name decl with any other init, ANY
+/// assignment to a decl-admitted name, more than one mint
+/// assignment, a non-mint assignment, or a non-LetDecl shadow
+/// anywhere keeps the face loud — a rebind could hand the promoted
+/// callback to a user-defined `replace` on a path with no
+/// receiver-flag reader.
+pub(super) fn collect_strwrapper_binding_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<String> {
+    let mut decl_mint = std::collections::HashSet::new();
+    let mut neutral = std::collections::HashSet::new();
+    let mut other = std::collections::HashSet::new();
+    collect_strwrapper_names_inner(stmts, exprs, &mut decl_mint, &mut neutral, &mut other);
+    // Assign spine — one arena walk counts, per target name, the
+    // mint assignments and every other assignment.
+    let mut mints: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    let mut others: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    for e in exprs {
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        let Expr::Ident(n) = &exprs[target.0 as usize] else {
+            continue;
+        };
+        let v = super::fnexpr_this_names::peel_as(exprs, *value);
+        if is_string_mint(exprs, v) {
+            *mints.entry(n.as_str()).or_default() += 1;
+        } else {
+            *others.entry(n.as_str()).or_default() += 1;
+        }
+    }
+    let mut names: std::collections::HashSet<String> = decl_mint
+        .into_iter()
+        .filter(|n| !mints.contains_key(n.as_str()) && !others.contains_key(n.as_str()))
+        .collect();
+    names.extend(
+        neutral
+            .into_iter()
+            .filter(|n| mints.get(n.as_str()) == Some(&1) && !others.contains_key(n.as_str())),
+    );
+    names.retain(|n| {
+        !other.contains(n) && !super::fnexpr_this_names::name_shadowed_elsewhere(stmts, n)
+    });
+    names
+}
+
+fn is_string_mint(exprs: &[Expr], e: super::ExprId) -> bool {
+    matches!(&exprs[e.0 as usize], Expr::New { class_name, .. } if class_name == "String")
+}
+
+fn collect_strwrapper_names_inner(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    decl_mint: &mut std::collections::HashSet<String>,
+    neutral: &mut std::collections::HashSet<String>,
+    other: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } => {
+                if is_string_mint(exprs, super::fnexpr_this_names::peel_as(exprs, *init)) {
+                    decl_mint.insert(name.clone());
+                } else if type_ann.as_deref() == Some("any")
+                    && matches!(&exprs[init.0 as usize], Expr::Uninit)
+                {
+                    neutral.insert(name.clone());
+                } else {
+                    other.insert(name.clone());
+                }
+            }
+            _ => {}
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_strwrapper_names_inner(inner, exprs, decl_mint, neutral, other)
+        });
+    }
+}

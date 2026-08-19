@@ -68,6 +68,9 @@ pub(super) fn collect_json_face(
 /// replaceValue through receiver-flag-aware kernels (the literal
 /// glue reads FLAG_CLOSURE_RECV_FIRST; the regex lane's boxed
 /// kernel does the same with the pattern's own capture count).
+/// A variable-routed wrapper receiver admits on the same argument
+/// through `strwrapper_recvs` (the syntactically-certain census in
+/// `fnexpr_this_recvs.rs` — every reaching value is a mint).
 /// Fail-safe: this shape was an unconditional unclaimed loud
 /// reject before, so admitting it can only turn a compile error
 /// into the spec answer.
@@ -77,12 +80,16 @@ pub(super) fn collect_replace_face(
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     obj: ExprId,
     args: &[ExprId],
+    strwrapper_recvs: &std::collections::HashSet<String>,
     patches: &mut Vec<FacePatch>,
     ident_cands: &mut Vec<(String, ExprId)>,
 ) {
     let wrapper_recv = matches!(
         &exprs[obj.0 as usize],
         Expr::New { class_name, .. } if class_name == "String"
+    ) || matches!(
+        &exprs[obj.0 as usize],
+        Expr::Ident(n) if strwrapper_recvs.contains(n)
     );
     if !wrapper_recv {
         if !matches!(&exprs[obj.0 as usize], Expr::String(_)) {
