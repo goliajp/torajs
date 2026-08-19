@@ -252,7 +252,22 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
     // of tr rejecting the whole program at compile time. The checker
     // admits only statically non-iterable types here (Any / String
     // stay compile rejects until the tag-dispatch knife).
-    if !matches!(arg_ty, Type::Arr(_)) {
+    //
+    // Rotation 449 — a typed Array whose ELEMENT type is a plain
+    // value (not Promise, not Any) rides the same dynamic road: the
+    // sync kernels' typed walk reads every slot as a promise
+    // pointer, so a raw scalar slot dereferences as a cell (silent
+    // forever-pending unpatched; a real SIGSEGV under a patched
+    // `resolve`, whose consult re-boxes each slot as a heap cell),
+    // where §27.2.4.1.3 step 6.i wants each element wrapped by
+    // promiseResolve. The `as any` spelling is the only road such an
+    // array has here — the checker rejects it bare. Boxing marks the
+    // element kind, so the any-lane iteration decodes slots right.
+    let sync_elem_form = match arg_ty {
+        Type::Arr(aid) => matches!(ctx.arr_layouts[aid.0 as usize], Type::Promise | Type::Any),
+        _ => false,
+    };
+    if !sync_elem_form {
         let boxed = ctx.box_to_any_from_expr(args[0], arr_op.clone());
         let fid = match method {
             "all" => ctx.intrinsics.promise_all_dyn,
