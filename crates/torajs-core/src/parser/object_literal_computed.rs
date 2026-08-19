@@ -135,6 +135,7 @@ impl<'a> Parser<'a> {
             }
         }
         let value = self.parse_assign()?;
+        self.mark_fnexpr_field_method(value);
         self.mark_computed_proto_own(&key, value);
         Ok(Some((key, value)))
     }
@@ -184,10 +185,29 @@ impl<'a> Parser<'a> {
                     ));
                 }
             }
-            self.parse_assign()?
+            let v = self.parse_assign()?;
+            self.mark_fnexpr_field_method(v);
+            v
         };
         self.ast.objlit_computed_keys.insert(value, key_expr);
         Ok((name, value))
+    }
+
+    /// RFC 20260725 (fn-expr field this), computed-key twin — a plain
+    /// `function` expression standing as a computed property's VALUE
+    /// binds `this` to the call-site receiver exactly like the
+    /// name-keyed field (`parse_object_field`'s marking, which this
+    /// mirrors verbatim). A computed-key literal always rides the
+    /// dynobj lane (anylane leg (g)), so the promoted body takes the
+    /// `__this: any` receiver-first shape — the same path the
+    /// computed-key method shorthand already proves out. Async forms
+    /// keep the recorded loud boundary (fnexpr_this module doc).
+    fn mark_fnexpr_field_method(&mut self, value: ExprId) {
+        if self.ast.fn_expr_exprs.contains(&value)
+            && !self.ast.async_fn_value_exprs.contains(&value)
+        {
+            self.ast.objlit_method_exprs.insert(value);
+        }
     }
 
     /// P-SURF S2.27 — computed accessor name: `{ get [expr]() {} }` /
