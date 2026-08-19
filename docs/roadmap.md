@@ -1530,7 +1530,40 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `322e0287`** (2026-08-19, rotation 444 — the catch
+**Latest @ `18fd74ef`** (2026-08-19, rotation 445 — the not-callable
+cluster taken apart by callee semantics, six knives. Handoff 444's
+instruction #1 (not-callable `Object("X")`, 65 grep-total) split
+four ways: A (13, closed-set builtins — no-[[Call]] namespaces and
+new-only constructors — now arena-rewrite to a throw-IIFE with
+§13.3.6.2 argument sequencing, goal-triage family fifth member), D
+(4, `Date()` without new returns the current-time string, args
+evaluated then discarded with no ToPrimitive), B (~12, value-typed
+callees — `true()` / `f.length()` / `/re/()` — admitted by the
+checker via the single-source `Type::is_uncallable_value` predicate
+and routed by a lowering wedge through the any-call kernel, whose
+non-closure arm already raises the catchable TypeError), C (34,
+`Function(...)` dynamic compile — deep water, unchanged). The D
+recon exposed a real bug: `Date.parse` could not read its own
+`toString` output (§21.4.3.2 round-trip) — fixed with a
+toString/toUTCString fallback parser feeding both `Date.parse` and
+`new Date(string)`. Then two member-side siblings: nullish
+receivers (`undefined.toString()` / `null.constructor`) ride the
+any-member/any-method lanes to the runtime TypeError (terminal-miss
+nullish posture), and object-rest bindings (`{a, ...rest}`;
+`rest.a`) ride the runtime [[Get]] probe past their static anchor
+(new `ast.obj_rest_names` side-table). Sweep vs 444: passTotal
+31836 → **31873 (+37)**, bug +25 (honest incompat→bug motion — the
+rest-val-obj family now runs and fails on later asserts),
+incompatible **−62**, trAccepted +62 (conservation +62 = +37 + 25
+✓), **zero pass regressions**. Gate 3125 → **3131/0/4** across six
+substrate commits (+6 fixtures). Gate predicate **190 unattributed
+clusters / 1751 cases / register 2 · 283 (SR-1 195, SR-2 92) /
+residue 682 · 853 / core 2887**. Next attackable: fnexpr-this
+unclaimed (45, scattered dirs), `.compile` annexB RegExp (4),
+String.raw meta-properties (3); the not-callable residue is the
+`Function(...)` dynamic-compile deep water.)
+
+**Prior @ `322e0287`** (2026-08-19, rotation 444 — the catch
 destructure port and the goal-triage family growth. Handoff 443's
 instruction #1 (catch destructure default, measured 73 cases across
 six signatures) fell to one structural move: the catch parameter's

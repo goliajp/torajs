@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T03:22:02.616Z",
+  "generatedAt": "2026-08-19T04:48:32.806Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T03:05:14Z",
-    "headSha": "322e0287",
-    "elapsedSec": 354.27,
+    "ranAt": "2026-08-19T04:44:14Z",
+    "headSha": "18fd74ef",
+    "elapsedSec": 349.39,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26743,
+    "pass": 26780,
     "passNoOracle": 953,
     "passNegative": 4140,
-    "passTotal": 31836,
-    "bug": 12855,
-    "incompatible": 8483,
+    "passTotal": 31873,
+    "bug": 12880,
+    "incompatible": 8421,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44691,
-    "passRateInScope": 59.87,
-    "passRateTrAccepted": 71.24
+    "trAccepted": 44753,
+    "passRateInScope": 59.94,
+    "passRateTrAccepted": 71.22
   },
   "torajs": {
-    "commit": "ca7b9061",
-    "commitSubject": "refactor: extract the arr-receiver and forin-nonstruct arms — try_lower back under the fn cap",
+    "commit": "18fd74ef",
+    "commitSubject": "feat: member reads on object-rest bindings ride the runtime get probe past the static anchor",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "18fd74ef",
+      "subject": "feat: member reads on object-rest bindings ride the runtime get probe past the static anchor"
+    },
+    {
+      "hash": "e739f165",
+      "subject": "feat: member reads and method calls on nullish receivers throw at runtime — terminal-miss nullish posture"
+    },
+    {
+      "hash": "a2c9fc86",
+      "subject": "fix: date.parse accepts the tostring and toutcstring shapes per spec round-trip requirement"
+    },
+    {
+      "hash": "99045152",
+      "subject": "feat: known-uncallable value callees throw at runtime via the any-call kernel — checker admits, lowering wedge routes"
+    },
+    {
+      "hash": "83834f64",
+      "subject": "feat: date() without new returns the current-time string — args evaluated then discarded per spec"
+    },
+    {
+      "hash": "562525b9",
+      "subject": "feat: calls to uncallable builtins resolve to runtime typeerror — goal-triage family fifth member"
+    },
+    {
+      "hash": "412f8342",
+      "subject": "chore(docs,hardev): rotation 444 roadmap snapshot + sweep artifacts"
+    },
+    {
+      "hash": "4ede29ac",
+      "subject": "chore(docs,hardev): rotation 444 census at 322e0287"
+    },
+    {
       "hash": "ca7b9061",
       "subject": "refactor: extract the arr-receiver and forin-nonstruct arms — try_lower back under the fn cap"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "24926535",
       "subject": "fix: a statically non-struct for-in source rides the kernel keys arm — nullish enumerates nothing instead of the struct-arm panic"
-    },
-    {
-      "hash": "813e4ee7",
-      "subject": "feat: a sloppy assignment to a never-declared name creates the binding — goal-triage family third member"
-    },
-    {
-      "hash": "f7434b98",
-      "subject": "feat: catch parameter binding patterns go through the shared PatShape machine — defaults, nesting, rest, elision, alias-to-pattern"
-    },
-    {
-      "hash": "42f9ac5e",
-      "subject": "fix: a throw is a boxing boundary — kind-mark a typed array before it crosses into the catch any"
-    },
-    {
-      "hash": "779473a8",
-      "subject": "chore(docs,hardev): rotation 443 census at 330a056e"
-    },
-    {
-      "hash": "330a056e",
-      "subject": "fix: two r443 regressions the sweep caught — with-body delete in sloppy eval, void as assignment target"
-    },
-    {
-      "hash": "6511118e",
-      "subject": "feat: a write to NaN, Infinity or undefined resolves to its runtime semantics per goal"
-    },
-    {
-      "hash": "70fd9aee",
-      "subject": "fix: assignment or update targeting eval or arguments in strict eval text is the step-12 throw"
-    },
-    {
-      "hash": "c05e3db6",
-      "subject": "fix: a nested 'use strict' prologue arms its body inside a sloppy Function text"
     }
   ],
-  "headSha": "ca7b9061",
+  "headSha": "18fd74ef",
   "autorun": {
-    "total": 747,
+    "total": 748,
     "baselineTarget": 10,
-    "bySelf": 742,
+    "bySelf": 743,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787102101-038f",
-      "at": "2026-08-19T01:15:01Z",
-      "ts": 1787102101,
+      "rotationId": "r-1787109799-331b",
+      "at": "2026-08-19T03:23:19Z",
+      "ts": 1787109799,
       "trigger": "self",
-      "prevHead": "779473a8",
-      "handoffSha": "sha256:34cd2023f93ab0a1cd499459525060154ef95ed65c6a7ec3d1a7ebd396713171",
-      "handoffAgeSec": 30,
+      "prevHead": "412f8342",
+      "handoffSha": "sha256:2b1c17810eb0f50943b9b44b9ff602ec9941279f73e3e03997366fb736e16f49",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787109799-331b",
+        "at": "2026-08-19T03:23:19Z",
+        "ts": 1787109799,
+        "trigger": "self",
+        "prevHead": "412f8342",
+        "handoffSha": "sha256:2b1c17810eb0f50943b9b44b9ff602ec9941279f73e3e03997366fb736e16f49",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787102101-038f",
         "at": "2026-08-19T01:15:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "08ec28d7",
         "handoffSha": "sha256:37b0d2670398ec6aa217523a466c2eccbbba4069f5f27d4be284be7aa4984682",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787036547-3bba",
-        "at": "2026-08-18T07:02:27Z",
-        "ts": 1787036547,
-        "trigger": "self",
-        "prevHead": "aa091411",
-        "handoffSha": "sha256:2a256ceb7fb77154a1db5605f3403eb20998af510b22b246deae98fea393c584",
-        "handoffAgeSec": 77,
         "conformanceBefore": null,
         "commitsInSession": null
       }
