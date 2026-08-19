@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T18:32:44.133Z",
+  "generatedAt": "2026-08-19T21:05:07.212Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T18:22:34Z",
-    "headSha": "76673ad9",
-    "elapsedSec": 363.63,
+    "ranAt": "2026-08-19T20:52:07Z",
+    "headSha": "5fc545b9",
+    "elapsedSec": 365.67,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26866,
+    "pass": 26892,
     "passNoOracle": 967,
     "passNegative": 4147,
-    "passTotal": 31980,
-    "bug": 12856,
-    "incompatible": 8338,
+    "passTotal": 32006,
+    "bug": 12865,
+    "incompatible": 8303,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44836,
-    "passRateInScope": 60.14,
+    "trAccepted": 44871,
+    "passRateInScope": 60.19,
     "passRateTrAccepted": 71.33
   },
   "torajs": {
-    "commit": "359f382e",
-    "commitSubject": "chore(hardev): rotation 452 test262 sweep artifacts",
+    "commit": "5fc545b9",
+    "commitSubject": "refactor: dstr-assign single-slot emitter moves to its own sibling",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
+      "hash": "5fc545b9",
+      "subject": "refactor: dstr-assign single-slot emitter moves to its own sibling"
+    },
+    {
+      "hash": "1b806624",
+      "subject": "fix: nested dstr src temp in a generator annotates any"
+    },
+    {
+      "hash": "698d8d2f",
+      "subject": "feat: yield inside a destructuring-assignment target evaluates at its slot"
+    },
+    {
+      "hash": "2b73326b",
+      "subject": "feat: yield in a destructuring-assignment default rides a statement-level guard"
+    },
+    {
+      "hash": "53ac0390",
+      "subject": "refactor: yield-hoist evaluation-order events move to their own sibling"
+    },
+    {
+      "hash": "71208670",
+      "subject": "style: fmt-drift fix on the noparse-throw arm"
+    },
+    {
+      "hash": "0b3fb534",
+      "subject": "feat: dynamic-function text that fails to parse throws SyntaxError at the call"
+    },
+    {
+      "hash": "d315370d",
+      "subject": "feat: annexB html-like comments under the script goal for eval and dynamic-function text"
+    },
+    {
+      "hash": "36a6942c",
+      "subject": "docs: carve-out marker on the ns-static dispatch table"
+    },
+    {
+      "hash": "79e096ba",
+      "subject": "chore(hardev): rotation 452 dashboard snapshot"
+    },
+    {
       "hash": "359f382e",
       "subject": "chore(hardev): rotation 452 test262 sweep artifacts"
     },
     {
       "hash": "76673ad9",
       "subject": "fix: restore the zero-arg-handler fixture the no-handler probe overwrote"
-    },
-    {
-      "hash": "e57dfb8c",
-      "subject": "feat: bare then and catch ride the passthrough kernel"
-    },
-    {
-      "hash": "31c30a3f",
-      "subject": "feat: keyed combinators join the ns-static value surface"
-    },
-    {
-      "hash": "708f2fb5",
-      "subject": "feat: getpromiseresolve runs one real get before iteration"
-    },
-    {
-      "hash": "157aad7b",
-      "subject": "feat: combinators admit plain-element arrays onto the dyn road"
-    },
-    {
-      "hash": "95ca9c0e",
-      "subject": "feat: heir combinators run getpromiseresolve(c) per element"
-    },
-    {
-      "hash": "3735a1f4",
-      "subject": "chore(hardev): rotation 451 test262 sweep artifacts"
-    },
-    {
-      "hash": "d3890a9d",
-      "subject": "chore(hardev): rotation 451 sweep snapshot"
-    },
-    {
-      "hash": "9016cc2a",
-      "subject": "feat: inherited combinators answer c-instance result promises"
-    },
-    {
-      "hash": "c3e391d8",
-      "subject": "feat: inherited resolve answers a c-instance argument by identity"
-    },
-    {
-      "hash": "5e94d9b8",
-      "subject": "feat: try and withresolvers arms ride the capability shape"
     }
   ],
-  "headSha": "359f382e",
+  "headSha": "5fc545b9",
   "autorun": {
-    "total": 755,
+    "total": 756,
     "baselineTarget": 10,
-    "bySelf": 750,
+    "bySelf": 751,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787157969-011e",
-      "at": "2026-08-19T16:46:09Z",
-      "ts": 1787157969,
+      "rotationId": "r-1787164570-1d01",
+      "at": "2026-08-19T18:36:10Z",
+      "ts": 1787164570,
       "trigger": "self",
-      "prevHead": "3735a1f4",
-      "handoffSha": "sha256:6e0161ce2226b5f081bc9fdf2f6c61ec263b01a0d16a649008b8d62288bd3edd",
-      "handoffAgeSec": 7,
+      "prevHead": "36a6942c",
+      "handoffSha": "sha256:9c3f3a03c16a05edf926876db64e7ba25a48774197221c5844f65f8acf681bcb",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787164570-1d01",
+        "at": "2026-08-19T18:36:10Z",
+        "ts": 1787164570,
+        "trigger": "self",
+        "prevHead": "36a6942c",
+        "handoffSha": "sha256:9c3f3a03c16a05edf926876db64e7ba25a48774197221c5844f65f8acf681bcb",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787157969-011e",
         "at": "2026-08-19T16:46:09Z",
@@ -876,17 +887,6 @@
         "prevHead": "779473a8",
         "handoffSha": "sha256:34cd2023f93ab0a1cd499459525060154ef95ed65c6a7ec3d1a7ebd396713171",
         "handoffAgeSec": 30,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787091450-5a55",
-        "at": "2026-08-18T22:17:30Z",
-        "ts": 1787091450,
-        "trigger": "self",
-        "prevHead": "2af6a04e",
-        "handoffSha": "sha256:bde740fabc9636efa616856cebe12c8f21deb2a2609a5f328d2ed6c9121275a5",
-        "handoffAgeSec": 98,
         "conformanceBefore": null,
         "commitsInSession": null
       }

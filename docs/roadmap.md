@@ -1530,7 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `76673ad9`** (2026-08-20, rotation 452 — GetPromiseResolve
+**Latest @ `5fc545b9`** (2026-08-20, rotation 453 — the
+`not callable: type Object("Function")` cluster's constant-text half
+and the whole yield-in-destructuring parse face. Knife 1: annexB
+§B.1.3 HTML-like comments under a new script-goal lexer entry
+(`tokenize_script`; `<!--` anywhere, `-->` on a token-free line via
+fresh_line tracking) — the eval / dynamic-Function text channel
+rides it, tr's module-shaped main source keeps refusing. Knife 2:
+dynamic-function text that fails to parse throws SyntaxError at the
+call (§20.2.1.1 steps 11/17, the posture the eval channel already
+took for §19.2.1.1 step 12) instead of keeping the call site and
+failing the whole compile; a strict-prologue labelled
+FunctionDeclaration is the §B.3.2 creation-time early error. Knife 3
+(after a pure move of the yield-hoist events family): a yield in a
+destructuring-assignment DEFAULT recovers its YieldInto from the
+hoist buffer and re-emits under a statement-level undefined-guard
+(§13.15.5.3 step 4's conditional evaluation) — array-elem / object
+field / computed key lanes, plus for-of and async-gen faces for
+free. Knife 4: a yield in the TARGET (`[x[yield]] = v`) re-emits at
+its slot (§13.15.5.3 step 1); nested patterns let their leaves
+recover. The mid-rotation sweep caught knife 4's regression pair
+(nested src temp lifted to a number-fallback field — "can't index
+into Number") and the fix annotates generator nested-pattern sources
+`any`. Sweep vs 452: passTotal 31980 → **32006 (+26)**, bug **+9**,
+incompatible **−35**, conservation +35 = +26 + 9 ✓, **zero pass
+regressions** (61 diff rows all forward, 0 new crash/timeout). Gate
+3172 → **3176/0/4** across five substrate commits (+4 fixtures).
+The gate predicate: **188 unattributed clusters / 1648 cases /
+register 2 · 282 (SR-1 194, SR-2 92) / residue 670 · 839 / core
+2769** — cluster count flat, cases −35.)
+
+**Prior @ `76673ad9`** (2026-08-20, rotation 452 — GetPromiseResolve
 lands whole: heir, builtin, and the checker face. Knife 1 (handoff
 451's instruction #1): the inherited combinators
 (`Promise.all.call(CP, xs)`) reorder to spec —
