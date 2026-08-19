@@ -33,9 +33,6 @@ unsafe extern "C" {
     fn malloc(n: usize) -> *mut c_void;
     #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
-    #[link_name = "__torajs_memcpy"]
-    fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void;
-    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_throw_check() -> i64;
@@ -68,12 +65,6 @@ struct KeyedBlock {
     /// The Str-cell key array (typed arr), index-aligned with the
     /// source's result array.
     keys: *mut c_void,
-    /// Non-zero for the allSettledKeyed flavor: the source's result
-    /// slots are the anonymous settled records, translated into real
-    /// `{status, value|reason}` dynobjs (the anonymous struct carries
-    /// no layout the any lane can read — the recorded record-identity
-    /// defect; the translation sidesteps it for the keyed face).
-    settled: i64,
 }
 
 /// Typed-arr slot walk (the keys array): 8-byte slots at
@@ -125,11 +116,7 @@ unsafe fn is_object_arg(v: u64) -> bool {
 /// The shared drive: validate → keys → values → delegate → attach
 /// the keyed finish. `sync` is the borrowed-input sync kernel
 /// (`all_sync_untargeted` shape).
-unsafe fn keyed_dyn(
-    v: u64,
-    sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
-    settled: i64,
-) -> *mut c_void {
+unsafe fn keyed_dyn(v: u64, sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void) -> *mut c_void {
     unsafe {
         if !is_object_arg(v) {
             __torajs_throw_type_error(c"Promise.allKeyed requires an object argument".as_ptr());
@@ -187,7 +174,6 @@ unsafe fn keyed_dyn(
         (*b).outer = outer;
         (*b).source = source;
         (*b).keys = keys;
-        (*b).settled = settled;
         __torajs_promise_attach_then(source, Some(keyed_finish), b as i64);
         outer
     }
@@ -219,22 +205,15 @@ unsafe extern "C" fn keyed_finish(arg: i64) {
             let mut obj = __torajs_dynobj_alloc();
             __torajs_dynobj_mark_null_proto(obj);
             let n = arr_len_of(arr);
-            let rec_keys = if (*b).settled != 0 {
-                Some(RecordKeys::mint())
-            } else {
-                None
-            };
+            // allSettledKeyed's records need no translation here:
+            // the tag-less delegate builds ordinary `{status,
+            // value|reason}` dynobjs already (the record-anonymity
+            // fix retired the class-shape record this loop used to
+            // re-read by raw offset), so a record slot shares into
+            // the entry exactly like any other value.
             for i in 0..n {
                 let key = arr_slot_raw((*b).keys, i) as *mut c_void;
                 let bits = arr_slot_raw(arr, i) as u64;
-                if let Some(rk) = &rec_keys
-                    && let Some(rec_obj) = settled_record_to_dynobj(bits, rk)
-                {
-                    // The fresh record dynobj's stake transfers into
-                    // the entry pair.
-                    __torajs_dynobj_set(&mut obj, key, 4, rec_obj as u64);
-                    continue;
-                }
                 let tag = __torajs_anyv_unbox_tag(bits);
                 let value = __torajs_anyv_unbox_value(bits);
                 // The entry's pair takes a stake; the result array
@@ -244,9 +223,6 @@ unsafe extern "C" fn keyed_finish(arg: i64) {
                     __torajs_rc_inc(value as *mut c_void);
                 }
                 __torajs_dynobj_set(&mut obj, key, tag as u64, value as u64);
-            }
-            if let Some(rk) = rec_keys {
-                rk.release();
             }
             let boxed = __torajs_anyv_box_from_pair(4, obj as i64);
             (*rp).value_is_heap = 1;
@@ -259,90 +235,17 @@ unsafe extern "C" fn keyed_finish(arg: i64) {
     }
 }
 
-/// The record dynobjs' three key cells, minted once per finish run.
-/// `dynobj_set`'s insert incs the key it stores, so one mint serves
-/// every record; release settles the mint's own stake.
-struct RecordKeys {
-    status: *mut c_void,
-    value: *mut c_void,
-    reason: *mut c_void,
-}
-
-impl RecordKeys {
-    unsafe fn mint() -> Self {
-        unsafe {
-            RecordKeys {
-                status: mint_str(b"status"),
-                value: mint_str(b"value"),
-                reason: mint_str(b"reason"),
-            }
-        }
-    }
-    unsafe fn release(self) {
-        unsafe {
-            __torajs_value_drop_heap(self.status);
-            __torajs_value_drop_heap(self.value);
-            __torajs_value_drop_heap(self.reason);
-        }
-    }
-}
-
-unsafe fn mint_str(literal: &[u8]) -> *mut c_void {
-    unsafe {
-        let s = __torajs_str_alloc_pooled(literal.len() as u64);
-        memcpy(
-            s.add(crate::layout::STR_HDR_SIZE) as *mut c_void,
-            literal.as_ptr() as *const c_void,
-            literal.len(),
-        );
-        s as *mut c_void
-    }
-}
-
-/// One anonymous settled record → a real `{status, value|reason}`
-/// dynobj (ordinary prototype — the proposal's records are ordinary
-/// objects; only the enclosing result is null-proto). Reads the
-/// record cell directly: status Str at +32, the boxed value at +40
-/// (the any-lane record layout — `alloc_settled_struct`). `None`
-/// when the slot is not a cell (the sync kernel's undefined
-/// fallback), which stores verbatim instead.
-unsafe fn settled_record_to_dynobj(rec_bits: u64, rk: &RecordKeys) -> Option<*mut c_void> {
-    unsafe {
-        if __torajs_anyv_unbox_tag(rec_bits) != 4 {
-            return None;
-        }
-        let rec = __torajs_anyv_unbox_value(rec_bits) as *mut u8;
-        if rec.is_null() {
-            return None;
-        }
-        let status = *(rec.add(32) as *const *mut c_void);
-        let first = *(status as *const u8).add(crate::layout::STR_HDR_SIZE);
-        let value_bits = *(rec.add(40) as *const u64);
-        let mut obj = __torajs_dynobj_alloc();
-        __torajs_rc_inc(status);
-        __torajs_dynobj_set(&mut obj, rk.status, 4, status as u64);
-        let vt = __torajs_anyv_unbox_tag(value_bits);
-        let vv = __torajs_anyv_unbox_value(value_bits);
-        if vt == 4 && vv != 0 {
-            __torajs_rc_inc(vv as *mut c_void);
-        }
-        let field = if first == b'f' { rk.value } else { rk.reason };
-        __torajs_dynobj_set(&mut obj, field, vt as u64, vv as u64);
-        Some(obj)
-    }
-}
-
 /// # Safety
 /// `v` is a live any-boxed value the caller owns for the duration of
 /// the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_all_keyed_dyn(v: u64) -> *mut c_void {
-    unsafe { keyed_dyn(v, crate::combinator_dyn::all_sync_untargeted, 0) }
+    unsafe { keyed_dyn(v, crate::combinator_dyn::all_sync_untargeted) }
 }
 
 /// # Safety
 /// See [`__torajs_promise_all_keyed_dyn`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_allsettled_keyed_dyn(v: u64) -> *mut c_void {
-    unsafe { keyed_dyn(v, crate::combinator_dyn::allsettled_sync_untagged, 1) }
+    unsafe { keyed_dyn(v, crate::combinator_dyn::allsettled_sync_untagged) }
 }
