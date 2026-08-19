@@ -36,17 +36,6 @@ pub(super) unsafe fn promise_settle() -> u64 {
     VALUE_UNDEFINED
 }
 
-/// §27.2.4.7/.6 Promise.resolve / reject with a receiver channel
-/// (rotation 449 — the `this_aware_id` recv-first shape, RFC
-/// 20260720 刀 6's recorded follow-up face): argv[0] is the thisArg
-/// every honoring caller prepended (`.call` / `.apply` / bind /
-/// HOF), undefined on a bare detached call. |this| = the interned
-/// builtin Promise constructor cell runs the real settle through
-/// the any-lane kernels — `r.apply(Promise, [v])` and
-/// `r.call(Promise, v)` answer what the direct spelling does. Any
-/// other thisValue keeps the step-1 TypeError: a custom species
-/// constructor C needs NewPromiseCapability(C), which stays the
-/// recorded follow-up — loud beats a wrong-identity promise.
 /// §27.2.4.{1,3,5,6} combinators with a receiver channel — the same
 /// gate as [`promise_settle_fn`]: |this| (argv[0], prepended by every
 /// honoring caller) must be the interned builtin Promise constructor
@@ -77,6 +66,17 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
     }
 }
 
+/// §27.2.4.7/.6 Promise.resolve / reject with a receiver channel
+/// (rotation 449 — the `this_aware_id` recv-first shape, RFC
+/// 20260720 刀 6's recorded follow-up face): argv[0] is the thisArg
+/// every honoring caller prepended (`.call` / `.apply` / bind /
+/// HOF), undefined on a bare detached call. |this| = the interned
+/// builtin Promise constructor cell runs the real settle through
+/// the any-lane kernels — `r.apply(Promise, [v])` and
+/// `r.call(Promise, v)` answer what the direct spelling does. Any
+/// other thisValue keeps the step-1 TypeError: a custom species
+/// constructor C needs NewPromiseCapability(C), which stays the
+/// recorded follow-up — loud beats a wrong-identity promise.
 pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64) -> u64 {
     unsafe {
         let this = arg_at(argv, argc, 0);
