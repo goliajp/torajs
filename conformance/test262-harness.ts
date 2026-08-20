@@ -56,6 +56,16 @@ class Test262Error extends Error {
   }
 }
 
+// Real test262 sta.js line 21 — a ready-made throwing callback the
+// cases hand to code that must not call it (36 files use it, chiefly
+// the Promise combinators' `executor(resolve, Test262Error.thrower)`).
+// Absent from the harness it read as `undefined`, so every one of them
+// died on a wrong-reason "not callable" instead of exercising what it
+// meant to.
+Test262Error.thrower = function (message: string): void {
+  throw new Test262Error(message);
+};
+
 // Real test262 sta.js marker for negative phase:parse/early cases —
 // the file must be rejected BEFORE evaluation; reaching this call is
 // itself the failure. Upstream throws this exact bare string. Absent
