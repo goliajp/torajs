@@ -48,96 +48,11 @@ pub(crate) fn try_lower(
         .expr_types
         .get(obj)
         .is_some_and(|t| t.is_nullish_value());
-    if !recv_is_nullish && !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any)) {
-        // RFC 20260713-array-proto-residual blade 2 — the
-        // `<any>.toString.call(x)` family: the member sugar arms
-        // type the read as a concrete Function, but the read
-        // lowers to a runtime any cell, so .call / .apply / .bind
-        // on it ride this any lane (checker mirror in
-        // route_early.rs).
-        let is_fn_surface = matches!(name.as_str(), "call" | "apply" | "bind")
-            && matches!(
-                ctx.expr_types.get(obj),
-                Some(crate::check::Type::Function(..))
-            );
-        let sugar_fn_on_any = is_fn_surface
-            && matches!(
-                ctx.ast.get_expr(*obj),
-                Expr::Member { obj: inner, .. }
-                    if matches!(ctx.expr_types.get(inner), Some(crate::check::Type::Any))
-            );
-        // RFC 20260725-str-method-value-reify — the same surfaces on
-        // a reified String-receiver method value (a `builtin_mv`
-        // binding or the inline `s.slice.call(…)` form) ride the any
-        // lane too: the runtime's `call_target` re-dispatches the
-        // carried mid with the thisArg as receiver (checker mirror
-        // in route_early.rs).
-        let builtin_mv = is_fn_surface
-            && (matches!(
-                ctx.ast.get_expr(*obj),
-                Expr::Ident(n) if ctx.builtin_mv_locals.contains_key(n)
-            ) || crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, *obj)
-                .is_some());
-        // RFC 20260808-construct-channel B6 刀 2 — the same surfaces
-        // on a reified NAMESPACE-STATIC read (`Array.from.call(C,…)`)
-        // ride the any lane: the baked cell's runtime dispatch honors
-        // the receiver channel (recv-first statics read the thisArg
-        // as the constructor C; receiver-less ones ignore it per
-        // their spec). Checker mirror: route_early's ns-static arm.
-        let ns_static_fn = is_fn_surface
-            && matches!(ctx.ast.get_expr(*obj), Expr::Member { obj: ns, name: m }
-                if matches!(ctx.ast.get_expr(*ns), Expr::Ident(n)
-                    if torajs_rc::ns_static::ns_static_id(n, m) >= 0));
-        // The same surfaces on a builtin CONSTRUCTOR value
-        // (`Number.bind(null)` / `Promise.call(p, fn)`): the bare
-        // namespace ident lowers to the interned ctor cell
-        // (`try_builtin_ctor_ident`), whose boxed entry runs the
-        // per-family ctor-as-function conversion or the catchable
-        // TypeError. Checker mirror: route_early's
-        // `is_builtin_ctor_read` (same proto-tag table + unbound
-        // gate — the obj types Object(ns) here, not Function).
-        let builtin_ctor_fn = matches!(name.as_str(), "call" | "apply" | "bind")
-            && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Object(_)))
-            && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n)
-                if crate::ssa_lower_member_builtin_namespace::proto_method_tag(n).is_some());
-        // Cluster #4 (test262) — a CONCRETE receiver whose member
-        // read types Any: the per-family member tables' catch-all
-        // answered the read (`arr.hasOwnProperty` / `fn.caller` /
-        // an expando property), and the checker's general tail
-        // admitted the call as Any (mirror gate — both key on the
-        // callee expr's Any record). The receiver boxes at this
-        // any-lane boundary below; the runtime dispatcher answers
-        // by tag.
-        let any_member_read = matches!(ctx.expr_types.get(&callee), Some(crate::check::Type::Any));
-        // RFC 20260806 blade 3 — the checker's gate can only mark call
-        // sites it types, and some routes never type their arguments
-        // (`console.log(xs.slice(0))` is how this surfaced). Ask the
-        // module fact directly so a patched builtin reaches the
-        // dispatcher no matter which route claimed the enclosing call.
-        let shadowed_builtin = !ctx.proto_shadow.is_empty()
-            && ctx
-                .expr_types
-                .get(obj)
-                .and_then(crate::builtin_proto_shadow::family_of)
-                .is_some_and(|f| ctx.proto_shadow.shadows(f, name));
-        // RFC 20260813-detached-objlit-method — the same surfaces on a
-        // binding whose SLOT holds an Any while the checker named a
-        // class method's signature (`const t = c.read; t.call(c)`).
-        // The read minted the method value off the class-methods
-        // table, so the runtime dispatcher is the only thing that can
-        // re-bind it; see `any_call::callee_slot_is_any`.
-        let detached_method =
-            is_fn_surface && crate::ssa_lower_any_call::callee_slot_is_any(ctx, *obj);
-        if !sugar_fn_on_any
-            && !builtin_mv
-            && !ns_static_fn
-            && !builtin_ctor_fn
-            && !any_member_read
-            && !shadowed_builtin
-            && !detached_method
-        {
-            return None;
-        }
+    if !recv_is_nullish
+        && !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any))
+        && !non_any_recv_admitted(ctx, callee, obj, name)
+    {
+        return None;
     }
     let obj = *obj;
     let name = name.clone();
@@ -225,6 +140,110 @@ pub(crate) fn try_lower(
     // catch can't know about it).
     ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     Some(Operand::Value(result))
+}
+
+/// Whether a NON-Any receiver still rides the any-method lane — the
+/// eight admitted shapes, each keyed to the checker arm that admitted
+/// the call as Any (so admitted and lowered shapes cannot drift).
+fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name: &str) -> bool {
+    // RFC 20260713-array-proto-residual blade 2 — the
+    // `<any>.toString.call(x)` family: the member sugar arms
+    // type the read as a concrete Function, but the read
+    // lowers to a runtime any cell, so .call / .apply / .bind
+    // on it ride this any lane (checker mirror in
+    // route_early.rs).
+    let is_fn_surface = matches!(name, "call" | "apply" | "bind")
+        && matches!(
+            ctx.expr_types.get(obj),
+            Some(crate::check::Type::Function(..))
+        );
+    let sugar_fn_on_any = is_fn_surface
+        && matches!(
+            ctx.ast.get_expr(*obj),
+            Expr::Member { obj: inner, .. }
+                if matches!(ctx.expr_types.get(inner), Some(crate::check::Type::Any))
+        );
+    // RFC 20260725-str-method-value-reify — the same surfaces on
+    // a reified String-receiver method value (a `builtin_mv`
+    // binding or the inline `s.slice.call(…)` form) ride the any
+    // lane too: the runtime's `call_target` re-dispatches the
+    // carried mid with the thisArg as receiver (checker mirror
+    // in route_early.rs).
+    let builtin_mv = is_fn_surface
+        && (matches!(
+            ctx.ast.get_expr(*obj),
+            Expr::Ident(n) if ctx.builtin_mv_locals.contains_key(n)
+        ) || crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, *obj)
+            .is_some());
+    // RFC 20260808-construct-channel B6 刀 2 — the same surfaces
+    // on a reified NAMESPACE-STATIC read (`Array.from.call(C,…)`)
+    // ride the any lane: the baked cell's runtime dispatch honors
+    // the receiver channel (recv-first statics read the thisArg
+    // as the constructor C; receiver-less ones ignore it per
+    // their spec). Checker mirror: route_early's ns-static arm.
+    let ns_static_fn = is_fn_surface
+        && matches!(ctx.ast.get_expr(*obj), Expr::Member { obj: ns, name: m }
+            if matches!(ctx.ast.get_expr(*ns), Expr::Ident(n)
+                if torajs_rc::ns_static::ns_static_id(n, m) >= 0));
+    // The same surfaces on a builtin CONSTRUCTOR value
+    // (`Number.bind(null)` / `Promise.call(p, fn)`): the bare
+    // namespace ident lowers to the interned ctor cell
+    // (`try_builtin_ctor_ident`), whose boxed entry runs the
+    // per-family ctor-as-function conversion or the catchable
+    // TypeError. Checker mirror: route_early's
+    // `is_builtin_ctor_read` (same proto-tag table + unbound
+    // gate — the obj types Object(ns) here, not Function).
+    let builtin_ctor_fn = matches!(name, "call" | "apply" | "bind")
+        && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Object(_)))
+        && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n)
+            if crate::ssa_lower_member_builtin_namespace::proto_method_tag(n).is_some());
+    // Cluster #4 (test262) — a CONCRETE receiver whose member
+    // read types Any: the per-family member tables' catch-all
+    // answered the read (`arr.hasOwnProperty` / `fn.caller` /
+    // an expando property), and the checker's general tail
+    // admitted the call as Any (mirror gate — both key on the
+    // callee expr's Any record). The receiver boxes at this
+    // any-lane boundary below; the runtime dispatcher answers
+    // by tag.
+    let any_member_read = matches!(ctx.expr_types.get(&callee), Some(crate::check::Type::Any));
+    // RFC 20260806 blade 3 — the checker's gate can only mark call
+    // sites it types, and some routes never type their arguments
+    // (`console.log(xs.slice(0))` is how this surfaced). Ask the
+    // module fact directly so a patched builtin reaches the
+    // dispatcher no matter which route claimed the enclosing call.
+    let shadowed_builtin = !ctx.proto_shadow.is_empty()
+        && ctx
+            .expr_types
+            .get(obj)
+            .and_then(crate::builtin_proto_shadow::family_of)
+            .is_some_and(|f| ctx.proto_shadow.shadows(f, name));
+    // RFC 20260813-detached-objlit-method — the same surfaces on a
+    // binding whose SLOT holds an Any while the checker named a
+    // class method's signature (`const t = c.read; t.call(c)`).
+    // The read minted the method value off the class-methods
+    // table, so the runtime dispatcher is the only thing that can
+    // re-bind it; see `any_call::callee_slot_is_any`.
+    let detached_method = is_fn_surface && crate::ssa_lower_any_call::callee_slot_is_any(ctx, *obj);
+    // RFC 20260820-member-call-route 刀 1 — the same surfaces on
+    // an INLINE class-instance method read (`c.method.call(x)`):
+    // the read types Function (the checker's class-method arm)
+    // but lowers to a runtime any cell — S2.34 resolves the
+    // reified class-method cell off the prototype — so only the
+    // runtime dispatcher can re-bind the thisArg. Fields never
+    // fire (only `__cm_`-table methods count), so fn-typed FIELD
+    // reads keep the fn_call_value replay. Checker mirror:
+    // route_early's `is_class_method_read`.
+    let class_method_value = is_fn_surface
+        && matches!(ctx.ast.get_expr(*obj), Expr::Member { obj: inner, name: m }
+            if crate::ssa_lower_member::receiver_class_owns_method(ctx, *inner, m));
+    sugar_fn_on_any
+        || builtin_mv
+        || ns_static_fn
+        || builtin_ctor_fn
+        || any_member_read
+        || shadowed_builtin
+        || detached_method
+        || class_method_value
 }
 
 /// Box the call arguments into a stack argv per the chunk-496

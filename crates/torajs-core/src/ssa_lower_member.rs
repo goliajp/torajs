@@ -296,7 +296,7 @@ pub(crate) fn mv_family_of_checker_ty(t: &crate::check::Type) -> Option<i64> {
 /// generator spelling `__cm_gen_<C>__<name>` exists in the fn table.
 /// The class comes off the receiver's checked `ClassRef` — a receiver
 /// with no nominal identity never fires (the layout panic stands).
-fn receiver_class_owns_method(ctx: &LowerCtx<'_>, obj: ExprId, name: &str) -> bool {
+pub(crate) fn receiver_class_owns_method(ctx: &LowerCtx<'_>, obj: ExprId, name: &str) -> bool {
     let Some(mut cname) = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, obj) else {
         return false;
     };

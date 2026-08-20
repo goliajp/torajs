@@ -289,7 +289,9 @@ fn try_builtin_mv_fn_surface(
         return None;
     }
     let fn_face = matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
-        && (is_builtin_mv_read(checker, ast, *obj) || is_ns_static_read(ast, *obj));
+        && (is_builtin_mv_read(checker, ast, *obj)
+            || is_ns_static_read(ast, *obj)
+            || is_class_method_read(checker, ast, *obj));
     if !fn_face && !is_builtin_ctor_read(checker, ast, *obj) {
         return None;
     }
@@ -348,6 +350,47 @@ fn is_ns_static_read(ast: &Ast, obj: ExprId) -> bool {
     matches!(ast.get_expr(obj), Expr::Member { obj: ns, name: m }
         if matches!(ast.get_expr(*ns), Expr::Ident(n)
             if torajs_rc::ns_static::ns_static_id(n, m) >= 0))
+}
+
+/// RFC 20260820-member-call-route 刀 1 — a class-instance METHOD
+/// read (`a.m` where `m` is a method of the receiver's class or an
+/// ancestor). The member read types Function (the class-method arm
+/// strips `__this`), but it LOWERS to a runtime any cell — S2.34
+/// boxes the receiver and resolves the reified class-method cell off
+/// the prototype — so `.call/.apply/.bind` on it must any-dispatch:
+/// only the runtime kernel can re-bind the thisArg (the detached
+/// binding form already rides this lane). Fields never fire (only
+/// `__cm_`-table methods count), so a fn-typed FIELD read keeps the
+/// `try_fn_value_call` static replay below. Lowering mirror:
+/// `ssa_lower_any_method_call`'s `class_method_value` gate.
+fn is_class_method_read(checker: &mut Checker, ast: &Ast, obj: ExprId) -> bool {
+    let Expr::Member {
+        obj: inner,
+        name: m,
+    } = ast.get_expr(obj)
+    else {
+        return false;
+    };
+    let Ok(inner_ty) = checker.type_of(ast, *inner) else {
+        return false;
+    };
+    let Some(mut cname) = crate::check_type_of_member_accessor::class_name_of(&inner_ty, ast)
+    else {
+        return false;
+    };
+    loop {
+        if checker.globals.contains_key(&format!("__cm_{cname}__{m}"))
+            || checker
+                .globals
+                .contains_key(&format!("__cm_gen_{cname}__{m}"))
+        {
+            return true;
+        }
+        match ast.class_parents.get(&cname) {
+            Some(Some(p)) => cname = p.clone(),
+            _ => return false,
+        }
+    }
 }
 
 fn try_fn_value_call(
