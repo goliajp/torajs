@@ -193,8 +193,19 @@ pub(crate) fn emit_any_member_set(
     } else {
         torajs_rc::any_regexp_prop_id(field).unwrap_or(-1)
     };
+    // §7.3.32 PrivateSet — a `__priv_`-mangled name selects the
+    // brand-gated write channel (read twin: `emit_member_fallback`):
+    // an undeclared brand throws TypeError instead of installing an
+    // expando. Statically selected, so the ordinary write path pays
+    // nothing; dynamic-string keys (the dyn-key callers below) never
+    // carry private semantics and keep the base kernel.
+    let kernel = if field.starts_with("__priv_") {
+        ctx.intrinsics.any_member_set_priv
+    } else {
+        ctx.intrinsics.any_member_set
+    };
     emit_any_member_set_dyn(
-        ctx, obj_val, key_str, hint, tag_op, val_op, obj_ident, recv_owned,
+        ctx, kernel, obj_val, key_str, hint, tag_op, val_op, obj_ident, recv_owned,
     );
 }
 
@@ -219,6 +230,7 @@ pub(crate) fn emit_any_member_set(
 /// dynobj-resize arm writes the relocated cell back into it.
 pub(crate) fn emit_any_member_set_dyn(
     ctx: &mut LowerCtx<'_>,
+    kernel: crate::ssa::FuncId,
     obj_val: Operand,
     key_str: crate::ssa::ValueId,
     hint: i64,
@@ -235,7 +247,7 @@ pub(crate) fn emit_any_member_set_dyn(
     ctx.f.append_void(
         cur_block,
         InstKind::Call(
-            ctx.intrinsics.any_member_set,
+            kernel,
             vec![
                 Operand::Value(slot),
                 Operand::Value(key_str),

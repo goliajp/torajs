@@ -18,6 +18,7 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct PrivateIds {
     pub any_member_get_priv_tag: FuncId,
     pub any_member_priv_has: FuncId,
+    pub any_member_set_priv: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PrivateIds {
@@ -36,6 +37,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_any_member_priv_has",
             &[Type::Any, Type::Ptr],
             Type::Bool,
+        ),
+        // §7.3.32 PrivateSet — the write twin (statically selected
+        // by the `__priv_` prefix in `emit_any_member_set`): an
+        // undeclared brand throws instead of installing an expando.
+        any_member_set_priv: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_member_set_priv",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Type::Void,
         ),
     }
 }

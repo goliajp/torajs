@@ -85,6 +85,20 @@ pub unsafe extern "C" fn __torajs_any_member_priv_has(recv: AnyValue, key: *cons
     if unsafe { torajs_rc::in_op_any::require_object_rhs(recv as i64) }.is_none() {
         return false;
     }
+    unsafe { priv_brand_declared(recv, key) }
+}
+
+/// Whether the receiver's OWN face carries the private element — the
+/// shared brand truth behind `#x in o` above and the write channel's
+/// gate (`member_set_private`): a declared layout field, a
+/// degraded-instance expando entry, a dynobj entry, or a present
+/// value / accessor through the base tag walk (a private METHOD or
+/// accessor reifies on the class prototype face, which that walk
+/// resolves). Primitives and nullish never carry a brand.
+///
+/// # Safety
+/// Cell receivers are valid heap pointers; `key` is a live Str cell.
+pub(crate) unsafe fn priv_brand_declared(recv: AnyValue, key: *const c_void) -> bool {
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             struct_field_pair(ptr, key).is_some()

@@ -573,6 +573,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_member_get_priv_tag: FuncId,
     /// §13.10.1 ergonomic brand check (`#x in o`).
     pub(crate) any_member_priv_has: FuncId,
+    /// §7.3.32 PrivateSet write twin — undeclared brand throws.
+    pub(crate) any_member_set_priv: FuncId,
     pub(crate) any_member_get_value: FuncId,
     pub(crate) any_accessor_get: FuncId,
     pub(crate) any_member_set: FuncId,

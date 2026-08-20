@@ -162,7 +162,15 @@ impl<'a> LowerCtx<'a> {
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_owned = self.expr_transfers_ownership(obj);
         crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
-            self, obj_val, key_v, -1, tag_op, value_op, &obj_ident, recv_owned,
+            self,
+            self.intrinsics.any_member_set,
+            obj_val,
+            key_v,
+            -1,
+            tag_op,
+            value_op,
+            &obj_ident,
+            recv_owned,
         );
         if key_owned {
             // Substr view materialized to a fresh owned Str.
@@ -324,7 +332,15 @@ impl<'a> LowerCtx<'a> {
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_owned = self.expr_transfers_ownership(obj);
         crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
-            self, obj_val, key_v, -1, tag_op, value_op, &obj_ident, recv_owned,
+            self,
+            self.intrinsics.any_member_set,
+            obj_val,
+            key_v,
+            -1,
+            tag_op,
+            value_op,
+            &obj_ident,
+            recv_owned,
         );
         if key_transfers {
             self.emit_drop_value(key_raw_keep, k_ty);
