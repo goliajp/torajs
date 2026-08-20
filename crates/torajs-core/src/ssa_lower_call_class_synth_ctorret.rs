@@ -2,17 +2,15 @@
 //! [`crate::ssa_lower_call_class_synth`], in their own sibling to keep
 //! the parent under its size cap (it has ten lines of room left).
 //!
-//! Three synthetic call names the class desugar emits, and only for
-//! the classes `Ast::ctor_return_override` names:
+//! Two synthetic call names the class desugar emits, and only for the
+//! classes `Ast::ctor_return_override` names:
 //!
-//! - `__torajs_ctor_ret_value(this, v)` — what a `return <expr>` in a
-//!   constructor body answers.
-//! - `__torajs_ctor_ret_adopt(minted, sup)` — what `super(…)` answers,
-//!   which becomes `this` for the rest of the constructor.
+//! - `__torajs_ctor_ret_value(incumbent, v)` — the §10.2.2 step 13
+//!   pick, at both the `super(…)` site and the factory.
 //! - `__torajs_ctor_ret_carry(minted, target, "<name>")` — one of the
 //!   class's own elements moved onto an adopted object.
 //!
-//! The pair answers an OWNED box, so the enclosing assignment or
+//! The pick answers an OWNED box, so the enclosing assignment or
 //! return takes it like any other owned temp; the carry borrows all
 //! three and answers nothing.
 
@@ -26,15 +24,13 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> Option<Operand> {
     match name {
         "__torajs_ctor_ret_value" => try_lower_value(ctx, args),
-        "__torajs_ctor_ret_adopt" => try_lower_adopt(ctx, args),
         "__torajs_ctor_ret_carry" => try_lower_carry(ctx, args),
         _ => None,
     }
 }
 
-/// Shared body of the two answering arms — they differ only in which
-/// kernel decides, never in shape.
-fn lower_pair(ctx: &mut LowerCtx<'_>, args: &[ExprId], fid: crate::ssa::FuncId) -> Option<Operand> {
+/// See module doc.
+fn try_lower_value(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     if args.len() != 2 {
         return None;
     }
@@ -42,23 +38,12 @@ fn lower_pair(ctx: &mut LowerCtx<'_>, args: &[ExprId], fid: crate::ssa::FuncId) 
     let a = ctx.box_to_any(a);
     let b = ctx.lower_expr(args[1]);
     let b = ctx.box_to_any(b);
+    let fid = ctx.intrinsics.ctor_ret_value;
     let cur_block = ctx.cur_block;
     let out = ctx
         .f
         .append_inst(cur_block, InstKind::Call(fid, vec![a, b]), Type::Any, None);
     Some(Operand::Value(out))
-}
-
-/// See module doc.
-fn try_lower_value(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    let fid = ctx.intrinsics.ctor_ret_value;
-    lower_pair(ctx, args, fid)
-}
-
-/// See module doc.
-fn try_lower_adopt(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    let fid = ctx.intrinsics.ctor_ret_adopt;
-    lower_pair(ctx, args, fid)
 }
 
 /// See module doc. The element name is a literal the desugar wrote,

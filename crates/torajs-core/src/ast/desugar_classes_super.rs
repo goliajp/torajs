@@ -80,7 +80,7 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
     // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
     // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before
     // pass 2 (which rewrites `Expr::This` and method-call shapes).
-    for (_, cname, _tp, parent, _, _, ctor, _, _) in class_index {
+    for (_, cname, _tp, parent, fields, _, ctor, _, _) in class_index {
         let Some(c) = ctor.as_ref() else { continue };
         let mut super_sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
         for s in &c.body {
@@ -104,9 +104,53 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
             new_args.push(this_id);
             new_args.push(new_target_id);
             new_args.extend(args);
-            ast.exprs[eid.0 as usize] = Expr::Call {
+            let call = Expr::Call {
                 callee,
                 args: new_args,
+            };
+            // RFC 20260820-ctor-return-override blade 3 — on a chain
+            // that touches a value-returning ctor, what the parent
+            // answers may BE the instance from here on (§10.2.2 step
+            // 13), so the site becomes an assignment to `this` rather
+            // than a bare call, and this class's own elements follow
+            // the object that won.
+            //
+            // Only the OWN fields are carried, and from `__this_in`
+            // (the parameter, which goes on naming what the factory
+            // minted) rather than from `this`, which has just been
+            // reassigned. An ancestor's fields are deliberately left
+            // behind: per §7.3.28 they were installed on the `this`
+            // that ancestor's own constructor walked away from.
+            //
+            // Emitting `Expr::This` for the receiver — not a bare
+            // ident — is what puts the assignment on the same rewrite
+            // channel as the rest of the body: Pass 2 turns every one
+            // of them into `Ident("__this")`, the local `reshape_ctor`
+            // introduces.
+            if !ast.ctor_return_override.contains(cname) {
+                ast.exprs[eid.0 as usize] = call;
+                continue;
+            }
+            let call_id = ast.add_expr(call);
+            let incumbent = ast.add_expr(Expr::This);
+            let picked = super::desugar_classes_ctor_return::pick_call(ast, incumbent, call_id);
+            let target = ast.add_expr(Expr::This);
+            let mut seq = ast.add_expr(Expr::Assign {
+                target,
+                value: picked,
+            });
+            for (fname, _) in fields {
+                let this_now = ast.add_expr(Expr::This);
+                let carry = super::desugar_classes_ctor_return::carry_call(ast, this_now, fname);
+                seq = ast.add_expr(Expr::Sequence {
+                    left: seq,
+                    right: carry,
+                });
+            }
+            let value = ast.add_expr(Expr::This);
+            ast.exprs[eid.0 as usize] = Expr::Sequence {
+                left: seq,
+                right: value,
             };
         }
     }

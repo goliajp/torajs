@@ -10,7 +10,7 @@
 //! needs it (see the RFC's narrow-surface section).
 
 use super::desugar_classes_super::ClassIndexEntry;
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// Seed on the classes whose own ctor body carries a value return,
 /// then spread DOWN first and only afterwards UP.
@@ -72,6 +72,83 @@ pub(super) fn collect(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
         }
     }
     ast.ctor_return_override = set;
+}
+
+/// Does `__new_<C>` have to hand back whatever the constructor
+/// answered?
+///
+/// Membership alone is not the question. A class can be in the set
+/// only because a DESCENDANT return-overrides — the upward widening —
+/// and if it declares no constructor of its own, its factory makes no
+/// ctor call and there is no answer to relay. Such a factory keeps
+/// its precise return type, and `new P()` keeps its typed tier.
+pub(super) fn factory_relays_answer(ast: &Ast, cname: &str, has_ctor: bool) -> bool {
+    has_ctor && ast.ctor_return_override.contains(cname)
+}
+
+/// Give a member class's `__cm_<C>__ctor` the answering shape
+/// (blade 3). Mutates the parameter list and body that
+/// `emit_ctor_fn` just assembled and hands back the return
+/// annotation to declare.
+///
+/// The receiver arrives as `__this_in` and is immediately copied into
+/// an ordinary mutable local named `__this`. Two things fall out of
+/// that. Pass 2 already rewrote every `this` in the body into
+/// `Ident("__this")`, so the local is what the body reads and writes
+/// with no further rewriting. And because it is a local rather than a
+/// parameter, reassigning it at the `super(…)` site is an ordinary
+/// assignment with ordinary ownership — it releases what it held and
+/// retains what it is given, which is why the step-13 pick must stay
+/// borrow-shaped (retaining there too leaked a cell per construction;
+/// see that kernel's doc). `__this_in` goes on naming the object
+/// the factory minted, which is what the field carry needs.
+///
+/// The body's own `return` statements are left ALONE. Appending
+/// `return __this` at the tail is enough: falling off answers the
+/// current `this`, a written `return;` answers undefined, and a
+/// written `return <expr>` answers it raw — and the step-13 pick at
+/// the factory maps all three the way the spec asks. Rewriting each
+/// return in place would mean a second body walk that has to stay in
+/// lockstep with the seeding one below, for no added answer.
+pub(super) fn reshape_ctor(ast: &mut Ast, params: &mut [Param], body: &mut Vec<Stmt>) -> String {
+    params[0].name = "__this_in".into();
+    params[0].type_ann = Some("any".into());
+    let init = ast.add_expr(Expr::Ident("__this_in".into()));
+    body.insert(
+        0,
+        Stmt::LetDecl {
+            mutable: true,
+            name: "__this".into(),
+            type_ann: Some("any".into()),
+            init,
+            is_var: false,
+        },
+    );
+    let tail = ast.add_expr(Expr::Ident("__this".into()));
+    body.push(Stmt::Return(Some(tail)));
+    "any".to_string()
+}
+
+/// `__torajs_ctor_ret_value(incumbent, candidate)` — the §10.2.2 step
+/// 13 pick, minted for the factory and the super site alike.
+pub(super) fn pick_call(ast: &mut Ast, incumbent: ExprId, candidate: ExprId) -> ExprId {
+    let callee = ast.add_expr(Expr::Ident("__torajs_ctor_ret_value".into()));
+    ast.add_expr(Expr::Call {
+        callee,
+        args: vec![incumbent, candidate],
+    })
+}
+
+/// `__torajs_ctor_ret_carry(minted, target, "<name>")` — one own
+/// element moved onto an adopted object.
+pub(super) fn carry_call(ast: &mut Ast, target: ExprId, field: &str) -> ExprId {
+    let callee = ast.add_expr(Expr::Ident("__torajs_ctor_ret_carry".into()));
+    let minted = ast.add_expr(Expr::Ident("__this_in".into()));
+    let name = ast.add_expr(Expr::String(field.to_string()));
+    ast.add_expr(Expr::Call {
+        callee,
+        args: vec![minted, target, name],
+    })
 }
 
 /// Whether a ctor statement can hand back a value. Mirrors the

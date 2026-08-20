@@ -1,31 +1,48 @@
-//! RFC 20260820-ctor-return-override — the two kernels behind
-//! §10.2.2 [[Construct]] step 13, plus the field carry that keeps a
-//! subclass's own elements attached when a base constructor hands
-//! back somebody else's object.
+//! RFC 20260820-ctor-return-override — the §10.2.2 [[Construct]]
+//! step 13 pick, plus the field carry that keeps a subclass's own
+//! elements attached when a base constructor hands back somebody
+//! else's object.
 //!
 //! Only classes named by `Ast::ctor_return_override` reach these; see
 //! that pass for why the set is narrow. The desugar shape they serve:
 //!
 //! ```text
 //! __cm_C__ctor(__this_in: any, __new_target: any, …): any {
-//!   let __this: any = __this_in;      // owned local; `this` resolves here
-//!   ( __this = __torajs_ctor_ret_adopt(__this, __cm_P__ctor(__this, …)),
+//!   let __this: any = __this_in;      // ordinary local; `this` resolves here
+//!   ( __this = __torajs_ctor_ret_value(__this, __cm_P__ctor(__this, …)),
 //!     __torajs_ctor_ret_carry(__this_in, __this, "<own field>"),
 //!     __this );                       // the rewritten `super(…)`
 //!   return __this;
 //! }
 //! ```
 //!
+//! One kernel serves both step-13 sites because they ask the same
+//! question: at the super site, "did the parent hand me a different
+//! object?", and at the factory, "does the body's answer replace what
+//! I minted?" — both are "an object wins, anything else leaves the
+//! incumbent standing".
+//!
+//! Nothing rewrites the constructor's own `return` statements. The
+//! tail gets `return __this`, so falling off the end answers the
+//! current `this`, a written `return;` answers undefined, and a
+//! written `return <expr>` answers it raw — and the pick at the
+//! factory maps all three correctly on its own.
+//!
 //! `__this_in` keeps naming the object the factory minted no matter
 //! what `__this` is reassigned to, which is what lets the carry find
 //! the fields the mint already initialized without a second local.
 //!
-//! **Ownership**: both answering kernels return an OWNED box (they
-//! retain whichever operand they pick). That is what makes the
-//! surrounding shape ordinary: the ctor's `__this` is a plain local,
-//! so assigning to it releases what it held and taking it releases
-//! nothing, and `return __this` transfers through the return walk's
-//! move marking like any other local.
+//! **Ownership**: the pick is BORROW-shaped — it hands back one of
+//! its operands' bits without touching a refcount, the same posture
+//! `member_get`'s probe pair keeps. That is the convention the rest
+//! of the lowering is built on: an expression yields a view, and
+//! whoever consumes it (an assignment, a `let`, a return) takes the
+//! stake it needs. Retaining here instead leaked one cell per
+//! construction — the assignment at the super site retains what it
+//! stores, so the kernel's extra +1 had no matching release (a churn
+//! probe read 26 MB against a 6.6 MB baseline; replacing the pick
+//! with a bare assignment flattened it, which is what named the
+//! retain as the culprit).
 
 use crate::member_get_layout::recv_cell;
 use crate::nanbox::AnyValue;
@@ -54,17 +71,10 @@ fn is_object(v: AnyValue) -> bool {
     }
 }
 
-/// Retain and answer — the owned-box contract in one place.
-fn owned(v: AnyValue) -> AnyValue {
-    if let Some((ptr, _)) = recv_cell(v) {
-        unsafe { __torajs_rc_inc(ptr) };
-    }
-    v
-}
-
-/// §10.2.2 step 13 for a `return <expr>` written in a constructor
-/// body: an object answers itself, anything else leaves `this`
-/// standing.
+/// §10.2.2 step 13: an object answers itself, anything else leaves
+/// the incumbent `this` standing. Used at both step-13 sites — the
+/// `super(…)` answer taking over as `this`, and the factory reading
+/// what the constructor answered.
 ///
 /// Recorded boundary — for a DERIVED class step 13.b makes a
 /// non-undefined non-object a TypeError rather than a fallback. This
@@ -74,30 +84,11 @@ fn owned(v: AnyValue) -> AnyValue {
 /// list.
 ///
 /// # Safety
-/// Both operands are live AnyValue bit patterns the caller owns for
-/// the duration of the call. The answer is OWNED.
+/// Both operands are live AnyValue bit patterns the caller keeps
+/// alive across the call. The answer is a BORROW of one of them.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_ctor_ret_value(this_v: AnyValue, v: AnyValue) -> AnyValue {
-    if is_object(v) {
-        owned(v)
-    } else {
-        owned(this_v)
-    }
-}
-
-/// The `super(…)` answer at a derived constructor's super site: an
-/// object other than the one we minted becomes `this` from here on.
-///
-/// # Safety
-/// Both operands are live AnyValue bit patterns the caller owns for
-/// the duration of the call. The answer is OWNED.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_ctor_ret_adopt(minted: AnyValue, sup: AnyValue) -> AnyValue {
-    if sup != minted && is_object(sup) {
-        owned(sup)
-    } else {
-        owned(minted)
-    }
+    if is_object(v) { v } else { this_v }
 }
 
 /// Move one of the class's own declared elements onto the object the

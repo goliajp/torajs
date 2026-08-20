@@ -103,6 +103,43 @@ pub(crate) fn build_factory_body(
             });
         }
         let call = ast.add_expr(Expr::Call { callee, args });
+        // RFC 20260820-ctor-return-override blade 3 — for a class on a
+        // chain that touches a value-returning ctor, what the ctor
+        // answers may BE the instance (§10.2.2 step 13). Bind the
+        // answer, then let the step-13 pick choose between it and what
+        // we minted.
+        //
+        // The mint above stays typed on purpose. An `any`-annotated
+        // `let __this` would send the whole object literal down the
+        // dynobj lane (`ssa_lower_object_lit`'s first gate), and the
+        // instance would lose its class tag and vtable — `instanceof`
+        // and typed method dispatch with it. Only the ctor's parameter
+        // and this factory's ANSWER widen; a typed argument arriving
+        // at an `any` parameter is just a box.
+        //
+        // Returning the pick directly is the idiomatic shape here, not
+        // a shortcut. `consume_all_idents_in_return` marks every ident
+        // under a `return` as moved so the scope walk skips their
+        // drops, and its own doc names exactly this case: the answer
+        // is necessarily an alias of one of the two, so dropping
+        // either before handing it back would dangle what the caller
+        // is about to receive. Routing through a third local instead
+        // measured byte-identical on the churn probe, so the simpler
+        // spelling stands.
+        if super::desugar_classes_ctor_return::factory_relays_answer(ast, cname, true) {
+            let answer = ast.add_expr(Expr::Ident("__ctor_answer".into()));
+            body.push(Stmt::LetDecl {
+                mutable: false,
+                name: "__ctor_answer".into(),
+                type_ann: Some("any".into()),
+                init: call,
+                is_var: false,
+            });
+            let minted = ast.add_expr(Expr::Ident("__this".into()));
+            let picked = super::desugar_classes_ctor_return::pick_call(ast, minted, answer);
+            body.push(Stmt::Return(Some(picked)));
+            return body;
+        }
         body.push(Stmt::Expr(call));
     }
     let ret_id = ast.add_expr(Expr::Ident("__this".into()));

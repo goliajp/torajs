@@ -262,6 +262,18 @@ pub(crate) fn check(
         "__torajs_register_native_error" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
         }
+        // RFC 20260820-ctor-return-override — §10.2.2 step 13 pick and
+        // the own-element carry beside it. The pick answers `any`
+        // because that is the honest type: what a constructor hands
+        // back may be any object at all.
+        "__torajs_ctor_ret_value" => Ok(Type::Function(
+            vec![Type::Any, Type::Any],
+            Box::new(Type::Any),
+        )),
+        "__torajs_ctor_ret_carry" => Ok(Type::Function(
+            vec![Type::Any, Type::Any, Type::String],
+            Box::new(Type::Void),
+        )),
         "__torajs_my_class_ref" => Ok(Type::Function(vec![Type::String], Box::new(Type::Any))),
         // RFC 20260713 blade 5 cut 4 — generator-proto →
         // %GeneratorPrototype% chain writer (class_globals emits it
