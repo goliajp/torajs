@@ -353,11 +353,16 @@ pub(super) fn collect_store_face(
             obj: pobj,
             name: pname,
         } => {
-            (pname == "prototype"
-                && matches!(
-                    &exprs[pobj.0 as usize],
-                    Expr::Ident(_) | Expr::Closure { .. }
-                ))
+            // `<anything>.prototype.k` — how the prototype object was
+            // REACHED does not change the channel the stored value
+            // comes back through: an instance method call resolves the
+            // name up the prototype chain in the any lane, which shifts
+            // argv on FLAG_CLOSURE_RECV_FIRST. The Ident / Closure
+            // restriction the first cut carried refused
+            // `other.Ctor.prototype.toJSON = function () { ... this ... }`
+            // — a member chain, and the ordinary spelling once the
+            // constructor lives on a namespace object.
+            pname == "prototype"
                 || (pname == "constructor"
                     && matches!(&exprs[pobj.0 as usize], Expr::Ident(n)
                         if props_recvs.contains(n)))

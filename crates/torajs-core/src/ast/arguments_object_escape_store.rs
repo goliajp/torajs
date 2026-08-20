@@ -137,8 +137,10 @@ pub(super) fn boxed_face_store_target(
             obj: pobj,
             name: pname,
         } => {
-            (pname == "prototype"
-                && matches!(ast.get_expr(*pobj), Expr::Ident(_) | Expr::Closure { .. }))
+            // The prototype chain reached through any expression —
+            // the fnexpr-this arm's own widening, mirrored (the two
+            // admit sets move together).
+            pname == "prototype"
                 || (pname == "constructor"
                     && matches!(ast.get_expr(*pobj), Expr::Ident(n)
                         if props_recvs.contains(n)))
