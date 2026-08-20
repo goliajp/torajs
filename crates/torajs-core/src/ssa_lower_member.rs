@@ -125,7 +125,7 @@ pub(crate) fn lower_with_val(
         return Operand::Value(v);
     }
     if let Some(op) =
-        crate::ssa_lower_member_typed_props::try_lower(ctx, obj, obj_val, obj_ty, name)
+        crate::ssa_lower_member_typed_props::try_lower(ctx, eid, obj, obj_val, obj_ty, name)
     {
         return op;
     }

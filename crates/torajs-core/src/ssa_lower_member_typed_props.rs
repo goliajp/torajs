@@ -42,6 +42,7 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
     obj_ty: Type,
@@ -79,6 +80,21 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     if obj_ty == Type::Symbol && name == "description" {
+        // §20.4.3.2 — the kernel hands back a description with a
+        // fresh +1, on purpose: the string outlives the symbol when
+        // the reader keeps it, and the Any lane's reified getter
+        // takes the same stake. So this read TRANSFERS, and has to
+        // say so — a Member expression is a borrow shape by default,
+        // which means a consumer takes its own +1 and nobody ever
+        // gives the kernel's back. Measured: 300k
+        // `Symbol(base + i).description` held 15.6 MB against 6.45 MB
+        // for the same loop without the read, one leaked string cell
+        // per iteration. It stayed invisible for as long as it did
+        // because a literal description is a static cell whose
+        // refcount traffic is a no-op — only a description that
+        // reaches the heap shows the missing dec, and until
+        // `Symbol(1)` compiled, most of them did not.
+        ctx.owned_member_reads.insert(eid);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
@@ -145,7 +161,7 @@ pub(crate) fn try_lower(
         {
             return Some(Operand::ConstI64(i64::from(arity)));
         }
-        return Some(lower_fn_length_or_name(ctx, obj, obj_val, obj_ty, name));
+        return Some(lower_fn_length_or_name(ctx, eid, obj, obj_val, obj_ty, name));
     }
     // RFC 20260721 刀 9 — `fun.prototype` on a Closure-typed
     // receiver: the runtime kernel materializes the §10.2.5 object
@@ -252,6 +268,7 @@ fn try_ast_expected_count(ctx: &LowerCtx<'_>, obj: crate::ast::ExprId) -> Option
 
 fn lower_fn_length_or_name(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: crate::ast::ExprId,
     obj_val: Operand,
     obj_ty: Type,
@@ -282,6 +299,12 @@ fn lower_fn_length_or_name(
     // method cells, bound cells, registry); FnSig receivers are raw
     // fn body vaddrs and hit the registry directly. Miss = ES
     // anonymous-function name "".
+    // Both name kernels build the answer with a fresh allocation —
+    // the registry stores raw rodata bytes, not a cell — so this read
+    // TRANSFERS and has to say so, exactly like `description` above.
+    // Measured the same way: 300k `f.name` held 15.5 MB against 6.3 MB
+    // for the same loop without the read.
+    ctx.owned_member_reads.insert(eid);
     let fid = if matches!(obj_ty, Type::Closure(_)) {
         ctx.intrinsics.closure_name_str
     } else {
