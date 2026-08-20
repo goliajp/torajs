@@ -95,7 +95,7 @@ pub(crate) fn run(
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
     let mut any_patches: Vec<(ExprId, String)> = Vec::new();
-    let mut recvless_accessors: Vec<(ExprId, String)> = Vec::new();
+    let mut recvless_accessors: Vec<String> = Vec::new();
 
     {
         let view: AstExprsView = &*exprs;
@@ -208,7 +208,7 @@ pub(crate) fn run(
                     // receiver slot is declared and never read (see
                     // `settle_collected`).
                     if !uses_this(feid) {
-                        recvless_accessors.push((*feid, fn_name.clone()));
+                        recvless_accessors.push(fn_name.clone());
                     }
                     patches.push(MethodPatch {
                         eid: *feid,

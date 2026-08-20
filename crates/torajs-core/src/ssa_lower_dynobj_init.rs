@@ -449,16 +449,16 @@ impl<'a> LowerCtx<'a> {
         );
     }
 
-    /// Loud-reject guard for an accessor face whose `__this` kept the
-    /// struct-typed nominal stamp — a route the AST any-lane predicate
-    /// can't see (`{...} as any` non-empty / ObjectLit into a user any
-    /// param). Its body reads struct offsets off a dynobj receiver;
-    /// silently installing it trades a checkable reject for garbage
-    /// reads (knife 2 widens the predicate instead).
+    /// Loud-reject guard for an accessor face that READS a struct-typed
+    /// `__this` — a route the AST any-lane predicate can't see (`{...}
+    /// as any` non-empty / ObjectLit into a user any param): its struct
+    /// offsets off a dynobj receiver read garbage. A receiver-first face
+    /// is exempt — `objlit_nominal_settle` owns that admission rule.
     fn guard_anylane_recv_face(&self, face_eid: ExprId, what: &str) {
         if let Expr::Closure { fn_name, .. } = self.ast.get_expr(face_eid)
             && let Some(ann) = self.closure_this_ann(fn_name)
             && ann != "any"
+            && !self.ast.fnexpr_recv_fns.contains(fn_name)
         {
             panic!(
                 "ssa-lower: object-literal {what} with a struct-typed receiver \

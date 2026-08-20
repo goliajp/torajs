@@ -253,8 +253,8 @@ pub(super) fn objlit_ctor_unions(a: &mut Analysis) {
     if a.ast.objlit_method_fields.is_empty() {
         return;
     }
-    // fn name → objlit type, read off the `__this` ann the
-    // objlit_nominal patch pinned on each lifted method FnDecl.
+    // fn name → objlit type, off the `__this` ann objlit_nominal pinned
+    // — LOAD-BEARING: re-annotating a face drops this edge (r461).
     let mut fn_owner: HashMap<String, String> = HashMap::new();
     for stmt in &a.ast.stmts {
         if let crate::ast::Stmt::FnDecl { name, params, .. } = stmt

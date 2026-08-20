@@ -19,8 +19,8 @@ pub(super) struct Settle<'a> {
     /// Nominal members: the `__this: __ObjLit_n` receiver patches.
     pub(super) patches: Vec<MethodPatch>,
     /// The accessor subset of `patches` whose body never says `this`
-    /// — re-annotated `any` after the nominal patches land.
-    pub(super) recvless_accessors: Vec<(ExprId, String)>,
+    /// — marked receiver-first once the nominal patches land.
+    pub(super) recvless_accessors: Vec<String>,
     /// The synthetic `__ObjLit_n` aliases, `__mth_placeholder` fields
     /// still parked in them.
     pub(super) type_decls: Vec<Stmt>,
@@ -56,22 +56,21 @@ pub(super) fn settle_collected(s: Settle<'_>) {
         s.fnexpr_recv_fns,
     );
     // Rotation 461 — an accessor takes the receiver whether or not it
-    // says `this`, and a this-FREE one never reads the slot it was
-    // given. Which LANE the literal ends up on is not decidable here
-    // (the checker's Any answer at a call argument is the leak the
-    // any-lane legs keep missing), so give those faces the ONE
-    // receiver shape both lanes can serve: the receiver-first `any`
-    // box. The struct lane keeps handing the raw struct pointer into
-    // that slot — integer register class either way, and the body
-    // never reads it — while the dynobj lane's accessor install stops
-    // hitting `guard_anylane_recv_face`.
-    super::fnexpr_this::promote_recv_any(
-        s.stmts,
-        s.exprs,
-        &s.recvless_accessors,
-        s.fnexpr_recv_fns,
-        s.sloppy,
-        s.spans,
-    );
+    // says `this`, and a this-FREE one never READS the slot it was
+    // given. Which lane the literal ends up on is not decidable here
+    // (the checker's Any answer at a call argument is the leak every
+    // any-lane leg keeps missing), so mark those faces receiver-first:
+    // the dynobj accessor install then picks BOXED|RECV and its argv
+    // lines up with the declared params, instead of hitting
+    // `guard_anylane_recv_face`.
+    //
+    // The `__this` ANNOTATION deliberately stays nominal. It is not
+    // dead metadata — the width analysis reads it to join a member fn
+    // to its literal, and re-annotating it `any` split the caller's
+    // slot projection from the body's own narrowing (measured: caller
+    // passed the setter value in V0, callee read X3). The receiver
+    // that arrives on the dynobj lane is a box the body never
+    // dereferences, so the lie costs nothing there.
+    s.fnexpr_recv_fns.extend(s.recvless_accessors);
     s.stmts.extend(type_decls);
 }
