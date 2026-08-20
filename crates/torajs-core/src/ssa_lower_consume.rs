@@ -63,7 +63,7 @@ impl<'a> LowerCtx<'a> {
                         info.moved = true;
                     }
                 }
-                Expr::BinOp { left, right, .. } => {
+                Expr::BinOp { op, left, right } => {
                     // Chunk 718 — a BinOp answers a FRESH value
                     // (arithmetic, concat, fresh any box), never an
                     // alias of an Index receiver's heap. Descending
@@ -71,12 +71,20 @@ impl<'a> LowerCtx<'a> {
                     // and stranded the whole container per call
                     // (`return a[0] + a[1]` leaked the array — probe
                     // p717b 42.8MB vs 6.4MB flat, chunk-674 residual
-                    // face). Skip Index operands wholesale (the read
-                    // borrows; the receiver keeps its scope drop);
-                    // every other operand shape keeps the
-                    // conservative walk. Root-position `return a[i]`
-                    // is untouched (elem-borrow returns still pin
-                    // their receiver).
+                    // face).
+                    //
+                    // Rotation 460 — "fresh" is the whole answer for
+                    // every operator EXCEPT the two short-circuiting
+                    // ones: `a && b` / `a || b` hand back one OPERAND,
+                    // so those keep the conservative walk while the
+                    // rest stop here. `return cap + "!"` for a local
+                    // `cap` leaked one string per call — the concat
+                    // allocates and the operand read only borrows, so
+                    // the moved mark stole a drop nobody replaced
+                    // (13.2MB vs 6.7MB flat over 200k).
+                    if !matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr) {
+                        continue;
+                    }
                     for side in [left, right] {
                         if !matches!(self.ast.get_expr(side), Expr::Index { .. }) {
                             stack.push(side);
@@ -136,15 +144,20 @@ impl<'a> LowerCtx<'a> {
                     stack.push(obj);
                     stack.push(index);
                 }
-                Expr::Array(els) => {
-                    for e in els {
-                        stack.push(e);
-                    }
-                }
-                Expr::ObjectLit { fields } => {
-                    for (_, e) in fields {
-                        stack.push(e);
-                    }
+                Expr::Array(_) | Expr::ObjectLit { .. } => {
+                    // Rotation 460, the Call / New owned-result
+                    // invariant in its literal form: an array or
+                    // object literal is a FRESH allocation, and its
+                    // element / field stores take their own +1 off a
+                    // borrowed read (`ssa_lower_object_lit::
+                    // lower_regular_field` retains exactly here).
+                    // Descending double-counted — `return { v: cap }`
+                    // and `return [cap]` each stranded one string per
+                    // call (13.2MB vs 6.7MB flat over 200k), which is
+                    // the same shape the Member / Call arms above were
+                    // narrowed for. A literal whose element is itself
+                    // a local is the only consumable shape here, and
+                    // that is precisely the one the store retains.
                 }
                 Expr::Ternary {
                     cond,
