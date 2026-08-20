@@ -1530,7 +1530,44 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `84a557dc`** (2026-08-20, rotation 456 — RFC
+**Latest @ `a11daeb5`** (2026-08-20, rotation 457 — the
+"unsupported member call shape: call" cluster (31 cases) + the
+cpn-class-*-yield generator side quest, RFC
+20260820-member-call-route, five knives. Knife 1: an inline
+class-instance method's `.call/.apply/.bind` rides the any-dispatch
+lane both ends (checker `is_class_method_read` Any admit ahead of
+the static replay; lowering `class_method_value` joins the
+non-Any-receiver admit set — the S2.34 method-value read is a
+runtime any cell, so the detached-binding kernel already knew how).
+Knife 2: private WRITES gate on the brand before installing
+(`__torajs_any_member_set_priv`, statically selected by the
+`__priv_` prefix; undeclared brand throws instead of minting an
+expando — the read twin existed since r297, and the directed run
+showed all 10 residual bugs were setter/write shapes). Knife 3:
+`invoke_with_this` routes primitive AND nullish thisValues through
+the `__cmany_` twin — the spec TypeError belongs to the member
+read/write site, not the call boundary. Knives 4+5 (recon agent
+report in `.claude/tasks/2026-08-20/gen-class-computed-key-recon.md`):
+the generator lift now walks class computed keys in their side
+table, pins this-reading keys against the hoist, annotates
+generator-local class instances `any`, and bridges the class
+binding itself into a state-machine field (`this.C = C` post-
+rewrite) so cross-arm reads survive. Directed: access-on-inner
+32/32; the 31-case cluster → 25 pass, residue = eval-private ×4 /
+class-expr cpn ×4 / staging ×1 + independents, all logged. Sweep
+vs 456: passTotal 32066 → **32117 (+51)**, bug −16, incompatible
+−35, trAccepted +35, conservation ✓. **One pass regression**,
+attributed: `privatefieldset-evaluation-order-3` — its old pass
+was inflation (the base set kernel installed an expando on the
+foreign receiver and read it back, two wrongs cancelling); knife 2
+removed the silent half, exposing the real gap = constructor
+return-override (§10.2.2 — `return o` from a base ctor must brand
+the returned object), logged in the recon file. New crash/timeout
+0. Gate 3185 → **3191/0/4** across five commits (+5 fixtures).
+Unattributed ≥4 clusters 184 → **183**, cases 1616 → **1584**,
+core 2734 → **2699**.)
+
+**@ `84a557dc`** (2026-08-20, rotation 456 — RFC
 20260820-dstr-deferred-close knife D: rest-form target-first
 sequencing. The bounded walk parks a three-state resume value
 (derived-iterator cell / boxed-int resume index for the builtin

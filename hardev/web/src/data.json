@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T08:26:26.389Z",
+  "generatedAt": "2026-08-20T10:26:02.910Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-20T08:15:06Z",
-    "headSha": "84a557dc",
-    "elapsedSec": 361.56,
+    "ranAt": "2026-08-20T10:15:41Z",
+    "headSha": "a11daeb5",
+    "elapsedSec": 365.5,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26952,
-    "passNoOracle": 967,
+    "pass": 27002,
+    "passNoOracle": 968,
     "passNegative": 4147,
-    "passTotal": 32066,
-    "bug": 12840,
-    "incompatible": 8268,
+    "passTotal": 32117,
+    "bug": 12824,
+    "incompatible": 8233,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44906,
-    "passRateInScope": 60.3,
-    "passRateTrAccepted": 71.41
+    "trAccepted": 44941,
+    "passRateInScope": 60.4,
+    "passRateTrAccepted": 71.46
   },
   "torajs": {
-    "commit": "84a557dc",
-    "commitSubject": "fix: deferred-rest temps pin any so the lifted walk stays reachable",
+    "commit": "a11daeb5",
+    "commitSubject": "feat: generator-local class bindings survive yields through a field",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "a11daeb5",
+      "subject": "feat: generator-local class bindings survive yields through a field"
+    },
+    {
+      "hash": "2e829e28",
+      "subject": "feat: generator-body classes carry computed keys across the lift"
+    },
+    {
+      "hash": "515dc5ec",
+      "subject": "feat: rebound class methods host primitive and nullish thisValues"
+    },
+    {
+      "hash": "3252de56",
+      "subject": "feat: private member writes gate on the brand before installing"
+    },
+    {
+      "hash": "d465aef6",
+      "subject": "feat: inline class-method call/apply/bind rides the any-dispatch lane"
+    },
+    {
+      "hash": "46e67a9a",
+      "subject": "chore: rotation 456 sweep artifacts, roadmap knife-D snapshot, dashboard"
+    },
+    {
       "hash": "84a557dc",
       "subject": "fix: deferred-rest temps pin any so the lifted walk stays reachable"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c9be78b1",
       "subject": "chore: rotation 455 sweep artifacts, roadmap P-SURF snapshot, dashboard"
-    },
-    {
-      "hash": "862ad5fb",
-      "subject": "feat: generator-instance member reads stop refusing objlit argv"
-    },
-    {
-      "hash": "86426743",
-      "subject": "feat: suspendable destructuring patterns defer IteratorClose"
-    },
-    {
-      "hash": "581868c5",
-      "subject": "feat: IteratorClose rejects a non-object return() answer"
-    },
-    {
-      "hash": "dff8ea38",
-      "subject": "fix: init-position dstr assignment reads back the RHS reference"
-    },
-    {
-      "hash": "1cb2472d",
-      "subject": "feat: generator-lifted destructure temps step the iterator protocol"
-    },
-    {
-      "hash": "b8cda55e",
-      "subject": "chore: rotation 454 sweep artifacts, roadmap P-SURF snapshot, dashboard"
     }
   ],
-  "headSha": "84a557dc",
+  "headSha": "a11daeb5",
   "autorun": {
-    "total": 759,
+    "total": 760,
     "baselineTarget": 10,
-    "bySelf": 754,
+    "bySelf": 755,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787208366-0a6c",
-      "at": "2026-08-20T06:46:06Z",
-      "ts": 1787208366,
+      "rotationId": "r-1787214403-23ab",
+      "at": "2026-08-20T08:26:43Z",
+      "ts": 1787214403,
       "trigger": "self",
-      "prevHead": "c9be78b1",
-      "handoffSha": "sha256:5859ae662cdc582b97cc2fe44926b67248e061ae0f6f344cc99f8a430c17360f",
-      "handoffAgeSec": 102,
+      "prevHead": "46e67a9a",
+      "handoffSha": "sha256:6753d82fb91be70d675e91f1d625f58bc9eab06e29f09031cdbda90b6ad308e7",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787214403-23ab",
+        "at": "2026-08-20T08:26:43Z",
+        "ts": 1787214403,
+        "trigger": "self",
+        "prevHead": "46e67a9a",
+        "handoffSha": "sha256:6753d82fb91be70d675e91f1d625f58bc9eab06e29f09031cdbda90b6ad308e7",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787208366-0a6c",
         "at": "2026-08-20T06:46:06Z",
@@ -876,17 +887,6 @@
         "prevHead": "753f8ddb",
         "handoffSha": "sha256:c4eab047615d54c24d217cb8c66c582274b6f0ae2fc740e0c74e9ebba9d226a6",
         "handoffAgeSec": 328,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787121361-2527",
-        "at": "2026-08-19T06:36:01Z",
-        "ts": 1787121361,
-        "trigger": "self",
-        "prevHead": "3abb92d6",
-        "handoffSha": "sha256:9628fa32172e1b74e7bee76efc897cc666c45be82380775dd31a974c8e382e03",
-        "handoffAgeSec": 67,
         "conformanceBefore": null,
         "commitsInSession": null
       }
