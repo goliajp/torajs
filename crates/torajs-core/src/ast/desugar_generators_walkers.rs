@@ -27,6 +27,15 @@ pub(crate) struct LiftCtx<'a> {
     pub(crate) params: &'a [Param],
     pub(crate) fn_sigs: &'a std::collections::HashMap<String, String>,
     pub(crate) binds: std::collections::HashMap<String, String>,
+    /// Classes DECLARED inside this generator's body. A `new C()`
+    /// init whose class is one of these cannot annotate the lifted
+    /// field as `C`: the class never reaches the top-level class
+    /// index (the capturing lane α-renames it to `__cc<N>_C` and its
+    /// name stops being a type name), so the annotation would be an
+    /// `unknown type` at check and an `__tvdefault__C` seed in the
+    /// factory. `any` is the honest slot type — it matches the
+    /// `const __cc<N>_C: any` value the ES5 lane itself produces.
+    pub(crate) local_classes: std::collections::HashSet<String>,
 }
 
 /// J.4 — recursively expand every `Stmt::YieldInto { var, type_ann,

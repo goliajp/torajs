@@ -149,7 +149,15 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
                 }),
         );
     for e in side_exprs {
-        if !body_free(&[], &[Stmt::Expr(e)]) {
+        // A key (or static init) that reads `this` — a generator
+        // state-machine field read minted by the lifted-local rewrite
+        // — pins the class to its declaring scope: hoisted to module
+        // top the reify would silently evaluate against
+        // `__module_this` (undefined). `free_vars` cannot see it
+        // (This is not an Ident), so ask the this-walker directly;
+        // the capturing lane evaluates the key in place, which is
+        // where §15.7.14 puts it.
+        if super::capturing_classes::expr_says_this(ast, e) || !body_free(&[], &[Stmt::Expr(e)]) {
             return false;
         }
     }

@@ -344,6 +344,16 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
             return_type,
             body,
         } => (params, return_type, body),
+        // A class declared IN THIS GENERATOR BODY never reaches the
+        // top-level class index — the capturing lane α-renames it to
+        // `__cc<N>_C` and its name stops being a type name — so the
+        // class-name annotation would be an `unknown type` at check
+        // and an `__tvdefault__C` factory seed. `any` is the honest
+        // slot type (it matches the `const __cc<N>_C: any` value the
+        // ES5 lane itself produces).
+        Expr::New { class_name, .. } if ctx.local_classes.contains(class_name) => {
+            return Some("any".into());
+        }
         Expr::New { class_name, .. } => return Some(class_name.clone()),
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),
         // `null` is the same case as `undefined` one line up: JS's

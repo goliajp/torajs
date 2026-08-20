@@ -59,6 +59,8 @@ pub(super) fn prep_generator_body(
     // `LiftCtx`). The generator's own params seed the lookup; each
     // lifted local joins `binds` as it lands, so a local reading an
     // earlier one resolves.
+    let mut local_classes = std::collections::HashSet::new();
+    collect_local_classes(&gen_body, &mut local_classes);
     let mut lift_ctx = LiftCtx {
         params: gen_params,
         fn_sigs,
@@ -66,6 +68,7 @@ pub(super) fn prep_generator_body(
             .iter()
             .filter_map(|p| p.type_ann.clone().map(|a| (p.name.clone(), a)))
             .collect(),
+        local_classes,
     };
     lift_lets_in_list(ast, &mut gen_body, &mut lifted_locals, &mut lift_ctx);
     for i in 0..lifted_locals.len() {
@@ -97,4 +100,50 @@ pub(super) fn prep_generator_body(
     super::desugar_generators_rewrite::rewrite_params_to_this(ast, &gen_body, &all_names);
 
     (gen_body, lifted_locals)
+}
+
+/// Collect the names of every class DECLARED inside the generator
+/// body (any nesting depth — control flow included). Fed to
+/// `LiftCtx::local_classes` so the field-ann sniff can refuse to
+/// annotate a lifted local with a class name that will never reach
+/// the top-level class index (the capturing lane α-renames it).
+fn collect_local_classes(body: &[Stmt], out: &mut std::collections::HashSet<String>) {
+    for s in body {
+        match s {
+            Stmt::ClassDecl { name, .. } => {
+                out.insert(name.clone());
+            }
+            Stmt::Multi(list) | Stmt::Block(list) => collect_local_classes(list, out),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_local_classes(core::slice::from_ref(then_branch.as_ref()), out);
+                if let Some(e) = else_branch {
+                    collect_local_classes(core::slice::from_ref(e.as_ref()), out);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::Labeled { body, .. }
+            | Stmt::For { body, .. }
+            | Stmt::ForOf { body, .. } => {
+                collect_local_classes(core::slice::from_ref(body.as_ref()), out);
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                collect_local_classes(body, out);
+                collect_local_classes(catch_body, out);
+                if let Some(f) = finally_body {
+                    collect_local_classes(f, out);
+                }
+            }
+            _ => {}
+        }
+    }
 }
