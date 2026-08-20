@@ -221,10 +221,9 @@ pub(super) unsafe fn reflect_set(argv: *const u64, argc: i64) -> u64 {
 }
 
 /// §28.1.6 Reflect.get as a detached call — strict gate, ToString(P),
-/// then the real [[Get]] pair probe: an accessor answer invokes its
-/// getter (this = target — a differing `receiver` argument is the
-/// recorded getter-this boundary), a data answer converts the borrow
-/// to owned before boxing (the `iter_result_get` posture).
+/// then the shared receiver-aware [[Get]] (§28.1.6 step 3: an omitted
+/// receiver is the target, which is the ordinary read every other
+/// caller performs).
 pub(super) unsafe fn reflect_get(argv: *const u64, argc: i64) -> u64 {
     unsafe {
         __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
@@ -232,20 +231,18 @@ pub(super) unsafe fn reflect_get(argv: *const u64, argc: i64) -> u64 {
             return VALUE_UNDEFINED;
         }
         let target = arg_at(argv, argc, 0);
+        let receiver = if argc >= 3 {
+            arg_at(argv, argc, 2)
+        } else {
+            target
+        };
         let key = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 1));
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
         }
         let kp = key as *const core::ffi::c_void;
-        let tag = crate::member_get::__torajs_any_member_get_tag(target, kp);
-        let out = if tag == crate::struct_probe::ANY_ACCESSOR_TAG {
-            let pair_bits = crate::member_get_value::__torajs_any_member_get_value(target, kp);
-            crate::struct_probe::__torajs_any_accessor_get(target, kp, pair_bits)
-        } else {
-            let payload = crate::member_get_value::__torajs_any_member_get_value(target, kp);
-            crate::payload_rc_inc(tag as i64, payload as i64);
-            crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, payload as i64)
-        };
+        let out =
+            crate::member_get_receiver::__torajs_any_member_get_with_receiver(target, kp, receiver);
         crate::__torajs_str_drop(key as *mut core::ffi::c_void);
         out
     }

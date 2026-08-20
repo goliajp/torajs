@@ -143,6 +143,10 @@ pub(crate) struct ObjectIds {
     /// object pulled apart — `Reflect.set`'s four-argument form. The
     /// receiver rides a slot so a DynObj relocation writes back.
     pub any_member_set_with_receiver: FuncId,
+    /// §10.1.8.1 OrdinaryGet with an explicit receiver —
+    /// `Reflect.get`'s three-argument form, and the general lane for
+    /// every target shape the typed-struct fold does not cover.
+    pub any_member_get_with_receiver: FuncId,
     /// §28.1.12 Reflect.setPrototypeOf — boolean-answer flavor of
     /// the OrdinarySetPrototypeOf core (refusal = 0, no throw;
     /// invalid proto still throws).
@@ -273,6 +277,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_any_member_set_with_receiver",
             [Any, Ptr, I64, I64, Ptr],
             I64
+        ),
+        any_member_get_with_receiver: decl!(
+            "__torajs_any_member_get_with_receiver",
+            [Any, Ptr, Any],
+            Any
         ),
         reflect_set_prototype_of: decl!("__torajs_reflect_set_prototype_of", [Any, Any], I64),
         dynobj_define_from_desc_soft: decl!(

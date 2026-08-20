@@ -83,13 +83,16 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Boolean))
         }
         // ES6 §28.1.6 — `Reflect.get(target, key)`. Subset:
-        // typed struct target + literal-string key folds at
-        // ssa-lower time to a struct field load + box-to-Any
-        // (key not in layout → ANY_UNDEF). Dynamic key or
-        // non-struct target stays a deferred substrate.
-        (Type::Object("Reflect"), "get") => {
-            Type::Function(vec![Type::Any, Type::String], Box::new(Type::Any))
-        }
+        // A typed struct target with a literal-string key folds at
+        // ssa-lower time to a struct field load + box-to-Any (key not
+        // in layout → ANY_UNDEF); every other shape takes the general
+        // [[Get]] lane. Key domain is Any per ToPropertyKey — a symbol
+        // key is a key, not its description — and the third parameter
+        // is §28.1.6's receiver.
+        (Type::Object("Reflect"), "get") => Type::Function(
+            vec![Type::Any, Type::Any, Type::Any],
+            Box::new(Type::Any),
+        ),
         // §28.1.5 Reflect.getOwnPropertyDescriptor (rotation 266
         // 刀 R1) — the Object.getOwnPropertyDescriptor lowering
         // with a strict IsObject gate in front (every primitive
