@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T12:23:51.649Z",
+  "generatedAt": "2026-08-20T15:04:09.142Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-20T12:13:08Z",
-    "headSha": "8c84e873",
-    "elapsedSec": 366.21,
+    "ranAt": "2026-08-20T15:02:27Z",
+    "headSha": "7756c8c0",
+    "elapsedSec": 365.44,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27015,
+    "pass": 27082,
     "passNoOracle": 970,
     "passNegative": 4147,
-    "passTotal": 32132,
-    "bug": 12828,
-    "incompatible": 8214,
-    "bunSkip": 6599,
+    "passTotal": 32199,
+    "bug": 12826,
+    "incompatible": 8149,
+    "bunSkip": 6572,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44960,
-    "passRateInScope": 60.43,
-    "passRateTrAccepted": 71.47
+    "trAccepted": 45025,
+    "passRateInScope": 60.55,
+    "passRateTrAccepted": 71.51
   },
   "torajs": {
-    "commit": "8c84e873d",
-    "commitSubject": "feat: a derived constructor may answer only an object or undefined",
+    "commit": "7756c8c0f",
+    "commitSubject": "fix: an element cell retires from the cycle buffer before it frees",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "7756c8c0f",
+      "subject": "fix: an element cell retires from the cycle buffer before it frees"
+    },
+    {
+      "hash": "39709aea1",
+      "subject": "fix: an abrupt final settle rejects the capability instead of escaping"
+    },
+    {
+      "hash": "3bb8e7f1b",
+      "subject": "feat: allSettled and any honor any constructor as their species this"
+    },
+    {
+      "hash": "79a6028d1",
+      "subject": "feat: Promise.all honors any constructor as its species this"
+    },
+    {
+      "hash": "9fea94e55",
+      "subject": "feat: Promise.race honors any constructor as its species this"
+    },
+    {
+      "hash": "219d699e4",
+      "subject": "fix: the test262 harness owns Test262Error.thrower"
+    },
+    {
+      "hash": "90f3e1bf8",
+      "subject": "fix: name and length keep their static arms on a wrapped generic base"
+    },
+    {
+      "hash": "1cd18377f",
+      "subject": "fix: an implicit-generic fn answers its cell in every value position"
+    },
+    {
+      "hash": "d26d6a2e9",
+      "subject": "chore: rotation 458 sweep artifacts, roadmap ctor-return snapshot, dashboard"
+    },
+    {
       "hash": "8c84e873d",
       "subject": "feat: a derived constructor may answer only an object or undefined"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "e1312c152",
       "subject": "feat: a constructor that returns an object answers with it"
-    },
-    {
-      "hash": "acd51757c",
-      "subject": "feat: kernels and lowering for the ctor return-override channel"
-    },
-    {
-      "hash": "e995f2226",
-      "subject": "feat: name the ctor chains that must answer a value"
-    },
-    {
-      "hash": "1867be384",
-      "subject": "chore: rotation 457 sweep artifacts, roadmap member-call snapshot, dashboard"
-    },
-    {
-      "hash": "a11daeb59",
-      "subject": "feat: generator-local class bindings survive yields through a field"
-    },
-    {
-      "hash": "2e829e284",
-      "subject": "feat: generator-body classes carry computed keys across the lift"
-    },
-    {
-      "hash": "515dc5ec2",
-      "subject": "feat: rebound class methods host primitive and nullish thisValues"
-    },
-    {
-      "hash": "3252de56f",
-      "subject": "feat: private member writes gate on the brand before installing"
-    },
-    {
-      "hash": "d465aef6b",
-      "subject": "feat: inline class-method call/apply/bind rides the any-dispatch lane"
-    },
-    {
-      "hash": "46e67a9a8",
-      "subject": "chore: rotation 456 sweep artifacts, roadmap knife-D snapshot, dashboard"
     }
   ],
-  "headSha": "8c84e873d",
+  "headSha": "7756c8c0f",
   "autorun": {
-    "total": 761,
+    "total": 762,
     "baselineTarget": 10,
-    "bySelf": 756,
+    "bySelf": 757,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787221594-2da7",
-      "at": "2026-08-20T10:26:34Z",
-      "ts": 1787221594,
+      "rotationId": "r-1787228660-731f",
+      "at": "2026-08-20T12:24:20Z",
+      "ts": 1787228660,
       "trigger": "self",
-      "prevHead": "1867be38",
-      "handoffSha": "sha256:e0407b69f6aa47a57f9a2fdffe316feb1cf60233eeb3034987d004c95987a153",
-      "handoffAgeSec": 33,
+      "prevHead": "d26d6a2e9",
+      "handoffSha": "sha256:ff5c99ae23abf7ffe4ff95790f62dd3c87a76af52fb8cefd1ba340de1ad14950",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787228660-731f",
+        "at": "2026-08-20T12:24:20Z",
+        "ts": 1787228660,
+        "trigger": "self",
+        "prevHead": "d26d6a2e9",
+        "handoffSha": "sha256:ff5c99ae23abf7ffe4ff95790f62dd3c87a76af52fb8cefd1ba340de1ad14950",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787221594-2da7",
         "at": "2026-08-20T10:26:34Z",
@@ -876,17 +887,6 @@
         "prevHead": "286cb53e",
         "handoffSha": "sha256:9ec6380c0de99ded5ff88c2380bdd64769dbf0aa0a7eba62672ebf5469688a77",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787132772-43c9",
-        "at": "2026-08-19T09:46:12Z",
-        "ts": 1787132772,
-        "trigger": "self",
-        "prevHead": "366b24de",
-        "handoffSha": "sha256:b1e626bbdf50975124edf31cdcbb8db7ba8c3544c01a4dc05c35a2d856930710",
-        "handoffAgeSec": 24,
         "conformanceBefore": null,
         "commitsInSession": null
       }

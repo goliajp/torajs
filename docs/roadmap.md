@@ -1530,7 +1530,53 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `8c84e873`** (2026-08-20, rotation 458 — constructor
+**Latest @ `7756c8c0`** (2026-08-21, rotation 459 — Promise combinators
+over an arbitrary constructor `this`, RFC
+20260820-combinator-any-constructor, plus the implicit-generic value
+positions that blocked it. §27.2.4.{1,3,5,6} name |this| as the species
+constructor C and ask only IsConstructor: step 1 is
+NewPromiseCapability(C) and everything after it reaches C through Call
+and Invoke alone. tr's receiver arm admitted only the builtin Promise
+and classes reaching it, and its heir shortcut could not serve an
+arbitrary C even with the gate open — it hands the element walk to the
+typed fan-in kernels, which mint a builtin promise and only then
+resolve it into the capability, so a user resolve function is handed
+that promise where the algorithm hands it the combined value, and a
+bare thenable element never has its own `then` invoked with the
+capability's functions. `combinator_spec` writes the four algorithms
+out instead. Three orderings are load-bearing and sit where the spec
+puts them: the undefined placeholder is appended before the element is
+resolved (4.c), the counter is incremented between
+Call(promiseResolve, …) and Invoke(…, "then", …) (4.m), and the walk's
+own hold comes off only once the iterator is drained (4.b, which is
+what resolves an empty iterable). [[AlreadyCalled]] lives in the shared
+record keyed by index, not on the cell — allSettled's pair shares ONE
+record. The element cells declare no traceable captures (N cells behind
+one record would let a trial deletion subtract N times for one edge),
+a boundary noted in the module doc. Prerequisite: an implicit-generic
+decl has no lowered original, so `typeof f` answered `undefined`
+silently and `f.prop = v` died loud; both value positions now ride the
+canonical forwarder cell, with `name` / `length` kept on their static
+arms because the shim has lost the parameter defaults. The test262
+harness also gained `Test262Error.thrower`, which real sta.js has and
+ours did not — 36 cases were handing `undefined` to code as a callback.
+Sweep vs 458: passTotal 32132 → **32199 (+67)**, all of it in the
+oracle-matched bucket (passNoOracle +0), bug −2, incompatible −65,
+trAccepted +65, conservation ✓. 73 forward moves: allSettled 24 / all
+18 / any 16 / race 8. Six cases left `pass`, and the evidence says
+water rather than regression: our `assert.throws` drops the class
+argument, and `tr ssa` shows the TypeError for a class declared inside
+a function body is raised from `main()` (its static accessor define is
+hoisted to module init) as a bare string — the old pass was that throw
+being picked up by whichever check came first inside the thunk. Both
+that hoist and a `parseInt(str, obj)` SIGSEGV the harness change
+exposed are logged. Gate 3192 → **3196/0/4**. Guard Malloc caught a
+real use-after-free in this rotation's own new fixture — an element
+cell freed without retiring from the cycle buffer — which the gate is
+structurally blind to. Unattributed ≥4 clusters 182 → **177**, cases
+1574 → **1509**, core 2680 → **2615**.)
+
+**@ `8c84e873`** (2026-08-20, rotation 458 — constructor
 return-override, RFC 20260820-ctor-return-override, five blades. A
 ctor returning an object now makes `new C(o)` answer THAT object and
 carries the class's own elements onto it (§10.2.2 step 13 / §7.3.28),
