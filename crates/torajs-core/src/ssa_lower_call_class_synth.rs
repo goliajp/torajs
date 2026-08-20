@@ -73,6 +73,19 @@ pub(crate) fn try_lower(
         }
         "__torajs_class_computed_reify" => reify::try_lower_class_computed_reify(ctx, args),
         "__torajs_class_computed_key" => reify::try_lower_class_computed_key(ctx, args),
+        // RFC 20260820-dstr-deferred-close — finally-position close of
+        // the parked iterator slot (undefined = no-op). Borrow shape:
+        // the slot keeps its stake, its own drop settles it.
+        "__torajs_dstr_close_pending" => {
+            let it = ctx.lower_expr(args[0]);
+            let cur_block = ctx.cur_block;
+            ctx.f.append_void(
+                cur_block,
+                crate::ssa::InstKind::Call(ctx.intrinsics.dstr_close_pending, vec![it]),
+            );
+            ctx.emit_throw_check(None);
+            Some(crate::ssa::Operand::ConstI64(0))
+        }
         "__torajs_register_native_error" => {
             crate::ssa_lower_call_class_synth_error::try_lower_register_native_error(ctx, args)
         }

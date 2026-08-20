@@ -243,6 +243,10 @@ pub(crate) fn check(
         // evaluated at the class-decl position, answered as the `any`
         // the `__ccmk_<C>_<n>` global holds.
         "__torajs_class_computed_key" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Any))),
+        // RFC 20260820-dstr-deferred-close — the deferred
+        // IteratorClose a suspendable destructuring pattern's finally
+        // calls on its parked iterator slot.
+        "__torajs_dstr_close_pending" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Void))),
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),

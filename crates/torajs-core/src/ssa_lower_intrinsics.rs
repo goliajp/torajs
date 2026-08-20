@@ -528,6 +528,7 @@ pub(crate) struct Intrinsics {
     pub(crate) iterator_zip: FuncId,
     /// RFC 20260730-iterator-global 刀 5c — `Iterator.zipKeyed`.
     pub(crate) iterator_zip_keyed: FuncId,
+    pub(crate) dstr_close_pending: FuncId,
     pub(crate) any_typeof: FuncId,
     pub(crate) any_to_bool: FuncId,
     pub(crate) any_to_number: FuncId,

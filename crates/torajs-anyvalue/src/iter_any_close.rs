@@ -231,3 +231,27 @@ unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
         }
     }
 }
+
+/// `__torajs_dstr_close_pending(it)` — the deferred-close half of a
+/// destructuring pattern whose evaluation can suspend (RFC
+/// 20260820-dstr-deferred-close): the walk parks the still-open
+/// iterator in a dedicated `any` slot, the pattern's element
+/// assignments (and their yields) run, and the desugar's finally
+/// calls this. `undefined` means the walk drained the iterator to
+/// done (a done iterator is not closed — §13.15.5.3 step 5 gates on
+/// [[done]]) or never ran; anything else is the parked iterator,
+/// owed the full §7.4.6 (return() lookup, throw propagation,
+/// non-Object TypeError). Borrow shape — the slot's own drop settles
+/// the parked stake.
+///
+/// # Safety
+/// `it` is `undefined` or a live AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dstr_close_pending(it: AnyValue) {
+    unsafe {
+        if it == VALUE_UNDEFINED {
+            return;
+        }
+        __torajs_iter_close_value(it);
+    }
+}

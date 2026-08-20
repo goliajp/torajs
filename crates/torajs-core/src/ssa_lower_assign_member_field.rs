@@ -192,7 +192,8 @@ pub(crate) fn lower_struct_field_store(
         );
         Operand::Value(alloc)
     } else if field_ty == Type::Any
-        && let Some(w) = crate::ssa_lower_dstr_iter::try_lower_field_walk(ctx, value)
+        && let Some(w) =
+            crate::ssa_lower_dstr_iter::try_lower_field_walk(ctx, value, &obj_val, sid, field)
     {
         // Rotation 455 — a generator-lifted destructure group temp
         // (`this.__dstra_src_N = init`, checker-recorded in

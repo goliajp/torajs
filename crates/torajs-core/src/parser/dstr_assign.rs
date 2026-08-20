@@ -140,8 +140,118 @@ impl<'a> Parser<'a> {
             init: value,
             is_var: false,
         }];
-        self.emit_dstr_assign_pattern(target, &src_name, &mut out)?;
+        let saved = std::mem::replace(&mut self.dstra_saw_yield, false);
+        let mut elems = Vec::new();
+        self.emit_dstr_assign_pattern(target, &src_name, &mut elems)?;
+        let suspends = std::mem::replace(&mut self.dstra_saw_yield, saved);
+        if suspends {
+            self.wrap_deferred_close(id, &mut out, elems);
+        } else {
+            out.extend(elems);
+        }
         Ok(out)
+    }
+
+    /// RFC 20260820-dstr-deferred-close — a pattern whose evaluation
+    /// can suspend (a recovered yield in a default or a target) must
+    /// NOT close its iterator at the walk: §13.15.5.3 step 5 closes
+    /// when the pattern COMPLETES, and an abrupt completion through a
+    /// suspension (`gen.return()`, a throw) still owes the close on
+    /// its way out. The walk parks the still-open iterator in
+    /// `__dstra_it_<id>` (declared here, BEFORE the source temp so
+    /// the lowering can see it; `undefined` = drained/never-opened →
+    /// close no-op), and the element statements ride the engine-
+    /// canonical wrap:
+    ///
+    /// ```text
+    /// try { <elements> }
+    /// catch (e) { threw = true; err = e; }
+    /// finally {
+    ///   try { __torajs_dstr_close_pending(it); }
+    ///   finally { if (threw) throw err; }   // §7.4.6 step 7
+    /// }
+    /// ```
+    ///
+    /// The inner finally re-throws the original error OVER anything
+    /// the close raised — the original completion wins; on the normal
+    /// path the close's own throw (step 8) and the step-9 non-Object
+    /// TypeError propagate. A generator `.return()` routes through
+    /// the finally region (D3b), which is what runs the close.
+    fn wrap_deferred_close(&mut self, id: u32, out: &mut Vec<Stmt>, elems: Vec<Stmt>) {
+        let it_name = format!("__dstra_it_{id}");
+        let threw_name = format!("__dstra_threw_{id}");
+        let err_name = format!("__dstra_err_{id}");
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        out.insert(
+            0,
+            Stmt::LetDecl {
+                mutable: true,
+                name: it_name.clone(),
+                type_ann: Some("any".into()),
+                init: undef,
+                is_var: false,
+            },
+        );
+        let f = self.ast.add_expr(Expr::Bool(false));
+        out.push(Stmt::LetDecl {
+            mutable: true,
+            name: threw_name.clone(),
+            type_ann: Some("boolean".into()),
+            init: f,
+            is_var: false,
+        });
+        let undef2 = self.ast.add_expr(Expr::Ident("undefined".into()));
+        out.push(Stmt::LetDecl {
+            mutable: true,
+            name: err_name.clone(),
+            type_ann: Some("any".into()),
+            init: undef2,
+            is_var: false,
+        });
+        let e_param = format!("__dstra_e_{id}");
+        let threw_w = self.ast.add_expr(Expr::Ident(threw_name.clone()));
+        let t = self.ast.add_expr(Expr::Bool(true));
+        let set_threw = self.ast.add_expr(Expr::Assign {
+            target: threw_w,
+            value: t,
+        });
+        let err_w = self.ast.add_expr(Expr::Ident(err_name.clone()));
+        let e_read = self.ast.add_expr(Expr::Ident(e_param.clone()));
+        let set_err = self.ast.add_expr(Expr::Assign {
+            target: err_w,
+            value: e_read,
+        });
+        let close_callee = self
+            .ast
+            .add_expr(Expr::Ident("__torajs_dstr_close_pending".into()));
+        let it_read = self.ast.add_expr(Expr::Ident(it_name));
+        let close_call = self.ast.add_expr(Expr::Call {
+            callee: close_callee,
+            args: vec![it_read],
+        });
+        let threw_r = self.ast.add_expr(Expr::Ident(threw_name));
+        let err_r = self.ast.add_expr(Expr::Ident(err_name));
+        let rethrow = Stmt::If {
+            cond: threw_r,
+            then_branch: Box::new(Stmt::Block(vec![Stmt::Throw(err_r)])),
+            else_branch: None,
+        };
+        let finally = vec![Stmt::Try {
+            body: vec![Stmt::Expr(close_call)],
+            had_catch: false,
+            catch_param: None,
+            catch_type: None,
+            catch_body: Vec::new(),
+            finally_body: Some(vec![rethrow]),
+        }];
+        out.push(Stmt::Try {
+            body: elems,
+            had_catch: true,
+            catch_param: Some(e_param),
+            catch_type: Some("any".into()),
+            catch_body: vec![Stmt::Expr(set_threw), Stmt::Expr(set_err)],
+            finally_body: Some(finally),
+        });
     }
 
     /// Register the temp's init in `ary_destr_groups`, exactly as the

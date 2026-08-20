@@ -31,9 +31,50 @@
 //! path; natural exhaustion skips it (a done iterator is not closed).
 
 use crate::ast::ExprId;
-use crate::ssa::{BinOp, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{LowerCtx, intern_arr_layout};
+use crate::ssa::{BinOp, IPred, InstKind, Operand, StructId, Terminator, Type};
+use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE, intern_arr_layout};
 use crate::ssa_lower_stmt_let_decl_general::bind_let_slot;
+
+/// RFC 20260820-dstr-deferred-close — where a suspendable pattern's
+/// walk parks its still-open iterator instead of closing it: the
+/// desugar declared `__dstra_it_<id>` right before the group temp,
+/// so the finally's `__torajs_dstr_close_pending` can reach it. A
+/// pattern that drains its source to done leaves the park slot
+/// `undefined` (a done iterator is not closed).
+pub(crate) enum ParkTarget {
+    /// The local `__dstra_it_<id>` alloca (non-generator context).
+    Local(crate::ssa::ValueId),
+    /// The lifted `this.__dstra_it_<id>` field (generator context).
+    Field { obj: Operand, offset: u64 },
+}
+
+/// Resolve the park target the desugar paired with this group temp,
+/// if any — `None` means the pattern cannot suspend and the walk
+/// keeps its eager close.
+fn park_for_local(ctx: &LowerCtx, src_name: &str) -> Option<ParkTarget> {
+    let id = src_name.strip_prefix("__dstra_src_")?;
+    let info = ctx.locals.get(&format!("__dstra_it_{id}"))?;
+    Some(ParkTarget::Local(info.slot))
+}
+
+/// The lifted twin of [`park_for_local`]: both temps became fields
+/// of the generator's state struct, so the park is a field store.
+fn park_for_field(
+    ctx: &LowerCtx,
+    src_field: &str,
+    obj: &Operand,
+    sid: StructId,
+) -> Option<ParkTarget> {
+    let id = src_field.strip_prefix("__dstra_src_")?;
+    let it_name = format!("__dstra_it_{id}");
+    let layout = &ctx.struct_layouts[sid.0 as usize];
+    layout.iter().enumerate().find_map(|(i, (n, _))| {
+        (n == &it_name).then(|| ParkTarget::Field {
+            obj: obj.clone(),
+            offset: OBJ_HEADER_SIZE + (i as u64) * 8,
+        })
+    })
+}
 
 /// The `Stmt::LetDecl` sub-lane for an array-destructuring group temp
 /// whose source needs the iterator protocol. Answers false — leaving
@@ -43,8 +84,9 @@ pub(crate) fn try_lower_group(ctx: &mut LowerCtx, name: &str, init: ExprId) -> b
     let Some(&limit) = ctx.ast.iter_destr_srcs.get(&init) else {
         return false;
     };
+    let park = park_for_local(ctx, name);
     let (recv, minted) = lower_src_to_any(ctx, init);
-    let (arr, arr_ty) = emit_walk(ctx, recv.clone(), limit);
+    let (arr, arr_ty) = emit_walk(ctx, recv.clone(), limit, park);
     // The kernel only borrows the receiver, so the stake that reached it
     // is still ours to settle. A box minted below owns one outright; a
     // pass-through `any` source owes a release only when the expression
@@ -69,7 +111,13 @@ pub(crate) fn try_lower_group(ctx: &mut LowerCtx, name: &str, init: ExprId) -> b
 /// the stepped `Array<Any>` boxed to `Any` — an OWNED stake the field
 /// store takes verbatim (the box is a pure encode; the walk's fresh
 /// array carries the +1).
-pub(crate) fn try_lower_field_walk(ctx: &mut LowerCtx, init: ExprId) -> Option<Operand> {
+pub(crate) fn try_lower_field_walk(
+    ctx: &mut LowerCtx,
+    init: ExprId,
+    obj: &Operand,
+    sid: StructId,
+    field: &str,
+) -> Option<Operand> {
     let &limit = ctx.ast.iter_destr_srcs.get(&init)?;
     // Bounded patterns only. A rest pattern (`limit < 0`) drains to
     // exhaustion, and in a generator that drain runs EAGERLY at the
@@ -83,8 +131,9 @@ pub(crate) fn try_lower_field_walk(ctx: &mut LowerCtx, init: ExprId) -> Option<O
     if limit < 0 {
         return None;
     }
+    let park = park_for_field(ctx, field, obj, sid);
     let (recv, minted) = lower_src_to_any(ctx, init);
-    let (arr, _arr_ty) = emit_walk(ctx, recv.clone(), limit);
+    let (arr, _arr_ty) = emit_walk(ctx, recv.clone(), limit, park);
     if minted {
         ctx.emit_drop_value(recv, Type::Any);
     } else {
@@ -111,10 +160,64 @@ fn lower_src_to_any(ctx: &mut LowerCtx, init: ExprId) -> (Operand, bool) {
     (ctx.box_to_any_from_expr(init, src), true)
 }
 
+/// Deferred close's stop-short arm: transfer the iterator's stake
+/// from the walk's local slot into the park target (its declared
+/// init is `undefined` and the walk runs once per declaration, so no
+/// drop-old is owed), then clear the local slot so the walk's shared
+/// release no-ops. A suspendable pattern always has at least one
+/// element, so the step block ran and the slot holds the derived
+/// iterator — or stays `undefined` for a builtin-indexed lane, which
+/// the pending-close kernel treats as nothing-to-close.
+fn emit_park_transfer(ctx: &mut LowerCtx, iter_slot: crate::ssa::ValueId, target: ParkTarget) {
+    let it = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, Operand::Value(iter_slot), 0),
+        Type::Any,
+        None,
+    );
+    match target {
+        ParkTarget::Local(slot) => {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(it), Operand::Value(slot), 0),
+            );
+        }
+        ParkTarget::Field { obj, offset } => {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(it), obj, offset),
+            );
+        }
+    }
+    let undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_box,
+            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(undef), Operand::Value(iter_slot), 0),
+    );
+}
+
 /// Emit the bounded iteration walk. `limit >= 0` steps at most that
 /// many times and closes the iterator when it stops short; `limit < 0`
 /// drains to exhaustion (a rest element consumes the tail).
-fn emit_walk(ctx: &mut LowerCtx, recv: Operand, limit: i64) -> (Operand, Type) {
+///
+/// With a `park` target the stop-short path PARKS the still-open
+/// iterator there instead of closing it (deferred close — the
+/// pattern's finally settles it); draining to done leaves the park
+/// `undefined` and releases the iterator here as before.
+fn emit_walk(
+    ctx: &mut LowerCtx,
+    recv: Operand,
+    limit: i64,
+    park: Option<ParkTarget>,
+) -> (Operand, Type) {
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let arr_ty = Type::Arr(arr_id);
     let dst = ctx.f.append_inst(
@@ -274,14 +377,19 @@ fn emit_walk(ctx: &mut LowerCtx, recv: Operand, limit: i64) -> (Operand, Type) {
     // also validates iterability here for a zero-step pattern
     // (`const [] = src` never reaches the step block at all).
     ctx.cur_block = close_blk;
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_iter_close,
-            vec![recv, Operand::Value(iter_slot)],
-        ),
-    );
-    ctx.emit_throw_check(None);
+    match park {
+        None => {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_iter_close,
+                    vec![recv, Operand::Value(iter_slot)],
+                ),
+            );
+            ctx.emit_throw_check(None);
+        }
+        Some(target) => emit_park_transfer(ctx, iter_slot, target),
+    }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
 
     ctx.cur_block = after_blk;

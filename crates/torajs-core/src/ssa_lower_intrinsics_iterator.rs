@@ -20,6 +20,7 @@ pub(crate) struct IteratorIds {
     pub iterator_concat: FuncId,
     pub iterator_zip: FuncId,
     pub iterator_zip_keyed: FuncId,
+    pub dstr_close_pending: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -81,6 +82,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_iterator_zip_keyed",
             &[Type::Any, Type::Any],
             Type::Any,
+        ),
+        // RFC 20260820-dstr-deferred-close — close the iterator a
+        // suspendable destructuring pattern parked (undefined =
+        // drained/never-opened → no-op). (it, borrowed Any) → void.
+        dstr_close_pending: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_dstr_close_pending",
+            &[Type::Any],
+            Type::Void,
         ),
     }
 }

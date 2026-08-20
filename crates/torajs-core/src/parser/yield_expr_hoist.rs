@@ -269,6 +269,10 @@ impl<'a> Parser<'a> {
                 self.at()
             ));
         }
+        // RFC 20260820-dstr-deferred-close — a recovered yield means
+        // the pattern's evaluation can suspend; the expansion wraps
+        // its element statements for the deferred IteratorClose.
+        self.dstra_saw_yield = true;
         Ok(Some(recovered))
     }
 }

@@ -457,6 +457,7 @@ pub(crate) fn build(
         iterator_concat: init_c.iterator.iterator_concat,
         iterator_zip: init_c.iterator.iterator_zip,
         iterator_zip_keyed: init_c.iterator.iterator_zip_keyed,
+        dstr_close_pending: init_c.iterator.dstr_close_pending,
         static_method_define: init_c.any_substrate.static_method_define,
         static_field_define: init_c.any_substrate.static_field_define,
         class_cell_raw: init_c.any_substrate.class_cell_raw,

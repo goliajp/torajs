@@ -232,6 +232,12 @@ struct Parser<'a> {
     /// `YieldInto` temps minted mid-expression, drained by the
     /// `parse_stmt` wrapper in front of the finished statement.
     yield_hoist_buf: Vec<Stmt>,
+    /// RFC 20260820-dstr-deferred-close — set when a destructuring
+    /// assignment's expansion recovered a hoisted yield (a default's
+    /// or a target's), i.e. the pattern's evaluation can SUSPEND.
+    /// `desugar_dstr_assign` reads it to decide whether the element
+    /// statements need the deferred-close try/finally wrap.
+    dstra_saw_yield: bool,
     /// False while parsing a conditionally-evaluated sub-expression
     /// (loop cond/step, short-circuit rhs, ternary branch, optional
     /// call, defaults) — expression-position `yield` rejects there.
