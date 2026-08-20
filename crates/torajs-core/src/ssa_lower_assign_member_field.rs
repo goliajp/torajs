@@ -191,6 +191,18 @@ pub(crate) fn lower_struct_field_store(
             None,
         );
         Operand::Value(alloc)
+    } else if field_ty == Type::Any
+        && let Some(w) = crate::ssa_lower_dstr_iter::try_lower_field_walk(ctx, value)
+    {
+        // Rotation 455 — a generator-lifted destructure group temp
+        // (`this.__dstra_src_N = init`, checker-recorded in
+        // `iter_destr_srcs`): step the source through the iterator
+        // protocol instead of storing it raw, so the index reads
+        // below the lift land on a real Array<Any>. The walk's boxed
+        // result is an OWNED stake the field takes verbatim — no
+        // share inc (the general arm's `transfers` question is about
+        // the SOURCE expression, which the walk already settled).
+        w
     } else if let Expr::Array(els) = ctx.ast.get_expr(value)
         && let Type::Arr(arr_id) = field_ty
         && ctx.arr_layouts[arr_id.0 as usize] == Type::Any

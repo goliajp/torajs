@@ -360,7 +360,16 @@ fn struct_has_undef_field(t: &Type) -> bool {
 /// The verdict is recorded against the group temp's init and the temp
 /// binds `Array<Any>` — the shape the lowerer materializes the walk
 /// into, so every index read below it stays exactly as desugared.
-fn pick_ary_destr_lane(
+///
+/// `pub(crate)` since rotation 455: a generator lift rewrites the
+/// group temp's `LetDecl` into `this.<temp> = init` BEFORE check runs,
+/// so [`crate::check_assign_target::check_member`] must ask the same
+/// question at the field-store site — without it a generator-body
+/// destructure of any non-Array source silently indexed `undefined`
+/// out of every slot (the exact silent-wrong this lane exists to
+/// kill). The field's type stays the lift's `any` (the walk result
+/// boxes into it); only the recording matters there.
+pub(crate) fn pick_ary_destr_lane(
     checker: &mut Checker,
     ast: &Ast,
     init: ExprId,

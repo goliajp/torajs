@@ -147,6 +147,15 @@ pub(crate) fn check_member(
         return Ok(field_ty);
     }
     let value_ty = checker.type_of(ast, value)?;
+    // RFC 20260714-dstr-residual blade 3, field-store face (rotation
+    // 455) — a generator lift turns a destructure group temp's
+    // `LetDecl` into `this.<temp> = init` before check runs, so the
+    // iterator-lane verdict has to be asked here too: a non-indexable
+    // source (a custom iterable behind `any`, a Set, a generator)
+    // must be STEPPED per §13.15.5.3, not indexed. Recording is the
+    // whole job — the lifted field is already `any`, and the lowerer's
+    // field-store walk boxes the stepped Array<Any> into it.
+    let _ = crate::check_stmt_let_decl::pick_ary_destr_lane(checker, ast, value, &value_ty);
     if !is_assignable_to_resolved(
         &field_ty,
         &value_ty,

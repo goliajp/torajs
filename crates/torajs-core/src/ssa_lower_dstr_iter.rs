@@ -60,6 +60,39 @@ pub(crate) fn try_lower_group(ctx: &mut LowerCtx, name: &str, init: ExprId) -> b
     true
 }
 
+/// The struct-field twin of [`try_lower_group`] (rotation 455): a
+/// generator lift rewrites the group temp's `LetDecl` into
+/// `this.<temp> = init` before check runs, so the iterator lane has
+/// to answer at the field-store site too — without this the lifted
+/// temp held the raw source and every index read below it answered
+/// `undefined` (the silent-wrong the lane exists to kill). Returns
+/// the stepped `Array<Any>` boxed to `Any` — an OWNED stake the field
+/// store takes verbatim (the box is a pure encode; the walk's fresh
+/// array carries the +1).
+pub(crate) fn try_lower_field_walk(ctx: &mut LowerCtx, init: ExprId) -> Option<Operand> {
+    let &limit = ctx.ast.iter_destr_srcs.get(&init)?;
+    // Bounded patterns only. A rest pattern (`limit < 0`) drains to
+    // exhaustion, and in a generator that drain runs EAGERLY at the
+    // lifted store — before any yield in the pattern's target could
+    // suspend — so `[x, ...o[yield]] = infiniteIterable` (t262
+    // rtrn-close rest family) would hang where the spec suspends
+    // (§13.15.5.5 evaluates the rest TARGET's reference first).
+    // Probe-proven this rotation. The rest family stays on its
+    // pre-lane behaviour until the deferred-close redesign sequences
+    // target evaluation before the drain.
+    if limit < 0 {
+        return None;
+    }
+    let (recv, minted) = lower_src_to_any(ctx, init);
+    let (arr, _arr_ty) = emit_walk(ctx, recv.clone(), limit);
+    if minted {
+        ctx.emit_drop_value(recv, Type::Any);
+    } else {
+        ctx.release_owned_temp(init, &recv);
+    }
+    Some(ctx.box_to_any(arr))
+}
+
 /// Lower the source expression and hand the kernel an AnyValue, saying
 /// whether a box had to be minted for it. A concrete source (a
 /// `Generator` binding, a `Set`) boxes: the box takes a reference of its
