@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T15:04:09.142Z",
+  "generatedAt": "2026-08-20T17:33:33.384Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-20T15:02:27Z",
-    "headSha": "7756c8c0",
-    "elapsedSec": 365.44,
+    "ranAt": "2026-08-20T17:29:54Z",
+    "headSha": "4006d0ec",
+    "elapsedSec": 365.06,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27082,
-    "passNoOracle": 970,
+    "pass": 27085,
+    "passNoOracle": 971,
     "passNegative": 4147,
-    "passTotal": 32199,
+    "passTotal": 32203,
     "bug": 12826,
-    "incompatible": 8149,
+    "incompatible": 8145,
     "bunSkip": 6572,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 45025,
-    "passRateInScope": 60.55,
-    "passRateTrAccepted": 71.51
+    "trAccepted": 45029,
+    "passRateInScope": 60.56,
+    "passRateTrAccepted": 71.52
   },
   "torajs": {
-    "commit": "7756c8c0f",
-    "commitSubject": "fix: an element cell retires from the cycle buffer before it frees",
+    "commit": "4006d0ec1",
+    "commitSubject": "fix: an owned any temp in an array-literal slot releases its own stake",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "4006d0ec1",
+      "subject": "fix: an owned any temp in an array-literal slot releases its own stake"
+    },
+    {
+      "hash": "92aba998a",
+      "subject": "fix: a return of a fresh container stops stealing its operands' scope drops"
+    },
+    {
+      "hash": "ae081f390",
+      "subject": "fix: an abrupt ToInt32 of the parseInt radix propagates instead of parsing on"
+    },
+    {
+      "hash": "a2605c67b",
+      "subject": "feat: a prototype store admits however the prototype object was reached"
+    },
+    {
+      "hash": "b69d0990d",
+      "subject": "fix: the argv face admits the same expando stores the fnexpr-this arm does"
+    },
+    {
+      "hash": "31fa9c42c",
+      "subject": "feat: an expando store on an object-literal binding promotes its fn-expr receiver"
+    },
+    {
+      "hash": "1e08fcf5d",
+      "subject": "feat: a fn-expr handed to a call-only user-fn param binds this receiver-less"
+    },
+    {
+      "hash": "b3f1e94a1",
+      "subject": "chore: rotation 459 sweep artifacts, roadmap combinator snapshot, dashboard"
+    },
+    {
       "hash": "7756c8c0f",
       "subject": "fix: an element cell retires from the cycle buffer before it frees"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "79a6028d1",
       "subject": "feat: Promise.all honors any constructor as its species this"
-    },
-    {
-      "hash": "9fea94e55",
-      "subject": "feat: Promise.race honors any constructor as its species this"
-    },
-    {
-      "hash": "219d699e4",
-      "subject": "fix: the test262 harness owns Test262Error.thrower"
-    },
-    {
-      "hash": "90f3e1bf8",
-      "subject": "fix: name and length keep their static arms on a wrapped generic base"
-    },
-    {
-      "hash": "1cd18377f",
-      "subject": "fix: an implicit-generic fn answers its cell in every value position"
-    },
-    {
-      "hash": "d26d6a2e9",
-      "subject": "chore: rotation 458 sweep artifacts, roadmap ctor-return snapshot, dashboard"
-    },
-    {
-      "hash": "8c84e873d",
-      "subject": "feat: a derived constructor may answer only an object or undefined"
-    },
-    {
-      "hash": "58546e64c",
-      "subject": "fix: the ctor pick's answer needs an assignment to hold it"
-    },
-    {
-      "hash": "e1312c152",
-      "subject": "feat: a constructor that returns an object answers with it"
     }
   ],
-  "headSha": "7756c8c0f",
+  "headSha": "4006d0ec1",
   "autorun": {
-    "total": 762,
+    "total": 763,
     "baselineTarget": 10,
-    "bySelf": 757,
+    "bySelf": 758,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787228660-731f",
-      "at": "2026-08-20T12:24:20Z",
-      "ts": 1787228660,
+      "rotationId": "r-1787238269-0ac9",
+      "at": "2026-08-20T15:04:29Z",
+      "ts": 1787238269,
       "trigger": "self",
-      "prevHead": "d26d6a2e9",
-      "handoffSha": "sha256:ff5c99ae23abf7ffe4ff95790f62dd3c87a76af52fb8cefd1ba340de1ad14950",
-      "handoffAgeSec": 29,
+      "prevHead": "b3f1e94a1",
+      "handoffSha": "sha256:7dcd09eda04e5ed2810b08f814ae234fcf115c7489e185fb987b56674b04e28b",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787238269-0ac9",
+        "at": "2026-08-20T15:04:29Z",
+        "ts": 1787238269,
+        "trigger": "self",
+        "prevHead": "b3f1e94a1",
+        "handoffSha": "sha256:7dcd09eda04e5ed2810b08f814ae234fcf115c7489e185fb987b56674b04e28b",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787228660-731f",
         "at": "2026-08-20T12:24:20Z",
@@ -876,17 +887,6 @@
         "prevHead": "ab332e88",
         "handoffSha": "sha256:a1ef6a0cb84924b2e3560fb1705e4ea0b378ae213230419bd0c74c4376560dfd",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787146110-677e",
-        "at": "2026-08-19T13:28:30Z",
-        "ts": 1787146110,
-        "trigger": "self",
-        "prevHead": "286cb53e",
-        "handoffSha": "sha256:9ec6380c0de99ded5ff88c2380bdd64769dbf0aa0a7eba62672ebf5469688a77",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }

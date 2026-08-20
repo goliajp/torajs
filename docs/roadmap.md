@@ -5206,7 +5206,13 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 424 closing sweep `3800ad73`, core **4212**,
+(refreshed @ rotation 460 closing sweep `4006d0ec`, core **2611**,
+**177** clusters of ≥ 4 holding 1507 cases; 661 clusters of ≤ 3 hold
+828 more (31.7 %), and the subset-decision register accounts for 276
+across two entries. Coverage: top 10 = 13.9 %, top 25 = 24.9 %,
+top 100 = 52.4 %, top 400 = 82.5 %.
+
+Earlier stamp @ rotation 424 closing sweep `3800ad73`, core **4212**,
 **234** clusters of ≥ 4 holding 2767 cases; 734 clusters of ≤ 3 hold
 923 more (21.9 %), and the subset-decision register accounts for 522
 across two entries. Coverage: top 10 = 14.8 %, top 25 = 29.5 %,
