@@ -1530,7 +1530,31 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `862ad5fb`** (2026-08-20, rotation 455 — deferred
+**Latest @ `84a557dc`** (2026-08-20, rotation 456 — RFC
+20260820-dstr-deferred-close knife D: rest-form target-first
+sequencing. The bounded walk parks a three-state resume value
+(derived-iterator cell / boxed-int resume index for the builtin
+indexed lane / undefined = drained-to-done — mutually exclusive,
+and the pending close no-ops on a non-cell), a prefix-0 stop runs
+GetIterator before the pattern can suspend, and the rest slot
+expands as recovered-yield → lref hoist → park take + clear →
+`target = __torajs_dstr_drain_rest(taken, raw)` — the statement
+order itself carries §7.4.6: an lref throw leaves the park intact
+(close fires), a mid-drain next() throw finds the slot cleared
+(thrw-close-skip). The checker pins a deferred-rest group to the
+iterator lane regardless of static source type. One red gate
+mid-chain (ArrayLit source): the generator lift's already-lifted-
+alias sniff outranks the `__dstra_src_` any fallback, so both temps
+now pin `any` explicitly. Sweep vs 455: passTotal 32054 → **32066
+(+12)**, bug **−12**, incompatible ±0, conservation ✓, **zero pass
+regressions** (24 diff rows = exactly the rest basic/err/null ×
+plain/trlg × assignment/for-of target set). Gate 3183 → **3185/0/4**
+across five commits (+2 fixtures). Remaining: per-element lazy
+sequencing (the 2 elem-family rtrn-close-err stragglers — spec
+evaluates an AssignmentElement's lref before its IteratorStep),
+declaration-form deferred close, nested-pattern inner iterators.)
+
+**@ `862ad5fb`** (2026-08-20, rotation 455 — deferred
 IteratorClose for suspendable destructuring patterns, RFC
 20260820-dstr-deferred-close. Knife 1: generator-lifted destructure
 group temps step the iterator protocol (the lift's field-store had
