@@ -253,6 +253,15 @@ fn rewrite_params_in_expr(
         }
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
+                // A computed key's expr (`{ [k]: v }`) lives in the
+                // objlit_computed_keys side table keyed by the VALUE
+                // ExprId, not in the field list — without walking it
+                // a lifted-local read inside the brackets (a hoisted
+                // yield temp most of all) never becomes `this.<name>`
+                // and the checker reports it unknown.
+                if let Some(&k) = ast.objlit_computed_keys.get(&e) {
+                    rewrite_params_in_expr(ast, k, pset, visited);
+                }
                 rewrite_params_in_expr(ast, e, pset, visited);
             }
         }
