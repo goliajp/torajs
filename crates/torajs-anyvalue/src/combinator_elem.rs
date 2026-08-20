@@ -1,12 +1,17 @@
-//! §27.2.4.1.3 Promise.all Resolve Element Functions — the per-element
-//! record and the closure cells that carry it (RFC
-//! 20260820-combinator-any-constructor blade 3).
+//! The element functions of §27.2.4.{1,3,6} — the per-run record and
+//! the closure cells that carry it (RFC
+//! 20260820-combinator-any-constructor blades 3-5).
 //!
-//! `PerformPromiseAll` mints one function per element, each holding
-//! its own `[[AlreadyCalled]]` / `[[Index]]` and SHARING the run's
-//! `[[Values]]`, `[[RemainingElements]]` and `[[Capability]]`. The
-//! shared half lives in a manually refcounted [`ElemState`] the cells
-//! point at; the per-element half rides two extra capture slots.
+//! Each PerformPromiseX mints one or two functions per element, each
+//! holding its own `[[Index]]` and SHARING the run's values list,
+//! `[[RemainingElements]]` and one capability function. The shared
+//! half lives in a manually refcounted [`ElemState`]; the per-element
+//! half rides two extra capture slots.
+//!
+//! `[[AlreadyCalled]]` lives in the state, keyed by index, rather than
+//! on the cell — allSettled's resolve and reject functions for one
+//! element share ONE such record (§27.2.4.3.2 step 4.n), which a
+//! per-cell byte could not express.
 //!
 //! Cell layout (the [`crate::promise_capability`] executor's shape,
 //! two slots wider):
@@ -20,7 +25,7 @@
 //!   offset 40 — trace_fn = 0
 //!   offset 48 — *mut ElemState (shared, manually refcounted)
 //!   offset 56 — [[Index]] i64
-//!   offset 64 — [[AlreadyCalled]] u8
+//!   offset 64 — which algorithm's element function this is
 //! ```
 //!
 //! `trace_fn` is 0 on purpose: the shared state is one block behind N
@@ -43,7 +48,7 @@ const CLOSURE_PROPS_OFF: usize = 24;
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 const STATE_OFF: usize = 48;
 const INDEX_OFF: usize = 56;
-const ALREADY_OFF: usize = 64;
+const KIND_OFF: usize = 64;
 const CELL_SIZE: usize = 72;
 
 /// dynobj bucket tags + reflection flags (promise_capability mirror).
@@ -51,8 +56,27 @@ const ANY_HEAP: u64 = 4;
 const ANY_I64: u64 = 2;
 const REFLECT_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 << 2);
 
+/// Which spec function a cell is. The value slot each writes and the
+/// `[[AlreadyCalled]]` record they share are the only differences.
+#[derive(Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub(crate) enum ElemKind {
+    /// §27.2.4.1.3 — records `x` itself.
+    AllResolve = 0,
+    /// §27.2.4.3.3 — records `{ status: "fulfilled", value: x }`.
+    SettledResolve = 1,
+    /// §27.2.4.3.4 — records `{ status: "rejected", reason: x }`.
+    SettledReject = 2,
+    /// §27.2.4.6.3 — records `x` in the errors list.
+    AnyReject = 3,
+}
+
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    /// torajs-throw — the injected `__new_AggregateError` factory, or
+    /// NULL when the program has no such class.
+    fn __torajs_make_aggregate_error(errors: i64) -> *mut c_void;
     fn __torajs_dynobj_define(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
@@ -74,24 +98,43 @@ pub(crate) struct ElemState {
     refs: usize,
     /// §27.2.4.1.2 step 2 `[[RemainingElements]].[[Value]]`.
     pub(crate) remaining: i64,
-    /// `[[Values]]` — one OWNED box per element, `undefined` until
-    /// that element's function runs.
+    /// `[[Values]]` (or `[[Errors]]`) — one OWNED box per element,
+    /// `undefined` until that element's function runs.
     pub(crate) values: Vec<u64>,
-    /// `[[Capability]].[[Resolve]]` — an OWNED box.
-    resolve: u64,
+    /// `[[AlreadyCalled]]` per element — one record shared by an
+    /// allSettled element's resolve / reject pair.
+    already: Vec<u8>,
+    /// The capability function the drained counter calls: resolve for
+    /// all / allSettled, reject for any. An OWNED box.
+    settle: u64,
+    /// any-lane — wrap the finished list in an AggregateError first
+    /// (§27.2.4.6.3 step 8.a).
+    aggregate: bool,
 }
 
 impl ElemState {
-    /// A fresh state holding one stake on the capability's resolve
-    /// function and one self-reference for the minting walk.
-    pub(crate) unsafe fn new(resolve: u64) -> *mut ElemState {
-        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_inc(resolve) };
+    /// A fresh state holding one stake on the capability function and
+    /// one self-reference for the minting walk.
+    pub(crate) unsafe fn new(settle: u64, aggregate: bool) -> *mut ElemState {
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_inc(settle) };
         Box::into_raw(Box::new(ElemState {
             refs: 1,
             remaining: 1,
             values: Vec::new(),
-            resolve,
+            already: Vec::new(),
+            settle,
+            aggregate,
         }))
+    }
+
+    /// Step 4.c of every PerformPromiseX — reserve this element's slot
+    /// before it is resolved, so a synchronously-settling element
+    /// writes into a list that is already long enough.
+    pub(crate) unsafe fn reserve_slot(st: *mut ElemState) {
+        unsafe {
+            (*st).values.push(VALUE_UNDEFINED);
+            (*st).already.push(0);
+        }
     }
 }
 
@@ -106,7 +149,7 @@ pub(crate) unsafe fn state_release(st: *mut ElemState) {
         for v in &owned.values {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(*v);
         }
-        crate::nanbox_ffi::__torajs_anyv_rc_dec(owned.resolve);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(owned.settle);
     }
 }
 
@@ -129,10 +172,21 @@ unsafe fn resolve_with_values(st: *mut ElemState) {
             // Owned transfer — the slot inherits our stake.
             __torajs_arr_set_any(arr.cast(), i as u64, tag as u64, value as u64);
         }
-        let boxed = crate::nanbox_encode::__torajs_anyv_box_pointer(arr.cast());
+        let mut boxed = crate::nanbox_encode::__torajs_anyv_box_pointer(arr.cast());
+        if (*st).aggregate {
+            // §27.2.4.6.3 step 8.a. A program without the injected
+            // class gets NULL back; forwarding the errors array is a
+            // better answer than none (the torajs-promise sibling's
+            // recorded posture).
+            let agg = __torajs_make_aggregate_error(boxed as i64);
+            if !agg.is_null() {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(boxed);
+                boxed = crate::nanbox_encode::__torajs_anyv_box_pointer(agg);
+            }
+        }
         let one = [boxed];
         let out =
-            crate::method_call_closure_dispatch::__torajs_any_call((*st).resolve, one.as_ptr(), 1);
+            crate::method_call_closure_dispatch::__torajs_any_call((*st).settle, one.as_ptr(), 1);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(boxed);
     }
@@ -149,26 +203,75 @@ pub(crate) unsafe fn count_down(st: *mut ElemState) {
     }
 }
 
-/// §27.2.4.1.3 — record `x` at this function's index, then drain the
-/// counter. Steps 1-3 make the second call a no-op.
-unsafe extern "C" fn all_elem_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
+/// The shared body of §27.2.4.1.3 / .3.3 / .3.4 / .6.3 — record this
+/// element's answer at its index, then drain the counter. The
+/// [[AlreadyCalled]] steps make every call after the first a no-op,
+/// including the one from the sibling of an allSettled pair.
+unsafe extern "C" fn elem_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
     unsafe {
         let cell = env.cast::<u8>();
-        if *cell.add(ALREADY_OFF) != 0 {
-            return VALUE_UNDEFINED;
-        }
-        *cell.add(ALREADY_OFF) = 1;
         let st = *(cell.add(STATE_OFF) as *const u64) as *mut ElemState;
         let index = *(cell.add(INDEX_OFF) as *const i64) as usize;
+        let already = &raw mut (*st).already;
+        let flag = (*already).as_mut_ptr().add(index);
+        if *flag != 0 {
+            return VALUE_UNDEFINED;
+        }
+        *flag = 1;
         let x = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
-        // argv slots are borrows; the values list keeps its own stake.
-        crate::nanbox_ffi::__torajs_anyv_rc_inc(x);
+        let recorded = match kind_of(cell) {
+            ElemKind::AllResolve | ElemKind::AnyReject => {
+                // argv slots are borrows; the list keeps its own stake.
+                crate::nanbox_ffi::__torajs_anyv_rc_inc(x);
+                x
+            }
+            ElemKind::SettledResolve => settled_record(b"fulfilled", b"value", x),
+            ElemKind::SettledReject => settled_record(b"rejected", b"reason", x),
+        };
         let values = &raw mut (*st).values;
         let slot = (*values).as_mut_ptr().add(index);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(*slot);
-        *slot = x;
+        *slot = recorded;
         count_down(st);
         VALUE_UNDEFINED
+    }
+}
+
+/// Read a cell's kind slot back. The byte is written once at mint
+/// from an `ElemKind` discriminant, so every value is in range.
+unsafe fn kind_of(cell: *const u8) -> ElemKind {
+    match unsafe { *cell.add(KIND_OFF) } {
+        0 => ElemKind::AllResolve,
+        1 => ElemKind::SettledResolve,
+        2 => ElemKind::SettledReject,
+        _ => ElemKind::AnyReject,
+    }
+}
+
+/// §27.2.4.3.3 steps 9-11 / .3.4 steps 9-11 — the ordinary object
+/// `{ status, value | reason }`, as an OWNED box. Both properties are
+/// CreateDataPropertyOrThrow, which on a fresh object is the plain
+/// writable / enumerable / configurable shape an ordinary [[Set]]
+/// makes.
+unsafe fn settled_record(status: &[u8], value_key: &[u8], x: u64) -> u64 {
+    unsafe {
+        let mut obj = __torajs_dynobj_alloc();
+        let slot = &raw mut obj;
+        let status_key = __torajs_str_alloc(b"status".as_ptr(), 6);
+        let status_val = __torajs_str_alloc(status.as_ptr(), status.len() as i64);
+        // The entry takes ownership of the VALUE; only the key is
+        // copied, so only the key is dropped here (the capability
+        // executor's own `name` seed reads the same way).
+        __torajs_dynobj_set(slot, status_key.cast(), ANY_HEAP, status_val as u64);
+        __torajs_str_drop(status_key.cast());
+        let vkey = __torajs_str_alloc(value_key.as_ptr(), value_key.len() as i64);
+        let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(x);
+        let value = crate::nanbox_encode::__torajs_anyv_unbox_value(x);
+        // The entry takes ownership of a heap payload.
+        crate::nanbox_ffi::__torajs_anyv_rc_inc(x);
+        __torajs_dynobj_set(slot, vkey.cast(), tag as u64, value as u64);
+        __torajs_str_drop(vkey.cast());
+        crate::nanbox_encode::__torajs_anyv_box_pointer(obj)
     }
 }
 
@@ -190,9 +293,9 @@ unsafe extern "C" fn elem_drop(env: *mut c_void) {
     }
 }
 
-/// Mint one §27.2.4.1.3 function over `st` at `index` — `name` "" /
+/// Mint one element function over `st` at `index` — `name` "" /
 /// `length` 1 per its definition. Takes a reference on the state.
-pub(crate) unsafe fn mint_all_elem(st: *mut ElemState, index: i64) -> u64 {
+pub(crate) unsafe fn mint_elem(st: *mut ElemState, index: i64, kind: ElemKind) -> u64 {
     unsafe {
         (*st).refs += 1;
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
@@ -203,9 +306,10 @@ pub(crate) unsafe fn mint_all_elem(st: *mut ElemState, index: i64) -> u64 {
         *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) =
             crate::method_value::native_entry as *const () as u64;
         *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = elem_drop as *const () as u64;
-        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = all_elem_entry as *const () as u64;
+        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = elem_entry as *const () as u64;
         *(cell.add(STATE_OFF) as *mut u64) = st as u64;
         *(cell.add(INDEX_OFF) as *mut i64) = index;
+        *cell.add(KIND_OFF) = kind as u8;
         seed_reflection(cell);
         crate::nanbox_encode::__torajs_anyv_box_pointer(cell.cast())
     }

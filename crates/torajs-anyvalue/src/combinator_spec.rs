@@ -22,10 +22,11 @@
 //! Race (§27.2.4.5.1) is the whole algorithm with no per-element
 //! function at all — the capability's own resolve / reject go
 //! straight into every element's `then`, and first settle wins. All
-//! (§27.2.4.1.2) mints one §27.2.4.1.3 function per element over a
-//! shared values / counter record; that record and its cells live in
-//! the [`crate::combinator_elem`] sibling. allSettled and any land in
-//! later blades of the RFC.
+//! The other three mint element functions over a shared values /
+//! counter record — one per element for all (§27.2.4.1.2) and any
+//! (§27.2.4.6.2), a resolve / reject PAIR for allSettled
+//! (§27.2.4.3.2). That record and its cells live in the
+//! [`crate::combinator_elem`] sibling.
 
 use crate::combinator_elem::ElemState;
 use crate::nanbox::VALUE_UNDEFINED;
@@ -43,11 +44,12 @@ unsafe extern "C" {
 /// the caller owes the capability an IfAbruptRejectPromise.
 type Abrupt = Result<(), ()>;
 
-/// Which algorithm the spec walk runs. Only the two written out so
-/// far; allSettled / any join as their element functions land.
-#[derive(Clone, Copy)]
+/// Which algorithm the spec walk runs.
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SpecComb {
     All,
+    AllSettled,
+    Any,
     Race,
 }
 
@@ -76,7 +78,7 @@ pub(crate) unsafe fn run(kind: SpecComb, c: u64, v: u64) -> u64 {
         } else {
             match kind {
                 SpecComb::Race => perform_race(c, pr, v, resolve_f, reject_f),
-                SpecComb::All => perform_all(c, pr, v, resolve_f, reject_f),
+                _ => perform_elementwise(kind, c, pr, v, resolve_f, reject_f),
             }
         };
         if pr != 0 {
@@ -123,15 +125,31 @@ unsafe fn perform_race(c: u64, pr: u64, v: u64, resolve_f: u64, reject_f: u64) -
     }
 }
 
-/// §27.2.4.1.2 PerformPromiseAll — one §27.2.4.1.3 function per
-/// element over a shared values / counter record, and the
-/// capability's own reject for the failure side. The record outlives
-/// this walk (the element functions hold it), so the walk releases
-/// only its own reference on the way out.
-unsafe fn perform_all(c: u64, pr: u64, v: u64, resolve_f: u64, reject_f: u64) -> Abrupt {
+/// PerformPromiseAll (§27.2.4.1.2) / AllSettled (§27.2.4.3.2) / Any
+/// (§27.2.4.6.2) — the three that mint element functions over a
+/// shared values / counter record. They differ only in which
+/// capability function the drained counter calls and which of the two
+/// `then` handlers each element gets. The record outlives this walk
+/// (the element functions hold it), so the walk releases only its own
+/// reference on the way out.
+unsafe fn perform_elementwise(
+    kind: SpecComb,
+    c: u64,
+    pr: u64,
+    v: u64,
+    resolve_f: u64,
+    reject_f: u64,
+) -> Abrupt {
     unsafe {
-        let st = crate::combinator_elem::ElemState::new(resolve_f);
-        let out = perform_all_inner(c, pr, v, reject_f, st);
+        // any is the mirror image: it counts REJECTIONS down to an
+        // AggregateError on the capability's reject function.
+        let settle = if kind == SpecComb::Any {
+            reject_f
+        } else {
+            resolve_f
+        };
+        let st = crate::combinator_elem::ElemState::new(settle, kind == SpecComb::Any);
+        let out = perform_elementwise_inner(kind, c, pr, v, resolve_f, reject_f, st);
         if out.is_ok() {
             // Step 4.b — the iterator is drained, so the walk's own
             // hold on the counter comes off. An empty run, or one
@@ -144,8 +162,18 @@ unsafe fn perform_all(c: u64, pr: u64, v: u64, resolve_f: u64, reject_f: u64) ->
     }
 }
 
-/// The element loop of [`perform_all`] — steps 4.a through 4.o.
-unsafe fn perform_all_inner(c: u64, pr: u64, v: u64, reject_f: u64, st: *mut ElemState) -> Abrupt {
+/// The element loop of [`perform_elementwise`] — steps 4.a through
+/// 4.o of whichever algorithm is running.
+#[allow(clippy::too_many_arguments)]
+unsafe fn perform_elementwise_inner(
+    kind: SpecComb,
+    c: u64,
+    pr: u64,
+    v: u64,
+    resolve_f: u64,
+    reject_f: u64,
+    st: *mut ElemState,
+) -> Abrupt {
     unsafe {
         let mut idx: i64 = 0;
         let mut iter_slot: u64 = VALUE_UNDEFINED;
@@ -165,16 +193,53 @@ unsafe fn perform_all_inner(c: u64, pr: u64, v: u64, reject_f: u64, st: *mut Ele
             // Step 4.c — the slot exists before the element resolves,
             // so an element that settles synchronously writes into a
             // list that is already the right length.
-            (*st).values.push(VALUE_UNDEFINED);
-            let on_ok = crate::combinator_elem::mint_all_elem(st, index);
-            let step = resolve_and_attach(c, pr, next, on_ok, reject_f, st);
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(on_ok);
+            crate::combinator_elem::ElemState::reserve_slot(st);
+            let (on_ok, on_err) = mint_handlers(kind, st, index, resolve_f, reject_f);
+            let step = resolve_and_attach(c, pr, next, on_ok, on_err, st);
+            release_minted(kind, on_ok, on_err);
             crate::nanbox_ffi::__torajs_anyv_rc_dec(next);
             if step.is_err() {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(iter_slot);
                 return Err(());
             }
             index += 1;
+        }
+    }
+}
+
+/// The `then` handler pair for one element. all attaches its element
+/// function on the fulfilled side and the capability's own reject on
+/// the other; any is the mirror; allSettled mints BOTH, sharing one
+/// [[AlreadyCalled]] record through their common index.
+unsafe fn mint_handlers(
+    kind: SpecComb,
+    st: *mut ElemState,
+    index: i64,
+    resolve_f: u64,
+    reject_f: u64,
+) -> (u64, u64) {
+    use crate::combinator_elem::{ElemKind, mint_elem};
+    unsafe {
+        match kind {
+            SpecComb::All => (mint_elem(st, index, ElemKind::AllResolve), reject_f),
+            SpecComb::Any => (resolve_f, mint_elem(st, index, ElemKind::AnyReject)),
+            _ => (
+                mint_elem(st, index, ElemKind::SettledResolve),
+                mint_elem(st, index, ElemKind::SettledReject),
+            ),
+        }
+    }
+}
+
+/// Release only what [`mint_handlers`] minted — the capability
+/// functions it passed through are the caller's.
+unsafe fn release_minted(kind: SpecComb, on_ok: u64, on_err: u64) {
+    unsafe {
+        if kind != SpecComb::Any {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(on_ok);
+        }
+        if kind != SpecComb::All {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(on_err);
         }
     }
 }

@@ -140,17 +140,15 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
             // resolves the capability with the resulting promise, so a
             // user resolve function sees a promise where the algorithm
             // hands it the combined value, and a bare thenable element
-            // never has its own `then` invoked). Only race is written
-            // out so far; the other three keep the loud TypeError until
-            // their element functions land.
+            // never has its own `then` invoked). A |this| that is not a
+            // constructor at all keeps the step-1 TypeError.
             let spec = match kind {
-                PromiseComb::Race => Some(crate::combinator_spec::SpecComb::Race),
-                PromiseComb::All => Some(crate::combinator_spec::SpecComb::All),
-                _ => None,
+                PromiseComb::Race => crate::combinator_spec::SpecComb::Race,
+                PromiseComb::All => crate::combinator_spec::SpecComb::All,
+                PromiseComb::AllSettled => crate::combinator_spec::SpecComb::AllSettled,
+                PromiseComb::Any => crate::combinator_spec::SpecComb::Any,
             };
-            if let Some(spec) = spec
-                && crate::construct::is_constructor(this)
-            {
+            if crate::construct::is_constructor(this) {
                 return crate::combinator_spec::run(spec, this, v);
             }
             return promise_settle();
