@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `b317112e`** (2026-08-20, rotation 454 — the test262
+**Latest @ `862ad5fb`** (2026-08-20, rotation 455 — deferred
+IteratorClose for suspendable destructuring patterns, RFC
+20260820-dstr-deferred-close. Knife 1: generator-lifted destructure
+group temps step the iterator protocol (the lift's field-store had
+bypassed both ends of the RFC-20260714 iter lane — every index read
+answered undefined, a silent-wrong for any non-Array iterable inside
+a generator body); rest patterns stay gated (eager drain would hang
+where the spec suspends, probe-proven). Knife 2 (gate-caught):
+§13.15.2 init-position identity — `var r = ([x] = vals)` reads the
+RHS reference back through a chain-style hoist, not the pattern's
+group temp. Knife 3: §7.4.6 step 9 — a close whose return() answers
+a non-Object throws TypeError, both close tiers. Knife 4 (the core):
+a pattern containing a yield defers its IteratorClose — the desugar
+wraps the element statements in the engine-canonical try/catch/
+finally, the walk PARKS the still-open iterator (`__dstra_it_<id>`,
+local slot or lifted field) instead of closing, and the finally's
+`__torajs_dstr_close_pending` settles it; gen.return() routes
+through the D3b finally region, which is what runs the close at the
+spec's moment. Knife 5: the objlit boxed-only argv census stops
+refusing fields whose next/return/throw spelling only appears off
+generator-instance bindings (every value source a registered
+generator factory call). Sweep vs 454: passTotal 32029 → **32054
+(+25)**, bug **−25**, incompatible ±0, conservation 0 = +25 − 25 ✓,
+**zero pass regressions** (50 diff rows all forward: rtrn-close +
+nrml-close-null across assignment/for-of dstr, 4 for-await siblings,
+iterator-close-non-object). Gate 3179 → **3183/0/4** across five
+substrate commits (+4 fixtures; one red gate mid-chain caught and
+fixed same-day). Remaining in the RFC: rest-form target-first
+sequencing, declaration-form deferred close, nested-pattern inner
+iterators.)
+
+**@ `b317112e`** (2026-08-20, rotation 454 — the test262
 dstr-yield family's expression form, computed-name yields, and the
 return-escaped `arguments` face. Knife 1: the generator-expression
 hoist sees through `var iter, x;` multi-name declarations

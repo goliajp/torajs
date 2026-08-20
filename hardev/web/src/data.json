@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T05:11:47.632Z",
+  "generatedAt": "2026-08-20T06:45:22.125Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-20T05:01:00Z",
-    "headSha": "b317112e",
-    "elapsedSec": 364.61,
+    "ranAt": "2026-08-20T06:33:50Z",
+    "headSha": "862ad5fb",
+    "elapsedSec": 361.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26915,
+    "pass": 26940,
     "passNoOracle": 967,
     "passNegative": 4147,
-    "passTotal": 32029,
-    "bug": 12877,
+    "passTotal": 32054,
+    "bug": 12852,
     "incompatible": 8268,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 44906,
-    "passRateInScope": 60.23,
-    "passRateTrAccepted": 71.32
+    "passRateInScope": 60.28,
+    "passRateTrAccepted": 71.38
   },
   "torajs": {
-    "commit": "b317112e",
-    "commitSubject": "feat: return-escaped fn-exprs join the arguments argv face",
+    "commit": "862ad5fb",
+    "commitSubject": "feat: generator-instance member reads stop refusing objlit argv",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "862ad5fb",
+      "subject": "feat: generator-instance member reads stop refusing objlit argv"
+    },
+    {
+      "hash": "86426743",
+      "subject": "feat: suspendable destructuring patterns defer IteratorClose"
+    },
+    {
+      "hash": "581868c5",
+      "subject": "feat: IteratorClose rejects a non-object return() answer"
+    },
+    {
+      "hash": "dff8ea38",
+      "subject": "fix: init-position dstr assignment reads back the RHS reference"
+    },
+    {
+      "hash": "1cb2472d",
+      "subject": "feat: generator-lifted destructure temps step the iterator protocol"
+    },
+    {
+      "hash": "b8cda55e",
+      "subject": "chore: rotation 454 sweep artifacts, roadmap P-SURF snapshot, dashboard"
+    },
+    {
       "hash": "b317112e",
       "subject": "feat: return-escaped fn-exprs join the arguments argv face"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "27693928",
       "subject": "chore: rotation 453 sweep artifacts, roadmap P-SURF snapshot, dashboard"
-    },
-    {
-      "hash": "5fc545b9",
-      "subject": "refactor: dstr-assign single-slot emitter moves to its own sibling"
-    },
-    {
-      "hash": "1b806624",
-      "subject": "fix: nested dstr src temp in a generator annotates any"
-    },
-    {
-      "hash": "698d8d2f",
-      "subject": "feat: yield inside a destructuring-assignment target evaluates at its slot"
-    },
-    {
-      "hash": "2b73326b",
-      "subject": "feat: yield in a destructuring-assignment default rides a statement-level guard"
-    },
-    {
-      "hash": "53ac0390",
-      "subject": "refactor: yield-hoist evaluation-order events move to their own sibling"
-    },
-    {
-      "hash": "71208670",
-      "subject": "style: fmt-drift fix on the noparse-throw arm"
     }
   ],
-  "headSha": "b317112e",
+  "headSha": "862ad5fb",
   "autorun": {
-    "total": 757,
+    "total": 758,
     "baselineTarget": 10,
-    "bySelf": 752,
+    "bySelf": 753,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787173553-5fca",
-      "at": "2026-08-19T21:05:53Z",
-      "ts": 1787173553,
+      "rotationId": "r-1787202764-2de0",
+      "at": "2026-08-20T05:12:44Z",
+      "ts": 1787202764,
       "trigger": "self",
-      "prevHead": "27693928",
-      "handoffSha": "sha256:09bf6147fa233c5dab50411630aa142ab0f79a3c23c10878ebe91893430d1597",
-      "handoffAgeSec": 0,
+      "prevHead": "b8cda55e",
+      "handoffSha": "sha256:dea7c659dc52c3bb54c837a8bf5b123cacb591da10afeec38479a0298fb749eb",
+      "handoffAgeSec": 57,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787202764-2de0",
+        "at": "2026-08-20T05:12:44Z",
+        "ts": 1787202764,
+        "trigger": "self",
+        "prevHead": "b8cda55e",
+        "handoffSha": "sha256:dea7c659dc52c3bb54c837a8bf5b123cacb591da10afeec38479a0298fb749eb",
+        "handoffAgeSec": 57,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787173553-5fca",
         "at": "2026-08-19T21:05:53Z",
@@ -876,17 +887,6 @@
         "prevHead": "43dcf76c",
         "handoffSha": "sha256:5789882e30da728baee351fe9361f5a523fba308053abaa2617ea570e04c2c47",
         "handoffAgeSec": 25,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787109799-331b",
-        "at": "2026-08-19T03:23:19Z",
-        "ts": 1787109799,
-        "trigger": "self",
-        "prevHead": "412f8342",
-        "handoffSha": "sha256:2b1c17810eb0f50943b9b44b9ff602ec9941279f73e3e03997366fb736e16f49",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
