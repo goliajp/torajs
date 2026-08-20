@@ -1530,7 +1530,40 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `5fc545b9`** (2026-08-20, rotation 453 — the
+**Latest @ `b317112e`** (2026-08-20, rotation 454 — the test262
+dstr-yield family's expression form, computed-name yields, and the
+return-escaped `arguments` face. Knife 1: the generator-expression
+hoist sees through `var iter, x;` multi-name declarations
+(Stmt::Multi) — top-level names were never captures, so the whole
+"reassigned capture" refusal for the t262 template shape dissolves;
+the real capture-box boundary (a written LOCAL capture) still
+refuses. Knife 2 (a gate-caught correction of knife 1's second
+half): the dstr-assignment src temp's `any` belongs at the
+field-annotation sniff's FALLBACK, not as a parser-side pin — a
+sniffable ArrayLit source keeps its typed lane (the pin had broken
+the conditional-default guard), and r453's nested-point pin retires
+into the same fallback. Knife 3: a free-ident generator field init
+(the `var vals = value;` t262 aliasing idiom) falls back to `any`
+instead of number. Knife 4: the lifted-local → `this.<name>` rewrite
+walks the objlit_computed_keys side table, so `{ [yield]: v }` /
+computed accessor pairs work. Knife 5 (survey-driven): fn-exprs
+escaping through RETURN join the arguments argv face (fifth arm on
+admit_boxed_only), and argv-face members publish the checker's
+rest-tail spelling (`__fn(__rest(any[]))->R`) instead of leaking
+`__argvptr()` into inferred sigs — the r452 a1/a3 repros and
+Promise `invoke-resolve-get-once-multiple-calls` ×2 go green.
+Sweep vs 453: passTotal 32006 → **32029 (+23)**, bug **+12**,
+incompatible **−35**, conservation +35 = +23 + 12 ✓, **zero pass
+regressions** (37 diff rows all forward; 12 rtrn-close cases
+compile now and fail honestly on the missing IteratorClose
+semantics). Gate 3176 → **3179/0/4** across five substrate commits
+(+3 fixtures; one red gate mid-chain caught and fixed same-day).
+The gate predicate: **184 unattributed clusters / 1616 cases /
+register 2 · 278 (SR-1 190, SR-2 92) / residue 670 · 840 / core
+2734** — both headline numbers down together (−4 clusters, −32
+cases).)
+
+**Prior @ `5fc545b9`** (2026-08-20, rotation 453 — the
 `not callable: type Object("Function")` cluster's constant-text half
 and the whole yield-in-destructuring parse face. Knife 1: annexB
 §B.1.3 HTML-like comments under a new script-goal lexer entry

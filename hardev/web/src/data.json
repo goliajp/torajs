@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T21:05:07.212Z",
+  "generatedAt": "2026-08-20T05:11:47.632Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-19T20:52:07Z",
-    "headSha": "5fc545b9",
-    "elapsedSec": 365.67,
+    "ranAt": "2026-08-20T05:01:00Z",
+    "headSha": "b317112e",
+    "elapsedSec": 364.61,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 26892,
+    "pass": 26915,
     "passNoOracle": 967,
     "passNegative": 4147,
-    "passTotal": 32006,
-    "bug": 12865,
-    "incompatible": 8303,
+    "passTotal": 32029,
+    "bug": 12877,
+    "incompatible": 8268,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44871,
-    "passRateInScope": 60.19,
-    "passRateTrAccepted": 71.33
+    "trAccepted": 44906,
+    "passRateInScope": 60.23,
+    "passRateTrAccepted": 71.32
   },
   "torajs": {
-    "commit": "5fc545b9",
-    "commitSubject": "refactor: dstr-assign single-slot emitter moves to its own sibling",
+    "commit": "b317112e",
+    "commitSubject": "feat: return-escaped fn-exprs join the arguments argv face",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "b317112e",
+      "subject": "feat: return-escaped fn-exprs join the arguments argv face"
+    },
+    {
+      "hash": "983d3451",
+      "subject": "feat: generator lifted-local rewrite walks objlit computed keys"
+    },
+    {
+      "hash": "2e61e755",
+      "subject": "feat: free-ident generator field inits fall back to any"
+    },
+    {
+      "hash": "928f3c95",
+      "subject": "fix: dstr src temp any lands at the sniff fallback, not the parser"
+    },
+    {
+      "hash": "7fe958a8",
+      "subject": "feat: generator expression sees through multi-name var decls"
+    },
+    {
+      "hash": "27693928",
+      "subject": "chore: rotation 453 sweep artifacts, roadmap P-SURF snapshot, dashboard"
+    },
+    {
       "hash": "5fc545b9",
       "subject": "refactor: dstr-assign single-slot emitter moves to its own sibling"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "71208670",
       "subject": "style: fmt-drift fix on the noparse-throw arm"
-    },
-    {
-      "hash": "0b3fb534",
-      "subject": "feat: dynamic-function text that fails to parse throws SyntaxError at the call"
-    },
-    {
-      "hash": "d315370d",
-      "subject": "feat: annexB html-like comments under the script goal for eval and dynamic-function text"
-    },
-    {
-      "hash": "36a6942c",
-      "subject": "docs: carve-out marker on the ns-static dispatch table"
-    },
-    {
-      "hash": "79e096ba",
-      "subject": "chore(hardev): rotation 452 dashboard snapshot"
-    },
-    {
-      "hash": "359f382e",
-      "subject": "chore(hardev): rotation 452 test262 sweep artifacts"
-    },
-    {
-      "hash": "76673ad9",
-      "subject": "fix: restore the zero-arg-handler fixture the no-handler probe overwrote"
     }
   ],
-  "headSha": "5fc545b9",
+  "headSha": "b317112e",
   "autorun": {
-    "total": 756,
+    "total": 757,
     "baselineTarget": 10,
-    "bySelf": 751,
+    "bySelf": 752,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787164570-1d01",
-      "at": "2026-08-19T18:36:10Z",
-      "ts": 1787164570,
+      "rotationId": "r-1787173553-5fca",
+      "at": "2026-08-19T21:05:53Z",
+      "ts": 1787173553,
       "trigger": "self",
-      "prevHead": "36a6942c",
-      "handoffSha": "sha256:9c3f3a03c16a05edf926876db64e7ba25a48774197221c5844f65f8acf681bcb",
+      "prevHead": "27693928",
+      "handoffSha": "sha256:09bf6147fa233c5dab50411630aa142ab0f79a3c23c10878ebe91893430d1597",
       "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787173553-5fca",
+        "at": "2026-08-19T21:05:53Z",
+        "ts": 1787173553,
+        "trigger": "self",
+        "prevHead": "27693928",
+        "handoffSha": "sha256:09bf6147fa233c5dab50411630aa142ab0f79a3c23c10878ebe91893430d1597",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787164570-1d01",
         "at": "2026-08-19T18:36:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "412f8342",
         "handoffSha": "sha256:2b1c17810eb0f50943b9b44b9ff602ec9941279f73e3e03997366fb736e16f49",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787102101-038f",
-        "at": "2026-08-19T01:15:01Z",
-        "ts": 1787102101,
-        "trigger": "self",
-        "prevHead": "779473a8",
-        "handoffSha": "sha256:34cd2023f93ab0a1cd499459525060154ef95ed65c6a7ec3d1a7ebd396713171",
-        "handoffAgeSec": 30,
         "conformanceBefore": null,
         "commitsInSession": null
       }
