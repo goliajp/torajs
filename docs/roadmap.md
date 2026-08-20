@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `7756c8c0`** (2026-08-21, rotation 459 — Promise combinators
+**Latest @ `65cc2e6c`** (2026-08-21, rotation 462 — three coercion
+steps that had been implemented as shape gates, plus the discovery that
+the gate's own oracle had gone stale). `Symbol(desc)` admitted only
+String / Undefined, so `Symbol(1)` — how test262 mints a throwaway
+symbol — was a compile error reaching 45 cases across 9 directories;
+§20.4.1.1 step 3 is `? ToString(description)` and the gate is gone
+entirely, the lowering taking the implicit ToString face so a Symbol
+description still throws the catchable TypeError the spec asks for.
+`Reflect.set` accepted a fourth argument and ignored it, getting three
+of four observable answers wrong; `Reflect.get` did not compile at all
+on an `any` target, which is the shape the function exists for. Both
+now ride receiver-aware [[Get]] / [[Set]] kernels — the only place in
+the language where the object whose property table decides and the
+object that receives can differ — and the split cost almost nothing
+because the dynobj chain walk already carried a receiver parameter for
+the ordinary inherited-accessor case. Two member reads that mint their
+answer (`sym.description`, `f.name`) were leaking a cell per read, found
+by re-measuring memory on a lane that had just been given new inputs.
+Sweep passTotal **32274** (+43), pass 27224 (+43), bug 12843 (+8),
+incompatible **8057** (−51), trAccepted 45117 (+51 — conservation
+exact). Gate predicate: **174** clusters of ≥ 4 (−1) holding **1458**
+cases (−21), register 2 · 276, residue 650 · 813 (31.9%), core **2547**
+(−27). One pass regression, `class/dstr/meth-obj-ptrn-rest-getter`
+pass → exit 139, proved by an inert-perturbation experiment to be a
+LATENT layout-sensitive null-deref rather than a defect of this
+rotation: the r461 baseline plus a behaviourally empty two-function
+module crashes at the same 10/40 rate. Registered, not reverted.
+
+**Previous @ `7756c8c0`** (2026-08-21, rotation 459 — Promise combinators
 over an arbitrary constructor `this`, RFC
 20260820-combinator-any-constructor, plus the implicit-generic value
 positions that blocked it. §27.2.4.{1,3,5,6} name |this| as the species
