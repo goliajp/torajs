@@ -104,9 +104,9 @@ pub(crate) fn try_lower(
             "setPrototypeOf" if args.len() >= 2 => Some(
                 crate::ssa_lower_call_reflect_integrity::lower_reflect_set_prototype_of(ctx, args),
             ),
-            "set" if args.len() >= 3 => Some(
-                crate::ssa_lower_call_reflect_set::lower_reflect_set(ctx, args),
-            ),
+            "set" if args.len() >= 3 => Some(crate::ssa_lower_call_reflect_set::lower_reflect_set(
+                ctx, args,
+            )),
             _ => None,
         };
     }
