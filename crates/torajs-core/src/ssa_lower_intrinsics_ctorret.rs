@@ -15,19 +15,20 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct CtorRetIds {
     /// §10.2.2 step 13 — serves both the super site and the factory.
+    /// Third operand is the constructor kind (nonzero = derived), which
+    /// names the parent at a super site and the class at a factory.
     pub ctor_ret_value: FuncId,
     /// One own element moved onto an adopted object.
     pub ctor_ret_carry: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> CtorRetIds {
-    let any_pair = &[Type::Any, Type::Any][..];
     CtorRetIds {
         ctor_ret_value: declare_intrinsic(
             module,
             fn_table,
             "__torajs_ctor_ret_value",
-            any_pair,
+            &[Type::Any, Type::Any, Type::I64],
             Type::Any,
         ),
         ctor_ret_carry: declare_intrinsic(

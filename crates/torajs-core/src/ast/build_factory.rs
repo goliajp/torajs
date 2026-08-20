@@ -141,7 +141,9 @@ pub(crate) fn build_factory_body(
                 is_var: false,
             });
             let minted = ast.add_expr(Expr::Ident("__this".into()));
-            let picked = super::desugar_classes_ctor_return::pick_call(ast, minted, answer);
+            let derived = super::desugar_classes_ctor_return::is_derived(ast, cname);
+            let picked =
+                super::desugar_classes_ctor_return::pick_call(ast, minted, answer, derived);
             let undef = ast.add_expr(Expr::Ident("undefined".into()));
             body.push(Stmt::LetDecl {
                 mutable: true,

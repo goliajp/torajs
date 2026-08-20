@@ -58,7 +58,11 @@ use torajs_rc::{AnySlotTag, Tag};
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
+
+/// `nanbox` immediate for `undefined` — step 13.c's one exemption.
+const VALUE_UNDEFINED: AnyValue = crate::nanbox::VALUE_UNDEFINED;
 
 /// Whether a value is an Object for step 13's purposes.
 ///
@@ -78,25 +82,42 @@ fn is_object(v: AnyValue) -> bool {
     }
 }
 
-/// §10.2.2 step 13: an object answers itself, anything else leaves
-/// the incumbent `this` standing. Used at both step-13 sites — the
-/// `super(…)` answer taking over as `this`, and the factory reading
-/// what the constructor answered.
+/// §10.2.2 step 13: an object answers itself; for a base class
+/// anything else leaves the incumbent `this` standing; for a DERIVED
+/// class only `undefined` may do so, and any other non-object is a
+/// TypeError (step 13.c).
 ///
-/// Recorded boundary — for a DERIVED class step 13.b makes a
-/// non-undefined non-object a TypeError rather than a fallback. This
-/// kernel takes the base-class branch for both, which is what the
-/// pre-RFC shape did for every class (it dropped the return outright),
-/// so nothing regresses; the missing throw is on the RFC's boundary
-/// list.
+/// Used at both step-13 sites, and `derived` names a different class
+/// at each. At the factory it is the class being constructed. At a
+/// `super(…)` site it is the PARENT — that call is where the parent's
+/// [[Construct]] step 13 happens, because tr's `super(…)` reaches
+/// `__cm_<P>__ctor` directly and never goes through P's own factory.
+///
+/// A throw still answers the incumbent: the caller's throw check is
+/// what ends the path, and handing back a live object keeps the
+/// intervening drops well-formed.
 ///
 /// # Safety
 /// Both operands are live AnyValue bit patterns the caller keeps
 /// alive across the call. The answer is a BORROW of one of them, and
 /// must be consumed by an assignment (see the module doc).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_ctor_ret_value(this_v: AnyValue, v: AnyValue) -> AnyValue {
-    if is_object(v) { v } else { this_v }
+pub unsafe extern "C" fn __torajs_ctor_ret_value(
+    this_v: AnyValue,
+    v: AnyValue,
+    derived: i64,
+) -> AnyValue {
+    if is_object(v) {
+        return v;
+    }
+    if derived != 0 && v != VALUE_UNDEFINED {
+        unsafe {
+            __torajs_throw_type_error(
+                c"derived constructor may only return an object or undefined".as_ptr(),
+            );
+        }
+    }
+    this_v
 }
 
 /// Move one of the class's own declared elements onto the object the

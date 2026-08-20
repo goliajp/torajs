@@ -141,7 +141,13 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
             });
             let sup_read = ast.add_expr(Expr::Ident("__sup".into()));
             let incumbent = ast.add_expr(Expr::This);
-            let picked = super::desugar_classes_ctor_return::pick_call(ast, incumbent, sup_read);
+            let parent_derived = super::desugar_classes_ctor_return::is_derived(ast, parent_name);
+            let picked = super::desugar_classes_ctor_return::pick_call(
+                ast,
+                incumbent,
+                sup_read,
+                parent_derived,
+            );
             let target = ast.add_expr(Expr::This);
             let adopt = ast.add_expr(Expr::Assign {
                 target,

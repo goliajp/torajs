@@ -81,6 +81,16 @@ pub(crate) fn scan_call(
             if name == "__torajs_ctor_no_super_throw" {
                 *direct = true;
             }
+            // RFC 20260820-ctor-return-override — §10.2.2 step 13.c:
+            // the pick records a TypeError when a DERIVED constructor
+            // answers a non-object. Without this bit the ctor, its
+            // factory and the `new` site are all judged
+            // never-throwing, and the factory's own throw path
+            // (`ret 0`) hands the caller a zero that reads back as an
+            // unknown any tag while the `catch` never runs.
+            if name == "__torajs_ctor_ret_value" {
+                *direct = true;
+            }
             // §10.4.4.6 step 21 — the strict `arguments.callee`
             // thrower the arguments desugar mints (read / write /
             // delete positions) ALWAYS records a TypeError; without

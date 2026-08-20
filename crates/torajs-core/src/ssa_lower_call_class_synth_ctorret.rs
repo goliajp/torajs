@@ -5,8 +5,8 @@
 //! Two synthetic call names the class desugar emits, and only for the
 //! classes `Ast::ctor_return_override` names:
 //!
-//! - `__torajs_ctor_ret_value(incumbent, v)` — the §10.2.2 step 13
-//!   pick, at both the `super(…)` site and the factory.
+//! - `__torajs_ctor_ret_value(incumbent, v, derived)` — the §10.2.2
+//!   step 13 pick, at both the `super(…)` site and the factory.
 //! - `__torajs_ctor_ret_carry(minted, target, "<name>")` — one of the
 //!   class's own elements moved onto an adopted object.
 //!
@@ -51,16 +51,27 @@ fn any_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
 
 /// See module doc.
 fn try_lower_value(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 2 {
+    if args.len() != 3 {
         return None;
     }
+    let Expr::Bool(derived) = ctx.ast.get_expr(args[2]) else {
+        return None;
+    };
+    let derived = Operand::ConstI64(i64::from(*derived));
     let a = any_arg(ctx, args[0]);
     let b = any_arg(ctx, args[1]);
     let fid = ctx.intrinsics.ctor_ret_value;
     let cur_block = ctx.cur_block;
-    let out = ctx
-        .f
-        .append_inst(cur_block, InstKind::Call(fid, vec![a, b]), Type::Any, None);
+    let out = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(fid, vec![a, b, derived]),
+        Type::Any,
+        None,
+    );
+    // Step 13.c raises for a derived constructor answering a
+    // non-object; the kernel records it and still answers a live
+    // object, so this check is what actually ends the path.
+    ctx.emit_throw_check(None);
     Some(Operand::Value(out))
 }
 

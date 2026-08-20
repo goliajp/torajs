@@ -149,14 +149,38 @@ pub(super) fn reshape_ctor(ast: &mut Ast, params: &mut [Param], body: &mut Vec<S
     "any".to_string()
 }
 
-/// `__torajs_ctor_ret_value(incumbent, candidate)` — the §10.2.2 step
-/// 13 pick, minted for the factory and the super site alike.
-pub(super) fn pick_call(ast: &mut Ast, incumbent: ExprId, candidate: ExprId) -> ExprId {
+/// `__torajs_ctor_ret_value(incumbent, candidate, derived)` — the
+/// §10.2.2 step 13 pick, minted for the factory and the super site
+/// alike.
+///
+/// `derived` decides step 13.c, and it names a DIFFERENT class at
+/// each site: the class being constructed at the factory, and the
+/// PARENT at a super site — that call is where the parent's own
+/// [[Construct]] step 13 happens, since tr's `super(…)` reaches
+/// `__cm_<P>__ctor` directly and never goes through P's factory.
+///
+/// Read off `Ast::class_parents`, which the strip pass has already
+/// touched: a class extending a builtin (`class C extends Object`) is
+/// derived per spec but reads as base here. That is the same view the
+/// rest of the desugar takes, and keeping one view beats a second
+/// truth about who is derived.
+pub(super) fn pick_call(
+    ast: &mut Ast,
+    incumbent: ExprId,
+    candidate: ExprId,
+    derived: bool,
+) -> ExprId {
     let callee = ast.add_expr(Expr::Ident("__torajs_ctor_ret_value".into()));
+    let kind = ast.add_expr(Expr::Bool(derived));
     ast.add_expr(Expr::Call {
         callee,
-        args: vec![incumbent, candidate],
+        args: vec![incumbent, candidate, kind],
     })
+}
+
+/// Does `cname` have an `extends` clause the desugar kept?
+pub(super) fn is_derived(ast: &Ast, cname: &str) -> bool {
+    ast.class_parents.get(cname).is_some_and(Option::is_some)
 }
 
 /// `__torajs_ctor_ret_carry(minted, target, "<name>")` — one own

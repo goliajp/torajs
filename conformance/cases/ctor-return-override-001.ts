@@ -77,3 +77,38 @@ class S4 extends P4 {
   }
 }
 console.log(new S4().sv, new S4() instanceof S4, new C4() instanceof C4);
+
+// Step 13.c — a DERIVED constructor may answer only an object or
+// undefined; anything else is a TypeError. The kind that decides this
+// names a different class at each site: the class being constructed
+// at the factory, and the PARENT at a super call, since that call is
+// where the parent's own [[Construct]] step 13 happens.
+class B3 {
+  constructor() {
+    return 5 as any;
+  }
+}
+class D3 extends B3 {
+  constructor() {
+    super();
+    return 5 as any;
+  }
+}
+try {
+  const bad: any = new D3();
+  console.log('no-throw', typeof bad);
+} catch (e) {
+  console.log('threw', e instanceof TypeError);
+}
+
+// undefined is the one exemption, and an inherited default ctor never
+// reaches step 13.c at all — its super call applies the BASE parent's
+// kind.
+class D4 extends B3 {
+  constructor() {
+    super();
+    return undefined as any;
+  }
+}
+class D5 extends B3 {}
+console.log(typeof new D4(), typeof (new D5() as any));
