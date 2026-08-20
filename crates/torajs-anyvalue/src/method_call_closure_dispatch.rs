@@ -282,6 +282,23 @@ pub(crate) unsafe fn invoke_with_this(
             if flags & torajs_rc::FLAG_CLASS_METHOD_THIS_FREE != 0 {
                 return invoke_boxed(core::ptr::null_mut(), adapter, argv, argc);
             }
+            // RFC 20260820-member-call-route knife 3 — every other
+            // thisValue (int / f64 / bool immediates, and nullish)
+            // hosts the receiver-polymorphic `__cmany_` twin:
+            // §10.2.1.2 OrdinaryCallBindThis binds the thisArgument
+            // as-is in a strict (class) body, and the spec TypeError
+            // belongs to the member READ/WRITE site, not the call
+            // boundary — the twin's any-lane kernels raise it there
+            // (§13.2.3 GetValue on nullish, the §7.3.31/.32 brand
+            // check on a brand-less receiver), so a body-side `try`
+            // observes it and pre-throw side effects run (the
+            // privatefieldget/put-primitive-receiver family asserts
+            // exactly this). A twin-less mono body keeps the
+            // bare-entry TypeError below: it reads the class layout
+            // off `this` and can host nothing foreign.
+            if face_tag != 0 && twin != 0 {
+                return invoke_boxed_recv_first(env, twin, this_arg, argv, argc);
+            }
         }
         if recv_first_shift(env) != 0 {
             return invoke_boxed_recv_first(env, entry, this_arg, argv, argc);
