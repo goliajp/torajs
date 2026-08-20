@@ -27,8 +27,10 @@
 //! Exit code: 0 if all pass, 1 if any fail.
 
 mod exec;
+mod oracle;
 
 use exec::exec;
+use oracle::get_or_fill_bun_oracle;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
@@ -429,48 +431,6 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
         };
     }
     Outcome::Pass
-}
-
-/// Return bun's stdout for `src`. On cache hit (content-hash match)
-/// reads the cached bytes directly; on miss runs `bun run` once and
-/// writes the result into `conformance/.oracle-cache/<hash>.out`.
-///
-/// Why this helps: each `bun run` is ~10-20 ms wall time even for
-/// trivial fixtures; 685 cases × 15 ms ≈ 10 s of cumulative bun
-/// startup that is pure dead-weight once the oracle output for a
-/// given source byte-sequence is known. Cache key is the FxHash-ish
-/// content hash, same shape as `tr run`'s own cache key — false
-/// misses are harmless (re-runs bun) but content-equal sources are
-/// always served from disk.
-fn get_or_fill_bun_oracle(src: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(src).map_err(|e| format!("read {}: {e}", src.display()))?;
-    let hash = content_hash(&bytes);
-    let cache_dir = repo_root_oracle_cache_dir();
-    let cache_path = cache_dir.join(format!("{hash}.out"));
-    if let Ok(s) = std::fs::read_to_string(&cache_path) {
-        return Ok(s);
-    }
-    let (out, _) = exec("bun", &["run", src.to_str().unwrap()])?;
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let _ = std::fs::write(&cache_path, &out);
-    Ok(out)
-}
-
-fn content_hash(bytes: &[u8]) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut h);
-    // Cache version tag — bump if oracle semantics change (e.g.
-    // bun version pinned + acknowledged). Plain literal here so a
-    // stale cache from a different convention doesn't poison runs.
-    "oracle-v1".hash(&mut h);
-    format!("{:016x}", h.finish())
-}
-
-fn repo_root_oracle_cache_dir() -> PathBuf {
-    std::env::current_dir()
-        .map(|p| p.join("conformance/.oracle-cache"))
-        .unwrap_or_else(|_| PathBuf::from("conformance/.oracle-cache"))
 }
 
 fn die(msg: &str) -> ! {
