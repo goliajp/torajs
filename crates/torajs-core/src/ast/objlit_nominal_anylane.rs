@@ -47,6 +47,13 @@ use super::{Expr, ExprId, Stmt};
 ///   SHORTHAND spelling (`{ __proto__ }`) is an ordinary own field
 ///   (`objlit_shorthand_proto_exprs`) and keeps the nominal stamp.
 ///
+/// - (i) an ACCESSOR-bearing literal whose binding a LATER statement
+///   pushes onto the dynobj lane (`Object.defineProperty(o, …)` /
+///   `delete o.x` / `o[k] = v`) — the one leg that does not read the
+///   literal's own site, and the only one that asks
+///   [`crate::dynobj_degrade`] rather than re-deriving a rule
+///   ([`super::objlit_nominal_degraded`]).
+///
 /// Still NOT covered: closure-valued callees and method-shape calls
 /// whose any params the SSA route serves — those keep the nominal
 /// stamp and the dynobj-init guard rejects their recv members
@@ -55,10 +62,21 @@ pub(super) fn collect_anylane_objlits(
     stmts: &[Stmt],
     exprs: &[Expr],
     shorthand_proto: &std::collections::HashSet<ExprId>,
+    computed_keys: &HashMap<ExprId, ExprId>,
+    computed_accessors: &HashMap<ExprId, bool>,
 ) -> std::collections::HashSet<u32> {
     let mut marked: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut roots: Vec<ExprId> = Vec::new();
     collect_any_let_inits(stmts, &mut roots);
+    // (i) — an accessor-bearing literal whose BINDING a later
+    // statement degrades to the dynobj lane; see
+    // [`super::objlit_nominal_degraded`].
+    roots.extend(super::objlit_nominal_degraded::degraded_accessor_objlits(
+        stmts,
+        exprs,
+        computed_keys,
+        computed_accessors,
+    ));
     let fn_any_params = collect_fn_any_params(stmts);
     for (i, e) in exprs.iter().enumerate() {
         match e {

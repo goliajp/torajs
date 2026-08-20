@@ -79,18 +79,12 @@ pub(crate) fn run(
     // RFC 20260813-detached-objlit-method — widen FIRST: the (a) leg
     // of the collector below is what picks the widened binding up.
     super::objlit_nominal_anylane::widen_detached_method_objlits(stmts, exprs, spans);
-    // Rotation 461 — the same (a)-leg spelling for a literal whose
-    // binding a LATER statement degrades to the dynobj lane.
-    super::objlit_nominal_degraded::widen_degraded_accessor_objlits(
-        stmts,
-        exprs,
-        objlit_computed_keys,
-        objlit_computed_accessors,
-    );
     let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(
         stmts,
         exprs,
         objlit_shorthand_proto_exprs,
+        objlit_computed_keys,
+        objlit_computed_accessors,
     );
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
