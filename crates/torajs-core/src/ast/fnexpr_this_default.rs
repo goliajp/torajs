@@ -342,6 +342,18 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
             }
         }
     }
+    // The slots proved by reading a LOCALLY DECLARED callee rather
+    // than spec text — see `fnexpr_this_default_userfn`.
+    for slot in super::fnexpr_this_default_userfn::userfn_thunk_slots(ast) {
+        // `insert` guards the double-bind: a slot the spec table
+        // already admitted has its target queued, and a second entry
+        // would mint a second body-local `__this`.
+        if admitted.insert(slot)
+            && let Some(fn_name) = unclaimed_fnexpr(ast, slot)
+        {
+            targets.push((slot, fn_name));
+        }
+    }
     // The same slots reached through a `const` name instead of written
     // in place — see `fnexpr_this_default_alias`.
     targets.extend(super::fnexpr_this_default_alias::alias_targets(

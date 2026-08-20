@@ -102,6 +102,7 @@ pub(crate) mod fnexpr_this_cb_slots;
 mod fnexpr_this_default;
 mod fnexpr_this_default_alias;
 mod fnexpr_this_default_slots;
+mod fnexpr_this_default_userfn;
 mod fnexpr_this_default_writes;
 pub(crate) mod fnexpr_this_faces;
 mod fnexpr_this_member_ret;
