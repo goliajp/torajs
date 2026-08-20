@@ -217,8 +217,23 @@ pub(crate) fn lift_lets_in_stmt(
                     // stays as what is left when the sniff declines,
                     // so every shape it cannot read keeps today's
                     // behaviour.
-                    super::desugar_generators_field_ann::field_ann(ast, *init, ctx)
-                        .unwrap_or_else(|| "number".into())
+                    super::desugar_generators_field_ann::field_ann(ast, *init, ctx).unwrap_or_else(
+                        || {
+                            // r454 — a dstr-assignment source temp the
+                            // sniff can't read (an Ident source, an
+                            // element load) holds whatever the RHS
+                            // was; the number fallback pinned it
+                            // against its own init ("field is Number,
+                            // value is Array"). Sniffable sources
+                            // (array literals) stay on their typed
+                            // lane above.
+                            if n.starts_with("__dstra_src_") {
+                                "any".into()
+                            } else {
+                                "number".into()
+                            }
+                        },
+                    )
                 }
             });
             ctx.binds.insert(n.clone(), t.clone());

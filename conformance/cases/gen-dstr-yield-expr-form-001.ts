@@ -43,3 +43,13 @@ const it5 = (function* () {
 it5.next();
 console.log(JSON.stringify(it5.next("s")), w.s);
 console.log("done");
+// mixed present/absent slots over an ARRAY-LITERAL source (the r454
+// regression shape): a sniffable source keeps its typed lane — the
+// dstr-src `any` fallback applies only when the sniff has no answer.
+var it6: any, m: any, n: any;
+it6 = (function* () {
+  [m = yield 1, n = yield 2] = [undefined, "B"];
+})();
+console.log("n7", JSON.stringify(it6.next()));
+console.log("n8", JSON.stringify(it6.next("A")));
+console.log("m n", m, n);

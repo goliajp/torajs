@@ -126,20 +126,17 @@ impl<'a> Parser<'a> {
         let id = self.mint_desugar_id();
         let src_name = format!("__dstra_src_{id}");
         self.note_ary_destr_group(target, value);
-        // Same reasoning as the nested-pattern temp below: inside a
-        // generator a slot-position yield puts this temp across a
-        // suspension point, lifting it to a state-machine field whose
-        // annotation sniff has no answer for an arbitrary source
-        // expression — `any` is the honest annotation there.
-        let ann = if self.in_generator {
-            Some("any".into())
-        } else {
-            None
-        };
+        // No annotation here even inside a generator: when a
+        // slot-position yield puts this temp across a suspension
+        // point, the state-machine lift asks the field-annotation
+        // sniff first (an ArrayLit source keeps its typed lane), and
+        // for `__dstra_src_*` its FALLBACK is `any` instead of
+        // `number` — see desugar_generators_walkers. Pinning `any`
+        // here would downgrade sniffable sources onto the any lane.
         let mut out = vec![Stmt::LetDecl {
             mutable: false,
             name: src_name.clone(),
-            type_ann: ann,
+            type_ann: None,
             init: value,
             is_var: false,
         }];

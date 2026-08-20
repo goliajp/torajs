@@ -132,24 +132,18 @@ impl<'a> Parser<'a> {
             let id = self.mint_desugar_id();
             let tmp = format!("__dstra_src_{id}");
             self.note_ary_destr_group(target, loaded);
-            // In a generator a leaf yield (target position, recovered
-            // at its slot) can put this temp across a suspension
-            // point, where the state machine lifts it to a field —
-            // and the field-annotation sniff has no answer for an
-            // element load, so it fell to the `number` fallback and
-            // rejected the nested indexing ("can't index into
-            // Number"). `any` is the honest annotation for a
-            // nested-pattern source; outside a generator the
-            // inference stays as before.
-            let ann = if self.in_generator {
-                Some("any".into())
-            } else {
-                None
-            };
+            // No annotation (r454, replacing the r453 in-generator
+            // `any` pin): when a leaf yield puts this temp across a
+            // suspension point the state-machine lift asks the
+            // field-annotation sniff, whose FALLBACK for
+            // `__dstra_src_*` is `any` — same outcome for this
+            // element-load init (the sniff has no answer for it),
+            // but a sniffable source keeps its typed lane. See
+            // desugar_generators_walkers.
             out.push(Stmt::LetDecl {
                 mutable: false,
                 name: tmp.clone(),
-                type_ann: ann,
+                type_ann: None,
                 init: loaded,
                 is_var: false,
             });
