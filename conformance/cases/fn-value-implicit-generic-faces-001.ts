@@ -32,3 +32,18 @@ function pair(a, b) {
 pair.kind = "pair";
 console.log(typeof pair, pair.kind, pair.length);
 console.log(pair(1, 2)[1]);
+
+// `name` / `length` stay on their static arms even here: the shim has
+// lost the default, so reading them off the cell would answer the
+// shim's own arity instead of §20.2.4.1's count.
+function withDflt(a, b = 39) {
+  return a;
+}
+withDflt.tag = "d";
+console.log(withDflt.length, withDflt.name, withDflt.tag, typeof withDflt);
+
+function withRest(a, ...rest) {
+  return rest.length;
+}
+withRest.tag = "r";
+console.log(withRest.length, withRest.name, withRest.tag, withRest(1, 2, 3));

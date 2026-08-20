@@ -190,7 +190,15 @@ impl<'a> FnToClosureCollector<'a> {
                 // property is — that is the whole reason the
                 // prototype-only restriction above can stay narrow
                 // for the fns that DO have a lowered original.
-                let no_original_base = plain_fn_base && self.is_untyped_plain_fn_ident(obj);
+                // `name` / `length` are the exception even here: their
+                // static arms read the DECL (so `f(a, b = 39).length`
+                // is 1 per §20.2.4.1), while the forwarder shim has
+                // lost the default and answers its own arity — gate
+                // fn-length-dflt-001 caught exactly that.
+                let no_original_base = plain_fn_base
+                    && name != "name"
+                    && name != "length"
+                    && self.is_untyped_plain_fn_ident(obj);
                 if (name != "prototype" && !no_original_base) || !self.try_mark(obj) {
                     self.walk_expr(obj);
                 }
