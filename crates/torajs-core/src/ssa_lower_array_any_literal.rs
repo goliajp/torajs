@@ -179,12 +179,21 @@ impl<'a> LowerCtx<'a> {
             // owned element's original stake strands: `let a: any =
             // ["y" + i]` leaked one cell per fresh element (probe
             // q726fc 15.4MB / r727d two-elem 24.5MB vs 6.2MB flat;
-            // typed-lane twin fixed in chunk 547). Any-typed elems
-            // transfer through the owned unbox (chunk 610) and must
-            // NOT release - the slot holds the box's payload stake.
-            if val_ty != Type::Any {
-                self.release_owned_temp(eid, &val);
-            }
+            // typed-lane twin fixed in chunk 547).
+            //
+            // Rotation 460 — the Any arm takes the same +1: its
+            // `any_unbox_value_owned` FUSES the unbox with a payload
+            // rc_inc (chunk 610's own words), so a BORROWED any local
+            // is right to keep its scope drop and an OWNED any temp
+            // is left holding a stake nobody releases. The chunk-610
+            // carve-out read the fused inc as a transfer and excluded
+            // the whole type; `release_owned_temp` already answers
+            // "borrow" for an Ident, so the narrow half of it was
+            // never load-bearing. `function mk(n): any { return "s" +
+            // n } … let a: any[] = [mk(i)]` leaked one cell per
+            // iteration (13.2MB vs 6.8MB flat over 200k) while the
+            // `: string`-returning twin stayed flat.
+            self.release_owned_temp(eid, &val);
         }
         Operand::Value(arr)
     }
