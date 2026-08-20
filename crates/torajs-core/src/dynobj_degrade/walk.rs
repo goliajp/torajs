@@ -264,7 +264,7 @@ impl Walker<'_> {
     }
 
     pub(super) fn walk_expr(&mut self, id: ExprId) {
-        let ast = self.ast;
+        let ast = self.view;
         match ast.get_expr(id) {
             Expr::Ident(_)
             | Expr::String(_)

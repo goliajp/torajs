@@ -70,6 +70,8 @@ pub(crate) fn run(
     objlit_site_binds: &HashMap<u32, HashMap<String, String>>,
     fn_sigs: &mut HashMap<String, String>,
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
+    objlit_computed_keys: &HashMap<ExprId, ExprId>,
+    objlit_computed_accessors: &HashMap<ExprId, bool>,
 ) {
     if objlit_method_exprs.is_empty() {
         return;
@@ -77,6 +79,14 @@ pub(crate) fn run(
     // RFC 20260813-detached-objlit-method — widen FIRST: the (a) leg
     // of the collector below is what picks the widened binding up.
     super::objlit_nominal_anylane::widen_detached_method_objlits(stmts, exprs, spans);
+    // Rotation 461 — the same (a)-leg spelling for a literal whose
+    // binding a LATER statement degrades to the dynobj lane.
+    super::objlit_nominal_degraded::widen_degraded_accessor_objlits(
+        stmts,
+        exprs,
+        objlit_computed_keys,
+        objlit_computed_accessors,
+    );
     let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(
         stmts,
         exprs,
@@ -229,28 +239,64 @@ pub(crate) fn run(
         }
     }
 
-    if !any_patches.is_empty() {
-        super::fnexpr_this::promote_recv_any(
-            stmts,
-            exprs,
-            &any_patches,
-            fnexpr_recv_fns,
-            sloppy,
-            spans,
-        );
-    }
-    if patches.is_empty() {
-        return;
-    }
-    apply_patches(
+    settle_collected(Settle {
         stmts,
         exprs,
-        &patches,
-        &mut type_decls,
+        any_patches,
+        patches,
+        type_decls,
         fn_sigs,
         fnexpr_recv_fns,
+        sloppy,
+        spans,
+    });
+}
+
+/// What the collect loop above produced, handed to the apply phase in
+/// one piece.
+struct Settle<'a> {
+    stmts: &'a mut Vec<Stmt>,
+    exprs: &'a mut Vec<Expr>,
+    /// Anylane members promoted to the `__this: any` receiver-first
+    /// shape — `(face ExprId, lifted fn name)`.
+    any_patches: Vec<(ExprId, String)>,
+    /// Nominal members: the `__this: __ObjLit_n` receiver patches.
+    patches: Vec<MethodPatch>,
+    /// The synthetic `__ObjLit_n` aliases, `__mth_placeholder` fields
+    /// still parked in them.
+    type_decls: Vec<Stmt>,
+    fn_sigs: &'a mut HashMap<String, String>,
+    fnexpr_recv_fns: &'a mut std::collections::HashSet<String>,
+    sloppy: bool,
+    spans: &'a mut Vec<crate::lexer::Span>,
+}
+
+/// Apply phase — promote the anylane faces, then land the nominal
+/// patches and publish the aliases they name.
+fn settle_collected(s: Settle<'_>) {
+    if !s.any_patches.is_empty() {
+        super::fnexpr_this::promote_recv_any(
+            s.stmts,
+            s.exprs,
+            &s.any_patches,
+            s.fnexpr_recv_fns,
+            s.sloppy,
+            s.spans,
+        );
+    }
+    if s.patches.is_empty() {
+        return;
+    }
+    let mut type_decls = s.type_decls;
+    apply_patches(
+        s.stmts,
+        s.exprs,
+        &s.patches,
+        &mut type_decls,
+        s.fn_sigs,
+        s.fnexpr_recv_fns,
     );
-    stmts.extend(type_decls);
+    s.stmts.extend(type_decls);
 }
 
 /// Phase 2 — for each collected `MethodPatch`, drop `__this` from the

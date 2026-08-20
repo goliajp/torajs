@@ -177,7 +177,15 @@ pub(super) fn widen_detached_method_objlits(
         let mut reads = value_read_members(exprs);
         if !reads.is_empty() {
             propagate_param_reads(stmts, exprs, &mut reads);
-            widen_inner(stmts, exprs, &reads);
+            let admit = |name: &str, init: ExprId| {
+                matches!(&exprs[init.0 as usize], Expr::ObjectLit { fields } if fields
+                .iter()
+                .any(|(f, fe)| {
+                    reads.contains(&(name, f.as_str()))
+                        && matches!(&exprs[fe.0 as usize], Expr::Closure { .. })
+                }))
+            };
+            widen_inner(stmts, &admit);
         }
     }
     let returned = super::objlit_nominal_returned::value_read_call_members(exprs);
@@ -313,14 +321,14 @@ fn collect_fn_param_names_inner(
     }
 }
 
-/// Statement recursion of [`widen_detached_method_objlits`] — same
-/// shape as [`collect_any_let_inits`], which is what will pick the
-/// widened declaration up on the (a) leg.
-fn widen_inner(
-    stmts: &mut [Stmt],
-    exprs: &[Expr],
-    reads: &std::collections::HashSet<(&str, &str)>,
-) {
+/// Statement recursion shared by every widen leg — same shape as
+/// [`collect_any_let_inits`], which is what will pick the widened
+/// declaration up on the (a) leg. `admit` answers, for one
+/// unannotated declaration, whether its init literal belongs on the
+/// any lane: the detached-method leg below asks about value-read
+/// members, [`super::objlit_nominal_degraded`] asks the dynobj-degrade
+/// collector.
+pub(super) fn widen_inner(stmts: &mut [Stmt], admit: &dyn Fn(&str, ExprId) -> bool) {
     for s in stmts {
         match s {
             Stmt::LetDecl {
@@ -331,36 +339,30 @@ fn widen_inner(
             } => {
                 // An explicit annotation is the user's word on the
                 // shape; only an unannotated binding is ours to widen.
-                if type_ann.is_none()
-                    && let Expr::ObjectLit { fields } = &exprs[init.0 as usize]
-                    && fields.iter().any(|(f, fe)| {
-                        reads.contains(&(name.as_str(), f.as_str()))
-                            && matches!(&exprs[fe.0 as usize], Expr::Closure { .. })
-                    })
-                {
+                if type_ann.is_none() && admit(name.as_str(), *init) {
                     *type_ann = Some("any".to_string());
                 }
             }
-            Stmt::FnDecl { body, .. } => widen_inner(body, exprs, reads),
-            Stmt::Block(inner) | Stmt::Multi(inner) => widen_inner(inner, exprs, reads),
+            Stmt::FnDecl { body, .. } => widen_inner(body, admit),
+            Stmt::Block(inner) | Stmt::Multi(inner) => widen_inner(inner, admit),
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                widen_inner(std::slice::from_mut(then_branch.as_mut()), exprs, reads);
+                widen_inner(std::slice::from_mut(then_branch.as_mut()), admit);
                 if let Some(eb) = else_branch {
-                    widen_inner(std::slice::from_mut(eb.as_mut()), exprs, reads);
+                    widen_inner(std::slice::from_mut(eb.as_mut()), admit);
                 }
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-                widen_inner(std::slice::from_mut(body.as_mut()), exprs, reads);
+                widen_inner(std::slice::from_mut(body.as_mut()), admit);
             }
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
-                    widen_inner(std::slice::from_mut(i.as_mut()), exprs, reads);
+                    widen_inner(std::slice::from_mut(i.as_mut()), admit);
                 }
-                widen_inner(std::slice::from_mut(body.as_mut()), exprs, reads);
+                widen_inner(std::slice::from_mut(body.as_mut()), admit);
             }
             _ => {}
         }

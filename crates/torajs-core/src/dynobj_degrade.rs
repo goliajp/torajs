@@ -44,7 +44,7 @@ mod walk;
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Ast, Expr, ExprId};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 /// One name slot in the scope simulation.
 enum Binding {
@@ -76,8 +76,35 @@ enum Resolution {
 /// `ssa_lower_fn` / `ssa_lower_synthesize_main` (init-lane routing)
 /// so the two sides can't drift.
 pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
+    collect_degraded_inits(DegradeView {
+        stmts: &ast.stmts,
+        exprs: &ast.exprs,
+        objlit_computed_keys: &ast.objlit_computed_keys,
+    })
+}
+
+/// The slice-level surface this walker reads. `&Ast` is the shape the
+/// check / lower consumers hold, but the AST-desugar phase runs with
+/// the arena split into `stmts` / `exprs` locals — a view lets that
+/// phase ask the SAME collector instead of re-deriving the trigger
+/// set by hand, which is the drift the module doc bans.
+#[derive(Clone, Copy)]
+pub(crate) struct DegradeView<'a> {
+    pub(crate) stmts: &'a [Stmt],
+    pub(crate) exprs: &'a [Expr],
+    pub(crate) objlit_computed_keys: &'a HashMap<ExprId, ExprId>,
+}
+
+impl<'a> DegradeView<'a> {
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        &self.exprs[id.0 as usize]
+    }
+}
+
+/// View-based core of [`collect_dynobj_degraded_inits`].
+pub(crate) fn collect_degraded_inits(view: DegradeView<'_>) -> HashSet<ExprId> {
     let mut w = Walker {
-        ast,
+        view,
         scopes: vec![HashMap::new()],
         out: HashSet::new(),
         fallback_names: HashSet::new(),
@@ -86,7 +113,7 @@ pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
         fallback_write_names: HashSet::new(),
         registry: HashMap::new(),
     };
-    for s in &ast.stmts {
+    for s in view.stmts {
         w.walk_stmt(s);
     }
     for n in &w.fallback_names {
@@ -130,7 +157,7 @@ pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
 }
 
 struct Walker<'a> {
-    ast: &'a Ast,
+    view: DegradeView<'a>,
     /// Scope stack of the CURRENT fn only — fn bodies swap in a fresh
     /// stack (see module doc on closure captures).
     scopes: Vec<HashMap<String, Binding>>,
@@ -157,7 +184,7 @@ struct Walker<'a> {
 
 impl Walker<'_> {
     fn register_let(&mut self, name: &str, unannotated: bool, init: ExprId) {
-        let candidate = unannotated && matches!(self.ast.get_expr(init), Expr::ObjectLit { .. });
+        let candidate = unannotated && matches!(self.view.get_expr(init), Expr::ObjectLit { .. });
         if !candidate {
             self.shadow(name);
             return;
@@ -166,10 +193,10 @@ impl Walker<'_> {
         // a computed-key field degrades unconditionally: only the
         // dynobj lane can evaluate the key (ToPropertyKey) and name
         // the property at runtime.
-        if let Expr::ObjectLit { fields } = self.ast.get_expr(init)
+        if let Expr::ObjectLit { fields } = self.view.get_expr(init)
             && fields
                 .iter()
-                .any(|(_, v)| self.ast.objlit_computed_keys.contains_key(v))
+                .any(|(_, v)| self.view.objlit_computed_keys.contains_key(v))
         {
             self.out.insert(init);
         }
@@ -222,7 +249,7 @@ impl Walker<'_> {
     /// conservative resolution: a `Free` receiver falls back to
     /// name-keyed marking because a miss is SILENT WRONG either way.
     fn scan_object_static_call(&mut self, callee: ExprId, args: &[ExprId]) {
-        let ast = self.ast;
+        let ast = self.view;
         let Expr::Member { obj, name } = ast.get_expr(callee) else {
             return;
         };
@@ -292,7 +319,7 @@ impl Walker<'_> {
     /// fallback; over-marking costs any-lane precision, never
     /// correctness.
     fn scan_dynamic_write(&mut self, target: ExprId) {
-        let ast = self.ast;
+        let ast = self.view;
         match ast.get_expr(target) {
             Expr::Member { obj, name } => {
                 // r293 — `as` layers are value pass-throughs:
@@ -340,7 +367,7 @@ impl Walker<'_> {
     /// takes the same name-keyed fallback as
     /// [`Self::scan_dynamic_write`].
     fn scan_delete(&mut self, operand: ExprId) {
-        let ast = self.ast;
+        let ast = self.view;
         let (Expr::Member { obj, .. } | Expr::Index { obj, .. }) = ast.get_expr(operand) else {
             return;
         };
@@ -364,7 +391,7 @@ impl Walker<'_> {
     /// accessor property is a setter invocation on the static lane,
     /// not an expando.
     fn init_has_field(&self, init: ExprId, field: &str) -> bool {
-        let Expr::ObjectLit { fields } = self.ast.get_expr(init) else {
+        let Expr::ObjectLit { fields } = self.view.get_expr(init) else {
             return false;
         };
         fields.iter().any(|(n, _)| {
@@ -379,7 +406,7 @@ impl Walker<'_> {
     /// (`get x()` / `set x()` — stored as `__getter_x` / `__setter_x`)?
     fn init_has_accessor_field(&self, init: ExprId) -> bool {
         matches!(
-            self.ast.get_expr(init),
+            self.view.get_expr(init),
             Expr::ObjectLit { fields } if fields
                 .iter()
                 .any(|(n, _)| n.starts_with("__getter_") || n.starts_with("__setter_"))
@@ -389,7 +416,7 @@ impl Walker<'_> {
 
 /// Peel `as` layers off a receiver expression — TS casts are static
 /// assertions, the runtime binding underneath is what degrades (r293).
-fn strip_as(ast: &Ast, mut e: ExprId) -> ExprId {
+fn strip_as(ast: DegradeView<'_>, mut e: ExprId) -> ExprId {
     while let Expr::As { expr, .. } = ast.get_expr(e) {
         e = *expr;
     }

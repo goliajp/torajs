@@ -70,24 +70,13 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_fns,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        objlit_computed_keys,
+        objlit_computed_accessors,
         ..
     } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
 
-    let mut fn_sigs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for s in stmts.iter() {
-        if let Stmt::FnDecl {
-            name,
-            return_type: Some(rt),
-            type_params,
-            ..
-        } = s
-            && !name.starts_with("__closure_")
-            && type_params.is_empty()
-        {
-            fn_sigs.insert(name.clone(), rt.clone());
-        }
-    }
+    let mut fn_sigs = seed_declared_fn_sigs(stmts);
 
     let mut outer_binds: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
@@ -151,6 +140,8 @@ pub(crate) fn run(ast: &mut Ast) {
         &site_anns.objlits,
         &mut fn_sigs,
         fnexpr_recv_fns,
+        objlit_computed_keys,
+        objlit_computed_accessors,
     );
     // RFC 20260717-fnexpr-this-channel knife 1 — same slot rationale as
     // objlit_nominal above: the lifted closures exist and
@@ -346,6 +337,28 @@ fn desugar_user_fn(
 /// its reserved name. Closures whose value returns resisted typing
 /// publish nothing (no fabricated ann); a body without value
 /// returns is `void`.
+/// Top-level seed of the signature map — every non-generic user
+/// `FnDecl` that SPELLS its return type. Closure bodies are excluded
+/// here on purpose: `preinfer_closure_sigs` publishes theirs under
+/// the reserved `__closure_*` names once the lifted decls exist.
+fn seed_declared_fn_sigs(stmts: &[Stmt]) -> std::collections::HashMap<String, String> {
+    let mut fn_sigs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for s in stmts {
+        if let Stmt::FnDecl {
+            name,
+            return_type: Some(rt),
+            type_params,
+            ..
+        } = s
+            && !name.starts_with("__closure_")
+            && type_params.is_empty()
+        {
+            fn_sigs.insert(name.clone(), rt.clone());
+        }
+    }
+    fn_sigs
+}
+
 pub(crate) fn is_synth_closure_name(name: &str) -> bool {
     // The two reserved names a `Expr::Closure` value can carry:
     // `lift_arrow_fns`' lifted arrows and
