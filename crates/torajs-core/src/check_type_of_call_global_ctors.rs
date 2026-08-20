@@ -101,21 +101,24 @@ pub(crate) fn try_match(
         return Some(Ok(Type::BigInt));
     }
     // T-13.a (v0.4.0) — `Symbol(desc?)` constructor call.
-    // Returns Type::Symbol. Optional desc Str arg; missing
+    // Returns Type::Symbol. Optional desc; missing (or `undefined`)
     // desc = NULL pointer at runtime, prints `Symbol()`.
+    //
+    // §20.4.1.1 step 3 is `descString = ? ToString(description)`, so
+    // EVERY value shape is legal here — `Symbol(1)` is the description
+    // "1". The shape that does fail (a Symbol description) fails
+    // because ToString throws, which is a catchable runtime TypeError,
+    // not a compile-time reject: `assert.throws(TypeError, () =>
+    // Symbol(sym))` is the test262 spelling and it needs the program
+    // to compile. So no static gate — only the operand's own typing
+    // errors propagate; the lowerer runs the ToString.
     if let Expr::Ident(n) = ast.get_expr(*callee)
         && n == "Symbol"
     {
-        if !args.is_empty() {
-            let arg_ty = match checker.type_of(ast, args[0]) {
-                Ok(t) => t,
-                Err(e) => return Some(Err(e)),
-            };
-            if !matches!(arg_ty, Type::String | Type::Undefined) {
-                return Some(Err(format!(
-                    "Symbol(desc) — desc must be string, got {arg_ty:?}"
-                )));
-            }
+        if !args.is_empty()
+            && let Err(e) = checker.type_of(ast, args[0])
+        {
+            return Some(Err(e));
         }
         // S308 — typecheck-and-drop trailing args[1..] per ES
         // §20.4.1 trailing-arg ignore (Symbol(desc, ...trailing)
