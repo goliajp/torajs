@@ -208,6 +208,17 @@ pub struct Ast {
     /// of `explicit_ctor_classes`: that set is parser-filled, so the
     /// injected builtin classes never enter it.
     pub field_init_synth_ctors: std::collections::HashSet<String>,
+    /// RFC 20260820-ctor-return-override — classes on an inheritance
+    /// chain that touches a value-returning constructor (§10.2.2
+    /// [[Construct]] step 13). Filled by
+    /// `desugar_classes_ctor_return::collect`, which seeds on the
+    /// classes whose own ctor body carries a `return <expr>` and then
+    /// spreads BOTH ways along the parent links — descendants because
+    /// `class C extends Base {}` must adopt what Base returned, and
+    /// ancestors so one chain speaks one ctor ABI (`__this: any`,
+    /// answering `any`). Only members of this set change shape; every
+    /// other class keeps the typed `void` ctor verbatim.
+    pub ctor_return_override: std::collections::HashSet<String>,
     /// Classes extending an exotic-instance builtin (`class C extends
     /// Array`), class name → builtin name (RFC 20260730 blade 1).
     /// Their factory mints a REAL exotic cell through the per-builtin

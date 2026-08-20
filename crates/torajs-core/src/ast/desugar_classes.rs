@@ -72,6 +72,12 @@ pub fn desugar_classes(ast: &mut Ast) {
     // (§9.2.2 this-TDZ); must run after the default-ctor synthesis
     // (those carry a super() and are skipped) and before the freeze.
     super::desugar_classes_super::append_no_super_throw(ast, &mut class_index);
+    // RFC 20260820-ctor-return-override 刀 1 — name the chains whose
+    // ctor ABI has to answer a value (§10.2.2 step 13). Reads the
+    // index after the default-ctor synthesis so a ctor-less derived
+    // class is already carrying its `super(…)` body, and before the
+    // freeze so the later passes all see the same set.
+    super::desugar_classes_ctor_return::collect(ast, &class_index);
     let class_index = class_index;
 
     // M-OO.6 — abstract-class collection + validation extracted to
