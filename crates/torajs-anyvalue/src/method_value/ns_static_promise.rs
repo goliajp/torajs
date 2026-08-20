@@ -143,8 +143,15 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
             // never has its own `then` invoked). Only race is written
             // out so far; the other three keep the loud TypeError until
             // their element functions land.
-            if matches!(kind, PromiseComb::Race) && crate::construct::is_constructor(this) {
-                return crate::combinator_spec::race(this, v);
+            let spec = match kind {
+                PromiseComb::Race => Some(crate::combinator_spec::SpecComb::Race),
+                PromiseComb::All => Some(crate::combinator_spec::SpecComb::All),
+                _ => None,
+            };
+            if let Some(spec) = spec
+                && crate::construct::is_constructor(this)
+            {
+                return crate::combinator_spec::run(spec, this, v);
             }
             return promise_settle();
         }

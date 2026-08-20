@@ -21,10 +21,13 @@
 //!
 //! Race (§27.2.4.5.1) is the whole algorithm with no per-element
 //! function at all — the capability's own resolve / reject go
-//! straight into every element's `then`, and first settle wins. The
-//! all / allSettled / any siblings need the element-function record
-//! and land in later blades of the RFC.
+//! straight into every element's `then`, and first settle wins. All
+//! (§27.2.4.1.2) mints one §27.2.4.1.3 function per element over a
+//! shared values / counter record; that record and its cells live in
+//! the [`crate::combinator_elem`] sibling. allSettled and any land in
+//! later blades of the RFC.
 
+use crate::combinator_elem::ElemState;
 use crate::nanbox::VALUE_UNDEFINED;
 
 unsafe extern "C" {
@@ -40,15 +43,23 @@ unsafe extern "C" {
 /// the caller owes the capability an IfAbruptRejectPromise.
 type Abrupt = Result<(), ()>;
 
-/// §27.2.4.5 Promise.race over `c` — steps 1-4 plus
-/// PerformPromiseRace. Answers the capability's promise as an OWNED
-/// box, or `undefined` with the throw pending when the capability
-/// itself could not be built (a ctor that raises, or one that never
-/// handed over a callable pair).
+/// Which algorithm the spec walk runs. Only the two written out so
+/// far; allSettled / any join as their element functions land.
+#[derive(Clone, Copy)]
+pub(crate) enum SpecComb {
+    All,
+    Race,
+}
+
+/// §27.2.4.{1,5} over `c` — steps 1-4 plus the matching
+/// PerformPromiseX. Answers the capability's promise as an OWNED box,
+/// or `undefined` with the throw pending when the capability itself
+/// could not be built (a ctor that raises, or one that never handed
+/// over a callable pair).
 ///
 /// # Safety
 /// `c` and `v` are live AnyValues the caller keeps across the call.
-pub(crate) unsafe fn race(c: u64, v: u64) -> u64 {
+pub(crate) unsafe fn run(kind: SpecComb, c: u64, v: u64) -> u64 {
     unsafe {
         let Some((promise, resolve_f, reject_f)) =
             crate::promise_capability::new_promise_capability(c)
@@ -63,7 +74,10 @@ pub(crate) unsafe fn race(c: u64, v: u64) -> u64 {
         let outcome = if pr == 0 {
             Err(())
         } else {
-            perform_race(c, pr, v, resolve_f, reject_f)
+            match kind {
+                SpecComb::Race => perform_race(c, pr, v, resolve_f, reject_f),
+                SpecComb::All => perform_all(c, pr, v, resolve_f, reject_f),
+            }
         };
         if pr != 0 {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(pr);
@@ -99,7 +113,7 @@ unsafe fn perform_race(c: u64, pr: u64, v: u64, resolve_f: u64, reject_f: u64) -
                 return Ok(());
             }
             // The step's rc is ours (the for-of ledger).
-            let step = resolve_and_attach(c, pr, next, resolve_f, reject_f);
+            let step = resolve_and_attach(c, pr, next, resolve_f, reject_f, core::ptr::null_mut());
             crate::nanbox_ffi::__torajs_anyv_rc_dec(next);
             if step.is_err() {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(iter_slot);
@@ -109,8 +123,76 @@ unsafe fn perform_race(c: u64, pr: u64, v: u64, resolve_f: u64, reject_f: u64) -
     }
 }
 
-/// Steps 8.i + 8.j of PerformPromiseRace for one element.
-unsafe fn resolve_and_attach(c: u64, pr: u64, next: u64, on_ok: u64, on_err: u64) -> Abrupt {
+/// §27.2.4.1.2 PerformPromiseAll — one §27.2.4.1.3 function per
+/// element over a shared values / counter record, and the
+/// capability's own reject for the failure side. The record outlives
+/// this walk (the element functions hold it), so the walk releases
+/// only its own reference on the way out.
+unsafe fn perform_all(c: u64, pr: u64, v: u64, resolve_f: u64, reject_f: u64) -> Abrupt {
+    unsafe {
+        let st = crate::combinator_elem::ElemState::new(resolve_f);
+        let out = perform_all_inner(c, pr, v, reject_f, st);
+        if out.is_ok() {
+            // Step 4.b — the iterator is drained, so the walk's own
+            // hold on the counter comes off. An empty run, or one
+            // whose elements all settled synchronously, resolves
+            // right here.
+            crate::combinator_elem::count_down(st);
+        }
+        crate::combinator_elem::state_release(st);
+        out
+    }
+}
+
+/// The element loop of [`perform_all`] — steps 4.a through 4.o.
+unsafe fn perform_all_inner(c: u64, pr: u64, v: u64, reject_f: u64, st: *mut ElemState) -> Abrupt {
+    unsafe {
+        let mut idx: i64 = 0;
+        let mut iter_slot: u64 = VALUE_UNDEFINED;
+        let mut next: u64 = VALUE_UNDEFINED;
+        let mut index: i64 = 0;
+        loop {
+            let has =
+                crate::iter_any::__torajs_any_iter_next(v, &mut idx, &mut iter_slot, &mut next);
+            if __torajs_throw_check() != 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(iter_slot);
+                return Err(());
+            }
+            if has == 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(iter_slot);
+                return Ok(());
+            }
+            // Step 4.c — the slot exists before the element resolves,
+            // so an element that settles synchronously writes into a
+            // list that is already the right length.
+            (*st).values.push(VALUE_UNDEFINED);
+            let on_ok = crate::combinator_elem::mint_all_elem(st, index);
+            let step = resolve_and_attach(c, pr, next, on_ok, reject_f, st);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(on_ok);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(next);
+            if step.is_err() {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(iter_slot);
+                return Err(());
+            }
+            index += 1;
+        }
+    }
+}
+
+/// `Call(promiseResolve, C, «next»)` then `Invoke(nextPromise,
+/// "then", «on_ok, on_err»)` — steps 8.i + 8.j of PerformPromiseRace,
+/// and 4.d + 4.r of PerformPromiseAll. `st` is the all-lane counter
+/// (null for race): the increment sits between the two calls exactly
+/// where step 4.m puts it, so a `then` that settles synchronously
+/// cannot drive the counter to zero before the iterator is drained.
+unsafe fn resolve_and_attach(
+    c: u64,
+    pr: u64,
+    next: u64,
+    on_ok: u64,
+    on_err: u64,
+    st: *mut ElemState,
+) -> Abrupt {
     unsafe {
         let one = [next];
         let next_promise = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
@@ -122,6 +204,9 @@ unsafe fn resolve_and_attach(c: u64, pr: u64, next: u64, on_ok: u64, on_err: u64
         if __torajs_throw_check() != 0 {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(next_promise);
             return Err(());
+        }
+        if !st.is_null() {
+            (*st).remaining += 1;
         }
         let r = invoke_then(next_promise, on_ok, on_err);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(next_promise);

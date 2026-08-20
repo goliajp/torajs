@@ -101,6 +101,7 @@ mod call_spread;
 pub(crate) mod closure_proto;
 mod coerce;
 mod collection_init;
+mod combinator_elem;
 mod combinator_spec;
 mod compare;
 mod construct;
@@ -1599,6 +1600,7 @@ mod tests {
         };
     }
     link_stub!(
+        __torajs_arr_alloc_any_filled,
         __torajs_arr_alloc_any_filled_f64,
         __torajs_date_now,
         __torajs_date_from_ms,
