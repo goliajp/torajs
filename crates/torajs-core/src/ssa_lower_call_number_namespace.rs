@@ -107,6 +107,9 @@ fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             Type::F64,
             None,
         );
+        // §21.1.2.13 forwards to §19.2.5, whose step 2 ToInt32(radix)
+        // can throw — same check the bare-name sibling now runs.
+        ctx.emit_throw_check(None);
         ctx.coerce_to_i64(Operand::Value(f))
     } else {
         ctx.coerce_to_i64(r)

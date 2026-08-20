@@ -186,6 +186,16 @@ fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 Type::F64,
                 None,
             );
+            // §19.2.5.1 step 2 ToInt32(radix) — the coercion is a real
+            // ToNumber: a `valueOf` that throws propagates, and an
+            // object whose valueOf AND toString both answer objects
+            // raises TypeError (§7.1.1 OrdinaryToPrimitive step 5).
+            // `any_to_number` records those on the throw TLS and
+            // answers NaN; without the check the parse ran anyway and
+            // the pending throw surfaced at an unrelated site — the
+            // t262 `parseInt/S15.1.2.2_A3.1_T7` CHECK#7/#8 shapes,
+            // which crashed the process instead of throwing.
+            ctx.emit_throw_check(None);
             ctx.coerce_to_i64(Operand::Value(f))
         } else {
             ctx.lower_expr(args[1])
