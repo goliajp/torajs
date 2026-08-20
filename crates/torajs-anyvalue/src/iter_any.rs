@@ -106,7 +106,7 @@ pub(crate) const SYM_ITERATOR_METHOD: &[u8] = b"__sym_Symbol_iterator__";
 /// marker in `idx_slot` rather than `iter_slot` leaves the latter
 /// holding exactly one thing: the caller-owned iterator it releases at
 /// loop exit.
-const USER_ITERATOR_LANE: i64 = -1;
+pub(crate) const USER_ITERATOR_LANE: i64 = -1;
 
 /// What came back from [`call_obj_method_0`].
 pub(crate) enum MethodOutcome {

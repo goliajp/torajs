@@ -458,6 +458,8 @@ pub(crate) fn build(
         iterator_zip: init_c.iterator.iterator_zip,
         iterator_zip_keyed: init_c.iterator.iterator_zip_keyed,
         dstr_close_pending: init_c.iterator.dstr_close_pending,
+        dstr_park_pending: init_c.iterator.dstr_park_pending,
+        dstr_drain_rest: init_c.iterator.dstr_drain_rest,
         static_method_define: init_c.any_substrate.static_method_define,
         static_field_define: init_c.any_substrate.static_field_define,
         class_cell_raw: init_c.any_substrate.class_cell_raw,

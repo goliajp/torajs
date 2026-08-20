@@ -21,6 +21,8 @@ pub(crate) struct IteratorIds {
     pub iterator_zip: FuncId,
     pub iterator_zip_keyed: FuncId,
     pub dstr_close_pending: FuncId,
+    pub dstr_park_pending: FuncId,
+    pub dstr_drain_rest: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -92,6 +94,25 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_dstr_close_pending",
             &[Type::Any],
             Type::Void,
+        ),
+        // 刀 D — mint the park value when the bounded walk stops
+        // short (take iterator / resume index / prefix-0 derive).
+        // (recv Any, iter_slot Ptr, idx_slot Ptr) → owned park Any.
+        dstr_park_pending: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_dstr_park_pending",
+            &[Type::Any, Type::Ptr, Type::Ptr],
+            Type::Any,
+        ),
+        // 刀 D — drain the parked rest tail into a fresh Array<Any>.
+        // (park Any, recv Any — both borrowed) → owned boxed Arr.
+        dstr_drain_rest: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_dstr_drain_rest",
+            &[Type::Any, Type::Any],
+            Type::Any,
         ),
     }
 }

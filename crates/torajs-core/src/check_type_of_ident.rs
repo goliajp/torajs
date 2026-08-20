@@ -247,6 +247,12 @@ pub(crate) fn check(
         // IteratorClose a suspendable destructuring pattern's finally
         // calls on its parked iterator slot.
         "__torajs_dstr_close_pending" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Void))),
+        // 刀 D — the rest element's post-suspension drain: (parked
+        // resume value, raw source) → the tail as an `any` array.
+        "__torajs_dstr_drain_rest" => Ok(Type::Function(
+            vec![Type::Any, Type::Any],
+            Box::new(Type::Any),
+        )),
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),
