@@ -147,11 +147,28 @@ pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
         // A `return()` that throws propagates on a normal completion
         // (§7.4.9 step 6) — leave the throw in flight and touch nothing.
         match call_obj_method_0(iter_ptr, b"return") {
-            MethodOutcome::Ok(result) => {
-                __torajs_anyv_rc_dec(result);
-            }
+            MethodOutcome::Ok(result) => reject_non_object_close_result(result),
             MethodOutcome::Missing => crate::iter_any_get_method::generic_iter_close(iter),
             MethodOutcome::Threw => {}
+        }
+    }
+}
+
+/// §7.4.6 step 9 — a `return()` that answers a non-Object completes
+/// the close with a TypeError (`return() { return null; }` — the
+/// t262 rtrn-close-null family). The check sits on the NORMAL side
+/// only by construction: the abrupt close (`iter_close_under_pending_
+/// throw`) restores the original throw over anything this raises,
+/// which is exactly §7.4.6 step 7's "the original completion wins".
+///
+/// # Safety
+/// `result` is a live AnyValue owned by this call.
+pub(crate) unsafe fn reject_non_object_close_result(result: AnyValue) {
+    unsafe {
+        let ok = crate::iter_zip_shared::av_is_object(result);
+        __torajs_anyv_rc_dec(result);
+        if !ok {
+            __torajs_throw_type_error(c"iterator.return() did not return an object".as_ptr());
         }
     }
 }

@@ -351,7 +351,10 @@ pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
         let argv: [u64; 0] = [];
         let result = invoke_with_this(env, entry, iter, argv.as_ptr(), 0);
         if __torajs_throw_check() == 0 {
-            __torajs_anyv_rc_dec(result);
+            // §7.4.6 step 9 — non-Object answer → TypeError (the
+            // shared reject; original-throw precedence is the abrupt
+            // wrapper's job, same as the Tag::Obj arm).
+            crate::iter_any_close::reject_non_object_close_result(result);
         }
     }
 }
