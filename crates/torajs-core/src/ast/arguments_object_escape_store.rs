@@ -23,12 +23,13 @@ pub(super) fn collect_escape_stored(
 ) -> std::collections::HashSet<String> {
     let props_recvs =
         super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
     let mut stored: std::collections::HashSet<String> = std::collections::HashSet::new();
     for e in &ast.exprs {
         if let Expr::Assign { target, value } = e
             && let Expr::Ident(b) = ast.get_expr(*value)
             && argv_locals.contains(b)
-            && boxed_face_store_target(ast, *target, &props_recvs)
+            && boxed_face_store_target(ast, *target, &props_recvs, &expando_recvs)
         {
             // Resolve the binding back to its fn through the direct
             // LetDecl seed (the chain walk's own seeding shape).
@@ -92,6 +93,7 @@ pub(super) fn boxed_face_store_target(
     ast: &Ast,
     target: ExprId,
     props_recvs: &std::collections::HashSet<String>,
+    expando_recvs: &super::fnexpr_this_expando::ExpandoRecvs,
 ) -> bool {
     // §27.2.4 static-slot patch (rotation 449) — `Promise.resolve =
     // function () { …arguments… }` / `.reject`: the store lands in
@@ -110,6 +112,18 @@ pub(super) fn boxed_face_store_target(
         && matches!(name.as_str(), "resolve" | "reject")
         && !super::fnexpr_this_names::name_shadowed_elsewhere(&ast.stmts, "Promise")
     {
+        return true;
+    }
+    // Rotation 460 — the expando store the fnexpr-this arm admits
+    // alongside these: a key the receiver's object literal never
+    // declared has no typed slot to land in, so the read comes back a
+    // NaN box and the call enters the boxed dual entry with real
+    // argc/argv. The two admit sets have to move together — this
+    // file's doc says so, and the first cut that widened only the
+    // fnexpr side turned `o.f = function () { saved = arguments }`
+    // into `unknown identifier `arguments``: the kill walk saw a
+    // store it did not recognize and killed the argv face.
+    if expando_recvs.admits(&ast.exprs, target) {
         return true;
     }
     let store_recv = match ast.get_expr(target) {

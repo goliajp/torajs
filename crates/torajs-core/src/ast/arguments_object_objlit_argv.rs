@@ -174,6 +174,7 @@ pub(super) fn collect_objlit_boxed_only_argv(
     // is the ONE Closure reference, and no Ident can name the fn.
     let props_recvs =
         super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
     for e in &ast.exprs {
         let Expr::Assign { target, value } = e else {
             continue;
@@ -185,6 +186,7 @@ pub(super) fn collect_objlit_boxed_only_argv(
             ast,
             *target,
             &props_recvs,
+            &expando_recvs,
         ) {
             continue;
         }

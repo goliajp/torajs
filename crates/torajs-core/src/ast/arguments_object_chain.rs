@@ -296,8 +296,14 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
     // escape-store exemption below.
     let props_recvs =
         super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
     let boxed_face_store = |target: ExprId| -> bool {
-        super::arguments_object_escape_store::boxed_face_store_target(ast, target, &props_recvs)
+        super::arguments_object_escape_store::boxed_face_store_target(
+            ast,
+            target,
+            &props_recvs,
+            &expando_recvs,
+        )
     };
     let boxed_arg_sites = collect_boxed_arg_sites(ast);
     loop {
