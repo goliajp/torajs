@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T17:33:33.384Z",
+  "generatedAt": "2026-08-20T21:12:52.459Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-20T17:29:54Z",
-    "headSha": "4006d0ec",
-    "elapsedSec": 365.06,
+    "ranAt": "2026-08-20T20:54:30Z",
+    "headSha": "df4076d6",
+    "elapsedSec": 368.19,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27085,
-    "passNoOracle": 971,
+    "pass": 27181,
+    "passNoOracle": 903,
     "passNegative": 4147,
-    "passTotal": 32203,
-    "bug": 12826,
-    "incompatible": 8145,
-    "bunSkip": 6572,
+    "passTotal": 32231,
+    "bug": 12835,
+    "incompatible": 8108,
+    "bunSkip": 2963,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 45029,
-    "passRateInScope": 60.56,
+    "trAccepted": 45066,
+    "passRateInScope": 60.61,
     "passRateTrAccepted": 71.52
   },
   "torajs": {
-    "commit": "4006d0ec1",
-    "commitSubject": "fix: an owned any temp in an array-literal slot releases its own stake",
+    "commit": "df4076d69",
+    "commitSubject": "feat: the parseInt radix and string take whatever value they are handed",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "df4076d69",
+      "subject": "feat: the parseInt radix and string take whatever value they are handed"
+    },
+    {
+      "hash": "49a2cf914",
+      "subject": "fix: the degraded leg marks the literal instead of annotating its binding"
+    },
+    {
+      "hash": "a0a8fc89c",
+      "subject": "fix: a recvless accessor face keeps its nominal this ann and only marks recv-first"
+    },
+    {
+      "hash": "e142f6f3a",
+      "subject": "feat: a this-free accessor face takes the receiver shape both lanes can serve"
+    },
+    {
+      "hash": "c499fef13",
+      "subject": "feat: an accessor literal whose binding later degrades takes the any receiver"
+    },
+    {
+      "hash": "139b62865",
+      "subject": "chore: rotation 460 sweep artifacts, P-SURF snapshot, dashboard"
+    },
+    {
       "hash": "4006d0ec1",
       "subject": "fix: an owned any temp in an array-literal slot releases its own stake"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "31fa9c42c",
       "subject": "feat: an expando store on an object-literal binding promotes its fn-expr receiver"
-    },
-    {
-      "hash": "1e08fcf5d",
-      "subject": "feat: a fn-expr handed to a call-only user-fn param binds this receiver-less"
-    },
-    {
-      "hash": "b3f1e94a1",
-      "subject": "chore: rotation 459 sweep artifacts, roadmap combinator snapshot, dashboard"
-    },
-    {
-      "hash": "7756c8c0f",
-      "subject": "fix: an element cell retires from the cycle buffer before it frees"
-    },
-    {
-      "hash": "39709aea1",
-      "subject": "fix: an abrupt final settle rejects the capability instead of escaping"
-    },
-    {
-      "hash": "3bb8e7f1b",
-      "subject": "feat: allSettled and any honor any constructor as their species this"
-    },
-    {
-      "hash": "79a6028d1",
-      "subject": "feat: Promise.all honors any constructor as its species this"
     }
   ],
-  "headSha": "4006d0ec1",
+  "headSha": "df4076d69",
   "autorun": {
-    "total": 763,
+    "total": 764,
     "baselineTarget": 10,
-    "bySelf": 758,
+    "bySelf": 759,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787238269-0ac9",
-      "at": "2026-08-20T15:04:29Z",
-      "ts": 1787238269,
+      "rotationId": "r-1787247233-1107",
+      "at": "2026-08-20T17:33:53Z",
+      "ts": 1787247233,
       "trigger": "self",
-      "prevHead": "b3f1e94a1",
-      "handoffSha": "sha256:7dcd09eda04e5ed2810b08f814ae234fcf115c7489e185fb987b56674b04e28b",
-      "handoffAgeSec": 25,
+      "prevHead": "139b62865",
+      "handoffSha": "sha256:8ebdb0237402f5b6514449a04f0b0b8f6d4b82283bee464b67fc4148287b1786",
+      "handoffAgeSec": 48,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787247233-1107",
+        "at": "2026-08-20T17:33:53Z",
+        "ts": 1787247233,
+        "trigger": "self",
+        "prevHead": "139b62865",
+        "handoffSha": "sha256:8ebdb0237402f5b6514449a04f0b0b8f6d4b82283bee464b67fc4148287b1786",
+        "handoffAgeSec": 48,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787238269-0ac9",
         "at": "2026-08-20T15:04:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "3735a1f4",
         "handoffSha": "sha256:6e0161ce2226b5f081bc9fdf2f6c61ec263b01a0d16a649008b8d62288bd3edd",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787151691-5d6c",
-        "at": "2026-08-19T15:01:31Z",
-        "ts": 1787151691,
-        "trigger": "self",
-        "prevHead": "ab332e88",
-        "handoffSha": "sha256:a1ef6a0cb84924b2e3560fb1705e4ea0b378ae213230419bd0c74c4376560dfd",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
