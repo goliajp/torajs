@@ -141,10 +141,19 @@ impl<'a> Parser<'a> {
         let mut out = Vec::new();
         let src_init = match &group_init {
             Some(raw_name) => {
+                // Both temps pin `any` (unlike the plain path below):
+                // the checker forces this group onto the iterator lane
+                // regardless of the source's static type, and the
+                // generator lift's sniff would otherwise answer the
+                // RAW alias's typed lane for the src field — which the
+                // lowering's field-walk gate (field_ty == Any) then
+                // refuses, leaving the park slot empty. The raw temp
+                // is also the drain kernel's `recv` argument, which
+                // takes an AnyValue.
                 out.push(Stmt::LetDecl {
                     mutable: false,
                     name: raw_name.clone(),
-                    type_ann: None,
+                    type_ann: Some("any".into()),
                     init: value,
                     is_var: false,
                 });
@@ -168,10 +177,12 @@ impl<'a> Parser<'a> {
         // for `__dstra_src_*` its FALLBACK is `any` instead of
         // `number` — see desugar_generators_walkers. Pinning `any`
         // here would downgrade sniffable sources onto the any lane.
+        // EXCEPT the deferred-rest shape, which pins `any` on purpose
+        // (see the raw hoist above).
         out.push(Stmt::LetDecl {
             mutable: false,
             name: src_name.clone(),
-            type_ann: None,
+            type_ann: rest_susp.then(|| "any".into()),
             init: src_init,
             is_var: false,
         });
