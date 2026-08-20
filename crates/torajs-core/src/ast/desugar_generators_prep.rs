@@ -27,7 +27,7 @@
 
 use super::desugar_generators_walkers::LiftCtx;
 use super::desugar_generators_walkers::lift_lets_in_list;
-use super::{Ast, Param, Stmt, expand_yield_into_in_stmt};
+use super::{Ast, Expr, Param, Stmt, expand_yield_into_in_stmt};
 
 pub(super) fn prep_generator_body(
     ast: &mut Ast,
@@ -61,6 +61,21 @@ pub(super) fn prep_generator_body(
     // earlier one resolves.
     let mut local_classes = std::collections::HashSet::new();
     collect_local_classes(&gen_body, &mut local_classes);
+    // The CLASS BINDING itself must survive yields too: the class
+    // value the capturing lane will mint (`const __cc<N>_C`) is born
+    // AFTER this lift ran, inside one state arm — a cross-yield read
+    // (`C[yield 9]()`) lands in a different arm where that local
+    // does not exist. Give each generator-local class a same-named
+    // `any` state-machine field: its name joins the rewrite set (a
+    // value-position `C` becomes `this.C`), and a bridge assignment
+    // `this.C = C` right after the ClassDecl (inserted AFTER the
+    // rewrite so its own rhs keeps the bare name for the lane's
+    // α-rename) stores the minted value into the field. `new C()`
+    // spells the class as a string, not an Ident — the lane's
+    // same-list rename owns it, untouched here.
+    for c in &local_classes {
+        lifted_locals.push((c.clone(), "any".into()));
+    }
     let mut lift_ctx = LiftCtx {
         params: gen_params,
         fn_sigs,
@@ -98,8 +113,82 @@ pub(super) fn prep_generator_body(
         });
     }
     super::desugar_generators_rewrite::rewrite_params_to_this(ast, &gen_body, &all_names);
+    insert_class_bridges(ast, &mut gen_body, &lift_ctx.local_classes);
 
     (gen_body, lifted_locals)
+}
+
+/// After the rewrite: right after every generator-local ClassDecl,
+/// store the class value into its state-machine field
+/// (`this.C = C`). Inserted post-rewrite so the rhs keeps the BARE
+/// name — the capturing lane's same-list α-rename picks it up
+/// (`__cc<N>_C`), exactly like the `new C()` sites. Only Vec<Stmt>
+/// positions can host a ClassDecl (a declaration needs a block), so
+/// the single-stmt control-flow bodies need no walk of their own.
+fn insert_class_bridges(
+    ast: &mut Ast,
+    body: &mut Vec<Stmt>,
+    local_classes: &std::collections::HashSet<String>,
+) {
+    let mut i = 0;
+    while i < body.len() {
+        let cname = match &body[i] {
+            Stmt::ClassDecl { name, .. } if local_classes.contains(name) => Some(name.clone()),
+            _ => None,
+        };
+        if let Some(cname) = cname {
+            let this_e = ast.add_expr(Expr::This);
+            let target = ast.add_expr(Expr::Member {
+                obj: this_e,
+                name: cname.clone(),
+            });
+            let value = ast.add_expr(Expr::Ident(cname));
+            let assign = ast.add_expr(Expr::Assign { target, value });
+            body.insert(i + 1, Stmt::Expr(assign));
+            i += 2;
+            continue;
+        }
+        match &mut body[i] {
+            Stmt::Multi(list) | Stmt::Block(list) => insert_class_bridges(ast, list, local_classes),
+            Stmt::Try {
+                body: b,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                insert_class_bridges(ast, b, local_classes);
+                insert_class_bridges(ast, catch_body, local_classes);
+                if let Some(f) = finally_body {
+                    insert_class_bridges(ast, f, local_classes);
+                }
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                bridge_in_boxed(ast, then_branch, local_classes);
+                if let Some(e) = else_branch {
+                    bridge_in_boxed(ast, e, local_classes);
+                }
+            }
+            Stmt::While { body: b, .. }
+            | Stmt::DoWhile { body: b, .. }
+            | Stmt::Labeled { body: b, .. }
+            | Stmt::For { body: b, .. }
+            | Stmt::ForOf { body: b, .. } => bridge_in_boxed(ast, b, local_classes),
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+/// Boxed single-stmt control-flow bodies: a declaration needs a
+/// block, so only a Block/Multi wrapper can host a ClassDecl there.
+fn bridge_in_boxed(ast: &mut Ast, s: &mut Stmt, local_classes: &std::collections::HashSet<String>) {
+    if let Stmt::Multi(list) | Stmt::Block(list) = s {
+        insert_class_bridges(ast, list, local_classes);
+    }
 }
 
 /// Collect the names of every class DECLARED inside the generator
