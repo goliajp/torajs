@@ -166,6 +166,7 @@ fn collect_position_faces(
     let gen_recvs = collect_gen_iter_binding_names(stmts, exprs);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let props_recvs = collect_props_receiver_binding_names(stmts, exprs);
+    let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     let strwrapper_recvs = collect_strwrapper_binding_names(stmts, exprs);
     let any_this_fields = super::fnexpr_this_faces::any_typed_this_fields(stmts);
@@ -189,6 +190,7 @@ fn collect_position_faces(
                 exprs,
                 fn_expr_exprs,
                 &props_recvs,
+                &expando_recvs,
                 &any_this_fields,
                 *target,
                 *value,

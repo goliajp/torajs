@@ -306,6 +306,7 @@ pub(super) fn collect_store_face(
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     props_recvs: &std::collections::HashSet<String>,
+    expando_recvs: &super::fnexpr_this_expando::ExpandoRecvs,
     any_this_fields: &std::collections::HashSet<String>,
     target: ExprId,
     value: ExprId,
@@ -363,7 +364,10 @@ pub(super) fn collect_store_face(
         }
         _ => false,
     });
-    if admits {
+    // The expando store — a key the receiver's object literal never
+    // declared, so the value lands in the dict and comes back through
+    // the any lane (doc on `fnexpr_this_expando`).
+    if admits || expando_recvs.admits(exprs, target) {
         collect_face(stmts, exprs, value, fn_expr_exprs, patches);
         collect_ident_face(exprs, value, ident_cands);
     }
