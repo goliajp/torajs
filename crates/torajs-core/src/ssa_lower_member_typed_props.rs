@@ -161,7 +161,9 @@ pub(crate) fn try_lower(
         {
             return Some(Operand::ConstI64(i64::from(arity)));
         }
-        return Some(lower_fn_length_or_name(ctx, eid, obj, obj_val, obj_ty, name));
+        return Some(lower_fn_length_or_name(
+            ctx, eid, obj, obj_val, obj_ty, name,
+        ));
     }
     // RFC 20260721 刀 9 — `fun.prototype` on a Closure-typed
     // receiver: the runtime kernel materializes the §10.2.5 object
