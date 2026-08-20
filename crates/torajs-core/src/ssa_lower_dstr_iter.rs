@@ -160,48 +160,47 @@ fn lower_src_to_any(ctx: &mut LowerCtx, init: ExprId) -> (Operand, bool) {
     (ctx.box_to_any_from_expr(init, src), true)
 }
 
-/// Deferred close's stop-short arm: transfer the iterator's stake
-/// from the walk's local slot into the park target (its declared
-/// init is `undefined` and the walk runs once per declaration, so no
-/// drop-old is owed), then clear the local slot so the walk's shared
-/// release no-ops. A suspendable pattern always has at least one
-/// element, so the step block ran and the slot holds the derived
-/// iterator — or stays `undefined` for a builtin-indexed lane, which
-/// the pending-close kernel treats as nothing-to-close.
-fn emit_park_transfer(ctx: &mut LowerCtx, iter_slot: crate::ssa::ValueId, target: ParkTarget) {
-    let it = ctx.f.append_inst(
+/// Deferred close's stop-short arm: mint the park value through the
+/// `dstr_park_pending` kernel and store it into the park target (its
+/// declared init is `undefined` and the walk runs once per
+/// declaration, so no drop-old is owed). The kernel takes a derived
+/// iterator's stake out of the walk slot (clearing it so the shared
+/// release no-ops), parks a builtin indexed lane's resume index as an
+/// immediate, and at a never-stepped prefix-0 stop runs the
+/// §13.15.5.3 step 1 GetIterator — before the pattern can suspend —
+/// so a non-iterable source rejects here and the throw-check skips
+/// the store (the park slot keeps its `undefined` init).
+fn emit_park_transfer(
+    ctx: &mut LowerCtx,
+    recv: Operand,
+    iter_slot: crate::ssa::ValueId,
+    idx_slot: crate::ssa::ValueId,
+    target: ParkTarget,
+) {
+    let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::Any, Operand::Value(iter_slot), 0),
+        InstKind::Call(
+            ctx.intrinsics.dstr_park_pending,
+            vec![recv, Operand::Value(iter_slot), Operand::Value(idx_slot)],
+        ),
         Type::Any,
         None,
     );
+    ctx.emit_throw_check(None);
     match target {
         ParkTarget::Local(slot) => {
             ctx.f.append_void(
                 ctx.cur_block,
-                InstKind::Store(Operand::Value(it), Operand::Value(slot), 0),
+                InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
             );
         }
         ParkTarget::Field { obj, offset } => {
             ctx.f.append_void(
                 ctx.cur_block,
-                InstKind::Store(Operand::Value(it), obj, offset),
+                InstKind::Store(Operand::Value(v), obj, offset),
             );
         }
     }
-    let undef = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-        ),
-        Type::Any,
-        None,
-    );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(undef), Operand::Value(iter_slot), 0),
-    );
 }
 
 /// Emit the bounded iteration walk. `limit >= 0` steps at most that
@@ -388,7 +387,7 @@ fn emit_walk(
             );
             ctx.emit_throw_check(None);
         }
-        Some(target) => emit_park_transfer(ctx, iter_slot, target),
+        Some(target) => emit_park_transfer(ctx, recv, iter_slot, idx_slot, target),
     }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
 
