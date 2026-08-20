@@ -91,6 +91,11 @@ pub(crate) fn try_lower(
         "__torajs_error_stack" => {
             crate::ssa_lower_call_error_magic::try_lower_error_stack(ctx, args)
         }
+        // RFC 20260820-ctor-return-override — the §10.2.2 step 13
+        // family lives in the `_ctorret` sibling.
+        n if n.starts_with("__torajs_ctor_ret_") => {
+            crate::ssa_lower_call_class_synth_ctorret::try_lower(ctx, n, args)
+        }
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         // T-12 §13.2.8.4 GetTemplateObject — the tagged-template
         // desugar's synthetic site call, per-site cached at runtime.

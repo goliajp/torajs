@@ -103,6 +103,7 @@ mod coerce;
 mod collection_init;
 mod compare;
 mod construct;
+mod ctor_return;
 mod date_from_value;
 mod error_cause;
 mod function_subclass;

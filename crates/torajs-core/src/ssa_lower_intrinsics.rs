@@ -575,6 +575,11 @@ pub(crate) struct Intrinsics {
     pub(crate) any_member_priv_has: FuncId,
     /// §7.3.32 PrivateSet write twin — undeclared brand throws.
     pub(crate) any_member_set_priv: FuncId,
+    /// RFC 20260820-ctor-return-override — §10.2.2 step 13. The
+    /// answering pair hands back an OWNED box; the carry borrows.
+    pub(crate) ctor_ret_value: FuncId,
+    pub(crate) ctor_ret_adopt: FuncId,
+    pub(crate) ctor_ret_carry: FuncId,
     pub(crate) any_member_get_value: FuncId,
     pub(crate) any_accessor_get: FuncId,
     pub(crate) any_member_set: FuncId,

@@ -28,6 +28,7 @@ pub(crate) struct InitC {
     pub ctorany: crate::ssa_lower_intrinsics_ctorany::CtoranyIds,
     pub class_computed: crate::ssa_lower_intrinsics_class_computed::ClassComputedIds,
     pub private: crate::ssa_lower_intrinsics_private::PrivateIds,
+    pub ctor_ret: crate::ssa_lower_intrinsics_ctorret::CtorRetIds,
     pub json_raw: crate::ssa_lower_intrinsics_json_raw::JsonRawIds,
     pub iterator: crate::ssa_lower_intrinsics_iterator::IteratorIds,
     pub print_freeze: crate::ssa_lower_intrinsics_print_freeze::PrintFreezeIds,
@@ -49,6 +50,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     let ctorany = crate::ssa_lower_intrinsics_ctorany::declare(module, fn_table);
     let class_computed = crate::ssa_lower_intrinsics_class_computed::declare(module, fn_table);
     let private = crate::ssa_lower_intrinsics_private::declare(module, fn_table);
+    let ctor_ret = crate::ssa_lower_intrinsics_ctorret::declare(module, fn_table);
     let json_raw = crate::ssa_lower_intrinsics_json_raw::declare(module, fn_table);
     let iterator = crate::ssa_lower_intrinsics_iterator::declare(module, fn_table);
     let print_freeze = crate::ssa_lower_intrinsics_print_freeze::declare(module, fn_table);
@@ -74,6 +76,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         ctorany,
         class_computed,
         private,
+        ctor_ret,
         json_raw,
         iterator,
         print_freeze,
