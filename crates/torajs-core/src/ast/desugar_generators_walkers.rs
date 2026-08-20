@@ -227,7 +227,20 @@ pub(crate) fn lift_lets_in_stmt(
                             // value is Array"). Sniffable sources
                             // (array literals) stay on their typed
                             // lane above.
-                            if n.starts_with("__dstra_src_") {
+                            //
+                            // Same rotation, second face: an Ident
+                            // initializer reaching this fallback is a
+                            // FREE name — every param, already-lifted
+                            // bind, and fn signature answers through
+                            // the sniff — i.e. an outer/global value
+                            // this pass has no static type for. The
+                            // t262 dstr templates alias their source
+                            // this way (`var vals = value;` inside
+                            // the generator), and number pinned the
+                            // field against its own store.
+                            if n.starts_with("__dstra_src_")
+                                || matches!(ast.get_expr(*init), Expr::Ident(_))
+                            {
                                 "any".into()
                             } else {
                                 "number".into()

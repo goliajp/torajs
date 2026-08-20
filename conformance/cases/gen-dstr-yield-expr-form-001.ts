@@ -53,3 +53,17 @@ it6 = (function* () {
 console.log("n7", JSON.stringify(it6.next()));
 console.log("n8", JSON.stringify(it6.next("A")));
 console.log("m n", m, n);
+// the t262 dstr template aliases its source through a FREE outer
+// name inside the generator body — the lifted field for `vals` has
+// no sniffable type, and the number fallback pinned it against its
+// own store. free-ident inits fall back to `any` instead (r454).
+var value2 = [[22]];
+var xf: any = {};
+var it7: any;
+it7 = (function* () {
+  var vals = value2;
+  var result = ([[xf[yield]]] = vals);
+  console.log("same", result === vals);
+})();
+console.log("n9", JSON.stringify(it7.next()), xf.prop);
+console.log("n10", JSON.stringify(it7.next("prop")), xf.prop);
