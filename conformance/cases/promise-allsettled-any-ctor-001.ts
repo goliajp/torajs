@@ -98,3 +98,23 @@ CA3.resolve = function (v) {
 };
 Promise.any.call(CA3, []);
 console.log(none instanceof AggregateError, none.errors.length);
+
+// §27.2.4.3.2 step 4.b.ii spells the final settle `? Call(…)`: a
+// capability whose resolve throws hands the walk an abrupt, which
+// step 7 turns into the capability's own rejection.
+let rejectSaw: any = "none";
+function CT(executor) {
+  executor(
+    function () {
+      throw "boom";
+    },
+    function (e) {
+      rejectSaw = e;
+    },
+  );
+}
+CT.resolve = function (v) {
+  return v;
+};
+Promise.allSettled.call(CT, [ok("a")]);
+console.log("abrupt resolve routes to reject:", rejectSaw);

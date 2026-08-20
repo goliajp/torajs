@@ -149,13 +149,21 @@ unsafe fn perform_elementwise(
             resolve_f
         };
         let st = crate::combinator_elem::ElemState::new(settle, kind == SpecComb::Any);
-        let out = perform_elementwise_inner(kind, c, pr, v, resolve_f, reject_f, st);
+        let mut out = perform_elementwise_inner(kind, c, pr, v, resolve_f, reject_f, st);
         if out.is_ok() {
             // Step 4.b — the iterator is drained, so the walk's own
             // hold on the counter comes off. An empty run, or one
             // whose elements all settled synchronously, resolves
             // right here.
             crate::combinator_elem::count_down(st);
+            // Step 4.b.ii spells that last call `? Call(…)`: a
+            // capability whose resolve throws hands the walk an
+            // abrupt, which step 7 IfAbruptRejectPromise turns into
+            // the capability's own rejection. Without this read the
+            // throw walks out of the combinator uncaught.
+            if __torajs_throw_check() != 0 {
+                out = Err(());
+            }
         }
         crate::combinator_elem::state_release(st);
         out
