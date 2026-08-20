@@ -105,6 +105,33 @@ pub(crate) unsafe fn inherited_set_from_class_proto(
     }
 }
 
+/// §28.1.13 Reflect.set's seed — the walk starting at the target
+/// ITSELF rather than at its prototype, with a receiver that need not
+/// be the target. Reflect.set is spelled `target.[[Set]](P, V,
+/// receiver)`, so the property lookup that decides between "run a
+/// setter" and "write a data property" walks the TARGET (own entry
+/// first), while the write and the setter's `this` both go to the
+/// RECEIVER — the one place in §10.1.9.2 where the two objects come
+/// apart. The two-seed shape is why that split costs nothing here:
+/// the walk already took its receiver as a parameter.
+///
+/// Verdict contract as [`inherited_set_handled`]: `Some(1)` a setter
+/// ran, `Some(0)` refused, `None` = the caller writes an ordinary own
+/// data property — on the receiver, per §10.1.9.2 step 2.e.
+///
+/// # Safety
+/// `cell` is a live object cell; `key` is a live key cell; `(tag,
+/// value)` carries the caller's +1 on heap payloads.
+pub(crate) unsafe fn chain_set_from_self(
+    cell: u64,
+    recv: AnyValue,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) -> Option<i64> {
+    unsafe { inherited_set_walk(Some(cell), recv, key, tag, value, false) }
+}
+
 /// The walk both seeds share — see [`inherited_set_handled`] for the
 /// verdict contract.
 ///

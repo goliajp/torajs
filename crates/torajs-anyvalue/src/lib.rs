@@ -146,6 +146,7 @@ mod member_set_arr;
 mod member_set_closure;
 mod member_set_dynobj;
 mod member_set_private;
+mod member_set_receiver;
 mod member_set_symbol;
 mod member_set_wrapper;
 mod method_bind;

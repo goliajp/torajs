@@ -139,6 +139,10 @@ pub(crate) struct ObjectIds {
     /// (refusal answers 0 with no pending throw; setter throws
     /// still propagate).
     pub any_member_set_soft: FuncId,
+    /// §10.1.9.2 OrdinarySet with the lookup object and the write
+    /// object pulled apart — `Reflect.set`'s four-argument form. The
+    /// receiver rides a slot so a DynObj relocation writes back.
+    pub any_member_set_with_receiver: FuncId,
     /// §28.1.12 Reflect.setPrototypeOf — boolean-answer flavor of
     /// the OrdinarySetPrototypeOf core (refusal = 0, no throw;
     /// invalid proto still throws).
@@ -263,6 +267,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         any_member_set_soft: decl!(
             "__torajs_any_member_set_soft",
             [Ptr, Ptr, I64, I64, I64],
+            I64
+        ),
+        any_member_set_with_receiver: decl!(
+            "__torajs_any_member_set_with_receiver",
+            [Any, Ptr, I64, I64, Ptr],
             I64
         ),
         reflect_set_prototype_of: decl!("__torajs_reflect_set_prototype_of", [Any, Any], I64),

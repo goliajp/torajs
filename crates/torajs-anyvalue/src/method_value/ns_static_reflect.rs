@@ -194,15 +194,28 @@ pub(super) unsafe fn reflect_set(argv: *const u64, argc: i64) -> u64 {
         let v = arg_at(argv, argc, 2);
         let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(v);
         let value = crate::nanbox_encode::__torajs_anyv_unbox_value_owned(v);
-        let mut recv = arg_at(argv, argc, 0);
-        let wrote = crate::member_set::__torajs_any_member_set_soft(
-            &mut recv as *mut u64,
-            key as *mut core::ffi::c_void,
+        let target = arg_at(argv, argc, 0);
+        // §28.1.13 step 3 — the receiver defaults to the target, and
+        // that is the shape every caller but Reflect.set itself has:
+        // it collapses to a plain [[Set]] on the target and takes the
+        // path this arm always took.
+        let receiver = if argc >= 4 {
+            arg_at(argv, argc, 3)
+        } else {
+            target
+        };
+        let kp = key as *mut core::ffi::c_void;
+        // The receiver kernel collapses to the ordinary [[Set]] when
+        // the two objects coincide, so both spellings go through it.
+        let mut recv = receiver;
+        let wrote = crate::member_set_receiver::__torajs_any_member_set_with_receiver(
+            target,
+            kp,
             tag as u64,
             value as u64,
-            -1,
+            &mut recv as *mut u64,
         );
-        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        crate::__torajs_str_drop(kp);
         if wrote != 0 { VALUE_TRUE } else { VALUE_FALSE }
     }
 }
