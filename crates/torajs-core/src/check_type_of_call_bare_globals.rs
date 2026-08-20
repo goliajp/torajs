@@ -64,19 +64,18 @@ pub(crate) fn try_match(
                         Ok(t) => t,
                         Err(e) => return Some(Err(e)),
                     };
-                    if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
-                        return Some(Err(format!("parseInt arg 0 must be string, got {s_ty:?}")));
-                    }
+                    // Rotation 461 — step 1 is ToString, which takes
+                    // any value at all.
+                    let _ = s_ty;
                 }
                 if args.len() == 2 {
-                    let r_ty = match checker.type_of(ast, args[1]) {
-                        Ok(t) => t,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    // S234 / S337 — accept Number, Undefined,
-                    // or Any in slot 1 (ToInt32 step 2).
-                    if !matches!(r_ty, Type::Number | Type::Undefined | Type::Any) {
-                        return Some(Err(format!("parseInt arg 1 must be number, got {r_ty:?}")));
+                    // Step 2 is ToInt32(radix), whose ToNumber takes
+                    // any value at all — the shape guard that used to
+                    // stand here answered a question the spec does not
+                    // ask (`parseInt("11", "16")` is 17 everywhere).
+                    // Rotation 461; ssa_lower boxes whatever it gets.
+                    if let Err(e) = checker.type_of(ast, args[1]) {
+                        return Some(Err(e));
                     }
                 }
                 Some(Ok(Type::Number))

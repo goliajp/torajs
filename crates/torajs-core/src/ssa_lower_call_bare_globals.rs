@@ -94,7 +94,17 @@ fn lower_uri(ctx: &mut LowerCtx<'_>, args: &[ExprId], encode: bool, component: b
 /// unchanged.
 fn decode_any_to_str(ctx: &mut LowerCtx<'_>, raw: Operand) -> Operand {
     let raw_ty = ctx.operand_ty(&raw);
-    if raw_ty != Type::Any {
+    // Rotation 461 — §19.2.5 step 1 is ToString, which takes any
+    // value. A shape that is neither a string slot nor already boxed
+    // (a struct an `as any` cast left statically typed, an array)
+    // rides the same decode through a box; the box is a pure encode,
+    // so the source keeps its own stake.
+    let raw = if matches!(raw_ty, Type::Any | Type::Str | Type::Substr) {
+        raw
+    } else {
+        ctx.box_to_any(raw)
+    };
+    if ctx.operand_ty(&raw) != Type::Any {
         return raw;
     }
     let tag = ctx.f.append_inst(
@@ -135,7 +145,7 @@ fn decode_any_to_str(ctx: &mut LowerCtx<'_>, raw: Operand) -> Operand {
     Operand::Value(s_val)
 }
 
-fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+pub(crate) fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // S202 — ES §19.2.5 step 1: `string` defaults to undefined when omitted
     // → ToString returns "undefined" which fails to parse as a digit string
     // → NaN. S226 — explicit-undefined arg folds the same way without
@@ -168,38 +178,16 @@ fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // ToInt32(undefined)=0 → same auto-detect sentinel. Skip lowering the
     // undef arg so its ConstPtrNull never reaches the helper's i64 radix
     // slot.
-    // S337 — accept Any radix: decode via anyv_to_number → coerce_to_i64
-    // (Pattern A, sister to S327 Number.parseInt radix Any).
+    // S337 — step 2 is ToInt32(radix), settled for both spellings in
+    // `ssa_lower_parse_int_radix`.
     let radix_undef = args.len() >= 2
         && matches!(
             ctx.expr_types.get(&args[1]),
             Some(check_mod::Type::Undefined)
         );
-    let radix_any =
-        args.len() >= 2 && matches!(ctx.expr_types.get(&args[1]), Some(check_mod::Type::Any));
     let r = if args.len() >= 2 && !radix_undef {
-        if radix_any {
-            let raw_r = ctx.lower_expr(args[1]);
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw_r]),
-                Type::F64,
-                None,
-            );
-            // §19.2.5.1 step 2 ToInt32(radix) — the coercion is a real
-            // ToNumber: a `valueOf` that throws propagates, and an
-            // object whose valueOf AND toString both answer objects
-            // raises TypeError (§7.1.1 OrdinaryToPrimitive step 5).
-            // `any_to_number` records those on the throw TLS and
-            // answers NaN; without the check the parse ran anyway and
-            // the pending throw surfaced at an unrelated site — the
-            // t262 `parseInt/S15.1.2.2_A3.1_T7` CHECK#7/#8 shapes,
-            // which crashed the process instead of throwing.
-            ctx.emit_throw_check(None);
-            ctx.coerce_to_i64(Operand::Value(f))
-        } else {
-            ctx.lower_expr(args[1])
-        }
+        let raw_r = ctx.lower_expr(args[1]);
+        crate::ssa_lower_parse_int_radix::to_int32(ctx, args[1], raw_r)
     } else {
         Operand::ConstI64(0)
     };

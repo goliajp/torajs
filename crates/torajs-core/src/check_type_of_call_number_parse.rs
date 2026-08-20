@@ -80,11 +80,10 @@ pub(crate) fn try_match(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
-            if !matches!(s_ty, Type::String | Type::Undefined) {
-                return Some(Err(format!(
-                    "Number.parseInt arg 0 must be string, got {s_ty:?}"
-                )));
-            }
+            // Rotation 461 — step 1 is ToString, which takes any
+            // value; the global spelling already accepted Any here
+            // and this one is the same function object (§21.1.2.13).
+            let _ = s_ty;
         }
         if args.len() == 2 {
             let r_ty = match checker.type_of(ast, args[1]) {
@@ -97,19 +96,18 @@ pub(crate) fn try_match(
             // substitutes ConstI64(0) for the helper's
             // auto-detect branch.
             //
-            // S327 — widen accept Any radix. Spec
-            // §19.2.5.1 step 2 calls ToInt32 on the radix,
-            // which already coerces Any (NaN→0, ∞→0, etc.).
-            // ssa_lower mirror routes Any through
-            // coerce_to_i64 instead of panicking on the
-            // integer-shape guard. Narrow widen — only the
-            // Number.parseInt 2-arg shape; global parseInt
-            // (line ~17219) has no shape guard.
-            if !matches!(r_ty, Type::Number | Type::Undefined | Type::Any) {
-                return Some(Err(format!(
-                    "Number.parseInt arg 1 must be number, got {r_ty:?}"
-                )));
-            }
+            // S327 — accept Any radix. Spec §19.2.5.1 step 2
+            // calls ToInt32 on the radix, which coerces Any
+            // (NaN→0, ∞→0, etc.).
+            //
+            // Rotation 461 — and everything else, for the same
+            // reason: ToInt32's ToNumber takes any value, so
+            // the shape guard was answering a question the spec
+            // does not ask (`parseInt("11", "16")` is 17 in
+            // every engine). ssa_lower boxes whatever it gets
+            // and runs the same route. `let _ = r_ty;` keeps
+            // the arg's own type error surfacing above.
+            let _ = r_ty;
         }
         return Some(Ok(Type::Number));
     }

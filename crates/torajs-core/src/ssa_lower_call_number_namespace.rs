@@ -51,76 +51,13 @@ pub(crate) fn try_lower(
     Some(result)
 }
 
+/// §21.1.2.13 — `Number.parseInt` IS the `parseInt` function object,
+/// so it is the same lowering. The copy that used to live here had
+/// drifted twice: it evaluated the trailing args BEFORE the string
+/// and the radix (against §6.1.7.4 left-to-right), and it never
+/// decoded an Any string slot.
 fn lower_parse_int(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
-    // S202 — Number.parseInt is a §21.1.2.13 alias to global parseInt;
-    // 0-arg form yields NaN by the same default-undefined path.
-    // S226 — explicit-undefined arg folds the same way without lowering
-    // the arg.
-    // S302 — lower-and-drop trailing args[2..] per S272 idiom so step()-
-    // style side-effect exprs fire per ES eval-then-discard (check.rs
-    // S253 already typecheck-dropped).
-    for &a in args.iter().skip(2) {
-        let _ = ctx.lower_expr(a);
-    }
-    if args.is_empty()
-        || matches!(
-            ctx.expr_types.get(&args[0]),
-            Some(check_mod::Type::Undefined)
-        )
-    {
-        return Operand::ConstF64(f64::NAN);
-    }
-    // Number.parseInt(s, radix) — radix optional in JS; typecheck enforces
-    // 2-arg shape so we always have a ConstI64 / loaded radix here.
-    let s = ctx.lower_expr(args[0]);
-    // V3-18 m1.h.25 — auto-detect when no radix.
-    //
-    // S234 — accept explicit-undefined radix per §21.1.2.13 aliasing
-    // §19.2.5.1 step 2-3: ToInt32(undefined)=0 → same auto-detect
-    // sentinel; skip lowering the undef arg.
-    let radix_undef = args.len() >= 2
-        && matches!(
-            ctx.expr_types.get(&args[1]),
-            Some(check_mod::Type::Undefined)
-        );
-    let r = if args.len() >= 2 && !radix_undef {
-        ctx.lower_expr(args[1])
-    } else {
-        Operand::ConstI64(0)
-    };
-    // Subset constraint: radix must be an integer-shaped expression
-    // (literal or i64 binding) so no FpToSi is needed. Pass user-typed f64
-    // through unchecked is a known v0 hole; doc'd in the test port.
-    //
-    // S327 — accept Any radix per check.rs widen: ES §19.2.5.1 step 2
-    // ToInt32 already covers arbitrary-typed input. Route Any through
-    // any_to_number → coerce_to_i64 instead of panicking. I64/I32/ConstI64
-    // fast paths preserved as-is; F64 / Any go through coerce_to_i64
-    // (NaN→0, ±∞→sat per spec).
-    let r_ty = ctx.operand_ty(&r);
-    let r = if r_ty == Type::I64 || r_ty == Type::I32 || matches!(r, Operand::ConstI64(_)) {
-        r
-    } else if r_ty == Type::Any {
-        let f = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_to_number, vec![r]),
-            Type::F64,
-            None,
-        );
-        // §21.1.2.13 forwards to §19.2.5, whose step 2 ToInt32(radix)
-        // can throw — same check the bare-name sibling now runs.
-        ctx.emit_throw_check(None);
-        ctx.coerce_to_i64(Operand::Value(f))
-    } else {
-        ctx.coerce_to_i64(r)
-    };
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.num_parse_int, vec![s, r]),
-        Type::F64,
-        None,
-    );
-    Operand::Value(v)
+    crate::ssa_lower_call_bare_globals::lower_parse_int(ctx, args)
 }
 
 fn lower_parse_float(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
