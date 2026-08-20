@@ -187,7 +187,116 @@ pub(super) fn collect_objlit_boxed_only_argv(
             &mut method_fns,
         );
     }
+    // r454 return arm — a fn-expr escaping through a RETURN statement
+    // (`return function () { …arguments… }`, or `const g = <fn-expr>;
+    // return g;`): the caller receives an opaque closure VALUE, so —
+    // exactly like the field and store arms — every call reaches the
+    // body through the closure cell's boxed adapter (the enclosing
+    // fn's inferred return sig publishes the rest-tail spelling, see
+    // preinfer_closure_sigs). The alias form additionally requires
+    // the binding's ONLY ident reference to be the return operand:
+    // any other use could be a direct call carrying the old
+    // signature.
+    let mut lets: Vec<(&str, super::ExprId)> = Vec::new();
+    super::arguments_object_chain::collect_letdecls_recursive(&ast.stmts, &mut lets);
+    let mut returns: Vec<super::ExprId> = Vec::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { body, .. } = s {
+            collect_return_operands(body, &mut returns);
+        }
+    }
+    for r in returns {
+        let fn_name = match ast.get_expr(r) {
+            Expr::Closure { fn_name, .. } => fn_name.clone(),
+            Expr::Ident(b) => {
+                if ident_refs.get(b.as_str()) != Some(&1) {
+                    continue;
+                }
+                let mut init_fn: Option<String> = None;
+                let mut refused = false;
+                for (n, init) in &lets {
+                    if *n == b.as_str() {
+                        match (init_fn.is_none(), ast.get_expr(*init)) {
+                            (true, Expr::Closure { fn_name, .. }) => {
+                                init_fn = Some(fn_name.clone());
+                            }
+                            _ => {
+                                refused = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                match (refused, init_fn) {
+                    (false, Some(f)) => f,
+                    _ => continue,
+                }
+            }
+            _ => continue,
+        };
+        admit_boxed_only(
+            ast,
+            &fn_name,
+            excluded,
+            &ident_refs,
+            &closure_refs,
+            &mut value_fns,
+            &mut method_fns,
+        );
+    }
     (value_fns, method_fns)
+}
+
+/// Every `return <expr>` operand reachable from `body`, nested
+/// control flow included. Nested FnDecls are walked too — their
+/// returns escape a closure value the same way.
+fn collect_return_operands(body: &[Stmt], out: &mut Vec<super::ExprId>) {
+    for s in body {
+        match s {
+            Stmt::Return(Some(e)) => out.push(*e),
+            Stmt::FnDecl { body, .. } => collect_return_operands(body, out),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_return_operands(core::slice::from_ref(then_branch), out);
+                if let Some(e) = else_branch {
+                    collect_return_operands(core::slice::from_ref(e), out);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::Labeled { body, .. }
+            | Stmt::ForOf { body, .. }
+            | Stmt::ForOfSplitIter { body, .. } => {
+                collect_return_operands(core::slice::from_ref(body), out)
+            }
+            Stmt::For { body, .. } => collect_return_operands(core::slice::from_ref(body), out),
+            Stmt::Block(b) | Stmt::Multi(b) => collect_return_operands(b, out),
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                collect_return_operands(body, out);
+                collect_return_operands(catch_body, out);
+                if let Some(f) = finally_body {
+                    collect_return_operands(f, out);
+                }
+            }
+            Stmt::Switch { cases, default, .. } => {
+                for c in cases {
+                    collect_return_operands(&c.body, out);
+                }
+                if let Some(d) = default {
+                    collect_return_operands(d, out);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The shared per-fn admission gate (module doc): reference

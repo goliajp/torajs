@@ -65,6 +65,7 @@ pub(crate) fn run(ast: &mut Ast) {
         objlit_shorthand_proto_exprs,
         fn_expr_exprs,
         closure_argc_locals,
+        closure_argv_fns,
         closure_argv_locals,
         fnexpr_recv_fns,
         fnexpr_recv_faces,
@@ -124,7 +125,14 @@ pub(crate) fn run(ast: &mut Ast) {
     // `infer_expr_ann_with`'s Expr::Closure arm answer fn-shaped
     // anns; `parse_type` maps `__fn` to FnSig and `effective_ret_ty`
     // upgrades to Closure where the body returns closure values.
-    preinfer_closure_sigs(stmts, ast_exprs_view, &outer_binds, cap_anns, &mut fn_sigs);
+    preinfer_closure_sigs(
+        stmts,
+        ast_exprs_view,
+        &outer_binds,
+        cap_anns,
+        closure_argv_fns,
+        &mut fn_sigs,
+    );
     // RFC 20260714-objlit-accessor blade 1 — must sit between the
     // pre-infer above and the main loop below: the lifted closures and
     // `fn_sigs` exist by now (so a method's FnDecl can take `__this` and
@@ -362,6 +370,7 @@ fn preinfer_closure_sigs(
     exprs: AstExprsView,
     outer_binds: &std::collections::HashMap<String, String>,
     cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    argv_fns: &std::collections::HashSet<String>,
     fn_sigs: &mut std::collections::HashMap<String, String>,
 ) {
     for stmt in stmts.iter_mut() {
@@ -419,6 +428,17 @@ fn preinfer_closure_sigs(
             None if !body_has_value_return(body) => "void".to_string(),
             None => continue,
         };
+        // r454 — an argv-face member's real head is the boxed
+        // `[__torajs_argv, …]` shape; walking its params would stamp
+        // the opaque `__argvptr()` into every inferred ann that
+        // carries this sig (an enclosing fn returning the closure
+        // most of all). Publish the same rest-tail spelling the
+        // checker gives the closure VALUE, so consumers route the
+        // variadic boxed lane.
+        if argv_fns.contains(name) {
+            fn_sigs.insert(name.clone(), format!("__fn(__rest(any[]))->{ret}"));
+            continue;
+        }
         let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
         let mut complete = true;
         for p in params.iter().filter(|p| p.name != "__env") {
