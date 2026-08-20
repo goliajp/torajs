@@ -87,6 +87,7 @@ unsafe extern "C" {
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
     fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8;
     fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64, value: u64);
 }
@@ -277,6 +278,12 @@ unsafe fn settled_record(status: &[u8], value_key: &[u8], x: u64) -> u64 {
 
 unsafe extern "C" fn elem_drop(env: *mut c_void) {
     unsafe {
+        // The collector may hold this cell as a cycle candidate from
+        // an earlier rc_dec; freeing the block without retiring that
+        // entry leaves it a dangling root (Guard Malloc caught the
+        // read at teardown). Both sibling owned-cell drops open the
+        // same way.
+        __torajs_cycle_unbuffer(env);
         let cell = env.cast::<u8>();
         let st = *(cell.add(STATE_OFF) as *const u64) as *mut ElemState;
         if !st.is_null() {
