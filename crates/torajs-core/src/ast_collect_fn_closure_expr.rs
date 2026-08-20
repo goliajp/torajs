@@ -179,7 +179,19 @@ impl<'a> FnToClosureCollector<'a> {
                     if !self.ast.generator_factory_classes.contains_key(n)
                         && !self.ast.async_fns.contains(n)
                         && !self.ast.async_generator_fns.contains(n));
-                if name != "prototype" || !plain_fn_base || !self.try_mark(obj) {
+                // Rotation 459 — an implicit-generic decl (any
+                // un-annotated param) has NO lowered original: the
+                // `desugar_implicit_generics` pass gives it `__T<N>`
+                // TypeVars and only per-call monos are emitted, so a
+                // bare-Ident base of ANY property died with
+                // `ssa-lower: unknown ident`. Its forwarder cell is
+                // the fn object (`typeof` / `name` / `length` all
+                // answer through it), so the base wraps whatever the
+                // property is — that is the whole reason the
+                // prototype-only restriction above can stay narrow
+                // for the fns that DO have a lowered original.
+                let no_original_base = plain_fn_base && self.is_untyped_plain_fn_ident(obj);
+                if (name != "prototype" && !no_original_base) || !self.try_mark(obj) {
                     self.walk_expr(obj);
                 }
             }
@@ -206,9 +218,19 @@ impl<'a> FnToClosureCollector<'a> {
                 let (op, left, right) = (*op, *left, *right);
                 self.walk_binop(&op, &left, &right);
             }
-            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
-                self.walk_expr(*expr)
+            // Rotation 459 — `typeof F` on an implicit-generic decl:
+            // same missing original as the member-base axis, but this
+            // one failed SILENTLY (the typeof lane's fn-name arm keys
+            // on the raw-FnSig table, misses, and falls through to
+            // `undefined`). Wrapping answers "function" off the cell.
+            Expr::TypeOf { expr } => {
+                let e = *expr;
+                let wraps = self.is_untyped_plain_fn_ident(e) && !self.is_generator_family_ident(e);
+                if !wraps || !self.try_mark(e) {
+                    self.walk_expr(e);
+                }
             }
+            Expr::Unary { expr, .. } | Expr::Spread { expr } => self.walk_expr(*expr),
             Expr::InstanceOf { expr, rhs } => {
                 self.walk_expr(*expr);
                 self.walk_expr(*rhs);
