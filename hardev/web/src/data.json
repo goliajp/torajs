@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T10:26:02.910Z",
+  "generatedAt": "2026-08-20T12:23:51.649Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-20T10:15:41Z",
-    "headSha": "a11daeb5",
-    "elapsedSec": 365.5,
+    "ranAt": "2026-08-20T12:13:08Z",
+    "headSha": "8c84e873",
+    "elapsedSec": 366.21,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27002,
-    "passNoOracle": 968,
+    "pass": 27015,
+    "passNoOracle": 970,
     "passNegative": 4147,
-    "passTotal": 32117,
-    "bug": 12824,
-    "incompatible": 8233,
+    "passTotal": 32132,
+    "bug": 12828,
+    "incompatible": 8214,
     "bunSkip": 6599,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 44941,
-    "passRateInScope": 60.4,
-    "passRateTrAccepted": 71.46
+    "trAccepted": 44960,
+    "passRateInScope": 60.43,
+    "passRateTrAccepted": 71.47
   },
   "torajs": {
-    "commit": "a11daeb5",
-    "commitSubject": "feat: generator-local class bindings survive yields through a field",
+    "commit": "8c84e873d",
+    "commitSubject": "feat: a derived constructor may answer only an object or undefined",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
-      "hash": "a11daeb5",
+      "hash": "8c84e873d",
+      "subject": "feat: a derived constructor may answer only an object or undefined"
+    },
+    {
+      "hash": "58546e64c",
+      "subject": "fix: the ctor pick's answer needs an assignment to hold it"
+    },
+    {
+      "hash": "e1312c152",
+      "subject": "feat: a constructor that returns an object answers with it"
+    },
+    {
+      "hash": "acd51757c",
+      "subject": "feat: kernels and lowering for the ctor return-override channel"
+    },
+    {
+      "hash": "e995f2226",
+      "subject": "feat: name the ctor chains that must answer a value"
+    },
+    {
+      "hash": "1867be384",
+      "subject": "chore: rotation 457 sweep artifacts, roadmap member-call snapshot, dashboard"
+    },
+    {
+      "hash": "a11daeb59",
       "subject": "feat: generator-local class bindings survive yields through a field"
     },
     {
-      "hash": "2e829e28",
+      "hash": "2e829e284",
       "subject": "feat: generator-body classes carry computed keys across the lift"
     },
     {
-      "hash": "515dc5ec",
+      "hash": "515dc5ec2",
       "subject": "feat: rebound class methods host primitive and nullish thisValues"
     },
     {
-      "hash": "3252de56",
+      "hash": "3252de56f",
       "subject": "feat: private member writes gate on the brand before installing"
     },
     {
-      "hash": "d465aef6",
+      "hash": "d465aef6b",
       "subject": "feat: inline class-method call/apply/bind rides the any-dispatch lane"
     },
     {
-      "hash": "46e67a9a",
+      "hash": "46e67a9a8",
       "subject": "chore: rotation 456 sweep artifacts, roadmap knife-D snapshot, dashboard"
-    },
-    {
-      "hash": "84a557dc",
-      "subject": "fix: deferred-rest temps pin any so the lifted walk stays reachable"
-    },
-    {
-      "hash": "c9eebdd7",
-      "subject": "docs: field-walk rest gate now guards nested patterns only"
-    },
-    {
-      "hash": "6b582bda",
-      "subject": "feat: suspendable rest patterns sequence target before drain"
-    },
-    {
-      "hash": "9b3abe61",
-      "subject": "feat: dstr walk parks through the three-state kernel"
-    },
-    {
-      "hash": "7771dde6",
-      "subject": "feat: dstr rest-drain kernels park resume state three ways"
-    },
-    {
-      "hash": "c9be78b1",
-      "subject": "chore: rotation 455 sweep artifacts, roadmap P-SURF snapshot, dashboard"
     }
   ],
-  "headSha": "a11daeb5",
+  "headSha": "8c84e873d",
   "autorun": {
-    "total": 760,
+    "total": 761,
     "baselineTarget": 10,
-    "bySelf": 755,
+    "bySelf": 756,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787214403-23ab",
-      "at": "2026-08-20T08:26:43Z",
-      "ts": 1787214403,
+      "rotationId": "r-1787221594-2da7",
+      "at": "2026-08-20T10:26:34Z",
+      "ts": 1787221594,
       "trigger": "self",
-      "prevHead": "46e67a9a",
-      "handoffSha": "sha256:6753d82fb91be70d675e91f1d625f58bc9eab06e29f09031cdbda90b6ad308e7",
-      "handoffAgeSec": 1,
+      "prevHead": "1867be38",
+      "handoffSha": "sha256:e0407b69f6aa47a57f9a2fdffe316feb1cf60233eeb3034987d004c95987a153",
+      "handoffAgeSec": 33,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787221594-2da7",
+        "at": "2026-08-20T10:26:34Z",
+        "ts": 1787221594,
+        "trigger": "self",
+        "prevHead": "1867be38",
+        "handoffSha": "sha256:e0407b69f6aa47a57f9a2fdffe316feb1cf60233eeb3034987d004c95987a153",
+        "handoffAgeSec": 33,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787214403-23ab",
         "at": "2026-08-20T08:26:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "366b24de",
         "handoffSha": "sha256:b1e626bbdf50975124edf31cdcbb8db7ba8c3544c01a4dc05c35a2d856930710",
         "handoffAgeSec": 24,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787126767-20be",
-        "at": "2026-08-19T08:06:07Z",
-        "ts": 1787126767,
-        "trigger": "self",
-        "prevHead": "753f8ddb",
-        "handoffSha": "sha256:c4eab047615d54c24d217cb8c66c582274b6f0ae2fc740e0c74e9ebba9d226a6",
-        "handoffAgeSec": 328,
         "conformanceBefore": null,
         "commitsInSession": null
       }

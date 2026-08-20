@@ -1530,7 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `a11daeb5`** (2026-08-20, rotation 457 — the
+**Latest @ `8c84e873`** (2026-08-20, rotation 458 — constructor
+return-override, RFC 20260820-ctor-return-override, five blades. A
+ctor returning an object now makes `new C(o)` answer THAT object and
+carries the class's own elements onto it (§10.2.2 step 13 / §7.3.28),
+and a DERIVED ctor answering a non-object throws (step 13.c). Blade 1
+names the narrow set that needs the answering ABI — seed on classes
+whose ctor carries a value return, spread down to descendants, then up
+to ancestors; the two spreads do not compose into a fixed point and
+their order is load-bearing (widening first pulls in every cousin).
+Blade 3 gives a member ctor `__this_in` copied into an ordinary local,
+appends `return __this`, and lets one step-13 pick at the factory map
+`return e` / bare `return` / fall-through — no second body walk. The
+mint stays TYPED (an `any` let would send the literal down the dynobj
+lane and cost the class tag and vtable); only the parameter and the
+factory's answer widen. Three ownership facts, each read off the SSA
+and each hiding the next: `x = <call>` retains, `let x = <call>` takes
+over, `f(g())` releases nothing — so the pick is borrow-shaped,
+consumed by assignment at both sites, and the parent's answer lands in
+a `__sup` local first. Blade 5 needed `ast_throw_info` told that the
+pick raises, or the ctor / factory / `new` all pruned their checks and
+the caller read a stranded zero back as an unknown any tag. Sweep vs
+457: passTotal 32117 → **32132 (+15)**, bug +4, incompatible −19,
+trAccepted +19, conservation ✓. **Zero pass regressions** — all five
+bug arrivals came from `incompatible:type error`, i.e. cases tr used
+to refuse outright now compile and show their own assertion. 11
+`derived-class-return-override-*` cases plus
+`privatefieldset-evaluation-order-3` turn pass. Gate 3191 →
+**3192/0/4**. Unattributed ≥4 clusters 183 → **182**, cases 1584 →
+**1574**, core 2699 → **2680**.)
+
+**@ `a11daeb5`** (2026-08-20, rotation 457 — the
 "unsupported member call shape: call" cluster (31 cases) + the
 cpn-class-*-yield generator side quest, RFC
 20260820-member-call-route, five knives. Knife 1: an inline
