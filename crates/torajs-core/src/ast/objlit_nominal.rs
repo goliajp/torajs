@@ -47,15 +47,15 @@ use super::{AstExprsView, Expr, ExprId, Param, Stmt, binds_to_params, infer_expr
 /// One method field of one object literal, resolved to the pieces the
 /// apply phase needs. Collected read-only so the arena walk and the
 /// arena mutation don't overlap.
-struct MethodPatch {
+pub(super) struct MethodPatch {
     /// The `Expr::Closure` slot (same ExprId the `ArrowFn` had).
-    eid: ExprId,
+    pub(super) eid: ExprId,
     /// The lifted FnDecl to give a `__this` param.
-    fn_name: String,
+    pub(super) fn_name: String,
     /// The object literal's synthetic nominal alias.
-    objlit_ty: String,
+    pub(super) objlit_ty: String,
     /// The field name this method sits under.
-    field: String,
+    pub(super) field: String,
 }
 
 pub(crate) fn run(
@@ -95,6 +95,7 @@ pub(crate) fn run(
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
     let mut any_patches: Vec<(ExprId, String)> = Vec::new();
+    let mut recvless_accessors: Vec<(ExprId, String)> = Vec::new();
 
     {
         let view: AstExprsView = &*exprs;
@@ -178,19 +179,7 @@ pub(crate) fn run(
             let objlit_ty = format!("__ObjLit_{next}");
             next += 1;
 
-            // Field-value idents resolve against the literal's own
-            // construction-site binds (closure_capture_anns snapshot)
-            // first; the program-wide by-name map is only the
-            // fallback. Without the overlay, `{ px: x }` under a
-            // `x: number` param took a LATER fn's `x: any` ann and
-            // laid the slot out as any while the fill wrote raw bits.
-            let site_binds: HashMap<String, String> = {
-                let mut m = outer_binds.clone();
-                if let Some(s) = objlit_site_binds.get(&(i as u32)) {
-                    m.extend(s.iter().map(|(k, v)| (k.clone(), v.clone())));
-                }
-                m
-            };
+            let site_binds = site_binds_for(outer_binds, objlit_site_binds, i as u32);
             let site_params = binds_to_params(&site_binds);
 
             // METHODS ARE LAYOUT FIELDS — they are own enumerable
@@ -215,6 +204,12 @@ pub(crate) fn run(
                     };
                     method_names.push(fname.clone());
                     td_fields.push((fname.clone(), "__mth_placeholder".to_string()));
+                    // Rotation 461 — the this-FREE accessors, whose
+                    // receiver slot is declared and never read (see
+                    // `settle_collected`).
+                    if !uses_this(feid) {
+                        recvless_accessors.push((*feid, fn_name.clone()));
+                    }
                     patches.push(MethodPatch {
                         eid: *feid,
                         fn_name: fn_name.clone(),
@@ -239,11 +234,12 @@ pub(crate) fn run(
         }
     }
 
-    settle_collected(Settle {
+    super::objlit_nominal_settle::settle_collected(super::objlit_nominal_settle::Settle {
         stmts,
         exprs,
         any_patches,
         patches,
+        recvless_accessors,
         type_decls,
         fn_sigs,
         fnexpr_recv_fns,
@@ -252,51 +248,22 @@ pub(crate) fn run(
     });
 }
 
-/// What the collect loop above produced, handed to the apply phase in
-/// one piece.
-struct Settle<'a> {
-    stmts: &'a mut Vec<Stmt>,
-    exprs: &'a mut Vec<Expr>,
-    /// Anylane members promoted to the `__this: any` receiver-first
-    /// shape — `(face ExprId, lifted fn name)`.
-    any_patches: Vec<(ExprId, String)>,
-    /// Nominal members: the `__this: __ObjLit_n` receiver patches.
-    patches: Vec<MethodPatch>,
-    /// The synthetic `__ObjLit_n` aliases, `__mth_placeholder` fields
-    /// still parked in them.
-    type_decls: Vec<Stmt>,
-    fn_sigs: &'a mut HashMap<String, String>,
-    fnexpr_recv_fns: &'a mut std::collections::HashSet<String>,
-    sloppy: bool,
-    spans: &'a mut Vec<crate::lexer::Span>,
-}
-
-/// Apply phase — promote the anylane faces, then land the nominal
-/// patches and publish the aliases they name.
-fn settle_collected(s: Settle<'_>) {
-    if !s.any_patches.is_empty() {
-        super::fnexpr_this::promote_recv_any(
-            s.stmts,
-            s.exprs,
-            &s.any_patches,
-            s.fnexpr_recv_fns,
-            s.sloppy,
-            s.spans,
-        );
+/// Field-value idents resolve against the literal's OWN
+/// construction-site binds (the `closure_capture_anns` snapshot)
+/// first; the program-wide by-name map is only the fallback. Without
+/// the overlay, `{ px: x }` under an `x: number` param took a LATER
+/// fn's `x: any` ann and laid the slot out as any while the fill
+/// wrote raw bits.
+fn site_binds_for(
+    outer_binds: &HashMap<String, String>,
+    objlit_site_binds: &HashMap<u32, HashMap<String, String>>,
+    site: u32,
+) -> HashMap<String, String> {
+    let mut m = outer_binds.clone();
+    if let Some(s) = objlit_site_binds.get(&site) {
+        m.extend(s.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
-    if s.patches.is_empty() {
-        return;
-    }
-    let mut type_decls = s.type_decls;
-    apply_patches(
-        s.stmts,
-        s.exprs,
-        &s.patches,
-        &mut type_decls,
-        s.fn_sigs,
-        s.fnexpr_recv_fns,
-    );
-    s.stmts.extend(type_decls);
+    m
 }
 
 /// Phase 2 — for each collected `MethodPatch`, drop `__this` from the
@@ -306,7 +273,7 @@ fn settle_collected(s: Settle<'_>) {
 /// param list + re-publish its sig as `__mth(...)->ret` (receiver-less
 /// per the module doc), and fill the `__mth_placeholder` the collect
 /// phase parked in the TypeDecl.
-fn apply_patches(
+pub(super) fn apply_patches(
     stmts: &mut [Stmt],
     exprs: &mut [Expr],
     patches: &[MethodPatch],
