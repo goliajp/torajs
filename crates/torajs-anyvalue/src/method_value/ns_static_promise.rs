@@ -132,6 +132,20 @@ pub(super) unsafe fn promise_combinator_fn(kind: PromiseComb, argv: *const u64, 
             if this_reaches_promise_ctor(this) {
                 return combinator_via_capability(kind, this, v);
             }
+            // RFC 20260820-combinator-any-constructor — |this| is any
+            // OTHER constructor: the spec's step 1 asks only
+            // IsConstructor, and everything after it reaches C through
+            // Call / Invoke. The heir shortcut above cannot serve it
+            // (it hands the element walk to the builtin fan-in and
+            // resolves the capability with the resulting promise, so a
+            // user resolve function sees a promise where the algorithm
+            // hands it the combined value, and a bare thenable element
+            // never has its own `then` invoked). Only race is written
+            // out so far; the other three keep the loud TypeError until
+            // their element functions land.
+            if matches!(kind, PromiseComb::Race) && crate::construct::is_constructor(this) {
+                return crate::combinator_spec::race(this, v);
+            }
             return promise_settle();
         }
         let p = match kind {

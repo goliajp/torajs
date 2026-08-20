@@ -101,6 +101,7 @@ mod call_spread;
 pub(crate) mod closure_proto;
 mod coerce;
 mod collection_init;
+mod combinator_spec;
 mod compare;
 mod construct;
 mod ctor_return;
