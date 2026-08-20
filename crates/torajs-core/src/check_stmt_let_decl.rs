@@ -376,7 +376,11 @@ pub(crate) fn pick_ary_destr_lane(
     init_ty: &Type,
 ) -> Option<Type> {
     let limit = *ast.ary_destr_groups.get(&init)?;
-    if matches!(init_ty, Type::Array(_) | Type::String) {
+    // 刀 D — a deferred-rest group NEVER opts out: the desugar already
+    // emitted the park/drain shape, and the typed index lane would
+    // leave the park slot empty (the walk lane indexes an Array source
+    // anyway, so the semantics match).
+    if !ast.dstr_deferred_rest.contains(&init) && matches!(init_ty, Type::Array(_) | Type::String) {
         return None;
     }
     checker.iter_destr_srcs.insert(init, limit);

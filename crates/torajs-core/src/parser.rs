@@ -46,6 +46,7 @@ mod destr_helpers;
 mod destr_obj_param;
 mod destr_shape;
 mod dstr_assign;
+mod dstr_assign_rest;
 mod entry;
 mod void_expr;
 pub use entry::{parse, parse_into, parse_into_super_prop};
@@ -238,6 +239,13 @@ struct Parser<'a> {
     /// `desugar_dstr_assign` reads it to decide whether the element
     /// statements need the deferred-close try/finally wrap.
     dstra_saw_yield: bool,
+    /// 刀 D — the desugar ids whose pattern took the deferred-rest
+    /// shape (rest element + suspendable pattern): the rest slot
+    /// emits the park-drain sequence instead of the `.slice(i)` tail,
+    /// and the group's walk limit is the bounded prefix. Top-level
+    /// patterns only — a nested pattern's rest keeps the eager tail
+    /// (REMAINDER in the RFC).
+    dstra_deferred_rest_ids: std::collections::HashSet<u32>,
     /// False while parsing a conditionally-evaluated sub-expression
     /// (loop cond/step, short-circuit rhs, ternary branch, optional
     /// call, defaults) — expression-position `yield` rejects there.

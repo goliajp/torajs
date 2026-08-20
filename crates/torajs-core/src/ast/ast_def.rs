@@ -97,6 +97,15 @@ pub struct Ast {
     /// parked here by `check_monomorph` on the owned post-check AST, so
     /// the lowerer reads it straight off `ctx.ast`. Empty pre-check.
     pub iter_destr_srcs: std::collections::HashMap<ExprId, i64>,
+    /// RFC 20260820-dstr-deferred-close 刀 D — the `ary_destr_groups`
+    /// entries whose pattern ends in a rest element AND can suspend
+    /// (a yield in the pattern): their walk limit is the BOUNDED
+    /// prefix (the rest drains after the suspension, §13.15.5.5
+    /// target-first order), so the checker must route them through
+    /// the iterator lane even for a statically indexable source —
+    /// the desugar already emitted the drain shape, and the typed
+    /// index lane would leave the park slot empty.
+    pub dstr_deferred_rest: std::collections::HashSet<ExprId>,
     /// Sloppy-goal implicit globals (§9.1.1.4.6, goal-triage family) —
     /// the names whose hoisted `var` declaration the
     /// `sloppy_implicit_globals` pass synthesized from never-declared

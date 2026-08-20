@@ -125,7 +125,42 @@ impl<'a> Parser<'a> {
     ) -> Result<Vec<Stmt>, String> {
         let id = self.mint_desugar_id();
         let src_name = format!("__dstra_src_{id}");
-        self.note_ary_destr_group(target, value);
+        // 刀 D — a rest element in a SUSPENDABLE pattern takes the
+        // deferred shape: the raw source hoists (the drain needs it
+        // alive after the suspension), the walk limit is the bounded
+        // prefix, and the group is flagged so the checker keeps it on
+        // the iterator lane even for a statically indexable source.
+        let rest_susp = self.detect_deferred_rest(target);
+        let group_init = if rest_susp {
+            let raw_name = format!("__dstra_raw_{id}");
+            self.dstra_deferred_rest_ids.insert(id);
+            Some(raw_name)
+        } else {
+            None
+        };
+        let mut out = Vec::new();
+        let src_init = match &group_init {
+            Some(raw_name) => {
+                out.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: raw_name.clone(),
+                    type_ann: None,
+                    init: value,
+                    is_var: false,
+                });
+                let raw_ref = self.ast.add_expr(Expr::Ident(raw_name.clone()));
+                if let Expr::Array(elems) = self.ast.get_expr(target) {
+                    let prefix = (elems.len() - 1) as i64;
+                    self.ast.ary_destr_groups.insert(raw_ref, prefix);
+                    self.ast.dstr_deferred_rest.insert(raw_ref);
+                }
+                raw_ref
+            }
+            None => {
+                self.note_ary_destr_group(target, value);
+                value
+            }
+        };
         // No annotation here even inside a generator: when a
         // slot-position yield puts this temp across a suspension
         // point, the state-machine lift asks the field-annotation
@@ -133,125 +168,23 @@ impl<'a> Parser<'a> {
         // for `__dstra_src_*` its FALLBACK is `any` instead of
         // `number` — see desugar_generators_walkers. Pinning `any`
         // here would downgrade sniffable sources onto the any lane.
-        let mut out = vec![Stmt::LetDecl {
+        out.push(Stmt::LetDecl {
             mutable: false,
             name: src_name.clone(),
             type_ann: None,
-            init: value,
+            init: src_init,
             is_var: false,
-        }];
+        });
         let saved = std::mem::replace(&mut self.dstra_saw_yield, false);
         let mut elems = Vec::new();
         self.emit_dstr_assign_pattern(target, &src_name, &mut elems)?;
         let suspends = std::mem::replace(&mut self.dstra_saw_yield, saved);
-        if suspends {
+        if suspends || rest_susp {
             self.wrap_deferred_close(id, &mut out, elems);
         } else {
             out.extend(elems);
         }
         Ok(out)
-    }
-
-    /// RFC 20260820-dstr-deferred-close — a pattern whose evaluation
-    /// can suspend (a recovered yield in a default or a target) must
-    /// NOT close its iterator at the walk: §13.15.5.3 step 5 closes
-    /// when the pattern COMPLETES, and an abrupt completion through a
-    /// suspension (`gen.return()`, a throw) still owes the close on
-    /// its way out. The walk parks the still-open iterator in
-    /// `__dstra_it_<id>` (declared here, BEFORE the source temp so
-    /// the lowering can see it; `undefined` = drained/never-opened →
-    /// close no-op), and the element statements ride the engine-
-    /// canonical wrap:
-    ///
-    /// ```text
-    /// try { <elements> }
-    /// catch (e) { threw = true; err = e; }
-    /// finally {
-    ///   try { __torajs_dstr_close_pending(it); }
-    ///   finally { if (threw) throw err; }   // §7.4.6 step 7
-    /// }
-    /// ```
-    ///
-    /// The inner finally re-throws the original error OVER anything
-    /// the close raised — the original completion wins; on the normal
-    /// path the close's own throw (step 8) and the step-9 non-Object
-    /// TypeError propagate. A generator `.return()` routes through
-    /// the finally region (D3b), which is what runs the close.
-    fn wrap_deferred_close(&mut self, id: u32, out: &mut Vec<Stmt>, elems: Vec<Stmt>) {
-        let it_name = format!("__dstra_it_{id}");
-        let threw_name = format!("__dstra_threw_{id}");
-        let err_name = format!("__dstra_err_{id}");
-        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
-        out.insert(
-            0,
-            Stmt::LetDecl {
-                mutable: true,
-                name: it_name.clone(),
-                type_ann: Some("any".into()),
-                init: undef,
-                is_var: false,
-            },
-        );
-        let f = self.ast.add_expr(Expr::Bool(false));
-        out.push(Stmt::LetDecl {
-            mutable: true,
-            name: threw_name.clone(),
-            type_ann: Some("boolean".into()),
-            init: f,
-            is_var: false,
-        });
-        let undef2 = self.ast.add_expr(Expr::Ident("undefined".into()));
-        out.push(Stmt::LetDecl {
-            mutable: true,
-            name: err_name.clone(),
-            type_ann: Some("any".into()),
-            init: undef2,
-            is_var: false,
-        });
-        let e_param = format!("__dstra_e_{id}");
-        let threw_w = self.ast.add_expr(Expr::Ident(threw_name.clone()));
-        let t = self.ast.add_expr(Expr::Bool(true));
-        let set_threw = self.ast.add_expr(Expr::Assign {
-            target: threw_w,
-            value: t,
-        });
-        let err_w = self.ast.add_expr(Expr::Ident(err_name.clone()));
-        let e_read = self.ast.add_expr(Expr::Ident(e_param.clone()));
-        let set_err = self.ast.add_expr(Expr::Assign {
-            target: err_w,
-            value: e_read,
-        });
-        let close_callee = self
-            .ast
-            .add_expr(Expr::Ident("__torajs_dstr_close_pending".into()));
-        let it_read = self.ast.add_expr(Expr::Ident(it_name));
-        let close_call = self.ast.add_expr(Expr::Call {
-            callee: close_callee,
-            args: vec![it_read],
-        });
-        let threw_r = self.ast.add_expr(Expr::Ident(threw_name));
-        let err_r = self.ast.add_expr(Expr::Ident(err_name));
-        let rethrow = Stmt::If {
-            cond: threw_r,
-            then_branch: Box::new(Stmt::Block(vec![Stmt::Throw(err_r)])),
-            else_branch: None,
-        };
-        let finally = vec![Stmt::Try {
-            body: vec![Stmt::Expr(close_call)],
-            had_catch: false,
-            catch_param: None,
-            catch_type: None,
-            catch_body: Vec::new(),
-            finally_body: Some(vec![rethrow]),
-        }];
-        out.push(Stmt::Try {
-            body: elems,
-            had_catch: true,
-            catch_param: Some(e_param),
-            catch_type: Some("any".into()),
-            catch_body: vec![Stmt::Expr(set_threw), Stmt::Expr(set_err)],
-            finally_body: Some(finally),
-        });
     }
 
     /// Register the temp's init in `ary_destr_groups`, exactly as the
@@ -315,6 +248,17 @@ impl<'a> Parser<'a> {
                             "rest element must be last in a destructuring pattern at {}",
                             self.at()
                         ));
+                    }
+                    // 刀 D — a deferred-rest pattern (flagged by id at
+                    // the top of the expansion) drains from the park
+                    // instead of slicing the bounded prefix array.
+                    if let Some(id) = src_name
+                        .strip_prefix("__dstra_src_")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        && self.dstra_deferred_rest_ids.contains(&id)
+                    {
+                        self.emit_dstr_rest_deferred(expr, id, out)?;
+                        continue;
                     }
                     let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
                     let slice_m = self.ast.add_expr(Expr::Member {
