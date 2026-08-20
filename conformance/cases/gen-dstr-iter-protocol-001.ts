@@ -50,3 +50,18 @@ function* g5() {
   yield u + v;
 }
 console.log("g5", g5().next().value);
+
+// g6 — §13.15.2 init-position identity: the declared binding takes
+// the RHS reference itself, even when the pattern's group temp is
+// materialized through the iterator lane as a fresh array.
+const s6 = new Set([1, 2]);
+let e1: any, e2: any;
+const r6: any = ([e1, e2] = s6);
+console.log("g6", e1, e2, r6 === s6);
+function* g7() {
+  const s7: any = new Set([3, 4]);
+  let f1: any, f2: any;
+  const r7: any = ([f1, f2] = s7);
+  yield [f1, f2, r7 === s7];
+}
+console.log("g7", JSON.stringify(g7().next().value));

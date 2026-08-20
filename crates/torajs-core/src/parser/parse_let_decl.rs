@@ -204,13 +204,25 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
         let (t, v) = (*target, *value);
-        let stmts = self.desugar_dstr_assign(t, v)?;
-        let src_name = match &stmts[0] {
-            Stmt::LetDecl { name, .. } => name.clone(),
-            _ => unreachable!("desugar_dstr_assign always hoists the src first"),
-        };
+        // Rotation 455 — hoist the RHS once BEFORE the pattern expand
+        // (the chain lane's shape), and read the declared binding back
+        // from THAT temp, not from the pattern's group temp: the group
+        // temp may be materialized through the iterator lane as a NEW
+        // Array<Any>, and §13.15.2 says the assignment's value is the
+        // RHS reference itself (`var r = ([x] = vals); r === vals`).
+        let id = self.mint_desugar_id();
+        let chain_name = format!("__dstra_chain_{id}");
+        decls.push(Stmt::LetDecl {
+            mutable: false,
+            name: chain_name.clone(),
+            type_ann: None,
+            init: v,
+            is_var: false,
+        });
+        let chain_ref = self.ast.add_expr(Expr::Ident(chain_name.clone()));
+        let stmts = self.desugar_dstr_assign(t, chain_ref)?;
         decls.extend(stmts);
-        Ok(Some(self.ast.add_expr(Expr::Ident(src_name))))
+        Ok(Some(self.ast.add_expr(Expr::Ident(chain_name))))
     }
 
     /// J.4 — `let name(:T)? = yield <expr>?;` / `= yield* src;` init.
