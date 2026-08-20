@@ -86,6 +86,48 @@ pub(super) fn collect_objlit_boxed_only_argv(
             spread_call_callees.insert(callee.0);
         }
     }
+    // Rotation 455 — a `.next()` / `.return()` / `.throw()` spelled
+    // off a GENERATOR INSTANCE binding is the §27.5.1 prototype
+    // surface, never a reference into a user object literal — the
+    // t262 rtrn-close iterator duo (`{ next: fn, return: fn }`
+    // consumed only through the runtime close) was refused admission
+    // purely because `it.return(...)` shares the field's spelling.
+    // A binding qualifies when it HAS a value source and every source
+    // (top-level init, every arena assignment) is a call to a
+    // registered generator factory; anything else stays a threat.
+    let is_gen_call = |eid: super::ExprId| {
+        matches!(ast.get_expr(eid), Expr::Call { callee, .. }
+            if matches!(ast.get_expr(*callee), Expr::Ident(g)
+                if ast.generator_factory_classes.contains_key(g)))
+    };
+    let mut gen_sources: HashMap<&str, (bool, bool)> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && !matches!(ast.get_expr(*init), Expr::Uninit)
+        {
+            let e = gen_sources.entry(name.as_str()).or_insert((true, false));
+            e.1 = true;
+            if !is_gen_call(*init) {
+                e.0 = false;
+            }
+        }
+    }
+    for e in &ast.exprs {
+        if let Expr::Assign { target, value } = e
+            && let Expr::Ident(n) = ast.get_expr(*target)
+        {
+            let en = gen_sources.entry(n.as_str()).or_insert((true, false));
+            en.1 = true;
+            if !is_gen_call(*value) {
+                en.0 = false;
+            }
+        }
+    }
+    let gen_instances: HashSet<&str> = gen_sources
+        .iter()
+        .filter(|(_, (all_gen, any))| *all_gen && *any)
+        .map(|(n, _)| *n)
+        .collect();
     let mut ident_refs: HashMap<&str, usize> = HashMap::new();
     let mut closure_refs: HashMap<&str, usize> = HashMap::new();
     let mut member_names: HashSet<&str> = HashSet::new();
@@ -93,9 +135,14 @@ pub(super) fn collect_objlit_boxed_only_argv(
         match e {
             Expr::Ident(n) => *ident_refs.entry(n).or_insert(0) += 1,
             Expr::Closure { fn_name, .. } => *closure_refs.entry(fn_name).or_insert(0) += 1,
-            Expr::Member { name, .. } | Expr::OptChain { name, .. } => {
+            Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
                 if !spread_call_callees.contains(&(i as u32)) {
-                    member_names.insert(name);
+                    let benign = matches!(name.as_str(), "next" | "return" | "throw")
+                        && matches!(ast.get_expr(*obj), Expr::Ident(n)
+                            if gen_instances.contains(n.as_str()));
+                    if !benign {
+                        member_names.insert(name);
+                    }
                 }
             }
             _ => {}
