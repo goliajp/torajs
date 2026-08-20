@@ -117,15 +117,20 @@ pub(crate) fn build_factory_body(
         // and this factory's ANSWER widen; a typed argument arriving
         // at an `any` parameter is just a box.
         //
-        // Returning the pick directly is the idiomatic shape here, not
-        // a shortcut. `consume_all_idents_in_return` marks every ident
-        // under a `return` as moved so the scope walk skips their
-        // drops, and its own doc names exactly this case: the answer
-        // is necessarily an alias of one of the two, so dropping
-        // either before handing it back would dangle what the caller
-        // is about to receive. Routing through a third local instead
-        // measured byte-identical on the churn probe, so the simpler
-        // spelling stands.
+        // The pick's answer takes a slot of its own and is ASSIGNED
+        // into it, never bound by the `let` directly. The SSA retains
+        // what an assignment stores and does not retain what a `let`
+        // takes over, so the borrow-shaped pick needs the assignment
+        // to acquire a stake of its own; declared-then-assigned is
+        // also exactly the shape the super site is forced into, which
+        // is what lets one kernel serve both.
+        //
+        // Returning the pick inline instead handed back a view that
+        // the scope walk then dropped on the way out, so the caller
+        // received freed memory. A churn probe cannot see that — an
+        // over-release costs nothing. What saw it was a constructor
+        // answering a PRIMITIVE, where the mint is the only stake
+        // there is: `new D2()` read its instance back as a Str.
         if super::desugar_classes_ctor_return::factory_relays_answer(ast, cname, true) {
             let answer = ast.add_expr(Expr::Ident("__ctor_answer".into()));
             body.push(Stmt::LetDecl {
@@ -137,7 +142,22 @@ pub(crate) fn build_factory_body(
             });
             let minted = ast.add_expr(Expr::Ident("__this".into()));
             let picked = super::desugar_classes_ctor_return::pick_call(ast, minted, answer);
-            body.push(Stmt::Return(Some(picked)));
+            let undef = ast.add_expr(Expr::Ident("undefined".into()));
+            body.push(Stmt::LetDecl {
+                mutable: true,
+                name: "__picked".into(),
+                type_ann: Some("any".into()),
+                init: undef,
+                is_var: false,
+            });
+            let slot = ast.add_expr(Expr::Ident("__picked".into()));
+            let assign = ast.add_expr(Expr::Assign {
+                target: slot,
+                value: picked,
+            });
+            body.push(Stmt::Expr(assign));
+            let ret = ast.add_expr(Expr::Ident("__picked".into()));
+            body.push(Stmt::Return(Some(ret)));
             return body;
         }
         body.push(Stmt::Expr(call));

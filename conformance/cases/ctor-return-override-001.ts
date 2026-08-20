@@ -21,7 +21,11 @@ console.log(C.prototype.read.call(target));
 console.log(made instanceof C);
 
 // A non-object return leaves `this` standing — the base-class branch
-// of step 13.
+// of step 13. This is the shape that exposes the ownership of the
+// pick: when a constructor answers a primitive the mint is the only
+// stake there is, so a view handed back over a released cell reads as
+// garbage rather than as the instance. Every object-only case above
+// hides it, and so does a memory probe.
 class B1 {
   v: any = 7;
   constructor() {
@@ -29,6 +33,17 @@ class B1 {
   }
 }
 console.log((new B1() as any).v);
+
+class B2 {
+  constructor() {
+    return 5 as any;
+  }
+}
+class D2 extends B2 {
+  f: any = 'F';
+}
+const d2: any = new D2();
+console.log(typeof d2, d2.f, d2 instanceof D2);
 
 // An ANCESTOR's fields stay behind: they were installed on the `this`
 // that ancestor's own constructor walked away from.

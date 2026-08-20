@@ -9,7 +9,9 @@
 //! ```text
 //! __cm_C__ctor(__this_in: any, __new_target: any, …): any {
 //!   let __this: any = __this_in;      // ordinary local; `this` resolves here
-//!   ( __this = __torajs_ctor_ret_value(__this, __cm_P__ctor(__this, …)),
+//!   let __sup: any = undefined;
+//!   ( __sup = __cm_P__ctor(__this, …),
+//!     __this = __torajs_ctor_ret_value(__this, __sup),
 //!     __torajs_ctor_ret_carry(__this_in, __this, "<own field>"),
 //!     __this );                       // the rewritten `super(…)`
 //!   return __this;
@@ -32,17 +34,22 @@
 //! what `__this` is reassigned to, which is what lets the carry find
 //! the fields the mint already initialized without a second local.
 //!
-//! **Ownership**: the pick is BORROW-shaped — it hands back one of
-//! its operands' bits without touching a refcount, the same posture
-//! `member_get`'s probe pair keeps. That is the convention the rest
-//! of the lowering is built on: an expression yields a view, and
-//! whoever consumes it (an assignment, a `let`, a return) takes the
-//! stake it needs. Retaining here instead leaked one cell per
-//! construction — the assignment at the super site retains what it
-//! stores, so the kernel's extra +1 had no matching release (a churn
-//! probe read 26 MB against a 6.6 MB baseline; replacing the pick
-//! with a bare assignment flattened it, which is what named the
-//! retain as the culprit).
+//! **Ownership**: the pick is BORROW-shaped, and both call sites
+//! consume it by ASSIGNING it into a slot. Those two facts are one
+//! decision, because the SSA treats the two consumers differently:
+//! `x = <call>` retains what it stores, while `let x = <call>` takes
+//! the result over without one. So a borrow-shaped answer is right
+//! under an assignment and dangles under a `let`, and an owned answer
+//! is right under a `let` and leaks under an assignment. Both
+//! mistakes were measured, and each is invisible to the probe that
+//! catches the other: the dangling one read a fresh instance back as
+//! a Str while memory stayed flat, and the leaking one stayed
+//! perfectly correct while spending 65 B per construction.
+//!
+//! For the same reason the parent constructor's answer lands in a
+//! `__sup` LOCAL first. A call result handed straight to another call
+//! as an argument gets no release at all — that was a third leak, of
+//! the same 65 B, sitting underneath the first two.
 
 use crate::member_get_layout::recv_cell;
 use crate::nanbox::AnyValue;
@@ -85,7 +92,8 @@ fn is_object(v: AnyValue) -> bool {
 ///
 /// # Safety
 /// Both operands are live AnyValue bit patterns the caller keeps
-/// alive across the call. The answer is a BORROW of one of them.
+/// alive across the call. The answer is a BORROW of one of them, and
+/// must be consumed by an assignment (see the module doc).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_ctor_ret_value(this_v: AnyValue, v: AnyValue) -> AnyValue {
     if is_object(v) { v } else { this_v }

@@ -10,9 +10,16 @@
 //! - `__torajs_ctor_ret_carry(minted, target, "<name>")` — one of the
 //!   class's own elements moved onto an adopted object.
 //!
-//! The pick answers an OWNED box, so the enclosing assignment or
-//! return takes it like any other owned temp; the carry borrows all
-//! three and answers nothing.
+//! The pick is borrow-shaped; the carry borrows all three operands
+//! and answers nothing.
+//!
+//! Every operand rides `any_arg`, which boxes only what is not
+//! already an any. Boxing one that is re-wraps a whole nanbox as if
+//! it were a bare pointer — and for a HEAP payload that happens to be
+//! the identity, so the mistake hides completely behind object
+//! operands and only shows when a constructor answers a primitive
+//! (`class B { constructor() { return 5 } }` read back as a Str).
+//! Neither the gate nor the fixtures could see it.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -29,15 +36,26 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
     }
 }
 
+/// Lower one operand into the any world, boxing only when it is not
+/// already there. The checker's type for the expression is what
+/// answers that — `box_to_any` reads the SSA slot type, which reports
+/// `Ptr` for an any-typed load and so silently takes the pointer arm.
+fn any_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
+    let v = ctx.lower_expr(eid);
+    if matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::Any)) {
+        v
+    } else {
+        ctx.box_to_any(v)
+    }
+}
+
 /// See module doc.
 fn try_lower_value(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     if args.len() != 2 {
         return None;
     }
-    let a = ctx.lower_expr(args[0]);
-    let a = ctx.box_to_any(a);
-    let b = ctx.lower_expr(args[1]);
-    let b = ctx.box_to_any(b);
+    let a = any_arg(ctx, args[0]);
+    let b = any_arg(ctx, args[1]);
     let fid = ctx.intrinsics.ctor_ret_value;
     let cur_block = ctx.cur_block;
     let out = ctx
@@ -58,10 +76,8 @@ fn try_lower_carry(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
         return None;
     };
     let name = name.clone();
-    let minted = ctx.lower_expr(args[0]);
-    let minted = ctx.box_to_any(minted);
-    let target = ctx.lower_expr(args[1]);
-    let target = ctx.box_to_any(target);
+    let minted = any_arg(ctx, args[0]);
+    let target = any_arg(ctx, args[1]);
     let key = ctx.intern_string_literal(&name);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(

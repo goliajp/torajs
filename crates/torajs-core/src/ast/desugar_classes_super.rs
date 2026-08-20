@@ -113,7 +113,9 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
             // answers may BE the instance from here on (§10.2.2 step
             // 13), so the site becomes an assignment to `this` rather
             // than a bare call, and this class's own elements follow
-            // the object that won.
+            // the object that won. The parent's answer lands in the
+            // `__sup` slot first — see `reshape_ctor` for why a bare
+            // call result cannot be handed to the pick directly.
             //
             // Only the OWN fields are carried, and from `__this_in`
             // (the parameter, which goes on naming what the factory
@@ -132,12 +134,22 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
                 continue;
             }
             let call_id = ast.add_expr(call);
-            let incumbent = ast.add_expr(Expr::This);
-            let picked = super::desugar_classes_ctor_return::pick_call(ast, incumbent, call_id);
-            let target = ast.add_expr(Expr::This);
+            let sup_slot = ast.add_expr(Expr::Ident("__sup".into()));
             let mut seq = ast.add_expr(Expr::Assign {
+                target: sup_slot,
+                value: call_id,
+            });
+            let sup_read = ast.add_expr(Expr::Ident("__sup".into()));
+            let incumbent = ast.add_expr(Expr::This);
+            let picked = super::desugar_classes_ctor_return::pick_call(ast, incumbent, sup_read);
+            let target = ast.add_expr(Expr::This);
+            let adopt = ast.add_expr(Expr::Assign {
                 target,
                 value: picked,
+            });
+            seq = ast.add_expr(Expr::Sequence {
+                left: seq,
+                right: adopt,
             });
             for (fname, _) in fields {
                 let this_now = ast.add_expr(Expr::This);

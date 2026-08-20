@@ -124,6 +124,26 @@ pub(super) fn reshape_ctor(ast: &mut Ast, params: &mut [Param], body: &mut Vec<S
             is_var: false,
         },
     );
+    // A slot for what `super(…)` answered. Binding the parent
+    // constructor's result to a LOCAL before the pick reads it is not
+    // cosmetic: the SSA emits a release for a local holding a call's
+    // result and none for a bare call result handed straight to
+    // another call, so feeding the pick inline leaked the parent's
+    // answer once per construction. Declared here rather than at the
+    // super site because that rewrite replaces an EXPRESSION and has
+    // nowhere to put a statement; one slot serves every super site in
+    // the body, each assignment releasing what the last one left.
+    let undef = ast.add_expr(Expr::Ident("undefined".into()));
+    body.insert(
+        1,
+        Stmt::LetDecl {
+            mutable: true,
+            name: "__sup".into(),
+            type_ann: Some("any".into()),
+            init: undef,
+            is_var: false,
+        },
+    );
     let tail = ast.add_expr(Expr::Ident("__this".into()));
     body.push(Stmt::Return(Some(tail)));
     "any".to_string()
