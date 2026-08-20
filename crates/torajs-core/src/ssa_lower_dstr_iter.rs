@@ -119,15 +119,16 @@ pub(crate) fn try_lower_field_walk(
     field: &str,
 ) -> Option<Operand> {
     let &limit = ctx.ast.iter_destr_srcs.get(&init)?;
-    // Bounded patterns only. A rest pattern (`limit < 0`) drains to
-    // exhaustion, and in a generator that drain runs EAGERLY at the
-    // lifted store — before any yield in the pattern's target could
-    // suspend — so `[x, ...o[yield]] = infiniteIterable` (t262
-    // rtrn-close rest family) would hang where the spec suspends
-    // (§13.15.5.5 evaluates the rest TARGET's reference first).
-    // Probe-proven this rotation. The rest family stays on its
-    // pre-lane behaviour until the deferred-close redesign sequences
-    // target evaluation before the drain.
+    // Bounded patterns only. A TOP-LEVEL suspendable rest pattern no
+    // longer reaches here with `limit < 0` — 刀 D bounds its walk at
+    // the prefix and drains the rest after the suspension. What still
+    // does is a NESTED pattern's rest (`[a, [b, ...o[yield]]]` — its
+    // inner group is minted by the slot recursion, which keeps the
+    // eager `-1`): draining that eagerly at the lifted store would
+    // run before the target's yield could suspend and hang on an
+    // unbounded iterable (probe-proven, rotation 455), so the nested
+    // rest family stays on its pre-lane behaviour until the RFC's
+    // REMAINDER extends the deferred shape one level down.
     if limit < 0 {
         return None;
     }
