@@ -5234,7 +5234,27 @@ census:
 | top 400 | 91.6 % |
 | clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 461 closing sweep `df4076d6`, core **2574**,
+(refreshed @ rotation 463 closing sweep `92343562`, core **2500**,
+**167** clusters of ≥ 4 holding 1406 cases; 655 clusters of ≤ 3 hold
+820 more (32.8 %), and the subset-decision register accounts for 274
+across two entries. Coverage: top 10 = 14.4 %, top 25 = 25.3 %,
+top 100 = 52.8 %, top 400 = 82.3 %. Rotation 463 took one incompat
+signature — `argument N: expected Number, got String`, 22 cases across
+7 directories — and found five builtin parameters whose SPEC STEP IS A
+COERCION implemented instead as a static shape gate: `charAt`'s `pos`,
+`fromCharCode`/`fromCodePoint`'s codes, `toFixed`'s digits,
+`Array.with`'s index, `BigInt.asIntN`'s bits. Widening them turned up
+three wrong answers on operands tr already accepted, all with the same
+cause — an i64 parameter where the spec step reads a Number, so the
+fact each check is about (±∞ for ToUint16, non-integral for
+fromCodePoint, NaN and 2^53 for ToIndex) was destroyed before the
+check. A sixth lane, `[42].includes("42")`, was not a coercion at all:
+comparing by type first is the whole content of §7.2.15, so a needle
+of another type is a question with an answer. The signature went 22 →
+**0**; passTotal **+50, zero pass regressions**, gate 3210 →
+**3215**/0/4 across five substrate commits.)
+
+Earlier stamp @ rotation 461 closing sweep `df4076d6`, core **2574**,
 **175** clusters of ≥ 4 holding 1479 cases; 653 clusters of ≤ 3 hold
 819 more (31.8 %), and the subset-decision register accounts for 276
 across two entries. Coverage: top 10 = 14.0 %, top 25 = 25.0 %,
