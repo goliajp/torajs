@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T20:26:22.742Z",
+  "generatedAt": "2026-08-21T22:39:03.786Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-21T20:11:46Z",
-    "headSha": "35b24e4c",
-    "elapsedSec": 332.49,
+    "ranAt": "2026-08-21T22:23:40Z",
+    "headSha": "788dad4b",
+    "elapsedSec": 337.34,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 71.57
   },
   "torajs": {
-    "commit": "35b24e4c5",
-    "commitSubject": "perf: split a latin-1 string on one byte in a single pass",
+    "commit": "788dad4bb",
+    "commitSubject": "perf: take the DFA state row once per byte instead of three times",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -347,371 +347,395 @@
     "rows": [
       {
         "case": "popcount",
-        "bunAot": 52.609875,
+        "bunAot": 50.510167,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.623667,
-        "speedup": 14.518407734485535
+        "torajs": 3.4518750000000002,
+        "speedup": 14.632675574868731
       },
       {
         "case": "throw-catch-100k",
-        "bunAot": 13.444584,
+        "bunAot": 12.703125,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.807458,
-        "speedup": 4.788881614613647
+        "torajs": 2.5617080000000003,
+        "speedup": 4.958849720577052
       },
       {
         "case": "async-fn-call-100k",
-        "bunAot": 8.198958000000001,
+        "bunAot": 7.9667080000000015,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.996042,
-        "speedup": 2.736596482959852
-      },
-      {
-        "case": "generic-pair-1m",
-        "bunAot": 8.316709,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 3.1587080000000003,
-        "speedup": 2.6329464451921476
+        "torajs": 2.8450420000000003,
+        "speedup": 2.8002075189048177
       },
       {
         "case": "promise-await-100k",
-        "bunAot": 7.960958000000001,
+        "bunAot": 7.582083000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.0813750000000004,
-        "speedup": 2.5835732424648086
+        "torajs": 2.951458,
+        "speedup": 2.568927967126756
+      },
+      {
+        "case": "generic-pair-1m",
+        "bunAot": 7.603750000000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.962375,
+        "speedup": 2.5667749694079918
       },
       {
         "case": "stack-pop-1m",
-        "bunAot": 11.0945,
+        "bunAot": 10.517375000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.386875,
-        "speedup": 2.5290212280951705
+        "torajs": 4.146792,
+        "speedup": 2.5362677944782384
       },
       {
         "case": "fifo-queue-100k",
-        "bunAot": 5.654333,
+        "bunAot": 5.410875000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.6541249999999996,
-        "speedup": 2.1303943860971133
+        "torajs": 2.474792,
+        "speedup": 2.18639586680416
       },
       {
         "case": "i64-to-str-100k",
-        "bunAot": 6.422312500000001,
+        "bunAot": 6.0663955000000005,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.0867920000000004,
-        "speedup": 2.080578315610511
-      },
-      {
-        "case": "array-any-indexed-100k",
-        "bunAot": 4.8948335,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.4941665,
-        "speedup": 1.962512727197643
-      },
-      {
-        "case": "promise-all-1k",
-        "bunAot": 4.609958,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.3527910000000003,
-        "speedup": 1.959357205973671
-      },
-      {
-        "case": "promise-chain-1k",
-        "bunAot": 4.482708000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.3385420000000003,
-        "speedup": 1.916881544141606
-      },
-      {
-        "case": "startup",
-        "bunAot": 4.2321040000000005,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.2332705000000006,
-        "speedup": 1.8950252555612943
-      },
-      {
-        "case": "closure-counter",
-        "bunAot": 40.92183300000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 21.880457999999997,
-        "speedup": 1.8702457233756264
-      },
-      {
-        "case": "array-sum-1m",
-        "bunAot": 40.562833,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 21.714000000000002,
-        "speedup": 1.8680497835497833
-      },
-      {
-        "case": "closure-pipeline-1m",
-        "bunAot": 41.260290999999995,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 22.236209,
-        "speedup": 1.8555452055698882
-      },
-      {
-        "case": "generic-id-1m",
-        "bunAot": 41.128417,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 22.387583000000003,
-        "speedup": 1.8371084096036625
-      },
-      {
-        "case": "promise-then-100k",
-        "bunAot": 10.219166999999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.8375,
-        "speedup": 1.7506067665952887
-      },
-      {
-        "case": "collatz",
-        "bunAot": 318.58441700000003,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 182.696833,
-        "speedup": 1.7437872992576726
+        "torajs": 2.8184579999999997,
+        "speedup": 2.152381018273113
       },
       {
         "case": "generator-yield-100k",
-        "bunAot": 7.142271,
+        "bunAot": 6.750542,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.1512915,
-        "speedup": 1.7204937306859804
+        "torajs": 3.2169999999999996,
+        "speedup": 2.0983966428349397
       },
       {
-        "case": "fib40",
-        "bunAot": 364.773959,
+        "case": "array-any-indexed-100k",
+        "bunAot": 4.8049375,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 230.351625,
-        "speedup": 1.5835527923885928
+        "torajs": 2.3024790000000004,
+        "speedup": 2.086853995193876
       },
       {
-        "case": "csv-rebuild-100k",
-        "bunAot": 15.509875,
+        "case": "promise-then-100k",
+        "bunAot": 9.970082999999999,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 9.992416,
-        "speedup": 1.5521646616794176
+        "torajs": 4.952875000000001,
+        "speedup": 2.0129890215279
       },
       {
-        "case": "split-only-100k",
-        "bunAot": 5.404625,
+        "case": "promise-all-1k",
+        "bunAot": 4.363334,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.4991250000000003,
-        "speedup": 1.544564712606723
+        "torajs": 2.1859170000000003,
+        "speedup": 1.9961114717530444
+      },
+      {
+        "case": "startup",
+        "bunAot": 4.087875,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.1413545000000003,
+        "speedup": 1.909013664014996
+      },
+      {
+        "case": "generic-id-1m",
+        "bunAot": 39.650958,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 20.88075,
+        "speedup": 1.8989240329011172
+      },
+      {
+        "case": "array-sum-1m",
+        "bunAot": 39.799292,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 20.964208000000003,
+        "speedup": 1.8984400460060307
+      },
+      {
+        "case": "closure-pipeline-1m",
+        "bunAot": 39.797292000000006,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 21.371917,
+        "speedup": 1.8621301963693762
+      },
+      {
+        "case": "closure-counter",
+        "bunAot": 39.665125,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 21.400667000000002,
+        "speedup": 1.8534527451878018
+      },
+      {
+        "case": "promise-chain-1k",
+        "bunAot": 4.1453750000000005,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.240834,
+        "speedup": 1.8499250725399563
+      },
+      {
+        "case": "collatz",
+        "bunAot": 311.89112500000005,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 179.748167,
+        "speedup": 1.7351560808962243
       },
       {
         "case": "str-concat-ascii-100k",
-        "bunAot": 5.081438,
+        "bunAot": 4.81,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.313146,
-        "speedup": 1.5337199145464764
-      },
-      {
-        "case": "multibyte-concat-100k",
-        "bunAot": 5.3172714999999995,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 3.4857295000000006,
-        "speedup": 1.5254400836324213
-      },
-      {
-        "case": "ackermann",
-        "bunAot": 11.692708,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.8095,
-        "speedup": 1.4972415647608681
-      },
-      {
-        "case": "array-sort-100k",
-        "bunAot": 11.3752085,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.672186999999999,
-        "speedup": 1.4826552715672858
-      },
-      {
-        "case": "rpn-eval-100k",
-        "bunAot": 10.241583,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.099042000000001,
-        "speedup": 1.442671137880294
-      },
-      {
-        "case": "csv-trim-100k",
-        "bunAot": 11.57475,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.046917,
-        "speedup": 1.4384080263285925
-      },
-      {
-        "case": "regex-wireback-minlit-100k",
-        "bunAot": 6.323708000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.408645999999999,
-        "speedup": 1.4343877916258194
-      },
-      {
-        "case": "regex-dfa-anchored-100k",
-        "bunAot": 10.875770999999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.758854,
-        "speedup": 1.4017238886051984
-      },
-      {
-        "case": "regex-dfa-wbound-100k",
-        "bunAot": 10.637,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.626583500000001,
-        "speedup": 1.3947267475665872
-      },
-      {
-        "case": "regex-dfa-mflag-100k",
-        "bunAot": 10.961312000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.017354000000001,
-        "speedup": 1.3671982052931677
-      },
-      {
-        "case": "array-map-1m",
-        "bunAot": 49.446208000000006,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 37.48912500000001,
-        "speedup": 1.3189480415987302
-      },
-      {
-        "case": "regex-dfa-safeclass-100k",
-        "bunAot": 11.249563,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.574125,
-        "speedup": 1.312036271922791
-      },
-      {
-        "case": "regex-dfa-uflag-cprange-100k",
-        "bunAot": 10.62225,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.422917,
-        "speedup": 1.2611129849670843
-      },
-      {
-        "case": "regex-dfa-uflag-100k",
-        "bunAot": 11.517833,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 9.285125,
-        "speedup": 1.240460736931382
+        "torajs": 2.8008125,
+        "speedup": 1.7173588021333093
       },
       {
         "case": "class-method-100k",
-        "bunAot": 6.775229,
+        "bunAot": 6.5562085,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 5.593187500000001,
-        "speedup": 1.211335933222335
+        "torajs": 3.9345415000000004,
+        "speedup": 1.6663208406875363
       },
       {
-        "case": "str-replace-100k",
-        "bunAot": 10.5285,
+        "case": "csv-rebuild-100k",
+        "bunAot": 14.881042,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 8.928771000000001,
-        "speedup": 1.179165643289541
+        "torajs": 9.24275,
+        "speedup": 1.6100232073787566
       },
       {
-        "case": "json-stringify-100k",
-        "bunAot": 10.009667,
+        "case": "fib40",
+        "bunAot": 361.778709,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 9.190396,
-        "speedup": 1.0891442545021999
+        "torajs": 226.851833,
+        "speedup": 1.5947797477131251
       },
       {
-        "case": "gcd1m",
-        "bunAot": 43.741292,
+        "case": "ackermann",
+        "bunAot": 11.365625000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 41.600375,
-        "speedup": 1.0514638870442874
+        "torajs": 7.497291,
+        "speedup": 1.5159642329476075
       },
       {
-        "case": "mandelbrot",
-        "bunAot": 48.231,
+        "case": "array-sort-100k",
+        "bunAot": 10.9802085,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 46.360375000000005,
-        "speedup": 1.0403496520466022
+        "torajs": 7.448771000000001,
+        "speedup": 1.4740966664165134
       },
       {
-        "case": "regex-dfa-dotall-100k",
-        "bunAot": 11.8367705,
+        "case": "split-only-100k",
+        "bunAot": 5.08,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 11.846229,
-        "speedup": 0.9992015602602314
+        "torajs": 3.4542910000000004,
+        "speedup": 1.4706346396409566
       },
       {
-        "case": "prime_count",
-        "bunAot": 49.165709,
+        "case": "multibyte-concat-100k",
+        "bunAot": 4.952500000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 49.394792,
-        "speedup": 0.9953622033675129
+        "torajs": 3.3742085,
+        "speedup": 1.4677516223434328
+      },
+      {
+        "case": "regex-dfa-uflag-cprange-100k",
+        "bunAot": 10.284667,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 7.085083000000001,
+        "speedup": 1.451594427334161
+      },
+      {
+        "case": "regex-dfa-wbound-100k",
+        "bunAot": 10.208562500000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 7.0497705,
+        "speedup": 1.4480701889515413
+      },
+      {
+        "case": "regex-dfa-anchored-100k",
+        "bunAot": 10.068021,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 6.975250000000001,
+        "speedup": 1.4433921364825633
+      },
+      {
+        "case": "regex-wireback-minlit-100k",
+        "bunAot": 6.0923965,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 4.2564375,
+        "speedup": 1.4313370042435725
+      },
+      {
+        "case": "regex-dfa-safeclass-100k",
+        "bunAot": 10.122021,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 7.1309375,
+        "speedup": 1.4194516499408387
+      },
+      {
+        "case": "regex-dfa-mflag-100k",
+        "bunAot": 10.0662085,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 7.2362295,
+        "speedup": 1.3910847493159249
+      },
+      {
+        "case": "csv-trim-100k",
+        "bunAot": 10.890749999999999,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 7.8335420000000004,
+        "speedup": 1.3902714761725918
+      },
+      {
+        "case": "rpn-eval-100k",
+        "bunAot": 9.764458,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 7.074125,
+        "speedup": 1.3803061155973353
+      },
+      {
+        "case": "array-map-1m",
+        "bunAot": 49.067375000000006,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 36.522125,
+        "speedup": 1.3434972636449825
       },
       {
         "case": "regex-dfa-iflag-100k",
-        "bunAot": 10.5293535,
+        "bunAot": 9.965563,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 10.6678955,
-        "speedup": 0.9870131836218304
+        "torajs": 7.472854,
+        "speedup": 1.3335685402123472
+      },
+      {
+        "case": "regex-dfa-uflag-100k",
+        "bunAot": 10.296583,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 8.221166,
+        "speedup": 1.2524480104160407
+      },
+      {
+        "case": "str-replace-100k",
+        "bunAot": 10.160521000000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 8.445938,
+        "speedup": 1.2030068181888147
+      },
+      {
+        "case": "json-stringify-100k",
+        "bunAot": 9.439,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 8.119291500000001,
+        "speedup": 1.1625398595431633
+      },
+      {
+        "case": "prime_count",
+        "bunAot": 53.553625000000004,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 47.767540999999994,
+        "speedup": 1.1211300368172608
+      },
+      {
+        "case": "gcd1m",
+        "bunAot": 41.48275,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 38.2535,
+        "speedup": 1.0844171121596717
+      },
+      {
+        "case": "regex-dfa-dotall-100k",
+        "bunAot": 11.087854,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 10.99,
+        "speedup": 1.0089039126478616
+      },
+      {
+        "case": "mandelbrot",
+        "bunAot": 42.687041,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 42.703542,
+        "speedup": 0.9996135917718488
       }
     ],
-    "geomeanBunAot": 1.6835463420942591,
+    "geomeanBunAot": 1.7489804967258418,
     "geomeanNodeV8": null,
-    "peak": 14.518407734485535,
+    "peak": 14.632675574868731,
     "peakCase": "popcount",
-    "min": 0.9870131836218304,
-    "minCase": "regex-dfa-iflag-100k",
+    "min": 0.9996135917718488,
+    "minCase": "mandelbrot",
     "caseCount": 44,
-    "wonCount": 41,
-    "sourceFile": "bench/results/2026-08-21-mini-35b24e4.json",
-    "gitSha": "35b24e4c5fd003791282f82578925fe89e876237",
-    "startedAt": "2026-08-21T20:21:11Z",
+    "wonCount": 43,
+    "sourceFile": "bench/results/2026-08-21-mini-788dad4.json",
+    "gitSha": "788dad4bbb76593a44ce0131ffafbcd91872225e",
+    "startedAt": "2026-08-21T22:34:31Z",
     "host": "mini"
   },
   "commits": [
+    {
+      "hash": "788dad4bb",
+      "subject": "perf: take the DFA state row once per byte instead of three times"
+    },
+    {
+      "hash": "dc6ad14cd",
+      "subject": "perf: append a dollarless replacement whole instead of a byte at a time"
+    },
+    {
+      "hash": "a7e11973e",
+      "subject": "perf: give the short-string pool the size classes its callers actually ask for"
+    },
+    {
+      "hash": "a3e164d7e",
+      "subject": "perf: skip the start positions a regex can never begin at"
+    },
+    {
+      "hash": "b77ca3b8a",
+      "subject": "perf: inline the hot-path runtime probes a method-call loop pays per iteration"
+    },
+    {
+      "hash": "75c0bfe6f",
+      "subject": "chore: rotation 469 close bench, sweep snapshot, dashboard"
+    },
     {
       "hash": "35b24e4c5",
       "subject": "perf: split a latin-1 string on one byte in a single pass"
@@ -735,51 +759,38 @@
     {
       "hash": "6e0c80191",
       "subject": "fix: a split product rebound by assignment is owned, an owned-string slot takes a fresh product"
-    },
-    {
-      "hash": "92bf44f9d",
-      "subject": "chore: rotation 469 clean-machine 3-run bench baseline"
-    },
-    {
-      "hash": "770916f96",
-      "subject": "chore: rotation 468 bench baseline, sweep snapshot, dashboard"
-    },
-    {
-      "hash": "d4e61a2be",
-      "subject": "refactor: flatMap's scalar push value as its own function"
-    },
-    {
-      "hash": "bd5ab0537",
-      "subject": "fix: a split product written into or handed on stayed an array of views"
-    },
-    {
-      "hash": "5be9af038",
-      "subject": "fix: a spread literal over a split product was typed by the views"
-    },
-    {
-      "hash": "8d1c16b20",
-      "subject": "fix: a substring view copied out of its split block dangled"
     }
   ],
-  "headSha": "35b24e4c5",
+  "headSha": "788dad4bb",
   "autorun": {
-    "total": 772,
+    "total": 773,
     "baselineTarget": 10,
-    "bySelf": 767,
+    "bySelf": 768,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787337962-4887",
-      "at": "2026-08-21T18:46:02Z",
-      "ts": 1787337962,
+      "rotationId": "r-1787344005-2bd2",
+      "at": "2026-08-21T20:26:45Z",
+      "ts": 1787344005,
       "trigger": "self",
-      "prevHead": "770916f96",
-      "handoffSha": "sha256:812edaa0bf7ae2e5ee8fca4d96501c20971c2b1007200a5bb658582bad35d0b4",
-      "handoffAgeSec": 14,
+      "prevHead": "75c0bfe6f",
+      "handoffSha": "sha256:9dc1317de65a9a3e33f8c13143fb381c3bfb281e0b45cf6d7637924fe7b2566d",
+      "handoffAgeSec": 23,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787344005-2bd2",
+        "at": "2026-08-21T20:26:45Z",
+        "ts": 1787344005,
+        "trigger": "self",
+        "prevHead": "75c0bfe6f",
+        "handoffSha": "sha256:9dc1317de65a9a3e33f8c13143fb381c3bfb281e0b45cf6d7637924fe7b2566d",
+        "handoffAgeSec": 23,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787337962-4887",
         "at": "2026-08-21T18:46:02Z",
@@ -876,17 +887,6 @@
         "prevHead": "139b62865",
         "handoffSha": "sha256:8ebdb0237402f5b6514449a04f0b0b8f6d4b82283bee464b67fc4148287b1786",
         "handoffAgeSec": 48,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787238269-0ac9",
-        "at": "2026-08-20T15:04:29Z",
-        "ts": 1787238269,
-        "trigger": "self",
-        "prevHead": "b3f1e94a1",
-        "handoffSha": "sha256:7dcd09eda04e5ed2810b08f814ae234fcf115c7489e185fb987b56674b04e28b",
-        "handoffAgeSec": 25,
         "conformanceBefore": null,
         "commitsInSession": null
       }
