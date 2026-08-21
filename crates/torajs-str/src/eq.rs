@@ -181,7 +181,7 @@ pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
 ///
 /// `p` must point at a valid owned-Str or Substr heap block.
 #[inline]
-unsafe fn resolve_payload<'a>(p: *const u8) -> (&'a [u8], bool) {
+pub(crate) unsafe fn resolve_payload<'a>(p: *const u8) -> (&'a [u8], bool) {
     let header = unsafe { &*(p as *const HeapHeader) };
     if header.flags & (FLAG_SUBSTR_VIEW | FLAG_SUBSTR_INLINE) != 0 {
         let (bytes, _, latin1) = unsafe { substr_view(p) };

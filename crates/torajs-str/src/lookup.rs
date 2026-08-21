@@ -216,11 +216,30 @@ pub(crate) fn align_haystack_needle<'h, 'n>(
 // Pure-Rust cores
 // ============================================================
 
-/// Bytewise comparison per `localeCompare`. ASCII-only `memcmp`
-/// equivalent; the v0 implementation does NOT actually consult any
-/// locale (matches the C original's comment).
-pub fn locale_compare(a: &[u8], b: &[u8]) -> Ordering {
-    a.cmp(b)
+/// Ordinal comparison by UTF-16 CODE UNIT — ES §7.2.13 IsLessThan
+/// step 3.d, the order `<` / sort / the ordinal `localeCompare` stub
+/// all share. Each payload comes with its encoding flag: a Latin-1
+/// payload is one code unit per byte, a UTF-16 one is two bytes
+/// little-endian per unit. Comparing the raw bytes was right only for
+/// two Latin-1 strings; two UTF-16 strings compared their LOW bytes
+/// first (`"世" < "a"` answered true: 0x16 < 0x61), and a Latin-1
+/// string against a UTF-16 one compared bytes of different width
+/// (rotation 468). Same-encoding Latin-1 keeps the `memcmp` path;
+/// the other shapes walk code units, which is also what gives the
+/// length tie-break for free.
+pub fn code_unit_compare(a: &[u8], a_latin1: bool, b: &[u8], b_latin1: bool) -> Ordering {
+    fn wide(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
+        p.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]]))
+    }
+    fn narrow(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
+        p.iter().map(|&c| c as u16)
+    }
+    match (a_latin1, b_latin1) {
+        (true, true) => a.cmp(b),
+        (false, false) => wide(a).cmp(wide(b)),
+        (true, false) => narrow(a).cmp(wide(b)),
+        (false, true) => wide(a).cmp(narrow(b)),
+    }
 }
 
 /// `s.startsWith(sub, pos)` — pos may be negative (clamped to 0) or
@@ -356,12 +375,40 @@ mod tests {
     // Pure-core tests — no Str layout involved.
 
     #[test]
-    fn locale_compare_ordering() {
-        assert_eq!(locale_compare(b"abc", b"abc"), Ordering::Equal);
-        assert_eq!(locale_compare(b"abc", b"abd"), Ordering::Less);
-        assert_eq!(locale_compare(b"abd", b"abc"), Ordering::Greater);
-        assert_eq!(locale_compare(b"ab", b"abc"), Ordering::Less);
-        assert_eq!(locale_compare(b"abc", b"ab"), Ordering::Greater);
+    fn code_unit_compare_ordering() {
+        let cmp = |a: &[u8], b: &[u8]| code_unit_compare(a, true, b, true);
+        assert_eq!(cmp(b"abc", b"abc"), Ordering::Equal);
+        assert_eq!(cmp(b"abc", b"abd"), Ordering::Less);
+        assert_eq!(cmp(b"abd", b"abc"), Ordering::Greater);
+        assert_eq!(cmp(b"ab", b"abc"), Ordering::Less);
+        assert_eq!(cmp(b"abc", b"ab"), Ordering::Greater);
+    }
+
+    #[test]
+    fn code_unit_compare_is_by_code_unit_not_by_byte() {
+        // "世" (U+4E16) as UTF-16 LE is [0x16, 0x4E]; "a" is 0x61.
+        // By bytes 0x16 < 0x61; by code units 0x4E16 > 0x61.
+        let shi = [0x16u8, 0x4E];
+        assert_eq!(
+            code_unit_compare(&shi, false, b"a", true),
+            Ordering::Greater
+        );
+        assert_eq!(code_unit_compare(b"a", true, &shi, false), Ordering::Less);
+        // two UTF-16 strings: "世" (4E16) < "界" (754C), though the
+        // low bytes order the other way (0x16 vs 0x4C... equal tie
+        // broken by high byte only under a code-unit compare).
+        let jie = [0x4Cu8, 0x75];
+        assert_eq!(code_unit_compare(&shi, false, &jie, false), Ordering::Less);
+        // mixed with a common prefix falls to the length tie-break
+        let ab_wide = [0x61u8, 0x00, 0x62, 0x00];
+        assert_eq!(
+            code_unit_compare(b"ab", true, &ab_wide, false),
+            Ordering::Equal
+        );
+        assert_eq!(
+            code_unit_compare(b"a", true, &ab_wide, false),
+            Ordering::Less
+        );
     }
 
     #[test]

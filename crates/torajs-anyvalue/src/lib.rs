@@ -1211,8 +1211,10 @@ mod tests {
     /// the returned guard).
     fn make_str_blob(bytes: &[u8]) -> (Vec<u8>, *const u8) {
         let mut blob = vec![0u8; STR_HDR_SIZE + bytes.len()];
-        // Write a Tag::Str HeapHeader at offset 0.
-        let h = HeapHeader::new(Tag::Str);
+        // Write a Tag::Str HeapHeader at offset 0, flagged Latin-1:
+        // the payload below is one byte per code unit.
+        let mut h = HeapHeader::new(Tag::Str);
+        h.flags |= 0x0002;
         let h_bytes = unsafe {
             std::slice::from_raw_parts(
                 &h as *const HeapHeader as *const u8,

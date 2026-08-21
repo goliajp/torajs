@@ -137,41 +137,52 @@ pub(crate) unsafe fn str_effective_ptr(tag: i64, value: i64) -> Option<i64> {
     None
 }
 
-/// Lexicographic byte compare of two Str-tagged heap pointers,
-/// matching ES §7.2.13 step 4.b's "Is Less Than" tie-break by
-/// length. Both `la` / `ra` must be non-null `*const u8` pointing
-/// at a Str's HeapHeader; the layout is `[header:8][len:u64@8]
-/// [bytes:len@16]`.
+/// `flags u16 @6` bit 1 of a Str header — the payload is Latin-1
+/// (one byte per code unit); clear means UTF-16 little-endian (two
+/// bytes per unit). Mirror of torajs-str `layout::STR_FLAG_IS_LATIN1`.
+const STR_FLAG_IS_LATIN1: u16 = 0x0002;
+
+/// Ordinal compare of two OWNED Str heap pointers by UTF-16 code
+/// unit — ES §7.2.13 step 3.d, with the length tie-break falling out
+/// of the unit walk. Layout: `[header:8][len:u32@8][pad:u32@12]
+/// [payload@16]`, payload width by the header's Latin-1 flag.
+/// Comparing raw bytes was right only for two Latin-1 strings; two
+/// UTF-16 strings compared their low bytes first (`"世" < "a"`
+/// answered true in the any lane, rotation 468). Mirrors torajs-str
+/// `lookup::code_unit_compare`, which this crate cannot import.
 ///
 /// # Safety
 ///
-/// `la` and `ra` must be non-null and point to live Str heap
+/// `la` and `ra` must be non-null and point to live owned Str heap
 /// objects. Caller guarantees by virtue of `is_heap_str` having
 /// returned true for both.
 unsafe fn compare_str_lexicographic(la: i64, ra: i64) -> Ordering {
     let la = la as *const u8;
     let ra = ra as *const u8;
-    // SAFETY: la/ra non-null per caller invariant; layout-aware
-    // unaligned reads at byte offset 8 (u64-aligned since the
-    // Str heap is 8-aligned).
-    let (l_len, r_len) = unsafe {
-        (
-            (la.add(STR_LEN_OFF) as *const u64).read() as usize,
-            (ra.add(STR_LEN_OFF) as *const u64).read() as usize,
-        )
+    // SAFETY: la/ra non-null per caller invariant; header at 0, the
+    // u32 length at STR_LEN_OFF, payload from STR_HDR_SIZE on.
+    let (lb, l_latin1, rb, r_latin1) = unsafe {
+        let side = |p: *const u8| {
+            let latin1 = (*(p as *const HeapHeader)).flags & STR_FLAG_IS_LATIN1 != 0;
+            let len = (p.add(STR_LEN_OFF) as *const u32).read() as usize;
+            let bytes = std::slice::from_raw_parts(p.add(STR_HDR_SIZE), len << (!latin1 as usize));
+            (bytes, latin1)
+        };
+        let (lb, l1) = side(la);
+        let (rb, r1) = side(ra);
+        (lb, l1, rb, r1)
     };
-    let min_len = l_len.min(r_len);
-    // SAFETY: byte payload starts at offset STR_HDR_SIZE; each is
-    // at least min_len bytes long (we took the min).
-    let (lb, rb) = unsafe {
-        (
-            std::slice::from_raw_parts(la.add(STR_HDR_SIZE), min_len),
-            std::slice::from_raw_parts(ra.add(STR_HDR_SIZE), min_len),
-        )
-    };
-    match lb.cmp(rb) {
-        Ordering::Equal => l_len.cmp(&r_len),
-        other => other,
+    fn wide(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
+        p.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]]))
+    }
+    fn narrow(p: &[u8]) -> impl Iterator<Item = u16> + '_ {
+        p.iter().map(|&c| c as u16)
+    }
+    match (l_latin1, r_latin1) {
+        (true, true) => lb.cmp(rb),
+        (false, false) => wide(lb).cmp(wide(rb)),
+        (true, false) => narrow(lb).cmp(wide(rb)),
+        (false, true) => wide(lb).cmp(narrow(rb)),
     }
 }
 

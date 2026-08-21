@@ -9,9 +9,10 @@
 
 use core::cmp::Ordering;
 
+use crate::eq::resolve_payload;
 use crate::lookup::{
-    align_haystack_needle, clamp_from_to_byte_off, index_of_with_stride, last_index_of_with_stride,
-    locale_compare, str_len, str_view,
+    align_haystack_needle, clamp_from_to_byte_off, code_unit_compare, index_of_with_stride,
+    last_index_of_with_stride, str_len, str_view,
 };
 
 /// `s.localeCompare(other)` — three-way ordinal compare, returns
@@ -20,9 +21,13 @@ use crate::lookup::{
 /// once the normalisation tables come online in P11.5 / P11.6.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_locale_compare(a: *const u8, b: *const u8) -> i64 {
-    let (aa, _, _) = unsafe { str_view(a) };
-    let (bb, _, _) = unsafe { str_view(b) };
-    match locale_compare(aa, bb) {
+    // Either operand may be a substring VIEW sharing Tag::Str (a
+    // split-product slot, `s[i]`, `s.slice(..)`); read each by its
+    // own flags, and compare code units, not bytes (see
+    // `code_unit_compare`).
+    let (aa, a_latin1) = unsafe { resolve_payload(a) };
+    let (bb, b_latin1) = unsafe { resolve_payload(b) };
+    match code_unit_compare(aa, a_latin1, bb, b_latin1) {
         Ordering::Less => -1,
         Ordering::Equal => 0,
         Ordering::Greater => 1,
@@ -59,17 +64,22 @@ pub unsafe extern "C" fn __torajs_str_sort_cmp(a: *const u8, b: *const u8) -> i6
     if a_undef || b_undef {
         return (a_undef as i64) - (b_undef as i64);
     }
-    let aa = if a.is_null() {
-        &b"null"[..]
+    // A `Str`-tagged slot can hold a substring VIEW (a split product
+    // sorted in place); read each operand by its own flags. Reading a
+    // view by the owned layout compared its parent pointer and offset
+    // as text and answered `cba` for `"c b a".split(" ").sort()`
+    // (rotation 468). Then compare code units, not bytes.
+    let (aa, a_latin1) = if a.is_null() {
+        (&b"null"[..], true)
     } else {
-        unsafe { str_view(a) }.0
+        unsafe { resolve_payload(a) }
     };
-    let bb = if b.is_null() {
-        &b"null"[..]
+    let (bb, b_latin1) = if b.is_null() {
+        (&b"null"[..], true)
     } else {
-        unsafe { str_view(b) }.0
+        unsafe { resolve_payload(b) }
     };
-    match locale_compare(aa, bb) {
+    match code_unit_compare(aa, a_latin1, bb, b_latin1) {
         Ordering::Less => -1,
         Ordering::Equal => 0,
         Ordering::Greater => 1,
