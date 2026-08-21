@@ -49,6 +49,7 @@ pub mod define_index;
 pub mod define_index_flags;
 pub mod define_length;
 pub mod drop;
+pub mod drop_str_elems;
 pub mod from_string;
 pub mod grow;
 pub mod grow_store;

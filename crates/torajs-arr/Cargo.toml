@@ -36,6 +36,11 @@ torajs-io = { path = "../torajs-io" }
 # v0.7-A4 Step 15-d/e — 0-libc f64 ↔ string conversion for
 # arr_print* + arr_join* f64 element formatting.
 torajs-fmt = { path = "../torajs-fmt" }
+# RFC 20260821 A2 — the whole-array Str element release reads the
+# substring view's own flags and parent offset to decide which slots
+# owe anything. Taking those from their defining crate keeps the
+# layout in one place rather than mirroring magic offsets here.
+torajs-str = { path = "../torajs-str" }
 
 [dev-dependencies]
 torajs-bench = { path = "../torajs-bench" }

@@ -167,6 +167,7 @@ pub(crate) struct Intrinsics {
     /// Phase Substr.A — substring view runtime helpers.
     pub(crate) substr_create: FuncId,
     pub(crate) substr_drop: FuncId,
+    pub(crate) arr_drop_str_elems: FuncId,
     pub(crate) substr_char_code_at: FuncId,
     pub(crate) substr_code_point_at: FuncId,
     pub(crate) substr_eq_str: FuncId,

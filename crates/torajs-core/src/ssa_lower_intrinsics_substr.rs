@@ -50,6 +50,11 @@ pub(crate) struct SubstrIds {
     pub split_iter_drop: FuncId,
     pub substr_create: FuncId,
     pub substr_drop: FuncId,
+    /// RFC 20260821 A2 — whole-array release for Str/Substr elements.
+    /// One call replaces the SSA-emitted element walk plus its
+    /// trailing `arr_drop`; the walk's bookkeeping was the larger
+    /// half of that loop's cost.
+    pub arr_drop_str_elems: FuncId,
     pub substr_char_code_at: FuncId,
     pub substr_code_point_at: FuncId,
     pub substr_eq_str: FuncId,
@@ -106,6 +111,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_substr_drop",
             &[Type::Substr],
+            Type::Void,
+        ),
+        arr_drop_str_elems: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_drop_str_elems",
+            &[Type::Ptr],
             Type::Void,
         ),
         substr_char_code_at: declare_intrinsic(

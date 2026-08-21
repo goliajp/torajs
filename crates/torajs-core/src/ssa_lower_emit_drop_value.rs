@@ -242,6 +242,22 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
         },
     );
     ctx.cur_block = body_blk;
+    // RFC 20260821 A2 — Str/Substr elements go out through one call.
+    // The SSA-emitted per-slot walk cost more in loop bookkeeping than
+    // in the calls it made (measured: 0.7 ms of bookkeeping against
+    // 0.4 ms of calls on `split-only-100k`), so emitting a cheaper
+    // per-slot body could not have fixed it; the loop itself is what
+    // moves into the kernel. The `rc == 1` gate and the trailing
+    // `arr_drop` move with it.
+    if matches!(elem_ty, Type::Str | Type::Substr) {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_drop_str_elems, vec![val]),
+        );
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+        ctx.cur_block = after;
+        return;
+    }
     if elem_ty == Type::Any {
         let drop_fid = ctx.intrinsics.arr_drop_any;
         ctx.f

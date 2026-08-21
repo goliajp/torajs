@@ -152,6 +152,7 @@ pub(crate) fn build(
         str_split_any_sep_lim: init_a.str_b.str_split_any_sep_lim,
         substr_create: init_d.substr.substr_create,
         substr_drop: init_d.substr.substr_drop,
+        arr_drop_str_elems: init_d.substr.arr_drop_str_elems,
         substr_char_code_at: init_d.substr.substr_char_code_at,
         substr_code_point_at: init_d.substr.substr_code_point_at,
         substr_eq_str: init_d.substr.substr_eq_str,

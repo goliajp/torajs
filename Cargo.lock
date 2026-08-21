@@ -1419,6 +1419,7 @@ dependencies = [
  "torajs-io",
  "torajs-mmalloc",
  "torajs-rc",
+ "torajs-str",
 ]
 
 [[package]]
