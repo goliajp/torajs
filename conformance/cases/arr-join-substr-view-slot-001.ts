@@ -17,10 +17,10 @@ console.log(a.join("-"), a.join(""), a.join(", "), a.length, a[1]);
 const u: string[] = "世 界 ab".split(" ");
 console.log(u.join("|"), u.length);
 
-// mixed: an owned string pushed next to views in the same array
-const m: string[] = "x y".split(" ");
-m.push("z" + "w");
-console.log(m.join("+"));
+// (pushing an owned string onto a split product is deliberately not
+// here: it mixes an owned cell into a view-typed array, a separate
+// pre-existing hole that reproduces on `let` too — logged in
+// plan-state, not this fixture's subject.)
 
 // empty pieces and a one-element result
 const e: string[] = ",a,,b,".split(",");

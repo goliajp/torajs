@@ -122,6 +122,20 @@ pub(crate) fn emit_compare(
             Type::Bool,
             None,
         ),
+        // A split product is an array of substring VIEWS; the needle
+        // reaches here as an owned Str (the coerce layer treats the
+        // two as one family). Without this arm the view fell to the
+        // pointer ICmp below and `"p q r".split(" ").indexOf("q")`
+        // answered -1 — on `let` and `const` alike.
+        Type::Substr => ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.substr_eq_str,
+                vec![Operand::Value(elem), needle],
+            ),
+            Type::Bool,
+            None,
+        ),
         // T-48 — Array<Any> per-element compare must go
         // through the boxed-any strict-eq helpers, not
         // raw ICmp. The elem is always a heap-Box ptr

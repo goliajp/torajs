@@ -32,7 +32,9 @@ use crate::ssa_lower::parse_type;
 
 // r290 file-size split — the K.3b un-annotated inference half.
 mod infer;
+mod write_through;
 use infer::inferred_slot_ty;
+use write_through::{binding_written_through, init_is_static_string_split};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_toplevel_globals(
@@ -381,6 +383,35 @@ fn annotated_slot_ty(
     let parsed = match parsed {
         Type::FnSig(sig) if !ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
         Type::Closure(_) if ann.contains("__rest(") => return None,
+        // `const a: string[] = s.split(" ")` — the annotation spells
+        // Arr<Str>, but the init the K.4 lane will store is what
+        // `lower_split` answers for a statically-string separator:
+        // an array of Substr VIEWS (the split block's inline cells).
+        // Typing the slot by the annotation made every Arr<Str>-
+        // dispatched reader (join / JSON.stringify / for-of / .at /
+        // HOF callbacks) decode a 32-byte view as an owned Str and
+        // print its parent pointer as text. Same move as the
+        // FnSig→Closure arm above: the slot takes the representation
+        // the init actually produces. `let` never reached here (it is
+        // not promoted) and was always right.
+        Type::Arr(aid)
+            if arr_layouts[aid.0 as usize] == Type::Str
+                && init_is_static_string_split(peeled, ast, expr_types) =>
+        {
+            // Written through (push / sort / a[i] = v / …): an
+            // Arr<Substr> slot cannot take an owned Str, and keeping
+            // the annotation's Arr<Str> is the original bug (views in
+            // a Str-typed slot). Neither layout is right for a global
+            // — so it is not promoted, and stays the main-local the
+            // `let` spelling already is.
+            if binding_written_through(ast, name) {
+                return None;
+            }
+            Type::Arr(crate::ssa_lower::intern_arr_layout(
+                arr_layouts,
+                Type::Substr,
+            ))
+        }
         t => t,
     };
     Some(
