@@ -850,6 +850,15 @@ pub struct Ast {
     /// AllocaBytes path (stack) and the heap path. Empty before the
     /// pass runs and for programs with no qualifying literals.
     pub stack_array_literals: std::collections::HashSet<ExprId>,
+    /// RFC 20260821 attack B — the `.match` / `.exec` **callee**
+    /// ExprIds whose result provably has no reader for the §22.2.7.8
+    /// exec-shape properties (`index` / `input` / `groups`). Populated
+    /// by `analyze_regex_result_props`; the two regex lowering
+    /// dispatchers check membership and pass `want_exec = 0`, which
+    /// makes the kernel skip building the arrprops side table
+    /// (measured 16.6-18.5 ns per match). Empty before the pass runs
+    /// and for every program that reads those properties anywhere.
+    pub regex_result_props_unread: std::collections::HashSet<ExprId>,
     /// v0.3 #4 DWARF — per-Expr source byte ranges. Indexed by
     /// ExprId.0; `Span { start: 0, end: 0 }` is the sentinel for
     /// "not set" (parser fills these on key Expr-emit sites; fallback

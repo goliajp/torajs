@@ -220,7 +220,8 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_str_match_regex",
-            &[Type::Str, Type::RegExp],
+            // Trailing `want_exec` — see `want_exec_shape`.
+            &[Type::Str, Type::RegExp, Type::I64],
             Type::Ptr,
         ),
         any_str_symbol_probe: declare_intrinsic(
@@ -290,7 +291,8 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_regex_exec",
-            &[Type::RegExp, Type::Str],
+            // Trailing `want_exec` — see `want_exec_shape`.
+            &[Type::RegExp, Type::Str, Type::I64],
             Type::Ptr,
         ),
         regex_get_source: declare_intrinsic(

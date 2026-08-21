@@ -32,12 +32,26 @@ pub(crate) fn emit_search(
     Operand::Value(v)
 }
 
+/// The kernels' trailing `want_exec` operand — 0 when
+/// `analyze_regex_result_props` proved this call's result has no
+/// reader for the §22.2.7.8 exec-shape properties, so the kernel can
+/// skip building the arrprops side table (RFC 20260821 attack B;
+/// measured 16.6-18.5 ns per match). `callee` is the `Expr::Member`
+/// id the pass keyed its answer by, which is exactly what both regex
+/// dispatchers already hold.
+pub(crate) fn want_exec_shape(ctx: &LowerCtx<'_>, callee: ExprId) -> Operand {
+    Operand::ConstI64(i64::from(
+        !ctx.ast.regex_result_props_unread.contains(&callee),
+    ))
+}
+
 pub(crate) fn emit_match(
     ctx: &mut LowerCtx<'_>,
     recv_op: Operand,
     re_op: Operand,
     args: &[ExprId],
     arr_id: crate::ssa::ArrId,
+    callee: ExprId,
 ) -> Operand {
     // S286 — trailing-arg ignore per ES §22.1.3.11: spec reads only `re`,
     // but step()-style side-effect exprs must fire per ES eval-then-discard.
@@ -46,7 +60,10 @@ pub(crate) fn emit_match(
     }
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.regex_match, vec![recv_op, re_op]),
+        InstKind::Call(
+            ctx.intrinsics.regex_match,
+            vec![recv_op, re_op, want_exec_shape(ctx, callee)],
+        ),
         Type::Arr(arr_id),
         None,
     );

@@ -128,7 +128,11 @@ pub(crate) fn lower_symbol_dispatch_pattern(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.regex_match,
-                    vec![recv_op.clone(), Operand::Value(re_v)],
+                    // The @@match coercion lane mints its RegExp at
+                    // runtime from a value the caller may hand on
+                    // anywhere; no static reader picture, so it keeps
+                    // the full §22.2.7.8 exec shape.
+                    vec![recv_op.clone(), Operand::Value(re_v), Operand::ConstI64(1)],
                 ),
                 Type::Arr(arr_id),
                 None,

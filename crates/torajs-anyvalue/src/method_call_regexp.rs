@@ -39,7 +39,7 @@ unsafe extern "C" {
     fn __torajs_regex_test(re: *const c_void, s: *const c_void) -> i64;
     /// torajs-regex — exec; NULL on miss, fresh +1 match array on
     /// hit (index/input/groups attached kernel-side).
-    fn __torajs_regex_exec(re: *const c_void, s: *const c_void) -> *mut c_void;
+    fn __torajs_regex_exec(re: *const c_void, s: *const c_void, want_exec: i64) -> *mut c_void;
     /// torajs-regex — `/source/flags` rendering, fresh +1 Str.
     fn __torajs_regex_to_string(re: *const c_void) -> *mut c_void;
     /// torajs-regex — Annex B §B.2.4.1 in-place recompile; answers
@@ -83,7 +83,9 @@ pub(crate) unsafe fn regexp_method(
             }
             m if m == ANY_METHOD_EXEC => {
                 let hay = __torajs_anyv_to_str(arg_at(0));
-                let arr = __torajs_regex_exec(re, hay as *const c_void);
+                // Same as the any-tier `.match`: no static picture of
+                // the reader, so always build the exec shape.
+                let arr = __torajs_regex_exec(re, hay as *const c_void, 1);
                 __torajs_str_drop(hay);
                 if !arr.is_null() {
                     __torajs_arr_mark_kind(arr, KIND_HEAP_CHAIN);

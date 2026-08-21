@@ -53,6 +53,7 @@ unsafe extern "C" {
     fn __torajs_str_match_regex(
         s: *const core::ffi::c_void,
         re: *const core::ffi::c_void,
+        want_exec: i64,
     ) -> *mut core::ffi::c_void;
     fn __torajs_str_split_regex(
         s: *const core::ffi::c_void,
@@ -256,7 +257,9 @@ pub unsafe extern "C" fn __torajs_str_any_trim(s: *const u8, mode: i64) -> u64 {
 pub unsafe extern "C" fn __torajs_str_any_match(s: *const u8, re: *const core::ffi::c_void) -> u64 {
     unsafe {
         let (src, tmp) = owned_src(s);
-        let out = __torajs_str_match_regex(src as *const core::ffi::c_void, re);
+        // The any tier has no static picture of who reads the result,
+        // so it always builds the §22.2.7.8 exec shape.
+        let out = __torajs_str_match_regex(src as *const core::ffi::c_void, re, 1);
         drop_tmp(tmp);
         if out.is_null() {
             VALUE_NULL_BOX

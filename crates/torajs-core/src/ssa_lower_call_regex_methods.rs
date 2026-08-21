@@ -105,7 +105,14 @@ pub(crate) fn try_lower(
             let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.regex_exec, vec![recv_op, s]),
+                InstKind::Call(
+                    ctx.intrinsics.regex_exec,
+                    vec![
+                        recv_op,
+                        s,
+                        crate::ssa_lower_call_str_regex_emit::want_exec_shape(ctx, callee),
+                    ],
+                ),
                 Type::Arr(arr_id),
                 None,
             );

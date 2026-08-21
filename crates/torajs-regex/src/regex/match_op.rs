@@ -191,6 +191,7 @@ pub unsafe fn attach_groups(arr: *mut c_void, re: &RegExp, s: &[u8], saves: &[i6
 pub unsafe extern "C" fn __torajs_str_match_regex(
     str_ptr: *const c_void,
     re_ptr: *const c_void,
+    want_exec: i64,
 ) -> *mut c_void {
     // Spec §22.2.7.5/.8: no match → null (both global and non-global).
     // The array is allocated lazily on first hit so the null path
@@ -324,17 +325,19 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             // Non-global match = exec shape (spec §22.2.7.8):
             // index / input / groups (+ `/d` indices) attach in
             // print order; byte→UTF-16 mapping happens inside.
-            unsafe {
-                attach_exec_all(
-                    out,
-                    re,
-                    &s,
-                    str_ptr,
-                    m.start,
-                    m.end,
-                    m.saves(),
-                    haystack_is_ascii,
-                );
+            if want_exec != 0 {
+                unsafe {
+                    attach_exec_all(
+                        out,
+                        re,
+                        &s,
+                        str_ptr,
+                        m.start,
+                        m.end,
+                        m.saves(),
+                        haystack_is_ascii,
+                    );
+                }
             }
             break;
         }
@@ -363,6 +366,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
 pub unsafe extern "C" fn __torajs_regex_exec(
     re_ptr: *const c_void,
     str_ptr: *const c_void,
+    want_exec: i64,
 ) -> *mut c_void {
     // Spec §22.2.7.2 step 9.a: no match → null. The array is
     // allocated only after a hit so the null path owns nothing.
@@ -435,17 +439,19 @@ pub unsafe extern "C" fn __torajs_regex_exec(
             out = unsafe { __torajs_arr_push(out, grp as i64) };
         }
     }
-    unsafe {
-        attach_exec_all(
-            out,
-            re,
-            s,
-            str_ptr,
-            m.start,
-            m.end,
-            m.saves(),
-            haystack_is_ascii,
-        );
+    if want_exec != 0 {
+        unsafe {
+            attach_exec_all(
+                out,
+                re,
+                s,
+                str_ptr,
+                m.start,
+                m.end,
+                m.saves(),
+                haystack_is_ascii,
+            );
+        }
     }
     out
 }

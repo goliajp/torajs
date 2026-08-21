@@ -422,7 +422,7 @@ pub(crate) fn try_lower(
     );
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
     let result = match name.as_str() {
-        "match" => emit_match(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
+        "match" => emit_match(ctx, recv_op.clone(), re_op.clone(), args, arr_id, callee),
         "matchAll" => emit_match_all(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
         "split" => emit_split(ctx, recv_op.clone(), re_op, args, arr_id),
         "replace" | "replaceAll" => emit_replace(ctx, recv_op.clone(), re_op, &name, args),

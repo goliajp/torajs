@@ -271,5 +271,9 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // spellings, and its thunk bodies pass every argument
     // explicitly, so nothing after it needs to run again.
     ast::synthesize_sig_thunks(ast);
+    // Last, for the same reason `escape_analyze_array_literals` runs
+    // late: it verifies the final shape of every use of a binding, so
+    // every rewrite that could introduce one has to have happened.
+    ast::analyze_regex_result_props(ast);
     Ok(())
 }
