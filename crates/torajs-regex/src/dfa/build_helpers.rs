@@ -17,8 +17,9 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+use crate::dfa::DfaProgram;
 use crate::dfa::ctx::{PositionCtx, epsilon_closure_full};
-use crate::dfa::search::{DfaProgram, DfaState};
+use crate::dfa::search::DfaState;
 use crate::program::{Op, Program};
 
 /// chunk 8.6b — left-byte class carried as part of a DFA state's
@@ -277,7 +278,7 @@ pub(super) fn finish_dfa(
         // chunk 7.7 v2 step 12 C2 Phase B — wrap as DfaStates::Owned;
         // Phase C will emit DfaStates::Static(&'static [...]) from the
         // tr build pipeline.
-        states: crate::dfa::search::DfaStates::Owned(states),
+        states: crate::dfa::DfaStates::Owned(states),
         start,
         start_mid: start_mid_nonword,
         start_mid_word,

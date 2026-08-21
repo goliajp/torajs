@@ -67,15 +67,17 @@ pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};
 mod build;
 mod build_helpers;
 mod pending_class;
+mod program;
 mod search;
 mod state;
 mod step;
 
 pub use build::build_dfa;
 pub use pending_class::PendingClass;
+pub use program::{BakedDfaMeta, DfaProgram, DfaStates};
 pub use search::{
-    BakedDfaMeta, DfaProgram, DfaState, DfaStates, TX_ACCEPT_BIT, TX_MONOTONE_BIT, TX_STATE_MASK,
-    dfa_search, dfa_search_mid, dfa_search_mid_nonword, dfa_search_mid_word,
+    DfaState, TX_ACCEPT_BIT, TX_MONOTONE_BIT, TX_STATE_MASK, dfa_search, dfa_search_mid,
+    dfa_search_mid_nonword, dfa_search_mid_word, first_viable_start,
 };
 pub use step::{byte_step, byte_step_full};
 

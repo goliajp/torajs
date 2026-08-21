@@ -13,6 +13,7 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
+use crate::dfa::DfaProgram;
 use crate::dfa::build_helpers::{
     LeftByteAttr, attr_of_byte, ctx_for, finish_dfa, pc_set_is_accept, pc_set_is_accept_at_end,
     prog_uses_word_boundary,
@@ -20,7 +21,7 @@ use crate::dfa::build_helpers::{
 use crate::dfa::byte_step_full;
 use crate::dfa::ctx::{PositionCtx, epsilon_closure_full_into, epsilon_closure_with_ctx};
 use crate::dfa::pending_class::{KPropertyVerdict, PendingClass, classify_kproperty_shape};
-use crate::dfa::search::{DfaProgram, DfaState, mask_set};
+use crate::dfa::search::{DfaState, mask_set};
 use crate::program::Program;
 
 /// State-pool key: ready PCs (u_skip=0) + per-u_skip deferred PCs +

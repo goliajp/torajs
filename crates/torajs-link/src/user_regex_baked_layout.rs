@@ -383,7 +383,7 @@ mod tests {
     // Note: `OUTER_META_SIZE` / `OUTER_META_ALIGN` /
     // `INNER_DFA_STATE_SIZE` / `INNER_DFA_STATE_ALIGN` are locked
     // against the runtime `#[repr(C)]` layout in
-    // `torajs_regex::dfa::search::tests::{baked_dfa_meta_repr_c_layout_locked,
+    // `torajs_regex::dfa::{program::tests::baked_dfa_meta_repr_c_layout_locked,
     // dfa_state_repr_c_layout_locked}` (Phase C-1). Adding
     // `torajs-regex` as a dev-dep here would introduce a reverse
     // crate edge (torajs-link is upstream of torajs-regex in the

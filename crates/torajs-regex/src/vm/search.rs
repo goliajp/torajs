@@ -267,6 +267,18 @@ pub fn search_from_with_ws(
     let mut st = from_pos;
     let mut dfa_built_local: Option<crate::dfa::DfaProgram> = None;
     let dfa_built = resolve_dfa(prog, flags, dfa_cached, &mut dfa_built_local);
+    // Rotation 470 — `first_viable_start` skips start positions whose
+    // first byte the DFA entry state has no transition for; running
+    // the anchored DFA there costs a call and dies one byte in, and on
+    // a short haystack that was most of the search (66% of `/hello/i`
+    // against a 24-byte line — `examples/match_micro`).
+    //
+    // It is off whenever the u-flag code-point-boundary guard below
+    // could fire, since the skip lands `st` straight on the probe and
+    // would step over that guard. Under u flag the haystack has to be
+    // non-ASCII for the guard to have anything to say, so the common
+    // shapes keep the skip.
+    let can_skip_dead_starts = haystack_is_ascii || !crate::parser::unicode_mode(flags);
     loop {
         // V0.2 P14-S2 — literal-prefix SIMD anchor. When the
         // compiled program's leading byte-consuming op is a plain
@@ -315,6 +327,16 @@ pub fn search_from_with_ws(
             continue;
         }
         if let Some(dfa) = dfa_built {
+            // Rotation 470 — skip the start positions whose first byte
+            // the entry state has no transition for. Running the
+            // anchored DFA there would cost a call and die one byte
+            // in; `first_viable_start` asks the same question with one
+            // load per position. It never advances past `slen`, so a
+            // pattern that accepts zero-width at end of input still
+            // gets its probe there.
+            if can_skip_dead_starts {
+                st = crate::dfa::first_viable_start(dfa, s, st as usize) as i64;
+            }
             if let Some(n) = dfa_probe(dfa, prog, s, st) {
                 return Some(dfa_hit_result(
                     prog,
