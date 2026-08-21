@@ -167,10 +167,16 @@ pub(crate) fn populate_argv(
             argv.push(Operand::ConstI64(0));
         } else if matches!(method, "at" | "charCodeAt" | "codePointAt" | "repeat")
             && i == 0
-            && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
+            && !matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Number))
         {
-            // S332 — `s.{at,charCodeAt,codePointAt,repeat}(Any)`
-            // ToIntegerOrInfinity accepts arbitrary-typed input.
+            // S332 — `s.{at,charCodeAt,codePointAt,repeat}(x)`:
+            // ToIntegerOrInfinity COERCES its operand, so every shape
+            // but Number (which stays on the typed-tier fast path)
+            // routes through the runtime's own ToNumber. Rotation 463
+            // widened this from an `Any`-only admission — the checker
+            // mirror in `check_type_of_call_string_char_any` dropped
+            // the matching shape gate, so `'abc'.charCodeAt('1')` is
+            // 98 rather than a compile-time refusal.
             argv.push(any_arg_to_i64(ctx, a));
         } else if matches!(method, "slice" | "substring" | "substr")
             && i < 2
@@ -233,13 +239,6 @@ pub(crate) fn populate_argv(
 /// (§7.1.1 OrdinaryToPrimitive) — propagate it before the NaN
 /// placeholder flows into the position slot.
 fn any_arg_to_i64(ctx: &mut LowerCtx<'_>, a: ExprId) -> Operand {
-    let raw = ctx.lower_expr(a);
-    let f = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-        Type::F64,
-        None,
-    );
-    ctx.emit_throw_check(None);
-    ctx.coerce_to_i64(Operand::Value(f))
+    let n = ctx.lower_to_number_operand(a);
+    ctx.coerce_to_i64(n)
 }

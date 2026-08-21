@@ -7,17 +7,27 @@
 //! S332 — per ES §22.1.3.{1,2,3,4,17} step 2-3 (or step 1 for
 //! `repeat`): `ToIntegerOrInfinity` accepts arbitrary-typed
 //! input. The method-table sig `(Number) -> X` rejected
-//! explicit `o: any` operands at typecheck; widen here so
-//! the ssa_lower mirror routes Any through
-//! `anyv_to_number → coerce_to_i64 → helper`. Sister to
-//! S329 (`fromCharCode` Any).
+//! everything but a Number, so this lane grew one admission
+//! wedge per operand shape — `Any` here, `Undefined` next
+//! door. Rotation 463 turned it into what the spec step
+//! actually is: `pos` is COERCED, so every shape is admitted
+//! and the ssa_lower mirror runs each through
+//! [`crate::ssa_lower::LowerCtx::lower_to_number_operand`]
+//! → `coerce_to_i64` → helper. `'abcd'.charAt('x')` is `'a'`,
+//! not a type error.
+//!
+//! Number itself is left to fall through to the strict method
+//! table (the typed-tier fast path never boxes), and
+//! `Undefined` is claimed earlier by
+//! [`crate::check_type_of_call_string_char_undef`], which
+//! answers with the spec's `0` default rather than `NaN → 0`
+//! — same answer, one fewer instruction.
 //!
 //! Returns `Type::String` for `at` / `charAt` / `repeat`,
 //! `Type::Number` for `charCodeAt` / `codePointAt`, only
-//! when the receiver is `Type::String` AND the arg is
-//! `Type::Any`. `Some(Err(_))` on recursive `type_of`
-//! failure. `None` otherwise (cascade falls through to the
-//! strict method table).
+//! when the receiver is `Type::String`. `Some(Err(_))` on
+//! recursive `type_of` failure. `None` otherwise (cascade
+//! falls through to the strict method table).
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -53,7 +63,9 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if !matches!(aty, Type::Any) {
+    // Number is the strict table's own business; everything else
+    // is a ToIntegerOrInfinity operand.
+    if matches!(aty, Type::Number) {
         return None;
     }
     Some(Ok(

@@ -593,6 +593,7 @@ pub(crate) mod ssa_lower_struct_own_props;
 pub mod ssa_lower_substr_trim_into;
 pub(crate) mod ssa_lower_synthesize_main;
 pub(crate) mod ssa_lower_ternary;
+pub(crate) mod ssa_lower_tonumber_operand;
 pub(crate) mod ssa_lower_top_stmt;
 pub mod ssa_lower_toplevel_globals;
 pub(crate) mod ssa_lower_tospliced;

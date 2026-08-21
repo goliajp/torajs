@@ -107,30 +107,19 @@ pub(crate) fn try_dispatch(
             ctx.expr_types.get(&args[0]),
             Some(crate::check::Type::Undefined)
         );
-        // S332 — `s.charAt(Any)` per ES §22.1.3.2: ToIntegerOrInfinity
-        // accepts arbitrary-typed input. Decode Any via anyv_to_number
-        // → coerce_to_i64 so the helper's (Str/Substr, i64) ABI sees
-        // a clean i64 (NaN/±∞ folded per ToInteger).
-        let arg0_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
+        // S332 — `s.charAt(x)` per ES §22.1.3.2: ToIntegerOrInfinity
+        // accepts arbitrary-typed input, so the operand is COERCED
+        // rather than shape-checked. `lower_to_number_operand` keeps a
+        // Number on the typed-tier fast path (no box, no call) and
+        // routes every other shape — Str, Bool, Any, a cell with a
+        // `valueOf` — through the runtime's own ToNumber; the
+        // `coerce_to_i64` below then folds NaN/±∞ per ToInteger so the
+        // helper's `(Str|Substr, i64)` ABI sees a clean index.
         let idx_val = if arg0_undef {
             Operand::ConstI64(0)
-        } else if arg0_any {
-            let raw = ctx.lower_expr(args[0]);
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                Type::F64,
-                None,
-            );
-            // ToNumber over a no-primitive object records a pending
-            // TypeError (§7.1.1) — propagate before the NaN
-            // placeholder becomes a position (and before the stale
-            // pending leaks into an unrelated later check).
-            ctx.emit_throw_check(None);
-            ctx.coerce_to_i64(Operand::Value(f))
         } else {
-            let idx_raw = ctx.lower_expr(args[0]);
-            ctx.coerce_to_i64(idx_raw)
+            let n = ctx.lower_to_number_operand(args[0]);
+            ctx.coerce_to_i64(n)
         };
         let v = if recv_ty == Type::Str {
             // V3-18 m1.h.37 — bounds-checked str charAt.
