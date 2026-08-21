@@ -68,6 +68,27 @@ fn store_mismatches(params: &[Param], return_type: Option<&str>, ann: &str) -> b
         || target_ret != formal_ret
 }
 
+/// A function's USER face as comparable spellings: the params the
+/// caller actually fills, plus the return type (`void` when absent —
+/// the same default the annotation side reads).
+///
+/// `None` for a rest-shaped face: rest rides its own variadic route,
+/// so its calls never take the bare indirect lane this census
+/// guards.
+fn user_face<'a>(params: &'a [Param], ret: Option<&'a str>) -> Option<(Vec<&'a str>, &'a str)> {
+    if params.iter().any(|p| p.is_rest) {
+        return None;
+    }
+    Some((
+        params
+            .iter()
+            .filter(|p| !p.name.starts_with("__"))
+            .map(|p| norm_ann(p.type_ann.as_deref()))
+            .collect(),
+        ret.map(str::trim).unwrap_or("void"),
+    ))
+}
+
 /// The top-level FnDecl name a store's rhs names, for either
 /// spelling of "a function value written into this slot".
 ///
@@ -140,24 +161,90 @@ pub(super) fn collect_fnsig_mismatch_bindings(
             .get(gname)
             .is_some_and(|(ps, ret)| store_mismatches(ps, *ret, ann))
     };
+    // The same two lookups as one accessor, for the face-to-face
+    // comparison below (which has no annotation string to compare
+    // against).
+    let face_of = |gname: &str| -> Option<(Vec<&str>, &str)> {
+        if gen_fns.contains(gname) || ast.async_generator_fns.contains(gname) {
+            return None;
+        }
+        match fn_sigs.get(gname) {
+            Some((ps, ret, _)) => user_face(ps, ret.as_deref()),
+            None => closure_faces
+                .get(gname)
+                .and_then(|(ps, ret)| user_face(ps, *ret)),
+        }
+    };
     // Mutable fn-typed declarations (name → ann), init sites checked
     // in the same walk.
     let mut decls: HashMap<String, String> = HashMap::new();
     let mut out: HashSet<String> = HashSet::new();
     collect_decl_sites(ast, &ast.stmts, &mismatches, &mut decls, &mut out);
+    // Rotation 465 — the UNANNOTATED mutable slot. Its type comes
+    // from the initializer's own face, so there is no annotation
+    // string to compare a later store against; the two faces compare
+    // directly instead, and the consequence of a mismatch is the
+    // same one (`var x = function () { return 1 }; x = function (a) {
+    // return a }; x(7)` answered NaN — the bare indirect call shaped
+    // by the INIT's zero-param face, with `a` read off a register the
+    // caller never filled).
+    let mut inferred: HashMap<&str, (Vec<&str>, &str)> = HashMap::new();
+    collect_inferred_sites(ast, &ast.stmts, &face_of, &mut inferred);
     // Assign sites over the whole arena — scope-free name matching,
     // the conservative direction (see fn doc).
     for e in &ast.exprs {
-        if let Expr::Assign { target, value } = e
-            && let Expr::Ident(tname) = ast.get_expr(*target)
-            && let Some(ann) = decls.get(tname)
-            && let Some(gname) = store_face_name(ast, *value)
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        let Expr::Ident(tname) = ast.get_expr(*target) else {
+            continue;
+        };
+        let Some(gname) = store_face_name(ast, *value) else {
+            continue;
+        };
+        if let Some(ann) = decls.get(tname)
             && mismatches(gname, ann)
+        {
+            out.insert(tname.clone());
+        }
+        if let Some(init_face) = inferred.get(tname.as_str())
+            && face_of(gname).is_none_or(|f| f != *init_face)
         {
             out.insert(tname.clone());
         }
     }
     out
+}
+
+/// The unannotated-mutable-slot walk — same nested spine as
+/// [`collect_decl_sites`], recording each such binding's INIT face so
+/// the assign loop can compare later stores against it. A slot whose
+/// init is not a resolvable function face is not in the map at all,
+/// and one whose init face is rest-shaped stays out too (that route
+/// is variadic already).
+fn collect_inferred_sites<'a>(
+    ast: &'a Ast,
+    stmts: &'a [Stmt],
+    face_of: &dyn Fn(&str) -> Option<(Vec<&'a str>, &'a str)>,
+    out: &mut HashMap<&'a str, (Vec<&'a str>, &'a str)>,
+) {
+    for s in stmts {
+        if let Stmt::LetDecl {
+            mutable: true,
+            type_ann: None,
+            name,
+            init,
+            ..
+        } = s
+            && let Some(gname) = store_face_name(ast, *init)
+            && let Some(face) = face_of(gname)
+        {
+            out.insert(name, face);
+        }
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            collect_inferred_sites(ast, inner, face_of, out)
+        });
+    }
 }
 
 /// The nested-LetDecl walk (the `sig_thunk::collect_let_sites`
