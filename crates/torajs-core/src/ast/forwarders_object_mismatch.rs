@@ -127,12 +127,19 @@ fn collect_decl_sites(
     out: &mut HashSet<String>,
 ) {
     for s in stmts {
+        // `var` counts (rotation 465). The mismatch is a property of
+        // the SLOT's annotation against the stored face, and `var`
+        // says nothing about either — a top-level `var slot: () =>
+        // void = ga; slot = gb;` printed `gb [unknown-any-tag]`,
+        // the callee reading the register the caller never filled,
+        // exactly the answer this census exists to prevent. (A
+        // nested `var` reaches here as an any-typed hoist prelude
+        // and fails `is_fn_like_ann` on its own.)
         if let Stmt::LetDecl {
             mutable: true,
             type_ann: Some(ann),
             name,
             init,
-            is_var: false,
             ..
         } = s
             && super::lift_arrow_fns::is_fn_like_ann(ann)
