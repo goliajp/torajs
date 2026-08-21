@@ -83,13 +83,14 @@ struct TargetCell {
 static G_BUCKETS: [AtomicPtr<TargetCell>; WEAKREF_BUCKETS] =
     [const { AtomicPtr::new(ptr::null_mut()) }; WEAKREF_BUCKETS];
 
-/// Total live observer count across all cells. `target_dying`'s
-/// fast-path short-circuit reads this first; the common case
-/// (no live WeakRef/Map/Set in the whole program) skips the hash
-/// lookup entirely. Matches `runtime_weakref.c::g_active`.
-static G_ACTIVE: AtomicU64 = AtomicU64::new(0);
-
 unsafe extern "C" {
+    /// Total live observer count across all cells — the word
+    /// torajs-rc's hit-zero path reads before calling
+    /// [`__torajs_weakref_target_dying`] at all (`torajs_rc::weak_gate`,
+    /// rotation 469); the walk below reads it again as its own
+    /// short-circuit. Owned by torajs-rc so the count and its reader
+    /// sit in the same archive; this crate only adjusts it.
+    static __torajs_weakref_active: AtomicU64;
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
@@ -220,7 +221,7 @@ pub unsafe extern "C" fn __torajs_weakref_registry_register(
         (*n).next = (*c).observers;
         (*c).observers = n;
     }
-    G_ACTIVE.fetch_add(1, Ordering::Relaxed);
+    unsafe { __torajs_weakref_active.fetch_add(1, Ordering::Relaxed) };
 }
 
 /// Remove the first matching (kind, owner) observer entry from
@@ -252,7 +253,7 @@ pub unsafe extern "C" fn __torajs_weakref_registry_deregister(
                 *slot = (*cur).next;
                 free(cur as *mut c_void);
             }
-            G_ACTIVE.fetch_sub(1, Ordering::Relaxed);
+            unsafe { __torajs_weakref_active.fetch_sub(1, Ordering::Relaxed) };
             break;
         }
         slot = unsafe { &raw mut (*cur).next };
@@ -272,7 +273,7 @@ pub unsafe extern "C" fn __torajs_weakref_registry_deregister(
 ///
 /// Cells / nodes are freed as the walk proceeds, then the bucket is
 /// unlinked. The very common case "no live observers in this program"
-/// short-circuits on the `G_ACTIVE == 0` check before touching any
+/// short-circuits on the live-observer count before touching any
 /// bucket — keeps the hot drop path overhead-free in programs without
 /// any weak references.
 ///
@@ -283,7 +284,7 @@ pub unsafe extern "C" fn __torajs_weakref_registry_deregister(
 /// longer has any entries for `target`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(target: *mut c_void) {
-    if G_ACTIVE.load(Ordering::Relaxed) == 0 {
+    if unsafe { __torajs_weakref_active.load(Ordering::Relaxed) } == 0 {
         return;
     }
     let bkt = hash_ptr(target);
@@ -313,7 +314,7 @@ pub unsafe extern "C" fn __torajs_weakref_target_dying(target: *mut c_void) {
         }
         let next = unsafe { (*cur).next };
         unsafe { free(cur as *mut c_void) };
-        G_ACTIVE.fetch_sub(1, Ordering::Relaxed);
+        unsafe { __torajs_weakref_active.fetch_sub(1, Ordering::Relaxed) };
         cur = next;
     }
     unsafe { registry_remove_cell(c, bkt) };
@@ -322,6 +323,12 @@ pub unsafe extern "C" fn __torajs_weakref_target_dying(target: *mut c_void) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The live-observer word is torajs-rc's in the shipped binary;
+    // this crate's unit-test binary does not link torajs-rc, so it
+    // provides the symbol itself.
+    #[unsafe(no_mangle)]
+    pub static __torajs_weakref_active: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn struct_layouts_match_c() {

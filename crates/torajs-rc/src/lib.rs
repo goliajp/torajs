@@ -275,19 +275,9 @@ pub enum DropPolicy {
     Free,
 }
 
-// ============================================================
-// WeakRef hook (defined in runtime_weakref.c)
-// ============================================================
-
-// `__torajs_weakref_target_dying(p)` is called on rc-hit-zero
-// before [`DropPolicy::Free`] is returned, so any live `WeakRef`
-// pointing at the dying object can NULL its target pointer first.
-// Implementation lives in runtime_weakref.c (a global "any
-// WeakRef alive" counter gates the body so non-WeakRef programs
-// pay only one untaken branch per dec).
-unsafe extern "C" {
-    fn __torajs_weakref_target_dying(target: *mut c_void);
-}
+// The WeakRef hook on the hit-zero path lives in `weak_gate` (the
+// live-observer count is read here before the call goes out).
+pub mod weak_gate;
 
 // ============================================================
 // Refcount-underflow detector (opt-in, off by default)
@@ -440,9 +430,10 @@ impl HeapHeader {
     /// Static literals and the saturation case both return
     /// [`DropPolicy::Keep`].
     ///
-    /// On the hit-zero path, fires the runtime_weakref.c hook so
-    /// any live `WeakRef` to this object can NULL its target ptr
-    /// before the caller's free.
+    /// On the hit-zero path, fires torajs-weak's target-dying hook
+    /// (through [`weak_gate::notify_target_dying`], which skips the
+    /// call when no weak observer is alive) so any live `WeakRef` to
+    /// this object can NULL its target ptr before the caller's free.
     ///
     /// ## Underflow
     ///
@@ -468,11 +459,10 @@ impl HeapHeader {
         report_underflow(self.refcount);
         self.refcount -= 1;
         if self.refcount == 0 {
-            // SAFETY: hook is gated internally on a global counter;
-            // safe to call with any pointer (it inspects the
-            // WeakRef registry by pointer identity).
+            // SAFETY: the cell is still valid here; the hook inspects
+            // the WeakRef registry by pointer identity.
             unsafe {
-                __torajs_weakref_target_dying(self as *mut HeapHeader as *mut c_void);
+                weak_gate::notify_target_dying(self as *mut HeapHeader as *mut c_void);
             }
             DropPolicy::Free
         } else {
