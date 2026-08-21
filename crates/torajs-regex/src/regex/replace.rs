@@ -160,6 +160,9 @@ fn replace_inner<'a>(
     // dollarless parity) — a replacement with no `$` provably never
     // reads captures, so the search can skip the 512-byte saves init
     // + the second-pass Pike VM capture extraction per hit.
+    // It also decides how the replacement itself is written: with no
+    // `$` it is a literal, so each hit appends it whole rather than
+    // through `expand_repl`'s per-byte walk.
     let want_saves = repl.contains(&b'$');
     // Phase C-3 — bind the AOT-baked DFA view once outside the loop.
     // See match_all.rs for the rationale.
@@ -188,17 +191,27 @@ fn replace_inner<'a>(
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
-        expand_repl(
-            repl,
-            s,
-            m.start,
-            m.end,
-            m.saves(),
-            re.n_captures,
-            &re.capture_names,
-            re.n_named_captures > 0,
-            out,
-        );
+        if want_saves {
+            expand_repl(
+                repl,
+                s,
+                m.start,
+                m.end,
+                m.saves(),
+                re.n_captures,
+                &re.capture_names,
+                re.n_named_captures > 0,
+                out,
+            );
+        } else {
+            // Rotation 470 — `want_saves` IS `repl.contains(&b'$')`,
+            // and with no `$` anywhere `expand_repl` walks the
+            // replacement one `Vec::push` per byte and copies it
+            // verbatim. The fact is already established above; act on
+            // it and copy in one go. 23% of `str-replace-100k`'s
+            // samples were that walk.
+            out.extend_from_slice(repl);
+        }
         if m.end == m.start {
             if m.start < slen {
                 out.push(s[m.start as usize]);
