@@ -198,23 +198,7 @@ pub(crate) fn try_lower(
         // types), or is an inline immediate (Number / Boolean). A
         // void callback has no result value — the pushed element is
         // the boxed-undefined sentinel.
-        let push_val = if cb_ret_ty == Type::Void {
-            crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx)
-        } else if cb_ret_ty == Type::Substr {
-            // The callback's view answer is copied out as an owned
-            // string; the view itself is released as the push used to
-            // consume it (rotation 468).
-            let owned = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![Operand::Value(cb_ret)]),
-                Type::Str,
-                None,
-            );
-            ctx.emit_drop_value(Operand::Value(cb_ret), Type::Substr);
-            owned
-        } else {
-            cb_ret
-        };
+        let push_val = scalar_push_value(ctx, cb_ret, cb_ret_ty);
         emit_scalar_push_and_close(ctx, push_val, i_slot, oh, oa, dst_slot, dst_arr_ty)
     } else {
         let inner_elem_ty = match cb_ret_ty {
@@ -250,6 +234,33 @@ pub(crate) fn try_lower(
 /// as the predicate family (rotation 261). Non-promoted callbacks
 /// answer `(None, None)`. Also lowers-and-drops the trailing args
 /// (S319 — spec left-to-right side-effect order).
+/// The element a scalar-returning callback contributes: its result
+/// as-is (it already carries the +1 the dst slot takes over, or is an
+/// immediate); the boxed-undefined sentinel for a void callback; and
+/// for a view answer an owned copy, the view released as the push used
+/// to consume it (rotation 468). Carved out of [`try_lower`] under the
+/// 200-line function limit.
+fn scalar_push_value(
+    ctx: &mut LowerCtx<'_>,
+    cb_ret: crate::ssa::ValueId,
+    cb_ret_ty: Type,
+) -> crate::ssa::ValueId {
+    if cb_ret_ty == Type::Void {
+        crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx)
+    } else if cb_ret_ty == Type::Substr {
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![Operand::Value(cb_ret)]),
+            Type::Str,
+            None,
+        );
+        ctx.emit_drop_value(Operand::Value(cb_ret), Type::Substr);
+        owned
+    } else {
+        cb_ret
+    }
+}
+
 fn lower_promoted_this(
     ctx: &mut LowerCtx<'_>,
     args: &[ExprId],
