@@ -163,34 +163,44 @@ fn align_substr_needle<'h, 'n>(
     }
 }
 
-/// `s.charCodeAt(i)` on a Substr receiver. OOB / negative returns 0.
+/// `s.charCodeAt(i)` on a Substr receiver, per ES §22.1.3.2 — the
+/// code unit at `i` as a Number, or **NaN** when `i` is out of
+/// range (step 5). Mirrors the Str kernel's `f64` ABI; see
+/// [`crate::lookup_ffi::__torajs_str_char_code_at`] for why the
+/// out-of-range answer cannot ride an integer.
 ///
 /// P11.1-S2.5 — encoding-aware: Latin-1 returns the byte value
 /// (0..=255), UTF-16 returns the little-endian u16 at code-unit
 /// index `i`. `i` is the JS code-unit index per spec; the byte
-/// offset is computed via the parent encoding's stride. The
-/// Substr's `len@8` field is a byte count over the parent's
-/// payload (S5 follow-up converts it to code units); the bounds
-/// check converts to code units via the stride.
+/// offset is computed via the parent encoding's stride.
 ///
 /// # Safety
 /// `v` is a live `*const Substr` (rc > 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> i64 {
+pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> f64 {
+    unsafe { substr_code_unit_at(v, i) }.map_or(f64::NAN, f64::from)
+}
+
+/// The in-range half of [`__torajs_substr_char_code_at`]: the code
+/// unit at `i`, or `None` when `i` is out of range.
+///
+/// # Safety
+/// `v` is a live `*const Substr` (rc > 0).
+pub(crate) unsafe fn substr_code_unit_at(v: *const u8, i: i64) -> Option<u16> {
     let cu_len = unsafe { substr_len(v) };
     let is_latin1 = unsafe { substr_parent_is_latin1(v) };
     let stride = if is_latin1 { 1u64 } else { 2u64 };
     if i < 0 || (i as u64) >= cu_len {
-        return 0;
+        return None;
     }
     let off = (i as u64) * stride;
     let p = unsafe { substr_data(v).add(off as usize) };
     if is_latin1 {
-        unsafe { *p as i64 }
+        Some(unsafe { *p } as u16)
     } else {
         let lo = unsafe { *p } as u16;
         let hi = unsafe { *p.add(1) } as u16;
-        ((hi << 8) | lo) as i64
+        Some((hi << 8) | lo)
     }
 }
 

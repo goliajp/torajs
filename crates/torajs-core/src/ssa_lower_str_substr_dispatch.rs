@@ -92,7 +92,7 @@ pub(crate) fn try_dispatch(
     // View-aware fast paths — read bytes from
     // parent + offset directly, no per-call malloc.
     let view_aware = match method {
-        "charCodeAt" => Some((ctx.intrinsics.substr_char_code_at, Type::I64)),
+        "charCodeAt" => Some((ctx.intrinsics.substr_char_code_at, Type::F64)),
         "codePointAt" => Some((ctx.intrinsics.substr_code_point_at, Type::I64)),
         "startsWith" => Some((ctx.intrinsics.substr_starts_with, Type::Bool)),
         "endsWith" => Some((ctx.intrinsics.substr_ends_with, Type::Bool)),

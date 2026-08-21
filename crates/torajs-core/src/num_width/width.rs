@@ -308,6 +308,14 @@ impl<'a> Analysis<'a> {
             // Other member calls read through the container
             // lattice (`xs.pop()` → the receiver's elem point,
             // `xs.reduce(cb)` → the callback's ret).
+            // `s.charCodeAt(i)` answers NaN out of range (§22.1.3.2
+            // step 5), so its slot has to be able to hold one — the
+            // kernel's ABI is `f64` for exactly that reason. Matched
+            // by method name without a receiver-type gate: f64 is
+            // always a sound width for a Number, and a too-narrow
+            // answer here is not a slow program but a broken build
+            // (an FPR value reaching a GPR-only consumer).
+            Expr::Member { name: m, .. } if m == "charCodeAt" => W::F64,
             Expr::Member { obj, .. } => {
                 if let Expr::Ident(ns) = self.ast.get_expr(*obj)
                     && ns == "Math"

@@ -90,7 +90,7 @@ pub(crate) fn dispatch_intrinsic(
         // §22.1.3.3; charCodeAt returns the lone UTF-16 code unit
         // per §22.1.3.2. Two distinct intrinsics now that
         // P11.1-S1/S5 gave us proper hybrid Latin-1 / UTF-16 storage.
-        "charCodeAt" => (ctx.intrinsics.str_char_code_at, Type::I64),
+        "charCodeAt" => (ctx.intrinsics.str_char_code_at, Type::F64),
         "codePointAt" => (ctx.intrinsics.str_code_point_at, Type::I64),
         "startsWith" => (ctx.intrinsics.str_starts_with, Type::Bool),
         "endsWith" => (ctx.intrinsics.str_ends_with, Type::Bool),

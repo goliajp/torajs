@@ -113,7 +113,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_substr_char_code_at",
             &[Type::Substr, Type::I64],
-            Type::I64,
+            Type::F64,
         ),
         substr_code_point_at: declare_intrinsic(
             module,

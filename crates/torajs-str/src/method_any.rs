@@ -450,9 +450,11 @@ pub unsafe extern "C" fn __torajs_str_any_at(s: *const u8, i: i64) -> u64 {
     }
 }
 
-/// `s.charCodeAt(i)` per ES §22.1.3.3 — the code unit, or `-1` for
-/// out-of-range (the dispatcher boxes that as the spec NaN; the
-/// typed-tier kernel's 0-for-OOB stays its own recorded divergence).
+/// `s.charCodeAt(i)` per ES §22.1.3.2 — the code unit, or `-1` for
+/// out-of-range (the dispatcher boxes that as the spec NaN; an
+/// integer sentinel rather than NaN itself because the `s[i]` index
+/// lane wants the same "no such code unit" answer without going
+/// through a float).
 ///
 /// # Safety
 /// `s` is a valid heap Str/Substr pointer.
@@ -460,12 +462,7 @@ pub unsafe extern "C" fn __torajs_str_any_at(s: *const u8, i: i64) -> u64 {
 pub unsafe extern "C" fn __torajs_str_any_char_code_at(s: *const u8, i: i64) -> i64 {
     unsafe {
         let (src, tmp) = owned_src(s);
-        let (_, len, _) = crate::lookup::str_view(src);
-        let out = if i < 0 || i >= len as i64 {
-            -1
-        } else {
-            crate::lookup_ffi::__torajs_str_char_code_at(src, i)
-        };
+        let out = crate::lookup_ffi::code_unit_at(src, i).map_or(-1, i64::from);
         drop_tmp(tmp);
         out
     }

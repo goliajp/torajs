@@ -68,21 +68,29 @@ pub(crate) fn try_dispatch(
         // combines surrogate pairs per ES §22.1.3.3). 0-arg form
         // still applies: `'😀'.codePointAt()` should default pos
         // to 0 and return 0x1F600, not 0xD83D.
-        let target = if method == "codePointAt" {
-            if recv_ty == Type::Str {
+        //
+        // charCodeAt answers a Number that is NaN out of range
+        // (§22.1.3.2 step 5), so its kernel hands back an `f64`;
+        // codePointAt still rides the integer ABI here.
+        let (target, ret) = if method == "codePointAt" {
+            let fid = if recv_ty == Type::Str {
                 ctx.intrinsics.str_code_point_at
             } else {
                 ctx.intrinsics.substr_code_point_at
-            }
-        } else if recv_ty == Type::Str {
-            ctx.intrinsics.str_char_code_at
+            };
+            (fid, Type::I64)
         } else {
-            ctx.intrinsics.substr_char_code_at
+            let fid = if recv_ty == Type::Str {
+                ctx.intrinsics.str_char_code_at
+            } else {
+                ctx.intrinsics.substr_char_code_at
+            };
+            (fid, Type::F64)
         };
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(target, vec![recv_op, idx_val]),
-            Type::I64,
+            ret,
             None,
         );
         return Some(Operand::Value(v));

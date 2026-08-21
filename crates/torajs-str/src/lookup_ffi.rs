@@ -252,8 +252,12 @@ pub unsafe extern "C" fn __torajs_str_includes(s: *const u8, n: *const u8) -> i6
     unsafe { __torajs_str_includes_from(s, n, 0) }
 }
 
-/// `s.charCodeAt(i)` — UTF-16 code unit at index `i` zero-extended
-/// to i64. OOB returns 0 (M6.1 stub).
+/// `s.charCodeAt(i)` per ES §22.1.3.2 — the UTF-16 code unit at
+/// index `i` as a Number, or **NaN** when `i` is out of range
+/// (step 5). NaN is why the ABI is `f64` and not `i64`: the
+/// out-of-range answer is not representable as an integer, and the
+/// pre-r464 `0` made `"abc".charCodeAt(9)` collide with a real
+/// NUL code unit.
 ///
 /// P11.1-S2.4 — encoding-aware: Latin-1 returns the byte value
 /// (0..=255 maps 1:1 to a code unit), UTF-16 returns the little-
@@ -264,17 +268,30 @@ pub unsafe extern "C" fn __torajs_str_includes(s: *const u8, n: *const u8) -> i6
 ///
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_char_code_at(s: *const u8, i: i64) -> i64 {
+pub unsafe extern "C" fn __torajs_str_char_code_at(s: *const u8, i: i64) -> f64 {
+    unsafe { code_unit_at(s, i) }.map_or(f64::NAN, f64::from)
+}
+
+/// The in-range half of [`__torajs_str_char_code_at`]: the code unit
+/// at `i`, or `None` when `i` is out of range. Callers that carry
+/// their own out-of-range answer (`-1` for the Any-tier glue,
+/// `None` for the `s[i]` index lane) read this directly rather than
+/// round-tripping through NaN.
+///
+/// # Safety
+///
+/// `s` must be a valid Str heap block.
+pub(crate) unsafe fn code_unit_at(s: *const u8, i: i64) -> Option<u16> {
     let (payload, length, is_latin1) = unsafe { str_view(s) };
     if i < 0 || i >= length as i64 {
-        return 0;
+        return None;
     }
     if is_latin1 {
-        payload[i as usize] as i64
+        Some(payload[i as usize] as u16)
     } else {
         let off = (i as usize) * 2;
         let lo = payload[off] as u16;
         let hi = payload[off + 1] as u16;
-        ((hi << 8) | lo) as i64
+        Some((hi << 8) | lo)
     }
 }

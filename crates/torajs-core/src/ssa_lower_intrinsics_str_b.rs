@@ -95,7 +95,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_char_code_at",
             &[Type::Str, Type::I64],
-            Type::I64,
+            Type::F64,
         ),
         str_code_point_at: declare_intrinsic(
             module,
