@@ -103,17 +103,19 @@ fn write_escaped_into(dst: &mut Vec<u8>, s: &[u8]) {
     dst.push(b'"');
 }
 
+/// Rotation 466: this used to run `write!(.., "{}", n)`, and a
+/// leaf-symbol profile of `JSON.stringify` in a loop put
+/// `Display for i64` + `core::fmt::write` + `pad_integral` at 16%
+/// of self-time — more than the string escaping the builder exists
+/// for. None of that machinery does anything here: there is no
+/// width, no fill, no sign option to honour, just digits appended
+/// to a byte buffer.
 #[inline]
 fn write_i64_into(dst: &mut Vec<u8>, n: i64) {
-    use core::fmt::Write;
-    struct W<'a>(&'a mut Vec<u8>);
-    impl<'a> core::fmt::Write for W<'a> {
-        fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            self.0.extend_from_slice(s.as_bytes());
-            Ok(())
-        }
-    }
-    let _ = write!(W(dst), "{}", n);
+    use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
+    let mut buf = [0u8; ITOA_BUF_LEN];
+    let start = itoa_into(n, &mut buf);
+    dst.extend_from_slice(&buf[start..]);
 }
 
 /// Allocate a fresh builder with an initial buffer capacity. The

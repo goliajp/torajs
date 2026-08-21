@@ -56,44 +56,17 @@ pub fn f64_shortest(d: f64, buf: &mut [u8]) -> i32 {
 
 /// `String(n)` for i64 — fresh Str of the decimal representation.
 ///
-/// v0.7-A4 Step 15-d: replaced libc `snprintf("%lld", n)` with
-/// Rust's `core::fmt::Write` into a stack buffer. i64's decimal
-/// representation is at most 20 bytes (`-9223372036854775808` +
-/// NUL) so a 24-byte buffer covers every case.
+/// v0.7-A4 Step 15-d dropped libc `snprintf("%lld", n)` for
+/// `core::fmt::Write` into a stack buffer; rotation 466 dropped
+/// `core::fmt` too. The digits were never the cost — `Formatter`
+/// and `pad_integral` around them were. `torajs_fmt::itoa` writes
+/// the same bytes with neither.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_i64_to_str(n: i64) -> *mut u8 {
-    use core::fmt::Write;
-    let mut buf = [0u8; 24];
-    let mut writer = I64Writer {
-        buf: &mut buf,
-        pos: 0,
-    };
-    let _ = write!(writer, "{}", n);
-    let len = writer.pos;
-    alloc_str(&buf[..len])
-}
-
-struct I64Writer<'a> {
-    buf: &'a mut [u8],
-    pos: usize,
-}
-
-impl<'a> core::fmt::Write for I64Writer<'a> {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        let bytes = s.as_bytes();
-        let n = bytes.len();
-        let remaining = self.buf.len().saturating_sub(self.pos);
-        let copy_len = n.min(remaining);
-        if copy_len > 0 {
-            self.buf[self.pos..self.pos + copy_len].copy_from_slice(&bytes[..copy_len]);
-            self.pos += copy_len;
-        }
-        if copy_len < n {
-            Err(core::fmt::Error)
-        } else {
-            Ok(())
-        }
-    }
+    use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
+    let mut buf = [0u8; ITOA_BUF_LEN];
+    let start = itoa_into(n, &mut buf);
+    alloc_str(&buf[start..])
 }
 
 /// `String(d)` for f64. NaN / ±Infinity → spec strings. `-0` →
