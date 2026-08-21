@@ -206,6 +206,31 @@ impl<'a> LowerCtx<'a> {
     /// `any_payload_rc_inc` (the box stays a borrow of its owner).
     /// `eid` recovers the `undefined`-vs-`null` AST shape for
     /// ConstPtrNull operands (S127-1); `None` tags plain null.
+    /// `(tag, value)` of a Str-shaped slot through its pair kernels —
+    /// the owned-Str and the Substr pair share the call shape; only the
+    /// kernels differ (the Substr value half materializes an inline
+    /// view — rotation 468).
+    fn slot_pair(
+        &mut self,
+        tag_fid: crate::ssa::FuncId,
+        val_fid: crate::ssa::FuncId,
+        val: Operand,
+    ) -> (Operand, Operand) {
+        let tag_v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(tag_fid, vec![val.clone()]),
+            Type::I64,
+            None,
+        );
+        let val_v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(val_fid, vec![val]),
+            Type::I64,
+            None,
+        );
+        (Operand::Value(tag_v), Operand::Value(val_v))
+    }
+
     pub(crate) fn pack_any_elem(
         &mut self,
         val: Operand,
@@ -313,19 +338,23 @@ impl<'a> LowerCtx<'a> {
             // heap Str); the value half takes the slot's +1 (heap
             // case only), replacing the catch-all's emit_rc_inc.
             Type::Str => {
-                let tag_v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![val.clone()]),
-                    Type::I64,
-                    None,
+                let (t, v) = (
+                    self.intrinsics.anyv_str_slot_tag,
+                    self.intrinsics.anyv_str_slot_value,
                 );
-                let val_v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![val]),
-                    Type::I64,
-                    None,
+                self.slot_pair(t, v, val)
+            }
+            // A substring view element (`[a[0], …]` over a split
+            // product) goes through the Substr pair helpers: the
+            // sentinel decodes to undefined, and an inline view is
+            // materialized — the any slot owns a copy rather than a
+            // pointer into a block that can die first (rotation 468).
+            Type::Substr => {
+                let (t, v) = (
+                    self.intrinsics.anyv_substr_slot_tag,
+                    self.intrinsics.anyv_substr_slot_value,
                 );
-                (Operand::Value(tag_v), Operand::Value(val_v))
+                self.slot_pair(t, v, val)
             }
             _ if val_ty.is_refcounted() => {
                 // Heap-typed value: rc_inc to hold an owning ref

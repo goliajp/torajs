@@ -143,7 +143,13 @@ pub(crate) fn try_lower(
 fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Type, ValueId) {
     let is_find = matches!(method, "find" | "findLast");
     let result_ty = if is_find {
-        crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty)
+        // A found VIEW is answered as an owned copy: a view must not
+        // outlive the split block that owns its storage (rotation 468).
+        if elem_ty == Type::Substr {
+            Type::Str
+        } else {
+            crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty)
+        }
     } else if matches!(method, "findIndex" | "findLastIndex") {
         Type::I64
     } else {
@@ -204,7 +210,7 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
             // printed "null"); typeof / eq / .length-guard consumers
             // route through `is_nullable_str_source`'s find arm.
             // Static cell: the result slot's scope drop no-ops.
-            Type::Str => ctx
+            Type::Str | Type::Substr => ctx
                 .str_undef_sentinel_for(Type::Str)
                 .expect("Str always has a sentinel mapping"),
             // RFC 20260722 chunk B — a refcounted-pointer elem miss

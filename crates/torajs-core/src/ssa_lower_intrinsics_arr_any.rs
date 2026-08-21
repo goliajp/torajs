@@ -62,6 +62,8 @@ pub(crate) struct ArrAnyIds {
     pub arr_get_any_tag: FuncId,
     pub arr_get_any_value: FuncId,
     pub arr_get_any_boxed: FuncId,
+    /// Rotation 468 — the owned read: inline views materialize, else rc-inc.
+    pub arr_get_any_owned: FuncId,
     pub arr_any_pop: FuncId,
     pub arr_any_shift: FuncId,
     /// RFC 20260708-closure-argv-face — `__torajs_arr_any_push(arr,
@@ -138,6 +140,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_get_any_tag: decl!("__torajs_arr_get_any_tag", [Ptr, I64], I64),
         arr_get_any_value: decl!("__torajs_arr_get_any_value", [Ptr, I64], I64),
         arr_get_any_boxed: decl!("__torajs_arr_get_any_boxed", [Ptr, I64], Any),
+        arr_get_any_owned: decl!("__torajs_arr_get_any_owned", [Ptr, I64], Any),
         // Chunk 628 — kind-aware pop/shift for static Arr<Any>
         // receivers (boxed result, empty → undefined, typed-behind-
         // any blocks rebox per elem kind; the any-method-call RFC's

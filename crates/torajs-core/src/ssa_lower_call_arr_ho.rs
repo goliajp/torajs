@@ -134,42 +134,7 @@ fn lower_higher_order(
     for &t in args.iter().skip(skip_n) {
         let _ = ctx.lower_expr(t);
     }
-    // dst array element type: filter = src; map = closure ret
-    // (Arr<Substr>→Arr<Str> on materialize boundary).
-    let dst_arr_ty = if method == "map"
-        && let Some(sig_id) = match fn_ty {
-            Type::FnSig(s) | Type::Closure(s) => Some(s),
-            _ => None,
-        } {
-        let ret = ctx.fn_sigs[sig_id.0 as usize].1;
-        // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
-        // maps every element to `undefined`; the dst holds Any boxes.
-        let ret = if ret == Type::Void { Type::Any } else { ret };
-        // RFC 20260726-array-elem-width knife 1 — the callback's ret is
-        // only ONE source of the product's elements, so it cannot decide
-        // their width alone. The analysis keys this product by its call
-        // origin and joins that class with every slot the product flows
-        // into (`container_result_key.rs`, the "map" arm); a fractional
-        // value reaching any of them widens the class while the ret edge
-        // stays narrow — that edge is directional on purpose (reduce's
-        // accumulator rides it, see acc_ty below). Ask the class, the way
-        // an array literal already does (`ssa_lower_array::compute_elem_ty`).
-        // Skipping the ask stored I64 bits behind an F64-typed slot and
-        // every later read reinterpreted them — silently, exit 0.
-        let ret = if ret == Type::I64
-            && ctx
-                .num_f64_slots
-                .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
-        {
-            Type::F64
-        } else {
-            ret
-        };
-        let arr_id = intern_arr_layout(ctx.arr_layouts, ret);
-        Type::Arr(arr_id)
-    } else {
-        arr_ty
-    };
+    let dst_arr_ty = dst_array_type(ctx, &method, fn_ty, arr_ty, eid);
     let dst_slot = prepare_dst_slot(ctx, &method, src_arr, dst_arr_ty);
     // Explicit reduce init lowers here (arg order preserved: cb, then
     // initialValue) so its static type can pick the acc lane below.
@@ -455,4 +420,65 @@ fn prepare_acc_slot(
         InstKind::Store(init_v, Operand::Value(slot), 0),
     );
     Some(slot)
+}
+
+/// The product array type of `map` / `filter`: map takes the closure's
+/// return (void → any; i64 widened by the width analysis; a view answer
+/// materialized to Str), filter copies the receiver (a view-typed
+/// receiver copied out as owned strings — rotation 468). Carved out of
+/// [`lower_higher_order`] when the filter arm pushed it past the
+/// 200-line function limit.
+fn dst_array_type(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    fn_ty: Type,
+    arr_ty: Type,
+    eid: ExprId,
+) -> Type {
+    if method == "map"
+        && let Some(sig_id) = match fn_ty {
+            Type::FnSig(s) | Type::Closure(s) => Some(s),
+            _ => None,
+        }
+    {
+        let ret = ctx.fn_sigs[sig_id.0 as usize].1;
+        // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
+        // maps every element to `undefined`; the dst holds Any boxes.
+        let ret = if ret == Type::Void { Type::Any } else { ret };
+        // RFC 20260726-array-elem-width knife 1 — the callback's ret is
+        // only ONE source of the product's elements, so it cannot decide
+        // their width alone. The analysis keys this product by its call
+        // origin and joins that class with every slot the product flows
+        // into (`container_result_key.rs`, the "map" arm); a fractional
+        // value reaching any of them widens the class while the ret edge
+        // stays narrow — that edge is directional on purpose (reduce's
+        // accumulator rides it, see acc_ty below). Ask the class, the way
+        // an array literal already does (`ssa_lower_array::compute_elem_ty`).
+        // Skipping the ask stored I64 bits behind an F64-typed slot and
+        // every later read reinterpreted them — silently, exit 0.
+        let ret = if ret == Type::I64
+            && ctx
+                .num_f64_slots
+                .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
+        {
+            Type::F64
+        } else if ret == Type::Substr {
+            // A view answer (`xs.map(x => x)` over a split product) is
+            // pushed as an owned copy — a view does not leave its split
+            // block (rotation 468); `emit_map` materializes.
+            Type::Str
+        } else {
+            ret
+        };
+        let arr_id = intern_arr_layout(ctx.arr_layouts, ret);
+        Type::Arr(arr_id)
+    } else if method == "filter"
+        && let Type::Arr(src_id) = arr_ty
+    {
+        // filter copies kept elements out of the receiver: out of an
+        // `Arr<Substr>` they are owned copies (rotation 468).
+        Type::Arr(ctx.copied_arr_layout(src_id))
+    } else {
+        arr_ty
+    }
 }

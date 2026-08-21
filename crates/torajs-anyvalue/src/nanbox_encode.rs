@@ -82,6 +82,35 @@ unsafe extern "C" {
     /// (string index OOB read). A Substr slot crossing into the Any
     /// world decodes against its address the same way.
     fn __torajs_substr_undef() -> *mut u8;
+    /// Fresh owned Str with a view's text (torajs-str
+    /// `substr_methods.rs`). An INLINE view boxed into the any world
+    /// is materialized through it — see [`materialize_inline_view`].
+    fn __torajs_substr_to_owned(v: *const u8) -> *mut c_void;
+}
+
+/// `FLAG_SUBSTR_INLINE` mirror (torajs-str `substr.rs`, header flags
+/// bit 0): a view whose 32-byte cell lives in the tail of the split
+/// block that produced it.
+const FLAG_SUBSTR_INLINE: u16 = 1 << 0;
+
+/// The any world cannot hold an inline view: the cell's storage is
+/// the split block's and dies with it, and the box would point at
+/// reclaimed memory the moment the typed-tier array went away
+/// (`a.map(x => x)` through the any callback lane printed `["6","q!"]`
+/// once the source array dropped — rotation 468). So a view leaving
+/// the typed tier for `any` is materialized into an owned string,
+/// which the box then owns outright (rc 1 = the box's stake). A
+/// standalone view (FLAG_SUBSTR_VIEW only) owns its own cell and is
+/// refcounted like any heap value, so it is shared as before; the
+/// sentinels never reach here.
+#[inline]
+unsafe fn materialize_inline_view(p: *mut c_void) -> *mut c_void {
+    let flags = unsafe { (*(p as *const torajs_rc::HeapHeader)).flags };
+    if flags & FLAG_SUBSTR_INLINE != 0 {
+        unsafe { __torajs_substr_to_owned(p as *const u8) }
+    } else {
+        p
+    }
 }
 
 /// Encode a Str-typed slot value as an [`AnyValue`] (RFC 20260707
@@ -115,7 +144,10 @@ pub unsafe extern "C" fn __torajs_anyv_box_substr_slot(p: *mut c_void) -> AnyVal
     if p == unsafe { __torajs_substr_undef() } as *mut c_void {
         return VALUE_UNDEFINED;
     }
-    box_void_ptr(p)
+    // An inline view is copied out as an owned string the box owns;
+    // the caller's stake on the view cell is a header bump the inline
+    // drop path never reads (rotation 468).
+    box_void_ptr(unsafe { materialize_inline_view(p) })
 }
 
 /// `(tag, …)` half of the Str-slot pair decode (RFC 20260707
@@ -157,8 +189,14 @@ pub unsafe extern "C" fn __torajs_anyv_substr_slot_value(p: *mut c_void) -> i64 
     if p.is_null() || p == unsafe { __torajs_substr_undef() } as *mut c_void {
         0
     } else {
-        payload_rc_inc(AnySlotTag::Heap as i64, p as i64);
-        p as i64
+        // An inline view is copied out as an owned string — rc 1 IS
+        // the slot's +1; a standalone view takes its +1 as before
+        // (rotation 468).
+        let q = unsafe { materialize_inline_view(p) };
+        if q == p {
+            payload_rc_inc(AnySlotTag::Heap as i64, p as i64);
+        }
+        q as i64
     }
 }
 

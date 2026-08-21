@@ -55,6 +55,12 @@ pub(crate) struct SubstrIds {
     /// trailing `arr_drop`; the walk's bookkeeping was the larger
     /// half of that loop's cost.
     pub arr_drop_str_elems: FuncId,
+    /// Rotation 468 — a substring view may only live in the split
+    /// block that owns it: slots memcpy'd out of an `Arr<Substr>`
+    /// adopt owned copies (replaces the rc-inc walk), and a split
+    /// product about to receive owned writes materializes in place.
+    pub arr_substr_adopt_copied: FuncId,
+    pub arr_substr_materialize_owned: FuncId,
     pub substr_char_code_at: FuncId,
     pub substr_code_point_at: FuncId,
     pub substr_eq_str: FuncId,
@@ -117,6 +123,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_arr_drop_str_elems",
+            &[Type::Ptr],
+            Type::Void,
+        ),
+        arr_substr_adopt_copied: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_substr_adopt_copied",
+            &[Type::Ptr, Type::I64, Type::I64],
+            Type::Void,
+        ),
+        arr_substr_materialize_owned: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_substr_materialize_owned",
             &[Type::Ptr],
             Type::Void,
         ),

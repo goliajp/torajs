@@ -48,7 +48,7 @@ pub(crate) fn try_dispatch(
         // §23.1.3.{30,33} trailing-arg ignore. SSA-emit reads only
         // args[0] (cmp); trailing args eval-and-drop below so side-
         // effect exprs fire.
-        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        let mut elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         // toSorted clones the receiver via arr_slice
         // before sorting so the source stays intact.
         // arr_slice does the alloc + memcpy in one
@@ -79,13 +79,17 @@ pub(crate) fn try_dispatch(
                 ctx.emit_throw_check(None);
                 Operand::Value(v)
             } else {
+                let out_id = ctx.copied_arr_layout(arr_id);
                 let v = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(
                         ctx.intrinsics.arr_slice,
                         vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
                     ),
-                    Type::Arr(arr_id),
+                    // The clone of an `Arr<Substr>` is `Arr<Str>` (views
+                    // do not leave their split block — rotation 468);
+                    // the sort below then runs on owned strings.
+                    Type::Arr(out_id),
                     None,
                 );
                 // Phase B refcount: arr_slice memcpys the slots without
@@ -93,12 +97,15 @@ pub(crate) fn try_dispatch(
                 // clone owns its refs (mirrors arr.slice; without this the
                 // clone's drop per-elem dec is unmatched = over-release).
                 if elem_ty.is_refcounted() {
-                    ctx.emit_arr_rc_inc_range(
+                    ctx.emit_adopt_copied_range(
                         Operand::Value(v),
                         elem_ty,
                         Operand::ConstI64(0),
                         Operand::Value(len),
                     );
+                    if elem_ty == Type::Substr {
+                        elem_ty = Type::Str;
+                    }
                 }
                 Operand::Value(v)
             }

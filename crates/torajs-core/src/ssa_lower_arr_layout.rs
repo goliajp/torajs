@@ -297,6 +297,48 @@ impl<'a> LowerCtx<'a> {
     /// concat / spread / etc.) when the element type is non-Copy —
     /// the derived array now shares ownership of each element with
     /// the source, so inc balances the future element-walk drop on
+    /// The layout a COPY of an `Arr<src>`'s slots is typed with. A
+    /// substring view may only live in the split block that owns its
+    /// storage (rotation 468), so every slot copied out of an
+    /// `Arr<Substr>` becomes an owned string and the copy is
+    /// `Arr<Str>`; every other layout copies as itself.
+    pub(crate) fn copied_arr_layout(&mut self, src: crate::ssa::ArrId) -> crate::ssa::ArrId {
+        if self.arr_layouts[src.0 as usize] == Type::Substr {
+            crate::ssa_lower::intern_arr_layout(self.arr_layouts, Type::Str)
+        } else {
+            src
+        }
+    }
+
+    /// Slots `[start, end)` of `arr` were just memcpy'd from an array
+    /// whose element type is `src_elem_ty` and own nothing yet: make
+    /// them owned. A `Substr` source goes through the adopt kernel
+    /// (each view is replaced by an owned string, each owned string
+    /// shared by one refcount — the rc-inc walk read a view's own
+    /// header, which its drop path never consults, and left a pointer
+    /// into a block that could die first); every other layout keeps
+    /// the inline rc-inc walk. Pair with [`Self::copied_arr_layout`]
+    /// for the copy's static type.
+    pub(crate) fn emit_adopt_copied_range(
+        &mut self,
+        arr: Operand,
+        src_elem_ty: Type,
+        start: Operand,
+        end: Operand,
+    ) {
+        if src_elem_ty == Type::Substr {
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.arr_substr_adopt_copied,
+                    vec![arr, start, end],
+                ),
+            );
+        } else {
+            self.emit_arr_rc_inc_range(arr, src_elem_ty, start, end);
+        }
+    }
+
     /// either array.
     ///
     /// `elem_ty` picks the inc kernel (rotation 412 — the mirror of

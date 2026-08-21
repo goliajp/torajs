@@ -60,6 +60,18 @@ pub(super) fn emit_map(
             && matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::F64)
         {
             ctx.coerce_to_f64(mapped)
+        } else if ctx.operand_ty(&mapped) == Type::Substr {
+            // The callback's view answer is copied out as an owned
+            // string and the view released as the push used to consume
+            // it (rotation 468; the product is typed `Arr<Str>`).
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![mapped.clone()]),
+                Type::Str,
+                None,
+            );
+            ctx.emit_drop_value(mapped, Type::Substr);
+            Operand::Value(owned)
         } else {
             mapped
         };
@@ -164,8 +176,20 @@ pub(super) fn emit_filter(
     // rc-incs. Emit an owned-result inc only for heap element kinds
     // (Copy scalars keep the raw copy) and only inside push_blk so
     // filtered-out elements don't inflate anyone's rc.
-    ctx.emit_owned_result_inc(Operand::Value(elem), elem_ty);
-    let elem_arg = ctx.raw_slot_arg(Operand::Value(elem));
+    // A kept VIEW is copied out as an owned string (a view does not
+    // leave its split block — rotation 468; the product is `Arr<Str>`).
+    let elem_arg = if elem_ty == Type::Substr {
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![Operand::Value(elem)]),
+            Type::Str,
+            None,
+        );
+        ctx.raw_slot_arg(Operand::Value(owned))
+    } else {
+        ctx.emit_owned_result_inc(Operand::Value(elem), elem_ty);
+        ctx.raw_slot_arg(Operand::Value(elem))
+    };
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(

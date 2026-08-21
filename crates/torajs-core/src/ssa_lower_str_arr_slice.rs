@@ -141,10 +141,13 @@ pub(crate) fn try_dispatch(
         } else {
             ctx.intrinsics.arr_slice
         };
+        // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do not
+        // leave their split block — rotation 468).
+        let out_id = ctx.copied_arr_layout(arr_id);
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(slice_fid, argv),
-            Type::Arr(arr_id),
+            Type::Arr(out_id),
             None,
         );
         if elem_ty.is_refcounted() && !elem_is_any {
@@ -154,7 +157,7 @@ pub(crate) fn try_dispatch(
                 Type::I64,
                 None,
             );
-            ctx.emit_arr_rc_inc_range(
+            ctx.emit_adopt_copied_range(
                 Operand::Value(v),
                 elem_ty,
                 Operand::ConstI64(0),

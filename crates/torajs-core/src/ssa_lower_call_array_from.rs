@@ -240,13 +240,16 @@ fn materialize_src(
             Type::I64,
             None,
         );
+        let out_id = ctx.copied_arr_layout(arr_id);
         let cloned = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.arr_slice,
                 vec![arg_op, Operand::ConstI64(0), Operand::Value(len)],
             ),
-            Type::Arr(arr_id),
+            // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do
+            // not leave their split block — rotation 468).
+            Type::Arr(out_id),
             None,
         );
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
@@ -257,7 +260,7 @@ fn materialize_src(
                 Type::I64,
                 None,
             );
-            ctx.emit_arr_rc_inc_range(
+            ctx.emit_adopt_copied_range(
                 Operand::Value(cloned),
                 elem_ty,
                 Operand::ConstI64(0),

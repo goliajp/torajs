@@ -86,10 +86,13 @@ pub(crate) fn try_dispatch(
             ctx.emit_throw_check(None);
             return Some(Operand::Value(v));
         }
+        // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do not
+        // leave their split block — rotation 468).
+        let out_id = ctx.copied_arr_layout(arr_id);
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.arr_to_reversed, vec![recv_op]),
-            Type::Arr(arr_id),
+            Type::Arr(out_id),
             None,
         );
         if elem_ty.is_refcounted() {
@@ -99,7 +102,7 @@ pub(crate) fn try_dispatch(
                 Type::I64,
                 None,
             );
-            ctx.emit_arr_rc_inc_range(
+            ctx.emit_adopt_copied_range(
                 Operand::Value(v),
                 elem_ty,
                 Operand::ConstI64(0),
@@ -181,10 +184,13 @@ pub(crate) fn try_dispatch(
         for &a in args.iter().skip(2) {
             let _ = ctx.lower_expr(a);
         }
+        // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do not
+        // leave their split block — rotation 468).
+        let out_id = ctx.copied_arr_layout(arr_id);
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.arr_with, vec![recv_op, i_val, v_val]),
-            Type::Arr(arr_id),
+            Type::Arr(out_id),
             None,
         );
         // ES §23.1.3.39 step 7 — out-of-range index throws
@@ -200,7 +206,7 @@ pub(crate) fn try_dispatch(
                 Type::I64,
                 None,
             );
-            ctx.emit_arr_rc_inc_range(
+            ctx.emit_adopt_copied_range(
                 Operand::Value(v),
                 elem_ty,
                 Operand::ConstI64(0),

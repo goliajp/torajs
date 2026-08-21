@@ -62,7 +62,7 @@ fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) ->
         Operand::Value(v) => v,
         _ => return None,
     };
-    let clone = emit_clone_splice_return(ctx, recv_ty, arr_id, cur_arr, args);
+    let clone = emit_clone_splice_return(ctx, arr_id, cur_arr, args);
     // The receiver expression produced a fresh-owned array (literal
     // or call result); the clone's elements already hold their own
     // ARC bumps via `emit_arr_rc_inc_range`, so drop the source to
@@ -97,7 +97,7 @@ fn try_lower_local(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> O
         arr_ty,
         None,
     );
-    Some(emit_clone_splice_return(ctx, arr_ty, arr_id, cur_arr, args))
+    Some(emit_clone_splice_return(ctx, arr_id, cur_arr, args))
 }
 
 /// (b) `xs.toSpliced(start, deleteCount)` where `xs` is an Ident bound
@@ -133,7 +133,7 @@ fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> 
         arr_ty,
         None,
     );
-    Some(emit_clone_splice_return(ctx, arr_ty, arr_id, cur_arr, args))
+    Some(emit_clone_splice_return(ctx, arr_id, cur_arr, args))
 }
 
 /// Shared body: clone via `arr_slice(arr, 0, len)`, rc_inc the cloned
@@ -141,12 +141,15 @@ fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> 
 /// removed sub-array, return the clone.
 fn emit_clone_splice_return(
     ctx: &mut LowerCtx,
-    arr_ty: Type,
     arr_id: crate::ssa::ArrId,
     cur_arr: crate::ssa::ValueId,
     args: &[ExprId],
 ) -> Operand {
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+    // The clone of an `Arr<Substr>` is `Arr<Str>` (views do not leave
+    // their split block — rotation 468); the splice below and the
+    // removed-array drop read the clone's layout, not the receiver's.
+    let arr_ty = Type::Arr(ctx.copied_arr_layout(arr_id));
     let len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
@@ -200,7 +203,7 @@ fn emit_clone_splice_return(
                 Type::I64,
                 None,
             );
-            ctx.emit_arr_rc_inc_range(
+            ctx.emit_adopt_copied_range(
                 Operand::Value(v),
                 elem_ty,
                 Operand::ConstI64(0),

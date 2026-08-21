@@ -81,6 +81,7 @@ pub mod sparse_gate;
 pub mod species;
 pub mod str_bridge;
 pub mod subclass_alloc;
+pub mod substr_materialize;
 pub mod sum_precise;
 pub mod throw_empty;
 pub mod transform;

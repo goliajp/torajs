@@ -314,13 +314,19 @@ fn emit_shallow_clone(ctx: &mut LowerCtx<'_>, op: Operand, ty: Type) -> Operand 
         Type::I64,
         None,
     );
+    // The clone of an `Arr<Substr>` is `Arr<Str>` (views do not leave
+    // their split block — rotation 468).
+    let out_ty = match ty {
+        Type::Arr(arr_id) => Type::Arr(ctx.copied_arr_layout(arr_id)),
+        other => other,
+    };
     let v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_slice,
             vec![op, Operand::ConstI64(0), Operand::Value(len)],
         ),
-        ty,
+        out_ty,
         None,
     );
     if let Type::Arr(arr_id) = ty {
@@ -332,7 +338,7 @@ fn emit_shallow_clone(ctx: &mut LowerCtx<'_>, op: Operand, ty: Type) -> Operand 
                 Type::I64,
                 None,
             );
-            ctx.emit_arr_rc_inc_range(
+            ctx.emit_adopt_copied_range(
                 Operand::Value(v),
                 elem_ty,
                 Operand::ConstI64(0),

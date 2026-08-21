@@ -297,9 +297,18 @@ fn fill_arr_from_items(
                         Type::I64,
                         None,
                     );
-                    ctx.emit_arr_rc_inc_range(
+                    // The new slots were copied from `src`: a spread of
+                    // an `Arr<Substr>` lands as owned strings (views do
+                    // not leave their split block — rotation 468), so
+                    // the source's element type picks the adopt walk,
+                    // not the literal's.
+                    let src_elem_ty = match ctx.operand_ty(&src) {
+                        Type::Arr(src_id) => ctx.arr_layouts[src_id.0 as usize],
+                        _ => elem_ty,
+                    };
+                    ctx.emit_adopt_copied_range(
                         Operand::Value(arr_ptr),
-                        elem_ty,
+                        src_elem_ty,
                         Operand::Value(old),
                         Operand::Value(new_len),
                     );

@@ -200,12 +200,35 @@ pub(crate) fn try_lower(
         // the boxed-undefined sentinel.
         let push_val = if cb_ret_ty == Type::Void {
             crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx)
+        } else if cb_ret_ty == Type::Substr {
+            // The callback's view answer is copied out as an owned
+            // string; the view itself is released as the push used to
+            // consume it (rotation 468).
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![Operand::Value(cb_ret)]),
+                Type::Str,
+                None,
+            );
+            ctx.emit_drop_value(Operand::Value(cb_ret), Type::Substr);
+            owned
         } else {
             cb_ret
         };
         emit_scalar_push_and_close(ctx, push_val, i_slot, oh, oa, dst_slot, dst_arr_ty)
     } else {
-        emit_inner_walk(ctx, cb_ret, dst_slot, dst_arr_ty, dst_elem_ty);
+        let inner_elem_ty = match cb_ret_ty {
+            Type::Arr(id) => ctx.arr_layouts[id.0 as usize],
+            _ => dst_elem_ty,
+        };
+        emit_inner_walk(
+            ctx,
+            cb_ret,
+            dst_slot,
+            dst_arr_ty,
+            dst_elem_ty,
+            inner_elem_ty,
+        );
         emit_close_and_load(ctx, cb_ret, cb_ret_ty, i_slot, oh, oa, dst_slot, dst_arr_ty)
     };
     // RFC 20260705 chunk 552 — release owned-shape temps after the
@@ -299,7 +322,19 @@ fn emit_src_elem_load(
 /// (admits `(T) => U` for primitive U).
 fn dst_shape(ctx: &mut LowerCtx<'_>, eid: ExprId, cb_ret_ty: Type) -> (bool, Type, Type) {
     match cb_ret_ty {
-        Type::Arr(inner_arr_id) => (false, ctx.arr_layouts[inner_arr_id.0 as usize], cb_ret_ty),
+        Type::Arr(inner_arr_id) => {
+            let inner = ctx.arr_layouts[inner_arr_id.0 as usize];
+            // An inner `Arr<Substr>` (the callback answered a split
+            // product) is copied out as owned strings — a view does
+            // not leave its split block (rotation 468).
+            if inner == Type::Substr {
+                let dst_id =
+                    crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, Type::Str);
+                (false, Type::Str, Type::Arr(dst_id))
+            } else {
+                (false, inner, cb_ret_ty)
+            }
+        }
         // Value-less callback — every outer iteration pushes the
         // boxed-undefined sentinel (§23.1.3.11 step 8.d: a non-Array
         // result acts like `[U]`, and a void call's result is
@@ -324,6 +359,10 @@ fn dst_shape(ctx: &mut LowerCtx<'_>, eid: ExprId, cb_ret_ty: Type) -> (bool, Typ
                     .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
             {
                 Type::F64
+            } else if cb_ret_ty == Type::Substr {
+                // A scalar view answer is pushed as an owned copy
+                // (rotation 468); the product is `Arr<Str>`.
+                Type::Str
             } else {
                 cb_ret_ty
             };

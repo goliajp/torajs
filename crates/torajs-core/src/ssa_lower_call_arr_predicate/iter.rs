@@ -265,22 +265,7 @@ fn emit_body_and_step(
     // elem is the result; refcounted elements get rc_inc'd so the caller's
     // binding owns a ref independent of the source array's slot.
     ctx.cur_block = hit_blk;
-    let hit_val: Operand = match method {
-        "findIndex" | "findLastIndex" => Operand::Value(i_now2),
-        "some" => Operand::ConstBool(true),
-        "every" => Operand::ConstBool(false),
-        "find" | "findLast" => {
-            if elem_ty.is_refcounted() {
-                ctx.emit_rc_inc(Operand::Value(elem));
-            }
-            if elem_ty == Type::Bool {
-                ctx.box_to_any(Operand::Value(elem))
-            } else {
-                Operand::Value(elem)
-            }
-        }
-        _ => unreachable!(),
-    };
+    let hit_val = hit_value(ctx, method, elem, elem_ty, i_now2);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(hit_val, Operand::Value(result_slot), 0),
@@ -313,4 +298,45 @@ fn emit_body_and_step(
         InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
+}
+
+/// The value a hit writes to the result slot, per method: the index,
+/// a bool, or the element itself — a refcounted element taking its
+/// own +1, a bool boxed, and a substring VIEW copied out as an owned
+/// string (a view does not leave its split block — rotation 468).
+fn hit_value(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    elem: ValueId,
+    elem_ty: Type,
+    i_now2: ValueId,
+) -> Operand {
+    match method {
+        "findIndex" | "findLastIndex" => Operand::Value(i_now2),
+        "some" => Operand::ConstBool(true),
+        "every" => Operand::ConstBool(false),
+        "find" | "findLast" => {
+            // A found VIEW leaves its split block as an owned copy
+            // (rotation 468); the result slot is typed Str for it.
+            if elem_ty == Type::Substr {
+                let owned = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.substr_to_owned, vec![Operand::Value(elem)]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(owned)
+            } else {
+                if elem_ty.is_refcounted() {
+                    ctx.emit_rc_inc(Operand::Value(elem));
+                }
+                if elem_ty == Type::Bool {
+                    ctx.box_to_any(Operand::Value(elem))
+                } else {
+                    Operand::Value(elem)
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
 }

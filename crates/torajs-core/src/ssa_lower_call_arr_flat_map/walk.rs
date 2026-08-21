@@ -17,6 +17,7 @@ pub(super) fn emit_inner_walk(
     dst_slot: ValueId,
     dst_arr_ty: Type,
     dst_elem_ty: Type,
+    inner_elem_ty: Type,
 ) {
     let ih = ctx.f.add_block();
     let ib = ctx.f.add_block();
@@ -58,11 +59,14 @@ pub(super) fn emit_inner_walk(
     // T-13.5: head-aware offset for flatMap inner walk.
     // Chunk 625 — same kind-aware read for the cb-returned inner
     // array's Any elems (a typed array return is a typed block).
+    // The Any dst takes each inner slot OWNED in one call: a heap cell
+    // shared by one refcount, an inline view materialized (rotation
+    // 468) — so no inc follows below for this lane.
     let inner_elem = if dst_elem_ty == Type::Any {
         ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
+                ctx.intrinsics.arr_get_any_owned,
                 vec![Operand::Value(inner_arr), Operand::Value(j_now)],
             ),
             Type::Any,
@@ -82,9 +86,26 @@ pub(super) fn emit_inner_walk(
             None,
         )
     };
-    if dst_elem_ty.is_refcounted() {
-        ctx.emit_rc_inc(Operand::Value(inner_elem));
-    }
+    // An inner VIEW is copied out as an owned string — a view does not
+    // leave its split block (rotation 468); the owned copy transfers
+    // into the slot, so it is not inc'd. Every other refcounted
+    // element is shared by one refcount.
+    let inner_elem = if inner_elem_ty == Type::Substr {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.substr_to_owned,
+                vec![Operand::Value(inner_elem)],
+            ),
+            Type::Str,
+            None,
+        )
+    } else {
+        if dst_elem_ty.is_refcounted() && dst_elem_ty != Type::Any {
+            ctx.emit_rc_inc(Operand::Value(inner_elem));
+        }
+        inner_elem
+    };
     let cur_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
@@ -297,7 +318,7 @@ pub(super) fn emit_dynamic_push_and_close(
         Type::I64,
         None,
     );
-    emit_inner_walk(ctx, inner_ptr, dst_slot, dst_arr_ty, Type::Any);
+    emit_inner_walk(ctx, inner_ptr, dst_slot, dst_arr_ty, Type::Any, Type::Any);
     ctx.emit_drop_value(Operand::Value(cb_ret), Type::Any);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
     // Scalar — push the box bits verbatim (stake transfers to dst).

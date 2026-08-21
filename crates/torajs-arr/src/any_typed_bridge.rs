@@ -396,11 +396,24 @@ pub unsafe extern "C" fn __torajs_arr_extend_typed_into_any(
                 1 => (slot_ptr as *const u8).read() as u64, // Bool — 1B store
                 _ => (slot_ptr as *const u64).read(),       // I64 / F64 / Heap — 8B
             };
-            let av = __torajs_anyv_box_from_pair(elem_tag as i64, raw as i64);
-            // NaN-box-safe — no-op for immediates, bumps the wrapped
-            // heap cell for ANY_HEAP (the slot takes an owning ref,
-            // the source array keeps its own).
-            __torajs_rc_inc(av as *mut c_void);
+            // An INLINE substring view does not leave its split
+            // block: the any slot takes an owned copy (rc 1 is the
+            // slot's stake) instead of a pointer into a block that can
+            // die first (rotation 468). Every other heap cell is
+            // shared by one refcount — NaN-box-safe, no-op for
+            // immediates (the slot takes an owning ref, the source
+            // array keeps its own).
+            let av = if elem_tag == ANY_HEAP
+                && raw != 0
+                && crate::substr_materialize::is_inline_view(raw as *const u8)
+            {
+                let owned = crate::substr_materialize::view_to_owned(raw as *const u8);
+                __torajs_anyv_box_from_pair(elem_tag as i64, owned as i64)
+            } else {
+                let av = __torajs_anyv_box_from_pair(elem_tag as i64, raw as i64);
+                __torajs_rc_inc(av as *mut c_void);
+                av
+            };
             *slot_anyvalue_ptr(dst, dst_len + i) = av;
         }
         *(dst.add(ARR_LEN_OFF) as *mut u64) = dst_len + src_len;

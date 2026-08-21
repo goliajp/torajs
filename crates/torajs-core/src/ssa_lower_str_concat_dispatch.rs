@@ -110,105 +110,7 @@ pub(crate) fn try_dispatch(
     if let Type::Arr(arr_id) = recv_ty
         && method == "concat"
     {
-        // §23.1.3.1 step 2 ArraySpeciesCreate — constructor-face
-        // guard before the derive (RFC 20260713 blade 3).
-        ctx.emit_arr_species_guard(recv_op.clone());
-        // Any receiver — every step must stay FLAG_ARR_ANY-aware
-        // (raw arr_slice / arr_concat products are flag-blind and a
-        // scalar arg would be deref'd as an array pointer). Dedicated
-        // lane below.
-        if matches!(ctx.arr_layouts[arr_id.0 as usize], Type::Any) {
-            return Some(lower_concat_any_recv(ctx, recv_op, arr_id, args));
-        }
-        // 0-arg form ≡ shallow copy. Lower as
-        // `arr_slice(recv, 0, len)` — the refcount-inc
-        // walk below handles non-Copy elements the
-        // same way as for slice / concat results.
-        let mut acc = if args.is_empty() {
-            let len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_slice,
-                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                ),
-                Type::Arr(arr_id),
-                None,
-            );
-            Operand::Value(v)
-        } else {
-            recv_op
-        };
-        let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
-        // ES §23.1.3.2 — concat returns a fresh array; receiver must
-        // not be mutated. `arr_concat` always allocates a new buffer,
-        // but `arr_push` (used below for scalar args) may mutate
-        // in-place when capacity allows. Track when `acc` is still
-        // aliased to the receiver and force a shallow copy before the
-        // first scalar push to preserve spec semantics.
-        let mut acc_is_fresh = args.is_empty();
-        for a in args {
-            let other = ctx.lower_expr(*a);
-            let other_ty = ctx.operand_ty(&other);
-            // ES §23.1.3.2 — scalar arg (same type as receiver elem)
-            // is appended as a single element instead of spread.
-            if other_ty == recv_elem && !matches!(other_ty, Type::Arr(_)) {
-                if !acc_is_fresh {
-                    let len = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    let v = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Call(
-                            ctx.intrinsics.arr_slice,
-                            vec![acc, Operand::ConstI64(0), Operand::Value(len)],
-                        ),
-                        Type::Arr(arr_id),
-                        None,
-                    );
-                    acc = Operand::Value(v);
-                    acc_is_fresh = true;
-                }
-                let push_arg = ctx.raw_slot_arg(other);
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.arr_push, vec![acc, push_arg]),
-                    Type::Arr(arr_id),
-                    None,
-                );
-                acc = Operand::Value(v);
-                continue;
-            }
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.arr_concat, vec![acc, other]),
-                Type::Arr(arr_id),
-                None,
-            );
-            acc = Operand::Value(v);
-            // arr_concat returns a new ptr — acc is now detached
-            // from the receiver buffer.
-            acc_is_fresh = true;
-        }
-        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-        if elem_ty.is_refcounted() {
-            let len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            ctx.emit_arr_rc_inc_range(acc, elem_ty, Operand::ConstI64(0), Operand::Value(len));
-        }
-        return Some(acc);
+        return Some(lower_arr_concat(ctx, recv_op, arr_id, args));
     }
     None
 }
@@ -305,6 +207,155 @@ fn lower_concat_any_recv(
         if transfers && other_ty.is_refcounted() {
             ctx.emit_drop_value(other, other_ty);
         }
+    }
+    acc
+}
+
+/// `<Arr>.concat(...)` — ES §23.1.3.2: every argument is either an array
+/// (spread into the result) or a single element (appended); multi-arg
+/// folds the single-arg kernel left to right. The result owns its
+/// slots after one ownership walk at the end. Carved out of
+/// [`try_dispatch`] when the view-source bookkeeping pushed it past
+/// the 200-line function limit (rotation 468).
+fn lower_arr_concat(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    arr_id: crate::ssa::ArrId,
+    args: &[ExprId],
+) -> Operand {
+    // §23.1.3.1 step 2 ArraySpeciesCreate — constructor-face
+    // guard before the derive (RFC 20260713 blade 3).
+    ctx.emit_arr_species_guard(recv_op.clone());
+    // Any receiver — every step must stay FLAG_ARR_ANY-aware
+    // (raw arr_slice / arr_concat products are flag-blind and a
+    // scalar arg would be deref'd as an array pointer). Dedicated
+    // lane below.
+    if matches!(ctx.arr_layouts[arr_id.0 as usize], Type::Any) {
+        return lower_concat_any_recv(ctx, recv_op, arr_id, args);
+    }
+    // 0-arg form ≡ shallow copy. Lower as
+    // `arr_slice(recv, 0, len)` — the refcount-inc
+    // walk below handles non-Copy elements the
+    // same way as for slice / concat results.
+    // A view does not leave its split block (rotation 468): a
+    // concat that copies out of an `Arr<Substr>` — the receiver,
+    // an array argument, or a lone view argument — answers
+    // `Arr<Str>`, and the ownership walk at the end materializes
+    // every view it copied. `saw_views` remembers whether any
+    // source was view-typed; `out_elem` is the product's element
+    // type (the receiver's, unless that is Substr).
+    let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
+    let mut saw_views = recv_elem == Type::Substr;
+    let out_id = ctx.copied_arr_layout(arr_id);
+    let out_elem = ctx.arr_layouts[out_id.0 as usize];
+    let mut acc = if args.is_empty() {
+        let len = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+            Type::I64,
+            None,
+        );
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_slice,
+                vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+            ),
+            Type::Arr(out_id),
+            None,
+        );
+        Operand::Value(v)
+    } else {
+        recv_op
+    };
+    // ES §23.1.3.2 — concat returns a fresh array; receiver must
+    // not be mutated. `arr_concat` always allocates a new buffer,
+    // but `arr_push` (used below for scalar args) may mutate
+    // in-place when capacity allows. Track when `acc` is still
+    // aliased to the receiver and force a shallow copy before the
+    // first scalar push to preserve spec semantics.
+    let mut acc_is_fresh = args.is_empty();
+    for a in args {
+        let other = ctx.lower_expr(*a);
+        let other_ty = ctx.operand_ty(&other);
+        // A lone view argument is appended as an owned copy; a
+        // fresh mint (index / method) hands this lane its only
+        // ref, a borrow stays with its owner (the push arm's rule).
+        let (other, other_ty) = if other_ty == Type::Substr && out_elem == Type::Str {
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![other.clone()]),
+                Type::Str,
+                None,
+            );
+            if ctx.expr_transfers_ownership(*a) {
+                ctx.emit_drop_value(other, Type::Substr);
+            }
+            (Operand::Value(owned), Type::Str)
+        } else {
+            (other, other_ty)
+        };
+        if let Type::Arr(oid) = other_ty
+            && ctx.arr_layouts[oid.0 as usize] == Type::Substr
+        {
+            saw_views = true;
+        }
+        // ES §23.1.3.2 — scalar arg (same type as receiver elem)
+        // is appended as a single element instead of spread.
+        if other_ty == out_elem && !matches!(other_ty, Type::Arr(_)) {
+            if !acc_is_fresh {
+                let len = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
+                    Type::I64,
+                    None,
+                );
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_slice,
+                        vec![acc, Operand::ConstI64(0), Operand::Value(len)],
+                    ),
+                    Type::Arr(out_id),
+                    None,
+                );
+                acc = Operand::Value(v);
+                acc_is_fresh = true;
+            }
+            let push_arg = ctx.raw_slot_arg(other);
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_push, vec![acc, push_arg]),
+                Type::Arr(out_id),
+                None,
+            );
+            acc = Operand::Value(v);
+            continue;
+        }
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_concat, vec![acc, other]),
+            Type::Arr(out_id),
+            None,
+        );
+        acc = Operand::Value(v);
+        // arr_concat returns a new ptr — acc is now detached
+        // from the receiver buffer.
+        acc_is_fresh = true;
+    }
+    if out_elem.is_refcounted() {
+        let len = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
+            Type::I64,
+            None,
+        );
+        // Every slot of the product was memcpy'd from a source and
+        // owns nothing yet. With a view-typed source anywhere, the
+        // adopt kernel materializes each view and shares each
+        // owned string; otherwise the plain rc-inc walk.
+        let copied_from = if saw_views { Type::Substr } else { out_elem };
+        ctx.emit_adopt_copied_range(acc, copied_from, Operand::ConstI64(0), Operand::Value(len));
     }
     acc
 }
