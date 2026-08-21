@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T06:32:11.522Z",
+  "generatedAt": "2026-08-21T08:47:59.493Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-21T06:20:09Z",
-    "headSha": "92343562",
-    "elapsedSec": 386.98,
+    "ranAt": "2026-08-21T08:42:33Z",
+    "headSha": "c86cb0d0",
+    "elapsedSec": 359.64,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27274,
-    "passNoOracle": 903,
+    "pass": 27290,
+    "passNoOracle": 904,
     "passNegative": 4147,
-    "passTotal": 32324,
-    "bug": 12840,
-    "incompatible": 8010,
+    "passTotal": 32341,
+    "bug": 12849,
+    "incompatible": 7984,
     "bunSkip": 2963,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 45164,
-    "passRateInScope": 60.79,
+    "trAccepted": 45190,
+    "passRateInScope": 60.82,
     "passRateTrAccepted": 71.57
   },
   "torajs": {
-    "commit": "92343562c",
-    "commitSubject": "fix: make ToIndex a step instead of an FpToSi",
+    "commit": "c86cb0d06",
+    "commitSubject": "feat: String.raw is a value, not only a call",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "c86cb0d06",
+      "subject": "feat: String.raw is a value, not only a call"
+    },
+    {
+      "hash": "efaf1e332",
+      "subject": "fix: a builtin reached through a binding is still that builtin"
+    },
+    {
+      "hash": "329a46543",
+      "subject": "fix: a missing member on an ECMAScript global is undefined, not a compile stop"
+    },
+    {
+      "hash": "816648e70",
+      "subject": "fix: charCodeAt out of range answers NaN, and its slot can hold one"
+    },
+    {
+      "hash": "86a0f53e0",
+      "subject": "chore: rotation 463 sweep artifacts, P-SURF snapshot, file-size accounting, dashboard"
+    },
+    {
       "hash": "92343562c",
       "subject": "fix: make ToIndex a step instead of an FpToSi"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "65cc2e6c8",
       "subject": "feat: Reflect.get answers for every target, and honours its receiver"
-    },
-    {
-      "hash": "129c8ddcd",
-      "subject": "style: fmt-drift fix on the fn-length-or-name call"
-    },
-    {
-      "hash": "79096fea6",
-      "subject": "fix: two member reads that mint their answer now say they transfer"
-    },
-    {
-      "hash": "0e07f5a5c",
-      "subject": "fix: the gate's oracle cache remembers which bun answered"
-    },
-    {
-      "hash": "ae3d98241",
-      "subject": "style: fmt-drift fix on the reflect-set dispatch arm"
-    },
-    {
-      "hash": "4ea5540dc",
-      "subject": "feat: Reflect.set writes where its receiver says, not where it looked"
     }
   ],
-  "headSha": "92343562c",
+  "headSha": "c86cb0d06",
   "autorun": {
-    "total": 766,
+    "total": 767,
     "baselineTarget": 10,
-    "bySelf": 761,
+    "bySelf": 762,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787267667-6a52",
-      "at": "2026-08-20T23:14:27Z",
-      "ts": 1787267667,
+      "rotationId": "r-1787294005-1a23",
+      "at": "2026-08-21T06:33:25Z",
+      "ts": 1787294005,
       "trigger": "self",
-      "prevHead": "77ae11146",
-      "handoffSha": "sha256:0e84621c61a4cdaa59a1c95b7fade51f9f06169f65a62600f5c5af96bca0f4d4",
-      "handoffAgeSec": 11,
+      "prevHead": "86a0f53e0",
+      "handoffSha": "sha256:28a94c26d9f40f2d035725ff4a5846b3f71e988b1a602cd9dbc88b74816f9342",
+      "handoffAgeSec": 18,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787294005-1a23",
+        "at": "2026-08-21T06:33:25Z",
+        "ts": 1787294005,
+        "trigger": "self",
+        "prevHead": "86a0f53e0",
+        "handoffSha": "sha256:28a94c26d9f40f2d035725ff4a5846b3f71e988b1a602cd9dbc88b74816f9342",
+        "handoffAgeSec": 18,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787267667-6a52",
         "at": "2026-08-20T23:14:27Z",
@@ -876,17 +887,6 @@
         "prevHead": "b8cda55e",
         "handoffSha": "sha256:dea7c659dc52c3bb54c837a8bf5b123cacb591da10afeec38479a0298fb749eb",
         "handoffAgeSec": 57,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787173553-5fca",
-        "at": "2026-08-19T21:05:53Z",
-        "ts": 1787173553,
-        "trigger": "self",
-        "prevHead": "27693928",
-        "handoffSha": "sha256:09bf6147fa233c5dab50411630aa142ab0f79a3c23c10878ebe91893430d1597",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }

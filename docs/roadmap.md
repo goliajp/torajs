@@ -1530,7 +1530,51 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `65cc2e6c`** (2026-08-21, rotation 462 — three coercion
+**Latest @ `c86cb0d0`** (2026-08-21, rotation 464 — four static
+shortcuts standing in front of a runtime that already answered
+correctly). The rotation's method was one probe: route the same code
+through an `any`-typed alias and see whether the runtime gets it right.
+Three of the four times it did, which says the kernel is fine and a
+compile-time shortcut is guessing — a different repair entirely.
+`charCodeAt` out of range answered 0 on the typed tier and NaN on the
+Any tier, a divergence recorded in the kernel doc as a known deviation
+rather than fixed; §22.1.3.2 step 5 wants NaN, which is not an integer,
+so both kernels move to an f64 ABI and their in-range halves split out
+for the callers that carry their own out-of-range answer. The half that
+mattered was `num_width`: a `let c: number` slot is i64 unless
+something widens it, and a too-narrow slot here does not run slow, it
+fails to build — `rpn-eval-100k` stopped compiling on the kernel change
+alone, which is how the bench found it. A missing member on an
+ECMAScript global (`Math.nope`, `Reflect.enumerate`, `Array.myproperty
+= 1`) was a compile stop rather than the ordinary extensible object's
+undefined, across 22 cases in 7 directories; the checker's terminal-miss
+posture, the `Math` / `Number` constant lowering's panic, and `typeof`'s
+guess of "function" were three separate shortcuts on the same path, the
+last already wrong before the rotation (`typeof console.nope`). Writes
+are gated harder than reads and admit only unmodeled names, because
+admitting `Math.max = fn` while the static call sites keep running the
+builtin is the silent-wrong faucet rotation 448 named; tr's own host
+handles (`Bun` / `process` / `fs`) stay a loud reject on purpose, so
+our modeling holes keep showing up in this bucket. A builtin reached
+through a binding (`const f = String.fromCharCode; f("65")`) was
+shape-checked against a signature that describes what the spec coerces
+to, not what it demands. And `String.raw` existed only as a call: one
+table row gave it `.name`, `.length`, its descriptors, and
+not-a-constructor, all of which resolve off the carried id.
+Sweep passTotal **32341** (+17), pass 27290 (+16), passNoOracle 904
+(+1), bug 12849 (+9), incompatible **7984** (−26), trAccepted 45190
+(+26 — conservation exact). 28 verdict moves, **zero pass regressions**:
+15 `incompatible:type error → pass`, 1 → `pass-no-oracle`, 1
+`bug → pass`, and 10 `incompatible → bug` that now compile and fail
+further in. Gate predicate: **165** clusters of ≥ 4 (−2) holding
+**1381** cases (−25), register 2 · 274, residue 655 · 820 (33.1%),
+core **2475** (−25). Bench A/B interleaved same-HEAD on the two cases
+that read `charCodeAt`: no detectable regression (same-round
+tr/bun-aot ratio, rpn 0.6590 both sides, csv 0.6330 → 0.6345 with every
+fixed reading inside the clean spread). *Rotation 463 shipped without
+adding its own entry here; its numbers are in that rotation's handoff.*
+
+**Previous @ `65cc2e6c`** (2026-08-21, rotation 462 — three coercion
 steps that had been implemented as shape gates, plus the discovery that
 the gate's own oracle had gone stale). `Symbol(desc)` admitted only
 String / Undefined, so `Symbol(1)` — how test262 mints a throwaway
