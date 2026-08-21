@@ -150,6 +150,32 @@ pub(super) fn promote_variable_routed(
         if !mixed_calls.iter().all(|e| shapes.admits(*e, name)) {
             continue;
         }
+        // A binding the program WRITES is rebindable, and a
+        // rebindable one promotes only inside an `any` SLOT, with no
+        // face, and with every call on the runtime recv gate.
+        //
+        // The gate is what makes a later unpromoted value safe — it
+        // reads FLAG_CLOSURE_RECV_FIRST off the cell actually being
+        // called — and it is reachable only where the call already
+        // rides the any lane. A binding whose declared type is the
+        // FIRST initializer's function type keeps that signature at
+        // its call sites, and rebinding it is broken there for
+        // reasons that have nothing to do with `this` (measured on
+        // HEAD, no `this` anywhere: `var x = function () { return 1
+        // }; x = function (a) { return a }; x(7)` answers `NaN`).
+        // Admitting the write on such a slot would trade today's
+        // loud reject for that wrong answer, so the `any` spelling —
+        // rotation 437's hoisted-var prelude is one, `var f: any =
+        // …` is the other — is the whole license.
+        //
+        // The face bar is the second half: the HOF lowerings key on
+        // `fnexpr_recv_locals`, which a rebindable name deliberately
+        // stays off, so a face read would call the RECV ABI without
+        // the `__this` argv slot — the rotation-260 silent wrong.
+        let rebindable = use_eids.iter().any(|e| shapes.assign_target.contains(e));
+        if rebindable && (!face_eids.is_empty() || !shapes.any_ann_names.contains(name)) {
+            continue;
+        }
         let mut decls: Vec<(bool, ExprId)> = Vec::new();
         let mut twin_inits: Vec<ExprId> = Vec::new();
         collect_decls_split(stmts, name, false, &mut decls, &mut twin_inits);
@@ -268,7 +294,7 @@ pub(super) fn promote_variable_routed(
             // any-typed, so every call already rides the runtime
             // recv gate, and the zero-face gate above means no HOF
             // consumer ever needs the name.
-            if !no_static_seed.contains(name) && !from_hoist {
+            if !no_static_seed.contains(name) && !from_hoist && !rebindable {
                 fnexpr_recv_locals.insert(name.clone());
             }
         }
@@ -343,6 +369,14 @@ fn try_promote_scope_paired(
             .filter(|e| !g_faces.contains(e))
             .all(|e| shapes.admits(*e, name))
         {
+            return;
+        }
+        // A WRITE to any group's binding keeps the whole name loud:
+        // this path ends by registering the name on
+        // `fnexpr_recv_locals` unconditionally (all-or-nothing is
+        // load-bearing here), and that static list is exactly what a
+        // rebindable binding must stay off of.
+        if g.uses.iter().any(|e| shapes.assign_target.contains(e)) {
             return;
         }
         // The boxed-argv bar, per group — same reasoning as the

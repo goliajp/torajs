@@ -92,6 +92,10 @@ pub(super) struct UseShapes {
     /// An argument of `.call` on an INLINE function expression —
     /// see [`inline_fnexpr_call_arg_idents`].
     pub(super) inline_call_arg: std::collections::HashSet<ExprId>,
+    /// The name in ASSIGN-TARGET position (`f = …`) — see
+    /// [`assign_target_idents`]. Admitting it makes the binding
+    /// REBINDABLE, which the promoter answers for separately.
+    pub(super) assign_target: std::collections::HashSet<ExprId>,
 }
 
 impl UseShapes {
@@ -151,6 +155,7 @@ impl UseShapes {
             any_arraylit_elem: any_arraylit_elem_idents(stmts, exprs),
             safe_alias_init: std::collections::HashSet::new(),
             inline_call_arg: inline_fnexpr_call_arg_idents(exprs),
+            assign_target: assign_target_idents(exprs),
         };
         shapes.safe_alias_init =
             super::fnexpr_this_alias::safe_alias_init_sites(stmts, exprs, &shapes);
@@ -172,8 +177,44 @@ impl UseShapes {
             || self.any_arraylit_elem.contains(&e)
             || self.safe_alias_init.contains(&e)
             || self.inline_call_arg.contains(&e)
+            || self.assign_target.contains(&e)
             || (self.any_return.contains(&e) && self.any_ann_names.contains(name))
     }
+}
+
+/// The name in ASSIGN-TARGET position — `f = <anything>`.
+///
+/// Never-calls proof family, and the cleanest member of it: an
+/// lvalue does not READ the cell at all. Every other admitted shape
+/// has to argue about what a reader will do with the value; this one
+/// has no reader. The shifted-args ABI cannot be observed at a site
+/// that only writes.
+///
+/// The hazard is downstream, not here: after `f = <some other
+/// function>` a LATER read holds a value that may not be promoted,
+/// and a call site compiled with the STATIC receiver seed would push
+/// an `undefined` into an argv slot that callee never declared. That
+/// is why admitting this shape is not free — the promoter keeps a
+/// binding that uses it off `fnexpr_recv_locals`, so every one of
+/// its calls takes the runtime `FLAG_CLOSURE_RECV_FIRST` gate
+/// (`ssa_lower_call_recv_gate`) and reads the answer off the cell
+/// actually being called. Rotation 437's hoisted-var profile already
+/// rides exactly that lane for exactly this reason; this shape is
+/// that argument, stated once and applied to writes in general
+/// rather than to the single write a hoisted init happens to be.
+///
+/// `PostIncr` / compound-assign targets are deliberately NOT here:
+/// they read the cell before writing it.
+fn assign_target_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+    exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Assign { target, .. } => {
+                matches!(&exprs[target.0 as usize], Expr::Ident(_)).then_some(*target)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// An argument of `.call` on an INLINE function expression — the
