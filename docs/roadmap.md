@@ -1530,7 +1530,56 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `c86cb0d0`** (2026-08-21, rotation 464 — four static
+**Latest @ `92ea7337`** (2026-08-21, rotation 465 — the loud reject was
+standing in front of a different, already-wrong thing). The rotation
+opened on the cluster the previous handoff named, `fnexpr this in
+unclaimed receiver position` (25 cases across 6 directories), and the
+same one-probe method turned it over: reduce the cluster's own starting
+case and what is left is `var x = function () { … this … }; x = 1;` —
+a WRITE to the binding, which the zero-alias parity read as an unsafe
+use. But asking what a write costs led somewhere else entirely. On
+HEAD, with no `this` anywhere in the program, `var x = function () {
+return 1 }; x = function (a) { return a }; x(7)` answered **NaN**: the
+bare indirect call is shaped by the slot's first face, so the second
+function read an argument register the caller never filled. The
+mismatch census that exists to prevent exactly that (424-04) had three
+independent coverage holes — it walked `let` but not `var`, resolved a
+store rhs as a bare Ident but not as a function LITERAL (which
+`lift_arrow_fns` has already turned into a closure naming a lifted
+FnDecl, and which the forwarder pass's own signature snapshot
+deliberately drops), and compared stores against the slot's ANNOTATION,
+so a slot that never spelled one had nothing to compare. All three
+produced silent garbage; all three are closed. Only then does the
+receiver half become decidable: an assign TARGET is an lvalue, the
+cleanest member of the never-calls family since it has no reader at
+all, and such a binding promotes with every call on a receiver-aware
+lane rather than the static seed. That shipped first for `any` slots
+(the restriction was measured, not assumed — the NaN above is what
+admitting a typed slot would have bought), then for typed slots once
+the last blocker was named: two stored functions can share a user face
+and still differ in whether they carry the receiver slot, and the
+census that routes odd slots to the boxed dual entry runs BEFORE this
+pass decides who is promoted, so it structurally cannot see that
+difference. The promoter knows what the census could not and its
+consumer reads the set far later, so it registers the binding itself.
+Sweep passTotal **32341** (0), every bucket unchanged; **2 verdict
+moves, zero pass regressions** — both are the cluster's named starting
+case (`ctorExpr-fn-ref-before-args-eval*.js`) advancing from
+`incompatible:not yet supported` to `incompatible:type error`, which
+names the next layer precisely: assigning a non-function to a fn-typed
+slot is a type error in tr where JS simply rebinds. Gate predicate:
+**165** clusters of ≥ 4 (0) holding **1379** cases (−2), register
+2 · 274, residue 656 · 822 (33.2%), core **2475** (0). Comparators
+re-baselined against **bun 1.4.0** (two full rounds at this HEAD,
+agreeing within 1% on every self-normalized reading): against rust —
+the one comparator whose toolchain and sources did not move — tr is
+flat (×0.9940 / ×1.0025) while bun gained ~13% (×0.8734 / ×0.8721), so
+`tr/bun-aot` moved ×1.30 because the opponent advanced. tr still leads
+39 of 44 (median 0.635, geometric mean 0.620); **four cases lose in
+both rounds and all four led before** — regex-dfa-dotall 1.132,
+json-stringify 1.106, regex-dfa-iflag 1.096, split-only 1.033.
+
+**@ `c86cb0d0`** (2026-08-21, rotation 464 — four static
 shortcuts standing in front of a runtime that already answered
 correctly). The rotation's method was one probe: route the same code
 through an `any`-typed alias and see whether the runtime gets it right.
