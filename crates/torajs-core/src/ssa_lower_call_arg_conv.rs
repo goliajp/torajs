@@ -115,6 +115,18 @@ pub(crate) fn emit_arg_conv(
         return sentinel;
     }
     let actual = ctx.operand_ty(&op);
+    // A split product meeting an owned-string parameter (rotation 469,
+    // plan-state 469-01): the callee decodes owned cells, so a fresh
+    // product is materialized in place and a borrowed one is copied
+    // out, the copy released by the calling lane after the call.
+    if crate::ssa_lower_assign_slot_fit::arr_views_into_owned_slot(ctx, expected, actual) {
+        if ctx.expr_transfers_ownership(arg) {
+            return crate::ssa_lower_assign_slot_fit::materialize_fresh_views(ctx, expected, op);
+        }
+        let copy = crate::ssa_lower_assign_slot_fit::copy_views_out(ctx, expected, op);
+        owned.push((copy.clone(), expected));
+        return copy;
+    }
     match arg_conv(expected, actual) {
         ArgConv::None => op,
         ArgConv::ToF64 => ctx.coerce_to_f64(op),

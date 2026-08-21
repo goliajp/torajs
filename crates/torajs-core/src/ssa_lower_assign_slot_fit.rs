@@ -9,40 +9,45 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 /// An `Arr<Substr>` value (a split product, or an alias of one) meeting
-/// an `Arr<Str>` slot. The views cannot live in that slot — its readers
-/// decode owned cells — so the value is converted at the boundary by
-/// [`coerce_arr_views_to_owned`] (rotation 469, plan-state 468-02; the
-/// assignment face of the rotation-468 copy-out rule).
-pub(super) fn arr_views_into_owned_slot(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
+/// an `Arr<Str>` slot — a local or global being assigned, a parameter,
+/// a setter's value. The views cannot live in that slot — its readers
+/// decode owned cells — so the value is converted at the boundary:
+/// [`materialize_fresh_views`] for a product the site owns outright,
+/// [`copy_views_out`] for one it only borrows (rotation 469, plan-state
+/// 468-02 / 469-01; the assignment and call-argument faces of the
+/// rotation-468 copy-out rule).
+pub(crate) fn arr_views_into_owned_slot(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
     matches!((slot_ty, v_ty), (Type::Arr(s), Type::Arr(v))
         if ctx.arr_layouts[s.0 as usize] == Type::Str
             && ctx.arr_layouts[v.0 as usize] == Type::Substr)
 }
 
-/// Make an `Arr<Substr>` value fit an `Arr<Str>` slot. A fresh product
-/// (the rhs transfers ownership — `b = s.split(" ")`) is materialized
-/// in place: every view becomes an owned string and the same cell is
-/// stored. A borrowed one (an alias the borrow inc above staked) is
-/// copied out through the slice kernel and the copy adopted — views
-/// never leave their split block — then the stake on the source is
-/// handed back, since the slot holds the copy.
-pub(super) fn coerce_arr_views_to_owned(
+/// A fresh split product (the expression transfers ownership — the
+/// site holds the only reference) is materialized in place: every
+/// view becomes an owned string and the same cell is stored. Answers
+/// that cell under the slot's `Arr<Str>` type.
+pub(crate) fn materialize_fresh_views(
     ctx: &mut LowerCtx<'_>,
     slot_ty: Type,
-    v_ty: Type,
     v: Operand,
-    value: ExprId,
 ) -> Operand {
     let cur_block = ctx.cur_block;
-    if ctx.expr_transfers_ownership(value) {
-        let owned = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.arr_substr_materialize_owned, vec![v]),
-            slot_ty,
-            None,
-        );
-        return Operand::Value(owned);
-    }
+    let owned = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.arr_substr_materialize_owned, vec![v]),
+        slot_ty,
+        None,
+    );
+    Operand::Value(owned)
+}
+
+/// A borrowed view array is copied out through the slice kernel and
+/// the copy adopted — views never leave their split block — and the
+/// fresh `Arr<Str>` copy is answered. The caller decides what happens
+/// to the source's stake (an assignment hands its borrow inc back; a
+/// call releases nothing it did not take) and who releases the copy.
+pub(crate) fn copy_views_out(ctx: &mut LowerCtx<'_>, slot_ty: Type, v: Operand) -> Operand {
+    let cur_block = ctx.cur_block;
     let len = ctx.f.append_inst(
         cur_block,
         InstKind::Load(Type::I64, v.clone(), ARR_LEN_OFF),
@@ -53,7 +58,7 @@ pub(super) fn coerce_arr_views_to_owned(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_slice,
-            vec![v.clone(), Operand::ConstI64(0), Operand::Value(len)],
+            vec![v, Operand::ConstI64(0), Operand::Value(len)],
         ),
         slot_ty,
         None,
@@ -64,8 +69,26 @@ pub(super) fn coerce_arr_views_to_owned(
         Operand::ConstI64(0),
         Operand::Value(len),
     );
-    ctx.emit_drop_value(v, v_ty);
     Operand::Value(copy)
+}
+
+/// The assignment face: a fresh rhs is materialized in place; a
+/// borrowed one (an alias the borrow inc above staked) is copied out,
+/// then the stake on the source is handed back, since the slot holds
+/// the copy.
+pub(super) fn coerce_arr_views_to_owned(
+    ctx: &mut LowerCtx<'_>,
+    slot_ty: Type,
+    v_ty: Type,
+    v: Operand,
+    value: ExprId,
+) -> Operand {
+    if ctx.expr_transfers_ownership(value) {
+        return materialize_fresh_views(ctx, slot_ty, v);
+    }
+    let copy = copy_views_out(ctx, slot_ty, v.clone());
+    ctx.emit_drop_value(v, v_ty);
+    copy
 }
 
 pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {

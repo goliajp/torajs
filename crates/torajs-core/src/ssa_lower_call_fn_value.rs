@@ -104,6 +104,18 @@ impl<'a> LowerCtx<'a> {
             if let Some(exp) = expected {
                 self.mark_arr_arg_for_any_param(exp, &a);
             }
+            // A split product into an owned-string parameter: this
+            // lane holds only operands, so it cannot tell a fresh
+            // product from an alias and copies out either way; the
+            // copy is released after the call (rotation 469, 469-01).
+            if let Some(exp) = expected
+                && crate::ssa_lower_assign_slot_fit::arr_views_into_owned_slot(self, exp, actual)
+            {
+                let copy = crate::ssa_lower_assign_slot_fit::copy_views_out(self, exp, a);
+                out.push(copy.clone());
+                drops.push((copy, exp));
+                continue;
+            }
             // The shared contract decides; this lane only owns the
             // bookkeeping. Beyond the sig's arity there is no
             // parameter to reach, so nothing converts.
