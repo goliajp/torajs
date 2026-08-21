@@ -19,12 +19,12 @@ use crate::layout::{ARR_LEN_OFF, arr_data};
 
 const ARR_HEAD_OFF: usize = 20;
 
-// Substr layout mirrors (Layer-2 cross-tier). `len` / `offset` are
-// code-unit values (P11.1-S5); byte positions recover through the
-// parent's encoding stride.
-const SUBSTR_LEN_OFF: usize = 8;
-const SUBSTR_PARENT_OFF: usize = 16;
-const SUBSTR_OFFSET_OFF: usize = 24;
+// Substr layout comes from its defining crate (it used to be three
+// mirrored constants here). `len` / `offset` are code-unit values
+// (P11.1-S5); byte positions recover through the parent's stride.
+use torajs_str::substr::{
+    FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF,
+};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
@@ -125,19 +125,55 @@ unsafe extern "C" {
     fn __torajs_str_undef() -> *mut u8;
 }
 
-/// Join length of one Str slot: nullish (NULL = JS null, the
-/// undefined sentinel cell) contributes nothing per §23.1.3.18;
-/// anything else is its code-unit count.
+/// One joinable element, read by the cell's own layout. A nullish
+/// slot (NULL = JS null, or the undefined sentinel cell) contributes
+/// nothing per §23.1.3.18.
+///
+/// A Substr view shares `Tag::Str` with an owned string, so a slot
+/// that is statically `Arr<Str>` can still hold a 32-byte view cell —
+/// a top-level `const a: string[] = s.split(" ")` takes the annotation's
+/// layout for its data-global slot, and the init fills it with views.
+/// Reading such a cell as an owned Str answers its parent POINTER as
+/// the payload (`"p q r".split(" ").join("-")` printed three copies of
+/// the same garbage character). The flags word tells the two apart;
+/// route on it, exactly as `__torajs_str_drop` does.
+struct JoinElem {
+    data: *const u8,
+    units: u64,
+    latin1: bool,
+}
+
 #[inline]
-unsafe fn elem_join_units(elem: *const u8) -> u64 {
+unsafe fn join_elem(elem: *const u8) -> JoinElem {
     if elem.is_null() || elem == unsafe { __torajs_str_undef() } as *const u8 {
-        0
-    } else {
-        unsafe { str_units(elem) }
+        return JoinElem {
+            data: core::ptr::null(),
+            units: 0,
+            latin1: true,
+        };
+    }
+    let flags = unsafe { *(elem.add(6) as *const u16) };
+    if flags & (FLAG_SUBSTR_VIEW | FLAG_SUBSTR_INLINE) != 0 {
+        let units = unsafe { *(elem.add(SUBSTR_LEN_OFF) as *const u64) };
+        let parent = unsafe { *(elem.add(SUBSTR_PARENT_OFF) as *const *const u8) };
+        let cu_off = unsafe { *(elem.add(SUBSTR_OFFSET_OFF) as *const u64) } as usize;
+        let latin1 = unsafe { str_is_latin1(parent) };
+        let stride = if latin1 { 1 } else { 2 };
+        return JoinElem {
+            data: unsafe { parent.add(STR_DATA_OFF + cu_off * stride) },
+            units,
+            latin1,
+        };
+    }
+    JoinElem {
+        data: unsafe { str_data(elem) },
+        units: unsafe { str_units(elem) },
+        latin1: unsafe { str_is_latin1(elem) },
     }
 }
 
-/// `Array<Str>.join(sep)`. Each slot is a `*Str`.
+/// `Array<Str>.join(sep)`. Each slot is a `*Str` — owned, or a view
+/// (see [`join_elem`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
@@ -150,11 +186,10 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
         let mut total: u64 = 0;
         let mut out_latin1 = sep_latin1_folded(sep, sep_units, len);
         for i in 0..len {
-            let elem = *(slot_addr(arr, i) as *const *const u8);
-            let units = elem_join_units(elem);
-            total += units;
-            if units > 0 {
-                out_latin1 &= str_is_latin1(elem);
+            let e = join_elem(*(slot_addr(arr, i) as *const *const u8));
+            total += e.units;
+            if e.units > 0 {
+                out_latin1 &= e.latin1;
             }
         }
         total += sep_units * (len - 1);
@@ -167,18 +202,10 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
                 emit_units(p_data, out_latin1, cursor, sep_data, sep_units, sep_latin1);
                 cursor += sep_units;
             }
-            let elem = *(slot_addr(arr, i) as *const *const u8);
-            let units = elem_join_units(elem);
-            if units > 0 {
-                emit_units(
-                    p_data,
-                    out_latin1,
-                    cursor,
-                    str_data(elem),
-                    units,
-                    str_is_latin1(elem),
-                );
-                cursor += units;
+            let e = join_elem(*(slot_addr(arr, i) as *const *const u8));
+            if e.units > 0 {
+                emit_units(p_data, out_latin1, cursor, e.data, e.units, e.latin1);
+                cursor += e.units;
             }
         }
         p
