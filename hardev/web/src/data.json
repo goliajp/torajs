@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T16:18:55.607Z",
+  "generatedAt": "2026-08-21T18:45:48.806Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-21T16:07:12Z",
-    "headSha": "240457b3",
-    "elapsedSec": 334.14,
+    "ranAt": "2026-08-21T18:34:06Z",
+    "headSha": "d4e61a2b",
+    "elapsedSec": 330.61,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27290,
+    "pass": 27292,
     "passNoOracle": 904,
     "passNegative": 4147,
-    "passTotal": 32341,
-    "bug": 12849,
+    "passTotal": 32343,
+    "bug": 12847,
     "incompatible": 7984,
     "bunSkip": 2963,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 71.57
   },
   "torajs": {
-    "commit": "240457b3c",
-    "commitSubject": "fix: a promoted const took its annotation's layout, not its init's",
+    "commit": "d4e61a2be",
+    "commitSubject": "refactor: flatMap's scalar push value as its own function",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -347,371 +347,395 @@
     "rows": [
       {
         "case": "popcount",
-        "bunAot": 64.51625,
+        "bunAot": 50.986209,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.876500000000001,
-        "speedup": 13.230031785091764
+        "torajs": 3.628375,
+        "speedup": 14.052078134150962
       },
       {
         "case": "throw-catch-100k",
-        "bunAot": 13.306166,
+        "bunAot": 12.661541999999999,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.77725,
-        "speedup": 4.791130074714196
-      },
-      {
-        "case": "generic-pair-1m",
-        "bunAot": 11.68175,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.117208000000001,
-        "speedup": 2.837298965706857
-      },
-      {
-        "case": "promise-await-100k",
-        "bunAot": 11.119959,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.154667,
-        "speedup": 2.676498260871449
-      },
-      {
-        "case": "stack-pop-1m",
-        "bunAot": 10.988958,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.244917,
-        "speedup": 2.588733301499181
+        "torajs": 2.6600420000000002,
+        "speedup": 4.7599030391249455
       },
       {
         "case": "async-fn-call-100k",
-        "bunAot": 9.532583,
+        "bunAot": 8.042625000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.852458,
-        "speedup": 2.4744158145267257
+        "torajs": 2.997209,
+        "speedup": 2.6833714298869387
       },
       {
-        "case": "fifo-queue-100k",
-        "bunAot": 7.9059170000000005,
+        "case": "stack-pop-1m",
+        "bunAot": 10.931375000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.4747080000000006,
-        "speedup": 2.2752752173707833
+        "torajs": 4.097167000000001,
+        "speedup": 2.6680325698220257
+      },
+      {
+        "case": "generic-pair-1m",
+        "bunAot": 7.614792,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 3.0027500000000003,
+        "speedup": 2.535939388893514
+      },
+      {
+        "case": "promise-await-100k",
+        "bunAot": 7.691334,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 3.08075,
+        "speedup": 2.49657843057697
       },
       {
         "case": "i64-to-str-100k",
-        "bunAot": 8.906854000000001,
+        "bunAot": 6.072521000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.008625,
-        "speedup": 2.2219224796532475
+        "torajs": 2.8244375,
+        "speedup": 2.149993051713837
+      },
+      {
+        "case": "fifo-queue-100k",
+        "bunAot": 5.391166,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.577041,
+        "speedup": 2.0919985363057867
       },
       {
         "case": "array-any-indexed-100k",
-        "bunAot": 6.9822295,
+        "bunAot": 4.80675,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.280479,
-        "speedup": 2.1284176792474514
-      },
-      {
-        "case": "promise-all-1k",
-        "bunAot": 6.316125,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 3.0663750000000003,
-        "speedup": 2.059801883331295
-      },
-      {
-        "case": "generator-yield-100k",
-        "bunAot": 9.8652295,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.930270500000001,
-        "speedup": 2.000950962021252
-      },
-      {
-        "case": "promise-then-100k",
-        "bunAot": 13.836915999999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.0065420000000005,
-        "speedup": 1.9748566411219683
-      },
-      {
-        "case": "startup",
-        "bunAot": 4.302895500000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.2338750000000003,
-        "speedup": 1.9262024508981033
-      },
-      {
-        "case": "array-sum-1m",
-        "bunAot": 49.819833,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 25.943541,
-        "speedup": 1.9203173922942902
+        "torajs": 2.356375,
+        "speedup": 2.0398917829292875
       },
       {
         "case": "promise-chain-1k",
-        "bunAot": 6.0425,
+        "bunAot": 4.312666000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.2385,
-        "speedup": 1.8658329473521693
+        "torajs": 2.2119590000000002,
+        "speedup": 1.9497043118791988
       },
       {
-        "case": "generic-id-1m",
-        "bunAot": 49.685666000000005,
+        "case": "promise-then-100k",
+        "bunAot": 9.9455,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 27.089499999999997,
-        "speedup": 1.8341300503885272
+        "torajs": 5.237125000000001,
+        "speedup": 1.8990381172876336
       },
       {
-        "case": "closure-pipeline-1m",
-        "bunAot": 49.675667,
+        "case": "generator-yield-100k",
+        "bunAot": 6.7155415,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 27.47775,
-        "speedup": 1.8078506063997233
-      },
-      {
-        "case": "regex-dfa-uflag-cprange-100k",
-        "bunAot": 14.305166,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.581042,
-        "speedup": 1.6670663073319067
-      },
-      {
-        "case": "collatz",
-        "bunAot": 376.868625,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 226.92616700000002,
-        "speedup": 1.6607543765545556
+        "torajs": 3.566646,
+        "speedup": 1.8828730129090467
       },
       {
         "case": "closure-counter",
-        "bunAot": 45.733042000000005,
+        "bunAot": 40.187542,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 27.547291,
-        "speedup": 1.6601647690148553
+        "torajs": 21.416625000000003,
+        "speedup": 1.876464755768007
+      },
+      {
+        "case": "promise-all-1k",
+        "bunAot": 4.357542,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.325958,
+        "speedup": 1.8734396751790015
+      },
+      {
+        "case": "closure-pipeline-1m",
+        "bunAot": 40.300792,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 21.511792,
+        "speedup": 1.8734279319919047
+      },
+      {
+        "case": "generic-id-1m",
+        "bunAot": 39.471584,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 21.079833999999998,
+        "speedup": 1.8724807794975997
+      },
+      {
+        "case": "startup",
+        "bunAot": 3.9665000000000004,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.1632710000000004,
+        "speedup": 1.8335659286330745
+      },
+      {
+        "case": "array-sum-1m",
+        "bunAot": 39.178167,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 21.375583,
+        "speedup": 1.8328467111283002
+      },
+      {
+        "case": "collatz",
+        "bunAot": 312.749292,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 180.62204200000002,
+        "speedup": 1.7315123256108464
       },
       {
         "case": "str-concat-ascii-100k",
-        "bunAot": 5.1912915,
+        "bunAot": 4.926771,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.1996875000000005,
-        "speedup": 1.6224370348666861
+        "torajs": 3.0931045,
+        "speedup": 1.5928239734545018
       },
       {
         "case": "fib40",
-        "bunAot": 456.731334,
+        "bunAot": 360.04962500000005,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 281.517333,
-        "speedup": 1.6223915207380855
-      },
-      {
-        "case": "csv-rebuild-100k",
-        "bunAot": 20.107042,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 12.511125,
-        "speedup": 1.6071330116196585
-      },
-      {
-        "case": "regex-dfa-anchored-100k",
-        "bunAot": 14.6888545,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 9.335479000000001,
-        "speedup": 1.573444115722396
-      },
-      {
-        "case": "multibyte-concat-100k",
-        "bunAot": 7.284187999999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.7153955,
-        "speedup": 1.5447671356517179
+        "torajs": 226.834667,
+        "speedup": 1.5872777726695544
       },
       {
         "case": "ackermann",
-        "bunAot": 15.099082999999998,
+        "bunAot": 11.377875000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 9.893749999999999,
-        "speedup": 1.5261233607075173
+        "torajs": 7.526792000000001,
+        "speedup": 1.5116499831535133
+      },
+      {
+        "case": "csv-rebuild-100k",
+        "bunAot": 14.859125,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 9.924584,
+        "speedup": 1.4972038122706202
       },
       {
         "case": "array-sort-100k",
-        "bunAot": 15.010979,
+        "bunAot": 11.0815835,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 10.1772495,
-        "speedup": 1.474954406885672
+        "torajs": 7.431791500000001,
+        "speedup": 1.4911052738764266
       },
       {
-        "case": "csv-trim-100k",
-        "bunAot": 14.786584,
+        "case": "multibyte-concat-100k",
+        "bunAot": 4.923959,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 10.142333,
-        "speedup": 1.4579075642655392
+        "torajs": 3.3698960000000002,
+        "speedup": 1.4611605224612272
+      },
+      {
+        "case": "regex-dfa-anchored-100k",
+        "bunAot": 10.515479,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 7.3158330000000005,
+        "speedup": 1.4373590813240267
       },
       {
         "case": "regex-wireback-minlit-100k",
-        "bunAot": 6.3158125,
+        "bunAot": 5.989021000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.341437999999999,
-        "speedup": 1.4547743167125733
-      },
-      {
-        "case": "regex-dfa-wbound-100k",
-        "bunAot": 11.043125000000002,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.690374500000001,
-        "speedup": 1.435967130079296
+        "torajs": 4.248895500000001,
+        "speedup": 1.4095477283449311
       },
       {
         "case": "rpn-eval-100k",
-        "bunAot": 10.403458,
+        "bunAot": 9.855417,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 7.409667000000001,
-        "speedup": 1.404038535065071
+        "torajs": 7.000792000000001,
+        "speedup": 1.4077574365871746
       },
       {
-        "case": "regex-dfa-mflag-100k",
-        "bunAot": 11.349146,
+        "case": "regex-dfa-wbound-100k",
+        "bunAot": 10.215958,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 8.085896000000002,
-        "speedup": 1.403573085778001
+        "torajs": 7.420333500000001,
+        "speedup": 1.3767518670151415
       },
       {
-        "case": "regex-dfa-safeclass-100k",
-        "bunAot": 11.469354,
+        "case": "csv-trim-100k",
+        "bunAot": 10.870583,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 8.7986245,
-        "speedup": 1.3035394339194721
-      },
-      {
-        "case": "regex-dfa-uflag-100k",
-        "bunAot": 12.596375,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 9.79125,
-        "speedup": 1.2864930422571175
+        "torajs": 7.983167000000001,
+        "speedup": 1.3616880368405169
       },
       {
         "case": "array-map-1m",
-        "bunAot": 58.722083,
+        "bunAot": 48.738167000000004,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 46.872083,
-        "speedup": 1.2528157325544929
+        "torajs": 36.773,
+        "speedup": 1.325379136866723
       },
       {
-        "case": "json-stringify-100k",
-        "bunAot": 13.374042,
+        "case": "regex-dfa-mflag-100k",
+        "bunAot": 9.9122915,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 10.741271,
-        "speedup": 1.2451079578943685
+        "torajs": 7.570959,
+        "speedup": 1.3092517737845364
       },
       {
-        "case": "str-replace-100k",
-        "bunAot": 10.635312500000001,
+        "case": "regex-dfa-uflag-cprange-100k",
+        "bunAot": 10.278832999999999,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 8.9907085,
-        "speedup": 1.1829226250634197
+        "torajs": 7.96375,
+        "speedup": 1.2907026212525505
+      },
+      {
+        "case": "regex-dfa-safeclass-100k",
+        "bunAot": 10.150229,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 8.008271,
+        "speedup": 1.2674682212927109
       },
       {
         "case": "class-method-100k",
-        "bunAot": 7.6314165,
+        "bunAot": 6.605687499999999,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 6.472291500000001,
-        "speedup": 1.1790903577195186
+        "torajs": 5.453209,
+        "speedup": 1.2113395067014667
+      },
+      {
+        "case": "str-replace-100k",
+        "bunAot": 10.187687500000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 8.755021000000001,
+        "speedup": 1.1636394133149424
       },
       {
         "case": "split-only-100k",
-        "bunAot": 5.2968340000000005,
+        "bunAot": 5.120375,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.574458,
-        "speedup": 1.1579151016360847
+        "torajs": 4.485041000000001,
+        "speedup": 1.141656230121419
       },
       {
-        "case": "regex-dfa-dotall-100k",
-        "bunAot": 15.8535625,
+        "case": "regex-dfa-uflag-100k",
+        "bunAot": 10.30875,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 13.979250000000002,
-        "speedup": 1.1340781873133392
-      },
-      {
-        "case": "regex-dfa-iflag-100k",
-        "bunAot": 11.939417,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 10.89675,
-        "speedup": 1.0956860531809942
-      },
-      {
-        "case": "gcd1m",
-        "bunAot": 53.789167000000006,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 50.439167,
-        "speedup": 1.06641664006862
-      },
-      {
-        "case": "mandelbrot",
-        "bunAot": 57.423459,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 55.059625000000004,
-        "speedup": 1.042932257529905
+        "torajs": 9.065916999999999,
+        "speedup": 1.1370885041193297
       },
       {
         "case": "prime_count",
-        "bunAot": 56.17833400000001,
+        "bunAot": 53.584208000000004,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 60.451041,
-        "speedup": 0.9293195463747268
+        "torajs": 47.86133400000001,
+        "speedup": 1.1195719701419102
+      },
+      {
+        "case": "json-stringify-100k",
+        "bunAot": 9.506062,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 8.6228545,
+        "speedup": 1.1024263484905144
+      },
+      {
+        "case": "gcd1m",
+        "bunAot": 42.261125,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 38.820833,
+        "speedup": 1.0886197367274422
+      },
+      {
+        "case": "regex-dfa-iflag-100k",
+        "bunAot": 9.948854,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 9.5993335,
+        "speedup": 1.03641091332018
+      },
+      {
+        "case": "mandelbrot",
+        "bunAot": 43.481417,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 42.797957999999994,
+        "speedup": 1.0159694301302882
+      },
+      {
+        "case": "regex-dfa-dotall-100k",
+        "bunAot": 11.175313,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 11.2868125,
+        "speedup": 0.990121258769914
       }
     ],
-    "geomeanBunAot": 1.7170656127839907,
+    "geomeanBunAot": 1.6726034124083808,
     "geomeanNodeV8": null,
-    "peak": 13.230031785091764,
+    "peak": 14.052078134150962,
     "peakCase": "popcount",
-    "min": 0.9293195463747268,
-    "minCase": "prime_count",
+    "min": 0.990121258769914,
+    "minCase": "regex-dfa-dotall-100k",
     "caseCount": 44,
     "wonCount": 43,
-    "sourceFile": "bench/results/2026-08-21-mini-240457b.json",
-    "gitSha": "240457b3ce396fe4f04d7410d57eaf993785e10e",
-    "startedAt": "2026-08-21T16:09:55Z",
+    "sourceFile": "bench/results/2026-08-21-mini-d4e61a2.json",
+    "gitSha": "d4e61a2be5b6e3ba1bc5d5c067acb1b9e4399c2d",
+    "startedAt": "2026-08-21T18:43:12Z",
     "host": "mini"
   },
   "commits": [
+    {
+      "hash": "d4e61a2be",
+      "subject": "refactor: flatMap's scalar push value as its own function"
+    },
+    {
+      "hash": "bd5ab0537",
+      "subject": "fix: a split product written into or handed on stayed an array of views"
+    },
+    {
+      "hash": "5be9af038",
+      "subject": "fix: a spread literal over a split product was typed by the views"
+    },
+    {
+      "hash": "8d1c16b20",
+      "subject": "fix: a substring view copied out of its split block dangled"
+    },
+    {
+      "hash": "d67991ef6",
+      "subject": "fix: string ordering compared payload bytes, not UTF-16 code units"
+    },
+    {
+      "hash": "4c2d133fb",
+      "subject": "chore: rotation 467 bench baselines, sweep snapshot, dashboard"
+    },
     {
       "hash": "240457b3c",
       "subject": "fix: a promoted const took its annotation's layout, not its init's"
@@ -735,51 +759,38 @@
     {
       "hash": "129a53094",
       "subject": "chore: rotation 466 bench baselines, sweep snapshot, dashboard"
-    },
-    {
-      "hash": "f4225b909",
-      "subject": "perf: every integer we print went through core::fmt to get there"
-    },
-    {
-      "hash": "fe240fec3",
-      "subject": "perf: user binaries were never actually running on our allocator"
-    },
-    {
-      "hash": "5da047dc3",
-      "subject": "bench: make the tora and ts sources the same program again"
-    },
-    {
-      "hash": "bc0545097",
-      "subject": "docs: a startup-cost dividend was carrying part of the bench lead"
-    },
-    {
-      "hash": "dc7ba00d9",
-      "subject": "chore: rotation 465 sweep artifacts, P-SURF snapshot, dashboard"
-    },
-    {
-      "hash": "92ea73374",
-      "subject": "feat: a rebindable typed slot asks about its receiver at runtime"
     }
   ],
-  "headSha": "240457b3c",
+  "headSha": "d4e61a2be",
   "autorun": {
-    "total": 770,
+    "total": 771,
     "baselineTarget": 10,
-    "bySelf": 765,
+    "bySelf": 766,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787318556-5565",
-      "at": "2026-08-21T13:22:36Z",
-      "ts": 1787318556,
+      "rotationId": "r-1787329747-414a",
+      "at": "2026-08-21T16:29:07Z",
+      "ts": 1787329747,
       "trigger": "self",
-      "prevHead": "129a53094",
-      "handoffSha": "sha256:822c8981f22cc73d0df95787e074d719a241316a458951e1866f5fc1181e9e85",
-      "handoffAgeSec": 60,
+      "prevHead": "4c2d133fb",
+      "handoffSha": "sha256:03fcf9bf77cec5a051fdde919e10ce347b296e2cbce502e9854f700a8ecd8d59",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787329747-414a",
+        "at": "2026-08-21T16:29:07Z",
+        "ts": 1787329747,
+        "trigger": "self",
+        "prevHead": "4c2d133fb",
+        "handoffSha": "sha256:03fcf9bf77cec5a051fdde919e10ce347b296e2cbce502e9854f700a8ecd8d59",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787318556-5565",
         "at": "2026-08-21T13:22:36Z",
@@ -876,17 +887,6 @@
         "prevHead": "d26d6a2e9",
         "handoffSha": "sha256:ff5c99ae23abf7ffe4ff95790f62dd3c87a76af52fb8cefd1ba340de1ad14950",
         "handoffAgeSec": 29,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787221594-2da7",
-        "at": "2026-08-20T10:26:34Z",
-        "ts": 1787221594,
-        "trigger": "self",
-        "prevHead": "1867be38",
-        "handoffSha": "sha256:e0407b69f6aa47a57f9a2fdffe316feb1cf60233eeb3034987d004c95987a153",
-        "handoffAgeSec": 33,
         "conformanceBefore": null,
         "commitsInSession": null
       }
