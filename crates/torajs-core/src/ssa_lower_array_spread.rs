@@ -77,7 +77,11 @@ fn lower_spread_elements(
             if let Type::Arr(arr_id) = v_ty
                 && elem_ty.is_none()
             {
-                elem_ty = Some(ctx.arr_layouts[arr_id.0 as usize]);
+                // A spread of an `Arr<Substr>` lands as owned strings
+                // (a view does not leave its split block — rotation
+                // 468), so the literal is `Arr<Str>`, never `Arr<Substr>`.
+                let out_id = ctx.copied_arr_layout(arr_id);
+                elem_ty = Some(ctx.arr_layouts[out_id.0 as usize]);
             }
             lowered.push(LoweredItem {
                 op,
@@ -88,6 +92,25 @@ fn lower_spread_elements(
         } else {
             let v = ctx.lower_expr(*eid);
             let v_ty = ctx.operand_ty(&v);
+            // A substring VIEW element (`[...a, s[1]]`) is stored as an
+            // owned copy — the same rule the plain literal lane applies
+            // (`coerce_elem_vals_substr_to_str`): the fresh copy is the
+            // element, a fresh-mint view is released here, a borrow
+            // stays with its owner (rotation 468).
+            let (v, v_ty) = if v_ty == Type::Substr {
+                let owned = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
+                    Type::Str,
+                    None,
+                );
+                if ctx.expr_transfers_ownership(*eid) {
+                    ctx.emit_drop_value(v, Type::Substr);
+                }
+                (Operand::Value(owned), Type::Str)
+            } else {
+                (v, v_ty)
+            };
             if elem_ty.is_none() {
                 elem_ty = Some(v_ty);
             }

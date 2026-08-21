@@ -62,3 +62,9 @@ function viaIndexStore() { let s = "pq" + "!"; let a = s.split(""); let out: str
 const st = viaIndexStore();
 churn();
 console.log(JSON.stringify(st));
+// a spread literal over a split product is an owned-string array on
+// every read path, views mixed in as literal elements included
+function viaSpreadMixed() { let s = "p q" + "!"; let a = s.split(" "); let t = "xy" + "?"; return [...a, t[0], a[1]]; }
+const sm = viaSpreadMixed();
+churn();
+console.log(sm.join("-"), sm.toSorted().join(""), JSON.stringify(sm));
