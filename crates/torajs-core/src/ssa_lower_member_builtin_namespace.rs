@@ -8,8 +8,9 @@
 //!
 //! - **Math constants** — `PI`, `E`, `LN2`, `LN10`, `LOG2E`,
 //!   `LOG10E`, `SQRT2`, `SQRT1_2` → `Operand::ConstF64(...)` via
-//!   `std::f64::consts::*`. Unknown name panics (typechecker
-//!   upstream filters).
+//!   `std::f64::consts::*`. An unknown name falls through to the
+//!   generic any-member walk — `Math` is an ordinary extensible
+//!   object, so the answer is its own-entry table, then undefined.
 //! - **Number constants + prototype/name/length** — `NaN`,
 //!   `POSITIVE_INFINITY`, `NEGATIVE_INFINITY`, `EPSILON`,
 //!   `MAX_SAFE_INTEGER` / `MIN_SAFE_INTEGER` (2^53 - 1, V3-18
@@ -91,8 +92,8 @@ pub(crate) fn try_lower(
         return Some(op);
     }
     match ns_name.as_str() {
-        "Math" => Some(lower_math_const(name)),
-        "Number" => Some(lower_number(ctx, name)),
+        "Math" => lower_math_const(name),
+        "Number" => lower_number(ctx, name),
         other => {
             let tag = builtin_proto_tag(other)?;
             lower_ctor_namespace(ctx, other, tag, name)
@@ -181,8 +182,15 @@ fn lower_proto_method_value(ctx: &mut LowerCtx<'_>, tag: i64, name: &str) -> Ope
     Operand::Value(v)
 }
 
-fn lower_math_const(name: &str) -> Operand {
-    match name {
+/// The eight §21.3.1 value properties. A name outside the set is
+/// NOT an error: `Math` is an ordinary extensible object, so
+/// `Math.nope` is a runtime [[Get]] answering undefined and
+/// `Math.prop = 7` plants a real entry. `None` hands the read to the
+/// generic any-member walk, which reads the singleton's own-entry
+/// table. (Pre-r464 this panicked, on the contract that the
+/// typechecker filtered unknown names upstream — it no longer does.)
+fn lower_math_const(name: &str) -> Option<Operand> {
+    Some(match name {
         "PI" => Operand::ConstF64(std::f64::consts::PI),
         "E" => Operand::ConstF64(std::f64::consts::E),
         "LN2" => Operand::ConstF64(std::f64::consts::LN_2),
@@ -191,12 +199,15 @@ fn lower_math_const(name: &str) -> Operand {
         "LOG10E" => Operand::ConstF64(std::f64::consts::LOG10_E),
         "SQRT2" => Operand::ConstF64(std::f64::consts::SQRT_2),
         "SQRT1_2" => Operand::ConstF64(std::f64::consts::FRAC_1_SQRT_2),
-        other => panic!("ssa-lower: unknown Math constant `{other}`"),
-    }
+        _ => return None,
+    })
 }
 
-fn lower_number(ctx: &mut LowerCtx<'_>, name: &str) -> Operand {
-    match name {
+/// The §21.1.2 value properties plus the ctor's own reflection
+/// faces. Unknown names fall through for the same reason as
+/// [`lower_math_const`] — `Number` is extensible too.
+fn lower_number(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+    Some(match name {
         "NaN" => Operand::ConstF64(f64::NAN),
         "POSITIVE_INFINITY" => Operand::ConstF64(f64::INFINITY),
         "NEGATIVE_INFINITY" => Operand::ConstF64(f64::NEG_INFINITY),
@@ -208,8 +219,8 @@ fn lower_number(ctx: &mut LowerCtx<'_>, name: &str) -> Operand {
         "prototype" => any_boxed_builtin_proto(ctx, 0),
         "name" => Operand::Value(ctx.intern_string_literal("Number")),
         "length" => Operand::ConstI64(1),
-        other => panic!("ssa-lower: unknown Number constant `{other}`"),
-    }
+        _ => return None,
+    })
 }
 
 fn builtin_proto_tag(ns_name: &str) -> Option<i64> {

@@ -6,8 +6,10 @@
 //! function (`typeof o.hasOwnProperty`). Layer 4: a member of a known
 //! namespace (`Math` / `JSON` / `Symbol` / ...) classifies by shape —
 //! well-known Symbols are symbols, Math / Number constants and
-//! `.length` are numbers, `.prototype` is an object, `.name` a string,
-//! everything else a function.
+//! `.length` are numbers, `.prototype` is an object, `.name` a string.
+//! A name matching no shape is a function only if the namespace
+//! actually has it; otherwise there is no static answer and the value
+//! itself gets to speak.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa_lower::LowerCtx;
@@ -81,7 +83,27 @@ pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'st
     if !is_known_ns(ns) {
         return None;
     }
-    Some(classify_ns_member(ns, member_name))
+    if let Some(s) = classify_ns_member(ns, member_name) {
+        return Some(s);
+    }
+    // No shape matched, so the old catch-all answered "function" for
+    // every remaining name — including ones the namespace does not
+    // have. `typeof Math.nope` is "undefined", and if someone planted
+    // `Math.prop = 7` it is "number"; neither is knowable here. When
+    // the checker says the name is outside the modeled surface, fall
+    // through and let the value answer for itself (the read rides the
+    // any-member lane onto the singleton's own-entry dict). A modeled
+    // name keeps the static "function".
+    // Keyed off the namespace IDENT, not the receiver's recorded
+    // type: `ctx.expr_types` has no entry for most of these receivers
+    // (`Math` is one), so reading the type here answers None and the
+    // gate silently never fires.
+    if let Some(tag) = crate::check_type_of_member_global_miss::ecma_global_tag(ns)
+        && crate::check_type_of_member_global_miss::member_unmodeled(tag, member_name)
+    {
+        return None;
+    }
+    Some("function")
 }
 
 fn is_known_ns(ns: &str) -> bool {
@@ -109,7 +131,10 @@ fn is_known_ns(ns: &str) -> bool {
     )
 }
 
-fn classify_ns_member(ns: &str, member_name: &str) -> &'static str {
+/// The shape-based answers. `None` = no shape matched, which the
+/// caller resolves against the modeled surface rather than assuming
+/// "function".
+fn classify_ns_member(ns: &str, member_name: &str) -> Option<&'static str> {
     let is_symbol_well_known = ns == "Symbol"
         && matches!(
             member_name,
@@ -146,7 +171,7 @@ fn classify_ns_member(ns: &str, member_name: &str) -> &'static str {
                 | "NEGATIVE_INFINITY"
                 | "NaN"
         );
-    if is_symbol_well_known {
+    Some(if is_symbol_well_known {
         "symbol"
     } else if is_math_const || is_number_const || member_name == "length" {
         "number"
@@ -155,6 +180,6 @@ fn classify_ns_member(ns: &str, member_name: &str) -> &'static str {
     } else if member_name == "name" {
         "string"
     } else {
-        "function"
-    }
+        return None;
+    })
 }

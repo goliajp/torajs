@@ -269,6 +269,14 @@ fn answer_terminal_miss(
     {
         return Ok(Type::Any);
     }
+    // ECMASCRIPT GLOBAL OBJECT receiver (`Math.nope` /
+    // `Reflect.enumerate`) → Any; tr's host handles keep the loud
+    // reject. Rationale in the sibling's module doc.
+    if let Type::Object(tag) = obj_ty
+        && crate::check_type_of_member_global_miss::answers_undefined(tag)
+    {
+        return Ok(Type::Any);
+    }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
 }
 
@@ -293,6 +301,13 @@ fn answer_terminal_miss(
 ///   name / length / etc.) + Symbol singletons / 205
 ///   prim ∪ Any unions (String|Array length, prim
 ///   constructor, prim|Any hasOwnProperty).
+/// Whether any per-family arm claims `name` on `obj_ty` — i.e. whether
+/// a read resolves to a modeled member rather than falling through to
+/// [`answer_terminal_miss`]. `Some(Err(_))` counts as claimed.
+pub(crate) fn member_is_modeled(obj_ty: &Type, name: &str) -> bool {
+    try_family_dispatch(obj_ty, name).is_some()
+}
+
 fn try_family_dispatch(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
     // Date instance methods — see
     // [`crate::check_type_of_member_date`] (chunk 191 —

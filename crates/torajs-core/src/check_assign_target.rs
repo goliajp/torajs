@@ -112,6 +112,16 @@ pub(crate) fn check_member(
         }
         return Ok(Type::Number);
     }
+    // EXPANDO on an ECMAScript global object (`Array.myproperty = 1`)
+    // → Any: ordinary extensible objects, so the write lands in the
+    // singleton's own-entry dict and the matching read comes back out
+    // of it via the any-member lane. Restricted to names tr does NOT
+    // model, for the same reason the Promise arm above admits exactly
+    // two — see `check_type_of_member_global_miss`.
+    if crate::check_type_of_member_global_miss::expando_write_admitted(&obj_ty, &field) {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
     let Type::Struct(fields) = &*obj_ty else {
         return Err(format!(
             "field assignment target must be a struct, got {obj_ty:?}"
