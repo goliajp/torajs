@@ -68,6 +68,26 @@ fn store_mismatches(params: &[Param], return_type: Option<&str>, ann: &str) -> b
         || target_ret != formal_ret
 }
 
+/// The top-level FnDecl name a store's rhs names, for either
+/// spelling of "a function value written into this slot".
+///
+/// Rotation 465 — the census read a bare `Expr::Ident` only, which is
+/// the spelling for `slot = gb`. A FUNCTION LITERAL is the other one:
+/// `lift_arrow_fns` (which runs before this pass) has already moved
+/// the body to a top-level FnDecl and left an `Expr::Closure` naming
+/// it, so its face is in `fn_sigs` under `fn_name` and the same
+/// comparison applies verbatim. Missing it meant `let slot: () =>
+/// void = ga; slot = function (p = 5) {…}; slot();` took the bare
+/// indirect call shaped by the annotation and the callee read an
+/// argument register the caller never filled.
+fn store_face_name(ast: &Ast, e: super::ExprId) -> Option<&str> {
+    match ast.get_expr(e) {
+        Expr::Ident(n) => Some(n.as_str()),
+        Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
+        _ => None,
+    }
+}
+
 /// See module doc. Walks every MUTABLE fn-type-annotated `LetDecl`
 /// (at any nesting depth) plus every `Expr::Assign` in the arena
 /// whose target is such a binding's name, and records the binding
@@ -90,12 +110,35 @@ pub(super) fn collect_fnsig_mismatch_bindings(
             gen_fns.insert(name);
         }
     }
+    // `snapshot_fn_sigs` drops every CLOSURE-shaped FnDecl (an
+    // `__env` first param) — a lifted function literal is one, and it
+    // is precisely what `store_face_name` resolves a store rhs to.
+    // Its user face is the same list minus the hidden `__`-prefixed
+    // params, which `store_mismatches` already filters, so the faces
+    // merge into one lookup.
+    let mut closure_faces: HashMap<&str, (&[Param], Option<&str>)> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } = s
+            && params.first().is_some_and(|p| p.name == "__env")
+        {
+            closure_faces.insert(name, (params.as_slice(), return_type.as_deref()));
+        }
+    }
     let mismatches = |gname: &str, ann: &str| -> bool {
-        !gen_fns.contains(gname)
-            && !ast.async_generator_fns.contains(gname)
-            && fn_sigs
-                .get(gname)
-                .is_some_and(|(ps, ret, _)| store_mismatches(ps, ret.as_deref(), ann))
+        if gen_fns.contains(gname) || ast.async_generator_fns.contains(gname) {
+            return false;
+        }
+        if let Some((ps, ret, _)) = fn_sigs.get(gname) {
+            return store_mismatches(ps, ret.as_deref(), ann);
+        }
+        closure_faces
+            .get(gname)
+            .is_some_and(|(ps, ret)| store_mismatches(ps, *ret, ann))
     };
     // Mutable fn-typed declarations (name → ann), init sites checked
     // in the same walk.
@@ -108,7 +151,7 @@ pub(super) fn collect_fnsig_mismatch_bindings(
         if let Expr::Assign { target, value } = e
             && let Expr::Ident(tname) = ast.get_expr(*target)
             && let Some(ann) = decls.get(tname)
-            && let Expr::Ident(gname) = ast.get_expr(*value)
+            && let Some(gname) = store_face_name(ast, *value)
             && mismatches(gname, ann)
         {
             out.insert(tname.clone());
@@ -145,7 +188,7 @@ fn collect_decl_sites(
             && super::lift_arrow_fns::is_fn_like_ann(ann)
         {
             decls.insert(name.clone(), ann.clone());
-            if let Expr::Ident(gname) = ast.get_expr(*init)
+            if let Some(gname) = store_face_name(ast, *init)
                 && mismatches(gname, ann)
             {
                 out.insert(name.clone());
