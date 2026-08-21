@@ -114,6 +114,7 @@ pub(super) fn promote_variable_routed(
     patches: &mut Vec<FacePatch>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
     fnexpr_recv_locals: &mut std::collections::HashSet<String>,
+    boxed_lane_bindings: &mut std::collections::HashSet<String>,
 ) {
     let mut faces_by_name: std::collections::HashMap<String, Vec<ExprId>> =
         std::collections::HashMap::new();
@@ -150,30 +151,31 @@ pub(super) fn promote_variable_routed(
         if !mixed_calls.iter().all(|e| shapes.admits(*e, name)) {
             continue;
         }
-        // A binding the program WRITES is rebindable, and a
-        // rebindable one promotes only inside an `any` SLOT, with no
-        // face, and with every call on the runtime recv gate.
+        // A binding the program WRITES is rebindable. Such a binding
+        // promotes with every call on a receiver-AWARE lane, never on
+        // the static seed: what makes a later unpromoted value safe is
+        // reading FLAG_CLOSURE_RECV_FIRST off the cell actually being
+        // called.
         //
-        // The gate is what makes a later unpromoted value safe — it
-        // reads FLAG_CLOSURE_RECV_FIRST off the cell actually being
-        // called — and it is reachable only where the call already
-        // rides the any lane. A binding whose declared type is the
-        // FIRST initializer's function type keeps that signature at
-        // its call sites, and rebinding it is broken there for
-        // reasons that have nothing to do with `this` (measured on
-        // HEAD, no `this` anywhere: `var x = function () { return 1
-        // }; x = function (a) { return a }; x(7)` answers `NaN`).
-        // Admitting the write on such a slot would trade today's
-        // loud reject for that wrong answer, so the `any` spelling —
-        // rotation 437's hoisted-var prelude is one, `var f: any =
-        // …` is the other — is the whole license.
+        // An `any` slot is already on that lane. A slot carrying the
+        // first initializer's FUNCTION type is not — its calls take
+        // the bare indirect call shaped by that signature, and two
+        // stored functions can share a user face while differing in
+        // whether they carry the receiver slot, which is a difference
+        // the face census cannot see (it runs before this pass
+        // decides who is promoted). Left alone, `var x = function ()
+        // { return this }; x = function () { return 1 }; x()`
+        // answered the closure itself. So such a name is handed to
+        // the boxed dual entry here, the same lane a face-mismatched
+        // slot rides, and its receiver question becomes a runtime one
+        // like everybody else's.
         //
-        // The face bar is the second half: the HOF lowerings key on
+        // The face bar is separate: the HOF lowerings key on
         // `fnexpr_recv_locals`, which a rebindable name deliberately
         // stays off, so a face read would call the RECV ABI without
         // the `__this` argv slot — the rotation-260 silent wrong.
         let rebindable = use_eids.iter().any(|e| shapes.assign_target.contains(e));
-        if rebindable && (!face_eids.is_empty() || !shapes.any_ann_names.contains(name)) {
+        if rebindable && !face_eids.is_empty() {
             continue;
         }
         let mut decls: Vec<(bool, ExprId)> = Vec::new();
@@ -263,21 +265,7 @@ pub(super) fn promote_variable_routed(
                 eid: init,
                 fn_name: fn_name.clone(),
             });
-            // The twin's own copy of the same declaration, promoted
-            // alongside it — see `collect_decls_split` for why the
-            // guard above counts one thing and this patches another.
-            for t in &twin_inits {
-                let t = peel_as(exprs, *t);
-                if fn_expr_exprs.contains(&t)
-                    && let Expr::Closure { fn_name, captures } = &exprs[t.0 as usize]
-                    && captures.iter().any(|c| c == "__this")
-                {
-                    patches.push(FacePatch {
-                        eid: t,
-                        fn_name: fn_name.clone(),
-                    });
-                }
-            }
+            patch_twin_inits(exprs, fn_expr_exprs, &twin_inits, patches);
             fnexpr_recv_faces.extend(face_eids.iter().copied());
             // EVERY promoted binding registers, not only the mixed
             // profile: the HOF lowerings detect a variable-routed
@@ -297,6 +285,34 @@ pub(super) fn promote_variable_routed(
             if !no_static_seed.contains(name) && !from_hoist && !rebindable {
                 fnexpr_recv_locals.insert(name.clone());
             }
+            // A rebindable binding that is NOT already on an any-typed
+            // lane joins the boxed dual entry (doc on the bar above).
+            if rebindable && !from_hoist && !shapes.any_ann_names.contains(name) {
+                boxed_lane_bindings.insert(name.clone());
+            }
+        }
+    }
+}
+
+/// The twin's own copy of a promoted declaration, patched alongside
+/// it — see [`collect_decls_split`] for why the uniqueness guard
+/// counts one thing and this patches another.
+fn patch_twin_inits(
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    twin_inits: &[ExprId],
+    patches: &mut Vec<FacePatch>,
+) {
+    for t in twin_inits {
+        let t = peel_as(exprs, *t);
+        if fn_expr_exprs.contains(&t)
+            && let Expr::Closure { fn_name, captures } = &exprs[t.0 as usize]
+            && captures.iter().any(|c| c == "__this")
+        {
+            patches.push(FacePatch {
+                eid: t,
+                fn_name: fn_name.clone(),
+            });
         }
     }
 }

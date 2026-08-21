@@ -70,6 +70,7 @@ pub(crate) fn run(
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
     fnexpr_recv_locals: &mut std::collections::HashSet<String>,
+    boxed_lane_bindings: &mut std::collections::HashSet<String>,
     spans: &mut Vec<crate::lexer::Span>,
 ) {
     // A face need not be spelled as a fn-expr. `Object.defineProperty(o,
@@ -140,6 +141,7 @@ pub(crate) fn run(
         &mut patches,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        boxed_lane_bindings,
     );
     if patches.is_empty() {
         return;

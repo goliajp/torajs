@@ -70,6 +70,7 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_fns,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        fnsig_mismatch_bindings,
         objlit_computed_keys,
         objlit_computed_accessors,
         ..
@@ -159,6 +160,7 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_fns,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        fnsig_mismatch_bindings,
         expr_spans,
     );
     let ast_exprs_view: AstExprsView = &*exprs;
