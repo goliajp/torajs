@@ -532,6 +532,17 @@ mod tests {
     pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(_v: u64) -> u64 {
         0
     }
+    // torajs-meta's §22.1.2.4 walk, reached through the ns-static
+    // DISPATCH table's `String.raw` arm. Unit tests never call it;
+    // the null answer satisfies the linker.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_string_raw(
+        _template: u64,
+        _argv: *const u64,
+        _argc: i64,
+    ) -> *mut core::ffi::c_void {
+        core::ptr::null_mut()
+    }
     // The arguments-materialization "length" face kernels
     // (torajs-arr arguments_length.rs) — prop_has / prop_delete /
     // member_get_own reference them; unit tests never mint an

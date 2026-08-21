@@ -306,6 +306,12 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // TypeError on any other |this|, `.call(eval)` included).
     row("Promise", "allKeyed", 1),
     row("Promise", "allSettledKeyed", 1),
+    // §22.1.2.4 String.raw as a VALUE — the direct call and the
+    // tagged-template form both lower per-shape; this row serves
+    // `.length` / `.name` / gOPD / not-a-constructor, and the
+    // dispatch arm runs the same torajs-meta kernel for a detached
+    // call (`const r = String.raw; r({raw:["a"]})`).
+    row("String", "raw", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

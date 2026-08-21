@@ -32,8 +32,7 @@ use super::ns_static_table::{
     __torajs_anyv_freeze, __torajs_anyv_from_entries, __torajs_anyv_get_proto_of_any,
     __torajs_anyv_is_extensible, __torajs_anyv_is_sealed, __torajs_anyv_prevent_extensions,
     __torajs_anyv_seal, __torajs_anyv_set_prototype_of, __torajs_date_now_static,
-    __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_throw_check, __torajs_throw_type_error,
-    DISPATCH, Disp,
+    __torajs_obj_is_frozen_any, __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp,
 };
 
 use super::{
@@ -214,7 +213,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             // statics-wedge lowering bakes — a pending throw from a
             // refusal path rides out with the undefined answer.
             Disp::IteratorFrom => crate::iter_from::__torajs_iterator_from(arg_at(argv, argc, 0)),
-            Disp::IteratorConcat => iterator_concat_pack(argv, argc),
+            Disp::IteratorConcat => super::ns_static_argv::iterator_concat_pack(argv, argc),
             Disp::IteratorZip { keyed: false } => {
                 crate::iter_zip::__torajs_iterator_zip(arg_at(argv, argc, 0), arg_at(argv, argc, 1))
             }
@@ -254,8 +253,9 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::JsonIsRawJson => {
                 crate::json_raw::__torajs_json_is_raw_json(arg_at(argv, argc, 0))
             }
-            Disp::JsonParse => json_parse_value(argv, argc),
-            Disp::JsonStringify => json_stringify_value(argv, argc),
+            Disp::StringRaw => super::ns_static_argv::string_raw_value(argv, argc),
+            Disp::JsonParse => super::ns_static_argv::json_parse_value(argv, argc),
+            Disp::JsonStringify => super::ns_static_argv::json_stringify_value(argv, argc),
             Disp::ReflectGet => super::ns_static_reflect::reflect_get(argv, argc),
             Disp::ReflectHas => super::ns_static_reflect::reflect_has(argv, argc),
             Disp::ReflectOwnKeys => super::ns_static_reflect::reflect_own_keys(argv, argc),
@@ -278,75 +278,6 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 super::ns_static_coerce::uri_kernel_value(*encode, *component, argv, argc)
             }
         }
-    }
-}
-
-/// §25.5.1 JSON.parse arm — parse + optional reviver walk. The
-/// reviver kernel gates IsCallable itself (non-callable →
-/// unfiltered root), so the split here is only an argv bounds
-/// guard.
-unsafe fn json_parse_value(argv: *const u64, argc: i64) -> u64 {
-    unsafe {
-        if argc >= 2 {
-            crate::json_reviver::__torajs_json_parse_reviver(
-                arg_at(argv, argc, 0),
-                arg_at(argv, argc, 1),
-            )
-        } else {
-            crate::json_any::__torajs_json_parse_any(arg_at(argv, argc, 0))
-        }
-    }
-}
-
-/// §25.5.2 JSON.stringify arm — value + replacer + space through the
-/// full kernel. The walk answers an owned Str (or the undefined-Str
-/// sentinel), which the slot box turns back into the §25.5.2
-/// undefined answer.
-unsafe fn json_stringify_value(argv: *const u64, argc: i64) -> u64 {
-    unsafe {
-        let v = arg_at(argv, argc, 0);
-        let s = if argc >= 2 {
-            // Slot 2 non-callable is the spec's own ignore (step 4),
-            // and slot 3 absent normalizes to the empty gap — so the
-            // one kernel serves every arity past the bare form.
-            let gap = crate::json_stringify::gap::__torajs_anyv_json_gap_str(arg_at(argv, argc, 2));
-            let out = crate::json_stringify::replacer::__torajs_anyv_json_stringify_full(
-                v,
-                arg_at(argv, argc, 1),
-                gap.cast_const(),
-                0,
-            );
-            __torajs_str_drop(gap.cast::<c_void>());
-            out
-        } else {
-            crate::json_stringify::__torajs_anyv_json_stringify(v)
-        };
-        crate::nanbox_encode::__torajs_anyv_box_str_slot(s.cast::<c_void>())
-    }
-}
-
-unsafe extern "C" {
-    /// torajs-arr — the fresh `Array<Any>` pack Iterator.concat's
-    /// kernel takes ownership of (mirrors the wedge lowering).
-    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
-    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
-}
-
-/// `Iterator.concat(...items)` through the value cell — pack the
-/// borrowed argv into a fresh rc-1 `Array<Any>` (each slot takes its
-/// own +1 stake) and hand it to the kernel, which owns it from there.
-unsafe fn iterator_concat_pack(argv: *const u64, argc: i64) -> u64 {
-    unsafe {
-        let n = argc.max(0);
-        let mut items = __torajs_arr_alloc_any(n as u64);
-        for i in 0..n {
-            let v = arg_at(argv, argc, i);
-            let t = crate::__torajs_anyv_unbox_tag(v);
-            let p = crate::__torajs_anyv_unbox_value(v);
-            crate::payload_rc_inc(t, p);
-            items = __torajs_arr_push_any(items as *mut c_void, t as u64, p as u64);
-        }
-        crate::iter_concat::__torajs_iterator_concat(items as *mut c_void)
     }
 }
 

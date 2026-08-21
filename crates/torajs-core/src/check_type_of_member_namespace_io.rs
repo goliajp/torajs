@@ -213,6 +213,15 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("String"), "fromCharCode" | "fromCodePoint") => {
             Type::Function(vec![Type::Number], Box::new(Type::String))
         }
+        // §22.1.2.4 String.raw as a VALUE. The call forms -- direct
+        // and tagged-template -- are claimed upstream by
+        // `check_type_of_call_string_raw`, so this arm only ever
+        // answers the value read (`String.raw.name`, `const r =
+        // String.raw`). One declared parameter to match the spec
+        // length; the substitutions are variadic and the cell's
+        // dispatch reads them off argv, which is why the signature
+        // never gates the call (the builtin-member-value rule).
+        (Type::Object("String"), "raw") => Type::Function(vec![Type::Any], Box::new(Type::String)),
         _ => return None,
     };
     let _ = obj_ty;

@@ -96,6 +96,9 @@ pub(super) enum Disp {
     /// order; absent trailing args take the spec defaults (year NaN,
     /// month 0, day 1, rest 0).
     DateUtc,
+    /// §22.1.2.4 String.raw — slot 0 is the template, everything
+    /// after it is a substitution, so the arm walks argv itself.
+    StringRaw,
     /// §22.1.2.1/.2 String.fromCharCode / fromCodePoint — variadic
     /// per-code mint + pairwise concat (the typed lowering's chain).
     StrFromCodes {
@@ -445,4 +448,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::PromiseWithResolversFn, // Promise.withResolvers — recv-first, §27.2.4.8
     Disp::PromiseKeyed { settled: false }, // Promise.allKeyed — recv-first, await-dictionary
     Disp::PromiseKeyed { settled: true }, // Promise.allSettledKeyed — recv-first, await-dictionary
+    Disp::StringRaw,
 ];
