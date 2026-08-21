@@ -48,13 +48,23 @@ bun-aot / bun-jsc / nodejs / go / rust 各自对位。perf push 跟 spec 推进
 **bench-tr 0 regression 是每 commit 的硬阈值**；每 N phase 做一次
 perf-focused push 拉新 case 进 SOTA 范围。
 
+**SOTA 的口径（2026-08-21 收紧，见 `P-PERF`）**：总墙钟领先**不算**
+SOTA，因为它会被我们的固定启动成本红利掩盖。判据是
+**work-only = `run_ms − startup_ms`**（`startup` case 就是纯固定成本）
+的对位领先，**外加** `startup` 与 `artifact_bytes` 两条独立指标各自
+对位领先。2026-08-21 实测：总口径领先 39/44，**work-only 口径 17/41
+是输的**——差别全在这里。
+
 **轴 C — implementation purity（自研）**
 
 终态：runtime + 编译器内核全自研。不嵌入 V8 / JSC / QuickJS。允许的
 外部依赖：
 
-- build-time 工具：LLVM / inkwell / cranelift（last-stable，pin 到具体
-  minor）
+- build-time 工具：**（2026-08-21 更新：inkwell / LLVM 已随 `eded11f`
+  退役，现在是自研 aarch64 后端 `torajs-codegen` 10,150 行 + 自研
+  e-graph `torajs-egraph` 22,923 行 + 线性扫描寄存器分配 + 自研 Mach-O
+  链接器 `torajs-link`。本条白名单目前无在用项。）** 若将来重新引入，
+  last-stable 且 pin 到具体 minor
 - runtime-side 系统接口：libc 唯一
 - Rust host crates（serde / tokio / 等）仅用在 host 编译期，不进
   runtime binary
@@ -96,8 +106,11 @@ retrofit**。这是 ceiling-first early framing 实践 — vision 现在落，�
 ### Hard requirements (kept from v1)
 
 1. **极致 perf** — beat bun/node on important benchmarks; hold them.
-2. **Compile not too slow** — first `tr run foo.ts` pays one full LLVM
-   compile (~50–90 ms); subsequent runs hit the cache.
+2. **Compile not too slow** — first `tr run foo.ts` pays one full
+   compile through the in-house pipeline (lower → e-graph → codegen →
+   link); subsequent runs hit the cache. （2026-08-21：原文写的
+   "one full LLVM compile (~50–90 ms)" 已陈旧，LLVM/inkwell 随
+   `eded11f` 退役；当前数字以 bench 的 `compile_ms` 列为准。）
 3. **Interpretable** — `tr run foo.ts` is the dev-loop entry point.
 4. **No GC, internal ARC** for shared-heap values via a universal heap
    header. Single-owner uses compile-time ownership inference. **强化
@@ -108,6 +121,12 @@ retrofit**。这是 ceiling-first early framing 实践 — vision 现在落，�
    Rust-flavoured idioms in user code.
 6. **Full TS coverage as a roadmap target** — every TS feature bun
    supports has a roadmap phase. Compile errors point at the phase.
+   **（2026-08-21 重述）**"anything bun runs" 是**方向，不是一份可穷尽
+   的清单**：bun 1.4 一次新增 8 个内建（`Bun.Image` / `WebView` /
+   `markdown` / `cron` / `Terminal` / `JSON5` / `XML` / `Archive`）并
+   把 Node 兼容推到 26.3.0（+1,517 条新过测试）。**可收敛的分母只有
+   test262 in-scope**（P-SURF 的 gate predicate）；bun 专有 API 面按
+   需求驱动进 Backlog，不进 v1.0 gate。
 7. **test262 in-scope 100%** as the v1.0 stretch target — gated by
    substrate completeness, not by pass-rate %.
 8. **比 bun 上限高得多的真多线程能力**（2026-06-08 追加）— 1 shared
@@ -263,16 +282,24 @@ P13 and the v1.0 gate and is derived from a test262 cluster census
 rather than from design intent — see its section for why the trunk
 needed a phase that measurement, not planning, produced.
 
+**并行的 cross-cutting track（不在 trunk 顺序里，但同样是 live）**：
+**`P-PERF`**（2026-08-21 立，轴 B 的当前执行面；见文件末尾该节）。
+轴 A 的 P-SURF 与轴 B 的 P-PERF 并行推进，按 `plan-state.md` 的 L3a
+顺序取顶项。
+
 **Per-phase acceptance has three parts (all required):**
 
 1. **Substrate checklist** — concrete spec sections / ssa-lower paths /
    runtime helpers landed. Phase-specific, listed below.
 2. **Bench gate** — bench-tr cross-runtime suite shows 0 regression
-   vs phase-start baseline. Untyped-tier additions don't gate; they
-   are correctness work.
+   vs phase-start baseline，**三项口径同时看：work-only（`run_ms −
+   startup_ms`）/ `startup` / `artifact_bytes`**（2026-08-21 起，见
+   `P-PERF`）。Untyped-tier additions don't gate; they are correctness
+   work.
 3. **自研 audit** — no new external dependencies introduced beyond the
-   foundation set (libc / LLVM / inkwell / cranelift). Any addition
-   requires explicit justification + last-stable pinning.
+   foundation set (libc；LLVM / inkwell / cranelift 已随 `eded11f`
+   退役，当前无在用项)。Any addition requires explicit justification +
+   last-stable pinning.
 
 Phase budgets are rough (1 item ≈ 1–3 days, 1 phase ≈ weeks). Planning
 estimates only; the **substrate checklist is the contract**.
@@ -7000,6 +7027,85 @@ Cross-runtime SOTA push happens every N phase as a perf-focused
 sprint, not at v1.0 gate. Detailed bench harness layout, oracle setup,
 and per-case budget table live in `docs/bench.md` (TODO: extract from
 v3 roadmap appendix).
+
+**报数口径（2026-08-21 起强制，见 `P-PERF`）**：每轮除总 `run_ms` 外
+必须同时报 **work-only（`run_ms − startup_ms`）**、`startup`、
+`artifact_bytes` 三项。只报总时间会让固定成本红利掩盖 per-op 差距。
+
+---
+
+## P-PERF — 竞品对位与固定成本（cross-cutting track，2026-08-21 立）
+
+> 起因：bun 1.4 把核心从 Zig 机械移植到 Rust 后发布。完整调研与全部
+> 实测证据在 `.claude/tasks/2026-08-21/bun-14-competitive-study.md`；
+> 本节只留**执行项与判据**。
+
+### 立项事实（全部 2026-08-21 实测，两轮互证）
+
+1. **总口径领先 39/44，work-only 口径输 17/41。** 差别是我们的固定
+   启动成本红利（tr 2.589 ms vs bun 5.202 ms）。
+2. **输的形状高度一致**：凡"在字节缓冲上批量扫描"的都输 ——
+   `regex-wireback-minlit` 1.84× / `json-stringify` 1.6× /
+   `regex-dfa-iflag` 1.55× / `regex-dfa-dotall` 1.54× / regex-dfa 全族
+   1.16–1.37× / `split-only` 方向性 3–4×。
+3. **赢的形状同样一致**：控制流 / 调用 / 分配 / 泛型单态化 / Promise
+   状态机 —— `popcount` 0.034× / `throw-catch` 0.061× /
+   `async-fn-call` 0.226× / `generic-pair-1m` 0.262×。**这一族是结构性
+   收益（AOT + 静态类型 + RC + 无预热），要保护并扩大取样。**
+4. **根因是 SIMD = 0**：`grep -rn 'core::arch|std::arch' crates/` 全仓
+   只命中 `torajs-syscall` 一处 `asm!`。现有"SIMD 快路径"注释描述的是
+   意图不是产物 —— `torajs-str/src/split/ops.rs:74` 是
+   `iter().filter().count()`（靠自动向量化），
+   `torajs-regex/src/vm/search.rs:291` 是 `iter().position()`
+   （短路循环，LLVM 不向量化）。对手侧 JSC 的 YARR 自 1.3.9 起用
+   ARM64 TBL2 / x86 PTEST 一次扫 16 字节做前缀拒绝。
+5. **artifact 的 25.7× 领先是"相对 bun 大"不是"我们小"**：hello-world
+   产物 2,490,457 B，其中 `__text` 1,978,520 B；44 条 case 的产物跨度
+   只有 17 KB → **99.3% 是固定 runtime**。同机 Rust hello world 469 KB。
+   2026-05-24 时 `fib40` 产物 351 KB，三个月长了 7×，**没有任何机制
+   在拦它**。根因：`torajs-link/src/archives_merge.rs` 的可达闭包是
+   **归档成员（`.o`）粒度**，而 `[profile.release] codegen-units = 1`
+   让每 crate 只出一个 `.o` —— 引用一个符号就拉进整个 crate。
+6. **启动比 native 地板慢 1.0–1.2 ms**（三轮一致：+0.99 / +1.04 /
+   +1.24 vs 同机 Rust hello world 1.351 ms）。而 bun 1.4 把 Linux 启动
+   从 10.9 降到 5.1 ms —— **对手正在我们的头号差异化轴上追赶**，
+   我们的启动优势从 3.1× 掉到 2.0×。
+
+### 执行项（顺序执行，不是候选清单）
+
+- **S1 — SIMD 字节扫描 substrate。** 先 Decomposition（走
+  `rules/torajs-perf-decomposition.md` 两步法，read-only agent 产
+  ground-truth 文档，±20% 对账），对象是 `regex-wireback-minlit`
+  （1.84×，最大且跨轮最稳）与 regex-dfa 一族。产物是一个
+  `torajs-simd` 石头层（aarch64 NEON），提供 `index_of_byte` /
+  `index_of_any` / `index_of`(memmem) / `count_byte`，然后把
+  `torajs-str` / `torajs-regex` / `json_builder` 切过去。
+  **验收 = work-only 口径下这一族由输转赢，且全语料矩阵零回归。**
+  纪律：先量再写 —— 不要重复"注释自称 SIMD 实际是标量"。
+- **S2 — 启动降到 native 地板。** 把 2.589 → 1.351 的 1.2 ms 差拆开。
+  **必须用消融法（删掉某一步量整体差值），禁止用计时器夹小步**
+  （`perf-decomposition` §1：优化构建里时钟读取不是屏障）。嫌疑面：
+  内建原型 / class metadata 注册在启动期跑、池预热、TLV 初始化。
+  **这是防守性工程，不是锦上添花。**
+- **S3 — artifact 函数粒度 dead-strip。** 链接器可达闭包从成员粒度走到
+  **section / symbol 粒度**，配合提高 runtime crate 的 `codegen-units`。
+  目标：hello-world 产物进百 KB 区间。顺带重开 `-Cpanic=immediate-abort`
+  那条被搁置的取舍（`scripts/release-build.sh` 头部记着"需要一个把 size
+  收益与热路径布局解耦的后续"，函数粒度 strip 正是另一条路径）。
+- **S4 — HARD RULE 机械化。** `[workspace.lints]` +
+  `clippy.toml` 的 `disallowed-{methods,types,macros}`，覆盖：runtime
+  crate 禁 `eprintln!` / `thread_local!`（AOT staticlib 下分别 SIGBUS /
+  静默零输出退出，见 `rules/torajs-build-and-port.md` B-2b）、refcount
+  必走 `emit_rc_inc/dec` helper（设计原则 §6.2，现在只是 doc 里的一条
+  grep）、新 global state 形态、`warnings = "deny"`。**收益是把三类
+  反复复发的坑变成编译错误。**
+- **S5 — bench gate 升级。** `artifact_bytes` 与 `startup` 升为独立
+  回归 gate（现在只是结果里的一行数字）；每轮报 work-only 口径。
+
+### 与轴 B 的关系
+
+本 track 是轴 B 的当前执行面。轴 A（P-SURF）与本 track **并行**，
+按 CLAUDE.md 的顺序执行计划取 L3a 顶项，不开二选一。
 
 ---
 
