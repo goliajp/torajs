@@ -46,8 +46,8 @@ use core::ptr::NonNull;
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::layout::{
-    STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF, STR_PAD_OFF, STR_POOL_PAYLOAD, block_size,
-    byte_capacity, packed_header_init,
+    STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF, STR_PAD_OFF, block_size, byte_capacity,
+    packed_header_init, pool_class_of,
 };
 use crate::pool;
 
@@ -96,7 +96,7 @@ impl StrBlock {
     /// [`Self::as_bytes_mut`] / [`Self::write_payload`] before
     /// exposing the block.
     ///
-    /// Pool fast-path: when `byte_capacity ≤ STR_POOL_PAYLOAD` and
+    /// Pool fast-path: when `byte_capacity` lands in a pool class and
     /// the pool has a free slot, the freshly-popped block's header
     /// + length fields are rewritten and the block returned.
     /// Otherwise falls through to a `malloc` sized via
@@ -124,14 +124,14 @@ impl StrBlock {
     /// P11.1-S2.1 — introduced when concat / coerce / etc grew
     /// encoding-aware. The pool fast-path applies whenever the
     /// requested `byte_capacity` (not the code unit count) fits in
-    /// `STR_POOL_PAYLOAD`; UTF-16 short strings still pool, just
+    /// the class payload; UTF-16 short strings still pool, just
     /// at half the code-unit count compared to Latin-1.
     #[inline]
     #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
     pub fn alloc_with_encoding(length: u32, is_latin1: bool) -> Self {
         let cap = byte_capacity(length, is_latin1);
-        if cap <= STR_POOL_PAYLOAD {
-            if let Some(p) = pool::pop() {
+        if let Some(class) = pool_class_of(cap) {
+            if let Some(p) = pool::pop(class) {
                 Self::init_header_and_length(p, length, is_latin1);
                 return Self(p);
             }
@@ -149,7 +149,7 @@ impl StrBlock {
 
     /// Free a Str block via the pool when eligible, otherwise via
     /// `libc::free`. Pool eligibility: `byte_capacity ≤
-    /// STR_POOL_PAYLOAD` AND the pool has a free slot AND the
+    /// a pool class AND that class has a free slot AND the
     /// block does not carry `FLAG_STATIC_LITERAL` (`.rodata`
     /// blocks must never be freed).
     ///
@@ -176,8 +176,10 @@ impl StrBlock {
         // STR_LEN_OFF mirrors runtime_str.c __TORAJS_STR_LEN.
         let length = unsafe { self.length() };
         let cap = byte_capacity(length, is_latin1);
-        if cap <= STR_POOL_PAYLOAD && pool::push(self.0) {
-            return;
+        if let Some(class) = pool_class_of(cap) {
+            if pool::push(class, self.0) {
+                return;
+            }
         }
         // SAFETY: block was `malloc(block_size(length, is_latin1))`-
         // allocated by `Self::alloc` (or a future caller follows the
@@ -519,7 +521,7 @@ mod tests {
         let _g = TEST_LOCK.lock().unwrap();
         pool::clear_for_test();
 
-        // STR_POOL_PAYLOAD = 16; ask for 128.
+        // largest pool class is 64 bytes; ask for 128.
         let block = StrBlock::alloc(128);
         assert_eq!(unsafe { block.length() }, 128);
 

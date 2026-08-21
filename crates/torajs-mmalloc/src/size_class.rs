@@ -164,11 +164,23 @@ impl Allocator {
 
     /// Round `size` up to the next size class index; returns
     /// `None` if `size` exceeds the largest bucket.
+    ///
+    /// Rotation 470 — this used to walk `SIZE_CLASSES` looking for
+    /// the first one that fits, and every alloc AND every free pays
+    /// it (`core::alloc_sized` / `core::free_sized`). The classes are
+    /// consecutive powers of two starting at 16, so the answer is
+    /// `ceil_log2(size) - 4` clamped at zero — two instructions, no
+    /// loop and no branch on the class count. `size_classes_are_the
+    /// _powers_of_two_this_assumes` pins the assumption and
+    /// `bucket_for_matches_a_linear_scan` checks every size across
+    /// the whole range against the walk this replaces.
+    #[inline]
     pub fn bucket_for(size: usize) -> Option<usize> {
-        if size == 0 {
-            return Some(0);
+        if size > SIZE_CLASSES[SIZE_CLASSES.len() - 1] {
+            return None;
         }
-        SIZE_CLASSES.iter().position(|&c| size <= c)
+        let ceil_log2 = usize::BITS - size.saturating_sub(1).leading_zeros();
+        Some((ceil_log2 as usize).saturating_sub(4))
     }
 
     /// Allocate `size` bytes from the appropriate size-class pool.
@@ -277,6 +289,28 @@ mod tests {
         assert_eq!(Allocator::bucket_for(17), Some(1));
         assert_eq!(Allocator::bucket_for(4096), Some(8));
         assert_eq!(Allocator::bucket_for(4097), None);
+    }
+
+    /// The bit-math `bucket_for` is only correct while the classes
+    /// are consecutive powers of two starting at 16.
+    #[test]
+    fn size_classes_are_the_powers_of_two_this_assumes() {
+        for (i, &c) in SIZE_CLASSES.iter().enumerate() {
+            assert_eq!(c, 16usize << i, "class {i}");
+        }
+    }
+
+    #[test]
+    fn bucket_for_matches_a_linear_scan() {
+        let linear = |size: usize| -> Option<usize> {
+            if size == 0 {
+                return Some(0);
+            }
+            SIZE_CLASSES.iter().position(|&c| size <= c)
+        };
+        for size in 0..=(SIZE_CLASSES[SIZE_CLASSES.len() - 1] + 64) {
+            assert_eq!(Allocator::bucket_for(size), linear(size), "size {size}");
+        }
     }
 
     #[test]

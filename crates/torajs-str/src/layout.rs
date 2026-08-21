@@ -61,16 +61,38 @@ pub const STR_PAD_OFF: usize = 12;
 /// intent (`.add(STR_DATA_OFF)` is "advance past the prefix").
 pub const STR_DATA_OFF: usize = STR_HDR_SIZE;
 
-/// Max payload **byte** count eligible for the small-Str pool.
-/// Strings whose `byte_capacity` ≤ this get rounded up to a uniform
-/// pool block; larger strings go straight to `malloc`. Picked to
-/// cover the dominant size class for split tokens, single-char
-/// concat results, short-int `Number.toString` results, etc.
+/// Payload **byte** sizes the small-Str pool recycles, smallest
+/// first. Consecutive powers of two, so [`pool_class_of`] is bit
+/// math and every block within a class is byte-identical (no risk of
+/// a small block being reused for a larger payload).
 ///
-/// Note: this threshold is in **bytes**, not code units — Latin-1
-/// short strings hold up to 16 code units in a pooled block,
-/// UTF-16 short strings hold up to 8 code units in the same block.
-pub const STR_POOL_PAYLOAD: u32 = 16;
+/// Rotation 470 — this was a single 16-byte class, and the two
+/// shapes that pay for a miss are ordinary: `"  Hello42 word  " + "x"`
+/// is 17 bytes and `JSON.stringify` of a four-field record is ~54,
+/// so both went to `malloc`/`free` every iteration. 16..64 bytes is
+/// where short JS strings live — words, keys, small records.
+///
+/// Note: these are **bytes**, not code units — a Latin-1 string
+/// holds twice as many code units per class as a UTF-16 one.
+pub const STR_POOL_PAYLOADS: [u32; 3] = [16, 32, 64];
+
+/// Largest payload eligible for the pool — anything past it goes
+/// straight to `malloc` at its exact size.
+pub const STR_POOL_PAYLOAD: u32 = STR_POOL_PAYLOADS[STR_POOL_PAYLOADS.len() - 1];
+
+/// Pool class holding a payload of `byte_capacity` bytes, or `None`
+/// when it is too large to pool. `ceil_log2(cap) - 4` clamped at
+/// zero, which is why the class sizes have to stay powers of two
+/// starting at 16 (`pool_classes_are_the_powers_of_two_this_assumes`
+/// pins that).
+#[inline]
+pub const fn pool_class_of(byte_capacity: u32) -> Option<usize> {
+    if byte_capacity > STR_POOL_PAYLOAD {
+        return None;
+    }
+    let ceil_log2 = u32::BITS - byte_capacity.saturating_sub(1).leading_zeros();
+    Some((ceil_log2 as usize).saturating_sub(4))
+}
 
 /// Number of LIFO slots in the small-Str pool. Bounded so a
 /// pathological "alloc 10 000 strings then drop them all" stays
@@ -133,10 +155,9 @@ pub const fn packed_header_init(is_latin1: bool) -> u64 {
 #[inline]
 pub const fn block_size(length: u32, is_latin1: bool) -> usize {
     let byte_capacity = byte_capacity(length, is_latin1);
-    let payload = if byte_capacity <= STR_POOL_PAYLOAD {
-        STR_POOL_PAYLOAD
-    } else {
-        byte_capacity
+    let payload = match pool_class_of(byte_capacity) {
+        Some(c) => STR_POOL_PAYLOADS[c],
+        None => byte_capacity,
     };
     STR_HDR_SIZE + payload as usize
 }
@@ -177,6 +198,20 @@ mod tests {
         assert_eq!(((w >> 48) & 0xFFFF) as u16, 0, "flags clear");
     }
 
+    /// `pool_class_of` is bit math over consecutive powers of two;
+    /// this pins the table it assumes and checks every capacity in
+    /// range lands in the smallest class that fits.
+    #[test]
+    fn pool_classes_are_the_powers_of_two_this_assumes() {
+        for (i, &p) in STR_POOL_PAYLOADS.iter().enumerate() {
+            assert_eq!(p, 16u32 << i, "class {i}");
+        }
+        for cap in 0..=(STR_POOL_PAYLOAD + 8) {
+            let want = STR_POOL_PAYLOADS.iter().position(|&p| cap <= p);
+            assert_eq!(pool_class_of(cap), want, "cap {cap}");
+        }
+    }
+
     #[test]
     fn block_size_short_latin1_round_up_to_pool_payload() {
         assert_eq!(block_size(0, true), STR_HDR_SIZE + 16);
@@ -187,7 +222,9 @@ mod tests {
 
     #[test]
     fn block_size_long_latin1_pay_exact_payload() {
-        assert_eq!(block_size(17, true), STR_HDR_SIZE + 17);
+        assert_eq!(block_size(17, true), STR_HDR_SIZE + 32);
+        assert_eq!(block_size(64, true), STR_HDR_SIZE + 64);
+        assert_eq!(block_size(65, true), STR_HDR_SIZE + 65);
         assert_eq!(block_size(100, true), STR_HDR_SIZE + 100);
         assert_eq!(block_size(1024, true), STR_HDR_SIZE + 1024);
     }
@@ -197,7 +234,7 @@ mod tests {
         // 8 UTF-16 code units = 16 bytes = pool slot.
         assert_eq!(block_size(8, false), STR_HDR_SIZE + 16);
         // 9 code units = 18 bytes = past pool cutoff.
-        assert_eq!(block_size(9, false), STR_HDR_SIZE + 18);
+        assert_eq!(block_size(9, false), STR_HDR_SIZE + 32);
         assert_eq!(block_size(100, false), STR_HDR_SIZE + 200);
     }
 
@@ -215,7 +252,8 @@ mod tests {
         assert_eq!(STR_LEN_OFF, 8);
         assert_eq!(STR_PAD_OFF, 12);
         assert_eq!(STR_DATA_OFF, 16);
-        assert_eq!(STR_POOL_PAYLOAD, 16);
+        assert_eq!(STR_POOL_PAYLOAD, 64);
+        assert_eq!(STR_POOL_PAYLOADS, [16, 32, 64]);
         assert_eq!(STR_POOL_SLOTS, 32);
         assert_eq!(STR_FLAG_IS_LATIN1, 0x0002);
     }

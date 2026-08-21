@@ -28,26 +28,30 @@
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
-use crate::layout::STR_POOL_SLOTS;
+use crate::layout::{STR_POOL_PAYLOADS, STR_POOL_SLOTS};
+
+/// One LIFO per payload class ([`STR_POOL_PAYLOADS`]).
+const N_CLASSES: usize = STR_POOL_PAYLOADS.len();
 
 /// LIFO slot array. `SLOTS[0..COUNT]` is occupied; the rest is
 /// undefined. `pop()` reads `SLOTS[COUNT - 1]` and decrements;
 /// `push()` writes `SLOTS[COUNT]` and increments.
-static SLOTS: [AtomicPtr<u8>; STR_POOL_SLOTS] = [const { AtomicPtr::new(ptr::null_mut()) }; 32];
-static COUNT: AtomicUsize = AtomicUsize::new(0);
+static SLOTS: [[AtomicPtr<u8>; STR_POOL_SLOTS]; N_CLASSES] =
+    [const { [const { AtomicPtr::new(ptr::null_mut()) }; STR_POOL_SLOTS] }; N_CLASSES];
+static COUNT: [AtomicUsize; N_CLASSES] = [const { AtomicUsize::new(0) }; N_CLASSES];
 
 /// Pop the most-recently-pushed block, or `None` if the pool is
 /// empty. The popped block's bytes are uninitialized — caller
 /// must write the header + len + payload before exposing it.
 #[inline]
-pub fn pop() -> Option<NonNull<u8>> {
-    let count = COUNT.load(Ordering::Relaxed);
+pub fn pop(class: usize) -> Option<NonNull<u8>> {
+    let count = COUNT[class].load(Ordering::Relaxed);
     if count == 0 {
         return None;
     }
     let new_count = count - 1;
-    COUNT.store(new_count, Ordering::Relaxed);
-    let p = SLOTS[new_count].swap(ptr::null_mut(), Ordering::Relaxed);
+    COUNT[class].store(new_count, Ordering::Relaxed);
+    let p = SLOTS[class][new_count].swap(ptr::null_mut(), Ordering::Relaxed);
     // `swap` to null clears the slot so a leaked debug walk
     // doesn't think the pool still owns it. `p` was non-null when
     // we pushed it, so `NonNull::new` is `Some` in non-corrupt
@@ -66,13 +70,13 @@ pub fn pop() -> Option<NonNull<u8>> {
 /// successful push, the block must not be touched until a later
 /// `pop()` retrieves it.
 #[inline]
-pub fn push(p: NonNull<u8>) -> bool {
-    let count = COUNT.load(Ordering::Relaxed);
+pub fn push(class: usize, p: NonNull<u8>) -> bool {
+    let count = COUNT[class].load(Ordering::Relaxed);
     if count >= STR_POOL_SLOTS {
         return false;
     }
-    SLOTS[count].store(p.as_ptr(), Ordering::Relaxed);
-    COUNT.store(count + 1, Ordering::Relaxed);
+    SLOTS[class][count].store(p.as_ptr(), Ordering::Relaxed);
+    COUNT[class].store(count + 1, Ordering::Relaxed);
     true
 }
 
@@ -82,7 +86,7 @@ pub fn push(p: NonNull<u8>) -> bool {
 /// state-dependent.
 #[inline]
 pub fn occupancy() -> usize {
-    COUNT.load(Ordering::Relaxed)
+    COUNT.iter().map(|c| c.load(Ordering::Relaxed)).sum()
 }
 
 /// Reset the pool to empty. Used between unit tests so a test that
@@ -95,10 +99,12 @@ pub fn occupancy() -> usize {
 /// holds them on behalf of `__torajs_str_free`).
 #[doc(hidden)]
 pub fn clear_for_test() {
-    for slot in SLOTS.iter() {
-        slot.store(ptr::null_mut(), Ordering::Relaxed);
+    for (class, slots) in SLOTS.iter().enumerate() {
+        for slot in slots.iter() {
+            slot.store(ptr::null_mut(), Ordering::Relaxed);
+        }
+        COUNT[class].store(0, Ordering::Relaxed);
     }
-    COUNT.store(0, Ordering::Relaxed);
 }
 
 #[cfg(test)]
@@ -120,7 +126,9 @@ mod tests {
     fn pop_empty_returns_none() {
         let _g = TEST_LOCK.lock().unwrap();
         clear_for_test();
-        assert!(pop().is_none());
+        for class in 0..N_CLASSES {
+            assert!(pop(class).is_none(), "class {class}");
+        }
     }
 
     #[test]
@@ -130,14 +138,14 @@ mod tests {
         let a = fresh_block(0x1000);
         let b = fresh_block(0x2000);
         let c = fresh_block(0x3000);
-        assert!(push(a));
-        assert!(push(b));
-        assert!(push(c));
+        assert!(push(0, a));
+        assert!(push(0, b));
+        assert!(push(0, c));
         assert_eq!(occupancy(), 3);
-        assert_eq!(pop().unwrap(), c);
-        assert_eq!(pop().unwrap(), b);
-        assert_eq!(pop().unwrap(), a);
-        assert!(pop().is_none());
+        assert_eq!(pop(0).unwrap(), c);
+        assert_eq!(pop(0).unwrap(), b);
+        assert_eq!(pop(0).unwrap(), a);
+        assert!(pop(0).is_none());
     }
 
     #[test]
@@ -145,11 +153,14 @@ mod tests {
         let _g = TEST_LOCK.lock().unwrap();
         clear_for_test();
         for i in 0..STR_POOL_SLOTS {
-            assert!(push(fresh_block(0x10000 + i)));
+            assert!(push(0, fresh_block(0x10000 + i)));
         }
         assert_eq!(occupancy(), STR_POOL_SLOTS);
-        assert!(!push(fresh_block(0xDEAD)));
-        assert_eq!(occupancy(), STR_POOL_SLOTS);
+        assert!(!push(0, fresh_block(0xDEAD)));
+        // a full class does not close the others; `occupancy` is the
+        // sum across classes, so the accepted push shows up there
+        assert!(push(1, fresh_block(0xBEEF)));
+        assert_eq!(occupancy(), STR_POOL_SLOTS + 1);
         // Pool is now full of fake integer-shaped pointers. They are
         // NOT valid memory — leaving them in the global pool causes
         // the next `StrBlock::alloc` (in this test binary, e.g. the

@@ -54,7 +54,8 @@
 //! - [`layout::packed_header_init`] = `1 | (Tag::Str as u64) << 32`
 //!   — a single 8-byte store sets `refcount=1, type_tag=0 (Str),
 //!   flags=0` at alloc time.
-//! - `STR_POOL_PAYLOAD` = 16, `STR_POOL_SLOTS` = 32. Same fixed
+//! - `STR_POOL_PAYLOADS` = [16, 32, 64] (one LIFO per class),
+//!   `STR_POOL_SLOTS` = 32 per class. Same fixed
 //!   block size class as the pre-rewrite C pool, so a Str block
 //!   freed by `__torajs_str_free` and re-popped by
 //!   `__torajs_str_alloc_pooled` round-trips bit-identical.
@@ -163,8 +164,8 @@ pub use json_parse::{
     __torajs_json_parse_string,
 };
 pub use layout::{
-    STR_DATA_OFF, STR_HDR_SIZE, STR_LEN_OFF, STR_POOL_PAYLOAD, STR_POOL_SLOTS, block_size,
-    packed_header_init,
+    STR_DATA_OFF, STR_HDR_SIZE, STR_LEN_OFF, STR_POOL_PAYLOAD, STR_POOL_PAYLOADS, STR_POOL_SLOTS,
+    block_size, packed_header_init,
 };
 pub use literals::{__torajs_null_to_str, __torajs_undefined_to_str};
 pub use lookup::{
