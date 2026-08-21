@@ -7,7 +7,9 @@
 
 use std::collections::HashMap;
 
-use torajs_core::ssa::{FuncId, IPred, InstKind, Module, Operand, Terminator, Type, ValueId};
+use torajs_core::ssa::{
+    FuncId, IPred, Inst, InstKind, Module, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId,
+};
 
 use super::SelfTailCallStats;
 
@@ -41,7 +43,7 @@ pub(super) struct TailSite {
 pub(super) fn match_sites(
     module: &Module,
     fi: usize,
-    throw_fid: FuncId,
+    throw_fid: Option<FuncId>,
     dec_fid: Option<FuncId>,
     user_params: &[ValueId],
     stats: &mut SelfTailCallStats,
@@ -63,11 +65,12 @@ pub(super) fn match_sites(
         if n < 3 {
             continue;
         }
-        let (call, tc, cmp) = (
-            &block.insts[n - 3],
-            &block.insts[n - 2],
-            &block.insts[n - 1],
-        );
+        // `call → <throw probe> → icmp`; the probe is one inst
+        // (legacy `call __torajs_throw_check()`) or two (inline
+        // `GlobalRef` + `Load`), so the call sits at n-3 or n-4.
+        let probe = tail_probe(&block.insts, throw_fid);
+        let call = &block.insts[probe.map_or(n - 3, |(ci, _)| ci)];
+        let cmp = &block.insts[n - 1];
         let InstKind::CallIndirect(sig, Operand::Value(fp), args) = &call.kind else {
             continue;
         };
@@ -104,12 +107,9 @@ pub(super) fn match_sites(
                     return None;
                 }
             }
-            // call → throw_check → icmp ne → cond_br(throw, ok)
+            // call → throw probe → icmp ne → cond_br(throw, ok)
             let r = call.result?;
-            let t = match (&tc.kind, tc.result) {
-                (InstKind::Call(f, a), Some(t)) if *f == throw_fid && a.is_empty() => t,
-                _ => return None,
-            };
+            let (_, t) = probe?;
             match (&cmp.kind, cmp.result) {
                 (InstKind::ICmp(IPred::Ne, Operand::Value(x), Operand::ConstI64(0)), Some(_))
                     if *x == t => {}
@@ -144,7 +144,7 @@ pub(super) fn match_sites(
             }
             Some(TailSite {
                 blk: bi,
-                call_at: n - 3,
+                call_at: probe.map_or(n - 3, |(ci, _)| ci),
                 cell,
             })
         })();
@@ -154,4 +154,37 @@ pub(super) fn match_sites(
         }
     }
     sites
+}
+
+/// `(call index, throw-flag value)` when the tail of `insts` is a
+/// throw probe followed by one more inst (the icmp). The probe is
+/// either the inline `GlobalRef(___torajs_throw_active)` + `Load`
+/// pair (`ssa_lower_emit_throw_check`, rotation 470) or the legacy
+/// `call __torajs_throw_check()`; the call under test sits just
+/// before it.
+fn tail_probe(insts: &[Inst], throw_fid: Option<FuncId>) -> Option<(usize, ValueId)> {
+    let n = insts.len();
+    if n >= 4 {
+        let (g, ld) = (&insts[n - 3], &insts[n - 2]);
+        if let (InstKind::GlobalRef(sym), Some(gv)) = (&g.kind, g.result) {
+            if sym == THROW_ACTIVE_SYM {
+                if let (InstKind::Load(Type::I64, Operand::Value(p), 0), Some(t)) =
+                    (&ld.kind, ld.result)
+                {
+                    if *p == gv {
+                        return Some((n - 4, t));
+                    }
+                }
+            }
+        }
+    }
+    if n >= 3 {
+        let tc = &insts[n - 2];
+        if let (InstKind::Call(f, a), Some(t)) = (&tc.kind, tc.result) {
+            if Some(*f) == throw_fid && a.is_empty() {
+                return Some((n - 3, t));
+            }
+        }
+    }
+    None
 }

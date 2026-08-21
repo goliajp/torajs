@@ -103,12 +103,22 @@ unsafe extern "C" {
 // ============================================================
 
 /// Process-global "is a throw in flight?" flag. Set to 1 by
-/// [`__torajs_throw_set`]; read by [`__torajs_throw_check`];
-/// cleared back to 0 by [`__torajs_throw_take`]. The runtime is
-/// single-threaded so a relaxed atomic load/store is sufficient
-/// — the AtomicI64 wrapper exists for Rust's safety story (no
-/// `static mut`), not for actual concurrency.
-pub(crate) static THROW_ACTIVE: AtomicI64 = AtomicI64::new(0);
+/// [`__torajs_throw_set`]; cleared back to 0 by
+/// [`__torajs_throw_take`]. The runtime is single-threaded so a
+/// relaxed atomic load/store is sufficient — the AtomicI64 wrapper
+/// exists for Rust's safety story (no `static mut`), not for actual
+/// concurrency.
+///
+/// Exported under a C name on purpose: user code reads it INLINE
+/// (`ssa_lower_emit_throw_check` emits `GlobalRef` + `Load` against
+/// `___torajs_throw_active`) instead of calling
+/// [`__torajs_throw_check`]. A throw check sits after every call
+/// that may raise, so on a hot loop the call itself was the cost —
+/// rotation 470 measured it at ~10% of `class-method` (391 of ~3700
+/// leaf samples). The function stays for runtime-side callers.
+#[unsafe(no_mangle)]
+pub static __torajs_throw_active: AtomicI64 = AtomicI64::new(0);
+pub(crate) use __torajs_throw_active as THROW_ACTIVE;
 
 /// Dynamic tag of the in-flight throw value. `AnySlotTag` discrim
 /// (0=Null, 1=Bool, 2=I64, 3=F64, 4=Heap, 5=Undef). Catch sites

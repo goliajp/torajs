@@ -19,10 +19,34 @@
 //! numerous per-call-site invocations from the various lower_expr call
 //! arms need zero edits.
 
-use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{FuncId, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
+    /// Inline read of the in-flight-throw flag — `GlobalRef` to the
+    /// C-named static `torajs-throw` exports + one `Load`, answering
+    /// the I64 the old `__torajs_throw_check()` call answered. A
+    /// throw check follows every call that may raise, so on a hot
+    /// loop the call itself was the cost (~10% of `class-method`,
+    /// rotation 470). The e-graph never CSEs a `Load` across calls
+    /// (only arithmetic is pure), so every check still observes the
+    /// latest write; `self_tail_call`'s shape matcher accepts this
+    /// two-inst probe alongside the legacy call.
+    pub(crate) fn emit_throw_active_load(&mut self) -> ValueId {
+        let flag_ptr = self.f.append_inst(
+            self.cur_block,
+            InstKind::GlobalRef(THROW_ACTIVE_SYM.to_string()),
+            Type::Ptr,
+            None,
+        );
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(flag_ptr), 0),
+            Type::I64,
+            None,
+        )
+    }
+
     /// load the throw_active flag; if non-zero, branch to the innermost
     /// active try-block's catch (via `try_stack`) or — if no try is
     /// active in this fn — emit drops + ret a sentinel so the caller's
@@ -64,12 +88,7 @@ impl<'a> LowerCtx<'a> {
                 return;
             }
         }
-        let active = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(self.intrinsics.throw_check, vec![]),
-            Type::I64,
-            None,
-        );
+        let active = self.emit_throw_active_load();
         let cmp = self.f.append_inst(
             self.cur_block,
             InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),

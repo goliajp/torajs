@@ -43,6 +43,8 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_call_class_synth_reify as reify;
 
+mod class_ref;
+
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
     callee: ExprId,
@@ -96,7 +98,7 @@ pub(crate) fn try_lower(
         n if n.starts_with("__torajs_ctor_ret_") => {
             crate::ssa_lower_call_class_synth_ctorret::try_lower(ctx, n, args)
         }
-        "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
+        "__torajs_my_class_ref" => class_ref::try_lower_my_class_ref(ctx, args),
         // T-12 §13.2.8.4 GetTemplateObject — the tagged-template
         // desugar's synthetic site call, per-site cached at runtime.
         "__torajs_template_object" => crate::ssa_lower_call_template_object::try_lower(ctx, args),
@@ -461,34 +463,4 @@ fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
         cur_block,
         InstKind::Call(ctorany_register, vec![class_op, Operand::Value(twin_addr)]),
     );
-}
-
-fn try_lower_my_class_ref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 1 {
-        return None;
-    }
-    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
-        return None;
-    };
-    let cname = cname.clone();
-    let cur_block = ctx.cur_block;
-    if let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() {
-        let class_get = ctx.intrinsics.class_get;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(class_get, vec![Operand::ConstI64(tag as i64)]),
-            Type::Any,
-            None,
-        );
-        return Some(Operand::Value(v));
-    }
-    // No tag → return ANY_UNDEF Any-box as fallback.
-    let any_box = ctx.intrinsics.any_box;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(any_box, vec![Operand::ConstI64(5), Operand::ConstI64(0)]),
-        Type::Any,
-        None,
-    );
-    Some(Operand::Value(v))
 }

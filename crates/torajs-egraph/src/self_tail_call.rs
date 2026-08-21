@@ -76,9 +76,9 @@ pub struct SelfTailCallStats {
 
 pub fn eliminate_self_tail_calls(module: &mut Module) -> SelfTailCallStats {
     let mut stats = SelfTailCallStats::default();
-    let Some(throw_fid) = find_func(module, THROW_CHECK) else {
-        return stats;
-    };
+    // Legacy probe shape only; the inline `GlobalRef` + `Load` probe
+    // needs no fid (match_shape::tail_probe).
+    let throw_fid = find_func(module, THROW_CHECK);
     let inc_fid = find_func(module, ANYV_INC);
     let dec_fid = find_func(module, ANYV_DEC);
     for fi in 0..module.funcs.len() {
@@ -113,7 +113,7 @@ fn closure_entry_params(module: &Module, fi: usize) -> Option<Vec<ValueId>> {
 fn rewrite_function(
     module: &mut Module,
     fi: usize,
-    throw_fid: FuncId,
+    throw_fid: Option<FuncId>,
     inc_fid: Option<FuncId>,
     dec_fid: Option<FuncId>,
     stats: &mut SelfTailCallStats,

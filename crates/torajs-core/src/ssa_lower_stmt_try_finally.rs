@@ -64,12 +64,7 @@ fn emit_o5_suspend(ctx: &mut LowerCtx) -> (ValueId, ValueId, ValueId) {
     let saved_active_slot = ctx.alloca_in_entry(Type::I64, Some("__o5_saved_active"));
     let saved_tag_slot = ctx.alloca_in_entry(Type::I64, Some("__o5_saved_tag"));
     let saved_value_slot = ctx.alloca_in_entry(Type::I64, Some("__o5_saved_value"));
-    let snap_active = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.throw_check, vec![]),
-        Type::I64,
-        None,
-    );
+    let snap_active = ctx.emit_throw_active_load();
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(
@@ -114,12 +109,7 @@ fn emit_o5_restore(
     saved_tag_slot: ValueId,
     saved_value_slot: ValueId,
 ) {
-    let probe_active = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.throw_check, vec![]),
-        Type::I64,
-        None,
-    );
+    let probe_active = ctx.emit_throw_active_load();
     let probe_cmp = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(
@@ -193,12 +183,7 @@ fn emit_o5_restore(
 /// or emit drops + a zero-sentinel Ret at fn boundary; leaves
 /// `cur_block` on the no-throw continuation block
 fn emit_throw_propagate(ctx: &mut LowerCtx) {
-    let active = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.throw_check, vec![]),
-        Type::I64,
-        None,
-    );
+    let active = ctx.emit_throw_active_load();
     let throw_cmp = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),

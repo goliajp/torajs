@@ -31,6 +31,17 @@ mod op_impls;
 mod type_def;
 mod visit;
 
+/// Mach-O names of the two runtime statics user code reads INLINE
+/// (`GlobalRef` + `Load`) instead of calling an accessor — rotation
+/// 470, each such call was a measurable slice of a method-call loop:
+/// the in-flight-throw flag `torajs_throw::__torajs_throw_active`
+/// (read after every call that may raise; the e-graph's
+/// self-tail-call matcher anchors on it) and the live-WeakRef-
+/// observer count `torajs_rc::__torajs_weakref_active` (read before
+/// a class instance dies).
+pub const THROW_ACTIVE_SYM: &str = "___torajs_throw_active";
+pub const WEAKREF_ACTIVE_SYM: &str = "___torajs_weakref_active";
+
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::demo_fib40;
 pub use module_methods::{
