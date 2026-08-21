@@ -36,6 +36,7 @@ pub mod object_is;
 pub mod parse;
 pub mod predicates;
 pub mod str_bridge;
+pub mod to_index;
 pub mod to_str;
 pub mod tostring;
 

@@ -51,19 +51,26 @@ pub(crate) fn try_lower(
     if ns != "BigInt" {
         return None;
     }
-    let bits_op = ctx.lower_expr(args[0]);
-    let bits_ty = ctx.operand_ty(&bits_op);
-    let bits_i64 = match bits_ty {
-        Type::I64 => bits_op,
-        Type::F64 => {
-            let cur_block = ctx.cur_block;
-            Operand::Value(
-                ctx.f
-                    .append_inst(cur_block, InstKind::FpToSi(bits_op), Type::I64, None),
-            )
-        }
-        _ => bits_op,
-    };
+    // §21.2.2.{1,2} step 1 is `ToIndex(bits)`, which is a coercion
+    // followed by a range test — so every operand shape reaches it,
+    // and the test runs on the Number rather than on whatever an
+    // early truncation left behind. The old `FpToSi` did neither:
+    // `asIntN(Infinity, 0n)` and `asIntN(2**53, 0n)` should be
+    // RangeErrors and were not, and `asIntN(NaN, 255n)` should be
+    // `0n` (ToIndex(NaN) = 0) and answered `255n`.
+    let bits_num = ctx.lower_to_number_operand(args[0]);
+    let bits_f64 = ctx.coerce_to_f64(bits_num);
+    let cur_block = ctx.cur_block;
+    let bits_i64 = Operand::Value(ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.num_to_index, vec![bits_f64]),
+        Type::I64,
+        None,
+    ));
+    // §13.3.6.1 evaluates every argument before the call, and step 1
+    // runs after that — so the RangeError propagates here, between
+    // the operands and the kernel.
+    ctx.emit_throw_check(None);
     let val_op = ctx.lower_expr(args[1]);
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);

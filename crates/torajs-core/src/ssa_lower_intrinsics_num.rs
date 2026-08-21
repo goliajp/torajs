@@ -35,6 +35,9 @@ pub(crate) struct NumIds {
     pub num_to_precision_i: FuncId,
     pub num_to_locale_f: FuncId,
     pub num_to_locale_i: FuncId,
+    /// §7.1.22 `ToIndex` — the range test an index-like parameter
+    /// runs over its Number before it becomes an index.
+    pub num_to_index: FuncId,
     pub num_parse_int: FuncId,
     pub num_parse_float: FuncId,
     pub num_is_integer_f: FuncId,
@@ -122,6 +125,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_num_to_locale_i",
             &[Type::I64],
             Type::Str,
+        ),
+        num_to_index: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_to_index",
+            &[Type::F64],
+            Type::I64,
         ),
         num_parse_int: declare_intrinsic(
             module,

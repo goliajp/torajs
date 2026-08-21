@@ -122,6 +122,7 @@ pub(crate) struct Intrinsics {
     pub(crate) num_to_precision_i: FuncId,
     pub(crate) num_to_locale_f: FuncId,
     pub(crate) num_to_locale_i: FuncId,
+    pub(crate) num_to_index: FuncId,
     pub(crate) num_parse_int: FuncId,
     pub(crate) num_parse_float: FuncId,
     pub(crate) num_is_integer_f: FuncId,
