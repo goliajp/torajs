@@ -14,6 +14,9 @@
 //!   slot cannot take an owned string and every reader decodes the
 //!   slots by the view layout (`a.push("z"+"w"); a.join("+")`
 //!   SIGSEGV'd);
+//! - a REBIND of the binding itself — `X = other` — because the slot
+//!   then has to take whatever the program stores into it later, and
+//!   an `Arr<Substr>` slot takes only a fresh split product;
 //! - an ESCAPE of the whole array as a bare value — a call or `new`
 //!   argument, the init of another binding, the value of an
 //!   assignment, an array or object literal element, a return or
@@ -184,8 +187,15 @@ fn expr_writes(ast: &Ast, eid: ExprId, x: &str) -> bool {
         Expr::Assign { target, value } => {
             let target_is_through_x =
                 matches!(ast.get_expr(*target), Expr::Index { obj, .. } if is_x(*obj));
+            // the binding itself reassigned (`x = [...]` / `x = other`):
+            // its slot has to take whatever the program stores later,
+            // and an `Arr<Substr>` slot takes only a fresh split
+            // product — so it is typed `Arr<Str>` from the start and
+            // every value entering it is owned (plan-state 468-02)
+            let rebound = is_x(*target);
             // the whole array stored anywhere: an escape
             target_is_through_x
+                || rebound
                 || is_bare(ast, *value, x)
                 || expr_writes(ast, *target, x)
                 || expr_writes(ast, *value, x)

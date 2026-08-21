@@ -213,7 +213,7 @@ fn lower_global_assign(
         apply_borrow_rc_inc(ctx, &v, value);
     }
     let v_ty = ctx.operand_ty(&v);
-    if !global_coercion_compatible(slot_ty, v_ty) {
+    if !global_coercion_compatible(ctx, slot_ty, v_ty) {
         panic!(
             "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}{}",
             mismatch_hint(&slot_ty, &v_ty),
@@ -225,7 +225,7 @@ fn lower_global_assign(
     let v = if slot_ty == Type::Any && v_ty != Type::Any {
         ctx.box_to_any_from_expr(value, v)
     } else {
-        coerce_for_global(ctx, slot_ty, v_ty, v)
+        coerce_for_global(ctx, slot_ty, v_ty, v, value)
     };
     let cur_block = ctx.cur_block;
     let ptr = ctx

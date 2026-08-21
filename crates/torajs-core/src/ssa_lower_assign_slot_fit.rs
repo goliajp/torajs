@@ -7,9 +7,70 @@
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::LowerCtx;
-pub(super) fn global_coercion_compatible(slot_ty: Type, v_ty: Type) -> bool {
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+/// An `Arr<Substr>` value (a split product, or an alias of one) meeting
+/// an `Arr<Str>` slot. The views cannot live in that slot — its readers
+/// decode owned cells — so the value is converted at the boundary by
+/// [`coerce_arr_views_to_owned`] (rotation 469, plan-state 468-02; the
+/// assignment face of the rotation-468 copy-out rule).
+pub(super) fn arr_views_into_owned_slot(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
+    matches!((slot_ty, v_ty), (Type::Arr(s), Type::Arr(v))
+        if ctx.arr_layouts[s.0 as usize] == Type::Str
+            && ctx.arr_layouts[v.0 as usize] == Type::Substr)
+}
+
+/// Make an `Arr<Substr>` value fit an `Arr<Str>` slot. A fresh product
+/// (the rhs transfers ownership — `b = s.split(" ")`) is materialized
+/// in place: every view becomes an owned string and the same cell is
+/// stored. A borrowed one (an alias the borrow inc above staked) is
+/// copied out through the slice kernel and the copy adopted — views
+/// never leave their split block — then the stake on the source is
+/// handed back, since the slot holds the copy.
+pub(super) fn coerce_arr_views_to_owned(
+    ctx: &mut LowerCtx<'_>,
+    slot_ty: Type,
+    v_ty: Type,
+    v: Operand,
+    value: ExprId,
+) -> Operand {
+    let cur_block = ctx.cur_block;
+    if ctx.expr_transfers_ownership(value) {
+        let owned = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.arr_substr_materialize_owned, vec![v]),
+            slot_ty,
+            None,
+        );
+        return Operand::Value(owned);
+    }
+    let len = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::I64, v.clone(), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let copy = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_slice,
+            vec![v.clone(), Operand::ConstI64(0), Operand::Value(len)],
+        ),
+        slot_ty,
+        None,
+    );
+    ctx.emit_adopt_copied_range(
+        Operand::Value(copy),
+        Type::Substr,
+        Operand::ConstI64(0),
+        Operand::Value(len),
+    );
+    ctx.emit_drop_value(v, v_ty);
+    Operand::Value(copy)
+}
+
+pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty: Type) -> bool {
     v_ty == slot_ty
+        || arr_views_into_owned_slot(ctx, slot_ty, v_ty)
         // chunk 809 — an Any slot admits everything (boxed at the caller)
         || slot_ty == Type::Any
         || (slot_ty == Type::F64 && v_ty == Type::I64)
@@ -29,8 +90,11 @@ pub(super) fn coerce_for_global(
     slot_ty: Type,
     v_ty: Type,
     v: Operand,
+    value: ExprId,
 ) -> Operand {
-    if slot_ty == Type::F64 && v_ty == Type::I64 {
+    if arr_views_into_owned_slot(ctx, slot_ty, v_ty) {
+        coerce_arr_views_to_owned(ctx, slot_ty, v_ty, v, value)
+    } else if slot_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
         ctx.coerce_any_to_number(v, slot_ty)
@@ -49,7 +113,8 @@ pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type
         || (snap_ty == Type::F64 && v_ty == Type::I64)
         || (matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
         || (snap_ty == Type::Str && v_ty == Type::Any)
-        || (snap_ty == Type::Str && v_ty == Type::Substr);
+        || (snap_ty == Type::Str && v_ty == Type::Substr)
+        || arr_views_into_owned_slot(ctx, snap_ty, v_ty);
     if direct_compatible {
         return;
     }
@@ -68,7 +133,6 @@ pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type
     if matches!(snap_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)) {
         return;
     }
-    let _ = ctx;
     panic!(
         "ssa-lower: assignment to `{name}` mismatch — slot is {snap_ty:?} but value is {v_ty:?}{}",
         mismatch_hint(&snap_ty, &v_ty),
@@ -100,7 +164,9 @@ pub(super) fn coerce_for_local(
     v: Operand,
     value: ExprId,
 ) -> Operand {
-    if snap_ty == Type::Any && v_ty != Type::Any {
+    if arr_views_into_owned_slot(ctx, snap_ty, v_ty) {
+        coerce_arr_views_to_owned(ctx, snap_ty, v_ty, v, value)
+    } else if snap_ty == Type::Any && v_ty != Type::Any {
         // S2.28 (RFC 20260727-dstr-assignment) — the eid-aware box,
         // same as the global lane and the let-init lane: a typed OOB
         // element read (`b = t[i]` past the end) carries the
