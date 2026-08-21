@@ -219,11 +219,12 @@ fn run_monotone_accept(dfa: &DfaProgram, hay: &[u8], state: u32, mut cursor: usi
     // accept, and the destination IS this state), so one compare
     // against the precomputed constant keeps the inner loop at
     // load + cmp per byte — same shape as the pre-#9 `nxt != state`.
+    // Rotation 470 — `state` is fixed for this whole loop, so its row
+    // is taken once rather than re-indexed per byte.
     let self_packed = state | TX_ACCEPT_BIT | TX_MONOTONE_BIT;
+    let tx = &dfa.states[state as usize].transitions;
     while cursor < hay.len() {
-        let b = hay[cursor];
-        let nxt = dfa.states[state as usize].transitions[b as usize];
-        if nxt != self_packed {
+        if tx[hay[cursor] as usize] != self_packed {
             break;
         }
         cursor += 1;
@@ -311,10 +312,20 @@ fn dfa_search_from(
     hay: &[u8],
     start: u32,
 ) -> Option<usize> {
+    // Rotation 470 — two shapes the byte loop used to carry per step.
+    // `dfa.states[state]` was written out three times, so LLVM had to
+    // prove the three indexes equal and the bounds checks redundant;
+    // the row is taken once per step now. And the accumulator was an
+    // `Option<usize>`, which has no niche and so cost two word stores
+    // on every accept; it is a plain index with `NO_ACCEPT` standing
+    // for "none" — a haystack can never be `usize::MAX` bytes long, so
+    // the sentinel is unreachable as a real position.
+    const NO_ACCEPT: usize = usize::MAX;
+    let states: &[DfaState] = &dfa.states;
     let mut state = start;
-    let mut last_accept: Option<usize> = None;
-    if dfa.states[state as usize].is_accept {
-        last_accept = Some(0);
+    let mut last_accept = NO_ACCEPT;
+    if states[state as usize].is_accept {
+        last_accept = 0;
     }
     let mut alive = true;
     // Round 3 Phase B attack #R-E — hoist `any_accept_before_byte` into
@@ -336,6 +347,7 @@ fn dfa_search_from(
     let mut cursor: usize = 0;
     while cursor < hay.len() {
         let byte = hay[cursor];
+        let st = &states[state as usize];
         // chunk 8.6b — zero-width accept before stepping byte at
         // `cursor`. Patterns like `/\bword\b/`: the trailing `\b`
         // resolves against the byte the cursor is about to consume
@@ -344,8 +356,8 @@ fn dfa_search_from(
         // byte_step. The BFS precomputes `accept_before_byte` per state
         // per byte so the executor can record the accept here at
         // `cursor` (not `cursor + utf8_len`).
-        if any_aab && mask_get(&dfa.states[state as usize].accept_before_byte, byte) {
-            last_accept = Some(cursor);
+        if any_aab && mask_get(&st.accept_before_byte, byte) {
+            last_accept = cursor;
         }
         // v4 (regex-024 regression fix) — try ordinary 256-way
         // transitions table dispatch FIRST. A non-zero next state
@@ -361,15 +373,15 @@ fn dfa_search_from(
         // (state 0 never accepts). The monotone probe nests inside
         // the accept branch — monotone implies accept — so the
         // non-accept step pays a single untaken branch.
-        let packed = dfa.states[state as usize].transitions[byte as usize];
+        let packed = st.transitions[byte as usize];
         if packed != 0 {
             state = packed & TX_STATE_MASK;
             cursor += 1;
             if packed & TX_ACCEPT_BIT != 0 {
-                last_accept = Some(cursor);
+                last_accept = cursor;
                 if packed & TX_MONOTONE_BIT != 0 {
                     cursor = run_monotone_accept(dfa, hay, state, cursor);
-                    last_accept = Some(cursor);
+                    last_accept = cursor;
                 }
             }
             continue;
@@ -388,7 +400,7 @@ fn dfa_search_from(
         // (\p{L})/u`'s post-`\d+`-loop), only bytes the ordinary
         // byte_step couldn't claim arrive here — typically non-ASCII
         // UTF-8 lead bytes whose full cp is a K-PROPERTY member.
-        let pc = dfa.states[state as usize].pending_class;
+        let pc = st.pending_class;
         if pc.active == 0 {
             // No pending fallback — the dead route is final.
             state = 0;
@@ -410,8 +422,8 @@ fn dfa_search_from(
             alive = false;
             break;
         }
-        if dfa.states[state as usize].is_accept {
-            last_accept = Some(cursor);
+        if states[state as usize].is_accept {
+            last_accept = cursor;
         }
     }
     // chunk 8.6a — after consuming the haystack, if the live state's
@@ -420,10 +432,10 @@ fn dfa_search_from(
     // beats any earlier mid-byte accept since leftmost-longest wants
     // the longest match seen, and the at-end accept is by definition
     // the last `is_accept`-ish observation.
-    if alive && dfa.states[state as usize].is_accept_at_end {
-        last_accept = Some(hay.len());
+    if alive && states[state as usize].is_accept_at_end {
+        last_accept = hay.len();
     }
-    last_accept
+    (last_accept != NO_ACCEPT).then_some(last_accept)
 }
 
 #[cfg(test)]
