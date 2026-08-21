@@ -10,7 +10,7 @@
 //! `cargo run --release -p torajs-str --example split_micro -- 20000000`
 
 use torajs_rc::FLAG_STATIC_LITERAL;
-use torajs_str::{StrBlock, __torajs_split_block_free_push, __torajs_str_split};
+use torajs_str::{__torajs_split_block_free_push, __torajs_str_split, StrBlock};
 
 // rc_dec's hit-zero hook lives in torajs-weak, which this binary does
 // not link; the kernel under test never reaches it.

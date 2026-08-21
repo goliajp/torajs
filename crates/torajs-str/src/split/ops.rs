@@ -2,9 +2,12 @@
 //!
 //! `__torajs_str_split` builds the single-block Arr-with-inline-
 //! substrs layout described in [`crate::split`]'s module docs.
-//! The pool fast-path lives in [`crate::split::pool`]; this file
-//! handles the build (header init + per-segment substr fill) and
-//! the iterator surface (`init` / `drop`; `next` is still in IR).
+//! The pool fast-path lives in [`crate::split::pool`], the token
+//! count for the general build in [`crate::split::count`], and the
+//! single-pass lane for a Latin-1 string cut on one byte in
+//! [`crate::split::byte_sep`]; this file holds the entry, the cell /
+//! header writers and the general two-pass fill. The iterator
+//! surface is in [`crate::split::iter`].
 //!
 //! Bit-for-bit parity with the pre-rewrite C
 //! `__torajs_str_split` is required — the SPLIT_BLOCK + inline-
@@ -18,6 +21,8 @@ use core::ptr::NonNull;
 use torajs_rc::{__torajs_rc_inc, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader, Tag};
 
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::split::byte_sep;
+use crate::split::count::out_count;
 use crate::split::pool::{self, ARR_HDR_SIZE};
 use crate::substr::{
     FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF, SUBSTR_SIZE,
@@ -61,72 +66,6 @@ fn widen_latin1_to_utf16(src: &[u8]) -> alloc::vec::Vec<u8> {
 }
 
 // ============================================================
-// Pure-Rust cores
-// ============================================================
-
-/// Count non-overlapping matches of `sep` in `s`. Used to size
-/// the split block. Empty `sep` and `sep.len() > s.len()` are
-/// handled by the caller — this fn assumes `1 <= sep.len() <= s.len()`.
-///
-/// `stride` is 1 for Latin-1 / 2 for UTF-16 so candidate positions
-/// stay aligned with the haystack's code-unit grid.
-#[inline]
-fn count_matches(s: &[u8], sep: &[u8], stride: usize) -> u64 {
-    // V0.2 P14-S6 — single-byte-needle SIMD fast path. Latin-1
-    // haystack with 1-byte separator (the dominant `" "`, `","`,
-    // `"\n"`, `";"` shapes) collapses to a byte-equality reduce
-    // that LLVM auto-vectorizes to NEON `pcmpeq + popcount` on
-    // ARM64. `bench/cases/split-only-100k` (` `-separated short
-    // string) lives on this path.
-    if stride == 1 && sep.len() == 1 {
-        let target = sep[0];
-        return s.iter().filter(|&&b| b == target).count() as u64;
-    }
-    if sep.len() == stride {
-        // Single code-unit needle, UTF-16 path (or anything where
-        // sep.len() matches stride exactly): same logic as the
-        // 1-byte path but element comparison is multi-byte.
-        let mut hits = 0u64;
-        let mut i = 0;
-        while i + sep.len() <= s.len() {
-            if &s[i..i + sep.len()] == sep {
-                hits += 1;
-            }
-            i += stride;
-        }
-        return hits;
-    }
-    let limit = s.len() - sep.len();
-    let mut hits = 0u64;
-    let mut i = 0;
-    while i <= limit {
-        if &s[i..i + sep.len()] == sep {
-            hits += 1;
-            i += sep.len();
-        } else {
-            i += stride;
-        }
-    }
-    hits
-}
-
-/// Compute the output token count for `s.split(sep)`.
-/// Special cases:
-/// - `sep.len() == 0` → code-unit count of `s` (per-char split)
-/// - `sep.len() > s.len()` → `1` (no match, whole-s singleton)
-/// - otherwise → `count_matches(s, sep, stride) + 1`
-#[inline]
-pub fn out_count(s: &[u8], sep: &[u8], stride: usize) -> u64 {
-    if sep.is_empty() {
-        (s.len() / stride) as u64
-    } else if sep.len() > s.len() {
-        1
-    } else {
-        count_matches(s, sep, stride) + 1
-    }
-}
-
-// ============================================================
 // Inline substr writer
 // ============================================================
 
@@ -152,7 +91,7 @@ pub fn out_count(s: &[u8], sep: &[u8], stride: usize) -> u64 {
 /// Str heap pointer (the rc_inc call dereferences its header when
 /// `PARENT_RC`).
 #[inline]
-unsafe fn split_init_inline<const PARENT_RC: bool>(
+pub(super) unsafe fn split_init_inline<const PARENT_RC: bool>(
     substr_slot: *mut u8,
     arr_ptr_slot: *mut *mut u8,
     parent: *const u8,
@@ -195,7 +134,7 @@ unsafe fn split_init_inline<const PARENT_RC: bool>(
 ///
 /// `block` must point at a writable region ≥ `ARR_HDR_SIZE`.
 #[inline]
-unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
+pub(super) unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
     let header = HeapHeader {
         refcount: 1,
         type_tag: Tag::Arr as u16,
@@ -384,6 +323,40 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
     // call. The matching `drop_pool_aware` substr drop's `rc_dec` on
     // parent also early-returns for static literals, so balance holds.
     let parent_static = unsafe { parent_is_static_literal(s) };
+    let (s_payload, _, s_latin1) = unsafe { str_view(s) };
+    let (sep_payload, _, sep_latin1) = unsafe { str_view(sep) };
+    // The shape nearly every split in the corpus has — a Latin-1
+    // string cut on one byte — takes the single-pass lane; everything
+    // else (UTF-16 on either side, multi-byte or empty separators)
+    // goes through the general two-pass build, kept out of line so
+    // this entry keeps a small frame.
+    if s_latin1 && sep_latin1 && sep_payload.len() == 1 && !s_payload.is_empty() {
+        let target = sep_payload[0];
+        if parent_static {
+            if let Some(block) = unsafe { byte_sep::split_byte_sep::<false>(s, s_payload, target) }
+            {
+                return block;
+            }
+        } else if let Some(block) =
+            unsafe { byte_sep::split_byte_sep::<true>(s, s_payload, target) }
+        {
+            return block;
+        }
+    }
+    unsafe { split_general(s, sep, parent_static) }
+}
+
+/// The general two-pass build: `out_count` sizes the block, then
+/// `fill_substrs` emits the cells. Every encoding / separator shape
+/// is handled here; the hot Latin-1 byte-separator shape takes
+/// [`split_byte_sep`] first.
+///
+/// # Safety
+///
+/// Both `s` and `sep` must be valid Str heap blocks.
+#[cold]
+#[inline(never)]
+unsafe fn split_general(s: *const u8, sep: *const u8, parent_static: bool) -> *mut u8 {
     let (s_payload, s_len_cu, s_latin1) = unsafe { str_view(s) };
     let (sep_payload, sep_len_cu, sep_latin1) = unsafe { str_view(sep) };
     let stride: usize = if s_latin1 { 1 } else { 2 };
@@ -562,18 +535,6 @@ mod tests {
     unsafe extern "C" {
         #[link_name = "__torajs_free"]
         fn free(ptr: *mut c_void, size: usize);
-    }
-
-    #[test]
-    fn out_count_paths() {
-        assert_eq!(out_count(b"abc", b"", 1), 3); // per-char
-        assert_eq!(out_count(b"", b"", 1), 0);
-        assert_eq!(out_count(b"abc", b"abcd", 1), 1); // sep longer than s
-        assert_eq!(out_count(b"abc", b"z", 1), 1); // no match
-        assert_eq!(out_count(b"a,b,c", b",", 1), 3);
-        assert_eq!(out_count(b"a,,b", b",", 1), 3); // empty token middle
-        assert_eq!(out_count(b",abc,", b",", 1), 3); // empty front+back
-        assert_eq!(out_count(b"aaaa", b"aa", 1), 3); // non-overlapping
     }
 
     #[test]
