@@ -320,6 +320,15 @@ fn is_builtin_mv_init(checker: &mut Checker, ast: &Ast, init: ExprId) -> bool {
     let Expr::Member { obj, name } = ast.get_expr(init) else {
         return false;
     };
+    // A namespace static (`const f = String.fromCharCode`) is the
+    // other half of the family — same reified-cell lowering, same
+    // reason its signature must not gate the call.
+    if let Expr::Ident(ns) = ast.get_expr(*obj)
+        && torajs_rc::ns_static::ns_static_id(ns, name) >= 0
+        && matches!(checker.type_of(ast, init), Ok(Type::Function(..)))
+    {
+        return true;
+    }
     let recv_ok = checker
         .type_of(ast, *obj)
         .is_ok_and(|t| crate::ssa_lower_member::mv_family_of_checker_ty(&t).is_some());
