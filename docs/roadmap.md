@@ -7044,21 +7044,49 @@ v3 roadmap appendix).
 
 1. **总口径领先 39/44，work-only 口径输 17/41。** 差别是我们的固定
    启动成本红利（tr 2.589 ms vs bun 5.202 ms）。
-2. **输的形状高度一致**：凡"在字节缓冲上批量扫描"的都输 ——
-   `regex-wireback-minlit` 1.84× / `json-stringify` 1.6× /
-   `regex-dfa-iflag` 1.55× / `regex-dfa-dotall` 1.54× / regex-dfa 全族
-   1.16–1.37× / `split-only` 方向性 3–4×。
+2. **输的形状高度一致**：`regex-wireback-minlit` 1.84× /
+   `json-stringify` 1.6× / `regex-dfa-iflag` 1.55× / `regex-dfa-dotall`
+   1.54× / regex-dfa 全族 1.16–1.37× / `split-only` 方向性 3–4×。
+   **换成 ns/iter 看，全族都是同一个量级的固定加价：+20 ~ +45 ns。**
 3. **赢的形状同样一致**：控制流 / 调用 / 分配 / 泛型单态化 / Promise
    状态机 —— `popcount` 0.034× / `throw-catch` 0.061× /
    `async-fn-call` 0.226× / `generic-pair-1m` 0.262×。**这一族是结构性
    收益（AOT + 静态类型 + RC + 无预热），要保护并扩大取样。**
-4. **根因是 SIMD = 0**：`grep -rn 'core::arch|std::arch' crates/` 全仓
-   只命中 `torajs-syscall` 一处 `asm!`。现有"SIMD 快路径"注释描述的是
-   意图不是产物 —— `torajs-str/src/split/ops.rs:74` 是
-   `iter().filter().count()`（靠自动向量化），
-   `torajs-regex/src/vm/search.rs:291` 是 `iter().position()`
-   （短路循环，LLVM 不向量化）。对手侧 JSC 的 YARR 自 1.3.9 起用
-   ARM64 TBL2 / x86 PTEST 一次扫 16 字节做前缀拒绝。
+4. **归因未定，两条初判已被 Phase A 自己推翻（2026-08-21 当日）**：
+   - **"根因是逐字节扫描 / SIMD=0" 是错的。** 输得最狠的
+     `regex-wireback-minlit` 是 `"x".match(/x/)` —— **1 字节干草堆，
+     几乎没有扫描**；regex-dfa 全族的干草堆只有 20–26 字节，SIMD 在这个
+     尺寸上最多值几 ns，而 gap 是 20–45 ns。`grep -rn
+     'core::arch|std::arch' crates/` 全仓只命中 `torajs-syscall` 一处
+     `asm!`（**SIMD=0 这个事实为真**，两处自称 SIMD 的快路径
+     `torajs-str/src/split/ops.rs:74` 与
+     `torajs-regex/src/vm/search.rs:291` 确实是标量），但它**不是这批
+     case 的根因**，是一条独立的、大载荷才兑现的未来轴。
+   - **10 条 regex case 的两侧源码形状不同（`main.ts` 把 RegExp 提到
+     循环外，`main.tora.ts` 写在循环内），但这条不影响结论 ——
+     自己的假说当场被读码推翻。** `ssa_lower_lit.rs:118` 已有 fn-scope
+     regex 字面量 LICM 缓存（`regex_lit_cache`，键 = `(pattern, flags)`，
+     首次出现就提到入口块 `BlockId(0)`、后续复用），所以循环内写法与
+     手工提出去**等价**。10 个 fixture 仍已改齐（源码对称本身该保持，
+     且重测可作 LICM 缓存真在跑的运行期验证），但**regex 族的 gap 是
+     真的**。附带确认：`optimize.rs:421` 的 `is_pure` 里
+     `InstKind::Call => false`，所以 e-graph 侧不会做这个提升 ——
+     提升完全来自 lower 侧那个缓存。
+   - **干净的输只有两条**：`split-only`（两侧程序逐字相同）与
+     `json-stringify`（我们那侧还更省 —— bun 每次迭代调一个
+     `makeRecord()` 辅助函数，我们是内联的）。
+   - **当前领先假说（待 profile 定类别，不得先攻）**：凡"builtin 返回
+     一个新分配的堆对象"我们就多付固定成本。两条待证机制：
+     ① **跨边界不可内联** —— 用户代码由自研后端生成、runtime 是预编译
+     staticlib、由自研链接器拼装，`__torajs_*` 每次都是不透明调用；
+     `torajs-mmalloc/src/core.rs:118` 的 `#[inline(always)]` 注释明写
+     "让 fat LTO + cc -flto 把热路径内联进用户二进制 IR"，**而 inkwell
+     随 `eded11f` 退役后这件事已经不发生了**；
+     ② **短命垃圾的确定性析构** —— `split-only` 每次迭代造 7 个 Substr
+     立刻丢弃，RC 必须逐个还；JSC 在 nursery 里 bump 分配、早死对象
+     几乎零回收成本。**我们永不引入 GC（§6 HARD RULE），所以这条的答案
+     必须是别的** —— 例如用 AOT + 静态类型证明不逃逸后栈分配整块，
+     那是 bun 结构上做不到而我们能做的。
 5. **artifact 的 25.7× 领先是"相对 bun 大"不是"我们小"**：hello-world
    产物 2,490,457 B，其中 `__text` 1,978,520 B；44 条 case 的产物跨度
    只有 17 KB → **99.3% 是固定 runtime**。同机 Rust hello world 469 KB。
@@ -7073,15 +7101,20 @@ v3 roadmap appendix).
 
 ### 执行项（顺序执行，不是候选清单）
 
-- **S1 — SIMD 字节扫描 substrate。** 先 Decomposition（走
-  `rules/torajs-perf-decomposition.md` 两步法，read-only agent 产
-  ground-truth 文档，±20% 对账），对象是 `regex-wireback-minlit`
-  （1.84×，最大且跨轮最稳）与 regex-dfa 一族。产物是一个
-  `torajs-simd` 石头层（aarch64 NEON），提供 `index_of_byte` /
-  `index_of_any` / `index_of`(memmem) / `count_byte`，然后把
-  `torajs-str` / `torajs-regex` / `json_builder` 切过去。
-  **验收 = work-only 口径下这一族由输转赢，且全语料矩阵零回归。**
-  纪律：先量再写 —— 不要重复"注释自称 SIMD 实际是标量"。
+- **S1 — builtin 返回堆对象的固定加价（Decomposition 进行中）。**
+  走 `rules/torajs-perf-decomposition.md` 两步法。**Pre-Phase-A gate
+  已跑并两次翻盘**（见上第 4 条）：fixture 不对称已修，SIMD 归因已撤。
+  剩余步骤，顺序不可换：
+  1. 干净机器重跑两轮，拿 fixture 修正后的诚实 gap 列表（regex 族的
+     数字在此之前不可引用）。
+  2. **leaf-symbol profile 定类别**（`sample`，按 §9：profile 定类别、
+     消融定价格；**禁止用计时器夹小步**）—— 对 `split-only` /
+     `json-stringify` / `match` 三个放大到秒级的探针跑。
+  3. Pre-Phase-B gate：Top-1 攻击面在总 self-time 里 **≥ 双位数 pp**
+     才允许进 Phase B；不到就回去重拆。
+  4. 消融定价：把预测拆成几个能分别测量的量，**要求它们的和与实测
+     总量对上**（§9 唯一存活的那次预测就是这样来的）。
+  **SIMD 不在 S1 里** —— 它是独立的 S6（下），大载荷才兑现。
 - **S2 — 启动降到 native 地板。** 把 2.589 → 1.351 的 1.2 ms 差拆开。
   **必须用消融法（删掉某一步量整体差值），禁止用计时器夹小步**
   （`perf-decomposition` §1：优化构建里时钟读取不是屏障）。嫌疑面：
@@ -7101,6 +7134,17 @@ v3 roadmap appendix).
   反复复发的坑变成编译错误。**
 - **S5 — bench gate 升级。** `artifact_bytes` 与 `startup` 升为独立
   回归 gate（现在只是结果里的一行数字）；每轮报 work-only 口径。
+  **另加一条 fixture 等价性 gate**：`main.tora.ts` 与 `main.ts` 必须是
+  同一个程序（2026-08-21 抓到 10 条 regex case 两侧结构不同、白比了很久
+  ——stdout 相同不能证明在做同样的工作，这正是 perf 方法论
+  「计时前断言各实现输出一致…否则比较的是不同的工作」的另一面）。
+- **S6 — SIMD 字节扫描 substrate（独立轴，大载荷才兑现）。**
+  事实为真（全仓 SIMD=0），但**不是当前 bench losses 的根因**，
+  所以排在 S1–S5 之后，并且立项前要先有一条**载荷够大**的 case 证明
+  它值钱（现有 regex case 的干草堆只有 20–26 字节）。届时产物是
+  `torajs-simd` 石头层（aarch64 NEON）：`index_of_byte` /
+  `index_of_any` / `index_of`(memmem) / `count_byte`。
+  纪律：先量再写 —— 不要重复"注释自称 SIMD 实际是标量"。
 
 ### 与轴 B 的关系
 
