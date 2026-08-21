@@ -367,6 +367,63 @@ pub unsafe extern "C" fn __torajs_str_from_code_point(n: i64) -> *mut u8 {
     }
 }
 
+/// ES §22.1.2.1 step 2 for `String.fromCharCode`, over the Number the
+/// spec actually hands this step: `ToUint16`.
+///
+/// `ToUint16` (§7.1.7) maps NaN, ±0 and ±∞ to +0, and everything else
+/// to `truncate(n) mod 2^16`. An i64 parameter cannot express that:
+/// the caller's ToInteger fold turns ±∞ into `i64::MAX`, whose low 16
+/// bits are `0xFFFF`, so `String.fromCharCode(Infinity)` used to be
+/// U+FFFF instead of U+0000. Doing the coercion where the Number is
+/// still a Number removes the whole class.
+///
+/// # Safety
+///
+/// Trivially safe; `unsafe extern "C"` only for the FFI boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_from_char_code_f64(n: f64) -> *mut u8 {
+    // `% 65536.0` on an already-truncated finite f64 is exact (both
+    // operands are integral and well inside the 2^53 range), so this
+    // never rounds the way an i64 cast of a huge value would.
+    let u16_val = if !n.is_finite() || n == 0.0 {
+        0i64
+    } else {
+        let m = n.trunc() % 65536.0;
+        let m = if m < 0.0 { m + 65536.0 } else { m };
+        m as i64
+    };
+    unsafe { __torajs_str_from_char_code(u16_val) }
+}
+
+/// ES §22.1.2.2 step 2 for `String.fromCodePoint`, over the Number
+/// the spec actually hands this step.
+///
+/// Step 2.a is `ToNumber(next)` and step 2.b rejects a *non-integral
+/// Number* — so `fromCodePoint(3.14)` and `fromCodePoint('3.14')` are
+/// both a `RangeError`, and only an f64 ABI can tell 3.14 from 3. The
+/// i64 sibling below cannot: whoever truncates on the way in has
+/// already thrown away the fact the check is about. Callers that used
+/// to reconstruct it by passing `-1` as a poison value now just call
+/// this.
+///
+/// NaN is rejected by `trunc() != n` (which NaN fails against itself)
+/// and ±∞ by `is_finite`, both before the cast — so the `as i64`
+/// below only ever sees a value already inside the code-point range.
+///
+/// # Safety
+///
+/// Trivially safe; `unsafe extern "C"` only for the FFI boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_from_code_point_f64(n: f64) -> *mut u8 {
+    if !n.is_finite() || n.trunc() != n || !(0.0..=1114111.0).contains(&n) {
+        unsafe {
+            __torajs_throw_range_error(b"Invalid code point\0".as_ptr());
+        }
+        return alloc_empty_str();
+    }
+    unsafe { __torajs_str_from_code_point(n as i64) }
+}
+
 /// `s.substring(start, end)` — slice's pre-ES5 sibling. Negative
 /// inputs clamp to 0 (not wrap), and `start > end` is silently
 /// swapped before slicing.

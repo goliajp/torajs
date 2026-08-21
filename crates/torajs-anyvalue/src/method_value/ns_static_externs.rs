@@ -128,10 +128,10 @@ unsafe extern "C" {
     ) -> f64;
     /// torajs-str — §22.1.2.1 one-code-unit mint (truncates
     /// `n & 0xFFFF` itself, never throws).
-    pub(super) fn __torajs_str_from_char_code(n: i64) -> *mut u8;
+    pub(super) fn __torajs_str_from_char_code_f64(n: f64) -> *mut u8;
     /// torajs-str — §22.1.2.2 one-code-point mint; out-of-range
     /// records a catchable RangeError and answers an empty sentinel.
-    pub(super) fn __torajs_str_from_code_point(n: i64) -> *mut u8;
+    pub(super) fn __torajs_str_from_code_point_f64(n: f64) -> *mut u8;
     /// torajs-meta — §20.1.2.16/.13/.20/.15 integrity family (RFC
     /// C5b). The setters answer the receiver as a BORROW (the arm
     /// owns it before handing it back); the readers answer plain

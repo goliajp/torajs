@@ -11,7 +11,7 @@ use super::ns_static::{arg_at, arg_num};
 use super::ns_static_table::{
     __torajs_bigint_as_int_n, __torajs_bigint_as_uint_n, __torajs_bigint_drop_rc,
     __torajs_date_parse_iso, __torajs_date_utc_components, __torajs_map_group_by,
-    __torajs_object_group_by, __torajs_str_from_char_code, __torajs_str_from_code_point,
+    __torajs_object_group_by, __torajs_str_from_char_code_f64, __torajs_str_from_code_point_f64,
     __torajs_throw_check, __torajs_throw_range_error, __torajs_throw_type_error,
 };
 
@@ -65,14 +65,12 @@ pub(super) unsafe fn str_from_codes(code_point: bool, argv: *const u64, argc: i6
                 return VALUE_UNDEFINED;
             };
             let piece = if code_point {
-                // Non-integral / non-finite → the kernel's OOR
-                // RangeError (spec step 5.b) via the -1 sentinel.
-                let n = if x.is_finite() && x.trunc() == x {
-                    x as i64
-                } else {
-                    -1
-                };
-                let p = __torajs_str_from_code_point(n);
+                // The f64 kernel makes §22.1.2.2 step 2.b's
+                // non-integral test itself, so the `-1` poison value
+                // this used to pass in its place is gone — one answer
+                // to "what is a valid code point", shared with the
+                // direct-call lowering.
+                let p = __torajs_str_from_code_point_f64(x);
                 if __torajs_throw_check() != 0 {
                     release(p);
                     release(acc);
@@ -80,7 +78,7 @@ pub(super) unsafe fn str_from_codes(code_point: bool, argv: *const u64, argc: i6
                 }
                 p
             } else {
-                __torajs_str_from_char_code(super::ns_static::to_i64_mod32(x))
+                __torajs_str_from_char_code_f64(x)
             };
             acc = if acc.is_null() {
                 piece

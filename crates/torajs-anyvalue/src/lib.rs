@@ -858,11 +858,11 @@ mod tests {
         0.0
     }
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_str_from_char_code(_n: i64) -> *mut u8 {
+    pub unsafe extern "C" fn __torajs_str_from_char_code_f64(_n: f64) -> *mut u8 {
         core::ptr::null_mut()
     }
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_str_from_code_point(_n: i64) -> *mut u8 {
+    pub unsafe extern "C" fn __torajs_str_from_code_point_f64(_n: f64) -> *mut u8 {
         core::ptr::null_mut()
     }
     /// 刀 1's ObjectHasOwn arm makes prop_has (and its

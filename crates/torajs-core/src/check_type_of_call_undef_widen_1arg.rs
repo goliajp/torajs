@@ -115,33 +115,26 @@ pub(crate) fn try_match(
             return Some(Ok(Type::Number));
         }
     }
-    // S231 / S329 — String.fromCharCode(undefined | Any) 1-arg.
+    // S231 / S329 — `String.{fromCharCode,fromCodePoint}(x)` 1-arg.
+    // Both spec steps (§22.1.2.1 `ToUint16`, §22.1.2.2 `ToNumber`)
+    // COERCE their operand, so every shape is admitted; `Number`
+    // alone falls through to the strict namespace table so the
+    // typed-tier fast path never boxes. Rotation 463 merged what
+    // were two adjacent per-shape blocks (`Undefined | Any` for
+    // fromCharCode, `Any` for fromCodePoint) — the difference
+    // between them was never a spec fact, only which shape had been
+    // asked for first, and `String.fromCharCode("0")` is "\0".
     if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
         && let Expr::Ident(ns) = ast.get_expr(*obj)
         && ns == "String"
-        && m == "fromCharCode"
+        && matches!(m.as_str(), "fromCharCode" | "fromCodePoint")
         && args.len() == 1
     {
         let aty = match checker.type_of(ast, args[0]) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if matches!(aty, Type::Undefined | Type::Any) {
-            return Some(Ok(Type::String));
-        }
-    }
-    // S340 — String.fromCodePoint(Any) 1-arg.
-    if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
-        && let Expr::Ident(ns) = ast.get_expr(*obj)
-        && ns == "String"
-        && m == "fromCodePoint"
-        && args.len() == 1
-    {
-        let aty = match checker.type_of(ast, args[0]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if matches!(aty, Type::Any) {
+        if !matches!(aty, Type::Number) {
             return Some(Ok(Type::String));
         }
     }

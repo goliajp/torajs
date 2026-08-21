@@ -37,7 +37,13 @@ pub(crate) struct StrAIds {
     pub str_pad_start: FuncId,
     pub str_pad_end: FuncId,
     pub str_from_char_code: FuncId,
+    /// §22.1.2.1's `ToUint16` over the Number itself — ±∞ and NaN
+    /// map to +0, which an i64 parameter cannot express.
+    pub str_from_char_code_f64: FuncId,
     pub str_from_code_point: FuncId,
+    /// §22.1.2.2's step over the Number itself — rejects a
+    /// non-integral code point, which the i64 sibling cannot see.
+    pub str_from_code_point_f64: FuncId,
     pub string_raw: FuncId,
     pub str_normalize: FuncId,
     pub str_to_locale_upper: FuncId,
@@ -115,11 +121,25 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[Type::I64],
             Type::Str,
         ),
+        str_from_char_code_f64: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_from_char_code_f64",
+            &[Type::F64],
+            Type::Str,
+        ),
         str_from_code_point: declare_intrinsic(
             module,
             fn_table,
             "__torajs_str_from_code_point",
             &[Type::I64],
+            Type::Str,
+        ),
+        str_from_code_point_f64: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_from_code_point_f64",
+            &[Type::F64],
             Type::Str,
         ),
         string_raw: declare_intrinsic(

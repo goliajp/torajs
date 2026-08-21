@@ -38,7 +38,6 @@
 //! shape).
 
 use crate::ast::{Expr, ExprId};
-use crate::check::{self as check_mod};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -68,30 +67,29 @@ pub(crate) fn try_lower(
     if args.is_empty() {
         return Some(Operand::Value(ctx.intern_string_literal("")));
     }
+    // Both kernels take the Number the spec hands their step, not an
+    // integer: §22.1.2.1's `ToUint16` maps ±∞ and NaN to +0, and
+    // §22.1.2.2 step 2.b rejects a NON-INTEGRAL code point. An i64
+    // parameter can express neither — whoever truncates on the way in
+    // has already destroyed the fact each check is about, which is how
+    // `fromCharCode(Infinity)` became U+FFFF and how
+    // `fromCodePoint('3.14')` would have become U+0003 rather than a
+    // RangeError.
     let intrinsic = if is_from_code_point {
-        ctx.intrinsics.str_from_code_point
+        ctx.intrinsics.str_from_code_point_f64
     } else {
-        ctx.intrinsics.str_from_char_code
+        ctx.intrinsics.str_from_char_code_f64
     };
     let mut acc: Option<Operand> = None;
     for &aid in args.iter() {
-        let arg_is_undef = matches!(ctx.expr_types.get(&aid), Some(check_mod::Type::Undefined));
-        let arg_is_any = matches!(ctx.expr_types.get(&aid), Some(check_mod::Type::Any));
-        let n = if arg_is_undef && !is_from_code_point {
-            Operand::ConstI64(0)
-        } else if arg_is_any {
-            let raw = ctx.lower_expr(aid);
-            let cur_block = ctx.cur_block;
-            let f = ctx.f.append_inst(
-                cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                Type::F64,
-                None,
-            );
-            ctx.coerce_to_i64(Operand::Value(f))
-        } else {
-            ctx.lower_expr(aid)
-        };
+        // Every operand shape is accepted and coerced: a Number goes
+        // straight to the kernel, everything else through the
+        // runtime's own ToNumber. `undefined` needs no special case
+        // any more — it boxes to ANY_UNDEF, ToNumber's it to NaN, and
+        // each kernel then gives NaN the answer its own spec step
+        // asks for (0 for fromCharCode, RangeError for fromCodePoint).
+        let v = ctx.lower_to_number_operand(aid);
+        let n = ctx.coerce_to_f64(v);
         let cur_block = ctx.cur_block;
         let one = ctx.f.append_inst(
             cur_block,

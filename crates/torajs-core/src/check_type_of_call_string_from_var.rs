@@ -21,8 +21,13 @@
 //! 0-arg yields the empty-result `String` directly per
 //! spec §22.1.2.{1,2} step 1.
 //!
-//! Returns `Some(Ok(String))` on match; `Some(Err(_))` on
-//! non-Number-non-Any arg; `None` when callee isn't
+//! Rotation 463 — the per-shape admission list (`Number | Any`)
+//! became the coercion it always described: every operand shape
+//! reaches `ToUint16` / `ToNumber`, so `String.fromCharCode("6",
+//! "5")` builds a string instead of failing to typecheck.
+//!
+//! Returns `Some(Ok(String))` on match; `Some(Err(_))` when an
+//! argument's own type_of fails; `None` when callee isn't
 //! `String.{fromCharCode,fromCodePoint}` or arity is exactly
 //! 1 (handled by the general table).
 
@@ -44,13 +49,13 @@ pub(crate) fn try_match(
         if args.is_empty() {
             return Some(Ok(Type::String));
         }
+        // Every code is COERCED (§22.1.2.1 `ToUint16` / §22.1.2.2
+        // `ToNumber`), so no shape is refused here — but each one is
+        // still type_of'd, because a type error INSIDE an argument
+        // stays loud.
         for &aid in args {
-            let aty = match checker.type_of(ast, aid) {
-                Ok(t) => t,
-                Err(e) => return Some(Err(e)),
-            };
-            if aty != Type::Number && !matches!(aty, Type::Any) {
-                return Some(Err(format!("String.{m} args must be number, got {aty:?}")));
+            if let Err(e) = checker.type_of(ast, aid) {
+                return Some(Err(e));
             }
         }
         return Some(Ok(Type::String));
