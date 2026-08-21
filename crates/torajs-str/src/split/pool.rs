@@ -101,13 +101,19 @@ pub fn alloc(out_count: u64) -> NonNull<u8> {
         // direct compare; ptr swapped to null to clear ownership.
         for i in (0..count).rev() {
             if CAPS[i].load(Ordering::Relaxed) == want {
-                let p = BLOCKS[i].swap(ptr::null_mut(), Ordering::Relaxed);
+                // Plain load + store, not an atomic swap: the pool is
+                // single-mutator (COUNT itself is read-then-written
+                // around this), and an uncontended RMW still costs a
+                // locked cycle on every pool hit.
+                let p = BLOCKS[i].load(Ordering::Relaxed);
+                BLOCKS[i].store(ptr::null_mut(), Ordering::Relaxed);
                 // Swap-remove: move last slot's contents to this
                 // slot, then shrink count. Preserves LIFO order for
                 // the still-occupied slots.
                 let last = count - 1;
                 if i != last {
-                    let last_p = BLOCKS[last].swap(ptr::null_mut(), Ordering::Relaxed);
+                    let last_p = BLOCKS[last].load(Ordering::Relaxed);
+                    BLOCKS[last].store(ptr::null_mut(), Ordering::Relaxed);
                     let last_cap = CAPS[last].load(Ordering::Relaxed);
                     BLOCKS[i].store(last_p, Ordering::Relaxed);
                     CAPS[i].store(last_cap, Ordering::Relaxed);
