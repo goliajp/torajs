@@ -138,7 +138,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_substr_materialize_owned",
             &[Type::Ptr],
-            Type::Void,
+            Type::Ptr,
         ),
         substr_char_code_at: declare_intrinsic(
             module,

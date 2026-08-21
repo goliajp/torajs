@@ -859,6 +859,17 @@ pub struct Ast {
     /// (measured 16.6-18.5 ns per match). Empty before the pass runs
     /// and for every program that reads those properties anywhere.
     pub regex_result_props_unread: std::collections::HashSet<ExprId>,
+    /// Rotation 468 — the init ExprIds of the `let` / `const` / `var`
+    /// bindings that must hold OWNED elements: something in their
+    /// scope writes an owned value INTO them (`X.push(v)` / `unshift`
+    /// / `splice` / `fill` / `copyWithin` / `X[i] = v`) or the whole
+    /// array escapes as a bare value (a call argument, another
+    /// binding's init, an assignment value, a literal element, a
+    /// return). Populated by `analyze_let_owned_elems`; the binding
+    /// lane materializes a split product (an `Arr<Substr>` of views)
+    /// into owned strings for the ones listed here and types the
+    /// binding `Arr<Str>`. Empty before the pass runs.
+    pub let_owned_elem_inits: std::collections::HashSet<ExprId>,
     /// v0.3 #4 DWARF — per-Expr source byte ranges. Indexed by
     /// ExprId.0; `Span { start: 0, end: 0 }` is the sentinel for
     /// "not set" (parser fills these on key Expr-emit sites; fallback

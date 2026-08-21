@@ -336,6 +336,34 @@ fn finalize_and_bind(
     }
     if ty == Type::Str && init_ty == Type::Substr {
         ty = Type::Substr;
+    } else if let Type::Arr(init_id) = init_ty
+        && ctx.arr_layouts[init_id.0 as usize] == Type::Substr
+        && ctx.ast.let_owned_elem_inits.contains(&init)
+        && ctx.expr_transfers_ownership(init)
+    {
+        // A split product something in scope writes an owned value
+        // INTO (`a.push(v)` / `a[i] = v` / …) or hands on as a bare
+        // value (`f(a)` / `let b = a` / `o.f = a` / …) cannot stay an
+        // `Arr<Substr>`: the slot cannot take an owned cell, every
+        // reader decodes by the view layout, and a receiver is typed
+        // by its own annotation. The fresh product is materialized in
+        // place — each view becomes an owned string, its parent
+        // reference handed back — and the binding is typed `Arr<Str>`,
+        // where the mutators already store any string shape and every
+        // receiver agrees (rotation 468, plan-state 467-01). Only a
+        // product this binding owns outright is converted in place;
+        // an alias's owner was itself listed and converted.
+        ty = Type::Arr(crate::ssa_lower::intern_arr_layout(
+            ctx.arr_layouts,
+            Type::Str,
+        ));
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.arr_substr_materialize_owned, vec![init_val]),
+            ty,
+            None,
+        );
+        init_val = Operand::Value(owned);
     } else if let (Type::Arr(ann_id), Type::Arr(init_id)) = (ty, init_ty)
         && ctx.arr_layouts[ann_id.0 as usize] == Type::Str
         && ctx.arr_layouts[init_id.0 as usize] == Type::Substr

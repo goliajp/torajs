@@ -145,6 +145,7 @@ mod inject_builtin_classes_cause;
 mod inject_builtin_classes_data;
 mod inject_builtin_classes_message;
 mod inject_disposable_stack;
+mod let_owned_elems;
 mod lift_arrow_fns;
 mod module_passes;
 mod named_eval;
@@ -234,6 +235,7 @@ pub use infer_closure_params::infer_anonymous_closure_params;
 pub(crate) use inject_builtin_classes::class_reaches_error;
 pub use inject_builtin_classes::inject_builtin_classes;
 pub use inject_disposable_stack::inject_disposable_stack;
+pub use let_owned_elems::analyze_let_owned_elems;
 pub use lift_arrow_fns::lift_arrow_fns;
 pub(crate) use lift_arrow_fns::{
     default_init_for_field, default_init_for_type, is_fn_arr_ann, is_fn_like_ann,

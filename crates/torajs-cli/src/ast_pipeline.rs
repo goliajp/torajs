@@ -275,5 +275,6 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // late: it verifies the final shape of every use of a binding, so
     // every rewrite that could introduce one has to have happened.
     ast::analyze_regex_result_props(ast);
+    ast::analyze_let_owned_elems(ast);
     Ok(())
 }

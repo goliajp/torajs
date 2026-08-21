@@ -125,16 +125,18 @@ pub unsafe extern "C" fn __torajs_arr_substr_adopt_copied(p: *mut c_void, start:
 /// Materialize every view slot of an array that already owns its
 /// elements — the split product that is about to receive owned
 /// writes. Each view is released after its text is copied out, which
-/// returns the parent reference the split kernel took for it.
+/// returns the parent reference the split kernel took for it. Answers
+/// the same array, so the SSA site can rebind it under its new
+/// `Arr<Str>` type (the shape `arr_push` and friends use).
 ///
 /// # Safety
 ///
 /// `p` is null or a live array cell whose slots hold `Str`-tagged
 /// pointers the array owns one reference to each.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_substr_materialize_owned(p: *mut c_void) {
+pub unsafe extern "C" fn __torajs_arr_substr_materialize_owned(p: *mut c_void) -> *mut c_void {
     if p.is_null() {
-        return;
+        return p;
     }
     let cell = p as *mut u8;
     let extent = unsafe { arr_live_extent(cell) } as usize;
@@ -150,4 +152,5 @@ pub unsafe extern "C" fn __torajs_arr_substr_materialize_owned(p: *mut c_void) {
             __torajs_str_drop(elem as *mut c_void);
         }
     }
+    p
 }
