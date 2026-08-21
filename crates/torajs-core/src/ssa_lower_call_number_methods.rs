@@ -289,7 +289,15 @@ fn emit_numeric_digits(
         // path uses the dedicated pre-dispatch above so it never reaches
         // here with >1 args.
         if let Some(&a0) = args.first() {
-            argv.push(ctx.lower_expr(a0));
+            // §21.1.3.{3,5,6} step 1 is `ToIntegerOrInfinity(digits)`,
+            // so the operand is COERCED, not shape-checked: a Str
+            // routes through the runtime's ToNumber, and `coerce_to_i64`
+            // performs the ToInteger fold the helpers' i64 `digits`
+            // parameter needs — including `toFixed(1.1)`, which used to
+            // hand an f64 straight to an i64 ABI.
+            let n = ctx.lower_to_number_operand(a0);
+            let d = ctx.coerce_to_i64(n);
+            argv.push(d);
         }
     }
     // S294 — lower-and-drop trailing args past the first slot routed

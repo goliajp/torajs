@@ -23,11 +23,18 @@
 //! ES §21.1.3.{3,5,6} where an undef digits/precision arg
 //! folds to the same default as the 0-arg form.
 //!
+//! Rotation 463 — that Undefined admission was one shape out of a
+//! set the spec never enumerates: §21.1.3.{3,5,6} step 1 is
+//! `ToIntegerOrInfinity(fractionDigits)`, a COERCION, so
+//! `(1.5).toFixed("1")` is `"1.5"` and not a type error. Every
+//! non-Number shape is admitted here; `Number` alone falls through
+//! to the strict method table.
+//!
 //! Returns `Some(Ok(Type::String))` when the receiver is
-//! `Type::Number` AND args.is_empty() OR (args.len() == 1
-//! AND arg0 is `Type::Undefined`). `Some(Err(_))` on
-//! recursive `type_of` failure. `None` otherwise (cascade
-//! falls through to the strict method table).
+//! `Type::Number` AND args.is_empty() OR (args.len() == 1 AND arg0
+//! is anything but `Type::Number`). `Some(Err(_))` on recursive
+//! `type_of` failure. `None` otherwise (cascade falls through to
+//! the strict method table).
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -55,7 +62,7 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        matches!(aty, Type::Undefined)
+        !matches!(aty, Type::Number)
     } else {
         false
     };

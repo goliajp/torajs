@@ -64,7 +64,9 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if !matches!(aty0, Type::Any) {
+    // §23.1.3.39 step 2 coerces `index`; `Number` is the strict
+    // table's own business, everything else lands here.
+    if matches!(aty0, Type::Number) {
         return None;
     }
     let inner = (**elem).clone();
