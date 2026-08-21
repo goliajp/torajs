@@ -54,7 +54,7 @@ use core::ffi::c_void;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
-use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, HeapHeader, Tag};
+use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, FLAG_STATIC_LITERAL, HeapHeader, Tag};
 
 // Step 4 (v0.7-A2 Phase 2e sweep): Layer 1 sized API.
 unsafe extern "C" {
@@ -300,6 +300,22 @@ impl SubstrBlock {
 #[inline]
 fn drop_parent(parent: *mut c_void) {
     if parent.is_null() {
+        return;
+    }
+    // `__torajs_rc_dec` answers `Keep` for a `FLAG_STATIC_LITERAL`
+    // block before doing anything else — but it lives in torajs-rc,
+    // and a staticlib boundary has no inlining across it (see the
+    // RFC 20260821 decomposition §6.3), so asking it costs a full
+    // opaque call to learn nothing. Read the flag here instead: it
+    // is one load from a header this path is about to touch anyway.
+    //
+    // This is the dominant shape, not a corner: every substring of a
+    // string literal has a static-literal parent, so `"a b c"
+    // .split(" ")` pays one such call per element on every iteration.
+    // SAFETY: caller contract — `parent` is a live Str heap block
+    // with the universal header at offset 0.
+    let parent_flags = unsafe { (*(parent as *const HeapHeader)).flags };
+    if parent_flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
     // SAFETY: __torajs_rc_dec is null-safe + STATIC_LITERAL-safe; the
