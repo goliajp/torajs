@@ -20,6 +20,7 @@
 //! - `arr.indexOf` / `arr.lastIndexOf` → `Operand::ConstI64(-1)`
 //! - `arr.includes` → `Operand::ConstBool(false)`
 
+use crate::ast::ExprId;
 use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -27,11 +28,49 @@ use crate::ssa_lower::LowerCtx;
 /// ABI expected by the per-elem-ty compare dispatch.
 ///
 /// Returns:
-/// - `Ok(needle)` — coerced needle ready for the scan loop's compare
-///   dispatch.
+/// - `Ok((needle, needle_ty))` — needle ready for the scan loop's
+///   compare dispatch, together with the type the dispatch should see.
+///   The two can differ from the input: a needle from a different
+///   comparison family is boxed, so the type comes back `Any`.
 /// - `Err(value)` — a const-folded short-circuit result the caller
 ///   should return as the method's final value (see module doc).
 pub(crate) fn coerce_needle(
+    ctx: &mut LowerCtx<'_>,
+    needle_eid: ExprId,
+    needle_raw: Operand,
+    needle_ty: Type,
+    elem_ty: Type,
+    want_bool: bool,
+) -> Result<(Operand, Type), Operand> {
+    // §7.2.15 strict equality and §7.2.10 SameValueZero both compare
+    // by TYPE first: a needle from another family cannot equal any
+    // element here, but that is an ANSWER (-1 / false), not a reason
+    // to refuse the program — `[1, 2, 3].includes("42")` is false.
+    // Boxing hands it to the needle-Any arm, which compares by tag,
+    // so there is one rule for "can these be equal" instead of a
+    // per-type-pair table maintained here.
+    if !same_compare_family(elem_ty, needle_ty) {
+        let boxed = ctx.box_to_any_from_expr(needle_eid, needle_raw);
+        return Ok((boxed, Type::Any));
+    }
+    coerce_within_family(ctx, needle_raw, needle_ty, elem_ty, want_bool).map(|op| (op, needle_ty))
+}
+
+/// Whether an element and a needle of these two SSA types could ever
+/// compare equal — i.e. whether they are the same JS type. Numbers
+/// span several SSA spellings and so do strings; `Any` is its own
+/// case because it carries its type at runtime.
+fn same_compare_family(elem_ty: Type, needle_ty: Type) -> bool {
+    let numeric = |t| matches!(t, Type::I64 | Type::I32 | Type::F64);
+    let stringy = |t| matches!(t, Type::Str | Type::Substr);
+    elem_ty == needle_ty
+        || matches!(needle_ty, Type::Any)
+        || matches!(elem_ty, Type::Any)
+        || (numeric(elem_ty) && numeric(needle_ty))
+        || (stringy(elem_ty) && stringy(needle_ty))
+}
+
+fn coerce_within_family(
     ctx: &mut LowerCtx<'_>,
     needle_raw: Operand,
     needle_ty: Type,

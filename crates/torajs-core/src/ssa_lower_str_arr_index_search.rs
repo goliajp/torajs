@@ -70,11 +70,14 @@ pub(crate) fn try_dispatch(
             return Some(lower_any_index_of(ctx, args, recv_op, want_last));
         }
         let needle_raw = ctx.lower_expr(args[0]);
-        let needle_ty = ctx.operand_ty(&needle_raw);
-        let needle = match crate::ssa_lower_str_arr_index_coerce::coerce_needle(
-            ctx, needle_raw, needle_ty, elem_ty, want_bool,
+        let raw_ty = ctx.operand_ty(&needle_raw);
+        // A needle from another comparison family comes back boxed,
+        // so the type the compare dispatch sees is the helper's answer
+        // and not `raw_ty`.
+        let (needle, needle_ty) = match crate::ssa_lower_str_arr_index_coerce::coerce_needle(
+            ctx, args[0], needle_raw, raw_ty, elem_ty, want_bool,
         ) {
-            Ok(op) => op,
+            Ok(pair) => pair,
             Err(short_circuit) => return Some(short_circuit),
         };
         let result_slot = ctx.alloca_in_entry(Type::I64, Some("__idx"));
