@@ -23,7 +23,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
+use torajs_rc::{ARR_KIND_UNSET, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader};
 use torajs_str::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW, SUBSTR_PARENT_OFF};
 
 use crate::drop::__torajs_arr_drop;
@@ -69,6 +69,24 @@ unsafe fn release_is_noop(cell: *mut u8) -> bool {
     unsafe { (*(parent as *const HeapHeader)).flags & FLAG_STATIC_LITERAL != 0 }
 }
 
+/// True when this block is a split product nobody has converted: a
+/// `FLAG_SPLIT_BLOCK` cell whose element-kind field is still
+/// [`ARR_KIND_UNSET`]. Its slots then hold only the inline views the
+/// split kernel minted, all reading one parent — `split` is the only
+/// thing that fills such a block, and the owned-string converter
+/// ([`crate::substr_materialize`]) marks the kind when it replaces
+/// the views, as does the typed→any boundary. The first slot's own
+/// header is checked too (`FLAG_SUBSTR_INLINE`): bit 1 of the flags
+/// word is also `FLAG_ARR_ARGUMENTS` on `Tag::Arr`, so the block flag
+/// alone is not proof of the layout.
+#[inline]
+unsafe fn pristine_split_block(header: &HeapHeader, first: *mut u8) -> bool {
+    header.flags & FLAG_SPLIT_BLOCK != 0
+        && header.arr_elem_kind() == ARR_KIND_UNSET
+        && !first.is_null()
+        && unsafe { (*(first as *const HeapHeader)).flags } & FLAG_SUBSTR_INLINE != 0
+}
+
 /// Release an array whose elements are `Str` or `Substr`, then the
 /// array itself. Replaces the SSA-emitted element walk plus its
 /// trailing `__torajs_arr_drop`.
@@ -78,6 +96,16 @@ unsafe fn release_is_noop(cell: *mut u8) -> bool {
 /// owner walks them (RFC 20260704 S6). Slots are walked over
 /// `arr_live_extent`, not `len` — a sparse tail has no storage past
 /// the extent.
+///
+/// A pristine split product ([`pristine_split_block`]) answers the
+/// whole walk from its first slot: every view shares that slot's
+/// parent, so when the parent is null or a static literal nothing is
+/// owed by any of them and the walk is skipped outright — four loads
+/// for the block instead of four per slot (rotation 469; on
+/// `split-only-100k` the per-slot walk was 22% of the run, for seven
+/// slots that each answered "nothing" the same way). A heap parent
+/// keeps the per-slot release, which is what hands its references
+/// back.
 ///
 /// # Safety
 ///
@@ -97,6 +125,16 @@ pub unsafe extern "C" fn __torajs_arr_drop_str_elems(p: *mut c_void) {
             // cap:u32 | head:u32 packed at ARR_CAP_OFF (T-13.5 deque).
             let head = unsafe { *(cell.add(ARR_CAP_OFF + 4) as *const u32) } as usize;
             let slots = unsafe { arr_data(cell).add(head * 8) as *const *mut u8 };
+            let first = unsafe { *slots };
+            if unsafe { pristine_split_block(header, first) } {
+                let parent = unsafe { *(first.add(SUBSTR_PARENT_OFF) as *const *mut u8) };
+                if parent.is_null()
+                    || unsafe { (*(parent as *const HeapHeader)).flags } & FLAG_STATIC_LITERAL != 0
+                {
+                    unsafe { __torajs_arr_drop(p) };
+                    return;
+                }
+            }
             for i in 0..extent as usize {
                 let elem = unsafe { *slots.add(i) };
                 if elem.is_null() {

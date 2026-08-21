@@ -43,7 +43,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_inc, HeapHeader};
+use torajs_rc::{__torajs_rc_inc, ARR_KIND_HEAP, HeapHeader};
 use torajs_str::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 
 use crate::layout::{ARR_CAP_OFF, arr_data, arr_live_extent};
@@ -129,6 +129,12 @@ pub unsafe extern "C" fn __torajs_arr_substr_adopt_copied(p: *mut c_void, start:
 /// the same array, so the SSA site can rebind it under its new
 /// `Arr<Str>` type (the shape `arr_push` and friends use).
 ///
+/// The block's element-kind field is set to [`ARR_KIND_HEAP`] on the
+/// way: a split block whose kind is still unset is one the split
+/// kernel filled and nobody converted, and the release path answers
+/// such a block from its first slot alone (`drop_str_elems`); after
+/// this the slots are owned strings, and the field says so.
+///
 /// # Safety
 ///
 /// `p` is null or a live array cell whose slots hold `Str`-tagged
@@ -138,6 +144,7 @@ pub unsafe extern "C" fn __torajs_arr_substr_materialize_owned(p: *mut c_void) -
     if p.is_null() {
         return p;
     }
+    unsafe { crate::mark_kind::__torajs_arr_mark_kind(p, ARR_KIND_HEAP as u64) };
     let cell = p as *mut u8;
     let extent = unsafe { arr_live_extent(cell) } as usize;
     let slots = unsafe { slots(cell) };
