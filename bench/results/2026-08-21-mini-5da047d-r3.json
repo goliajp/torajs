@@ -1,0 +1,60 @@
+{
+  "started_at": "2026-08-21T11:52:14Z",
+  "host": "mini",
+  "git_sha": "5da047dc370e013f11d8272dd4b59fb7c79b68a8",
+  "runs": 1,
+  "rows": [
+    {
+      "case": "regex-dfa-iflag-100k",
+      "runtime": "bun-aot",
+      "runtime_version": "1.4.0",
+      "status": "ok",
+      "compile_ms": 71.707459,
+      "run_ms": 9.969667,
+      "run_stddev_ms": 0.11169155018790705,
+      "artifact_bytes": 63910514,
+      "artifact_sha256": "8c833e82c35c987e7b786da0ddcd043d27eaafdc0ab843001d64ef25a4305a76",
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "regex-dfa-iflag-100k",
+      "runtime": "rust",
+      "runtime_version": null,
+      "status": "skipped",
+      "compile_ms": null,
+      "run_ms": null,
+      "run_stddev_ms": null,
+      "artifact_bytes": null,
+      "artifact_sha256": null,
+      "stdout_match": null,
+      "error": "no source file: /Users/doracawl/workspace/goliajp/torajs/bench/cases/regex-dfa-iflag-100k/main.rs"
+    },
+    {
+      "case": "regex-dfa-iflag-100k",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 47.6870005,
+      "run_stddev_ms": 0.29339750364879436,
+      "artifact_bytes": null,
+      "artifact_sha256": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "regex-dfa-iflag-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 34.537292,
+      "run_ms": 11.886437999999998,
+      "run_stddev_ms": 0.17812376763288304,
+      "artifact_bytes": 2506969,
+      "artifact_sha256": "d74aa04c90ce8915d18cda22655cd61141a1dad01967649e624f12a946ab0961",
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}

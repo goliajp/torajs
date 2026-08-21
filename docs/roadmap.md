@@ -7115,6 +7115,17 @@ v3 roadmap appendix).
   4. 消融定价：把预测拆成几个能分别测量的量，**要求它们的和与实测
      总量对上**（§9 唯一存活的那次预测就是这样来的）。
   **SIMD 不在 S1 里** —— 它是独立的 S6（下），大载荷才兑现。
+
+  **S1 已落两刀（2026-08-21，`fe240fec` + `f4225b90`）**：
+  ①`#[global_allocator]` 在用户 AOT 产物里从未生效（两张表语义相反：
+  符号索引 first-wins、地址表 last-wins）；②三处 i64→字符串路径全在
+  走 `core::fmt`。合计 `json-stringify` work-ratio **1.758 → 1.248**，
+  `i64-to-str` **0.665 → 0.351**，regex 全族各降 0.05–0.12（它们的
+  共享前缀里有 `i.toString()`）；总时间领先 **36/44 → 38-40/44**，
+  几何均值 0.642 → **0.628**；输的那 16 条一条没多、中位 1.352 →
+  **1.271**。**S1 剩余**：A1 WeakRef 观察位（split/match 各 ~4%）、
+  B match 结果 exec-shape 属性惰性化（match 17%）、A2 逃逸分析后
+  栈分配整块结果数组（split 46%，架构件）。
 - **S2 — 启动降到 native 地板。** 把 2.589 → 1.351 的 1.2 ms 差拆开。
   **必须用消融法（删掉某一步量整体差值），禁止用计时器夹小步**
   （`perf-decomposition` §1：优化构建里时钟读取不是屏障）。嫌疑面：
@@ -7134,6 +7145,16 @@ v3 roadmap appendix).
   反复复发的坑变成编译错误。**
 - **S5 — bench gate 升级。** `artifact_bytes` 与 `startup` 升为独立
   回归 gate（现在只是结果里的一行数字）；每轮报 work-only 口径。
+  **work-only 有条件数问题(2026-08-21 实测立)**：它是两个大数相减，
+  当对手的 work 项相对减法误差不够大时读数不可信。判据 =
+  `hypot(sd_case, sd_startup) / bun_work`：**≥25% 直接不报**
+  （当前 `promise-chain-1k` 200% / `promise-all-1k` 69% /
+  `array-any-indexed` 42%），10–25% 标记为勉强
+  （`str-concat-ascii` / `multibyte-concat` / `split-only` /
+  `fifo-queue` / `prime_count` / `promise-await`）。本轮三条"变差"的
+  case 全部落在这两档里，逐条查明**不是回归**（tr 要么没动、要么与
+  bun 同向移动）。**判据永远是"未改动的对照有没有同向移动"**
+  （rotation 211）。
   **另加一条 fixture 等价性 gate**：`main.tora.ts` 与 `main.ts` 必须是
   同一个程序（2026-08-21 抓到 10 条 regex case 两侧结构不同、白比了很久
   ——stdout 相同不能证明在做同样的工作，这正是 perf 方法论
