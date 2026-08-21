@@ -6,9 +6,24 @@
 //! Without this, every Rust `Box::new` / `Vec::push` / `String::from`
 //! inside the Layer-1+ staticlib chain falls back to
 //! `std::alloc::System` → libc `_malloc` / `_free` / `_realloc` /
-//! `_posix_memalign`. v0.7-A5 16-d makes those four symbols
-//! disappear from the user binary's `nm` undef list — Rust std now
-//! uses our mmap-backed allocator end-to-end.
+//! `_posix_memalign`.
+//!
+//! ## What actually reaches the user binary
+//!
+//! Declaring the impl is only half of it. Every `libtorajs_*.a`
+//! carries its own copy of `core`, and that copy ships the default
+//! `__rust_alloc -> __rdl_alloc` shim; the in-house linker builds
+//! its address table last-write-wins, so for a long time user
+//! binaries bound every call site to the default shim and ran on
+//! libc malloc with `TorajsAllocator` sitting unreferenced in the
+//! image. `nm -u` cannot show this — the linker imports through
+//! chained fixups, so there is no undef entry to look for. What
+//! shows it is a leaf-symbol profile (`libsystem_malloc` frames
+//! under `__torajs_jsb_new`) or decoding the `bl` target at a call
+//! site. Fixed 2026-08-21 by `is_allocator_shim_sym` in
+//! `torajs-link/src/archive_emit.rs` (first-definition-wins for
+//! this symbol family) plus `libtorajs_panic_runtime.a` leading
+//! `TORAJS_STATICLIBS`; both halves are required.
 //!
 //! ## Alignment contract
 //!

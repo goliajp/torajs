@@ -182,12 +182,26 @@ mod active {
     // v0.7-A5 step 16-d — `#[global_allocator]` single-marker site
     // ===========================================================
     //
-    // Why panic-runtime: this staticlib resolves first (LLVM-era:
-    // `-Wl,-force_load`-first; in-house linker: archive worklist
-    // order), so the `__rust_alloc_*` shim
-    // emitted by `#[global_allocator]` resolves before any sibling
-    // staticlib's fallback shim (libtorajs_mmalloc, etc.). Single
-    // marker site eliminates the duplicate-symbol class.
+    // Why panic-runtime: single marker site eliminates the
+    // duplicate-symbol class, and this crate already owns
+    // `rust_eh_personality` / `__rust_start_panic` / the
+    // alloc-error handler.
+    //
+    // "Resolves first" is NOT automatic, and this comment used to
+    // claim it was. Under the LLVM-era link it came from
+    // `-Wl,-force_load` ordering; the in-house linker has no such
+    // rule — it pulls archive members on demand and builds its
+    // address table last-write-wins, so a shim declared here loses
+    // to the default `__rust_alloc -> __rdl_alloc` that every
+    // sibling staticlib's bundled `core` also defines. User
+    // binaries ran on libc malloc from the linker swap until
+    // 2026-08-21. Two things now make the claim true, and removing
+    // either one silently reverts it:
+    //   1. `libtorajs_panic_runtime.a` leads `TORAJS_STATICLIBS`
+    //      (`torajs-core/src/staticlibs.rs`);
+    //   2. `is_allocator_shim_sym` in
+    //      `torajs-link/src/archive_emit.rs` makes this symbol
+    //      family first-definition-wins.
     //
     // Why route through `__torajs_libc_malloc / _free / _realloc`
     // (libtorajs_mmalloc-exported `extern "C"`): keeps the

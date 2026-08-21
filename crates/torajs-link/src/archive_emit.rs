@@ -31,6 +31,23 @@ use crate::user_regex_baked_layout::apply_user_regex_baked_overrides;
 use crate::user_strings_emit::apply_user_string_overrides;
 use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables_payload};
 
+/// The `#[global_allocator]` shim family, matched by unmangled
+/// suffix so the per-build `Cs<hash>_7___rustc` prefix does not
+/// matter. `___rdl_alloc` deliberately does NOT match: that is
+/// std's default System implementation, and the point of the
+/// override is to stop binding to the shim that forwards to it.
+fn is_allocator_shim_sym(name: &str) -> bool {
+    const SHIMS: &[&str] = &[
+        "___rust_alloc",
+        "___rust_dealloc",
+        "___rust_realloc",
+        "___rust_alloc_zeroed",
+        "___rust_alloc_error_handler",
+        "___rust_no_alloc_shim_is_unstable_v2",
+    ];
+    SHIMS.iter().any(|s| name.ends_with(s))
+}
+
 /// Link an `archives`-populated `LinkConfig` into a complete
 /// ad-hoc-codesigned `MH_EXECUTE` byte stream. User-fn + member
 /// relocs both resolve against one effective sym table (caller
@@ -54,7 +71,27 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
                 &m.non_text_sections,
                 data_layouts,
             );
-            effective_sym_table.insert(name.clone(), vaddr);
+            if is_allocator_shim_sym(name) {
+                // First definition wins for this family only. Every
+                // `libtorajs_*.a` bundles its own `core`, so the
+                // default `__rust_alloc -> __rdl_alloc` shim is
+                // defined once per archive; plain `insert` lets the
+                // last archive scanned decide, which is how user
+                // binaries ended up on libc malloc while
+                // `TorajsAllocator` sat unreferenced in the image.
+                // `member_layouts` is ordered by `(archive_idx,
+                // member_idx)` (archive_link sorts `member_keys`),
+                // and `libtorajs_panic_runtime.a` — the one crate
+                // carrying `#[global_allocator]` — leads
+                // `TORAJS_STATICLIBS`, so first-wins here means its
+                // shim is the one every call site binds to. That
+                // matches what `merge_archive_indexes` already
+                // documents for the symbol index (ld64 search order);
+                // the vaddr table was the half that disagreed.
+                effective_sym_table.entry(name.clone()).or_insert(vaddr);
+            } else {
+                effective_sym_table.insert(name.clone(), vaddr);
+            }
         }
     }
     for (name, stub_vaddr) in &layout.stub_vaddrs {

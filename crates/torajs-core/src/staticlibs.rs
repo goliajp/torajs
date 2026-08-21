@@ -24,6 +24,29 @@
 /// `STATICLIBS` list — no other change needed for the link wiring to
 /// pick it up.
 pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
+    // The allocator override has to be searched first. Every
+    // `libtorajs_*.a` bundles its own copy of `core`, and that copy
+    // carries the default `__rust_alloc -> __rdl_alloc` shim; the
+    // merge is first-archive-wins (ld64 search order), so whichever
+    // archive leads the list decides which allocator the whole user
+    // binary gets. This crate is the one holding
+    // `#[global_allocator] static GLOBAL: TorajsAllocator`, and it
+    // only wins from the front. It also owns `rust_eh_personality` /
+    // `__rust_start_panic` / the alloc-error handler, so front is
+    // where it belonged anyway.
+    //
+    // It used to sit near the end, which is why user binaries were
+    // silently routing every Rust-side Vec/Box/String to libc malloc
+    // instead of the mmalloc TLAB — visible only in a leaf-symbol
+    // profile as `_xzm_xzone_malloc` / `_xzm_free` frames under
+    // `__torajs_jsb_new`, and confirmed by `__rust_alloc: b
+    // __rdl_alloc` in the shipped binary. The crate's own comment
+    // asserted "this staticlib resolves first"; with the in-house
+    // linker that was never true.
+    (
+        "libtorajs_panic_runtime.a",
+        include_bytes!(env!("TORAJS_PANIC_RUNTIME_STATICLIB_PATH")),
+    ),
     (
         "libtorajs_syscall.a",
         include_bytes!(env!("TORAJS_SYSCALL_STATICLIB_PATH")),
@@ -135,10 +158,6 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
     (
         "libtorajs_panic.a",
         include_bytes!(env!("TORAJS_PANIC_STATICLIB_PATH")),
-    ),
-    (
-        "libtorajs_panic_runtime.a",
-        include_bytes!(env!("TORAJS_PANIC_RUNTIME_STATICLIB_PATH")),
     ),
     (
         "libtorajs_value_drop.a",
