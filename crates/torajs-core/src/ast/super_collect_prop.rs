@@ -15,11 +15,20 @@
 //!                     only place a Void setter call can replace it)
 //!   - `AssignIndex` — `super[k] = v` (write to the `this` receiver)
 //!
-//! `super[k](...)` / `super.x?.()` call forms are deliberately NOT
-//! collected: the callee read would resolve the receiver to the super
-//! base instead of `this` (§13.3.6 wants `this`), so their marker is
-//! left in place and fails loud at the checker rather than running
-//! with the wrong receiver.
+//!   - `CallIndex`   — `super[k](args)`, whose callee is NOT a
+//!                     readable value: §13.3.6 invokes the Super
+//!                     Reference with the CURRENT `this` as receiver,
+//!                     so the site travels whole to a kernel that
+//!                     gets-then-calls rather than being split
+//!                     (rewriting just the callee read would hand the
+//!                     super base to the callee — right answer for
+//!                     `super.toString()`, silently wrong for
+//!                     anything that reads `this`)
+//!
+//! `super.x?.()` optional-call forms are still NOT collected: the
+//! nullish short-circuit is not representable by rewriting the call
+//! node alone, so their marker is left in place and fails loud at the
+//! checker rather than running with the wrong receiver.
 //!
 //! Every collected marker ExprId is also recorded so the rewrite can
 //! overwrite the (then-orphaned) marker nodes with an inert leaf —
@@ -48,6 +57,10 @@ pub(super) enum SuperPropSite {
     },
     AssignIndex {
         target_index: ExprId,
+    },
+    CallIndex {
+        call: ExprId,
+        index_expr: ExprId,
     },
 }
 
@@ -217,11 +230,35 @@ fn walk_expr(ast: &Ast, eid: ExprId, out: &mut SuperPropSites, stmt_pos: bool) {
             }
             walk_expr(ast, value, out, false);
         }
-        // `super[k](...)` — receiver must be `this`, which a plain
-        // rewrite of the callee read cannot deliver. Skip the callee
-        // (marker stays put → loud unknown-ident at the checker),
-        // still walk the args.
-        Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
+        // `super[k](...)` — the receiver must be `this`, which a
+        // rewrite of the callee read alone cannot deliver, so the
+        // whole call travels as one site. `super.m(...)` is already
+        // claimed upstream by the `__supercall__<m>` marker the
+        // parser writes for the name form, and an OptCall's nullish
+        // short-circuit has no such whole-site shape yet — both leave
+        // the callee alone (marker stays put → loud unknown-ident at
+        // the checker). Args are walked either way.
+        Expr::Call { callee, args } => {
+            match ast.get_expr(*callee) {
+                Expr::Index { obj, .. } if is_marker(ast, *obj) => {
+                    out.markers.push(*obj);
+                    out.sites.push(SuperPropSite::CallIndex {
+                        call: eid,
+                        index_expr: *callee,
+                    });
+                    let Expr::Index { index, .. } = ast.get_expr(*callee) else {
+                        unreachable!()
+                    };
+                    walk_expr(ast, *index, out, false);
+                }
+                Expr::Member { obj, .. } if is_marker(ast, *obj) => {}
+                _ => walk_expr(ast, *callee, out, false),
+            }
+            for a in args {
+                walk_expr(ast, *a, out, false);
+            }
+        }
+        Expr::OptCall { callee, args } => {
             let skip_callee = matches!(
                 ast.get_expr(*callee),
                 Expr::Index { obj, .. } | Expr::Member { obj, .. } if is_marker(ast, *obj)

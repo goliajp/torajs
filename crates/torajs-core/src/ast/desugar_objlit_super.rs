@@ -214,8 +214,14 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
             }
             // Writes keep their marker — §9.1.9 wants receiver-is-this
             // PutValue semantics this rewrite cannot spell — and fail
-            // loud at the checker like they did before this pass.
-            SuperPropSite::AssignName { .. } | SuperPropSite::AssignIndex { .. } => {}
+            // loud at the checker like they did before this pass. So
+            // does `super[k](…)`: the class pass hands that shape to
+            // the §13.3.6 kernel with `this` as receiver, and the
+            // `this` a desugar mints at THIS stage is exactly the node
+            // the objlit-method machinery does not type (see above).
+            SuperPropSite::AssignName { .. }
+            | SuperPropSite::AssignIndex { .. }
+            | SuperPropSite::CallIndex { .. } => {}
         }
     }
     Some(home)

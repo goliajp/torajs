@@ -24,9 +24,18 @@
 //!     own accessor dispatch on `this` covers the un-shadowed
 //!     inherited-setter shape).
 //!
+//!   - call `super[k](args)` → the whole site becomes
+//!     `__torajs_super_prop_call(<base>, k, <receiver>, [args…])`,
+//!     one kernel that reads the base with the §13.3.7 receiver and
+//!     then invokes with it. Splitting it into a callee read plus a
+//!     call would hand the BASE to the method — the right answer for
+//!     `super.toString()` and silently wrong for anything reading
+//!     `this`, which is why the call form does not travel the
+//!     `IndexRead` path.
+//!
 //! Recorded approximation boundaries (loud, not silent — the marker
-//! survives to the checker as an unknown ident): `super[k](...)`
-//! calls (receiver would be wrong), `super.x++` (fused read/write).
+//! survives to the checker as an unknown ident): `super.x?.()`
+//! optional calls, `super.x++` (fused read/write).
 //! Recorded silent boundaries: a RUNTIME-defined accessor on the base
 //! (defineProperty after class definition) reads through the plain
 //! member path with the prototype as receiver; a setter shadowed by
@@ -144,6 +153,31 @@ fn rewrite_sites(
                     let recv = mint_receiver(ast, cname, is_static);
                     ast.exprs[target.0 as usize] = Expr::Member { obj: recv, name };
                 }
+            }
+            SuperPropSite::CallIndex { call, index_expr } => {
+                let Expr::Call { args, .. } = ast.get_expr(call) else {
+                    continue;
+                };
+                let args = args.clone();
+                let Expr::Index { index, .. } = ast.get_expr(index_expr) else {
+                    continue;
+                };
+                let key = *index;
+                let base = mint_base(ast, parent_name, is_static);
+                let recv = mint_receiver(ast, cname, is_static);
+                // The pack is an array literal, the protocol
+                // `__torajs_super_value` already uses: one dense
+                // `Arr<Any>` carries a spread element without the
+                // kernel needing a spread protocol of its own.
+                let pack = ast.add_expr(Expr::Array(args));
+                let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));
+                ast.exprs[call.0 as usize] = Expr::Call {
+                    callee,
+                    args: vec![base, key, recv, pack],
+                };
+                // The Index node the marker hung off is now orphaned
+                // — same posture as the markers themselves.
+                ast.exprs[index_expr.0 as usize] = Expr::Null;
             }
             SuperPropSite::AssignIndex { target_index } => {
                 let Expr::Index { index, .. } = ast.get_expr(target_index) else {

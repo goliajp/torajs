@@ -216,6 +216,7 @@ mod struct_field_ffi;
 mod struct_probe;
 mod struct_proto_has;
 mod super_call;
+mod super_prop_call;
 pub mod template_object;
 mod to_bigint;
 mod to_callable;

@@ -26,6 +26,7 @@ pub(crate) struct InitC {
     pub recv_gate: crate::ssa_lower_intrinsics_recv_gate::RecvGateIds,
     pub template: crate::ssa_lower_intrinsics_template::TemplateIds,
     pub ctorany: crate::ssa_lower_intrinsics_ctorany::CtoranyIds,
+    pub super_prop: crate::ssa_lower_intrinsics_superprop::SuperPropIds,
     pub class_computed: crate::ssa_lower_intrinsics_class_computed::ClassComputedIds,
     pub private: crate::ssa_lower_intrinsics_private::PrivateIds,
     pub ctor_ret: crate::ssa_lower_intrinsics_ctorret::CtorRetIds,
@@ -48,6 +49,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     let recv_gate = crate::ssa_lower_intrinsics_recv_gate::declare(module, fn_table);
     let template = crate::ssa_lower_intrinsics_template::declare(module, fn_table);
     let ctorany = crate::ssa_lower_intrinsics_ctorany::declare(module, fn_table);
+    let super_prop = crate::ssa_lower_intrinsics_superprop::declare(module, fn_table);
     let class_computed = crate::ssa_lower_intrinsics_class_computed::declare(module, fn_table);
     let private = crate::ssa_lower_intrinsics_private::declare(module, fn_table);
     let ctor_ret = crate::ssa_lower_intrinsics_ctorret::declare(module, fn_table);
@@ -74,6 +76,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         recv_gate,
         template,
         ctorany,
+        super_prop,
         class_computed,
         private,
         ctor_ret,
