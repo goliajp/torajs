@@ -24,3 +24,13 @@ console.log(delete b[0], b[0], b.length, 0 in b);
 // A binding nobody deletes from keeps its element type.
 let c = [4, 5, 6];
 console.log(c[0] + c[1] + c[2]);
+
+// A binding `let_widen` already claims — reassigned across syntactic
+// families — is left alone: that pass types it `any`, which is wider
+// than `any[]` and admits the delete on its own. Annotating here would
+// take it out of `let_widen`'s reach and refuse the reassign.
+let x = [0];
+delete x[0];
+console.log(x.length);
+x = { p: 1 } as any;
+console.log(x.p);

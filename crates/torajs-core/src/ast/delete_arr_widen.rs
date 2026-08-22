@@ -29,6 +29,18 @@
 //! documents: a same-named binding elsewhere can widen this one, which
 //! costs that binding its unboxed element slots and nothing else.
 //!
+//! A binding [`crate::let_widen`] already claims — reassigned across
+//! syntactic families, `var x = [0]; … x = {…}` — is left alone. That
+//! pass types it `any`, which is wider than `any[]` and admits the
+//! delete on its own; writing an annotation here would take the
+//! binding out of its reach (it tracks UNANNOTATED lets) and turn a
+//! program that ran into a refusal. Measured: the
+//! `Array.prototype[1] = 1; var x = [0]; … x = {0: 0}` idiom behind
+//! nine test262 cases. The claim is read off the prelude AST while
+//! `let_widen` decides on the desugared one, so the two can disagree
+//! about a shape the class desugar changes; disagreeing costs today's
+//! answer and never a new wrong one.
+//!
 //! Runs in the prelude beside the other `delete` triage, before
 //! anything reads element types.
 
@@ -56,20 +68,26 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     if names.is_empty() {
         return;
     }
+    let claimed = crate::let_widen::collect_cross_type_widen_inits(ast);
     let mut stmts = std::mem::take(&mut ast.stmts);
     // The mutable spine is FULLY recursive (each nested list handed to
     // the callback exactly once), so the per-list body must not
     // recurse itself.
-    widen_flat(&mut stmts, &ast.exprs, &names);
+    widen_flat(&mut stmts, &ast.exprs, &names, &claimed);
     for s in stmts.iter_mut() {
         super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |inner| {
-            widen_flat(inner, &ast.exprs, &names)
+            widen_flat(inner, &ast.exprs, &names, &claimed)
         });
     }
     ast.stmts = stmts;
 }
 
-fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], names: &HashSet<String>) {
+fn widen_flat(
+    stmts: &mut [Stmt],
+    exprs: &[Expr],
+    names: &HashSet<String>,
+    claimed: &HashSet<ExprId>,
+) {
     for s in stmts.iter_mut() {
         let Stmt::LetDecl {
             name,
@@ -80,7 +98,7 @@ fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], names: &HashSet<String>) {
         else {
             continue;
         };
-        if type_ann.is_some() || !names.contains(name) {
+        if type_ann.is_some() || !names.contains(name) || claimed.contains(init) {
             continue;
         }
         if matches!(peel_as(exprs, *init), Expr::Array(_)) {
