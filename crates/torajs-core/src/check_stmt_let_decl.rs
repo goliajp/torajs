@@ -233,12 +233,18 @@ pub(crate) fn check(
 /// call each other) still fails, and does so loudly.
 ///
 /// The annotation gate keeps this in step with the lowering lane that
-/// has to serve it (`ssa_lower_stmt_let_decl_recursive`), which claims a
-/// binding only when it takes a `Closure` slot. An `any`-annotated
-/// binding takes an any slot instead, so admitting it here would trade
-/// today's honest "unknown identifier" for a compiler panic at lower
-/// time. Unannotated and function-annotated are exactly the two shapes
-/// that reach the closure slot.
+/// has to serve it (`ssa_lower_stmt_let_decl_recursive`). That lane
+/// claimed a binding only when it took a `Closure` slot, so an
+/// `any`-annotated one was declined here in step — admitting it would
+/// have traded an honest "unknown identifier" for a failure at lower
+/// time. The lane now opens an `Any` box for the bare form too, the
+/// same box it already opened for a closure nested inside a composite
+/// init, so the annotation is served and admits here as well.
+///
+/// An `any` binding declares as `any`, not as the closure's signature:
+/// that is what was written, and it is what makes a write from inside
+/// the body (`let h: any = function () { h = 9 }`) an ordinary
+/// PutValue rather than a type error.
 fn predeclare_self_ref_closure(
     checker: &mut Checker,
     ast: &Ast,
@@ -286,21 +292,29 @@ fn predeclare_self_ref_closure(
     if !captures.iter().any(|c| c == name) {
         return false;
     }
+    let mut ann_any = false;
     if let Some(ann) = type_ann {
         let resolved =
             resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls);
-        if !matches!(resolved, Some(Type::Function(..))) {
-            return false;
+        match resolved {
+            Some(Type::Function(..)) => {}
+            Some(Type::Any) => ann_any = true,
+            _ => return false,
         }
     }
-    let Ok(sig) = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases) else {
-        return false;
+    let ty = if ann_any {
+        Type::Any
+    } else {
+        let Ok(sig) = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases) else {
+            return false;
+        };
+        sig.value_ty
     };
     checker
         .declare(
             name.to_string(),
             LocalInfo {
-                ty: sig.value_ty,
+                ty,
                 mutable: true,
                 moved: false,
                 borrowed: false,
