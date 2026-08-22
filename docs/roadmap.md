@@ -1557,7 +1557,28 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `92ea7337`** (2026-08-21, rotation 465 — the loud reject was
+**Latest @ `6fcf5becc`** (2026-08-22, rotation 473 — one encoding
+question asked in five places, four of which had stopped answering
+it). Nothing here moved P-SURF: the gate predicate is **165**
+clusters of ≥ 4 holding **1379** cases, register 2 · 274, residue
+656 · 822 (33.2%), core **2475** — every number identical to
+rotation 465's, because every fix this rotation landed in the `bug`
+bucket rather than the `incompatible` one. Sweep passTotal 32346 →
+**32352 (+6)**, bug 12844 → **12838 (−6)**, trAccepted flat,
+conservation exact; **10 verdict moves, zero pass regressions**, and
+four of the ten are crashes downgrading to ordinary failures
+(exit 139 → 1). The common root is P11.1-S2: a Str payload became
+Latin-1 or UTF-16 LE with `length` counting code units, and five
+places kept reading it as a UTF-8 byte tape with `length` as a byte
+count. The Any-lane `+` fast path packed Latin-1 bytes into a
+UTF-8 ShortStr (crash, and the one the two `parseInt` / `parseFloat`
+cases were sitting on); the JSON builder copied Latin-1 payload into
+a buffer another producer had already made UTF-8; both JSON parse
+drivers read half of a UTF-16 source and answered SyntaxError on the
+first character. The `incompatible` face is untouched by all of it,
+which is the point of counting the two buckets apart.
+
+**@ `92ea7337`** (2026-08-21, rotation 465 — the loud reject was
 standing in front of a different, already-wrong thing). The rotation
 opened on the cluster the previous handoff named, `fnexpr this in
 unclaimed receiver position` (25 cases across 6 directories), and the
