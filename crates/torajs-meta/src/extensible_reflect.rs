@@ -26,6 +26,12 @@ unsafe extern "C" {
     // setters and readers from torajs-rc/src/extensible.rs. Cell-only
     // — caller filters out primitive imms first.
     fn __torajs_obj_prevent_extensions(p: *mut c_void) -> *mut c_void;
+    /// torajs-anyvalue — §10.5.3 / §10.5.4 on a Proxy.
+    fn __torajs_proxy_is_extensible(obj_any: u64) -> bool;
+    fn __torajs_proxy_prevent_extensions(obj_any: u64) -> i64;
+    /// torajs-throw — pending-throw probe + the refusal TypeError.
+    fn __torajs_throw_check() -> i64;
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_obj_is_extensible(p: *const c_void) -> bool;
     fn __torajs_obj_seal_mark(p: *mut c_void) -> *mut c_void;
     fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool;
@@ -64,6 +70,18 @@ pub unsafe extern "C" fn __torajs_anyv_prevent_extensions(obj_any: u64) -> u64 {
         // primitive imm / null / undef — spec returns the value as-is.
         return obj_any;
     }
+    // §10.5.4 — a Proxy answers the request itself; a refusal is
+    // §20.1.2.19 step 3's TypeError (RFC 20260823 刀 5).
+    if unsafe { heap_type_tag(obj_any as *const c_void) } == crate::reflect::TAG_PROXY {
+        unsafe {
+            if __torajs_proxy_prevent_extensions(obj_any) == 0 && __torajs_throw_check() == 0 {
+                __torajs_throw_type_error(
+                    c"proxy 'preventExtensions' trap returned falsish".as_ptr(),
+                );
+            }
+        }
+        return obj_any;
+    }
     // SAFETY: cell pointer to a valid heap object per invariant.
     unsafe { __torajs_obj_prevent_extensions(obj_any as *mut c_void) };
     obj_any
@@ -89,6 +107,10 @@ pub unsafe extern "C" fn __torajs_anyv_is_extensible(obj_any: u64) -> bool {
         return false;
     }
     let p = obj_any as *const c_void;
+    // §10.5.3 — a Proxy answers extensibility itself.
+    if unsafe { heap_type_tag(p) } == crate::reflect::TAG_PROXY {
+        return unsafe { __torajs_proxy_is_extensible(obj_any) };
+    }
     // SAFETY: is_cell_imm guarantees a live heap pointer.
     if unsafe { is_primitive_heap_tag(p) } {
         return false;

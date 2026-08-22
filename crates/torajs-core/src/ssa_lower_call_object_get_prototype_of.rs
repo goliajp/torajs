@@ -294,6 +294,10 @@ fn lower_nullish_or_any_gate(
             Type::Any,
             None,
         );
+        // §10.5.1 — the kernel can now throw (a Proxy whose
+        // getPrototypeOf trap answers a non-object, or a revoked
+        // one), so the answer needs its own check.
+        ctx.emit_throw_check(None);
         if !arg_is_ident {
             ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
         }

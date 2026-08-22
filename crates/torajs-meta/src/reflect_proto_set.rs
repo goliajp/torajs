@@ -30,6 +30,10 @@ use crate::reflect::{
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
+    /// torajs-anyvalue — §10.5.2 [[SetPrototypeOf]] on a Proxy.
+    fn __torajs_proxy_set_prototype_of(obj: u64, proto: u64) -> i64;
+    /// torajs-throw — non-zero iff a throw is in flight.
+    fn __torajs_throw_check() -> i64;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const u8) -> bool;
@@ -228,6 +232,14 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
             return;
         }
         let cell = obj as *mut c_void;
+        if heap_type_tag(cell) == crate::reflect::TAG_PROXY {
+            // §10.5.2 — a Proxy answers the re-parent itself; a
+            // refusal is §20.1.2.21 step 4's TypeError.
+            if __torajs_proxy_set_prototype_of(obj, proto) == 0 && __torajs_throw_check() == 0 {
+                __torajs_throw_type_error(c"proxy 'setPrototypeOf' trap returned falsish".as_ptr());
+            }
+            return;
+        }
         if heap_type_tag(cell) != TAG_DYNOBJ {
             // 405-01 substrate — a FUNCTION value re-parents through
             // its expando props bag (the extends lane's
@@ -283,6 +295,9 @@ pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64)
             return 0;
         }
         let cell = obj as *mut c_void;
+        if heap_type_tag(cell) == crate::reflect::TAG_PROXY {
+            return __torajs_proxy_set_prototype_of(obj, proto);
+        }
         if heap_type_tag(cell) != TAG_DYNOBJ {
             // 405-01 substrate — function values re-parent through
             // the expando carrier, same as the Object flavor.

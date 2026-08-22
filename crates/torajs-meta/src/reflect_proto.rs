@@ -34,6 +34,8 @@ const CLOSURE_PROPS_OFF: usize = 24;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
+    /// torajs-anyvalue — §10.5.1 [[GetPrototypeOf]] on a Proxy.
+    fn __torajs_proxy_get_prototype_of(v: u64) -> u64;
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const u8) -> bool;
     fn __torajs_dynobj_get_tag(dynobj: *const c_void, key: *const u8) -> u64;
@@ -232,6 +234,11 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         return unsafe { proto_singleton(proto_tag) };
     }
     let dynobj = v as *const c_void;
+    // §10.5.1 — a Proxy answers its own [[Prototype]] (RFC
+    // 20260823-proxy-substrate 刀 5).
+    if unsafe { heap_type_tag(dynobj) } == crate::reflect::TAG_PROXY {
+        return unsafe { __torajs_proxy_get_prototype_of(v) };
+    }
     // A builtin prototype answers before anything reads its shape:
     // every one of them inherits from %Object.prototype% (§20.1.3 —
     // whose own [[Prototype]] is the chain's null root), and that

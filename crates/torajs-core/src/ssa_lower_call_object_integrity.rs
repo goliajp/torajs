@@ -266,6 +266,9 @@ fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand 
     // over-released the receiver (use-after-free: the freed wrapper
     // block got recycled by the next alloc, observed as
     // `n.valueOf()` answering `[]` after `Object.keys(n)`).
+    // §10.5.4 — a Proxy's preventExtensions trap can refuse or lie,
+    // both of which are catchable TypeErrors (RFC 20260823 刀 5).
+    ctx.emit_throw_check(None);
     ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
     Operand::Value(v)
 }
@@ -290,6 +293,9 @@ fn lower_is_extensible(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::Bool,
         None,
     );
+    // §10.5.3 step 8 — a Proxy trap that disagrees with its target
+    // throws (RFC 20260823 刀 5).
+    ctx.emit_throw_check(None);
     Operand::Value(v)
 }
 

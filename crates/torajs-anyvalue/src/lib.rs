@@ -210,6 +210,7 @@ mod proxy_call;
 mod proxy_desc;
 mod proxy_get_prop;
 mod proxy_key;
+mod proxy_object;
 mod proxy_ops;
 mod proxy_own;
 mod proxy_revocable;
