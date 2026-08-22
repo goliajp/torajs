@@ -27,6 +27,9 @@
 //! struct shapes ({i64,Str,i64,Bool}, all-i64, all-Str, mixed
 //! escapes, etc).
 
+use core::ptr;
+use core::sync::atomic::{AtomicPtr, Ordering};
+
 use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use crate::print::{iter_utf16_codepoints, write_utf8_for_codepoint};
@@ -36,6 +39,27 @@ use torajs_rc::HeapHeader;
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 const INITIAL_CAP: usize = 64;
+
+/// The one builder kept alive between `JSON.stringify` calls.
+///
+/// Building the record was never the expensive part: `jsb_new` +
+/// `jsb_finalize` were ~50% of `json-stringify-100k`'s samples, all
+/// of it the system allocator taking and returning the `Box` and its
+/// `Vec` once per call. Parking one keeps both, and keeps the
+/// buffer's capacity too, so the steady state is zero allocations
+/// for the accumulator — the reason serializers hold a scratch
+/// buffer rather than minting one per document.
+///
+/// One slot, because the lane that mints builders handles
+/// primitive-only layouts and so never nests. A caller that somehow
+/// nests still works: the inner `new` finds the slot empty and
+/// allocates.
+///
+/// `AtomicPtr` under `Relaxed` for the same reason `pool.rs` uses it
+/// — the runtime is single-threaded, this codegens identically to
+/// `static mut`, and it does not trip the 2024 `static_mut_refs`
+/// lint.
+static PARKED: AtomicPtr<JsonBuilder> = AtomicPtr::new(ptr::null_mut());
 
 /// Single-threaded byte accumulator owned by SSA-emitted code via
 /// `*mut JsonBuilder` opaque handles. The handle is created by
@@ -125,6 +149,17 @@ fn write_i64_into(dst: &mut Vec<u8>, n: i64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_new(initial_cap: u32) -> *mut JsonBuilder {
     let cap = (initial_cap as usize).max(INITIAL_CAP);
+    let parked = PARKED.swap(ptr::null_mut(), Ordering::Relaxed);
+    if !parked.is_null() {
+        // SAFETY: only `finalize` parks, and it parks a builder it
+        // has just stopped using; the swap above takes it back out,
+        // so this is the only live handle.
+        let b = unsafe { &mut *parked };
+        if b.buf.capacity() < cap {
+            b.buf.reserve(cap);
+        }
+        return parked;
+    }
     Box::into_raw(Box::new(JsonBuilder {
         buf: Vec::with_capacity(cap),
         saw_non_ascii: false,
@@ -284,8 +319,40 @@ pub unsafe extern "C" fn __torajs_jsb_push_field_str(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_jsb_finalize(sb: *mut JsonBuilder) -> *mut u8 {
-    let sb = unsafe { Box::from_raw(sb) };
-    let bytes = sb.buf;
+    // SAFETY: the caller's contract is one live handle from
+    // `__torajs_jsb_new`, consumed here.
+    let out = unsafe { finalize_bytes(&*sb) };
+    park(sb);
+    out
+}
+
+/// Hand the builder back to the parking slot, cleared and ready. The
+/// buffer keeps its capacity, which is the whole point: the next
+/// `JSON.stringify` writes into bytes this call already had.
+///
+/// A builder arrives here only from `finalize`, so a full slot means
+/// two are somehow live at once; that one goes back to the allocator
+/// rather than displacing the parked one.
+fn park(sb: *mut JsonBuilder) {
+    // SAFETY: the caller has just finished with `sb`.
+    let b = unsafe { &mut *sb };
+    b.buf.clear();
+    b.saw_non_ascii = false;
+    b.pending_sep = false;
+    if PARKED.load(Ordering::Relaxed).is_null() {
+        PARKED.store(sb, Ordering::Relaxed);
+        return;
+    }
+    // SAFETY: a builder reaches `park` exactly once, from the
+    // `finalize` that consumed it.
+    drop(unsafe { Box::from_raw(sb) });
+}
+
+/// The Str a finished builder answers, read out of its buffer rather
+/// than moving the buffer away — the allocation stays with the
+/// builder so the next call can reuse it.
+unsafe fn finalize_bytes(sb: &JsonBuilder) -> *mut u8 {
+    let bytes = &sb.buf;
     if sb.saw_non_ascii {
         // Chunk 657 — a UTF-16 Str argument decoded into multi-byte
         // UTF-8 above; classify to the canonical encoding (Latin-1
@@ -308,7 +375,7 @@ pub unsafe extern "C" fn __torajs_jsb_finalize(sb: *mut JsonBuilder) -> *mut u8 
     // selection moves into the push helpers, not finalize).
     let mut block = StrBlock::alloc_with_encoding(bytes.len() as u32, true);
     let dst = unsafe { block.as_bytes_mut(bytes.len() as u32) };
-    dst.copy_from_slice(&bytes);
+    dst.copy_from_slice(bytes);
     block.into_raw()
 }
 
@@ -323,6 +390,60 @@ mod tests {
         let dst = unsafe { block.as_bytes_mut(bytes.len() as u32) };
         dst.copy_from_slice(bytes);
         block.into_raw()
+    }
+
+    /// Drop whatever is parked so a test's first `jsb_new` takes the
+    /// allocating path, and a later test cannot inherit a buffer this
+    /// one grew.
+    fn clear_parked() {
+        let p = PARKED.swap(ptr::null_mut(), Ordering::Relaxed);
+        if !p.is_null() {
+            drop(unsafe { Box::from_raw(p) });
+        }
+    }
+
+    #[test]
+    fn a_finalized_builder_is_reused_with_its_buffer() {
+        unsafe {
+            clear_parked();
+            let first = __torajs_jsb_new(64);
+            __torajs_jsb_push_byte(first, b'{');
+            __torajs_jsb_push_byte(first, b'}');
+            let out = __torajs_jsb_finalize(first);
+            assert_eq!(read_finalized(out), "{}");
+            __torajs_str_free(out);
+            // The next call gets the same builder back, cleared —
+            // no leftover bytes, no leftover comma protocol.
+            let second = __torajs_jsb_new(64);
+            assert_eq!(second, first, "parked builder reused");
+            __torajs_jsb_push_byte(second, b'{');
+            __torajs_jsb_begin_field(second);
+            __torajs_jsb_push_byte(second, b'1');
+            __torajs_jsb_push_byte(second, b'}');
+            let out2 = __torajs_jsb_finalize(second);
+            assert_eq!(read_finalized(out2), "{1}", "no stale separator");
+            __torajs_str_free(out2);
+            clear_parked();
+        }
+    }
+
+    #[test]
+    fn a_second_live_builder_does_not_displace_the_parked_one() {
+        unsafe {
+            clear_parked();
+            let outer = __torajs_jsb_new(64);
+            let inner = __torajs_jsb_new(64);
+            assert_ne!(outer, inner, "both live at once");
+            __torajs_jsb_push_byte(inner, b'1');
+            let a = __torajs_jsb_finalize(inner);
+            __torajs_jsb_push_byte(outer, b'2');
+            let b = __torajs_jsb_finalize(outer);
+            assert_eq!(read_finalized(a), "1");
+            assert_eq!(read_finalized(b), "2");
+            __torajs_str_free(a);
+            __torajs_str_free(b);
+            clear_parked();
+        }
     }
 
     fn read_finalized(p: *mut u8) -> String {
