@@ -23,7 +23,8 @@ use torajs_regex::dfa::build_dfa;
 use torajs_regex::flags::parse_flags;
 use torajs_regex::parser::Parser;
 use torajs_regex::program::{Inst, Program};
-use torajs_regex::vm::search::search_from;
+use torajs_regex::vm::Workspace;
+use torajs_regex::vm::search::{search_from, search_from_with_ws};
 
 struct Case {
     name: &'static str,
@@ -129,23 +130,39 @@ fn main() {
             }
         }
 
+        // `search_from` hard-codes `haystack_is_ascii = false`, and
+        // under the u flag that switches the whole dead-start scan
+        // off — so timing through it measured a path the runtime does
+        // not take, and any change to that scan read as no change at
+        // all. `__torajs_str_match_regex` classifies the haystack
+        // first (`str_slice_ascii_view`) and passes the answer down;
+        // this does the same.
+        let mut ws: Option<Workspace> = None;
+        let is_ascii = hay.is_ascii();
         let full = time_ns(iters, || {
-            std::hint::black_box(search_from(
+            std::hint::black_box(search_from_with_ws(
                 &prog,
                 std::hint::black_box(hay),
                 0,
                 flag_bits,
+                &mut ws,
                 Some(&dfa),
+                is_ascii,
+                true,
             ));
         });
         let cut = &hay[hit_at..];
+        let cut_ascii = cut.is_ascii();
         let at_hit = time_ns(iters, || {
-            std::hint::black_box(search_from(
+            std::hint::black_box(search_from_with_ws(
                 &prog,
                 std::hint::black_box(cut),
                 0,
                 flag_bits,
+                &mut ws,
                 Some(&dfa),
+                cut_ascii,
+                true,
             ));
         });
         println!(

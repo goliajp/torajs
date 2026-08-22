@@ -335,7 +335,7 @@ pub fn search_from_with_ws(
             // pattern that accepts zero-width at end of input still
             // gets its probe there.
             if can_skip_dead_starts {
-                st = crate::dfa::first_viable_start(dfa, s, st as usize) as i64;
+                st = crate::dfa::first_viable_start(dfa, prog, s, st as usize) as i64;
             }
             if let Some(n) = dfa_probe(dfa, prog, s, st) {
                 return Some(dfa_hit_result(
