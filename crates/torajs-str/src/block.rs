@@ -46,8 +46,8 @@ use core::ptr::NonNull;
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::layout::{
-    STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF, STR_PAD_OFF, block_size, byte_capacity,
-    packed_header_init, pool_class_of,
+    STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF, STR_PAD_OFF, STR_POOL_PAYLOADS,
+    block_size, byte_capacity, packed_header_init, pool_class_of,
 };
 use crate::pool;
 
@@ -147,6 +147,45 @@ impl StrBlock {
         Self(nn)
     }
 
+    /// Allocate a fresh Str block holding `length` code units but
+    /// owning `cap` payload bytes, with the surplus recorded in the
+    /// capacity slot so `free` gives the right size back and the next
+    /// append can write into the slack.
+    ///
+    /// `cap` must come from [`grow_capacity`] and be at least
+    /// `byte_capacity(length, is_latin1)`. Bypasses the pool: a
+    /// pooled block's payload is its class payload, which is exactly
+    /// the case where `grow_capacity` answers that same number, so
+    /// the caller reaching here wants a size the pool does not hold.
+    ///
+    /// # Panics
+    ///
+    /// Aborts on allocator OOM, like [`Self::alloc_with_encoding`].
+    #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
+    pub fn alloc_with_capacity(length: u32, is_latin1: bool, cap: u32) -> Self {
+        debug_assert!(cap >= byte_capacity(length, is_latin1));
+        if let Some(class) = pool_class_of(cap) {
+            if STR_POOL_PAYLOADS[class] == cap {
+                if let Some(p) = pool::pop(class) {
+                    Self::init_header_and_length(p, length, is_latin1);
+                    return Self(p);
+                }
+            }
+        }
+        // SAFETY: same contract as `alloc_with_encoding` — libc
+        // malloc, null means OOM, header written before exposure.
+        let raw = unsafe { malloc(STR_HDR_SIZE + cap as usize) } as *mut u8;
+        let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
+        Self::init_header_and_length(nn, length, is_latin1);
+        // Only past the pool ladder does the block hold more than
+        // `block_size` would say; below it the two agree and zero
+        // keeps the slot inert.
+        if cap != (block_size(length, is_latin1) - STR_HDR_SIZE) as u32 {
+            unsafe { (nn.as_ptr().add(STR_PAD_OFF) as *mut u32).write(cap) };
+        }
+        Self(nn)
+    }
+
     /// Free a Str block via the pool when eligible, otherwise via
     /// `libc::free`. Pool eligibility: `byte_capacity ≤
     /// a pool class AND that class has a free slot AND the
@@ -171,26 +210,61 @@ impl StrBlock {
         if header_ref.flags & FLAG_STATIC_LITERAL != 0 {
             return;
         }
-        let is_latin1 = (header_ref.flags & STR_FLAG_IS_LATIN1) != 0;
-        // SAFETY: length u32 was written at alloc time; offset
-        // STR_LEN_OFF mirrors runtime_str.c __TORAJS_STR_LEN.
-        let length = unsafe { self.length() };
-        let cap = byte_capacity(length, is_latin1);
+        // SAFETY: length u32 + capacity u32 were written at alloc
+        // time; the offsets mirror runtime_str.c __TORAJS_STR_LEN.
+        let cap = unsafe { self.payload_capacity() };
+        // The pool hands blocks back out by class, so a block may
+        // only enter one whose payload it matches EXACTLY — a
+        // 32-byte cell parked in the 16-byte class would later be
+        // freed at 16 and corrupt the heap. Every cell sized through
+        // `block_size` satisfies this by construction (the ladder
+        // rounds up); an append-grown cell satisfies it because
+        // `grow_capacity` floors at a class payload.
         if let Some(class) = pool_class_of(cap) {
-            if pool::push(class, self.0) {
+            if STR_POOL_PAYLOADS[class] == cap && pool::push(class, self.0) {
                 return;
             }
         }
-        // SAFETY: block was `malloc(block_size(length, is_latin1))`-
-        // allocated by `Self::alloc` (or a future caller follows the
-        // same shape). Layer 1 `free` takes the same size we alloc'd
-        // with — derived deterministically from `(length, is_latin1)`.
-        unsafe {
-            free(
-                self.0.as_ptr() as *mut c_void,
-                block_size(length, is_latin1),
-            )
-        };
+        // SAFETY: block was `malloc(STR_HDR_SIZE + cap)`-allocated by
+        // `Self::alloc*` (or a future caller follows the same shape).
+        // Layer 1 `free` takes the same size we alloc'd with.
+        unsafe { free(self.0.as_ptr() as *mut c_void, STR_HDR_SIZE + cap as usize) };
+    }
+
+    /// Payload bytes the block actually owns — what `free` must be
+    /// handed back, and how much room an in-place append has.
+    ///
+    /// Reads the capacity slot at [`STR_PAD_OFF`]; zero (what every
+    /// alloc site writes) means "exactly what [`block_size`] asked
+    /// for", so the answer stays a pure function of `(length,
+    /// is_latin1)` for every cell nothing has appended to.
+    ///
+    /// # Safety
+    ///
+    /// Caller guarantees `self.0` points at a valid Str block.
+    #[inline]
+    pub unsafe fn payload_capacity(&self) -> u32 {
+        let stored = unsafe { (self.0.as_ptr().add(STR_PAD_OFF) as *const u32).read() };
+        if stored != 0 {
+            return stored;
+        }
+        let length = unsafe { self.length() };
+        let is_latin1 = unsafe { self.is_latin1() };
+        (block_size(length, is_latin1) - STR_HDR_SIZE) as u32
+    }
+
+    /// Overwrite the code-unit length. Used by
+    /// [`crate::append`] after it writes into the slack a previous
+    /// grow reserved.
+    ///
+    /// # Safety
+    ///
+    /// Caller owns the block outright (refcount 1, not a `.rodata`
+    /// literal, not a Substr view) and has already written
+    /// `byte_capacity(length, is_latin1)` payload bytes.
+    #[inline]
+    pub unsafe fn set_length(&mut self, length: u32) {
+        unsafe { (self.0.as_ptr().add(STR_LEN_OFF) as *mut u32).write(length) };
     }
 
     /// Length of the Str payload in **code units** (per ES spec
@@ -297,187 +371,15 @@ impl StrBlock {
     }
 }
 
-// ============================================================
-// extern "C" wrappers — ABI mirrors runtime_str.c originals
-// ============================================================
-
-/// Pool-aware Str allocation. Mirrors the pre-rewrite C
-/// `__torajs_str_alloc_pooled(uint64_t len) -> uint8_t *`. The
-/// toolchain-emitted `__torajs_str_alloc` delegates to this for
-/// short strings.
-///
-/// Returns a fresh refcount=1 block with `len` payload bytes
-/// reserved (uninitialized). On allocator failure the function
-/// panics — matching the pre-rewrite "abort on OOM" behavior
-/// (`malloc` returning null leads to `expect` here; rc_inc /
-/// rc_dec semantics aren't reached).
-///
-/// P11.1-S1: FFI ABI keeps `len: u64` for compatibility with the
-/// IR-emitted call sites; internally truncated to `u32` since
-/// post-S1 `length` lives in a u32 field. Encoding hard-coded to
-/// Latin-1 — every existing caller built on byte-Str semantics
-/// (`len` = byte count) maps trivially to Latin-1 (`length` =
-/// code unit = byte for Latin-1 payloads).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
-    StrBlock::alloc(len as u32).into_raw()
-}
-
-/// Encoding-aware sibling of [`__torajs_str_alloc_pooled`] (RFC
-/// 20260711 `arr.join` follow-up). `len` counts CODE UNITS;
-/// `is_latin1 != 0` selects the 1-byte payload stride, zero selects
-/// UTF-16 LE (2 bytes per unit). Cross-staticlib consumers
-/// (torajs-arr's join kernels) that fold a widest-of-inputs output
-/// encoding need to allocate the wide layout directly — the legacy
-/// entry above hard-codes Latin-1.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8 {
-    StrBlock::alloc_with_encoding(len as u32, is_latin1 != 0).into_raw()
-}
-
-/// ASCII-certain variant of [`__torajs_str_alloc`] — Round 5 attack
-/// str-replace #5 (2026-07-03). The caller has already established
-/// every byte of `src[0..len]` is ≤ 0x7F (e.g. the regex replace
-/// builder whose haystack AND replacement both passed the
-/// `str_slice_ascii_view` scan), so the per-char classification
-/// scan inside `__torajs_str_alloc` is provably redundant: alloc
-/// the Latin-1 layout and memcpy verbatim.
-///
-/// # Safety
-///
-/// `src` must point at `len` readable bytes, ALL ≤ 0x7F (or be NULL
-/// when `len == 0`). Returned pointer is a fresh refcount=1 Str
-/// block owned by the caller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8 {
-    let len_u = len as usize;
-    let length = len_u as u32;
-    let mut block = StrBlock::alloc_with_encoding(length, true);
-    if len_u > 0 {
-        let src_slice = unsafe { core::slice::from_raw_parts(src, len_u) };
-        let dst = unsafe { block.as_bytes_mut(length) };
-        dst.copy_from_slice(src_slice);
-    }
-    block.into_raw()
-}
-
-/// Str alloc + UTF-8 → canonical encoding payload write in one call.
-///
-/// Pre-S2 this was a plain `alloc + memcpy` (input bytes copied
-/// verbatim). P11.1-S2.1 promoted the contract: `src[0..len]` is a
-/// well-formed UTF-8 byte stream; the helper scans it once to
-/// decide the canonical encoding (Latin-1 if every codepoint
-/// ≤ 0xFF, else UTF-16 LE with surrogate pair encoding for
-/// supplementary planes), allocates the matching layout via
-/// [`StrBlock::alloc_with_encoding`], and writes the re-encoded
-/// payload. This canonicalises the runtime side of build-time
-/// `StringLiteral::encode_from_str` — every Str block ever
-/// observed by the print / concat / eq / search ops is encoded
-/// consistently, and same-content / same-encoding Strs compare
-/// equal byte-for-byte without an explicit normalisation pass.
-///
-/// Used by the materialise paths in `torajs-anyvalue`
-/// (`materialize_short_str` packs UTF-8 bytes from the NaN-box
-/// payload into a Heap+Str so the `(tag, value)` pair-API
-/// downstream sees a Tag::Str pointer) and any other helper that
-/// builds a Str from a UTF-8 byte buffer at runtime. Sites that
-/// already hold an encoded payload (concat / case-fold / etc) go
-/// directly through [`StrBlock::alloc_with_encoding`] instead.
-///
-/// # Safety
-///
-/// `src` must point at a readable region of at least `len` bytes
-/// (or be NULL when `len == 0`). The bytes must form a well-
-/// formed UTF-8 sequence — non-UTF-8 inputs silently get the
-/// fallback Latin-1 path (every byte ≤ 0x7F is ASCII so it stays
-/// safe; bytes 0x80-0xFF would be misclassified as Latin-1
-/// codepoints if mixed with stray UTF-8 continuation bytes, but
-/// no current caller hands such garbage). Returned pointer is a
-/// fresh refcount=1 Str block owned by the caller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8 {
-    let len_u = len as usize;
-    if len_u == 0 {
-        let block = StrBlock::alloc_with_encoding(0, true);
-        return block.into_raw();
-    }
-    // SAFETY: caller guarantees `src..src+len` is readable and
-    // well-formed UTF-8.
-    let src_slice = unsafe { core::slice::from_raw_parts(src, len_u) };
-    let utf8 = unsafe { core::str::from_utf8_unchecked(src_slice) };
-    // Single-pass classification: max codepoint decides Latin-1 vs
-    // UTF-16. Bytes ≤ 0x7F stay one-byte-per-char on the Latin-1
-    // fast path (matches the pre-S2 memcpy footprint for ASCII).
-    let mut max_cp: u32 = 0;
-    for c in utf8.chars() {
-        let cp = c as u32;
-        if cp > max_cp {
-            max_cp = cp;
-        }
-    }
-    let is_latin1 = max_cp <= 0xFF;
-    if is_latin1 && max_cp <= 0x7F {
-        // ASCII fast path — every byte already matches its Latin-1
-        // codepoint, so we can sidestep the per-char re-encode and
-        // copy the source buffer verbatim. Same shape as the
-        // pre-S2 `alloc + memcpy`.
-        let length = len_u as u32;
-        let mut block = StrBlock::alloc_with_encoding(length, true);
-        let dst = unsafe { block.as_bytes_mut(length) };
-        dst.copy_from_slice(src_slice);
-        return block.into_raw();
-    }
-    if is_latin1 {
-        // Latin-1 supplement (0x80..=0xFF). Re-encode codepoint-
-        // by-codepoint into one byte each.
-        let length = utf8.chars().count() as u32;
-        let mut block = StrBlock::alloc_with_encoding(length, true);
-        let dst = unsafe { block.as_bytes_mut(length) };
-        for (i, c) in utf8.chars().enumerate() {
-            dst[i] = c as u8;
-        }
-        return block.into_raw();
-    }
-    // UTF-16 LE — BMP codepoints get a single u16; supplementary
-    // plane gets a surrogate pair. Walk twice: first to count code
-    // units for the length field, then to fill the payload.
-    let mut length: u32 = 0;
-    for c in utf8.chars() {
-        length += if (c as u32) > 0xFFFF { 2 } else { 1 };
-    }
-    let byte_cap = (length as usize) * 2;
-    let mut block = StrBlock::alloc_with_encoding(length, false);
-    let dst = unsafe { block.as_bytes_mut(byte_cap as u32) };
-    let mut i = 0usize;
-    for c in utf8.chars() {
-        let cp = c as u32;
-        if cp <= 0xFFFF {
-            let u = cp as u16;
-            let le = u.to_le_bytes();
-            dst[i] = le[0];
-            dst[i + 1] = le[1];
-            i += 2;
-        } else {
-            let cp_off = cp - 0x10000;
-            let hi = (0xD800 | (cp_off >> 10)) as u16;
-            let lo = (0xDC00 | (cp_off & 0x3FF)) as u16;
-            let hi_le = hi.to_le_bytes();
-            let lo_le = lo.to_le_bytes();
-            dst[i] = hi_le[0];
-            dst[i + 1] = hi_le[1];
-            dst[i + 2] = lo_le[0];
-            dst[i + 3] = lo_le[1];
-            i += 4;
-        }
-    }
-    block.into_raw()
-}
-
-// `__torajs_str_drop` + `__torajs_str_free` live in `str_drop.rs`
-// (sibling module, registered in `lib.rs`). Pulled out to keep
-// this file under the 500-prod-LOC file-size hard limit. Re-export
-// here so existing `crate::block::__torajs_str_drop` /
-// `crate::block::__torajs_str_free` callers keep working.
+// The `extern "C"` alloc entry points live in `block_ffi.rs` and
+// `__torajs_str_drop` / `__torajs_str_free` in `str_drop.rs` (both
+// sibling modules, registered in `lib.rs`). Pulled out to keep this
+// file under the 500-prod-LOC file-size hard limit. Re-export here
+// so existing `crate::block::__torajs_str_*` callers keep working.
+pub use crate::block_ffi::{
+    __torajs_str_alloc, __torajs_str_alloc_ascii, __torajs_str_alloc_pooled,
+    __torajs_str_alloc_pooled_enc,
+};
 pub use crate::str_drop::{__torajs_str_drop, __torajs_str_free};
 
 #[cfg(test)]

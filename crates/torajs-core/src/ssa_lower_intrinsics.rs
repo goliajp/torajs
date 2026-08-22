@@ -48,6 +48,10 @@ pub(crate) struct Intrinsics {
     pub(crate) str_print: FuncId,
     pub(crate) str_drop: FuncId,
     pub(crate) str_concat: FuncId,
+    /// Declared for `torajs-egraph`'s `str_append` pass, which
+    /// rewrites `concat` + `drop-left` pairs onto it; the lowering
+    /// itself never emits a call here.
+    pub(crate) str_append: FuncId,
     /// Phase B refcount — `__torajs_rc_inc(ptr)` increments the heap
     /// header's refcount (NULL passes through). Emitted at every
     /// slot-copy / shared-ownership site for non-Copy heap values.

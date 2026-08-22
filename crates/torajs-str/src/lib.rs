@@ -112,7 +112,9 @@ pub(crate) fn write_stderr(bytes: &[u8]) {
 }
 
 pub(crate) mod alloc_canonical;
+pub mod append;
 pub mod block;
+pub mod block_ffi;
 pub mod case_table;
 pub mod code_point;
 pub mod concat;
@@ -152,6 +154,7 @@ pub mod uri;
 // FFI consumers) reach for most often. Keeping this list tight
 // pins the public crate API; full surface is still reachable via
 // the module paths above.
+pub use append::__torajs_str_append;
 pub use block::{
     __torajs_str_alloc, __torajs_str_alloc_pooled, __torajs_str_drop, __torajs_str_free, StrBlock,
 };

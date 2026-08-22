@@ -43,6 +43,7 @@ pub mod self_tail_call;
 pub mod sext_elide;
 pub mod slot_forward;
 pub mod srem_parity;
+pub mod str_append;
 
 use std::collections::HashSet;
 
@@ -322,6 +323,13 @@ pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_SSA_DUMP").as_deref() == Ok("1") {
         module.print();
     }
+    // String-append ownership forwarding — an adjacent `concat` +
+    // `drop-left` pair becomes one `append`, which may then grow the
+    // left cell in place instead of reallocating it. Last of the
+    // inst-level rewrites so inlined-in and spliced pairs are already
+    // adjacent; before rc_peephole, whose window a call closes anyway.
+    // `TORAJS_STR_APPEND_OFF=1` skips (bisect gate).
+    gated_pass("STR_APPEND", &mut module, str_append::rewrite_str_appends);
     // RC elide peephole — after the egraph pass so pure-inst dedup /
     // identity collapse has already tightened the windows between
     // retain/release pairs. `TORAJS_RC_PEEPHOLE_OFF=1` skips (bisect

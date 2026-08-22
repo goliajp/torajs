@@ -49,11 +49,20 @@ pub const STR_HDR_SIZE: usize = 16;
 /// the SSA / IR / runtime side changed.
 pub const STR_LEN_OFF: usize = 8;
 
-/// Byte offset (from `Str` block start) of the reserved u32 padding
-/// slot. Currently unused; reserved for a future P11.x extension
-/// (hash slot for `__torajs_str_eq` fast path, inline-cache hint,
-/// etc.). Writers should leave it zero; readers must not assume any
-/// specific value yet.
+/// Byte offset (from `Str` block start) of the u32 payload-capacity
+/// slot.
+///
+/// **Zero means "ask [`block_size`]"** — which is what every alloc
+/// site writes, so the field reads as inert for every cell the
+/// runtime mints the ordinary way, and capacity stays the pure
+/// function of `(length, is_latin1)` it has always been.
+///
+/// A non-zero value is the block's real payload byte count, and only
+/// [`crate::append`]'s grow path ever stores one: an appended-to cell
+/// carries slack past its length so the next append writes into it
+/// instead of reallocating. `free_pool_aware` is the only other
+/// reader — it must hand `__torajs_free` the size the block was
+/// actually taken at.
 pub const STR_PAD_OFF: usize = 12;
 
 /// Byte offset (from `Str` block start) of the first payload byte.
@@ -170,6 +179,29 @@ pub const fn byte_capacity(length: u32, is_latin1: bool) -> u32 {
     if is_latin1 { length } else { length * 2 }
 }
 
+/// Payload capacity to take when an append has to reallocate: the
+/// next power of two at or above `need`, floored at the smallest
+/// pool class so a grown cell can still recycle through the pool.
+///
+/// Amortized doubling is what turns `acc = acc + piece` from
+/// quadratic copying into linear — the same contract `Vec` and
+/// `std::string` give their `push`. It costs up to 2x the payload,
+/// which is why only cells that were actually appended to carry a
+/// capacity at all; a plain `alloc` / `concat` result still sizes to
+/// its exact length.
+#[inline]
+pub const fn grow_capacity(need: u32) -> u32 {
+    if need <= STR_POOL_PAYLOADS[0] {
+        return STR_POOL_PAYLOADS[0];
+    }
+    let bits = u32::BITS - (need - 1).leading_zeros();
+    if bits >= u32::BITS {
+        need
+    } else {
+        1u32 << bits
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +268,37 @@ mod tests {
         // 9 code units = 18 bytes = past pool cutoff.
         assert_eq!(block_size(9, false), STR_HDR_SIZE + 32);
         assert_eq!(block_size(100, false), STR_HDR_SIZE + 200);
+    }
+
+    #[test]
+    fn grow_capacity_doubles_past_the_smallest_pool_class() {
+        // Anything a pool class already covers takes the class.
+        assert_eq!(grow_capacity(0), 16);
+        assert_eq!(grow_capacity(16), 16);
+        // Past it: next power of two, so repeated appends reallocate
+        // a logarithmic number of times.
+        assert_eq!(grow_capacity(17), 32);
+        assert_eq!(grow_capacity(64), 64);
+        assert_eq!(grow_capacity(65), 128);
+        assert_eq!(grow_capacity(800), 1024);
+        // No overflow at the top: a need past the largest power of
+        // two takes its exact size (the append then cannot grow
+        // again, which is correct — there is no larger block).
+        assert_eq!(grow_capacity(u32::MAX), u32::MAX);
+        assert_eq!(grow_capacity(1 << 31), 1 << 31);
+    }
+
+    #[test]
+    fn grown_capacities_stay_pool_consistent() {
+        // A grown cell may land back in the pool only when its
+        // capacity IS a class payload, which the ladder guarantees
+        // for every value the floor/doubling can produce below the
+        // cutoff.
+        for need in 0..=STR_POOL_PAYLOAD {
+            let cap = grow_capacity(need);
+            let class = pool_class_of(cap).expect("under the cutoff");
+            assert_eq!(STR_POOL_PAYLOADS[class], cap, "need {need}");
+        }
     }
 
     #[test]
