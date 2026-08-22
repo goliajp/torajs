@@ -289,6 +289,7 @@ fn transform_source(src: &str) -> String {
             (b"assertRelativeDateMs(", "__t262_assertRelativeDateMs("),
             (b"asyncTest(", "__t262_asyncTest("),
             (b"fnGlobalObject(", "__t262_fnGlobalObject("),
+            (b"allowProxyTraps(", "__t262_allowProxyTraps("),
             // nativeFunctionMatcher.js port (2026-08-12). Distinct
             // prefixes — no ordering hazard against each other.
             (
@@ -446,6 +447,12 @@ fn run_case(
         // the stock lazy-template format() is a depth-capped renderer
         // (failure-message only, bun runs the same port).
         "deepEqual.js",
+        // 2026-08-23 — real `allowProxyTraps` (RFC
+        // 20260823-proxy-substrate 刀 7): a full 14-trap handler
+        // whose unspecified traps throw Test262Error naming
+        // themselves, so a case asserts "this must not reach the
+        // handler" by leaving the trap out.
+        "proxyTrapsHelper.js",
     ];
     let unported: Vec<&str> = fm
         .includes

@@ -1440,3 +1440,63 @@ function __t262_assertToStringOrNativeFunction(fn: any, expected: string): void 
   }
   __t262_assertNativeFunction(fn, expected);
 }
+
+// ─── proxyTrapsHelper.js port (2026-08-23) ───
+//
+// `allowProxyTraps(overrides)` builds a full 14-trap handler whose
+// every unspecified trap throws Test262Error naming itself, so a
+// case asserts "this operation must not reach the handler" simply by
+// leaving that trap out. Faithful to the stock helper, `enumerate`
+// included — it is deliberately NOT overridable there (the trap was
+// removed from the spec, and the helper keeps it as a tripwire).
+//
+// The stock body reads `overrides.X || <thrower>`, so a FALSISH
+// override (including one deliberately set to `undefined`) falls
+// back to the thrower — that is what "trap is absent" means to the
+// proxy machinery either way.
+
+function __t262_proxyTrapThrower(msg: string): any {
+  return function (): void {
+    throw new Test262Error(msg);
+  };
+}
+
+function __t262_allowProxyTraps(overrides: any = undefined): any {
+  const o: any = overrides ? overrides : {};
+  return {
+    getPrototypeOf: o.getPrototypeOf
+      ? o.getPrototypeOf
+      : __t262_proxyTrapThrower("[[GetPrototypeOf]] trap called"),
+    setPrototypeOf: o.setPrototypeOf
+      ? o.setPrototypeOf
+      : __t262_proxyTrapThrower("[[SetPrototypeOf]] trap called"),
+    isExtensible: o.isExtensible
+      ? o.isExtensible
+      : __t262_proxyTrapThrower("[[IsExtensible]] trap called"),
+    preventExtensions: o.preventExtensions
+      ? o.preventExtensions
+      : __t262_proxyTrapThrower("[[PreventExtensions]] trap called"),
+    getOwnPropertyDescriptor: o.getOwnPropertyDescriptor
+      ? o.getOwnPropertyDescriptor
+      : __t262_proxyTrapThrower("[[GetOwnProperty]] trap called"),
+    has: o.has ? o.has : __t262_proxyTrapThrower("[[HasProperty]] trap called"),
+    get: o.get ? o.get : __t262_proxyTrapThrower("[[Get]] trap called"),
+    set: o.set ? o.set : __t262_proxyTrapThrower("[[Set]] trap called"),
+    deleteProperty: o.deleteProperty
+      ? o.deleteProperty
+      : __t262_proxyTrapThrower("[[Delete]] trap called"),
+    defineProperty: o.defineProperty
+      ? o.defineProperty
+      : __t262_proxyTrapThrower("[[DefineOwnProperty]] trap called"),
+    enumerate: __t262_proxyTrapThrower(
+      "[[Enumerate]] trap called: this trap has been removed",
+    ),
+    ownKeys: o.ownKeys
+      ? o.ownKeys
+      : __t262_proxyTrapThrower("[[OwnPropertyKeys]] trap called"),
+    apply: o.apply ? o.apply : __t262_proxyTrapThrower("[[Call]] trap called"),
+    construct: o.construct
+      ? o.construct
+      : __t262_proxyTrapThrower("[[Construct]] trap called"),
+  };
+}
