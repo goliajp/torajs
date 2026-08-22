@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-22T07:40:34.766Z",
+  "generatedAt": "2026-08-22T10:23:51.613Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-22T07:20:56Z",
-    "headSha": "6fcf5becc",
-    "elapsedSec": 342.41,
+    "ranAt": "2026-08-22T10:11:15Z",
+    "headSha": "7977d5e80",
+    "elapsedSec": 339.33,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27301,
-    "passNoOracle": 904,
+    "pass": 27323,
+    "passNoOracle": 906,
     "passNegative": 4147,
-    "passTotal": 32352,
-    "bug": 12838,
-    "incompatible": 7984,
+    "passTotal": 32376,
+    "bug": 12855,
+    "incompatible": 7943,
     "bunSkip": 2963,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 45190,
-    "passRateInScope": 60.84,
-    "passRateTrAccepted": 71.59
+    "trAccepted": 45231,
+    "passRateInScope": 60.89,
+    "passRateTrAccepted": 71.58
   },
   "torajs": {
-    "commit": "6fcf5becc",
-    "commitSubject": "fix: a lone surrogate is escaped, because it has no utf-8 spelling",
+    "commit": "7977d5e80",
+    "commitSubject": "fix: a hole still has to ask the prototype",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "7977d5e80",
+      "subject": "fix: a hole still has to ask the prototype"
+    },
+    {
+      "hash": "c816bc704",
+      "subject": "fix: a fill loop that erased everything it filled"
+    },
+    {
+      "hash": "75e6f826c",
+      "subject": "perf: the hole gate is not a tax a typed array should pay"
+    },
+    {
+      "hash": "3b4408271",
+      "subject": "fix: a hole is not an element the callback gets to see"
+    },
+    {
+      "hash": "554de03f2",
+      "subject": "fix: the widen defers to the one that was already there"
+    },
+    {
+      "hash": "ad30dad37",
+      "subject": "fix: an array the program deletes from was never a number[]"
+    },
+    {
+      "hash": "90325caf7",
+      "subject": "fix: a function declaration's name is a binding you can write to"
+    },
+    {
+      "hash": "baa942308",
+      "subject": "chore: rotation 473 close — sweep, bench, dashboard"
+    },
+    {
       "hash": "6fcf5becc",
       "subject": "fix: a lone surrogate is escaped, because it has no utf-8 spelling"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "d22081a64",
       "subject": "fix: json.parse reads its source by code unit, not by byte"
-    },
-    {
-      "hash": "ffb91b543",
-      "subject": "fix: the json buffer holds utf-8, so a latin-1 payload has to widen"
-    },
-    {
-      "hash": "d6c716fcf",
-      "subject": "fix: a short concat may only inline bytes that are already utf-8"
-    },
-    {
-      "hash": "2790916a7",
-      "subject": "chore: rotation 472 close — start scan moves out, sweep, dashboard"
-    },
-    {
-      "hash": "3edc66e8c",
-      "subject": "perf: a pending-class entry state can say where a match could begin"
-    },
-    {
-      "hash": "d3066c421",
-      "subject": "chore: bun 1.4 is the comparison, and the suite is re-baselined on it"
-    },
-    {
-      "hash": "dae52e5e4",
-      "subject": "perf: whether a buffer is ASCII is a question about its bytes"
-    },
-    {
-      "hash": "f78fb0118",
-      "subject": "perf: run out a self-loop without re-reading the state row"
-    },
-    {
-      "hash": "b579aa3ac",
-      "subject": "perf: a state that already accepts needs no accept-before-byte mask"
     }
   ],
-  "headSha": "6fcf5becc",
+  "headSha": "7977d5e80",
   "autorun": {
-    "total": 776,
+    "total": 777,
     "baselineTarget": 10,
-    "bySelf": 771,
+    "bySelf": 772,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787376387-4a33",
-      "at": "2026-08-22T05:26:27Z",
-      "ts": 1787376387,
+      "rotationId": "r-1787384473-683b",
+      "at": "2026-08-22T07:41:13Z",
+      "ts": 1787384473,
       "trigger": "self",
-      "prevHead": "2790916a7",
-      "handoffSha": "sha256:41551be496583da07947cb4e549d4fafd18007de75940e90bc1ebec73c817c9a",
-      "handoffAgeSec": 27,
+      "prevHead": "baa942308",
+      "handoffSha": "sha256:ac289cc7345cd35fbba9d051c3a3702e6ddde27ddea599e18b562f687c94d5f2",
+      "handoffAgeSec": 43,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787384473-683b",
+        "at": "2026-08-22T07:41:13Z",
+        "ts": 1787384473,
+        "trigger": "self",
+        "prevHead": "baa942308",
+        "handoffSha": "sha256:ac289cc7345cd35fbba9d051c3a3702e6ddde27ddea599e18b562f687c94d5f2",
+        "handoffAgeSec": 43,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787376387-4a33",
         "at": "2026-08-22T05:26:27Z",
@@ -876,17 +887,6 @@
         "prevHead": "0847b69c0",
         "handoffSha": "sha256:85305206163958f74dd7943a218c98a6b65291b891f273b3f8f2b6350f9806a8",
         "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787294005-1a23",
-        "at": "2026-08-21T06:33:25Z",
-        "ts": 1787294005,
-        "trigger": "self",
-        "prevHead": "86a0f53e0",
-        "handoffSha": "sha256:28a94c26d9f40f2d035725ff4a5846b3f71e988b1a602cd9dbc88b74816f9342",
-        "handoffAgeSec": 18,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1557,7 +1557,46 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `6fcf5becc`** (2026-08-22, rotation 473 — one encoding
+**Latest @ `7977d5e80`** (2026-08-22, rotation 474 — a name a program
+writes to needs somewhere to put it). The gate predicate moves for the
+first time in three rotations: **163** clusters of ≥ 4 holding **1351**
+cases (was 165 · 1379), register 2 · 259, residue 657 · 824 (33.9%),
+core **2434** (was 2475). Sweep passTotal 32352 → **32376 (+24)**
+(pass +22, passNoOracle +2, passNegative flat), incompatible 7984 →
+**7943 (−41)**, trAccepted 45190 → **45231 (+41)**, conservation
+exact; **50 verdict moves, zero pass regressions, zero new crashes or
+timeouts**. Half the movement is the `incompatible` bucket emptying,
+which is what this section counts.
+
+Three declarations turned out to be lying about what their binding
+was. A `function` declaration creates a plain mutable binding
+(§14.1.23), so `f = 123` is an ordinary PutValue — tr typed the name
+from the declaration and refused, and a write of another *function*
+died a layer lower because a declaration is a direct-call symbol with
+no slot at all. An array a program `delete`s indices out of was never
+a `number[]`: an unboxed slot has no value that means absent, so the
+declaration widens to `any[]`. And §23.1.3 has seven callback methods
+ask HasProperty before each visit, which tr never did —
+`[1, <hole>, 3].some(v => v === undefined)` answered true where bun
+says false, and `filter(() => true)` answered three elements where bun
+says two.
+
+The last of those is also this rotation's perf lesson: gating each
+visit cost **+34%** on a dense 3M-element probe, and hoisting the test
+to the loop preheader only bought 29% — the branch is not the price,
+splitting a one-block loop body is. It is now emitted only for an
+`any`-element source, where a hole can exist at all, and the typed
+probe compiles **byte-identical** to the pre-gate build.
+
+Two pre-existing silent-wrong bugs surfaced while probing the above and
+are closed: a `for` loop filling an `any[]` by `push` wrote the
+PRE-LOOP length back at the exit and erased everything it had appended
+(the pre-reserve fast path claimed a binding the push site never
+serves), and both `defineProperty` gap-fills created own `undefined`s
+where §10.4.2.1 creates nothing — on the shared `Array.prototype` that
+made index 0 an own property of every array in the program.
+
+**@ `6fcf5becc`** (2026-08-22, rotation 473 — one encoding
 question asked in five places, four of which had stopped answering
 it). Nothing here moved P-SURF: the gate predicate is **165**
 clusters of ≥ 4 holding **1379** cases, register 2 · 274, residue
