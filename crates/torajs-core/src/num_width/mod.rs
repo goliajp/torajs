@@ -37,6 +37,7 @@ mod escape;
 mod fallthrough;
 mod fnsig;
 mod json_seed;
+mod let_names;
 mod mono;
 mod walk;
 mod width;

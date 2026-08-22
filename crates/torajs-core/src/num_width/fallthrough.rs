@@ -7,7 +7,7 @@
 //! Split out of `mod.rs` when knife 4's arrow-binding alias pass pushed
 //! that file past the 500-line limit.
 
-use super::{Analysis, Scope, SlotKey, walk};
+use super::{Analysis, Scope, SlotKey, let_names};
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::HashSet;
 
@@ -49,7 +49,7 @@ pub(super) fn seed_and_walk_fn(
         locals: {
             let mut s = HashSet::new();
             for b in body {
-                walk::collect_let_names(b, &mut s);
+                let_names::collect_let_names(b, &mut s);
             }
             s
         },

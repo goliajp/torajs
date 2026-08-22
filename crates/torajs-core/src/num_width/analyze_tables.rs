@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{Analysis, SlotKey, container, walk};
+use super::{Analysis, SlotKey, container, let_names};
 use crate::ast::{Ast, Stmt};
 
 /// Pre-walk name registry: every fn's param names, every top-level
@@ -40,7 +40,7 @@ pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
                         .or_default()
                         .push(SlotKey::Param(name.clone(), p.name.clone()));
                 }
-                for v in walk::collect_let_names_fn(stmt) {
+                for v in let_names::collect_let_names_fn(stmt) {
                     by_name
                         .entry(v.clone())
                         .or_default()
@@ -49,7 +49,7 @@ pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
             }
             other => {
                 let mut names = HashSet::new();
-                walk::collect_let_names(other, &mut names);
+                let_names::collect_let_names(other, &mut names);
                 for name in names {
                     toplevel_lets.insert(name.clone());
                     by_name
