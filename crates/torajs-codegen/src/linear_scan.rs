@@ -61,7 +61,9 @@ use torajs_core::ssa::{Function, InstKind, Type};
 
 use crate::linear_scan_lanes::{param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
-use crate::liveness::{Interval, compute_intervals};
+use crate::liveness::{
+    Interval, compute_intervals, visit_inst_operands, visit_terminator_operands,
+};
 use crate::reg::{Reg, aapcs64};
 use crate::regalloc::{Assignment, alloca_slot_size, collect_ret_value_ids, inst_emits_bl};
 use crate::spill_weight::compute_spill_weights;
@@ -72,28 +74,49 @@ use crate::spill_weight::compute_spill_weights;
 /// value IS the call's result (written after the call returns, safe);
 /// `p == end` means it's consumed as that call's argument and dies
 /// immediately (safe). The strict `<` on both ends excludes those.
-/// ValueIds written by more than one instruction. The SSA the lowerer
-/// produces is single-assignment, but φ destruction
-/// (`phi_promote::destruct`) is not: it gives one ValueId a `copy` in
-/// every predecessor of a join. Those predecessors can be numbered
-/// AFTER the join, so the value's linear interval starts at its use
-/// and ends at its last def — and a call sitting in the join BEFORE
-/// the use is then outside `[start, end]` by construction. A linear
-/// interval cannot describe this value's life; anything reading it as
-/// one has to be conservative, which is what this set is for.
-fn collect_multi_def_values(func: &Function) -> HashSet<u32> {
-    let mut seen: HashSet<u32> = HashSet::new();
-    let mut multi: HashSet<u32> = HashSet::new();
+/// ValueIds whose linear interval does not bound their life: a value
+/// read at some slot and written at a LATER one.
+///
+/// The SSA the lowerer produces is single-assignment and never does
+/// this, but φ destruction (`phi_promote::destruct`) is not: it gives
+/// one ValueId a `copy` in every predecessor of a join, and a join can
+/// be numbered before its predecessors. The interval then runs from
+/// the use to the last def, so a call sitting in the join AHEAD of the
+/// use falls outside `start < p < end` by construction — no linear
+/// range describes a life that runs backwards through block order.
+///
+/// Only that shape qualifies. A value written more than once with
+/// every write ahead of every read still has a sound interval and is
+/// left alone — asking for callee-saved there costs registers and buys
+/// nothing (measured: a 5% loss on one bench case when this set was
+/// merely "multi-def").
+///
+/// The slot numbering must match [`compute_intervals`]: one index per
+/// inst, then one for the terminator.
+fn collect_unbounded_values(func: &Function) -> HashSet<u32> {
+    let mut first_use: HashMap<u32, u32> = HashMap::new();
+    let mut last_def: HashMap<u32, u32> = HashMap::new();
+    let mut idx: u32 = 0;
     for block in &func.blocks {
         for inst in &block.insts {
-            if let Some(r) = inst.result
-                && !seen.insert(r.0)
-            {
-                multi.insert(r.0);
+            visit_inst_operands(&inst.kind, |v| {
+                first_use.entry(v.0).or_insert(idx);
+            });
+            if let Some(r) = inst.result {
+                last_def.insert(r.0, idx);
             }
+            idx += 1;
         }
+        visit_terminator_operands(&block.term, |v| {
+            first_use.entry(v.0).or_insert(idx);
+        });
+        idx += 1;
     }
-    multi
+    last_def
+        .iter()
+        .filter(|(v, d)| first_use.get(*v).is_some_and(|u| u < *d))
+        .map(|(v, _)| *v)
+        .collect()
 }
 
 fn crosses_call(interval: Interval, call_sites: &[u32]) -> bool {
@@ -126,7 +149,7 @@ fn outgoing_arg_bytes(func: &Function) -> u32 {
 pub fn allocate_linear_scan(func: &Function) -> Assignment {
     let intervals = compute_intervals(func);
     let ret_vids = collect_ret_value_ids(func);
-    let multi_def = collect_multi_def_values(func);
+    let unbounded = collect_unbounded_values(func);
 
     // Pass A — alloca offsets, has_calls, and the global inst-slot
     // index of every call site. The numbering MUST match
@@ -186,8 +209,8 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             call_sites
                 .iter()
                 .any(|&p| interval.start <= p && p < interval.end)
-        } else if multi_def.contains(&vid) {
-            // See `collect_multi_def_values`: the interval does not
+        } else if unbounded.contains(&vid) {
+            // See `collect_unbounded_values`: the interval does not
             // bound this value's life, so treat it as crossing
             // whenever the function calls anything at all.
             has_calls
