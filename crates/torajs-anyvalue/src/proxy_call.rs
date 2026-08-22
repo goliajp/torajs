@@ -55,9 +55,10 @@ pub(crate) unsafe fn method_call(
         if let Some(v) = callable_forwarder(recv, mid, argv, argc) {
             return v;
         }
-        let Ok((target, handler)) = crate::proxy::live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = crate::proxy::live_slots(as_void_ptr(recv)) else {
             return VALUE_UNDEFINED;
         };
+        let (target, handler) = (__s.target, __s.handler);
         match crate::proxy::trap(handler, b"get") {
             Err(()) => return VALUE_UNDEFINED,
             Ok(None) => {

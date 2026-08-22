@@ -131,12 +131,35 @@ pub unsafe extern "C" fn __torajs_proxy_drop(cell: *mut c_void) {
 }
 
 /// The §10.5.x step-2/3 revoked check every internal method opens
-/// with. Records the TypeError and answers `Err` when the handler is
-/// null.
+/// with, answering the two slots as OWNED stakes.
 ///
+/// They have to be owned. The spec captures `handler` and `target`
+/// as references before it looks the trap up, and looking the trap
+/// up can run user code — a HANDLER THAT IS ITSELF A PROXY revokes
+/// this one from inside its own `get` trap (test262's
+/// `Proxy/revoke-as-side-effect`). Revocation drops the cell's two
+/// stakes, so a borrowed read taken beforehand is dangling by the
+/// time the trap answers: a use-after-free, observed as SIGSEGV.
+///
+/// [`Slots`] releases both on the way out, so every internal method
+/// gets the spec's lifetime by holding one.
+pub(crate) struct Slots {
+    pub(crate) target: AnyValue,
+    pub(crate) handler: AnyValue,
+}
+
+impl Drop for Slots {
+    fn drop(&mut self) {
+        unsafe {
+            __torajs_anyv_rc_dec(self.target);
+            __torajs_anyv_rc_dec(self.handler);
+        }
+    }
+}
+
 /// # Safety
 /// `ptr` is a live Proxy cell.
-pub(crate) unsafe fn live_slots(ptr: *mut c_void) -> Result<(AnyValue, AnyValue), ()> {
+pub(crate) unsafe fn live_slots(ptr: *mut c_void) -> Result<Slots, ()> {
     let (target, handler) = unsafe { slots(ptr) };
     if is_null(handler) {
         unsafe {
@@ -146,7 +169,11 @@ pub(crate) unsafe fn live_slots(ptr: *mut c_void) -> Result<(AnyValue, AnyValue)
         };
         return Err(());
     }
-    Ok((target, handler))
+    unsafe {
+        __torajs_anyv_rc_inc(target);
+        __torajs_anyv_rc_inc(handler);
+    }
+    Ok(Slots { target, handler })
 }
 
 /// §7.3.11 GetMethod(handler, name) for a trap.
@@ -188,9 +215,10 @@ pub(crate) unsafe fn trap(handler: AnyValue, name: &[u8]) -> Result<Option<AnyVa
 /// `ptr` is a live Proxy cell; `key` a live Str or Symbol cell.
 pub(crate) unsafe fn get(ptr: *mut c_void, key: *const c_void, receiver: AnyValue) -> AnyValue {
     unsafe {
-        let Ok((target, handler)) = live_slots(ptr) else {
+        let Ok(s) = live_slots(ptr) else {
             return VALUE_UNDEFINED;
         };
+        let (target, handler) = (s.target, s.handler);
         let t = match trap(handler, b"get") {
             Err(()) => return VALUE_UNDEFINED,
             Ok(None) => return crate::proxy_get_prop::get_by_key(target, key),
@@ -251,4 +279,32 @@ pub(crate) unsafe fn get_index(recv: AnyValue, idx: i64) -> AnyValue {
 /// `recv` is a live Proxy AnyValue; `key` a live Str or Symbol cell.
 pub(crate) unsafe fn get_key_cell(recv: AnyValue, key: *const c_void) -> AnyValue {
     unsafe { get(as_void_ptr(recv), key, recv) }
+}
+
+/// The slot a trap-less forward writes through.
+///
+/// Normally that is the cell's own target slot, so a dynobj that
+/// relocates on grow writes its fresh address back and the proxy
+/// follows it. But the trap LOOKUP can revoke this proxy (a handler
+/// that is itself a proxy — see [`Slots`]), and then the cell's slot
+/// holds `null`: the forward must go to the target the spec captured
+/// BEFORE the lookup, which is what `captured` holds. `fallback` is
+/// the caller's own storage for that case.
+///
+/// # Safety
+/// `cell` is a live Proxy cell; `fallback` is a live slot the caller
+/// owns for the duration of the forward.
+pub(crate) unsafe fn forward_slot(
+    cell: *mut c_void,
+    captured: AnyValue,
+    fallback: *mut AnyValue,
+) -> *mut AnyValue {
+    unsafe {
+        let (_, live) = slots(cell);
+        if is_null(live) {
+            *fallback = captured;
+            return fallback;
+        }
+        cell.cast::<u8>().add(TARGET_OFF) as *mut AnyValue
+    }
 }

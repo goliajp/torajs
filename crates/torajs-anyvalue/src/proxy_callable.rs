@@ -81,9 +81,10 @@ pub unsafe extern "C" fn __torajs_proxy_apply(
     argc: i64,
 ) -> AnyValue {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return VALUE_UNDEFINED;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let t = match trap(handler, b"apply") {
             Err(()) => return VALUE_UNDEFINED,
             Ok(None) => {
@@ -125,9 +126,10 @@ pub unsafe extern "C" fn __torajs_proxy_construct(
     argc: i64,
 ) -> AnyValue {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return VALUE_UNDEFINED;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let t = match trap(handler, b"construct") {
             Err(()) => return VALUE_UNDEFINED,
             Ok(None) => return crate::construct::__torajs_anyv_construct(target, argv, argc),

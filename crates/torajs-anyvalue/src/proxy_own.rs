@@ -61,9 +61,10 @@ const ANY_HEAP_TAG: u64 = 4;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_proxy_own_keys(recv: AnyValue, include_nonenum: i64) -> *mut u8 {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return __torajs_arr_alloc(0);
         };
+        let (target, handler) = (__s.target, __s.handler);
         let t = match trap(handler, b"ownKeys") {
             Err(()) => return __torajs_arr_alloc(0),
             Ok(None) => return __torajs_anyv_own_keys(target, include_nonenum) as *mut u8,
@@ -192,9 +193,10 @@ pub unsafe extern "C" fn __torajs_proxy_get_own_descriptor(
     key: *const c_void,
 ) -> AnyValue {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return VALUE_UNDEFINED;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let t = match trap(handler, b"getOwnPropertyDescriptor") {
             Err(()) => return VALUE_UNDEFINED,
             Ok(None) => return __torajs_anyv_get_property_descriptor(target, key),

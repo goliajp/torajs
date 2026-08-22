@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use crate::nanbox::AnyValue;
 use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_bool};
-use crate::proxy::{TARGET_OFF, live_slots, trap};
+use crate::proxy::{live_slots, trap};
 
 unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
@@ -83,16 +83,25 @@ pub(crate) unsafe fn set(
     receiver: AnyValue,
 ) -> Result<bool, ()> {
     unsafe {
-        let (target, handler) = live_slots(cell)?;
+        let __s = live_slots(cell)?;
+        let (target, handler) = (__s.target, __s.handler);
         let t = match trap(handler, b"set")? {
             None => {
-                // Forward through the ordinary set core, writing to
-                // the cell's OWN target slot: a struct receiver that
-                // degrades to a dynobj relocates, and the proxy must
-                // follow it.
-                let slot = cell.cast::<u8>().add(TARGET_OFF) as *mut AnyValue;
-                let handled = crate::member_set::__torajs_any_member_set_soft(
-                    slot, key, value_tag, value_bits, -1,
+                // §10.5.9 step 6 is `target.[[Set]](P, V, Receiver)`
+                // — the lookup walks the TARGET while the write and
+                // any setter's `this` go to the RECEIVER, which is
+                // the proxy. Spelling it as a plain set on the target
+                // loses that, and the loss is observable: the walk's
+                // §10.1.9.2 step 2.e CreateDataProperty lands on the
+                // receiver, so a proxy revoked during this very trap
+                // lookup must raise the revoked TypeError there.
+                let mut recv_slot: AnyValue = receiver;
+                let handled = crate::member_set_receiver::__torajs_any_member_set_with_receiver(
+                    target,
+                    key,
+                    value_tag,
+                    value_bits,
+                    &mut recv_slot,
                 );
                 if __torajs_throw_check() != 0 {
                     return Err(());
@@ -116,7 +125,8 @@ pub(crate) unsafe fn set(
 /// `cell` is a live Proxy cell; `key` a live Str or Symbol cell.
 pub(crate) unsafe fn has(cell: *mut c_void, key: *const c_void) -> Result<bool, ()> {
     unsafe {
-        let (target, handler) = live_slots(cell)?;
+        let __s = live_slots(cell)?;
+        let (target, handler) = (__s.target, __s.handler);
         let Some(t) = trap(handler, b"has")? else {
             let r = crate::prop_has::__torajs_any_has_property(target, key);
             if __torajs_throw_check() != 0 {
@@ -141,7 +151,8 @@ pub(crate) unsafe fn delete(
     throw_on_refusal: bool,
 ) -> Result<bool, ()> {
     unsafe {
-        let (target, handler) = live_slots(cell)?;
+        let __s = live_slots(cell)?;
+        let (target, handler) = (__s.target, __s.handler);
         let Some(t) = trap(handler, b"deleteProperty")? else {
             let r = if throw_on_refusal {
                 crate::prop_delete::__torajs_any_prop_delete(target, key)

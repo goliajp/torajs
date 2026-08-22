@@ -64,9 +64,10 @@ unsafe fn call_target_trap(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_proxy_get_prototype_of(recv: AnyValue) -> AnyValue {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return VALUE_NULL;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let Ok(t) = trap(handler, b"getPrototypeOf") else {
             return VALUE_NULL;
         };
@@ -96,9 +97,10 @@ pub unsafe extern "C" fn __torajs_proxy_get_prototype_of(recv: AnyValue) -> AnyV
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_proxy_set_prototype_of(recv: AnyValue, proto: AnyValue) -> i64 {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return 0;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let Ok(t) = trap(handler, b"setPrototypeOf") else {
             return 0;
         };
@@ -132,9 +134,10 @@ pub unsafe extern "C" fn __torajs_proxy_set_prototype_of(recv: AnyValue, proto: 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_proxy_is_extensible(recv: AnyValue) -> bool {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return false;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let Ok(t) = trap(handler, b"isExtensible") else {
             return false;
         };
@@ -167,9 +170,10 @@ pub unsafe extern "C" fn __torajs_proxy_is_extensible(recv: AnyValue) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_proxy_prevent_extensions(recv: AnyValue) -> i64 {
     unsafe {
-        let Ok((target, handler)) = live_slots(as_void_ptr(recv)) else {
+        let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return 0;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let Ok(t) = trap(handler, b"preventExtensions") else {
             return 0;
         };

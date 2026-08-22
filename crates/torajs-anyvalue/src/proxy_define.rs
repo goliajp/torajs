@@ -20,7 +20,7 @@ use core::ffi::c_void;
 
 use crate::nanbox::{AnyValue, as_void_ptr, box_bool, box_void_ptr};
 use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_bool};
-use crate::proxy::{TARGET_OFF, live_slots, trap};
+use crate::proxy::{live_slots, trap};
 
 unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
@@ -50,9 +50,10 @@ pub unsafe extern "C" fn __torajs_proxy_define_own(
 ) -> i64 {
     unsafe {
         let cell = as_void_ptr(recv);
-        let Ok((target, handler)) = live_slots(cell) else {
+        let Ok(__s) = live_slots(cell) else {
             return 0;
         };
+        let (target, handler) = (__s.target, __s.handler);
         let t = match trap(handler, b"defineProperty") {
             Err(()) => return 0,
             Ok(None) => {
@@ -60,7 +61,9 @@ pub unsafe extern "C" fn __torajs_proxy_define_own(
                 // AnyValue IS its pointer, so the cell's target slot
                 // doubles as the relocation slot the define core
                 // writes a grown dynobj back through.
-                let slot = cell.cast::<u8>().add(TARGET_OFF) as *mut *mut c_void;
+                let mut fallback: AnyValue = target;
+                let slot =
+                    crate::proxy::forward_slot(cell, target, &mut fallback) as *mut *mut c_void;
                 let r = __torajs_dynobj_define_from_desc_soft(slot, key, desc);
                 if __torajs_throw_check() != 0 {
                     return 0;
