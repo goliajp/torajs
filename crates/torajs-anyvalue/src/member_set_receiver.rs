@@ -76,10 +76,18 @@ pub unsafe extern "C" fn __torajs_any_member_set_with_receiver(
         {
             return verdict;
         }
-        // Fall-through = step 2.e CreateDataProperty on the receiver.
-        // Spelled as the receiver's own soft [[Set]] so an own
-        // getter-only or non-writable entry there still refuses,
-        // which is what steps 2.d.i-ii ask for.
+        // Step 2.e is CreateDataProperty(Receiver, P, V) — the
+        // receiver's [[DefineOwnProperty]]. For an ordinary object
+        // its own soft [[Set]] is the same answer, and spelling it
+        // that way keeps steps 2.d.i-ii (an own getter-only or
+        // non-writable entry still refuses). A PROXY receiver is
+        // where the two come apart: define and set are different
+        // traps, and taking [[Set]] here made
+        // `Reflect.set(target, key, v, proxy)` inside a `set` trap
+        // re-enter that trap forever (RFC 20260823 刀 8).
+        if crate::proxy::is_proxy(receiver) {
+            return crate::proxy_define::create_data_property(receiver, key, tag, value);
+        }
         crate::member_set::__torajs_any_member_set_soft(recv_slot, key, tag, value, -1)
     }
 }

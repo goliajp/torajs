@@ -101,6 +101,10 @@ pub const DYNOBJ_INITIAL_CAP: u32 = 8;
 /// `torajs_rc::Tag::DynObj` = 14).
 pub const TAG_DYNOBJ: u16 = 14;
 
+/// `type_tag` mirror for Proxy heap cells (`torajs_rc::Tag::Proxy`
+/// = 26) — §10.5.6 answers through the proxy's own kernel.
+pub const TAG_PROXY: u16 = 26;
+
 /// `type_tag` mirror for Arr heap cells (`torajs_rc::Tag::Arr` = 2) —
 /// the define/descriptor paths dispatch per receiver shape.
 pub const TAG_ARR_HDR: u16 = 2;

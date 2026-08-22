@@ -61,6 +61,16 @@ unsafe extern "C" {
     /// 20260721 刀 11 G13): marks the (proto tag, mid) patch bit the
     /// any-method dispatcher's primitive fast arms pre-gate on.
     fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
+    /// torajs-anyvalue — §10.5.6 on a Proxy, literal-descriptor face.
+    fn __torajs_proxy_define_from_flags(
+        recv: u64,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    ) -> i64;
+    /// torajs-throw — pending-throw probe.
+    fn __torajs_throw_check() -> i64;
 }
 
 /// `__torajs_dynobj_define(obj_slot, key, tag, value, flags_byte)`.
@@ -264,6 +274,25 @@ pub(crate) unsafe fn define_apply(
     flags_byte: u64,
     throw_on_refusal: bool,
 ) -> i64 {
+    // §10.5.6 — a Proxy receiver answers the define itself, with the
+    // literal path's flags byte rebuilt into a descriptor object
+    // (RFC 20260823-proxy-substrate 刀 8).
+    let obj = unsafe { *obj_slot };
+    if !obj.is_null()
+        && unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() } == crate::layout::TAG_PROXY
+    {
+        let r =
+            unsafe { __torajs_proxy_define_from_flags(obj as u64, key, tag, value, flags_byte) };
+        if r == 0 && throw_on_refusal && unsafe { __torajs_throw_check() } == 0 {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"proxy 'defineProperty' trap returned falsish".as_ptr() as *const u8
+                )
+            };
+        }
+        return r;
+    }
+
     let obj = unsafe { *obj_slot };
     if obj.is_null() {
         return 1;

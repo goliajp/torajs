@@ -35,6 +35,10 @@ unsafe extern "C" {
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const u8);
+    /// torajs-throw — non-zero iff a throw is in flight.
+    fn __torajs_throw_check() -> i64;
+    /// torajs-anyvalue — §10.5.6 [[DefineOwnProperty]] on a Proxy.
+    fn __torajs_proxy_define_own(recv: u64, key: *mut c_void, desc: *const c_void) -> i64;
     fn __torajs_value_drop_heap(child: *mut c_void);
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
@@ -238,6 +242,23 @@ unsafe fn define_from_desc_impl(
 ) -> i64 {
     if desc.is_null() {
         return 1;
+    }
+    // §10.5.6 — a Proxy receiver answers the define itself (RFC
+    // 20260823-proxy-substrate 刀 8). The slot holds a heap cell
+    // pointer, which for a Proxy IS its AnyValue.
+    let obj = unsafe { *obj_slot };
+    if !obj.is_null()
+        && unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() } == crate::layout::TAG_PROXY
+    {
+        let r = unsafe { __torajs_proxy_define_own(obj as u64, key, desc) };
+        if r == 0 && throw_on_refusal && unsafe { __torajs_throw_check() } == 0 {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"proxy 'defineProperty' trap returned falsish".as_ptr() as *const u8
+                )
+            };
+        }
+        return r;
     }
     // §6.2.6.5 ToPropertyDescriptor reads off ANY object — dispatch
     // per the desc cell's shape to its own-field store: dynobj entry
