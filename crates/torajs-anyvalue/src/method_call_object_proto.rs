@@ -399,6 +399,7 @@ fn typedarray_badge(kind: i64) -> &'static [u8] {
         8 => b"Float64Array",
         9 => b"BigInt64Array",
         10 => b"BigUint64Array",
+        11 => b"Float16Array",
         _ => b"Object",
     }
 }

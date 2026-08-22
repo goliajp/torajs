@@ -53,6 +53,7 @@ pub(crate) fn is_global_name(name: &str) -> bool {
             | "Float64Array"
             | "BigInt64Array"
             | "BigUint64Array"
+            | "Float16Array"
             | "DataView"
             | "Function"
             // §27.1.3 Iterator global (RFC 20260730-iterator-global

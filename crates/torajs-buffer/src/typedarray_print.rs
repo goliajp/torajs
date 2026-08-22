@@ -96,6 +96,9 @@ pub unsafe extern "C" fn __torajs_typedarray_print(cell: *mut c_void) {
                 Kind::Uint16 => put_u64(u64::from(p.cast::<u16>().read_unaligned())),
                 Kind::Int32 => put_i64(i64::from(p.cast::<i32>().read_unaligned())),
                 Kind::Uint32 => put_u64(u64::from(p.cast::<u32>().read_unaligned())),
+                Kind::Float16 => put_f64(crate::binary16::f16_bits_to_f64(
+                    p.cast::<u16>().read_unaligned(),
+                )),
                 Kind::Float32 => put_f64(f64::from(p.cast::<f32>().read_unaligned())),
                 Kind::Float64 => put_f64(p.cast::<f64>().read_unaligned()),
                 Kind::BigInt64 => {

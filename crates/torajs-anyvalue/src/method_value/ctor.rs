@@ -438,7 +438,7 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         t if t == Tag::ArrayBuffer as u16 => Some(19),
         t if t == Tag::TypedArray as u16 => {
             let kind = unsafe { __torajs_typedarray_kind(recv) };
-            if (0..=10).contains(&kind) {
+            if (0..=11).contains(&kind) {
                 Some(20 + kind)
             } else {
                 None

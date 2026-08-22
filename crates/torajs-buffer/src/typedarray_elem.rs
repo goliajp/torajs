@@ -92,6 +92,9 @@ pub(crate) unsafe fn read(base: *const u8, kind: Kind, i: i64) -> AnyValue {
             Kind::Uint16 => box_double(f64::from(p.cast::<u16>().read_unaligned())),
             Kind::Int32 => box_double(f64::from(p.cast::<i32>().read_unaligned())),
             Kind::Uint32 => box_double(f64::from(p.cast::<u32>().read_unaligned())),
+            Kind::Float16 => box_double(crate::binary16::f16_bits_to_f64(
+                p.cast::<u16>().read_unaligned(),
+            )),
             Kind::Float32 => box_double(f64::from(p.cast::<f32>().read_unaligned())),
             Kind::Float64 => box_double(p.cast::<f64>().read_unaligned()),
             Kind::BigInt64 => {
@@ -168,6 +171,9 @@ pub(crate) unsafe fn store(base: *mut u8, kind: Kind, i: i64, c: Coerced) {
             (Kind::Int32 | Kind::Uint32, Coerced::Num(n)) => {
                 p.cast::<u32>().write_unaligned(wrap_to_u64(n, 32) as u32)
             }
+            (Kind::Float16, Coerced::Num(n)) => p
+                .cast::<u16>()
+                .write_unaligned(crate::binary16::f64_to_f16_bits(n)),
             (Kind::Float32, Coerced::Num(n)) => p.cast::<f32>().write_unaligned(n as f32),
             (Kind::Float64, Coerced::Num(n)) => p.cast::<f64>().write_unaligned(n),
             // `coerce` answers Bits for exactly the BigInt kinds and

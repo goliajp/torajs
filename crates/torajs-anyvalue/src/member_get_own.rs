@@ -424,8 +424,8 @@ fn typedarray_bytes_per_element(family_tag: i64) -> Option<i64> {
     Some(match family_tag - 20 {
         // Int8 / Uint8 / Uint8Clamped.
         0..=2 => 1,
-        // Int16 / Uint16.
-        3 | 4 => 2,
+        // Int16 / Uint16, and Float16 which was appended at 11.
+        3 | 4 | 11 => 2,
         // Int32 / Uint32 / Float32.
         5..=7 => 4,
         // Float64 / BigInt64 / BigUint64.

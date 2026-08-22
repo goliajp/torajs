@@ -243,6 +243,7 @@ pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
             | "Float64Array"
             | "BigInt64Array"
             | "BigUint64Array"
+            | "Float16Array"
     )
 }
 

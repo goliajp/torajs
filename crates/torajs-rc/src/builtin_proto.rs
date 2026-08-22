@@ -52,7 +52,7 @@ unsafe extern "C" {
 /// buffer, because that is the order the discriminant already
 /// fixes and a second ordering would be a second thing to keep in
 /// step).
-pub const NUM_BUILTIN_PROTOS: usize = 31;
+pub const NUM_BUILTIN_PROTOS: usize = 32;
 
 /// ES `name` / ctor-clause `length` of the builtin constructor
 /// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
@@ -99,6 +99,7 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         28 => ("Float64Array", 3),
         29 => ("BigInt64Array", 3),
         30 => ("BigUint64Array", 3),
+        31 => ("Float16Array", 3),
         _ => return None,
     })
 }

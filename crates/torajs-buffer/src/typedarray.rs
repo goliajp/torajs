@@ -50,6 +50,10 @@ pub enum Kind {
     Float64 = 8,
     BigInt64 = 9,
     BigUint64 = 10,
+    /// §23.2 Float16Array — appended rather than slotted next to the
+    /// other floats, because the discriminant is wire format and the
+    /// family tags are one subtraction away from it.
+    Float16 = 11,
 }
 
 impl Kind {
@@ -57,7 +61,7 @@ impl Kind {
     pub const fn element_size(self) -> i64 {
         match self {
             Kind::Int8 | Kind::Uint8 | Kind::Uint8Clamped => 1,
-            Kind::Int16 | Kind::Uint16 => 2,
+            Kind::Int16 | Kind::Uint16 | Kind::Float16 => 2,
             Kind::Int32 | Kind::Uint32 | Kind::Float32 => 4,
             Kind::Float64 | Kind::BigInt64 | Kind::BigUint64 => 8,
         }
@@ -86,6 +90,7 @@ impl Kind {
             Kind::Float64 => "Float64Array",
             Kind::BigInt64 => "BigInt64Array",
             Kind::BigUint64 => "BigUint64Array",
+            Kind::Float16 => "Float16Array",
         }
     }
 
@@ -104,6 +109,7 @@ impl Kind {
             "Float64Array" => Kind::Float64,
             "BigInt64Array" => Kind::BigInt64,
             "BigUint64Array" => Kind::BigUint64,
+            "Float16Array" => Kind::Float16,
             _ => return None,
         })
     }
@@ -120,7 +126,8 @@ impl Kind {
             7 => Kind::Float32,
             8 => Kind::Float64,
             9 => Kind::BigInt64,
-            _ => Kind::BigUint64,
+            10 => Kind::BigUint64,
+            _ => Kind::Float16,
         }
     }
 }
@@ -228,21 +235,23 @@ mod tests {
         assert_eq!(Kind::Float32.element_size(), 4);
         assert_eq!(Kind::Float64.element_size(), 8);
         assert_eq!(Kind::BigUint64.element_size(), 8);
+        assert_eq!(Kind::Float16.element_size(), 2);
     }
 
     #[test]
     fn names_round_trip_and_reprs_are_stable() {
-        for n in 0u8..=10 {
+        for n in 0u8..=11 {
             let k = Kind::from_repr(n);
             assert_eq!(k as u8, n);
             assert_eq!(Kind::from_name(k.name()), Some(k));
         }
-        assert_eq!(Kind::from_name("Float16Array"), None);
+        assert_eq!(Kind::from_name("Float64Array"), Some(Kind::Float64));
+        assert_eq!(Kind::from_name("nope"), None);
     }
 
     #[test]
     fn only_the_two_bigint_kinds_are_bigint() {
-        let big: Vec<Kind> = (0u8..=10)
+        let big: Vec<Kind> = (0u8..=11)
             .map(Kind::from_repr)
             .filter(|k| k.is_bigint())
             .collect();
