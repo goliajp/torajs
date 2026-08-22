@@ -141,6 +141,13 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // …and the array half of the `delete` family: a binding the program
+    // deletes indices out of was never a `number[]`, so its declaration
+    // widens to `any[]` — the only element storage that can say
+    // no-longer-here. Beside the triage above because it answers the
+    // same question about the same operator, and before anything reads
+    // element types.
+    ast::widen_deleted_array_bindings(ast);
     // Writes to the non-writable global value properties (NaN /
     // Infinity / undefined) — §6.2.5.6 runtime semantics per goal:
     // strict throws TypeError at the site, sloppy folds to the rhs.
