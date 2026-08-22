@@ -52,7 +52,9 @@
 //! arena-scanning passes to trip over (rotation 333 blade 7 posture).
 
 use super::desugar_classes_super::ClassIndexEntry;
-use super::super_collect_prop::{SuperPropSite, SuperPropSites, collect_superprop_in_stmt};
+use super::super_collect_prop::{
+    SuperPropSite, SuperPropSites, collect_superprop_in_stmt, delete_operands,
+};
 use super::{AccessorKind, Ast, ClassMethod, Expr, ExprId};
 
 /// What the first chain class declaring `name` says about it.
@@ -109,6 +111,7 @@ fn rewrite_sites(
     is_static: bool,
     found: SuperPropSites,
 ) {
+    let deletes = delete_operands(ast);
     for site in found.sites {
         match site {
             SuperPropSite::Read { member, name } => {
@@ -133,6 +136,14 @@ fn rewrite_sites(
                 };
                 let key = *index;
                 let base = mint_base(ast, parent_name, is_static);
+                if deletes.contains(&index_expr) {
+                    // See `delete_operands` — the plain index stays.
+                    ast.exprs[index_expr.0 as usize] = Expr::Index {
+                        obj: base,
+                        index: key,
+                    };
+                    continue;
+                }
                 let recv = mint_receiver(ast, cname, is_static);
                 let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_get".to_string()));
                 ast.exprs[index_expr.0 as usize] = Expr::Call {

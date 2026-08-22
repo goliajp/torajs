@@ -42,7 +42,9 @@
 //!   to the inner home, and rewriting them against the outer one
 //!   would be the silent wrong this table exists to prevent.
 //!
-use super::super_collect_prop::{SuperPropSite, SuperPropSites, collect_superprop_in_stmt};
+use super::super_collect_prop::{
+    SuperPropSite, SuperPropSites, collect_superprop_in_stmt, delete_operands,
+};
 use super::{Ast, Expr, ExprId, Stmt};
 
 pub fn desugar_objlit_super(ast: &mut Ast) {
@@ -202,8 +204,26 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
             _ => None,
         })
         .collect();
+    let deletes = delete_operands(ast);
     for (site, plan) in reads {
         let key = plan.mint(ast);
+        if deletes.contains(&site) {
+            // See `delete_operands` — a delete operand keeps the plain
+            // member / index off the base.
+            let base_expr = super_base_expr(ast, &home);
+            let base = ast.add_expr(base_expr);
+            ast.exprs[site.0 as usize] = match ast.get_expr(key) {
+                Expr::String(n) => Expr::Member {
+                    obj: base,
+                    name: n.clone(),
+                },
+                _ => Expr::Index {
+                    obj: base,
+                    index: key,
+                },
+            };
+            continue;
+        }
         let node = super_prop_kernel_call(ast, &home, key, Kernel::Get);
         ast.exprs[site.0 as usize] = node;
     }

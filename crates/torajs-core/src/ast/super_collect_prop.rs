@@ -40,6 +40,26 @@ use super::{Ast, Expr, ExprId, Stmt};
 
 pub(super) const SUPER_BASE_MARKER: &str = "__superbase__";
 
+/// Every expression standing as the operand of a `delete`.
+///
+/// §13.5.1.2 step 5b makes `delete super.x` a ReferenceError, which
+/// neither rewrite spells; both keep the pre-kernel plain member /
+/// index off the base there, the approximation this family has always
+/// carried. Routing a delete operand through the read kernel would
+/// not fix that and WOULD break it further — `delete <a call>` is not
+/// a property reference at all, so the checker rejects the whole
+/// program (measured: `delete super[(super(), 0)]` went from pass to
+/// a compile reject).
+pub(super) fn delete_operands(ast: &Ast) -> std::collections::HashSet<ExprId> {
+    ast.exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Delete { expr } => Some(*expr),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(super) enum SuperPropSite {
     Read {
         member: ExprId,
