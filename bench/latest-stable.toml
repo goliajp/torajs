@@ -8,13 +8,14 @@
 # Conventions:
 # - `floor` is semver `major.minor.patch` — parsed by extracting the first
 #   N.N.N triple from the detect command's output, so it matches whether the
-#   runtime prints `v26.1.0` (node), `1.3.14` (bun), `go version go1.25.6 ...`
+#   runtime prints `v26.1.0` (node), `1.4.0` (bun), `go version go1.25.6 ...`
 #   (go), or `rustc 1.95.0 (...)` (rust).
 # - In-tree runners (`torajs`, `torajs-run`) have no entry — their version
 #   IS the git HEAD, not a downloaded toolchain.
 # - The runner key matches `Runner.name` from bench/runners/<name>.toml.
 #
-# Last review: 2026-08-21 (bun 1.3.14 -> 1.4.0).
+# Last review: 2026-08-22 (bun 1.4.0 — the only bun the comparison
+# recognises; every ratio recorded against 1.3.x is superseded).
 
 [runners.node-v8]
 floor = "26.0.0"
