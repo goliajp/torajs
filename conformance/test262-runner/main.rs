@@ -453,6 +453,10 @@ fn run_case(
         // themselves, so a case asserts "this must not reach the
         // handler" by leaving the trap out.
         "proxyTrapsHelper.js",
+        // 2026-08-23 — real typed-array test driver (RFC
+        // 20260823-typedarray-substrate 刀 6). The single largest
+        // unported gate in the suite: 2064 cases sat behind it.
+        "testTypedArray.js",
     ];
     let unported: Vec<&str> = fm
         .includes

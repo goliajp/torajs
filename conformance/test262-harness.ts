@@ -1500,3 +1500,346 @@ function __t262_allowProxyTraps(overrides: any = undefined): any {
       : __t262_proxyTrapThrower("[[Construct]] trap called"),
   };
 }
+
+// ─── testTypedArray.js port (2026-08-23) ───
+//
+// RFC 20260823-typedarray-substrate 刀 6. The gate in front of 2064
+// cases — more than any other single unported include.
+//
+// The constructor lists are written OUT rather than assembled by the
+// stock `concat` + feature-test dance, because tr has every one of
+// the twelve and the feature tests would all take the same branch.
+// The ORDER is the stock one all the same: `indexOf` on these lists
+// is a thing cases do.
+//
+// `TypedArray` is the stock computation verbatim, which on tr answers
+// %Function.prototype% rather than %TypedArray% (§23.2.1) — a
+// recorded gap, and writing anything else here would hide it.
+
+const floatArrayConstructors: any[] = [Float64Array, Float32Array, Float16Array];
+
+const nonClampedIntArrayConstructors: any[] = [
+  Int32Array,
+  Int16Array,
+  Int8Array,
+  Uint32Array,
+  Uint16Array,
+  Uint8Array,
+];
+
+const intArrayConstructors: any[] = [
+  Int32Array,
+  Int16Array,
+  Int8Array,
+  Uint32Array,
+  Uint16Array,
+  Uint8Array,
+  Uint8ClampedArray,
+];
+
+const bigIntArrayConstructors: any[] = [BigUint64Array, BigInt64Array];
+
+const typedArrayConstructors: any[] = [
+  Float64Array,
+  Float32Array,
+  Float16Array,
+  Int32Array,
+  Int16Array,
+  Int8Array,
+  Uint32Array,
+  Uint16Array,
+  Uint8Array,
+  Uint8ClampedArray,
+];
+
+const allTypedArrayConstructors: any[] = [
+  Float64Array,
+  Float32Array,
+  Float16Array,
+  Int32Array,
+  Int16Array,
+  Int8Array,
+  Uint32Array,
+  Uint16Array,
+  Uint8Array,
+  Uint8ClampedArray,
+  BigUint64Array,
+  BigInt64Array,
+];
+
+const nonAtomicsFriendlyTypedArrayConstructors: any[] = [
+  Float64Array,
+  Float32Array,
+  Float16Array,
+  Uint8ClampedArray,
+];
+
+const TypedArray: any = Object.getPrototypeOf(Int8Array);
+
+function isPrimitive(val: any): boolean {
+  return !val || (typeof val !== "object" && typeof val !== "function");
+}
+
+function makePassthrough(TA: any, primitiveOrIterable: any): any {
+  return primitiveOrIterable;
+}
+
+function makeArray(TA: any, primitiveOrIterable: any): any {
+  if (isPrimitive(primitiveOrIterable)) {
+    const n: number = Number(primitiveOrIterable);
+    // Only values between 0 and 2**53 - 1 inclusive map into contents.
+    if (!(n >= 0 && n < 9007199254740992)) return primitiveOrIterable;
+    const out: any[] = [];
+    for (let i = 0; i < n; i++) out.push("0");
+    return out;
+  }
+  return Array.from(primitiveOrIterable as any);
+}
+
+function makeArrayLike(TA: any, primitiveOrIterable: any): any {
+  const arr: any = makeArray(TA, primitiveOrIterable);
+  if (isPrimitive(arr)) return arr;
+  const obj: any = { length: arr.length };
+  for (let i = 0; i < obj.length; i++) obj[i] = arr[i];
+  return obj;
+}
+
+function makeIterable(TA: any, primitiveOrIterable: any): any {
+  const src: any = makeArray(TA, primitiveOrIterable);
+  if (isPrimitive(src)) return src;
+  const obj: any = {};
+  obj[Symbol.iterator] = function (): any {
+    return src[Symbol.iterator]();
+  };
+  return obj;
+}
+
+function makeArrayBuffer(TA: any, primitiveOrIterable: any): any {
+  const arr: any = makeArray(TA, primitiveOrIterable);
+  if (isPrimitive(arr)) return arr;
+  return new TA(arr).buffer;
+}
+
+function __t262_copyIntoArrayBuffer(destBuffer: any, srcBuffer: any): any {
+  const destView: any = new Uint8Array(destBuffer);
+  const srcView: any = new Uint8Array(srcBuffer);
+  for (let i = 0; i < srcView.length; i++) destView[i] = srcView[i];
+  return destBuffer;
+}
+
+function makeResizableArrayBuffer(TA: any, primitiveOrIterable: any): any {
+  if (isPrimitive(primitiveOrIterable)) {
+    const n: number = Number(primitiveOrIterable) * TA.BYTES_PER_ELEMENT;
+    if (!(n >= 0 && n < 9007199254740992)) return primitiveOrIterable;
+    return new ArrayBuffer(n, { maxByteLength: n * 2 });
+  }
+  const fixed: any = makeArrayBuffer(TA, primitiveOrIterable);
+  const byteLength: number = fixed.byteLength;
+  const resizable: any = new ArrayBuffer(byteLength, {
+    maxByteLength: byteLength * 2,
+  });
+  return __t262_copyIntoArrayBuffer(resizable, fixed);
+}
+
+function makeGrownArrayBuffer(TA: any, primitiveOrIterable: any): any {
+  if (isPrimitive(primitiveOrIterable)) {
+    const n: number = Number(primitiveOrIterable) * TA.BYTES_PER_ELEMENT;
+    if (!(n >= 0 && n < 9007199254740992)) return primitiveOrIterable;
+    // The stock body computes and discards here (no `return`), then
+    // falls through to the non-primitive path below — kept verbatim,
+    // because a case that counts allocations would see the change.
+    const pre: any = new ArrayBuffer(Math.floor(n / 2), { maxByteLength: n });
+    pre.resize(n);
+  }
+  const fixed: any = makeArrayBuffer(TA, primitiveOrIterable);
+  const byteLength: number = fixed.byteLength;
+  const grown: any = new ArrayBuffer(Math.floor(byteLength / 2), {
+    maxByteLength: byteLength,
+  });
+  grown.resize(byteLength);
+  return __t262_copyIntoArrayBuffer(grown, fixed);
+}
+
+function makeShrunkArrayBuffer(TA: any, primitiveOrIterable: any): any {
+  if (isPrimitive(primitiveOrIterable)) {
+    const n: number = Number(primitiveOrIterable) * TA.BYTES_PER_ELEMENT;
+    if (!(n >= 0 && n < 9007199254740992)) return primitiveOrIterable;
+    const pre: any = new ArrayBuffer(n * 2, { maxByteLength: n * 2 });
+    pre.resize(n);
+  }
+  const fixed: any = makeArrayBuffer(TA, primitiveOrIterable);
+  const byteLength: number = fixed.byteLength;
+  const shrunk: any = new ArrayBuffer(byteLength * 2, {
+    maxByteLength: byteLength * 2,
+  });
+  __t262_copyIntoArrayBuffer(shrunk, fixed);
+  shrunk.resize(byteLength);
+  return shrunk;
+}
+
+const typedArrayCtorArgFactories: any[] = [
+  makePassthrough,
+  makeArray,
+  makeArrayLike,
+  makeIterable,
+  makeArrayBuffer,
+  makeResizableArrayBuffer,
+  makeGrownArrayBuffer,
+  makeShrunkArrayBuffer,
+];
+
+function ctorArgFactoryMatchesSome(argFactory: any, features: any): boolean {
+  for (let i = 0; i < features.length; i++) {
+    const f: any = features[i];
+    if (f === "passthrough") {
+      if (argFactory === makePassthrough) return true;
+    } else if (f === "arraylike") {
+      if (argFactory === makeArray || argFactory === makeArrayLike) return true;
+    } else if (f === "iterable") {
+      if (argFactory === makeIterable) return true;
+    } else if (f === "arraybuffer") {
+      if (
+        argFactory === makeArrayBuffer ||
+        argFactory === makeResizableArrayBuffer ||
+        argFactory === makeGrownArrayBuffer ||
+        argFactory === makeShrunkArrayBuffer
+      ) {
+        return true;
+      }
+    } else if (f === "resizable") {
+      if (
+        argFactory === makeResizableArrayBuffer ||
+        argFactory === makeGrownArrayBuffer ||
+        argFactory === makeShrunkArrayBuffer
+      ) {
+        return true;
+      }
+    } else {
+      throw new Test262Error("unknown feature: " + f);
+    }
+  }
+  return false;
+}
+
+function testWithAllTypedArrayConstructors(
+  f: any,
+  constructors: any = undefined,
+  includeArgFactories: any = undefined,
+  excludeArgFactories: any = undefined,
+): void {
+  const ctors: any = constructors ? constructors : allTypedArrayConstructors;
+  let ctorArgFactories: any[] = typedArrayCtorArgFactories;
+  if (includeArgFactories) {
+    const picked: any[] = [];
+    for (let i = 0; i < typedArrayCtorArgFactories.length; i++) {
+      if (
+        ctorArgFactoryMatchesSome(
+          typedArrayCtorArgFactories[i],
+          includeArgFactories,
+        )
+      ) {
+        picked.push(typedArrayCtorArgFactories[i]);
+      }
+    }
+    ctorArgFactories = picked;
+  }
+  if (excludeArgFactories) {
+    const kept: any[] = [];
+    for (let i = 0; i < ctorArgFactories.length; i++) {
+      if (!ctorArgFactoryMatchesSome(ctorArgFactories[i], excludeArgFactories)) {
+        kept.push(ctorArgFactories[i]);
+      }
+    }
+    ctorArgFactories = kept;
+  }
+  if (ctorArgFactories.length === 0) {
+    throw new Test262Error(
+      "no arg factories match include " +
+        includeArgFactories +
+        " and exclude " +
+        excludeArgFactories,
+    );
+  }
+  for (let k = 0; k < ctorArgFactories.length; k++) {
+    const argFactory: any = ctorArgFactories[k];
+    for (let i = 0; i < ctors.length; i++) {
+      const constructor: any = ctors[i];
+      const boundArgFactory: any = function (x: any): any {
+        return argFactory(constructor, x);
+      };
+      f(constructor, boundArgFactory);
+    }
+  }
+}
+
+function testWithTypedArrayConstructors(
+  f: any,
+  constructors: any = undefined,
+  includeArgFactories: any = undefined,
+  excludeArgFactories: any = undefined,
+): void {
+  const ctors: any = constructors ? constructors : typedArrayConstructors;
+  testWithAllTypedArrayConstructors(
+    f,
+    ctors,
+    includeArgFactories,
+    excludeArgFactories,
+  );
+}
+
+function testWithBigIntTypedArrayConstructors(
+  f: any,
+  constructors: any = undefined,
+  includeArgFactories: any = undefined,
+  excludeArgFactories: any = undefined,
+): void {
+  const ctors: any = constructors ? constructors : bigIntArrayConstructors;
+  testWithAllTypedArrayConstructors(
+    f,
+    ctors,
+    includeArgFactories,
+    excludeArgFactories,
+  );
+}
+
+function testWithNonAtomicsFriendlyTypedArrayConstructors(f: any): void {
+  testWithTypedArrayConstructors(f, nonAtomicsFriendlyTypedArrayConstructors);
+}
+
+function testWithAtomicsFriendlyTypedArrayConstructors(f: any): void {
+  testWithTypedArrayConstructors(f, [
+    Int32Array,
+    Int16Array,
+    Int8Array,
+    Uint32Array,
+    Uint16Array,
+    Uint8Array,
+  ]);
+}
+
+function testTypedArrayConversions(byteConversionValues: any, fn: any): void {
+  const values: any = byteConversionValues.values;
+  const expected: any = byteConversionValues.expected;
+  testWithTypedArrayConstructors(function (TA: any): void {
+    const name: string = TA.name.slice(0, -5);
+    for (let index = 0; index < values.length; index++) {
+      const exp: any = expected[name][index];
+      let initial: any = 0;
+      if (exp === 0) initial = 1;
+      fn(TA, values[index], exp, initial);
+    }
+  });
+}
+
+function isFloatTypedArrayConstructor(arg: any): boolean {
+  return floatArrayConstructors.indexOf(arg) !== -1;
+}
+
+function floatTypedArrayConstructorPrecision(FA: any): string {
+  if (FA === Float16Array) return "half";
+  if (FA === Float32Array) return "single";
+  if (FA === Float64Array) return "double";
+  throw new Error(
+    "Malformed test - floatTypedArrayConstructorPrecision called with non-float TypedArray",
+  );
+}
