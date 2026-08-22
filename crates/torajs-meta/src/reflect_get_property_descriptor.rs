@@ -36,6 +36,8 @@ unsafe extern "C" {
     /// materializes as a fresh Str cell at rc=1, which is the only
     /// way to give the char-index helper a cell to read.
     fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
+    /// torajs-anyvalue — §10.5.5 [[GetOwnProperty]] on a Proxy.
+    fn __torajs_proxy_get_own_descriptor(obj_any: u64, key: *const c_void) -> u64;
 }
 
 /// `torajs_dynobj::layout::TAG_SYMBOL_KEY` mirror — a property key
@@ -219,6 +221,11 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     let dynobj = obj_any as *const c_void;
     // SAFETY: cell pointer to valid heap object.
     let htag = unsafe { heap_type_tag(dynobj) };
+    // §10.5.5 — a Proxy answers its own descriptor (the
+    // `getOwnPropertyDescriptor` trap, completed per §6.2.6.6).
+    if htag == crate::reflect::TAG_PROXY {
+        return unsafe { __torajs_proxy_get_own_descriptor(obj_any, key) };
+    }
     // §6.1.7 — a symbol key skips the name-keyed cascade entirely.
     if unsafe { key_is_symbol_cell(key) } && htag != TAG_DYNOBJ {
         return unsafe { symbol_key_descriptor_via_dict(dynobj, htag, key) };

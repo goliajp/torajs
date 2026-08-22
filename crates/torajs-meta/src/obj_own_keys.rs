@@ -28,6 +28,8 @@ pub(crate) use crate::obj_own_keys_key_shape::key_is_proto_slot;
 
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
+    /// torajs-anyvalue — §10.5.11 [[OwnPropertyKeys]] on a Proxy.
+    fn __torajs_proxy_own_keys(v: u64, include_nonenum: i64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
     fn __torajs_rc_inc(p: *mut c_void);
     /// `runtime_str.c` universal-drop dispatcher (settles the unused
@@ -331,6 +333,12 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
     }
     if crate::reflect::is_cell_imm(v) {
         let cell = v as *const c_void;
+        // §10.5.11 — a Proxy answers its own key list (the `ownKeys`
+        // trap, filtered through [[GetOwnProperty]] for the
+        // enumerable-only surface per §7.3.24).
+        if unsafe { heap_type_tag_local(cell) } == crate::reflect::TAG_PROXY {
+            return unsafe { __torajs_proxy_own_keys(v, include_nonenum) } as *mut c_void;
+        }
         return match unsafe { heap_type_tag_local(cell) } {
             TAG_STR_CELL => {
                 let len =

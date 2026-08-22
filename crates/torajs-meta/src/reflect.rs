@@ -155,6 +155,9 @@ pub(crate) fn is_wrapper_tag(t: u16) -> bool {
 pub(crate) const TAG_STR: u16 = 0;
 pub(crate) const TAG_SYMBOL: u16 = 7;
 pub(crate) const TAG_BIGINT: u16 = 10;
+/// `torajs_rc::Tag::Proxy` (RFC 20260823-proxy-substrate) — the
+/// reflection surface routes every arm to the proxy kernels.
+pub(crate) const TAG_PROXY: u16 = 26;
 
 #[inline]
 pub(crate) unsafe fn heap_type_tag(child: *const c_void) -> u16 {

@@ -43,6 +43,8 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
     fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
+    /// torajs-anyvalue — §7.3.24 over a Proxy receiver.
+    fn __torajs_proxy_own_values(v: u64, want_entries: i64) -> *mut u8;
     fn __torajs_rc_inc(p: *mut c_void);
     /// torajs-anyvalue ToString — a ShortStr materializes to a fresh
     /// owned heap Str; dropped via the universal dispatcher below.
@@ -282,6 +284,14 @@ unsafe fn throw_to_object(any_shape: bool) -> *mut c_void {
 /// returned `+1`-rc array and runs a `throw_check`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
+    // §7.3.24 — a Proxy composes its ownKeys /
+    // getOwnPropertyDescriptor / get traps for this surface
+    // (RFC 20260823-proxy-substrate 刀 4).
+    if crate::reflect::is_cell_imm(v)
+        && unsafe { heap_type_tag_local(v as *const c_void) } == crate::reflect::TAG_PROXY
+    {
+        return unsafe { __torajs_proxy_own_values(v, 0) } as *mut c_void;
+    }
     if is_dynobj_imm(v) {
         return unsafe { dynobj_values_walk(v as *const c_void) };
     }
@@ -365,6 +375,14 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
 /// returned `+1`-rc array and runs a `throw_check`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
+    // §7.3.24 — a Proxy composes its ownKeys /
+    // getOwnPropertyDescriptor / get traps for this surface
+    // (RFC 20260823-proxy-substrate 刀 4).
+    if crate::reflect::is_cell_imm(v)
+        && unsafe { heap_type_tag_local(v as *const c_void) } == crate::reflect::TAG_PROXY
+    {
+        return unsafe { __torajs_proxy_own_values(v, 1) } as *mut c_void;
+    }
     if is_dynobj_imm(v) {
         return unsafe { dynobj_entries_walk(v as *const c_void) };
     }
