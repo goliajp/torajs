@@ -67,6 +67,11 @@ pub(crate) struct BoxedEntryIntrinsics {
     /// literal-default substitution kernel, shared with the
     /// direct-call terminal (S3.8) through the intrinsics table.
     pub(crate) anyv_or_default: FuncId,
+    /// `__torajs_arr_mark_kind(arr, chain)` — stamps a typed array's
+    /// element-kind chain so the any lane can decode its slots. The
+    /// adapter's array RETURN needs it for the same reason an array
+    /// ARGUMENT does (RFC 20260823-proxy-substrate 刀 4b).
+    pub(crate) arr_mark_kind: FuncId,
 }
 
 /// `true` iff the type can cross the boxed boundary in either
@@ -225,6 +230,7 @@ pub(crate) fn synthesize_boxed_entries(
             t.rest,
             t.rest_kind,
             arr_any_to_typed,
+            t.ret_arr_kind,
         );
         entries.insert(t.fid, pair);
     }
@@ -348,6 +354,22 @@ fn collect_boxed_targets(
         if !user_tys.iter().all(boxable) || !(ret_ty == Type::Void || boxable(&ret_ty)) {
             continue;
         }
+        // RFC 20260823-proxy-substrate 刀 4b — a TYPED array return
+        // crossing into the any world needs its element-kind chain
+        // stamped, exactly like a typed array argument does. Without
+        // it the boxed value is an array whose every slot the any
+        // lane decodes as a NaN box: `const g: any = () => ["x"];
+        // g()[0]` answered `undefined` and `JSON.stringify` answered
+        // `[null]`, silently, for every function that returns one.
+        let ret_arr_kind = match &ret_ty {
+            Type::Arr(id) => {
+                let elem = arr_layouts[id.0 as usize].clone();
+                let chain =
+                    crate::ssa_lower_arr_kind_mark::arr_kind_chain_of(arr_layouts, &elem, 0);
+                (chain != 0).then_some(chain as i64)
+            }
+            _ => None,
+        };
         // S2.39 — literal defaults on the user params, positionally
         // aligned with `user_tys`. The adapter fills these when an
         // argv slot arrives undefined (missing OR explicit — ES
@@ -389,6 +411,7 @@ fn collect_boxed_targets(
             dflt_lits,
             rest,
             rest_kind,
+            ret_arr_kind,
         });
     }
     targets
@@ -423,6 +446,8 @@ struct BoxedEntryTarget {
     /// catchable TypeError the assign-boundary conversion does).
     /// `None` = the `any[]` spelling, no conversion.
     rest_kind: Option<i64>,
+    /// See [`BoxedEntryIntrinsics::arr_mark_kind`].
+    ret_arr_kind: Option<i64>,
 }
 
 mod build;

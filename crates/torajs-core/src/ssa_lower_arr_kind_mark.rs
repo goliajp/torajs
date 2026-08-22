@@ -41,21 +41,28 @@ impl<'a> LowerCtx<'a> {
     /// literal carries `FLAG_STATIC_LITERAL`, which the runtime
     /// marker refuses to write).
     pub(crate) fn arr_kind_chain(&self, elem: &Type, depth: u32) -> u64 {
-        if depth >= 21 {
-            return 0;
+        arr_kind_chain_of(self.arr_layouts, elem, depth)
+    }
+}
+
+/// [`LowerCtx::arr_kind_chain`] without a `LowerCtx` — the boxed-entry
+/// synthesis runs before one exists and needs the same answer for a
+/// body's ARRAY RETURN (RFC 20260823-proxy-substrate 刀 4b).
+pub(crate) fn arr_kind_chain_of(arr_layouts: &[Type], elem: &Type, depth: u32) -> u64 {
+    if depth >= 21 {
+        return 0;
+    }
+    match elem {
+        Type::I64 | Type::I32 => 1,
+        Type::F64 => 2,
+        Type::Bool => 3,
+        // Arr<Any> carries FLAG_ARR_ANY — self-describing, no mark.
+        Type::Any => 0,
+        Type::Arr(id) => {
+            let inner = arr_layouts[id.0 as usize].clone();
+            4 | (arr_kind_chain_of(arr_layouts, &inner, depth + 1) << 3)
         }
-        match elem {
-            Type::I64 | Type::I32 => 1,
-            Type::F64 => 2,
-            Type::Bool => 3,
-            // Arr<Any> carries FLAG_ARR_ANY — self-describing, no mark.
-            Type::Any => 0,
-            Type::Arr(id) => {
-                let inner = self.arr_layouts[id.0 as usize].clone();
-                4 | (self.arr_kind_chain(&inner, depth + 1) << 3)
-            }
-            t if t.is_refcounted() => 4,
-            _ => 0,
-        }
+        t if t.is_refcounted() => 4,
+        _ => 0,
     }
 }
