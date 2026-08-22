@@ -21,10 +21,9 @@
 //! | else         | pass     |
 //!
 //! Byte-level: bytes ≥ 0x20 (including UTF-8 continuation / lead
-//! bytes) pass through unchanged. JSON.stringify is supposed to
-//! escape lone surrogates per ES2019; that wedge belongs to a
-//! later spec-tightening task (matches the pre-port C behavior
-//! bit-for-bit).
+//! bytes) pass through unchanged. A Latin-1 payload has no
+//! surrogates in it; the UTF-16 walk is where §25.5.2.2 step 2.d
+//! applies, and it escapes the lone ones there.
 
 use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
@@ -44,13 +43,30 @@ unsafe fn str_is_latin1(p: *const u8) -> bool {
     (header.flags & STR_FLAG_IS_LATIN1) != 0
 }
 
+/// Whether the code unit at `i` is half of a well-formed surrogate
+/// pair — §25.5.2.2 QuoteJSONString steps 2.c/2.d: a leading
+/// surrogate followed by a trailing one, or the trailing half of
+/// such a pair. Everything else in the surrogate range is lone and
+/// gets a `\uXXXX` escape, because the output is a well-formed
+/// string and a lone surrogate has no UTF-8 spelling.
+fn surrogate_is_paired(unit: impl Fn(usize) -> u16, n: usize, i: usize) -> bool {
+    let u = unit(i);
+    if (0xD800..=0xDBFF).contains(&u) {
+        return i + 1 < n && (0xDC00..=0xDFFF).contains(&unit(i + 1));
+    }
+    if (0xDC00..=0xDFFF).contains(&u) {
+        return i > 0 && (0xD800..=0xDBFF).contains(&unit(i - 1));
+    }
+    false
+}
+
 /// Quote + escape a UTF-16 payload, staying in UTF-16 (chunk 657 —
 /// the byte-walk below mis-read UTF-16 blocks: `length` is code
 /// units, the payload is LE pairs, so `"中"` came out as its LE
-/// bytes `2d 4e` = `-N`). Escapes are the same ASCII set per
-/// §25.5.2.2 QuoteJSONString — code units ≥ 0x20 (incl. surrogate
-/// halves) pass through, so the walk is per-u16 with no pair
-/// decoding needed.
+/// bytes `2d 4e` = `-N`). Escapes are the ASCII set per §25.5.2.2
+/// QuoteJSONString, plus the lone surrogates that step 2.d asks
+/// for — a paired half passes through, so the walk is per-u16 and
+/// only ever looks at the one neighbour that could pair with it.
 fn quote_utf16(payload: &[u8]) -> *mut u8 {
     let unit = |i: usize| u16::from_le_bytes([payload[2 * i], payload[2 * i + 1]]);
     let n = payload.len() / 2;
@@ -59,6 +75,7 @@ fn quote_utf16(payload: &[u8]) -> *mut u8 {
         out_units += match unit(i) {
             0x22 | 0x5C | 0x0A | 0x0D | 0x09 | 0x08 | 0x0C => 2,
             u if u < 0x20 => 6,
+            u if (0xD800..=0xDFFF).contains(&u) && !surrogate_is_paired(unit, n, i) => 6,
             _ => 1,
         };
     }
@@ -86,12 +103,12 @@ fn quote_utf16(payload: &[u8]) -> *mut u8 {
         if let Some(e) = esc {
             put(dst, &mut cur, b'\\' as u16);
             put(dst, &mut cur, e as u16);
-        } else if u < 0x20 {
+        } else if u < 0x20 || ((0xD800..=0xDFFF).contains(&u) && !surrogate_is_paired(unit, n, i)) {
             put(dst, &mut cur, b'\\' as u16);
             put(dst, &mut cur, b'u' as u16);
-            put(dst, &mut cur, b'0' as u16);
-            put(dst, &mut cur, b'0' as u16);
-            put(dst, &mut cur, HEX[(u >> 4) as usize] as u16);
+            put(dst, &mut cur, HEX[(u >> 12) as usize] as u16);
+            put(dst, &mut cur, HEX[((u >> 8) & 0xf) as usize] as u16);
+            put(dst, &mut cur, HEX[((u >> 4) & 0xf) as usize] as u16);
             put(dst, &mut cur, HEX[(u & 0xf) as usize] as u16);
         } else {
             put(dst, &mut cur, u);

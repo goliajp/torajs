@@ -259,6 +259,18 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(sb: *mut JsonBuilder, str_
                 sb.buf.push(HEX[(c >> 4) as usize]);
                 sb.buf.push(HEX[(c & 0xf) as usize]);
             }
+            // §25.5.2.2 step 2.d — `iter_utf16_codepoints` joins a
+            // well-formed pair into one code point, so anything
+            // still in the surrogate range here is lone. It has no
+            // UTF-8 spelling; the escape is how a well-formed JSON
+            // text carries it.
+            c if (0xD800..=0xDFFF).contains(&c) => {
+                sb.buf.extend_from_slice(b"\\u");
+                sb.buf.push(HEX[(c >> 12) as usize]);
+                sb.buf.push(HEX[((c >> 8) & 0xf) as usize]);
+                sb.buf.push(HEX[((c >> 4) & 0xf) as usize]);
+                sb.buf.push(HEX[(c & 0xf) as usize]);
+            }
             c => write_utf8_for_codepoint(c, |b| sb.buf.push(b)),
         });
         sb.buf.push(b'"');
