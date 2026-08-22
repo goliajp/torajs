@@ -75,6 +75,12 @@ pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
         // SAFETY: cell pointer is non-null per is_cell guarantee +
         // caller invariant says it points to a live heap object.
         let tag = unsafe { heap_type_tag(child) };
+        // §10.5.14 step 3 — a Proxy is a function exactly when its
+        // target is, so `typeof` reads through to it.
+        if tag == Tag::Proxy as u16 {
+            let callable = unsafe { crate::proxy_callable::proxy_is_callable(v) };
+            return alloc_literal(if callable { b"function" } else { b"object" });
+        }
         let kind: &[u8] = if tag == Tag::Str as u16 {
             b"string"
         } else if tag == Tag::Closure as u16 {

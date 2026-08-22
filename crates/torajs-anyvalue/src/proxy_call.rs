@@ -47,6 +47,14 @@ pub(crate) unsafe fn method_call(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // `p.call(t, …)` / `p.apply(t, list)` on a CALLABLE proxy is
+        // still a [[Call]] on the proxy — §20.2.3.3 passes its own
+        // receiver through as the thisArgument, so forwarding the
+        // dispatch to the target would skip the `apply` trap and
+        // hand the target itself the call.
+        if let Some(v) = callable_forwarder(recv, mid, argv, argc) {
+            return v;
+        }
         let Ok((target, handler)) = crate::proxy::live_slots(as_void_ptr(recv)) else {
             return VALUE_UNDEFINED;
         };
@@ -73,5 +81,46 @@ pub(crate) unsafe fn method_call(
             crate::method_call_closure_dispatch::__torajs_any_call_with_this(f, recv, argv, argc);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
         out
+    }
+}
+
+/// §20.2.3.1 / §20.2.3.3 over a callable Proxy receiver — the two
+/// spellings that re-enter [[Call]] with an explicit thisArgument.
+/// `None` = not one of them (or the proxy is not callable), and the
+/// ordinary name lookup runs.
+///
+/// # Safety
+/// `recv` is a live Proxy AnyValue; `argv` points at `argc` slots
+/// alive across the call.
+unsafe fn callable_forwarder(
+    recv: AnyValue,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        if !crate::proxy_callable::proxy_is_callable(recv) {
+            return None;
+        }
+        let this_arg = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
+        if mid == torajs_rc::ANY_METHOD_CALL {
+            let (rest, n) = if argc <= 1 {
+                (argv, 0)
+            } else {
+                (argv.add(1), argc - 1)
+            };
+            return Some(crate::proxy_callable::__torajs_proxy_apply(
+                recv, this_arg, rest, n,
+            ));
+        }
+        if mid == torajs_rc::ANY_METHOD_APPLY {
+            let list = if argc >= 2 {
+                *argv.add(1)
+            } else {
+                VALUE_UNDEFINED
+            };
+            return Some(crate::proxy_callable::apply_with_list(recv, this_arg, list));
+        }
+        None
     }
 }

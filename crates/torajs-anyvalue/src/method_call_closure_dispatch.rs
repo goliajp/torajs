@@ -151,6 +151,11 @@ pub unsafe extern "C" fn __torajs_any_call(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // §10.5.12 — a Proxy runs its `apply` trap (RFC
+        // 20260823-proxy-substrate 刀 6).
+        if crate::proxy::is_proxy(recv) {
+            return crate::proxy_callable::__torajs_proxy_apply(recv, VALUE_UNDEFINED, argv, argc);
+        }
         if let Some((env, entry)) = closure_boxed_entry(recv) {
             return invoke_with_this(env, entry, VALUE_UNDEFINED, argv, argc);
         }
@@ -177,6 +182,10 @@ pub unsafe extern "C" fn __torajs_any_call_with_this(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // §10.5.12 twin — the explicit-`this` spelling.
+        if crate::proxy::is_proxy(recv) {
+            return crate::proxy_callable::__torajs_proxy_apply(recv, this_arg, argv, argc);
+        }
         if let Some((env, entry)) = closure_boxed_entry(recv) {
             return invoke_with_this(env, entry, this_arg, argv, argc);
         }

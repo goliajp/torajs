@@ -204,6 +204,12 @@ pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
     if ptr.is_null() {
         return false;
     }
+    // §10.5.14 step 3 — a Proxy has [[Construct]] exactly when its
+    // target does; the handler has no say in it.
+    if crate::proxy::is_proxy(av) {
+        let t = unsafe { crate::proxy_callable::callable_target(av) };
+        return t != av && unsafe { is_constructor(t) };
+    }
     unsafe { is_constructor_cell(ptr) }
 }
 
@@ -276,6 +282,11 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
             __torajs_throw_type_error(c"value is not a constructor".as_ptr());
         }
         return VALUE_UNDEFINED;
+    }
+    // §10.5.13 — a Proxy runs its `construct` trap (or forwards to
+    // the target) instead of the ordinary shapes below.
+    if crate::proxy::is_proxy(callee) {
+        return unsafe { crate::proxy_callable::__torajs_proxy_construct(callee, argv, argc) };
     }
     // A plain function constructs per §10.2.2 (base kind): fresh
     // `this` from its `.prototype`, then the ordinary call channel.

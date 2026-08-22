@@ -207,6 +207,7 @@ mod prop_has;
 mod prop_has_proto;
 mod proxy;
 mod proxy_call;
+mod proxy_callable;
 mod proxy_desc;
 mod proxy_get_prop;
 mod proxy_key;
