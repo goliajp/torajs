@@ -69,6 +69,7 @@ mod build_helpers;
 mod pending_class;
 mod program;
 mod search;
+mod start_scan;
 mod state;
 mod step;
 
@@ -77,8 +78,9 @@ pub use pending_class::PendingClass;
 pub use program::{BakedDfaMeta, DfaProgram, DfaStates};
 pub use search::{
     DfaState, TX_ACCEPT_BIT, TX_MONOTONE_BIT, TX_STATE_MASK, dfa_search, dfa_search_mid,
-    dfa_search_mid_nonword, dfa_search_mid_word, first_viable_start,
+    dfa_search_mid_nonword, dfa_search_mid_word,
 };
+pub use start_scan::first_viable_start;
 pub use step::{byte_step, byte_step_full};
 
 // chunk 8.6b — closure-API role split:
