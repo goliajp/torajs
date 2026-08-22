@@ -107,6 +107,14 @@ pub struct DfaState {
     /// against the byte the cursor is about to consume, but the
     /// resulting `Op::Match` is zero-width (it never survives a
     /// `byte_step` that doesn't consume).
+    ///
+    /// Left empty on states where `is_accept` is already true
+    /// (rotation 472): the executor's invariant is that reaching the
+    /// loop head at an accepting state means `last_accept` is already
+    /// this cursor, so those bits could only re-store what is there.
+    /// They were set until then, on all 256 bytes, which is why
+    /// [`super::program::DfaProgram::any_accept_before_byte`] read
+    /// true for every pattern.
     pub accept_before_byte: [u32; 8],
     /// Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E) — fixed-size
     /// per-state K-PROPERTY cp-step handler triple. When

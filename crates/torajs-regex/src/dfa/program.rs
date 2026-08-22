@@ -81,9 +81,17 @@ pub struct DfaProgram {
     /// mask (i.e. the pattern contains `\b` / `\B` / multiline-`$` /
     /// other zero-width accepts). When `false`, the per-byte
     /// `mask_get` call in `dfa_search_from` is wasted work and the
-    /// executor gates it off, saving ~35 ns/iter on no-`\b` patterns
-    /// (every fixture without word-boundary or other zero-width
-    /// accept site benefits).
+    /// executor gates it off.
+    ///
+    /// Rotation 472 — this read `true` for every pattern until then,
+    /// so the gate never fired. An accepting state's PC set contains
+    /// `Op::Match` before any re-closure, so it answered "zero-width
+    /// accept here" for all 256 bytes and carried a full mask; every
+    /// pattern with a reachable accepting state therefore had one.
+    /// Those masks are no longer written (see
+    /// [`super::state::DfaState::accept_before_byte`]), and the flag
+    /// now means what it says: only `\b` / `\B` / multiline-`$` and
+    /// friends set it.
     pub any_accept_before_byte: bool,
     /// RFC 20260711 chunk B — `true` when the BFS met a K-PROPERTY
     /// state shape the single-class pending mechanism cannot serve

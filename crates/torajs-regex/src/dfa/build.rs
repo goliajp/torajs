@@ -349,7 +349,20 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             transitions[byte as usize] = next_idx;
         }
         states[cur_idx as usize].transitions = transitions;
-        states[cur_idx as usize].accept_before_byte = accept_before_byte;
+        // The executor reads this mask to answer "is there a zero-width
+        // accept sitting at this cursor, before the byte is stepped".
+        // On a state that ALREADY accepts the answer is yes for every
+        // byte — and `last_accept` is already this cursor (the step
+        // that arrived here wrote it, or the pre-loop seed did), so
+        // every one of those 256 bits would only re-store the value
+        // that is there. Writing them anyway left
+        // `any_accept_before_byte` true for every pattern with a
+        // reachable accepting state, i.e. all of them, so attack #R-E's
+        // hoist has never once fired. Only non-accepting states carry a
+        // mask the executor cannot already infer.
+        if !states[cur_idx as usize].is_accept {
+            states[cur_idx as usize].accept_before_byte = accept_before_byte;
+        }
     }
 
     finish_dfa(states, start, start_mid_word, start_mid_nonword, poisoned)
