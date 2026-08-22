@@ -316,6 +316,25 @@ impl<'a> Analysis<'a> {
             // answer here is not a slow program but a broken build
             // (an FPR value reaching a GPR-only consumer).
             Expr::Member { name: m, .. } if m == "charCodeAt" => W::F64,
+            // §19.2.4 / §19.2.5 / §21.1.1 — the three global
+            // functions that answer a Number. Same reasoning as
+            // `charCodeAt` one line up, and the same failure when it
+            // is missing: they all can answer NaN or a fraction, so
+            // an integer slot cannot hold what they produce, and the
+            // mismatch is not a slow program but a build that dies in
+            // the register allocator ("materialize_operand_gpr called
+            // on ValueId(N) holding Fpr").
+            //
+            // They fell through to the indirect-call arm below, which
+            // has no key for a global and answered NotNum — invisible
+            // until a binding carried an explicit `: number`, because
+            // an unannotated one takes its width from the initializer
+            // instead. `const n: number = Number(s); n < 5` did not
+            // compile.
+            //
+            // Ordered AFTER the `fn_params` arm, so a user function
+            // of the same name keeps its own return width.
+            Expr::Ident(f) if f == "Number" || f == "parseFloat" || f == "parseInt" => W::F64,
             Expr::Member { obj, .. } => {
                 if let Expr::Ident(ns) = self.ast.get_expr(*obj)
                     && ns == "Math"
