@@ -46,8 +46,13 @@ unsafe extern "C" {
 /// WeakMap 16 / WeakSet 17 / WeakRef 18 joined in rotation 314 —
 /// the first two already had instances and any-lane dispatch and
 /// were missing only the constructor's VALUE face; WeakRef needed
-/// its any-lane arm too).
-pub const NUM_BUILTIN_PROTOS: usize = 19;
+/// its any-lane arm too. ArrayBuffer 19 and the eleven typed arrays
+/// 20-30 joined for RFC 20260823-typedarray-substrate 刀 4 — the
+/// twelve are in `torajs_buffer::typedarray::Kind` order after the
+/// buffer, because that is the order the discriminant already
+/// fixes and a second ordering would be a second thing to keep in
+/// step).
+pub const NUM_BUILTIN_PROTOS: usize = 31;
 
 /// ES `name` / ctor-clause `length` of the builtin constructor
 /// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
@@ -80,6 +85,20 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         16 => ("WeakMap", 0),
         17 => ("WeakSet", 0),
         18 => ("WeakRef", 1),
+        // §25.1.4.1 ArrayBuffer takes (length, options) and declares
+        // length 1; every §23.2.5 typed-array constructor declares 3.
+        19 => ("ArrayBuffer", 1),
+        20 => ("Int8Array", 3),
+        21 => ("Uint8Array", 3),
+        22 => ("Uint8ClampedArray", 3),
+        23 => ("Int16Array", 3),
+        24 => ("Uint16Array", 3),
+        25 => ("Int32Array", 3),
+        26 => ("Uint32Array", 3),
+        27 => ("Float32Array", 3),
+        28 => ("Float64Array", 3),
+        29 => ("BigInt64Array", 3),
+        30 => ("BigUint64Array", 3),
         _ => return None,
     })
 }

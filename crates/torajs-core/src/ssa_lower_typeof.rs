@@ -122,6 +122,11 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
         | "RangeError" | "SyntaxError" | "ReferenceError" | "EvalError" | "URIError"
         | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
         | "encodeURIComponent" | "decodeURIComponent" | "eval" => Some("function"),
+        // RFC 20260823-typedarray-substrate 刀 4 — the eleven §23.2
+        // constructors. `typeof Float16Array` deliberately stays
+        // out: the harness feature-tests it against `"undefined"`,
+        // and tr does not have it.
+        n if crate::ssa_lower_call_typedarray::kind_of_name(n).is_some() => Some("function"),
         _ => None,
     }
 }

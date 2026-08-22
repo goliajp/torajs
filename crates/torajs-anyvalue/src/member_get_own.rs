@@ -333,6 +333,18 @@ pub(crate) unsafe fn closure_virtual_pair(
                 return Some((AnySlotTag::I64 as u64, l as u64));
             }
         }
+        // §23.2.6.1 — `BYTES_PER_ELEMENT` is an own property of each
+        // typed-array CONSTRUCTOR, and the constructor read through
+        // a runtime value is an interned ctor cell. The static
+        // lowering folds the same number off the name; this is the
+        // face `C.BYTES_PER_ELEMENT` needs when `C` came out of an
+        // array (RFC 20260823-typedarray-substrate 刀 4).
+        if crate::prop_has::key_is(key, b"BYTES_PER_ELEMENT")
+            && let Some(tag) = crate::method_value::ctor::ctor_tag_of_cell(ptr)
+            && let Some(n) = typedarray_bytes_per_element(tag)
+        {
+            return Some((AnySlotTag::I64 as u64, n as u64));
+        }
         None
     }
 }
@@ -401,4 +413,23 @@ pub(crate) unsafe fn wrapper_arm_tag(
         }
         crate::member_get::reify_tag(recv, key)
     }
+}
+
+/// §23.2.5.1 table 71, keyed by the builtin-proto family tag rather
+/// than by the element kind — the eleven typed-array families sit at
+/// 20-30 in element-kind order, so the two are one subtraction
+/// apart. `None` for every other family, including ArrayBuffer,
+/// which has no such property.
+fn typedarray_bytes_per_element(family_tag: i64) -> Option<i64> {
+    Some(match family_tag - 20 {
+        // Int8 / Uint8 / Uint8Clamped.
+        0..=2 => 1,
+        // Int16 / Uint16.
+        3 | 4 => 2,
+        // Int32 / Uint32 / Float32.
+        5..=7 => 4,
+        // Float64 / BigInt64 / BigUint64.
+        8..=10 => 8,
+        _ => return None,
+    })
 }

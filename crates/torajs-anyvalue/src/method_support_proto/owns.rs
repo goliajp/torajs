@@ -134,6 +134,17 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         16 => weakmap_supports(mid),
         17 => weakset_supports(mid),
         18 => weakref_supports(mid),
+        // %ArrayBuffer.prototype% (§25.1.6) owns slice + resize. The
+        // four accessors are not methods and live in the accessor
+        // table, not here (RFC 20260823-typedarray-substrate 刀 4).
+        //
+        // A typed array's prototype (20-30) owns nothing yet: its
+        // methods are 刀 5-6, and claiming them before they resolve
+        // would make `hasOwnProperty` disagree with the read.
+        19 => matches!(
+            mid,
+            torajs_rc::ANY_METHOD_SLICE | torajs_rc::ANY_METHOD_RESIZE
+        ),
         _ => false,
     }
 }

@@ -1638,6 +1638,7 @@ mod tests {
         __torajs_arraybuffer_slice,
         __torajs_arraybuffer_resize,
         __torajs_arraybuffer_print,
+        __torajs_arraybuffer_create,
         __torajs_typedarray_length,
         __torajs_typedarray_byte_length,
         __torajs_typedarray_byte_offset,

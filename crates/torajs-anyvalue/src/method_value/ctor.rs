@@ -77,6 +77,12 @@ fn empty_str_cell() -> *mut u8 {
 }
 
 unsafe extern "C" {
+    /// torajs-buffer — §25.1.4.1 / §23.2.5.1, reached when one of
+    /// the twelve buffer-family constructors is CONSTRUCTED through
+    /// a runtime value (RFC 20260823-typedarray-substrate 刀 4).
+    fn __torajs_arraybuffer_create(length: u64, options: u64) -> u64;
+    fn __torajs_typedarray_create(kind: i64, a0: u64, a1: u64, a2: u64) -> u64;
+    fn __torajs_typedarray_kind(av: u64) -> i64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
     /// torajs-arr — the §23.1.1.1 length-form mint (its own
@@ -122,6 +128,13 @@ unsafe extern "C" fn ctor_call_entry(env: *mut c_void, argv: *const u64, argc: i
             VALUE_UNDEFINED
         }
     };
+    // §25.1.4.1 step 1 / §23.2.5.1 step 1 — the twelve buffer
+    // families require `new`; a call form is a TypeError, not a
+    // coercion.
+    if tag >= 19 {
+        unsafe { __torajs_throw_type_error(c"Constructor requires 'new'".as_ptr()) };
+        return VALUE_UNDEFINED;
+    }
     unsafe {
         match tag {
             // Number — absent argument answers +0 (§21.1.1.1 step 1).
@@ -277,6 +290,23 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
             VALUE_UNDEFINED
         }
     };
+    // RFC 20260823-typedarray-substrate 刀 4 — the twelve buffer
+    // families share one shape: read the fixed argument slots and
+    // hand them to the kernel that the static `new` lowering calls
+    // with the same values.
+    if tag >= 19 {
+        let at = |i: i64| -> u64 {
+            if i < argc {
+                unsafe { argv.add(i as usize).read() }
+            } else {
+                VALUE_UNDEFINED
+            }
+        };
+        if tag == 19 {
+            return unsafe { __torajs_arraybuffer_create(at(0), at(1)) };
+        }
+        return unsafe { __torajs_typedarray_create(tag - 20, at(0), at(1), at(2)) };
+    }
     unsafe {
         match tag {
             0 => {
@@ -402,6 +432,18 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         t if t == Tag::NumberWrapper as u16 => Some(0),
         t if t == Tag::StringWrapper as u16 => Some(3),
         t if t == Tag::BooleanWrapper as u16 => Some(4),
+        // RFC 20260823-typedarray-substrate 刀 4 — the buffer family
+        // joins at 19, and a typed array's constructor is decided by
+        // its element kind (the eleven share one heap tag).
+        t if t == Tag::ArrayBuffer as u16 => Some(19),
+        t if t == Tag::TypedArray as u16 => {
+            let kind = unsafe { __torajs_typedarray_kind(recv) };
+            if (0..=10).contains(&kind) {
+                Some(20 + kind)
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
