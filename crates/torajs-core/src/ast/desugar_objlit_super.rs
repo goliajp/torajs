@@ -13,30 +13,31 @@
 //! pass runs right after `desugar_classes`, claims the shape it can
 //! prove, and leaves everything else loud:
 //!
-//!   admitted — READS in a declaration whose init IS the literal
-//!   (`let/var/const obj = { m() { … super.x … } }`). The home binding
-//!   pre-declares mutable (the declared name may be reassigned later;
-//!   the HomeObject never moves), and reads rewrite the marker in
-//!   place to `Object.getPrototypeOf(__home_N)` — minted fresh per
-//!   site, since GetSuperBase re-reads the prototype on every access.
+//!   admitted — READS and CALLS in a declaration whose init IS the
+//!   literal (`let/var/const obj = { m() { … super.x … } }`). The
+//!   home binding pre-declares mutable (the declared name may be
+//!   reassigned later; the HomeObject never moves), and each site
+//!   becomes one `__torajs_super_prop_get` / `_call` off
+//!   `Object.getPrototypeOf(__home_N)` — minted fresh per site, since
+//!   GetSuperBase re-reads the prototype on every access.
+//!
+//!   The receiver those kernels carry is `__this`, the spelling
+//!   `desugar_classes` pass 2 has already given every method-body
+//!   `this` by the time this pass runs. That is what makes the call
+//!   form claimable at all: it is the CALL SITE's receiver, so a
+//!   method pulled off the literal and invoked against something else
+//!   still reads its super base off the fixed home and its `this` off
+//!   the call — the two things the home-object shortcut would have
+//!   conflated.
 //!
 //!   left loud (marker → unknown ident, same posture as the class
-//!   pass): `super.m(args)` calls — §13.3.6 wants the CURRENT `this`
-//!   as receiver, and a `this` node minted at this stage reaches the
-//!   checker unclaimed, while a home-object receiver would be
-//!   silently wrong for a detached method; writes (`super.x = v`
-//!   needs §9.1.9 receiver-is-this PutValue); `super.x++`;
-//!   `super[k](...)`; a literal in any position other than a
-//!   declaration init; and a method whose body nests ANOTHER
-//!   literal-with-method — the inner method's markers belong to the
-//!   inner home, and rewriting them against the outer one would be
-//!   the silent wrong this table exists to prevent.
+//!   pass): writes (`super.x = v` needs §9.1.9 receiver-is-this
+//!   PutValue); `super.x++`; `super.m?.()`; a literal in any position
+//!   other than a declaration init; and a method whose body nests
+//!   ANOTHER literal-with-method — the inner method's markers belong
+//!   to the inner home, and rewriting them against the outer one
+//!   would be the silent wrong this table exists to prevent.
 //!
-//!   shared boundary with the class pass (recorded silent): a GETTER
-//!   on the prototype reads with the prototype as receiver, not
-//!   `this` (§13.3.7 wants `this`); a plain data read is
-//!   receiver-indifferent, which is what the admitted set is.
-
 use super::super_collect_prop::{SuperPropSite, SuperPropSites, collect_superprop_in_stmt};
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -173,58 +174,114 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
     if nested_home {
         return None;
     }
-    // `super.m(args)` stays loud in this knife: §13.3.6 wants the
-    // CURRENT `this` as receiver, and a `this` node minted at this
-    // stage reaches the checker unclaimed (the objlit-method `this`
-    // machinery types the nodes the PARSER wrote, not ones a desugar
-    // adds). A home-object receiver would be silently wrong the
-    // moment the method is extracted and called detached.
-    let _ = &supercalls;
-    let claimable = prop.sites.iter().any(|s| {
-        matches!(
-            s,
-            SuperPropSite::Read { .. } | SuperPropSite::IndexRead { .. }
-        )
-    });
+    let claimable = !supercalls.is_empty()
+        || prop.sites.iter().any(|s| {
+            matches!(
+                s,
+                SuperPropSite::Read { .. }
+                    | SuperPropSite::IndexRead { .. }
+                    | SuperPropSite::CallIndex { .. }
+            )
+        });
     if !claimable {
         return None;
     }
     let home = format!("__home_{}", *counter);
     *counter += 1;
-    for site in &prop.sites {
-        match site {
-            // The marker Ident rewrites IN PLACE to the base
-            // expression; the surrounding Member / Index keeps its
-            // node, so every reference to the site stays valid.
-            SuperPropSite::Read { member, .. } => {
-                let Expr::Member { obj, .. } = ast.get_expr(*member) else {
-                    continue;
-                };
-                let marker = *obj;
-                let base = super_base_expr(ast, &home);
-                ast.exprs[marker.0 as usize] = base;
-            }
-            SuperPropSite::IndexRead { index_expr } => {
-                let Expr::Index { obj, .. } = ast.get_expr(*index_expr) else {
-                    continue;
-                };
-                let marker = *obj;
-                let base = super_base_expr(ast, &home);
-                ast.exprs[marker.0 as usize] = base;
-            }
-            // Writes keep their marker — §9.1.9 wants receiver-is-this
-            // PutValue semantics this rewrite cannot spell — and fail
-            // loud at the checker like they did before this pass. So
-            // does `super[k](…)`: the class pass hands that shape to
-            // the §13.3.6 kernel with `this` as receiver, and the
-            // `this` a desugar mints at THIS stage is exactly the node
-            // the objlit-method machinery does not type (see above).
-            SuperPropSite::AssignName { .. }
-            | SuperPropSite::AssignIndex { .. }
-            | SuperPropSite::CallIndex { .. } => {}
-        }
+    // Sites are surveyed first and rewritten after: minting a node
+    // invalidates the borrow the survey holds. Every claimed shape
+    // becomes one kernel call carrying `this` — a literal method has
+    // no static accessor walk at all (the class pass's `__cm_…_get`
+    // shortcut has no counterpart here), so reading off the base
+    // would run any getter against the base.
+    let reads: Vec<(ExprId, KeyPlan)> = prop
+        .sites
+        .iter()
+        .filter_map(|s| match s {
+            SuperPropSite::Read { member, name } => Some((*member, KeyPlan::Name(name.clone()))),
+            SuperPropSite::IndexRead { index_expr } => match ast.get_expr(*index_expr) {
+                Expr::Index { index, .. } => Some((*index_expr, KeyPlan::Computed(*index))),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    for (site, plan) in reads {
+        let key = plan.mint(ast);
+        let node = super_prop_kernel_call(ast, &home, key, None);
+        ast.exprs[site.0 as usize] = node;
+    }
+    let calls: Vec<(ExprId, KeyPlan)> = prop
+        .sites
+        .iter()
+        .filter_map(|s| match s {
+            SuperPropSite::CallIndex { call, index_expr } => match ast.get_expr(*index_expr) {
+                Expr::Index { index, .. } => Some((*call, KeyPlan::Computed(*index))),
+                _ => None,
+            },
+            _ => None,
+        })
+        .chain(supercalls.iter().filter_map(|&c| {
+            let Expr::Call { callee, .. } = ast.get_expr(c) else {
+                return None;
+            };
+            let Expr::Ident(n) = ast.get_expr(*callee) else {
+                return None;
+            };
+            Some((c, KeyPlan::Name(n["__supercall__".len()..].to_string())))
+        }))
+        .collect();
+    for (call, plan) in calls {
+        let Expr::Call { args, .. } = ast.get_expr(call) else {
+            continue;
+        };
+        let args = args.clone();
+        let key = plan.mint(ast);
+        let pack = ast.add_expr(Expr::Array(args));
+        let node = super_prop_kernel_call(ast, &home, key, Some(pack));
+        ast.exprs[call.0 as usize] = node;
     }
     Some(home)
+}
+
+/// What a claimed site names: an already-minted key expression
+/// (`super[k]`) or a name the parser folded into a marker.
+enum KeyPlan {
+    Computed(ExprId),
+    Name(String),
+}
+
+impl KeyPlan {
+    /// The survey runs while the arena is only readable; this mints
+    /// the literal a name plan stands for once mutation is allowed.
+    fn mint(self, ast: &mut Ast) -> ExprId {
+        match self {
+            KeyPlan::Computed(k) => k,
+            KeyPlan::Name(n) => ast.add_expr(Expr::String(n)),
+        }
+    }
+}
+
+/// `__torajs_super_prop_get(base, key, __this)`, or the `_call` twin
+/// when an args pack is supplied.
+///
+/// `__this`, not `Expr::This`: `desugar_classes` pass 2 has already
+/// run and turned every method-body `this` into that spelling — a
+/// bare `Expr::This` minted now reaches the checker unrewritten (it
+/// says so by name).
+fn super_prop_kernel_call(ast: &mut Ast, home: &str, key: ExprId, pack: Option<ExprId>) -> Expr {
+    let base_expr = super_base_expr(ast, home);
+    let base = ast.add_expr(base_expr);
+    let recv = ast.add_expr(Expr::Ident("__this".to_string()));
+    let name = if pack.is_some() {
+        "__torajs_super_prop_call"
+    } else {
+        "__torajs_super_prop_get"
+    };
+    let callee = ast.add_expr(Expr::Ident(name.to_string()));
+    let mut args = vec![base, key, recv];
+    args.extend(pack);
+    Expr::Call { callee, args }
 }
 
 /// `Object.getPrototypeOf(__home_N)` — minted fresh per site so each
