@@ -410,6 +410,20 @@ fn emit_push_loop_reserve(
             if !matches!(info.ty, Type::Arr(_)) {
                 continue;
             }
+            // The push site this fast path exists for serves every
+            // element type EXCEPT `any`: `Array<Any>.push` needs a
+            // (tag, value) pair and returns before the inline-store
+            // path is ever consulted (`ssa_lower_call_arr_push`'s
+            // P0.10 arm). Claiming such a binding registered the
+            // reserve and the cached length, got none of the inline
+            // stores, and then wrote the PRE-LOOP length back at the
+            // loop exit — erasing every push the runtime helper had
+            // made. `let a: any[] = []; for (…) a.push(i);` answered
+            // length 0, silently, and any other statement in the body
+            // hid it by keeping the binding live.
+            if matches!(info.ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::Any) {
+                continue;
+            }
             let cur_arr = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(info.ty, Operand::Value(info.slot), 0),
