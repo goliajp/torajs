@@ -264,23 +264,7 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // enumerable: false, configurable: false}); every other key is
     // prototype surface, absent as own.
     if htag == TAG_REGEXP {
-        if unsafe { crate::closure_reflect::key_is(key, b"lastIndex") } {
-            // §22.2.4.1 — a non-numeric any-lane store reads back
-            // VERBATIM (boxed overflow slot; the descriptor takes its
-            // own stake on a heap cell); numeric form boxes the f64.
-            let raw = unsafe { __torajs_regex_last_index_raw(dynobj) };
-            if raw != 0 {
-                if is_cell_imm(raw) {
-                    unsafe { __torajs_rc_inc(raw as *mut c_void) };
-                }
-                let t = unsafe { __torajs_anyv_unbox_tag(raw) } as u64;
-                let v = unsafe { __torajs_anyv_unbox_value(raw) } as u64;
-                return unsafe { build_data_descriptor(t, v, 1, 0, 0) };
-            }
-            let li = unsafe { __torajs_regex_get_last_index(dynobj) };
-            return unsafe { build_data_descriptor(3, li.to_bits(), 1, 0, 0) };
-        }
-        return VALUE_UNDEFINED_IMM;
+        return unsafe { regexp_cell_descriptor(dynobj, key) };
     }
     // RFC 20260712-arr-exotic-define chunk A — Array cell answers the
     // §10.4.2 length / canonical-index / expando descriptors. SAFETY:
@@ -420,6 +404,32 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // wrapped path rc_inc'd + dropped the local; both cancel
     // out and we skip both).
     unsafe { build_data_descriptor(v_tag, v_val, flags & 1, (flags >> 1) & 1, (flags >> 2) & 1) }
+}
+
+/// §22.2.4.1 — the RegExp cell's one own property. A non-numeric
+/// any-lane store to `lastIndex` reads back VERBATIM (boxed overflow
+/// slot; the descriptor takes its own stake on a heap cell); the
+/// numeric form boxes the f64. Every other key is absent.
+///
+/// # Safety
+/// `cell` is a live `Tag::RegExp` cell; `key` a live Str cell.
+unsafe fn regexp_cell_descriptor(cell: *const c_void, key: *const c_void) -> u64 {
+    unsafe {
+        if !crate::closure_reflect::key_is(key, b"lastIndex") {
+            return VALUE_UNDEFINED_IMM;
+        }
+        let raw = __torajs_regex_last_index_raw(cell);
+        if raw != 0 {
+            if is_cell_imm(raw) {
+                __torajs_rc_inc(raw as *mut c_void);
+            }
+            let t = __torajs_anyv_unbox_tag(raw) as u64;
+            let v = __torajs_anyv_unbox_value(raw) as u64;
+            return build_data_descriptor(t, v, 1, 0, 0);
+        }
+        let li = __torajs_regex_get_last_index(cell);
+        build_data_descriptor(3, li.to_bits(), 1, 0, 0)
+    }
 }
 
 /// The descriptor a builtin `<Ctor>.prototype` singleton owes for a
