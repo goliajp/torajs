@@ -55,7 +55,7 @@
 //! covers every fixture the trivial allocator does plus the 245
 //! that currently hit `index out of bounds: len 11`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Type};
 
@@ -72,6 +72,30 @@ use crate::spill_weight::compute_spill_weights;
 /// value IS the call's result (written after the call returns, safe);
 /// `p == end` means it's consumed as that call's argument and dies
 /// immediately (safe). The strict `<` on both ends excludes those.
+/// ValueIds written by more than one instruction. The SSA the lowerer
+/// produces is single-assignment, but φ destruction
+/// (`phi_promote::destruct`) is not: it gives one ValueId a `copy` in
+/// every predecessor of a join. Those predecessors can be numbered
+/// AFTER the join, so the value's linear interval starts at its use
+/// and ends at its last def — and a call sitting in the join BEFORE
+/// the use is then outside `[start, end]` by construction. A linear
+/// interval cannot describe this value's life; anything reading it as
+/// one has to be conservative, which is what this set is for.
+fn collect_multi_def_values(func: &Function) -> HashSet<u32> {
+    let mut seen: HashSet<u32> = HashSet::new();
+    let mut multi: HashSet<u32> = HashSet::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if let Some(r) = inst.result
+                && !seen.insert(r.0)
+            {
+                multi.insert(r.0);
+            }
+        }
+    }
+    multi
+}
+
 fn crosses_call(interval: Interval, call_sites: &[u32]) -> bool {
     call_sites
         .iter()
@@ -102,6 +126,7 @@ fn outgoing_arg_bytes(func: &Function) -> u32 {
 pub fn allocate_linear_scan(func: &Function) -> Assignment {
     let intervals = compute_intervals(func);
     let ret_vids = collect_ret_value_ids(func);
+    let multi_def = collect_multi_def_values(func);
 
     // Pass A — alloca offsets, has_calls, and the global inst-slot
     // index of every call site. The numbering MUST match
@@ -161,6 +186,11 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             call_sites
                 .iter()
                 .any(|&p| interval.start <= p && p < interval.end)
+        } else if multi_def.contains(&vid) {
+            // See `collect_multi_def_values`: the interval does not
+            // bound this value's life, so treat it as crossing
+            // whenever the function calls anything at all.
+            has_calls
         } else {
             crosses_call(interval, &call_sites)
         };
