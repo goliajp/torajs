@@ -164,6 +164,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         include_bytes!(env!("TORAJS_VALUE_DROP_STATICLIB_PATH")),
     ),
     (
+        "libtorajs_buffer.a",
+        include_bytes!(env!("TORAJS_BUFFER_STATICLIB_PATH")),
+    ),
+    (
         "libtorajs_wrapper.a",
         include_bytes!(env!("TORAJS_WRAPPER_STATICLIB_PATH")),
     ),

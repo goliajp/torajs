@@ -383,6 +383,12 @@ pub const ANY_METHOD_ITER_RETURN: i64 = 170;
 /// receiver-tag dispatch — recorded, not extended).
 pub const ANY_METHOD_COMPILE: i64 = 177;
 
+/// §25.1.6.6 `ArrayBuffer.prototype.resize`
+/// (RFC 20260823-typedarray-substrate 刀 1). `slice` reuses
+/// [`ANY_METHOD_SLICE`] — same name, and the receiver tag is what
+/// picks the body. Same append-only ABI contract as the ids above.
+pub const ANY_METHOD_RESIZE: i64 = 178;
+
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
 /// receiver. ssa-lower interns the member NAME into one of these at

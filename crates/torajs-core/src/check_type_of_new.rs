@@ -63,18 +63,29 @@ pub(crate) fn try_check(
         // variant could honor what it answers; both arguments are
         // typechecked for effect and the §10.5.14 object check is the
         // runtime kernel's.
-        "Proxy" => check_proxy(checker, ast, args),
+        "Proxy" => check_any_result_ctor(checker, ast, args),
+        // RFC 20260823-typedarray-substrate 刀 1 — `new ArrayBuffer`
+        // types `Type::Any` for the same reason: the byte store is
+        // reached only through the any-lane kernels in this slab.
+        "ArrayBuffer" => check_any_result_ctor(checker, ast, args),
         _ => return None,
     };
     Some(result)
 }
 
-/// RFC 20260823-proxy-substrate 刀 1 — `new Proxy(target, handler)`
-/// per §10.5.14. Arity is not enforced statically: a missing
-/// argument is `undefined`, which the kernel rejects with the same
-/// TypeError any other non-object gets, and that keeps the error a
-/// catchable runtime one exactly as the spec has it.
-fn check_proxy(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
+/// A constructor whose result is `Type::Any` and whose arguments are
+/// typechecked only for effect — `new Proxy(t, h)` (§10.5.14) and
+/// `new ArrayBuffer(len, opts)` (§25.1.4.1).
+///
+/// Arity is not enforced statically: a missing argument is
+/// `undefined`, which each kernel already rejects (or accepts) by
+/// itself, and that keeps the error a catchable runtime one exactly
+/// as the spec has it.
+fn check_any_result_ctor(
+    checker: &mut Checker,
+    ast: &Ast,
+    args: &[ExprId],
+) -> Result<Type, String> {
     for &a in args {
         checker.type_of(ast, a)?;
     }

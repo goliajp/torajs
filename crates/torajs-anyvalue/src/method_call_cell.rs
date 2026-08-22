@@ -372,6 +372,15 @@ pub(crate) unsafe fn cell_method(
     if tag == Tag::IterHelper as u16 {
         return Some(unsafe { crate::iter_helper::iter_helper_method(ptr, mid, argv, argc) });
     }
+    // §25.1.6 — `slice` / `resize`. A mid the arm does not own is a
+    // miss like every other tag's, so the caller raises its usual
+    // no-such-method TypeError.
+    if tag == Tag::ArrayBuffer as u16 {
+        return Some(
+            unsafe { crate::method_call_buffer::arraybuffer_method(recv, mid, argv, argc) }
+                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
+        );
+    }
     if tag == Tag::Date as u16 {
         return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
     }

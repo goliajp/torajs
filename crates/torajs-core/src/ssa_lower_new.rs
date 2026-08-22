@@ -75,8 +75,33 @@ pub(crate) fn try_lower(
         // Result types `Type::Any`: a proxy impersonates its target,
         // so no static variant could honor what it answers.
         "Proxy" => Some(lower_proxy(ctx, args)),
+        // RFC 20260823-typedarray-substrate 刀 1 — §25.1.4.1. Types
+        // `Type::Any`: a first-slab buffer is reached only through
+        // the any-lane kernels, and a `Type::` variant would be a
+        // performance claim rather than a correctness one.
+        "ArrayBuffer" => Some(lower_arraybuffer(ctx, args)),
         _ => None,
     }
+}
+
+/// `new ArrayBuffer(length [, options])` — §25.1.4.1. Both
+/// coercions (`ToIndex(length)` and the `maxByteLength` option read)
+/// stay inside the kernel: each can run user code, and a case that
+/// counts the order of its own side effects is the only way anyone
+/// notices which ran first.
+fn lower_arraybuffer(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let ops = lower_borrowed_any_pair(ctx, args);
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.arraybuffer_create, argv),
+        Type::Any,
+        None,
+    );
+    release_borrowed_any_pair(ctx, ops);
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
 }
 
 /// `new Proxy(target, handler)` — §10.5.14. Both arguments lower as
@@ -85,7 +110,7 @@ pub(crate) fn try_lower(
 /// check. Missing arguments pass `undefined`, which the kernel
 /// rejects exactly like any other non-object.
 fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
-    let ops = lower_proxy_args(ctx, args);
+    let ops = lower_borrowed_any_pair(ctx, args);
     let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -94,15 +119,17 @@ fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::Any,
         None,
     );
-    release_proxy_args(ctx, ops);
+    release_borrowed_any_pair(ctx, ops);
     ctx.emit_throw_check(None);
     Operand::Value(v)
 }
 
-/// The `(target, handler)` argument pair both ProxyCreate spellings
-/// take — `new Proxy(t, h)` and `Proxy.revocable(t, h)`. Each slot
-/// answers `(operand, we_boxed, source)` so the caller can release
-/// exactly what it made.
+/// The two-slot BORROWED-`any` argument pair three ctors take:
+/// `new Proxy(t, h)`, `Proxy.revocable(t, h)`, and
+/// `new ArrayBuffer(len, options)`. Each slot answers
+/// `(operand, we_boxed, source)` so the caller can release exactly
+/// what it made; a missing slot is `undefined`, which every one of
+/// those kernels already has an answer for.
 ///
 /// A LITERAL argument takes the dynobj lane, exactly like an
 /// `any`-typed parameter's does (`ssa_lower_call_terminal`): the
@@ -110,7 +137,7 @@ fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 /// a nominal struct answers different questions there — its fields
 /// are not configurable, so a trap-less `delete p.k` refused on a
 /// literal that spells an ordinary object.
-pub(crate) fn lower_proxy_args(
+pub(crate) fn lower_borrowed_any_pair(
     ctx: &mut LowerCtx<'_>,
     args: &[ExprId],
 ) -> Vec<(Operand, bool, Option<ExprId>)> {
@@ -171,9 +198,9 @@ pub(crate) fn lower_proxy_args(
     ops
 }
 
-/// The kernel borrows both arguments (the cell takes its own), so
-/// whatever [`lower_proxy_args`] made is released after the call.
-pub(crate) fn release_proxy_args(
+/// The kernel borrows both arguments, so whatever
+/// [`lower_borrowed_any_pair`] made is released after the call.
+pub(crate) fn release_borrowed_any_pair(
     ctx: &mut LowerCtx<'_>,
     ops: Vec<(Operand, bool, Option<ExprId>)>,
 ) {

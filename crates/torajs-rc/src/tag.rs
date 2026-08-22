@@ -108,4 +108,20 @@ pub enum Tag {
     /// says — `is_null(handler)` IS the revoked predicate, so there
     /// is no second flag byte that could drift away from it.
     Proxy = 26,
+    /// `ArrayBuffer` — `{ header:8 | data:8 | byte_len:8 |
+    /// max_byte_len:8 }` (32 B). `data == null` IS detached
+    /// (§25.1.3.3 writes null and there is nothing else to read) and
+    /// `max_byte_len == -1` IS "no `[[ArrayBufferMaxByteLength]]`" —
+    /// absent is a real state and is not a maximum of zero. Substrate
+    /// in `torajs-buffer` (RFC 20260823-typedarray-substrate 刀 1).
+    ArrayBuffer = 27,
+    /// `TypedArray` — the §10.4.5 integer-indexed exotic view:
+    /// `{ header:8 | buffer:8 (AnyValue) | byte_offset:8 |
+    /// array_len:8 | kind:1 pad:7 }`. `array_len == -1` is a
+    /// length-tracking view, whose length is re-derived from the
+    /// buffer on every access.
+    TypedArray = 28,
+    /// `DataView` — `{ header:8 | buffer:8 (AnyValue) |
+    /// byte_offset:8 | byte_len:8 }`.
+    DataView = 29,
 }

@@ -133,6 +133,7 @@ mod iter_zip_shared;
 mod len_get;
 mod locale_list;
 pub(crate) mod member_get;
+mod member_get_buffer;
 pub(crate) mod member_get_layout;
 pub(crate) mod member_get_own;
 pub(crate) mod member_get_private;
@@ -165,6 +166,7 @@ mod method_call_arraylike_host;
 mod method_call_arraylike_mut;
 mod method_call_arraylike_mut_prim;
 mod method_call_bigint;
+mod method_call_buffer;
 mod method_call_cell;
 mod method_call_closure;
 mod method_call_closure_apply_like;
@@ -1627,6 +1629,15 @@ mod tests {
         };
     }
     link_stub!(
+        // RFC 20260823-typedarray-substrate 刀 1 — the torajs-buffer
+        // face the member / method / inspect arms reach.
+        __torajs_arraybuffer_byte_length,
+        __torajs_arraybuffer_max_byte_length,
+        __torajs_arraybuffer_resizable,
+        __torajs_arraybuffer_detached,
+        __torajs_arraybuffer_slice,
+        __torajs_arraybuffer_resize,
+        __torajs_arraybuffer_print,
         __torajs_arr_alloc_any_filled,
         __torajs_arr_alloc_any_filled_f64,
         __torajs_make_aggregate_error,

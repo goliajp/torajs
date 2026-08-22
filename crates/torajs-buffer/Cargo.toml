@@ -1,0 +1,33 @@
+[package]
+name = "torajs-buffer"
+description = "ArrayBuffer / TypedArray / DataView substrate for the torajs AOT TypeScript runtime. Byte-store cell (§25.1) plus the integer-indexed exotic views over it (§10.4.5, §25.3). Detachment is `data == null` and non-resizability is `max_byte_len == -1` — both states the spec itself names, so there is no side flag to drift. Layer-3 substrate."
+keywords = ["torajs", "arraybuffer", "typedarray", "dataview", "runtime"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-buffer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for the cargo workspace + unit tests; `staticlib`
+# so torajs-link bakes libtorajs_buffer.a into every `tr build` binary
+# alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 external Cargo deps. Layer-1 substrate for the heap header + tag
+# and the NaN-box encoding: the encoding is imported rather than
+# mirrored on purpose — a copied bit pattern is the drift hazard the
+# debt table keeps recording. Behaviour (property reads, coercions,
+# throws) crosses by `extern "C"` at `tr build` link time, the same
+# way torajs-date reaches rc and str.
+torajs-rc = { path = "../torajs-rc" }
+torajs-anyvalue = { path = "../torajs-anyvalue" }
+torajs-mmalloc = { path = "../torajs-mmalloc" }

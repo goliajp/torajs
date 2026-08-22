@@ -175,6 +175,12 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // is a runtime-minted dynobj, so it surfaces as `any` and
         // both members ride the any lane (RFC 20260823-proxy-
         // substrate 刀 3).
+        // §25.1.5.1 ArrayBuffer.isView — a predicate over the
+        // argument's heap tag (RFC 20260823-typedarray-substrate
+        // 刀 1).
+        (Type::Object("ArrayBuffer"), "isView") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Boolean))
+        }
         (Type::Object("Proxy"), "revocable") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }

@@ -213,6 +213,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
         // slot keeps the stake, same convention as the dynobj
         // bucket); numeric form is an F64 pair. Any other key falls
         // to the builtin-method reify probe.
+        // §25.1.6 — the four ArrayBuffer.prototype accessors read
+        // as a value, so they answer on the probe pair. Only the
+        // [[Get]] face: own-key enumeration is a different kernel
+        // and still says a buffer owns nothing.
+        Some((_, t)) if t == Tag::ArrayBuffer as u16 => unsafe {
+            match crate::member_get_buffer::arraybuffer_prop(recv, key) {
+                Some((tag, _)) => tag,
+                None => reify_tag(recv, key),
+            }
+        },
         Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe {
             if crate::prop_has::key_is(key, b"lastIndex") {
                 let raw = __torajs_regex_last_index_raw(ptr);

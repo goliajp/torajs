@@ -8,14 +8,14 @@
 use core::ffi::c_void;
 
 use super::formatters::{
-    __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_bigint_print_inline,
-    __torajs_fn_print_inline, __torajs_inspect_line_reset, __torajs_io_putc_out,
-    __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
+    __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_arraybuffer_print,
+    __torajs_bigint_print_inline, __torajs_fn_print_inline, __torajs_inspect_line_reset,
+    __torajs_io_putc_out, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
     __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print, __torajs_substr_print,
-    __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal, heap_flags, heap_type_tag,
-    print_bool, print_f64, print_i64, put_bytes, put_closure_fn_name, put_date_inline,
-    put_f64_inline, put_i64_inline, put_str_cell_inline, put_str_cell_inline_esc,
-    put_substr_cell_inline, put_substr_cell_inline_esc, str_cell_is_bare_key, write_line,
+    __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, heap_flags, heap_type_tag, print_bool,
+    print_f64, print_i64, put_bytes, put_closure_fn_name, put_date_inline, put_f64_inline,
+    put_i64_inline, put_str_cell_inline, put_str_cell_inline_esc, put_substr_cell_inline,
+    put_substr_cell_inline_esc, str_cell_is_bare_key, write_line,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -39,73 +39,6 @@ use torajs_rc::Tag;
 pub unsafe extern "C" fn __torajs_fn_print_outer(fn_addr: u64) {
     unsafe { __torajs_fn_print_inline(fn_addr) };
     unsafe { __torajs_io_putc_out(b'\n' as i32) };
-}
-
-/// `typeof v` per ES §13.5.3 — NaN-box [`AnyValue`] entry point.
-/// Returns a fresh Str. Dispatches on the immediate NaN-box
-/// predicates (no heap struct read).
-///
-/// # Safety
-///
-/// Cell case: encoded pointer must point to a valid heap object
-/// (only the `HeapHeader::type_tag` at +4 is read).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
-    if is_null(v) {
-        return alloc_literal(b"object");
-    }
-    if is_undefined(v) {
-        return alloc_literal(b"undefined");
-    }
-    if is_bool(v) {
-        return alloc_literal(b"boolean");
-    }
-    if is_int32(v) || is_double(v) {
-        return alloc_literal(b"number");
-    }
-    // Step 8c — ShortStr is a string at the JS surface even though
-    // its bits live inline in the AnyValue immediate; report
-    // `typeof` as `"string"` BEFORE the cell-pointer branch (which
-    // would mis-dispatch to `"object"` via the fall-through arm).
-    if is_short_str(v) {
-        return alloc_literal(b"string");
-    }
-    if is_cell(v) {
-        let child = as_void_ptr(v) as *const c_void;
-        // SAFETY: cell pointer is non-null per is_cell guarantee +
-        // caller invariant says it points to a live heap object.
-        let tag = unsafe { heap_type_tag(child) };
-        // §10.5.14 step 3 — a Proxy is a function exactly when its
-        // target is, so `typeof` reads through to it.
-        if tag == Tag::Proxy as u16 {
-            let callable = unsafe { crate::proxy_callable::proxy_is_callable(v) };
-            return alloc_literal(if callable { b"function" } else { b"object" });
-        }
-        let kind: &[u8] = if tag == Tag::Str as u16 {
-            b"string"
-        } else if tag == Tag::Closure as u16 {
-            b"function"
-        } else if tag == Tag::DynObj as u16
-            && unsafe { heap_flags(child) } & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0
-        {
-            // A `__class_<C>` class-constructor dynobj — ES models
-            // class constructors as function objects (RFC
-            // 20260717-class-first-class-value knife A).
-            b"function"
-        } else if tag == Tag::Symbol as u16 {
-            b"symbol"
-        } else if tag == Tag::BigInt as u16 {
-            b"bigint"
-        } else {
-            // OBJ / ARR / REGEX / DATE / WEAK* / DYNOBJ / MAP* /
-            // ARR_ITER → "object"
-            b"object"
-        };
-        return alloc_literal(kind);
-    }
-    // Defensive — uninitialized slot (v == 0) reads as "object"
-    // (matches `typeof null` per spec).
-    alloc_literal(b"object")
 }
 
 /// `console.log(v)` single-arg dispatch — NaN-box [`AnyValue`]
@@ -211,6 +144,13 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // sentinel.
             // SAFETY: Date layout per torajs-date::layout.
             unsafe { put_date_inline(child) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
+        } else if tag == Tag::ArrayBuffer as u16 {
+            // RFC 20260823-typedarray-substrate 刀 1 — bun shows the
+            // bytes (`ArrayBuffer(N) [ … ]`) and not the maximum, so
+            // a resizable buffer prints like a fixed-length one of
+            // the same current length.
+            unsafe { __torajs_arraybuffer_print(child) };
             unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::RegExp as u16 {
             // Commit 6 — RegExp wire. Bun prints RegExp values as
@@ -364,6 +304,8 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
             unsafe { __torajs_obj_print_any(child) };
         } else if tag == Tag::Date as u16 {
             unsafe { put_date_inline(child) };
+        } else if tag == Tag::ArrayBuffer as u16 {
+            unsafe { __torajs_arraybuffer_print(child) };
         } else if tag == Tag::RegExp as u16 {
             unsafe { __torajs_regex_print_inline(child) };
         } else if tag == Tag::Promise as u16 {

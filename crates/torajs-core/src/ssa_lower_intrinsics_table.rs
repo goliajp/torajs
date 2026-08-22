@@ -462,6 +462,8 @@ pub(crate) fn build(
         instanceof_builtin_proto: init_c.iterator.instanceof_builtin_proto,
         iterator_ctor_throw: init_c.iterator.iterator_ctor_throw,
         proxy_create: init_c.proxy.proxy_create,
+        arraybuffer_create: init_c.buffer.arraybuffer_create,
+        arraybuffer_is_view: init_c.buffer.arraybuffer_is_view,
         proxy_revocable: init_c.proxy.proxy_revocable,
         iterator_from: init_c.iterator.iterator_from,
         iterator_concat: init_c.iterator.iterator_concat,

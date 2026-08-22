@@ -100,6 +100,7 @@ pub fn any_method_id(name: &str) -> i64 {
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
         "compile" => ANY_METHOD_COMPILE,
+        "resize" => ANY_METHOD_RESIZE,
         "then" => ANY_METHOD_THEN,
         "catch" => ANY_METHOD_CATCH,
         "finally" => ANY_METHOD_FINALLY,

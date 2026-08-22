@@ -37,6 +37,7 @@
 //! | `ArrIter`       | `__torajs_arr_iter_drop`        | torajs-arr        |
 //! | `IterHelper`    | `__torajs_iter_helper_drop`     | torajs-anyvalue   |
 //! | `Proxy`         | `__torajs_proxy_drop`           | torajs-anyvalue   |
+//! | `ArrayBuffer`   | `__torajs_arraybuffer_drop`     | torajs-buffer     |
 //! | `DynObj`        | `__torajs_dynobj_drop`          | torajs-dynobj     |
 //! | `RegExp`        | `__torajs_regex_drop`           | torajs-regex      |
 //! | `Date`          | `__torajs_date_drop`            | torajs-date       |
@@ -103,6 +104,7 @@ unsafe extern "C" {
     fn __torajs_arr_iter_drop(p: *mut c_void);
     fn __torajs_iter_helper_drop(p: *mut c_void);
     fn __torajs_proxy_drop(p: *mut c_void);
+    fn __torajs_arraybuffer_drop(p: *mut c_void);
     fn __torajs_dynobj_drop(p: *mut c_void);
     fn __torajs_accessor_drop(p: *mut c_void);
     fn __torajs_regex_drop(p: *mut c_void);
@@ -229,6 +231,7 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::ArrIter as u16 => unsafe { __torajs_arr_iter_drop(child) },
         t if t == Tag::IterHelper as u16 => unsafe { __torajs_iter_helper_drop(child) },
         t if t == Tag::Proxy as u16 => unsafe { __torajs_proxy_drop(child) },
+        t if t == Tag::ArrayBuffer as u16 => unsafe { __torajs_arraybuffer_drop(child) },
         t if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_drop(child) },
         t if t == Tag::AccessorPair as u16 => unsafe { __torajs_accessor_drop(child) },
         t if t == Tag::RegExp as u16 => unsafe { __torajs_regex_drop(child) },

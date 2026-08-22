@@ -353,6 +353,8 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
         t if t == Tag::WeakMap as u16 => b"WeakMap",
         t if t == Tag::WeakSet as u16 => b"WeakSet",
         t if t == Tag::WeakRef as u16 => b"WeakRef",
+        // §25.1.6.5 `ArrayBuffer.prototype[@@toStringTag]`.
+        t if t == Tag::ArrayBuffer as u16 => b"ArrayBuffer",
         t if t == Tag::Undefined as u16 => b"Undefined",
         // RFC 20260716 刀 2 — primitive-wrapper cells classify by what
         // they wrap.

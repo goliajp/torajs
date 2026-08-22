@@ -219,6 +219,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_panic", // Layer-1: central fatal-error helper — stderr msg + symbolicated backtrace + exit (P7.i-panic)
     "torajs_panic_runtime", // Layer-0: custom #![panic_runtime] + #[panic_handler] replacing std default — strips ~150 KiB backtrace/demangle/path/io/Thread tree from user binaries (v0.7 Step 9b)
     "torajs_value_drop", // Layer-1: universal heap-typed drop dispatch — type_tag → per-type _drop (P7.i-drop)
+    "torajs_buffer", // Layer-3: ArrayBuffer / TypedArray / DataView substrate — RFC 20260823-typedarray-substrate
     "torajs_wrapper", // Layer-2: primitive-wrapper heap objects (NumberWrapper / StringWrapper / BooleanWrapper) — RFC 20260716-primitive-wrapper-substrate 刀 1
     "torajs_abort", // Layer-0: panic-free abort helper — write(2)+abort(); replaces Rust panic infra (polish A3a)
     "torajs_print", // Layer-0: console primitives (print_bool / print_i64 / print_f64) — co-linked by torajs-link at `tr build`.

@@ -207,6 +207,7 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_STR_ITERATOR => ("[Symbol.iterator]", 0),
         // Annex B §B.2.4.1 — RegExp.prototype.compile(pattern, flags).
         ANY_METHOD_COMPILE => ("compile", 2),
+        ANY_METHOD_RESIZE => ("resize", 1),
         // The `any_method_iter` id block (iterator protocol + weak
         // deref) rows live in [`iter_method_meta`] — the r405 watch
         // said the next mid added here must extract a family first,

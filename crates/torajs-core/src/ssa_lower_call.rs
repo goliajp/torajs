@@ -201,10 +201,15 @@ fn try_dispatch_a(
     if let Some(op) = crate::ssa_lower_call_map_group_by::try_lower(ctx, callee, args) {
         return Some(op);
     }
-    // `Iterator.from(O)` — GetIteratorFlattenable + wrap-or-pass.
+    // §25.1.5.1 `ArrayBuffer.isView(arg)` — a question about the
+    // argument's heap tag.
+    if let Some(op) = crate::ssa_lower_call_arraybuffer_static::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     if let Some(op) = crate::ssa_lower_call_proxy_revocable::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `Iterator.from(O)` — GetIteratorFlattenable + wrap-or-pass.
     if let Some(op) = crate::ssa_lower_call_iterator_from::try_lower(ctx, callee, args) {
         return Some(op);
     }

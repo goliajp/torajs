@@ -530,6 +530,10 @@ pub(crate) struct Intrinsics {
     pub(crate) iterator_ctor_throw: FuncId,
     /// RFC 20260823-proxy-substrate 刀 1 — §10.5.14 ProxyCreate.
     pub(crate) proxy_create: FuncId,
+    /// §25.1.4.1 `new ArrayBuffer(length, options)`.
+    pub(crate) arraybuffer_create: FuncId,
+    /// §25.1.5.1 `ArrayBuffer.isView(arg)`.
+    pub(crate) arraybuffer_is_view: FuncId,
     /// RFC 20260823-proxy-substrate 刀 3 — §28.2.2.1 Proxy.revocable.
     pub(crate) proxy_revocable: FuncId,
     /// RFC 20260730-iterator-global 刀 4 — §27.1.6.2 `Iterator.from`

@@ -208,6 +208,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // §22.2.4.1 lastIndex — value channel (mirror of the tag
         // twin in member_get.rs; borrow-shaped like the dynobj
         // bucket).
+        // §25.1.6 accessor pair — value twin of the tag arm.
+        Some((_, t)) if t == Tag::ArrayBuffer as u16 => unsafe {
+            match crate::member_get_buffer::arraybuffer_prop(recv, key) {
+                Some((_, val)) => val,
+                None => reify_value(recv, key),
+            }
+        },
         Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe {
             if crate::prop_has::key_is(key, b"lastIndex") {
                 let raw = __torajs_regex_last_index_raw(ptr);

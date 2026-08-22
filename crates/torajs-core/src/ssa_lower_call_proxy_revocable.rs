@@ -27,7 +27,7 @@ pub(crate) fn try_lower(
     if ns != "Proxy" {
         return None;
     }
-    let ops = crate::ssa_lower_new::lower_proxy_args(ctx, args);
+    let ops = crate::ssa_lower_new::lower_borrowed_any_pair(ctx, args);
     let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -36,7 +36,7 @@ pub(crate) fn try_lower(
         Type::Any,
         None,
     );
-    crate::ssa_lower_new::release_proxy_args(ctx, ops);
+    crate::ssa_lower_new::release_borrowed_any_pair(ctx, ops);
     ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }

@@ -228,6 +228,9 @@ pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
             // RFC 20260823-proxy-substrate 刀 1 — `new Proxy(t, h)`
             // lowers to §10.5.14 ProxyCreate.
             | "Proxy"
+            // RFC 20260823-typedarray-substrate 刀 1 —
+            // `new ArrayBuffer(len, opts)` lowers to §25.1.4.1.
+            | "ArrayBuffer"
     )
 }
 

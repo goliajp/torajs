@@ -1435,6 +1435,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-buffer"
+version = "0.1.0"
+dependencies = [
+ "torajs-anyvalue",
+ "torajs-mmalloc",
+ "torajs-rc",
+]
+
+[[package]]
 name = "torajs-capture-box"
 version = "0.1.0"
 dependencies = [

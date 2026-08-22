@@ -35,6 +35,7 @@ members = [
     "crates/torajs-panic-runtime",
     "crates/torajs-value-drop",
     "crates/torajs-wrapper",
+    "crates/torajs-buffer",
     "crates/torajs-abort",
     "crates/torajs-print",
     "crates/torajs-fnname",
