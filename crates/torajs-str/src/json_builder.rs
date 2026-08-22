@@ -96,13 +96,23 @@ unsafe fn str_is_latin1(p: *const u8) -> bool {
     (header.flags & STR_FLAG_IS_LATIN1) != 0
 }
 
+/// True when a Latin-1 payload cannot go into the buffer as-is:
+/// something in it needs a JSON escape, or it is a code point above
+/// ASCII, which is one Latin-1 byte but two UTF-8 ones. Both answers
+/// come out of the same single pass the copy would have paid anyway.
 #[inline]
 fn needs_escape(s: &[u8]) -> bool {
-    s.iter().any(|&c| c < 0x20 || c == b'"' || c == b'\\')
+    s.iter()
+        .any(|&c| c < 0x20 || c == b'"' || c == b'\\' || c >= 0x80)
 }
 
+/// Write `s` — a **Latin-1** payload, one byte per code point —
+/// quoted and JSON-escaped into `dst` as UTF-8. Answers whether it
+/// put a multi-byte sequence there, which is what tells `finalize`
+/// the buffer has to be decoded rather than copied.
 #[inline]
-fn write_escaped_into(dst: &mut Vec<u8>, s: &[u8]) {
+fn write_escaped_into(dst: &mut Vec<u8>, s: &[u8]) -> bool {
+    let mut wide = false;
     dst.push(b'"');
     for &c in s {
         match c {
@@ -121,10 +131,19 @@ fn write_escaped_into(dst: &mut Vec<u8>, s: &[u8]) {
                 dst.push(HEX[(c >> 4) as usize]);
                 dst.push(HEX[(c & 0xf) as usize]);
             }
+            c if c >= 0x80 => {
+                // Latin-1 supplement. The byte IS the code point,
+                // and its UTF-8 form is two bytes — pushing it raw
+                // left a lead byte in the buffer that swallowed
+                // whatever the builder wrote next.
+                write_utf8_for_codepoint(c as u32, |b| dst.push(b));
+                wide = true;
+            }
             _ => dst.push(c),
         }
     }
     dst.push(b'"');
+    wide
 }
 
 /// Rotation 466: this used to run `write!(.., "{}", n)`, and a
@@ -193,6 +212,16 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_raw(sb: *mut JsonBuilder, str_ptr
         return;
     }
     let bytes = unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), len as usize) };
+    if bytes.iter().any(|&c| c >= 0x80) {
+        // A Latin-1 key above ASCII: one byte here, two in the
+        // buffer's encoding. No escaping — the emitter interned
+        // these bytes already quoted.
+        for &c in bytes {
+            write_utf8_for_codepoint(c as u32, |b| sb.buf.push(b));
+        }
+        sb.saw_non_ascii = true;
+        return;
+    }
     sb.buf.extend_from_slice(bytes);
 }
 
@@ -242,7 +271,7 @@ pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(sb: *mut JsonBuilder, str_
         sb.buf.extend_from_slice(bytes);
         sb.buf.push(b'"');
     } else {
-        write_escaped_into(&mut sb.buf, bytes);
+        sb.saw_non_ascii |= write_escaped_into(&mut sb.buf, bytes);
     }
 }
 
@@ -275,10 +304,10 @@ pub unsafe extern "C" fn __torajs_jsb_push_null(sb: *mut JsonBuilder) {
 /// Finalize: consume the builder, allocate a fresh `Str` heap
 /// block, copy the accumulated bytes in. Returns a `*mut u8`
 /// pointing at the new `Str` (refcount=1). The builder pointer is
-/// invalid after this call. The output is Latin-1-encoded if every
-/// byte fits (all `< 0x80`); UTF-16 otherwise. JSON output is ASCII
-/// by construction (escapes use `\u00XX` hex which is ASCII), so
-/// the common case takes the Latin-1 single-byte path.
+/// invalid after this call. The buffer holds UTF-8; the result is
+/// Latin-1-encoded when every code point fits in a byte and UTF-16
+/// otherwise — the classification `__torajs_str_alloc` does. JSON
+/// structure is ASCII, so the common case skips that scan.
 /// Open the next object field: write the `,` separator when a
 /// field was already emitted (runtime comma protocol — a skipped
 /// undefined field must not leave a stray comma, §25.5.2.4).
@@ -360,19 +389,16 @@ unsafe fn finalize_bytes(sb: &JsonBuilder) -> *mut u8 {
         // ASCII-only common case below keeps the scan-free path.
         return unsafe { crate::block::__torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64) };
     }
-    // V0.2 P14-S7 — JSON output is ASCII by construction (per ES
-    // §25.5.2: non-ASCII string-content code points are escaped to
-    // `\u00XX` which is itself ASCII; braces/commas/colons/quotes
-    // are ASCII; i64 / bool / null literals are ASCII). The
-    // `is_latin1` scan that proved this on every finalize is
-    // redundant — skip it and always emit Latin-1 encoding,
-    // shaving ~5–10 ns/iter on `JSON.stringify`-heavy loops. The
-    // pre-S7 dead-but-defensive UTF-16 widening branch is removed
-    // (the only path that could push non-ASCII was
-    // `push_str_quoted` on a UTF-16 Str argument, which already
-    // produces malformed output — tracked as the L3b
-    // builder-UTF-16-input carry; once that's fixed, encoding
-    // selection moves into the push helpers, not finalize).
+    // V0.2 P14-S7 — nothing wrote a multi-byte sequence, so every
+    // byte here is ASCII and is already its own Latin-1 code unit:
+    // copy it in and skip the classification scan, which is worth
+    // ~5-10 ns/iter on `JSON.stringify`-heavy loops. JSON structure
+    // is ASCII (braces, commas, colons, quotes, `\u00XX` escapes,
+    // the i64 / bool / null literals), so this is the ordinary
+    // case. Only string CONTENT above ASCII flips `saw_non_ascii`,
+    // and every producer that can emit such content sets it — a
+    // Latin-1 payload was once copied in raw, which left a lead
+    // byte in the buffer that ate whatever came after it.
     let mut block = StrBlock::alloc_with_encoding(bytes.len() as u32, true);
     let dst = unsafe { block.as_bytes_mut(bytes.len() as u32) };
     dst.copy_from_slice(bytes);
@@ -389,6 +415,18 @@ mod tests {
         let mut block = StrBlock::alloc_with_encoding(bytes.len() as u32, true);
         let dst = unsafe { block.as_bytes_mut(bytes.len() as u32) };
         dst.copy_from_slice(bytes);
+        block.into_raw()
+    }
+
+    /// A UTF-16 LE Str: `length` counts u16 code units, payload is
+    /// twice that many bytes, `IS_LATIN1` clear.
+    fn make_utf16_str(units: &[u16]) -> *mut u8 {
+        let length = units.len() as u32;
+        let mut block = StrBlock::alloc_with_encoding(length, false);
+        let dst = unsafe { block.as_bytes_mut(length * 2) };
+        for (i, &u) in units.iter().enumerate() {
+            dst[i * 2..i * 2 + 2].copy_from_slice(&u.to_le_bytes());
+        }
         block.into_raw()
     }
 
@@ -451,6 +489,27 @@ mod tests {
             let len = (p.add(STR_LEN_OFF) as *const u32).read();
             let bytes = core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize);
             String::from_utf8(bytes.to_vec()).unwrap()
+        }
+    }
+
+    /// Decode a finalized Str whatever encoding it landed in — the
+    /// ASCII-only reader above cannot see a Latin-1 supplement byte
+    /// or a UTF-16 payload.
+    fn read_finalized_text(p: *mut u8) -> String {
+        unsafe {
+            let latin1 = str_is_latin1(p);
+            let len = (p.add(STR_LEN_OFF) as *const u32).read() as usize;
+            let width = if latin1 { len } else { len * 2 };
+            let bytes = core::slice::from_raw_parts(p.add(STR_DATA_OFF), width);
+            if latin1 {
+                bytes.iter().map(|&b| b as char).collect()
+            } else {
+                let units: alloc::vec::Vec<u16> = bytes
+                    .chunks_exact(2)
+                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                    .collect();
+                alloc::string::String::from_utf16(&units).unwrap()
+            }
         }
     }
 
@@ -577,6 +636,72 @@ mod tests {
             let s = read_finalized(out);
             assert_eq!(s, "{}");
             __torajs_str_free(out);
+        }
+    }
+
+    #[test]
+    fn latin1_supplement_content_survives_a_utf16_neighbour() {
+        // The shape that corrupted: one Latin-1 element (payload
+        // byte 0xC9) beside one UTF-16 element. The UTF-16 side
+        // sets `saw_non_ascii`, so `finalize` decodes the buffer as
+        // UTF-8 — and the raw 0xC9 left there was a lead byte that
+        // ate the closing quote after it.
+        unsafe {
+            clear_parked();
+            let sb = __torajs_jsb_new(64);
+            let a = make_str(&[0xC9]);
+            let b = make_utf16_str(&[0x4E2D]);
+            __torajs_jsb_push_byte(sb, b'[');
+            __torajs_jsb_push_str_quoted(sb, a);
+            __torajs_jsb_push_byte(sb, b',');
+            __torajs_jsb_push_str_quoted(sb, b);
+            __torajs_jsb_push_byte(sb, b']');
+            let out = __torajs_jsb_finalize(sb);
+            assert_eq!(read_finalized_text(out), "[\"\u{c9}\",\"\u{4e2d}\"]");
+            __torajs_str_free(a);
+            __torajs_str_free(b);
+            __torajs_str_free(out);
+            clear_parked();
+        }
+    }
+
+    #[test]
+    fn latin1_supplement_content_alone_round_trips() {
+        // No UTF-16 neighbour, so `finalize` takes the verbatim
+        // copy — which is only right because the value stays one
+        // code point either way.
+        unsafe {
+            clear_parked();
+            let sb = __torajs_jsb_new(64);
+            let a = make_str(&[0xE9, b'x']);
+            __torajs_jsb_push_str_quoted(sb, a);
+            let out = __torajs_jsb_finalize(sb);
+            assert_eq!(read_finalized_text(out), "\"\u{e9}x\"");
+            __torajs_str_free(a);
+            __torajs_str_free(out);
+            clear_parked();
+        }
+    }
+
+    #[test]
+    fn latin1_supplement_key_survives_a_utf16_neighbour() {
+        // `push_str_raw` carries pre-quoted key bytes and does no
+        // escaping, so it needs the same widening on its own.
+        unsafe {
+            clear_parked();
+            let sb = __torajs_jsb_new(64);
+            let k = make_str(b"\"\xe9\":");
+            let v = make_utf16_str(&[0x4E2D]);
+            __torajs_jsb_push_byte(sb, b'{');
+            __torajs_jsb_push_str_raw(sb, k);
+            __torajs_jsb_push_str_quoted(sb, v);
+            __torajs_jsb_push_byte(sb, b'}');
+            let out = __torajs_jsb_finalize(sb);
+            assert_eq!(read_finalized_text(out), "{\"\u{e9}\":\"\u{4e2d}\"}");
+            __torajs_str_free(k);
+            __torajs_str_free(v);
+            __torajs_str_free(out);
+            clear_parked();
         }
     }
 }
