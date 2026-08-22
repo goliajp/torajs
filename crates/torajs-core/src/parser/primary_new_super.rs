@@ -105,14 +105,7 @@ impl<'a> Parser<'a> {
                     }));
                 }
             }
-            let mut args: Vec<ExprId> = Vec::new();
-            if !matches!(self.peek(), Token::RParen) {
-                args.push(self.parse_call_arg()?);
-                while matches!(self.peek(), Token::Comma) {
-                    self.pos += 1;
-                    args.push(self.parse_call_arg()?);
-                }
-            }
+            let args: Vec<ExprId> = self.parse_arguments_tail()?;
             match self.peek() {
                 Token::RParen => self.pos += 1,
                 t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
@@ -152,14 +145,7 @@ impl<'a> Parser<'a> {
         // Expr::Spread for `apply_spread_args` to desugar AFTER the
         // class pass has rewritten this site into a plain
         // `__cm_<Parent>__ctor(...)` call.
-        let mut args: Vec<ExprId> = Vec::new();
-        if !matches!(self.peek(), Token::RParen) {
-            args.push(self.parse_call_arg()?);
-            while matches!(self.peek(), Token::Comma) {
-                self.pos += 1;
-                args.push(self.parse_call_arg()?);
-            }
-        }
+        let args: Vec<ExprId> = self.parse_arguments_tail()?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
@@ -332,14 +318,11 @@ impl<'a> Parser<'a> {
         // literal spread (`new C(...[1, 2])`) folds to fixed args
         // here, and a dynamic trailing spread (`new C(...arr)`) is
         // desugared by `apply_spread_args`' New arm.
-        let mut args: Vec<ExprId> = Vec::new();
-        if has_parens && !matches!(self.peek(), Token::RParen) {
-            args.push(self.parse_call_arg()?);
-            while matches!(self.peek(), Token::Comma) {
-                self.pos += 1;
-                args.push(self.parse_call_arg()?);
-            }
-        }
+        let args: Vec<ExprId> = if has_parens {
+            self.parse_arguments_tail()?
+        } else {
+            Vec::new()
+        };
         if has_parens {
             match self.peek() {
                 Token::RParen => self.pos += 1,
@@ -385,5 +368,36 @@ impl<'a> Parser<'a> {
                 _ => return Ok(NewHead::Dynamic(node)),
             }
         }
+    }
+}
+
+impl Parser<'_> {
+    /// §13.3.8 `Arguments` after the `(` — the SAME production a
+    /// call takes, which is why a trailing comma is legal here too
+    /// (ES2017 added it to `Arguments`, not to `CallExpression`).
+    ///
+    /// It was written out three times in this file — `new C(...)`,
+    /// `super(...)`, and the generic-new head — and all three had
+    /// dropped the trailing-comma break that `parse_call_args_inner`
+    /// has. `new Error("x",)` was a parse error while `f("x",)` was
+    /// not; test262's own typed-array harness hits it, which is how
+    /// it surfaced.
+    ///
+    /// Leaves the caller to consume the `)`, because two of the
+    /// three want their own error message for a missing one.
+    pub(super) fn parse_arguments_tail(&mut self) -> Result<Vec<ExprId>, String> {
+        let mut args: Vec<ExprId> = Vec::new();
+        if matches!(self.peek(), Token::RParen) {
+            return Ok(args);
+        }
+        args.push(self.parse_call_arg()?);
+        while matches!(self.peek(), Token::Comma) {
+            self.pos += 1;
+            if matches!(self.peek(), Token::RParen) {
+                break;
+            }
+            args.push(self.parse_call_arg()?);
+        }
+        Ok(args)
     }
 }
