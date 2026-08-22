@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-22T18:27:40.840Z",
+  "generatedAt": "2026-08-22T21:41:29.580Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-22T18:17:12Z",
-    "headSha": "efb6541b3",
-    "elapsedSec": 348.92,
+    "ranAt": "2026-08-22T21:31:10Z",
+    "headSha": "8cebe9bc8",
+    "elapsedSec": 349.58,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27334,
-    "passNoOracle": 906,
+    "pass": 27555,
+    "passNoOracle": 908,
     "passNegative": 4147,
-    "passTotal": 32387,
-    "bug": 12863,
-    "incompatible": 7924,
-    "bunSkip": 2963,
+    "passTotal": 32610,
+    "bug": 12649,
+    "incompatible": 7915,
+    "bunSkip": 2966,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 45250,
-    "passRateInScope": 60.91,
-    "passRateTrAccepted": 71.57
+    "trAccepted": 45259,
+    "passRateInScope": 61.33,
+    "passRateTrAccepted": 72.05
   },
   "torajs": {
-    "commit": "efb6541b3",
-    "commitSubject": "fix: a delete operand keeps the plain super member path",
+    "commit": "bc4e719a5",
+    "commitSubject": "docs: record what the proxy substrate shipped and what is still out",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
-      "hash": "efb6541b3",
-      "subject": "fix: a delete operand keeps the plain super member path"
+      "hash": "bc4e719a5",
+      "subject": "docs: record what the proxy substrate shipped and what is still out"
     },
     {
-      "hash": "c2d4bf844",
-      "subject": "feat: object-literal super writes take the OrdinarySet receiver split"
+      "hash": "8cebe9bc8",
+      "subject": "fix: a handler can revoke the proxy while its trap is being looked up"
     },
     {
-      "hash": "aa922fc0b",
-      "subject": "fix: a literal on a prototype chain needs an any receiver face"
+      "hash": "080625c1a",
+      "subject": "refactor: what a define writes moves out of what decides it"
     },
     {
-      "hash": "8e83e5862",
-      "subject": "feat: object-literal super calls and reads carry the call-site this"
+      "hash": "8154ca5b1",
+      "subject": "fix: a set through a proxy receiver ends in define, not in set again"
     },
     {
-      "hash": "882712e97",
-      "subject": "fix: super[k] reads with this as receiver, not with the base"
+      "hash": "e7a4180a3",
+      "subject": "refactor: the descriptor chooser's regexp arm answers on its own"
     },
     {
-      "hash": "aac4a539a",
-      "subject": "feat: super[k](...) invokes with the current this, not the base"
+      "hash": "b1ed72c23",
+      "subject": "feat: the proxy traps helper says which trap must not be reached"
     },
     {
-      "hash": "c6236f155",
-      "subject": "chore: rotation 475 close — sweep ingest and dashboard"
+      "hash": "0ca1d1a8b",
+      "subject": "feat: a proxy is callable exactly when its target is"
     },
     {
-      "hash": "fa7086352",
-      "subject": "perf: only the values whose interval is actually unsound pay for it"
+      "hash": "897e25a2a",
+      "subject": "feat: a proxy answers what it is, not only what it holds"
     },
     {
-      "hash": "1c7b32ffd",
-      "subject": "fix: a value the interval could not describe got a register across a call"
+      "hash": "36b0ef75b",
+      "subject": "feat: a proxy names its own keys and describes them"
     },
     {
-      "hash": "6e9a43d26",
-      "subject": "fix: the gate said it was keeping step with a lane that has moved"
+      "hash": "a63d9949a",
+      "subject": "fix: an array returned into the any world says what its slots hold"
     },
     {
-      "hash": "4b9b00e87",
-      "subject": "fix: wrapping the closure in an array was the whole difference"
+      "hash": "ac2eba403",
+      "subject": "feat: a revoked proxy is one whose handler is null"
     },
     {
-      "hash": "326229865",
-      "subject": "chore: bench run at 694d6ab — median 0.570x bun-aot, invariant holds"
+      "hash": "6b0dc7583",
+      "subject": "feat: a proxy answers writes, membership and deletes the same way"
     }
   ],
-  "headSha": "efb6541b3",
+  "headSha": "bc4e719a5",
   "autorun": {
-    "total": 779,
+    "total": 780,
     "baselineTarget": 10,
-    "bySelf": 774,
+    "bySelf": 775,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787416079-0875",
-      "at": "2026-08-22T16:27:59Z",
-      "ts": 1787416079,
+      "rotationId": "r-1787423372-2253",
+      "at": "2026-08-22T18:29:32Z",
+      "ts": 1787423372,
       "trigger": "self",
-      "prevHead": "c6236f155",
-      "handoffSha": "sha256:fb09246c4d67347b0a83a323d51a713faa5f271b6d7305112be24df05452b7ad",
-      "handoffAgeSec": 34,
+      "prevHead": "dd7999c61",
+      "handoffSha": "sha256:6f618219277a4fc3aa88776f472720e11bf182a12ed1e8117bae65ac37fec336",
+      "handoffAgeSec": 31,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787423372-2253",
+        "at": "2026-08-22T18:29:32Z",
+        "ts": 1787423372,
+        "trigger": "self",
+        "prevHead": "dd7999c61",
+        "handoffSha": "sha256:6f618219277a4fc3aa88776f472720e11bf182a12ed1e8117bae65ac37fec336",
+        "handoffAgeSec": 31,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787416079-0875",
         "at": "2026-08-22T16:27:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "4c2d133fb",
         "handoffSha": "sha256:03fcf9bf77cec5a051fdde919e10ce347b296e2cbce502e9854f700a8ecd8d59",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787318556-5565",
-        "at": "2026-08-21T13:22:36Z",
-        "ts": 1787318556,
-        "trigger": "self",
-        "prevHead": "129a53094",
-        "handoffSha": "sha256:822c8981f22cc73d0df95787e074d719a241316a458951e1866f5fc1181e9e85",
-        "handoffAgeSec": 60,
         "conformanceBefore": null,
         "commitsInSession": null
       }
