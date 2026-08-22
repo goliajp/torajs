@@ -103,14 +103,27 @@ unsafe fn sep_latin1_folded(sep: *const u8, sep_units: u64, len: u64) -> bool {
     }
 }
 
-/// f64 → shortest spec-correct decimal. v0.7-A4 Step 15-d:
-/// delegates to torajs-fmt's `__torajs_fmt_dtoa` (0-libc;
-/// core::fmt Grisu3 + JS-spec post-process). Same shortest-
-/// roundtrip + ES §6.1.6.1.13 shape as the prior libc-based
-/// implementation, but in a single call instead of try-
-/// precisions loop.
-unsafe fn f64_shortest(d: f64, buf: *mut u8, cap: usize) -> i32 {
-    unsafe { __torajs_fmt_dtoa(d, buf, cap) }
+/// `ToString(d)` for a finite f64, written into `buf` and answered
+/// as the piece to emit. v0.7-A4 Step 15-d: the digits come from
+/// torajs-fmt's `__torajs_fmt_dtoa` (0-libc; core::fmt Grisu3 +
+/// JS-spec post-process), same shortest-roundtrip + ES §6.1.6.1.13
+/// shape as the prior libc-based implementation.
+///
+/// The sign of negative zero is dropped, because ES §6.1.6.1.20
+/// says `ToString(-0)` is `"0"` and `Array.prototype.join` reads
+/// every element through ToString (§23.1.3.18 step 8.d). The
+/// console inspector is the path that keeps the sign, and it
+/// formats through its own helper in `print.rs` — the two differ
+/// on exactly this value, which is why they are two helpers.
+unsafe fn f64_to_string_piece(d: f64, buf: *mut u8, cap: usize) -> (*const u8, u64) {
+    let written = unsafe { __torajs_fmt_dtoa(d, buf, cap) };
+    let mut len = written.max(0) as u64;
+    let mut off = 0u64;
+    if d == 0.0 && len >= 1 && unsafe { *buf } == b'-' {
+        off = 1;
+        len -= 1;
+    }
+    (unsafe { buf.add(off as usize) }, len)
 }
 
 // ============================================================
@@ -295,8 +308,7 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
             } else if e == f64::NEG_INFINITY {
                 9 // "-Infinity"
             } else {
-                let n = f64_shortest(e, buf.as_mut_ptr(), 32);
-                n.max(0) as u64
+                f64_to_string_piece(e, buf.as_mut_ptr(), 32).1
             };
         }
         total += sep_units * (len - 1);
@@ -316,8 +328,7 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
             } else if e == f64::NEG_INFINITY {
                 (b"-Infinity".as_ptr(), 9)
             } else {
-                let n = f64_shortest(e, buf.as_mut_ptr(), 32);
-                (buf.as_ptr(), n.max(0) as u64)
+                f64_to_string_piece(e, buf.as_mut_ptr(), 32)
             };
             emit_units(p_data, out_latin1, cursor, piece.0, piece.1, true);
             cursor += piece.1;
