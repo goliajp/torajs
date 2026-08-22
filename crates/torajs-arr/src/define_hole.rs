@@ -306,6 +306,31 @@ pub unsafe extern "C" fn __torajs_arr_has_index(arr: *mut c_void, idx: i64) -> i
         let key = crate::define::mint_index_key(idx as u64);
         let live = __torajs_arr_forin_key_live(arr, key as *const c_void);
         __torajs_str_drop(key as *mut c_void);
-        live
+        if live != 0 {
+            return 1;
+        }
+        // §7.3.11 does not stop at own: a hole is absent from the
+        // receiver, and HasProperty then asks the prototype. That
+        // matters because `Array.prototype` is an `Arr` cell of its own
+        // and a digit key installed on it — `Array.prototype[0] = v`, or
+        // an accessor pair from `Object.defineProperty` — makes the
+        // receiver's hole a property after all. The walk above answers
+        // only about `arr` itself (`__torajs_any_has_property` stops at
+        // own for a non-DynObj receiver), so the step is taken here.
+        //
+        // Six test262 cases turn on it: `[, 1].forEach(cb)` with a
+        // setter installed at `Array.prototype[0]` must call the
+        // callback for index 0 with `undefined`.
+        //
+        // One level. `Object.prototype`'s digit keys sit above this and
+        // stay unanswered — the same boundary the receiver-side walk
+        // already draws, and no test in the corpus reaches past it.
+        let proto = torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
+            torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64,
+        );
+        if proto.is_null() || core::ptr::eq(proto.cast::<u8>(), arr.cast::<u8>()) {
+            return 0;
+        }
+        __torajs_arr_has_index(proto, idx)
     }
 }

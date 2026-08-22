@@ -234,12 +234,20 @@ pub(crate) unsafe fn define_index(
         };
     }
     // Dense model: fill the gap with undefined elements, then append
-    // the defined value. (Recorded divergence: the fill positions
-    // read as own properties; spec makes them holes.)
+    // the defined value — and mark the fill a hole range, because
+    // §10.4.2.1 raises `length` to cover the defined index and creates
+    // nothing in between. (This was a recorded divergence: the fill
+    // positions read as own properties. It stopped being affordable
+    // when a hole gate started consulting the same answer — an
+    // `Array.prototype[5] = v` made indices 0..4 own on every array
+    // that inherits from it.)
     let mut cursor = len;
     while cursor < idx {
         unsafe { crate::any::__torajs_arr_push_any(arr, ANY_UNDEF, 0) };
         cursor += 1;
+    }
+    if idx > len {
+        unsafe { crate::define_hole::mark_hole_range(arr, len, idx) };
     }
     let (init_tag, init_value) = if has_value {
         (tag, value)

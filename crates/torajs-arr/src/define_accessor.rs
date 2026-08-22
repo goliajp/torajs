@@ -129,6 +129,17 @@ pub(crate) unsafe fn define_index_accessor(
             unsafe { crate::__torajs_arr_push_any(arr, ANY_UNDEF, 0) };
             cursor += 1;
         }
+        // The gap the fill just walked is HOLES, not own undefineds:
+        // §10.4.2.1 raises `length` to cover the defined index and
+        // creates nothing in between. The plain-write grow path marks
+        // them for the same reason; this one did not, so
+        // `Object.defineProperty(Array.prototype, "1", …)` on the empty
+        // prototype array left index 0 answering own — visible through
+        // `hasOwnProperty` and, once a hole gate consults it, through
+        // every callback method on every array that inherits from it.
+        if idx > len {
+            unsafe { crate::define_hole::mark_hole_range(arr, len, idx) };
+        }
         return unsafe {
             define_shadow_accessor(arr, key, tag, value, flags_byte, throw_on_refusal)
         };
