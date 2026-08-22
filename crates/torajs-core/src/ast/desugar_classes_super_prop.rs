@@ -11,8 +11,12 @@
 //!     `__cm_<owner>__<x>_get(this)` (static ctx: `__sm_..._get()`),
 //!     keeping the §13.3.7 receiver (`this`), which a plain member
 //!     read off the prototype object could not deliver;
-//!   - read `super.x` / `super[k]`, anything else → a member read off
-//!     the super base: `<Parent>.prototype` for instance members, the
+//!   - read `super[k]` → `__torajs_super_prop_get(<base>, k,
+//!     <receiver>)`, the receiver-aware [[Get]]: a computed key can
+//!     name an accessor no static walk could have found, and reading
+//!     it off the base would run its getter against the BASE;
+//!   - read `super.x`, anything else → a member read off the super
+//!     base: `<Parent>.prototype` for instance members, the
 //!     `<Parent>` class object for statics. The runtime prototype
 //!     chain handles shadowing, plain data properties added at run
 //!     time (`A.prototype.p = v`), method values, and undefined;
@@ -38,7 +42,8 @@
 //! optional calls, `super.x++` (fused read/write).
 //! Recorded silent boundaries: a RUNTIME-defined accessor on the base
 //! (defineProperty after class definition) reads through the plain
-//! member path with the prototype as receiver; a setter shadowed by
+//! member path with the prototype as receiver — for the NAME form
+//! only; the computed form takes the kernel and is exact; a setter shadowed by
 //! the subclass's own same-name setter resolves via `this` on the
 //! fallback write path.
 //!
@@ -126,9 +131,14 @@ fn rewrite_sites(
                 let Expr::Index { index, .. } = ast.get_expr(index_expr) else {
                     continue;
                 };
-                let index = *index;
+                let key = *index;
                 let base = mint_base(ast, parent_name, is_static);
-                ast.exprs[index_expr.0 as usize] = Expr::Index { obj: base, index };
+                let recv = mint_receiver(ast, cname, is_static);
+                let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_get".to_string()));
+                ast.exprs[index_expr.0 as usize] = Expr::Call {
+                    callee,
+                    args: vec![base, key, recv],
+                };
             }
             SuperPropSite::AssignName {
                 assign,

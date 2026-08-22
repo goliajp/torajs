@@ -612,6 +612,8 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_to_callable_cell: FuncId,
     pub(crate) ctorany_register: FuncId,
     pub(crate) super_call_value: FuncId,
+    /// §13.3.7 read off a Super Reference (base, key, receiver).
+    pub(crate) super_prop_get: FuncId,
     /// §13.3.6 call off a Super Reference (base, key, receiver, args).
     pub(crate) super_prop_call: FuncId,
     pub(crate) heritage_check: FuncId,
