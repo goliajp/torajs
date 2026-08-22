@@ -223,12 +223,13 @@ fn dispatch_anychar(
     let slen = s.len() as i64;
     let ins = prog.insts[t_pc];
     if pos < slen && (ins.pad as u8 & RE_FLAG_S != 0 || s[pos as usize] != b'\n') {
+        // One character, in either mode — see the matching note in
+        // `dfa::step`. Without this the non-u match boundary landed
+        // inside a multi-byte character.
         let mut adv: i64 = 1;
-        if unicode_mode(flags) {
-            let ul = utf8_len_for(s[pos as usize]) as i64;
-            if ul >= 1 && pos + ul <= slen {
-                adv = ul;
-            }
+        let ul = utf8_len_for(s[pos as usize]) as i64;
+        if ul >= 1 && pos + ul <= slen {
+            adv = ul;
         }
         add_thread_adv(
             ws,

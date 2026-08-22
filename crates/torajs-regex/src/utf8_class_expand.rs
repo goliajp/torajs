@@ -1,7 +1,7 @@
-//! Range-based UTF-8 byte expansion for u-flag unsafe regex classes —
-//! chunk 10d v2.
+//! Range-based UTF-8 byte expansion for regex classes the matcher
+//! cannot step one byte at a time — chunk 10d v2.
 //!
-//! Under the `u` flag, classes that can match non-ASCII code points
+//! Classes that can match non-ASCII code points
 //! (`negate` / explicit non-ASCII byte bits / `\p{}` property
 //! fold-ins) cannot be byte-stepped by the DFA directly: a 2-byte
 //! UTF-8 leading byte at the cursor must be paired with the matching
@@ -102,13 +102,10 @@ use crate::utf8::utf8_encode_cp;
 ///
 /// Returns `Some(node)` otherwise.
 pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
-    if !uflag {
-        return None;
-    }
     // chunk 10d invariant: never re-expand a class that is itself a
     // leaf produced by this module. byte_only leaves carry non-ASCII
     // byte values (0xC2..0xF4 leading bytes, 0x80..0xBF continuation
-    // bytes) in `bits[16..32]`, so `is_uflag_safe` would otherwise
+    // bytes) in `bits[16..32]`, so `byte_steppable` would otherwise
     // reject them and we'd recurse forever — the leaf's bits encode
     // the byte-step shape, not a cp set to re-encode.
     if cc.byte_only {
@@ -126,7 +123,7 @@ pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
     if !cc.u_prop_tables.is_empty() {
         return None;
     }
-    if is_uflag_safe(cc) {
+    if byte_steppable(cc, uflag) {
         return None;
     }
     let ranges = cp_ranges_of(cc);
@@ -157,11 +154,28 @@ pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
     Some(concats_to_node(&concats))
 }
 
-fn is_uflag_safe(cc: &CharClass) -> bool {
+/// True when the matcher can decide this class as it stands, one
+/// byte at a time.
+///
+/// Negation cannot: it has to exclude whole code points, and a
+/// multi-byte character's first byte is not the character. Explicit
+/// bits in `0x80..=0xFF` cannot either — those are code point values,
+/// and no byte of a UTF-8 haystack carries them literally.
+///
+/// Code points past U+00FF are the one answer that depends on the
+/// flag. With `u` the matcher decodes a code point and asks
+/// `test_cp`, so the class stands; without it there is no decoder,
+/// and the only way to spell a character is its bytes. That
+/// asymmetry is why `/[キク]/` answered null for as long as `/u/` did
+/// not.
+fn byte_steppable(cc: &CharClass, uflag: bool) -> bool {
     if cc.negate || !cc.u_prop_tables.is_empty() {
         return false;
     }
-    cc.bits[16..32].iter().all(|&b| b == 0)
+    if cc.bits[16..32].iter().any(|&b| b != 0) {
+        return false;
+    }
+    uflag || cc.owned_ranges.is_empty()
 }
 
 /// Walk `cc.test_cp(cp)` over the full cp space; return sorted
@@ -429,12 +443,32 @@ mod tests {
         }
     }
 
+    /// A negated class excludes whole code points, so it needs the
+    /// byte expansion whether or not the pattern carries `u` —
+    /// `"日X".match(/[^X]/)` used to stop after 日's first byte and
+    /// take the string layer down with it.
     #[test]
-    fn no_op_for_non_u_flag() {
+    fn negated_class_expands_without_the_u_flag_too() {
         let mut cc = CharClass::new();
         cc.add(b'a');
         cc.negate = true;
-        assert!(expand_unsafe_class(&cc, false).is_none());
+        assert!(expand_unsafe_class(&cc, false).is_some());
+        assert!(expand_unsafe_class(&cc, true).is_some());
+    }
+
+    /// Code points past U+00FF are the one answer that depends on
+    /// the flag: with `u` the matcher decodes and asks `test_cp`, so
+    /// the class stands; without it the only way to spell a
+    /// character is its bytes.
+    #[test]
+    fn cp_range_class_expands_only_without_the_u_flag() {
+        let mut cc = CharClass::new();
+        cc.owned_ranges.push(crate::ucd::UPropRange {
+            lo: 0x30AD,
+            hi: 0x30AF,
+        });
+        assert!(expand_unsafe_class(&cc, true).is_none());
+        assert!(expand_unsafe_class(&cc, false).is_some());
     }
 
     #[test]

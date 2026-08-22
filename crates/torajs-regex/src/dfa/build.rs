@@ -324,7 +324,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 mask_set(&mut accept_before_byte, byte);
             }
             let (ready_from_step, deferred_from_step) =
-                byte_step_full(prog, &closed_with_right, byte, flags);
+                byte_step_full(prog, &closed_with_right, byte);
             let (next_ready, next_deferred) = advance_deferred(
                 prog,
                 byte,

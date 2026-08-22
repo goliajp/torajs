@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn byte_step_empty_states_returns_empty() {
         let prog = Program::new();
-        assert!(byte_step(&prog, &BTreeSet::new(), b'a', 0).is_empty());
+        assert!(byte_step(&prog, &BTreeSet::new(), b'a').is_empty());
     }
 
     #[test]
@@ -779,7 +779,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a'), set(&[1]));
     }
 
     #[test]
@@ -787,7 +787,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        assert!(byte_step(&prog, &set(&[0]), b'b', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'b').is_empty());
     }
 
     #[test]
@@ -800,11 +800,7 @@ mod tests {
         prog.emit(any);
         prog.emit(Inst::match_accept());
         for b in [b'a', b'\n', 0u8, 0xff] {
-            assert_eq!(
-                byte_step(&prog, &set(&[0]), b, 0),
-                set(&[1]),
-                "byte 0x{b:02x}"
-            );
+            assert_eq!(byte_step(&prog, &set(&[0]), b), set(&[1]), "byte 0x{b:02x}");
         }
     }
 
@@ -817,13 +813,9 @@ mod tests {
         prog.emit(Inst::simple(Op::AnyChar));
         prog.emit(Inst::match_accept());
         for b in [b'a', 0u8, 0xff, b'\r'] {
-            assert_eq!(
-                byte_step(&prog, &set(&[0]), b, 0),
-                set(&[1]),
-                "byte 0x{b:02x}"
-            );
+            assert_eq!(byte_step(&prog, &set(&[0]), b), set(&[1]), "byte 0x{b:02x}");
         }
-        assert!(byte_step(&prog, &set(&[0]), b'\n', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'\n').is_empty());
     }
 
     #[test]
@@ -835,9 +827,9 @@ mod tests {
         let idx = prog.intern_class(&cc);
         prog.emit(Inst::class_ref(idx));
         prog.emit(Inst::match_accept());
-        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0]), b'c', 0), set(&[1]));
-        assert!(byte_step(&prog, &set(&[0]), b'd', 0).is_empty());
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a'), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'c'), set(&[1]));
+        assert!(byte_step(&prog, &set(&[0]), b'd').is_empty());
     }
 
     #[test]
@@ -847,7 +839,7 @@ mod tests {
         prog.emit(Inst::jmp(2));
         prog.emit(Inst::split(0, 2));
         prog.emit(Inst::match_accept());
-        assert!(byte_step(&prog, &set(&[0, 1]), b'a', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0, 1]), b'a').is_empty());
     }
 
     #[test]
@@ -858,7 +850,7 @@ mod tests {
         prog.emit(Inst::simple(Op::AnchorB));
         prog.emit(Inst::simple(Op::WBound));
         prog.emit(Inst::match_accept());
-        assert!(byte_step(&prog, &set(&[0, 1, 2]), b'a', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0, 1, 2]), b'a').is_empty());
     }
 
     #[test]
@@ -871,8 +863,8 @@ mod tests {
         prog.emit(Inst::match_accept());
         prog.emit(Inst::char_lit(b'b'));
         prog.emit(Inst::match_accept());
-        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'a', 0), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'b', 0), set(&[3]));
+        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'a'), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0, 2]), b'b'), set(&[3]));
     }
 
     #[test]
@@ -881,7 +873,7 @@ mod tests {
         let mut prog = Program::new();
         prog.emit(Inst::char_lit(b'a'));
         // No MATCH terminator: pc 1 is out of range, must be dropped.
-        assert!(byte_step(&prog, &set(&[0]), b'a', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'a').is_empty());
     }
 
     // build_dfa tests — composes epsilon_closure + byte_step into a
@@ -1100,6 +1092,17 @@ mod tests {
         assert_ne!(target, 0);
         assert!(dfa.states[tgt(target)].is_accept);
         for b in 0u16..=255 {
+            // A UTF-8 lead byte is not a character yet, so `.` waits
+            // for the tail rather than accepting mid-character — in
+            // either mode, which is why this walks past the `u` flag
+            // without asking for it.
+            if matches!(b, 0xC2..=0xF4) {
+                assert_ne!(
+                    dfa.states[start].transitions[b as usize], target,
+                    "lead byte 0x{b:02x} accepted before its tail"
+                );
+                continue;
+            }
             assert_eq!(
                 dfa.states[start].transitions[b as usize], target,
                 "byte 0x{b:02x}"
@@ -1731,13 +1734,13 @@ mod tests {
         plain.emit(Inst::char_lit(b'a'));
         plain.emit(Inst::match_accept());
         // Plain (no i-bit): only 'a' advances.
-        assert_eq!(byte_step(&plain, &set(&[0]), b'a', 0), set(&[1]));
-        assert!(byte_step(&plain, &set(&[0]), b'A', 0).is_empty());
+        assert_eq!(byte_step(&plain, &set(&[0]), b'a'), set(&[1]));
+        assert!(byte_step(&plain, &set(&[0]), b'A').is_empty());
         // i-bit: both 'a' and 'A' advance.
-        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0]), b'A', 0), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'a'), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'A'), set(&[1]));
         // Non-alpha bytes still respect literal compare.
-        assert!(byte_step(&prog, &set(&[0]), b'0', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'0').is_empty());
     }
 
     #[test]
@@ -1754,14 +1757,14 @@ mod tests {
         plain.emit(Inst::class_ref(pidx));
         plain.emit(Inst::match_accept());
         // Plain: only lowercase.
-        assert_eq!(byte_step(&plain, &set(&[0]), b'a', 0), set(&[1]));
-        assert!(byte_step(&plain, &set(&[0]), b'A', 0).is_empty());
+        assert_eq!(byte_step(&plain, &set(&[0]), b'a'), set(&[1]));
+        assert!(byte_step(&plain, &set(&[0]), b'A').is_empty());
         // i-bit: uppercase pair matches via CharClass::test_fold.
-        assert_eq!(byte_step(&prog, &set(&[0]), b'A', 0), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0]), b'C', 0), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'A'), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'C'), set(&[1]));
         // Out-of-class bytes still miss.
-        assert!(byte_step(&prog, &set(&[0]), b'D', 0).is_empty());
-        assert!(byte_step(&prog, &set(&[0]), b'1', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'D').is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'1').is_empty());
     }
 
     #[test]
@@ -1911,51 +1914,57 @@ mod tests {
     // exactly `cp_len` bytes after the first.
 
     #[test]
-    fn byte_step_full_u_flag_anychar_routes_multi_byte_to_deferred() {
-        // 0: ANY(s); 1: MATCH — dotAll per-inst; u stays a real flag.
+    fn byte_step_full_anychar_routes_multi_byte_to_deferred() {
+        // 0: ANY(s); 1: MATCH — dotAll per-inst.
         let mut prog = Program::new();
         let mut any = Inst::simple(Op::AnyChar);
         any.pad = crate::parser::RE_FLAG_S as u16;
         prog.emit(any);
         prog.emit(Inst::match_accept());
-        let u_s = crate::parser::RE_FLAG_U;
         // ASCII first byte → ready advance (u_skip = 0).
-        let (ready, def) = byte_step_full(&prog, &set(&[0]), b'a', u_s);
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), b'a');
         assert_eq!(ready, set(&[1]));
         assert!(def[0].is_empty() && def[1].is_empty() && def[2].is_empty());
         // 2-byte first (0xCE) → deferred[0] (u_skip = 1).
-        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xCE, u_s);
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xCE);
         assert!(ready.is_empty());
         assert_eq!(def[0], set(&[1]));
         // 3-byte first (0xE6) → deferred[1] (u_skip = 2).
-        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xE6, u_s);
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xE6);
         assert!(ready.is_empty());
         assert_eq!(def[1], set(&[1]));
         // 4-byte first (0xF0) → deferred[2] (u_skip = 3).
-        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xF0, u_s);
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0xF0);
         assert!(ready.is_empty());
         assert_eq!(def[2], set(&[1]));
         // Continuation byte alone (no prior multi-byte context) is an
-        // unpaired tail under u-flag — defensive 1-byte advance per
+        // unpaired tail — defensive 1-byte advance per
         // `utf8_len_for`.
-        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0x80, u_s);
+        let (ready, def) = byte_step_full(&prog, &set(&[0]), 0x80);
         assert_eq!(ready, set(&[1]));
         assert!(def.iter().all(|d| d.is_empty()));
     }
 
+    /// `.` means one character in either mode — the deferral is not
+    /// the u flag's doing. Stopping after a multi-byte character's
+    /// first byte put the match boundary inside the character, which
+    /// the string layer cannot slice.
     #[test]
-    fn byte_step_full_without_u_flag_never_defers() {
+    fn byte_step_full_defers_multi_byte_leads_without_the_u_flag_too() {
         let mut prog = Program::new();
         let mut any = Inst::simple(Op::AnyChar);
         any.pad = crate::parser::RE_FLAG_S as u16;
         prog.emit(any);
         prog.emit(Inst::match_accept());
-        for b in [b'a', 0xCEu8, 0xE6, 0xF0, 0x80] {
-            let (_, def) = byte_step_full(&prog, &set(&[0]), b, 0);
-            assert!(
-                def.iter().all(|d| d.is_empty()),
-                "byte 0x{b:02x} unexpectedly deferred without u-flag"
-            );
+        for (b, want) in [(0xCEu8, 0usize), (0xE6, 1), (0xF0, 2)] {
+            let (ready, def) = byte_step_full(&prog, &set(&[0]), b);
+            assert!(ready.is_empty(), "byte 0x{b:02x} advanced too early");
+            assert_eq!(def[want], set(&[1]), "byte 0x{b:02x}");
+        }
+        for b in [b'a', 0x80u8] {
+            let (ready, def) = byte_step_full(&prog, &set(&[0]), b);
+            assert_eq!(ready, set(&[1]), "byte 0x{b:02x}");
+            assert!(def.iter().all(|d| d.is_empty()), "byte 0x{b:02x}");
         }
     }
 

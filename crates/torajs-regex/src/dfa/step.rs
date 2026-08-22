@@ -33,25 +33,22 @@ use crate::program::{Op, Program};
 /// lookaround / backref filtered upstream in [`super::analyze`].
 /// Out-of-range PCs (defensive) and `pc + 1` past program end are
 /// silently dropped.
-pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8, flags: u8) -> BTreeSet<usize> {
-    byte_step_full(prog, states, byte, flags).0
+pub fn byte_step(prog: &Program, states: &BTreeSet<usize>, byte: u8) -> BTreeSet<usize> {
+    byte_step_full(prog, states, byte).0
 }
 
 /// Full byte-step: returns `(ready, deferred)` where `deferred[i]`
 /// is the set of PCs scheduled to become ready in `i + 1`
-/// continuation bytes (chunk 10b — `Op::AnyChar` under
-/// `RE_FLAG_U` schedules the post-`.` PC behind the UTF-8
-/// multi-byte tail).
+/// continuation bytes (chunk 10b — `Op::AnyChar` schedules the
+/// post-`.` PC behind the UTF-8 multi-byte tail).
 pub fn byte_step_full(
     prog: &Program,
     states: &BTreeSet<usize>,
     byte: u8,
-    flags: u8,
 ) -> (BTreeSet<usize>, [BTreeSet<usize>; 3]) {
     let mut ready: BTreeSet<usize> = BTreeSet::new();
     let mut deferred: [BTreeSet<usize>; 3] = Default::default();
     let plen = prog.len();
-    let u_flag = crate::parser::unicode_mode(flags);
     for &pc in states.iter() {
         if pc >= plen {
             continue;
@@ -79,20 +76,22 @@ pub fn byte_step_full(
                 if n >= plen {
                     continue;
                 }
-                // Under u-flag, multi-byte first byte parks PC behind
-                // the UTF-8 tail (matches NFA `utf8_len_for` defer in
+                // A multi-byte first byte parks PC behind the UTF-8
+                // tail (matches NFA `utf8_len_for` defer in
                 // `match_at`). ASCII / invalid first bytes (incl.
                 // 0xC0/0xC1/0x80..0xBF/0xF5..0xFF) advance 1 byte so
                 // the matcher's cursor keeps progressing.
-                let u_skip = if u_flag {
-                    match byte {
-                        0xC2..=0xDF => 1,
-                        0xE0..=0xEF => 2,
-                        0xF0..=0xF4 => 3,
-                        _ => 0,
-                    }
-                } else {
-                    0
+                //
+                // Not gated on the u flag: `.` means one character in
+                // either mode, and stopping after the first byte of
+                // one left the match boundary inside a character —
+                // `"日X".match(/./)` took the string layer down with
+                // it rather than answering `["日"]`.
+                let u_skip = match byte {
+                    0xC2..=0xDF => 1,
+                    0xE0..=0xEF => 2,
+                    0xF0..=0xF4 => 3,
+                    _ => 0,
                 };
                 if u_skip == 0 {
                     ready.insert(n);
