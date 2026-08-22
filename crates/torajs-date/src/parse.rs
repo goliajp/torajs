@@ -77,7 +77,7 @@ pub unsafe fn parse_iso(str_ptr: *const c_void) -> i64 {
     if str_ptr.is_null() {
         return DATE_PARSE_FAIL;
     }
-    let len = unsafe { *((str_ptr as *const u8).add(8) as *const u64) } as usize;
+    let len = unsafe { *((str_ptr as *const u8).add(8) as *const u32) } as usize;
     let s = unsafe { core::slice::from_raw_parts((str_ptr as *const u8).add(STR_HDR_SIZE), len) };
     parse_iso_bytes(s)
         .or_else(|| parse_tostring_bytes(s))

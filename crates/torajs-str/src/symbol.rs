@@ -140,7 +140,7 @@ pub unsafe extern "C" fn __torajs_symbol_to_str(p: *const c_void) -> *mut u8 {
     let desc_len = if desc.is_null() {
         0
     } else {
-        unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u64) }
+        unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u32) as u64 }
     };
     let total = 8 + desc_len; // "Symbol(" + desc + ")"
     let r = unsafe { __torajs_str_alloc_pooled(total) };
@@ -209,7 +209,7 @@ pub unsafe extern "C" fn __torajs_symbol_print_inline(p: *const c_void) {
     let desc = unsafe { symbol_desc(p) };
     unsafe { __torajs_io_write_out(b"Symbol(".as_ptr(), 7) };
     if !desc.is_null() {
-        let len = unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u64) };
+        let len = unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u32) } as u64;
         if len > 0 {
             unsafe {
                 __torajs_io_write_out((desc as *const u8).add(STR_HDR_SIZE), len);

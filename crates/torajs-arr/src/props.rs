@@ -188,7 +188,7 @@ unsafe fn note_builtin_proto_write(arr_ptr: *mut c_void, key: *const c_void) {
         if *((key as *const u8).add(4) as *const u16) != torajs_rc::Tag::Str as u16 {
             return;
         }
-        let len = *((key as *const u8).add(STR_LEN_OFF) as *const u64);
+        let len = *((key as *const u8).add(STR_LEN_OFF) as *const u32);
         torajs_rc::builtin_proto::__torajs_builtin_proto_note_own_write(
             arr_ptr,
             (key as *const u8).add(STR_DATA_OFF),

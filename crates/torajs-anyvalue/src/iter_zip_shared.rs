@@ -59,7 +59,7 @@ unsafe fn str_av_eq(v: AnyValue, expect: &[u8]) -> bool {
         if s.is_null() {
             return false;
         }
-        let len = (s.cast::<u8>().add(STR_LEN_OFF) as *const u64).read() as usize;
+        let len = (s.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() as usize;
         let eq = len == expect.len()
             && core::slice::from_raw_parts(s.cast::<u8>().add(STR_HDR_SIZE), len) == expect;
         __torajs_str_drop(s as *mut c_void);

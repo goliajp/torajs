@@ -113,7 +113,7 @@ unsafe fn alloc_str_from_cstr(c: *const c_char) -> *mut u8 {
 
 #[inline]
 unsafe fn str_len(s: *const u8) -> u64 {
-    unsafe { (s.add(STR_LEN_OFF) as *const u64).read() }
+    unsafe { (s.add(STR_LEN_OFF) as *const u32).read() as u64 }
 }
 
 #[inline]

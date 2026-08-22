@@ -162,13 +162,14 @@ pub(crate) unsafe fn entries(obj: *const c_void) -> *mut Entry {
     unsafe { store_ptr(obj).add(cap as usize * 4) as *mut Entry }
 }
 
-/// Read a Str's `len: u64` (offset 8).
+/// Read a Str's `length: u32` (offset 8). The four bytes above it
+/// are the capacity slot, not part of the length.
 ///
 /// # Safety
 /// `key` must point at a live Str heap block.
 #[inline]
 unsafe fn str_len(key: *const c_void) -> u64 {
-    unsafe { *((key as *const u8).add(STR_LEN_OFF) as *const u64) }
+    unsafe { *((key as *const u8).add(STR_LEN_OFF) as *const u32) as u64 }
 }
 
 /// Pointer to a Str's inline UTF-8 payload (offset 16).

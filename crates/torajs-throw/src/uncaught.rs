@@ -63,7 +63,7 @@ unsafe fn write_str_to_stderr(str_ptr: *const u8) {
     if str_ptr.is_null() {
         return;
     }
-    let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize;
     if len > 0 {
         unsafe { __torajs_syscall_write(2, str_ptr.add(STR_HDR_SIZE), len) };
     }
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
                 {
                     0usize
                 } else {
-                    unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u64).read() as usize }
+                    unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u32).read() as usize }
                 };
                 if msg_len > 0 {
                     unsafe { __torajs_syscall_write(2, b": ".as_ptr(), 2) };

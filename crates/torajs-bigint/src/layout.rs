@@ -49,5 +49,7 @@ pub const TAG_BIGINT: u16 = 10;
 pub const STR_HDR_SIZE: usize = 16;
 
 /// Mirror of `torajs-str::layout::STR_LEN_OFF` (= 8). Offset of the
-/// Str's `len` u64 within its heap block.
+/// Str's `length` **u32** within its heap block — the four bytes
+/// above it are the capacity slot, so a u64 read here picks up a
+/// number that is not the length.
 pub const STR_LEN_OFF: usize = 8;

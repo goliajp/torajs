@@ -248,8 +248,10 @@ pub unsafe extern "C" fn __torajs_anyv_to_bool(v: AnyValue) -> bool {
         // SAFETY: cell pointer non-null per is_cell guarantee.
         let h = unsafe { &*ptr };
         if matches!(h.tag(), Tag::Str) {
-            // Str layout: [header:8][len:8][bytes:N]. Len at +8.
-            let len_ptr = (ptr as *const u8).wrapping_add(8) as *const u64;
+            // Str layout: [header:8][length:4][_pad:4][bytes:N].
+            // `length` is a u32; the four bytes above it are the
+            // capacity slot and are not part of it.
+            let len_ptr = (ptr as *const u8).wrapping_add(8) as *const u32;
             // SAFETY: Tag::Str heap invariant — len field present
             // at offset 8 in the layout.
             return unsafe { *len_ptr != 0 };

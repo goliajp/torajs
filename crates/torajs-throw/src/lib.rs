@@ -333,7 +333,7 @@ pub unsafe extern "C" fn __torajs_throw_reference_error_name(name: *mut c_void) 
     let name = name as *const u8;
     // SAFETY: name is a valid Str block per caller invariant; len
     // field lives at STR_LEN_OFF.
-    let name_len = unsafe { (name.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    let name_len = unsafe { (name.add(STR_LEN_OFF) as *const u32).read() } as usize;
     let total = (name_len + SUFFIX.len()) as u64;
     // SAFETY: __torajs_str_alloc_pooled returns an initialized Str
     // header with the len field set; we own the rc = 1 allocation.

@@ -97,7 +97,7 @@ pub(crate) unsafe fn map_hash_key(tag: u8, payload: u64) -> u32 {
                 let hdr = p as *const HeapHeader;
                 let type_tag = unsafe { (*hdr).type_tag };
                 if type_tag == TAG_STR {
-                    let len = unsafe { *((p as *const u8).add(STR_LEN_OFF) as *const u64) };
+                    let len = unsafe { *((p as *const u8).add(STR_LEN_OFF) as *const u32) } as u64;
                     let data = unsafe { (p as *const u8).add(STR_DATA_OFF) };
                     unsafe { map_hash_bytes(data, len) }
                 } else if type_tag == TAG_BIGINT {

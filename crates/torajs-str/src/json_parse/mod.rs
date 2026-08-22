@@ -84,7 +84,7 @@ pub(super) fn json_skip_ws(data: &[u8], pos: &mut i64) {
 /// Reborrow a Str pointer's payload as `(data: &[u8], len: usize)`.
 #[inline]
 pub(super) unsafe fn str_payload(str_ptr: *const u8) -> &'static [u8] {
-    let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize;
     unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), len) }
 }
 

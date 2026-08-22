@@ -285,8 +285,9 @@ pub unsafe extern "C" fn __torajs_bigint_print_inline(a_: *const c_void) {
     }
     let s = unsafe { __torajs_bigint_to_string(a_) };
     if !s.is_null() {
-        // Str layout: `{ HeapHeader(8) + len@+8 (u64) + data@+16 }`.
-        let len = unsafe { *((s as *const u8).add(8) as *const u64) };
+        // Str layout: `{ HeapHeader(8) + length@+8 (u32) +
+        // capacity@+12 (u32) + data@+16 }`.
+        let len = unsafe { *((s as *const u8).add(8) as *const u32) } as u64;
         if len > 0 {
             unsafe { __torajs_io_write_out((s as *const u8).add(16), len) };
         }

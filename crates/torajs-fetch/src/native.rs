@@ -109,7 +109,7 @@ unsafe fn str_to_cstring(str_ptr: *const c_void) -> Vec<u8> {
     if str_ptr.is_null() {
         return vec![0u8];
     }
-    let len = unsafe { *((str_ptr as *const u8).add(8) as *const u64) } as usize;
+    let len = unsafe { *((str_ptr as *const u8).add(8) as *const u32) } as usize;
     let mut out = Vec::with_capacity(len + 1);
     let data_ptr = unsafe { (str_ptr as *const u8).add(STR_HDR_SIZE) };
     unsafe {

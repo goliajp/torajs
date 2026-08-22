@@ -73,7 +73,7 @@ pub unsafe extern "C" fn __torajs_bigint_from_str_strict(s: *const c_void) -> *m
         unsafe { normalize(z) };
         return z;
     }
-    let len = unsafe { *((s as *const u8).add(STR_LEN_OFF) as *const u64) } as usize;
+    let len = unsafe { *((s as *const u8).add(STR_LEN_OFF) as *const u32) } as usize;
     let body = unsafe { core::slice::from_raw_parts((s as *const u8).add(STR_HDR_SIZE), len) };
 
     // Trim leading / trailing StrWhiteSpace.

@@ -367,11 +367,11 @@ unsafe fn add_operand_to_primitive(tag: i64, value: i64) -> (i64, i64, Option<An
 unsafe fn try_concat_short(l_str: *mut c_void, r_str: *mut c_void) -> Option<AnyValue> {
     let l_ptr = l_str as *const u8;
     let r_ptr = r_str as *const u8;
-    // SAFETY: Str layout invariant — `len: u64` at byte offset
-    // STR_LEN_OFF (= 8). Heap is 8-aligned so the u64 read is
-    // properly aligned.
-    let l_len = unsafe { (l_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
-    let r_len = unsafe { (r_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    // SAFETY: Str layout invariant — `length: u32` at byte offset
+    // STR_LEN_OFF (= 8), with the capacity slot in the four bytes
+    // above it.
+    let l_len = unsafe { (l_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    let r_len = unsafe { (r_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize;
     let total = l_len + r_len;
     if total > SHORT_STR_CAP {
         return None;
