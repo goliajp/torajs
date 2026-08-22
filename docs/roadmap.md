@@ -1596,6 +1596,22 @@ serves), and both `defineProperty` gap-fills created own `undefined`s
 where §10.4.2.1 creates nothing — on the shared `Array.prototype` that
 made index 0 an own property of every array in the program.
 
+**@ `efb6541b3`** (2026-08-23, rotation 476 — a SuperProperty is
+not a read followed by a call). Gate predicate **164** clusters of
+≥ 4 holding **1346** cases, register 2 · 257, residue 651 · 812
+(33.6%), core **2415**; coverage top-10 14.4% / top-25 25.1% /
+top-100 52.2%. Sweep passTotal 32375 → **32387 (+12)**, pass 27322 →
+**27334 (+12)**, bug 12855 → **12863 (+8)**, incompatible 7944 →
+**7924 (−20)**, trAccepted +20, conservation exact; **22 verdict
+moves, zero pass regressions**. §13.3.6 invokes a Super Reference
+with the CURRENT `this`, and every spelling that was not a
+statically-declared name had been reading off the base instead —
+loudly for the computed call, silently for the read. One kernel
+(`__torajs_anyv_super_prop_{get,set,call}`) over the receiver-aware
+[[Get]] / [[Set]] the Reflect lane already had now serves the class
+and object-literal sides alike. Two of the twelve are unrelated: the
+timeouts rotation 475 put on watch came back on their own.
+
 **@ `6fcf5becc`** (2026-08-22, rotation 473 — one encoding
 question asked in five places, four of which had stopped answering
 it). Nothing here moved P-SURF: the gate predicate is **165**

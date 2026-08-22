@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-22T16:26:28.229Z",
+  "generatedAt": "2026-08-22T18:27:40.840Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-22T16:01:26Z",
-    "headSha": "fa7086352",
-    "elapsedSec": 433.44,
+    "ranAt": "2026-08-22T18:17:12Z",
+    "headSha": "efb6541b3",
+    "elapsedSec": 348.92,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27322,
+    "pass": 27334,
     "passNoOracle": 906,
     "passNegative": 4147,
-    "passTotal": 32375,
-    "bug": 12855,
-    "incompatible": 7944,
+    "passTotal": 32387,
+    "bug": 12863,
+    "incompatible": 7924,
     "bunSkip": 2963,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 45230,
-    "passRateInScope": 60.89,
-    "passRateTrAccepted": 71.58
+    "trAccepted": 45250,
+    "passRateInScope": 60.91,
+    "passRateTrAccepted": 71.57
   },
   "torajs": {
-    "commit": "fa7086352",
-    "commitSubject": "perf: only the values whose interval is actually unsound pay for it",
+    "commit": "efb6541b3",
+    "commitSubject": "fix: a delete operand keeps the plain super member path",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "efb6541b3",
+      "subject": "fix: a delete operand keeps the plain super member path"
+    },
+    {
+      "hash": "c2d4bf844",
+      "subject": "feat: object-literal super writes take the OrdinarySet receiver split"
+    },
+    {
+      "hash": "aa922fc0b",
+      "subject": "fix: a literal on a prototype chain needs an any receiver face"
+    },
+    {
+      "hash": "8e83e5862",
+      "subject": "feat: object-literal super calls and reads carry the call-site this"
+    },
+    {
+      "hash": "882712e97",
+      "subject": "fix: super[k] reads with this as receiver, not with the base"
+    },
+    {
+      "hash": "aac4a539a",
+      "subject": "feat: super[k](...) invokes with the current this, not the base"
+    },
+    {
+      "hash": "c6236f155",
+      "subject": "chore: rotation 475 close — sweep ingest and dashboard"
+    },
+    {
       "hash": "fa7086352",
       "subject": "perf: only the values whose interval is actually unsound pay for it"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "326229865",
       "subject": "chore: bench run at 694d6ab — median 0.570x bun-aot, invariant holds"
-    },
-    {
-      "hash": "694d6abf6",
-      "subject": "chore: rotation 474 close — sweep, roadmap, dashboard"
-    },
-    {
-      "hash": "7977d5e80",
-      "subject": "fix: a hole still has to ask the prototype"
-    },
-    {
-      "hash": "c816bc704",
-      "subject": "fix: a fill loop that erased everything it filled"
-    },
-    {
-      "hash": "75e6f826c",
-      "subject": "perf: the hole gate is not a tax a typed array should pay"
-    },
-    {
-      "hash": "3b4408271",
-      "subject": "fix: a hole is not an element the callback gets to see"
-    },
-    {
-      "hash": "554de03f2",
-      "subject": "fix: the widen defers to the one that was already there"
-    },
-    {
-      "hash": "ad30dad37",
-      "subject": "fix: an array the program deletes from was never a number[]"
     }
   ],
-  "headSha": "fa7086352",
+  "headSha": "efb6541b3",
   "autorun": {
-    "total": 778,
+    "total": 779,
     "baselineTarget": 10,
-    "bySelf": 773,
+    "bySelf": 774,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787394262-58d6",
-      "at": "2026-08-22T10:24:22Z",
-      "ts": 1787394262,
+      "rotationId": "r-1787416079-0875",
+      "at": "2026-08-22T16:27:59Z",
+      "ts": 1787416079,
       "trigger": "self",
-      "prevHead": "694d6abf6",
-      "handoffSha": "sha256:3d491459e95cb7ce511995332fc27c7716e3de048214ea2893e6bac6f0effd32",
-      "handoffAgeSec": 9,
+      "prevHead": "c6236f155",
+      "handoffSha": "sha256:fb09246c4d67347b0a83a323d51a713faa5f271b6d7305112be24df05452b7ad",
+      "handoffAgeSec": 34,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787416079-0875",
+        "at": "2026-08-22T16:27:59Z",
+        "ts": 1787416079,
+        "trigger": "self",
+        "prevHead": "c6236f155",
+        "handoffSha": "sha256:fb09246c4d67347b0a83a323d51a713faa5f271b6d7305112be24df05452b7ad",
+        "handoffAgeSec": 34,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787394262-58d6",
         "at": "2026-08-22T10:24:22Z",
@@ -876,17 +887,6 @@
         "prevHead": "129a53094",
         "handoffSha": "sha256:822c8981f22cc73d0df95787e074d719a241316a458951e1866f5fc1181e9e85",
         "handoffAgeSec": 60,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787310110-5da3",
-        "at": "2026-08-21T11:01:50Z",
-        "ts": 1787310110,
-        "trigger": "self",
-        "prevHead": "dc7ba00d9",
-        "handoffSha": "sha256:ccc0f7d060152f2973fe9b139b03ccebb4ff4a417e59b7f9b1cbafc649630778",
-        "handoffAgeSec": 85,
         "conformanceBefore": null,
         "commitsInSession": null
       }
