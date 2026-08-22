@@ -217,6 +217,11 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::fill_optional_fields(ast);
     ast::synthesize_class_globals(ast);
     ast::tag_struct_field_closure_types(ast);
+    // RFC-less blade — a `function` whose own name is assigned needs a
+    // slot to be assigned into. Right before the capturing-nested-fn
+    // pass, because it hands its rewrite to the same lane: both mint a
+    // function expression that `lift_arrow_fns` then gives an env.
+    ast::widen_rebound_fn_decls(ast);
     ast::desugar_capturing_nested_fns(ast);
     // Once BEFORE the arrows lift and once after (below). The rename a
     // lift performs has to reach the arrows that call the nested
