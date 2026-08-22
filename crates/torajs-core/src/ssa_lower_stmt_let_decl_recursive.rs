@@ -81,8 +81,19 @@ fn open_box(ctx: &mut LowerCtx, name: &str, ty: Type) -> crate::ssa::ValueId {
 /// signature — that is what the call sites type against — and an
 /// inferred one takes exactly what the mint is about to produce, read
 /// off the same function the mint itself reads so the box and its
-/// content cannot disagree. `None` when the binding would not take a
-/// closure slot at all.
+/// content cannot disagree. `None` when the binding takes neither a
+/// closure slot nor an any slot.
+///
+/// An `any` slot answers here too. It did not before, and the two
+/// halves of that asymmetry were visible from the source: `let a: any
+/// = [function () { … a … }]` worked (the nested-closure walk below
+/// plans it as an ordinary binding, whose arm opens an `Any` box),
+/// while the same closure written BARE — `let a: any = function () {
+/// … a … }` — reached this gate, was declined, and died at the mint
+/// with `closure capture not in scope`. Wrapping the closure in an
+/// array was the whole difference. The box the ordinary arm opens is
+/// an `Any` box already, so admitting the type here is the same
+/// mechanism reaching the same shape by its own route.
 fn box_ty(
     ctx: &mut LowerCtx,
     name: &str,
@@ -96,7 +107,7 @@ fn box_ty(
     } else {
         crate::ssa_lower_closure::closure_value_ty(ctx, fn_name)
     };
-    matches!(ty, Type::Closure(_)).then_some(ty)
+    matches!(ty, Type::Closure(_) | Type::Any).then_some(ty)
 }
 
 /// Open the box for every binding in `stmts` that a closure declared
