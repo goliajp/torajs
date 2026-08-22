@@ -40,6 +40,11 @@ unsafe extern "C" {
 /// Symbol cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *const c_void) -> u64 {
+    // Tag-channel twin of the Proxy arm — zero routes the sentinel
+    // into the receiver-aware kernel (RFC 20260823-proxy-substrate).
+    if crate::proxy::is_proxy(recv) {
+        return 0;
+    }
     // §6.1.7 — a symbol key takes its own short walk (own dict, then
     // what the receiver inherits); the cascade below is string-keyed.
     if unsafe { crate::member_get_symbol::key_is_symbol(key) } {

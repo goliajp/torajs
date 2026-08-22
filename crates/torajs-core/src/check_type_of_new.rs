@@ -58,9 +58,27 @@ pub(crate) fn try_check(
         // Any; the lowering emits the §27.1.3.1 abstract-ctor
         // TypeError (runtime, catchable).
         "Iterator" => Ok(Type::Any),
+        // RFC 20260823-proxy-substrate 刀 1 — `new Proxy(t, h)` types
+        // `Type::Any`. A proxy impersonates its target, so no static
+        // variant could honor what it answers; both arguments are
+        // typechecked for effect and the §10.5.14 object check is the
+        // runtime kernel's.
+        "Proxy" => check_proxy(checker, ast, args),
         _ => return None,
     };
     Some(result)
+}
+
+/// RFC 20260823-proxy-substrate 刀 1 — `new Proxy(target, handler)`
+/// per §10.5.14. Arity is not enforced statically: a missing
+/// argument is `undefined`, which the kernel rejects with the same
+/// TypeError any other non-object gets, and that keeps the error a
+/// catchable runtime one exactly as the spec has it.
+fn check_proxy(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
+    for &a in args {
+        checker.type_of(ast, a)?;
+    }
+    Ok(Type::Any)
 }
 
 /// RFC 20260716 刀 2 — `new Number(x)` constructs a NumberWrapper heap

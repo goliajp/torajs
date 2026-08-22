@@ -235,6 +235,16 @@ unsafe fn any_method_call_dispatch(
     argc: i64,
     skip_wrapper_expando: bool,
 ) -> AnyValue {
+    // §7.3.2 — `p.m()` on a Proxy is `Call(GetV(p, "m"), p, args)`,
+    // so the NAME goes through [[Get]] before anything shape-keyed
+    // gets a say (RFC 20260823-proxy-substrate 刀 1). Gated off
+    // re-dispatch by the same flag the monkey-patch consult uses: a
+    // reified builtin's body must not re-resolve.
+    if !skip_wrapper_expando && !name_str.is_null() && crate::proxy::is_proxy(recv) {
+        return unsafe {
+            crate::proxy_call::method_call(recv, mid, name_str, recv_slot, argv, argc)
+        };
+    }
     if let Some(v) = unsafe { crate::method_call_prelude::pre_nullish_arm(recv, mid, argv, argc) } {
         return v;
     }

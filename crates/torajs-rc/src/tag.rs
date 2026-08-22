@@ -102,4 +102,10 @@ pub enum Tag {
     /// captured callback; substrate in `torajs-anyvalue::iter_helper`
     /// (RFC 20260730-iterator-global 刀 2).
     IterHelper = 25,
+    /// `Proxy` — `{ header:8 | target:8 | handler:8 }` (24 B), both
+    /// slots owning `AnyValue`s (RFC 20260823-proxy-substrate 刀 1).
+    /// A revoked proxy stores `null` in both, exactly as §10.5.4.1
+    /// says — `is_null(handler)` IS the revoked predicate, so there
+    /// is no second flag byte that could drift away from it.
+    Proxy = 26,
 }

@@ -154,6 +154,10 @@ pub(crate) unsafe fn closure_virtual_name_cell(ptr: *mut c_void) -> Option<*mut 
 /// tag layout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_name_get(recv: AnyValue) -> AnyValue {
+    // Proxy twin of the `.length` arm — see `len_get.rs`.
+    if crate::proxy::is_proxy(recv) {
+        return unsafe { crate::proxy::get_named(recv, b"name") };
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());

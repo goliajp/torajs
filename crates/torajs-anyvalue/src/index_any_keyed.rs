@@ -186,6 +186,12 @@ pub unsafe extern "C" fn __torajs_any_index_set_keyed(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_index_get_keyed(recv: AnyValue, key: AnyValue) -> AnyValue {
     unsafe {
+        // A Proxy takes every key shape through the one [[Get]] —
+        // the trap is entitled to the key the source wrote, coerced
+        // to a property key (RFC 20260823-proxy-substrate 刀 1).
+        if crate::proxy::is_proxy(recv) {
+            return proxy_keyed_get(recv, key);
+        }
         if is_int32(key) {
             return crate::index_any::__torajs_any_index_get(recv, as_int32(key) as i64);
         }
@@ -213,6 +219,31 @@ pub unsafe extern "C" fn __torajs_any_index_get_keyed(recv: AnyValue, key: AnyVa
         }
         let out = probe_key_cell(recv, kstr as *const c_void);
         __torajs_str_drop(kstr);
+        out
+    }
+}
+
+/// §7.1.19 ToPropertyKey then [[Get]], for a Proxy receiver. A
+/// Symbol key passes through as itself; everything else takes its
+/// string spelling, which is what the trap must see.
+///
+/// # Safety
+/// `recv` is a live Proxy AnyValue; `key` a valid AnyValue.
+unsafe fn proxy_keyed_get(recv: AnyValue, key: AnyValue) -> AnyValue {
+    unsafe {
+        if is_cell(key) {
+            let ptr = as_void_ptr(key);
+            let tag = (ptr as *const u8).add(4).cast::<u16>().read();
+            if tag == Tag::Symbol as u16 || tag == Tag::Str as u16 {
+                return crate::proxy::get_key_cell(recv, ptr as *const c_void);
+            }
+        }
+        let s = crate::nanbox_ffi::__torajs_anyv_to_str(key) as *mut c_void;
+        if s.is_null() {
+            return crate::nanbox::VALUE_UNDEFINED;
+        }
+        let out = crate::proxy::get_key_cell(recv, s as *const c_void);
+        __torajs_str_drop(s);
         out
     }
 }

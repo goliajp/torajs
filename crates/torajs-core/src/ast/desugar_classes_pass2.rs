@@ -225,6 +225,9 @@ pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
             // RFC 20260730-iterator-global 刀 1 — `new Iterator()`
             // lowers to the §27.1.3.1 abstract-ctor TypeError kernel.
             | "Iterator"
+            // RFC 20260823-proxy-substrate 刀 1 — `new Proxy(t, h)`
+            // lowers to §10.5.14 ProxyCreate.
+            | "Proxy"
     )
 }
 

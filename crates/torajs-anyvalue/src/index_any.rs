@@ -71,6 +71,11 @@ unsafe extern "C" {
 /// tag layout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> AnyValue {
+    // §6.1.7 — a property key is a String, so a Proxy sees `p[0]`
+    // spelled `"0"` (RFC 20260823-proxy-substrate 刀 1).
+    if crate::proxy::is_proxy(recv) {
+        return unsafe { crate::proxy::get_index(recv, idx) };
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());

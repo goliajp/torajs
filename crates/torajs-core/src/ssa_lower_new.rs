@@ -71,8 +71,86 @@ pub(crate) fn try_lower(
         // throw fires before any observable use; recorded boundary
         // for argument side effects).
         "Iterator" => Some(lower_iterator_ctor_throw(ctx)),
+        // RFC 20260823-proxy-substrate 刀 1 — §10.5.14 ProxyCreate.
+        // Result types `Type::Any`: a proxy impersonates its target,
+        // so no static variant could honor what it answers.
+        "Proxy" => Some(lower_proxy(ctx, args)),
         _ => None,
     }
+}
+
+/// `new Proxy(target, handler)` — §10.5.14. Both arguments lower as
+/// `any`; the kernel does the object check and records the TypeError
+/// for a rejected one, so the emit is a plain call plus the throw
+/// check. Missing arguments pass `undefined`, which the kernel
+/// rejects exactly like any other non-object.
+fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let mut ops: Vec<(Operand, bool, Option<ExprId>)> = Vec::with_capacity(2);
+    for slot in 0..2usize {
+        let Some(&eid) = args.get(slot) else {
+            let undef = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            ops.push((Operand::Value(undef), false, None));
+            continue;
+        };
+        let raw = ctx.lower_expr(eid);
+        let ty = ctx.operand_ty(&raw);
+        let (op, we_boxed) = match ty {
+            Type::Any => (raw, false),
+            Type::Arr(_) => {
+                // A proxied array keeps its identity — the cell goes
+                // in as-is, kind-marked like every other Arr that
+                // crosses into the any world.
+                ctx.emit_arr_mark_kind(&raw);
+                let as_i64 =
+                    ctx.f
+                        .append_inst(ctx.cur_block, InstKind::PtrToInt(raw), Type::I64, None);
+                let as_any = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::IntToPtr(Operand::Value(as_i64)),
+                    Type::Any,
+                    None,
+                );
+                (Operand::Value(as_any), false)
+            }
+            _ => {
+                if !ctx.expr_transfers_ownership(eid) && ty.is_refcounted() {
+                    ctx.emit_rc_inc(raw.clone());
+                }
+                (ctx.box_to_any(raw), true)
+            }
+        };
+        ops.push((op, we_boxed, Some(eid)));
+    }
+    // Trailing arguments beyond the spec's two — lower for effects.
+    for &a in args.iter().skip(2) {
+        let _ = ctx.lower_expr(a);
+    }
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.proxy_create, argv),
+        Type::Any,
+        None,
+    );
+    // The kernel borrows both arguments (the cell takes its own).
+    for (op, we_boxed, eid) in ops {
+        if we_boxed {
+            ctx.emit_drop_value(op, Type::Any);
+        } else if let Some(eid) = eid {
+            ctx.release_owned_temp(eid, &op);
+        }
+    }
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
 }
 
 /// `new Iterator(...)` — call the abstract-ctor TypeError kernel and

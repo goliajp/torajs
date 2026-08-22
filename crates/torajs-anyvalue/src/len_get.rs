@@ -92,6 +92,11 @@ pub(crate) unsafe fn box_probe_pair(dtag: u64, dval: u64, recv: AnyValue) -> Any
 /// tag layout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
+    // §10.5.8 — `.length` is an ordinary [[Get]] on a Proxy, not a
+    // shape question (RFC 20260823-proxy-substrate 刀 1).
+    if crate::proxy::is_proxy(recv) {
+        return unsafe { crate::proxy::get_named(recv, b"length") };
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());

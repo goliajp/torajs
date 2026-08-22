@@ -48,6 +48,8 @@ per_tag_drop_stub!(
     __torajs_arr_iter_drop,
     // RFC 20260730-iterator-global 刀 2
     __torajs_iter_helper_drop,
+    // RFC 20260823-proxy-substrate 刀 1
+    __torajs_proxy_drop,
     __torajs_dynobj_drop,
     __torajs_accessor_drop,
     __torajs_response_drop,

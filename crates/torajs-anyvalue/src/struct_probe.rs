@@ -368,6 +368,15 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
         }
         let ptr = as_void_ptr(recv);
         let cell_tag = ptr.cast::<u8>().add(4).cast::<u16>().read();
+        // §10.5.8 — a Proxy receiver answers this same sentinel from
+        // the pure probe pair, and this is the one place the `get`
+        // trap runs (RFC 20260823-proxy-substrate 刀 1). It shares
+        // the accessor route because it answers the same question:
+        // the value is computed by invoking something, given the
+        // receiver and the key.
+        if cell_tag == Tag::Proxy as u16 {
+            return crate::proxy::get(ptr, key, recv);
+        }
         if cell_tag != Tag::Obj as u16 {
             return VALUE_UNDEFINED;
         }

@@ -528,6 +528,8 @@ pub(crate) struct Intrinsics {
     /// RFC 20260730-iterator-global 刀 1 — §27.1.3.1 abstract-ctor
     /// TypeError kernel behind `new Iterator()`.
     pub(crate) iterator_ctor_throw: FuncId,
+    /// RFC 20260823-proxy-substrate 刀 1 — §10.5.14 ProxyCreate.
+    pub(crate) proxy_create: FuncId,
     /// RFC 20260730-iterator-global 刀 4 — §27.1.6.2 `Iterator.from`
     /// (GetIteratorFlattenable + pass-through-or-wrap).
     pub(crate) iterator_from: FuncId,
