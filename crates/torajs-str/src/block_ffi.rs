@@ -115,9 +115,27 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
     // well-formed UTF-8.
     let src_slice = unsafe { core::slice::from_raw_parts(src, len_u) };
     let utf8 = unsafe { core::str::from_utf8_unchecked(src_slice) };
-    // Single-pass classification: max codepoint decides Latin-1 vs
-    // UTF-16. Bytes ≤ 0x7F stay one-byte-per-char on the Latin-1
-    // fast path (matches the pre-S2 memcpy footprint for ASCII).
+    // An all-ASCII payload copies verbatim into the Latin-1 layout,
+    // every byte already matching its own codepoint — the shape the
+    // pre-S2 `alloc + memcpy` had. And "all ASCII" is a question
+    // about bytes, not characters: a well-formed UTF-8 sequence is
+    // non-ASCII exactly when some byte has its high bit set.
+    //
+    // Asking it that way is a flat byte scan. Decoding the source
+    // into `char`s to take a maximum codepoint answered the same
+    // question one branchy step at a time, and every caller handing
+    // over an ASCII buffer — which is nearly all of them — paid that
+    // walk in full before reaching this copy.
+    if !src_slice.iter().any(|b| *b >= 0x80) {
+        let length = len_u as u32;
+        let mut block = StrBlock::alloc_with_encoding(length, true);
+        let dst = unsafe { block.as_bytes_mut(length) };
+        dst.copy_from_slice(src_slice);
+        return block.into_raw();
+    }
+    // Something above ASCII is in there, so the widest codepoint now
+    // has to be found to choose between the one-byte Latin-1 layout
+    // and UTF-16, and that does mean decoding.
     let mut max_cp: u32 = 0;
     for c in utf8.chars() {
         let cp = c as u32;
@@ -125,19 +143,7 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
             max_cp = cp;
         }
     }
-    let is_latin1 = max_cp <= 0xFF;
-    if is_latin1 && max_cp <= 0x7F {
-        // ASCII fast path — every byte already matches its Latin-1
-        // codepoint, so we can sidestep the per-char re-encode and
-        // copy the source buffer verbatim. Same shape as the
-        // pre-S2 `alloc + memcpy`.
-        let length = len_u as u32;
-        let mut block = StrBlock::alloc_with_encoding(length, true);
-        let dst = unsafe { block.as_bytes_mut(length) };
-        dst.copy_from_slice(src_slice);
-        return block.into_raw();
-    }
-    if is_latin1 {
+    if max_cp <= 0xFF {
         // Latin-1 supplement (0x80..=0xFF). Re-encode codepoint-
         // by-codepoint into one byte each.
         let length = utf8.chars().count() as u32;
