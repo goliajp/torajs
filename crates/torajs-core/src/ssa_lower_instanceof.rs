@@ -218,6 +218,24 @@ fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {
 }
 
 fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> Operand {
+    // RFC 20260823-typedarray-substrate 刀 2 — the eleven typed
+    // arrays share ONE heap tag, so the tag test every other builtin
+    // uses would answer true for all of them at once. The element
+    // kind is what separates `Uint8Array` from `Int8Array`, and the
+    // constructor name is where it comes from.
+    if let Some(kind) = crate::ssa_lower_call_typedarray::kind_of_name(class_name) {
+        let cur_block = ctx.cur_block;
+        let r = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.typedarray_is_kind,
+                vec![v, Operand::ConstI64(kind)],
+            ),
+            Type::Bool,
+            None,
+        );
+        return Operand::Value(r);
+    }
     if let Some(t) = builtin_type_tag(class_name) {
         let cur_block = ctx.cur_block;
         let r = ctx.f.append_inst(

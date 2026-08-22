@@ -86,10 +86,6 @@ unsafe extern "C" {
     // the shared stdout writer (no fresh-Str alloc, no rc_dec
     // dance). Same put_byte family this module uses.
     pub(super) fn __torajs_regex_print_inline(re_ptr: *const c_void);
-    /// RFC 20260823-typedarray-substrate 刀 1 — `ArrayBuffer(N)
-    /// [ … ]`, no trailing newline (both the top-level and the
-    /// nested caller add their own separators).
-    pub(super) fn __torajs_arraybuffer_print(cell: *const c_void);
     // Map / Set walkers — Tag::Set (=19, runtime tag substrate)
     // discriminates Set heap cells from Map (=15), so the AnyValue
     // tag-walker routes each branch to its bun-correct printer

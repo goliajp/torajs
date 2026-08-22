@@ -464,6 +464,8 @@ pub(crate) fn build(
         proxy_create: init_c.proxy.proxy_create,
         arraybuffer_create: init_c.buffer.arraybuffer_create,
         arraybuffer_is_view: init_c.buffer.arraybuffer_is_view,
+        typedarray_create: init_c.buffer.typedarray_create,
+        typedarray_is_kind: init_c.buffer.typedarray_is_kind,
         proxy_revocable: init_c.proxy.proxy_revocable,
         iterator_from: init_c.iterator.iterator_from,
         iterator_concat: init_c.iterator.iterator_concat,

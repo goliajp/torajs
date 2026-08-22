@@ -209,22 +209,17 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // twin in member_get.rs; borrow-shaped like the dynobj
         // bucket).
         // §25.1.6 accessor pair — value twin of the tag arm.
-        Some((_, t)) if t == Tag::ArrayBuffer as u16 => unsafe {
-            match crate::member_get_buffer::arraybuffer_prop(recv, key) {
+        // §25.1.6 / §23.2.3 — the buffer family's accessors read as
+        // values, so they answer on the probe pair. Only the [[Get]]
+        // face: own-key enumeration is a different kernel and still
+        // says a buffer owns nothing.
+        Some((_, t)) if crate::member_get_buffer::is_buffer_family(t) => unsafe {
+            match crate::member_get_buffer::buffer_family_prop(recv, key, t) {
                 Some((_, val)) => val,
                 None => reify_value(recv, key),
             }
         },
-        Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe {
-            if crate::prop_has::key_is(key, b"lastIndex") {
-                let raw = __torajs_regex_last_index_raw(ptr);
-                if raw != 0 {
-                    return crate::__torajs_anyv_unbox_value(raw) as u64;
-                }
-                return __torajs_regex_get_last_index(ptr).to_bits();
-            }
-            reify_value(recv, key)
-        },
+        Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe { regexp_arm_value(ptr, key, recv) },
         // §10.4.3 heap Str / Substr own face — tag twin.
         Some((_, t)) if t == Tag::Str as u16 => unsafe {
             if let Some((_, val)) = crate::member_get_str::str_own_pair(recv, key) {
@@ -345,4 +340,23 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     unsafe { crate::method_value::builtin_method_lookup(recv, key) }
         .map(|c| c as u64)
         .unwrap_or(0)
+}
+
+/// §22.2.4.1 `lastIndex` on the value channel — the twin of
+/// `member_get::regexp_arm_tag`, lifted out for the same reason.
+///
+/// # Safety
+/// `ptr` is a live RegExp cell; `key` is NULL or a live Str cell;
+/// `recv` boxes `ptr`.
+unsafe fn regexp_arm_value(ptr: *mut c_void, key: *const c_void, recv: AnyValue) -> u64 {
+    unsafe {
+        if crate::prop_has::key_is(key, b"lastIndex") {
+            let raw = __torajs_regex_last_index_raw(ptr);
+            if raw != 0 {
+                return crate::__torajs_anyv_unbox_value(raw) as u64;
+            }
+            return __torajs_regex_get_last_index(ptr).to_bits();
+        }
+        reify_value(recv, key)
+    }
 }

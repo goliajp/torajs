@@ -13,6 +13,8 @@ use crate::index_any::i64_dec;
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
 unsafe extern "C" {
+    /// torajs-buffer — §10.4.5.5 element write.
+    fn __torajs_typedarray_index_set(recv: AnyValue, index: f64, value: AnyValue);
     /// torajs-arr — kind-aware `arr[idx] = (tag, value)` (pair ABI,
     /// tag 4 transfers one rc).
     fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
@@ -86,6 +88,18 @@ pub unsafe extern "C" fn __torajs_any_index_set(
     // is its [[Set]] (RFC 20260823-proxy-substrate 刀 2).
     if hdr_tag == Tag::Proxy as u16 {
         unsafe { proxy_index_set(recv, ptr, idx, tag, value) };
+        return;
+    }
+    // §10.4.5.5 TypedArraySetElement — the coercion runs first and
+    // unconditionally, and the store only happens when the index is
+    // a valid one. The kernel owns that order; the pair arrives
+    // transferred, so it is boxed for the call and released after.
+    if hdr_tag == Tag::TypedArray as u16 {
+        unsafe {
+            let boxed = crate::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+            __torajs_typedarray_index_set(recv, idx as f64, boxed);
+            crate::__torajs_anyv_rc_dec(boxed);
+        }
         return;
     }
     if hdr_tag == Tag::Arr as u16 {

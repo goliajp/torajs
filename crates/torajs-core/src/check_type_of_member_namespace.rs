@@ -178,6 +178,13 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // §25.1.5.1 ArrayBuffer.isView — a predicate over the
         // argument's heap tag (RFC 20260823-typedarray-substrate
         // 刀 1).
+        // §23.2.5.1 table 71 — a constant on each of the eleven
+        // constructors (RFC 20260823-typedarray-substrate 刀 2).
+        (Type::Object(ns), "BYTES_PER_ELEMENT")
+            if crate::ssa_lower_call_typedarray::bytes_per_element(ns).is_some() =>
+        {
+            Type::Number
+        }
         (Type::Object("ArrayBuffer"), "isView") => {
             Type::Function(vec![Type::Any], Box::new(Type::Boolean))
         }

@@ -231,6 +231,18 @@ pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
             // RFC 20260823-typedarray-substrate 刀 1 —
             // `new ArrayBuffer(len, opts)` lowers to §25.1.4.1.
             | "ArrayBuffer"
+            // 刀 2 — the eleven §23.2 constructors.
+            | "Int8Array"
+            | "Uint8Array"
+            | "Uint8ClampedArray"
+            | "Int16Array"
+            | "Uint16Array"
+            | "Int32Array"
+            | "Uint32Array"
+            | "Float32Array"
+            | "Float64Array"
+            | "BigInt64Array"
+            | "BigUint64Array"
     )
 }
 

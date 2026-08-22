@@ -12,13 +12,14 @@
 
 use core::ffi::c_void;
 
+use super::buffer_print::{__torajs_arraybuffer_print, __torajs_typedarray_print};
 use super::formatters::{
-    __torajs_anyv_struct_print_inline_at, __torajs_arr_print_any_at, __torajs_arraybuffer_print,
-    __torajs_bigint_print_inline, __torajs_inspect_line_add, __torajs_map_print_at,
-    __torajs_obj_print_any_at, __torajs_promise_print, __torajs_regex_print_inline,
-    __torajs_set_print_at, __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, heap_flags,
-    heap_type_tag, put_byte, put_bytes, put_closure_fn_name, put_cp_json_escaped, put_date_inline,
-    put_f64_inline, put_i64_inline, put_str_cell_inline_esc, put_substr_cell_inline_esc,
+    __torajs_anyv_struct_print_inline_at, __torajs_arr_print_any_at, __torajs_bigint_print_inline,
+    __torajs_inspect_line_add, __torajs_map_print_at, __torajs_obj_print_any_at,
+    __torajs_promise_print, __torajs_regex_print_inline, __torajs_set_print_at,
+    __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, heap_flags, heap_type_tag, put_byte, put_bytes,
+    put_closure_fn_name, put_cp_json_escaped, put_date_inline, put_f64_inline, put_i64_inline,
+    put_str_cell_inline_esc, put_substr_cell_inline_esc,
 };
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
@@ -155,6 +156,8 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             // sentinel; no trailing '\n'.
             // SAFETY: Date layout per torajs-date::layout.
             unsafe { put_date_inline(child) };
+        } else if tag == Tag::TypedArray as u16 {
+            unsafe { __torajs_typedarray_print(child) };
         } else if tag == Tag::ArrayBuffer as u16 {
             // RFC 20260823-typedarray-substrate 刀 1 — the same
             // `ArrayBuffer(N) [ … ]` form as at top level; bun does

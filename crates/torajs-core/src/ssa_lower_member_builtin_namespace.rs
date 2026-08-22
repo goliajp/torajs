@@ -91,6 +91,14 @@ pub(crate) fn try_lower(
     if let Some(op) = try_lower_ns_static_value(ctx, eid, obj, ns_name.as_str(), name) {
         return Some(op);
     }
+    // §23.2.5.1 table 71 — `<T>.BYTES_PER_ELEMENT` off the
+    // CONSTRUCTOR is decided by the name, so it folds at compile
+    // time (RFC 20260823-typedarray-substrate 刀 2).
+    if name == "BYTES_PER_ELEMENT"
+        && let Some(n) = crate::ssa_lower_call_typedarray::bytes_per_element(ns_name.as_str())
+    {
+        return Some(Operand::ConstI64(n));
+    }
     match ns_name.as_str() {
         "Math" => lower_math_const(name),
         "Number" => lower_number(ctx, name),

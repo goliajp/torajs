@@ -14,6 +14,9 @@ use crate::nanbox::{
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
 unsafe extern "C" {
+    /// torajs-buffer — the element-kind discriminant behind a typed
+    /// array's `@@toStringTag`.
+    fn __torajs_typedarray_kind(av: u64) -> i64;
     /// torajs-meta — the [[Prototype]] answer for any AnyValue
     /// (owned cell / null immediate) — knife 4's chain step.
     fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
@@ -355,6 +358,11 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
         t if t == Tag::WeakRef as u16 => b"WeakRef",
         // §25.1.6.5 `ArrayBuffer.prototype[@@toStringTag]`.
         t if t == Tag::ArrayBuffer as u16 => b"ArrayBuffer",
+        // §23.2.3.32 — a typed array's `@@toStringTag` is its
+        // [[TypedArrayName]], so the badge differs per element type.
+        t if t == Tag::TypedArray as u16 => unsafe {
+            typedarray_badge(__torajs_typedarray_kind(crate::nanbox::box_void_ptr(ptr)))
+        },
         t if t == Tag::Undefined as u16 => b"Undefined",
         // RFC 20260716 刀 2 — primitive-wrapper cells classify by what
         // they wrap.
@@ -371,6 +379,26 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
                 b"Object"
             }
         }
+        _ => b"Object",
+    }
+}
+
+/// §23.2.3.32 — the eleven `[[TypedArrayName]]`s, in the
+/// `torajs_buffer::typedarray::Kind` discriminant order (wire
+/// format; the substrate's `name()` is the same table on its side).
+fn typedarray_badge(kind: i64) -> &'static [u8] {
+    match kind {
+        0 => b"Int8Array",
+        1 => b"Uint8Array",
+        2 => b"Uint8ClampedArray",
+        3 => b"Int16Array",
+        4 => b"Uint16Array",
+        5 => b"Int32Array",
+        6 => b"Uint32Array",
+        7 => b"Float32Array",
+        8 => b"Float64Array",
+        9 => b"BigInt64Array",
+        10 => b"BigUint64Array",
         _ => b"Object",
     }
 }

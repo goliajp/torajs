@@ -1499,6 +1499,7 @@ dependencies = [
  "torajs-anyvalue",
  "torajs-arr",
  "torajs-bigint",
+ "torajs-buffer",
  "torajs-capture-box",
  "torajs-collections",
  "torajs-cycle",

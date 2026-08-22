@@ -80,6 +80,13 @@ pub(crate) fn try_lower(
         // the any-lane kernels, and a `Type::` variant would be a
         // performance claim rather than a correctness one.
         "ArrayBuffer" => Some(lower_arraybuffer(ctx, args)),
+        // RFC 20260823-typedarray-substrate 刀 2 — the eleven §23.2
+        // constructors share one kernel, keyed by the element-kind
+        // discriminant the NAME resolves to at compile time.
+        n if crate::ssa_lower_call_typedarray::kind_of_name(n).is_some() => {
+            let kind = crate::ssa_lower_call_typedarray::kind_of_name(n).unwrap();
+            Some(crate::ssa_lower_call_typedarray::lower(ctx, kind, args))
+        }
         _ => None,
     }
 }

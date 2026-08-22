@@ -36,6 +36,9 @@ use torajs_rc::Tag;
 const WRAPPER_PROPS_OFF: usize = 16;
 
 unsafe extern "C" {
+    /// torajs-buffer — §10.4.5.4 element read; out of range answers
+    /// `undefined` and does not continue up the chain.
+    fn __torajs_typedarray_index_get(recv: AnyValue, index: f64) -> AnyValue;
     /// torajs-str — `s[idx]` (Str or Substr); NULL = OOB.
     fn __torajs_str_index_get(s: *mut u8, idx: i64) -> *mut u8;
     /// torajs-arr — kind-aware `arr[idx]`; returns a balanced
@@ -134,6 +137,13 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     }
     if tag == Tag::Str as u16 {
         return unsafe { index_str_cell(ptr as *mut u8, idx) };
+    }
+    // §10.4.5.4 — an integer-indexed exotic object. An index that
+    // is out of range answers `undefined` WITHOUT walking the
+    // prototype chain, which is the whole difference between this
+    // and an object with numeric keys.
+    if tag == Tag::TypedArray as u16 {
+        return unsafe { __torajs_typedarray_index_get(recv, idx as f64) };
     }
     if tag == Tag::Arr as u16 {
         return unsafe { __torajs_arr_index_get(ptr, idx) };

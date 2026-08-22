@@ -39,6 +39,7 @@
 //!   from composite walkers.
 
 pub mod any;
+pub mod buffer_print;
 pub mod formatters;
 pub mod line_est;
 pub mod tag_dispatch;

@@ -109,6 +109,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: ArrayBuffer ctor sibling miss");
         }
+        // RFC 20260823-typedarray-substrate 刀 2 — the eleven §23.2
+        // constructors.
+        Expr::New {
+            class_name, args, ..
+        } if crate::ssa_lower_call_typedarray::kind_of_name(class_name).is_some() => {
+            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: TypedArray ctor sibling miss");
+        }
         // Number literals coerce to i64 — type inference lifts them to
         // f64 once we wire numeric-mode detection into the lowerer.
         Expr::Number(n) => {

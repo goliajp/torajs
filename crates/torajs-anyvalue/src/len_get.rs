@@ -23,6 +23,8 @@ use crate::nanbox::{
 use torajs_rc::Tag;
 
 unsafe extern "C" {
+    /// torajs-buffer — §23.2.3.18 `get %TypedArray%.prototype.length`.
+    fn __torajs_typedarray_length(recv: AnyValue) -> i64;
     /// torajs-fnname — registry walk (chunk 716); NULL = miss. The
     /// `.length` arm reads the arity out param off a fn-decl entry.
     fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
@@ -143,6 +145,11 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         }
         if let Some(inner) = crate::wrapper_view_through::resolve_inner_recv(ptr, tag) {
             return __torajs_any_length_get(inner);
+        }
+        // §23.2.3.18 — re-derived every read, because a
+        // length-tracking view has no stored length at all.
+        if tag == Tag::TypedArray as u16 {
+            return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_typedarray_length(recv));
         }
         if tag == Tag::Arr as u16 {
             let n = *(ptr.cast::<u8>().add(MIRROR_ARR_LEN_OFF) as *const u64);

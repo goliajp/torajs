@@ -60,6 +60,7 @@ pub mod shift;
 pub mod str_bridge;
 pub mod to_number;
 pub mod tostring;
+pub mod wrap64;
 
 pub use arith::{__torajs_bigint_add, __torajs_bigint_sub};
 pub use asintn::{__torajs_bigint_as_int_n, __torajs_bigint_as_uint_n};

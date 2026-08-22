@@ -386,6 +386,7 @@ pub(crate) mod ssa_lower_call_symbol_registry;
 pub(crate) mod ssa_lower_call_template_object;
 pub(crate) mod ssa_lower_call_terminal;
 pub(crate) mod ssa_lower_call_terminal_headless;
+pub(crate) mod ssa_lower_call_typedarray;
 pub(crate) mod ssa_lower_call_uncallable;
 pub(crate) mod ssa_lower_call_universal_methods;
 pub(crate) mod ssa_lower_call_vtable_dispatch;

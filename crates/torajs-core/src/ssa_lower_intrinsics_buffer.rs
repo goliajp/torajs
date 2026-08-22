@@ -15,6 +15,8 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct BufferIds {
     pub arraybuffer_create: FuncId,
     pub arraybuffer_is_view: FuncId,
+    pub typedarray_create: FuncId,
+    pub typedarray_is_kind: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> BufferIds {
@@ -38,6 +40,25 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arraybuffer_is_view",
             &[Type::Any],
             Type::I64,
+        ),
+        // (kind discriminant, then three borrowed Any slots) → owned
+        // TypedArray Any. The name resolved to the discriminant at
+        // compile time, so the runtime never parses one.
+        typedarray_create: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_typedarray_create",
+            &[Type::I64, Type::Any, Type::Any, Type::Any],
+            Type::Any,
+        ),
+        // The eleven share one heap tag, so `instanceof` asks about
+        // the element kind rather than the tag.
+        typedarray_is_kind: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_typedarray_is_kind",
+            &[Type::Any, Type::I64],
+            Type::Bool,
         ),
     }
 }
