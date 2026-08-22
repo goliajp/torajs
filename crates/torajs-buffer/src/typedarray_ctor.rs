@@ -96,16 +96,10 @@ pub unsafe extern "C" fn __torajs_typedarray_create(
     if is_arraybuffer(a0) {
         return unsafe { from_buffer(kind, a0, a1, a2) };
     }
-    if torajs_anyvalue::nanbox::is_cell(a0) {
+    if crate::typedarray::is_object_value(a0) {
         // §23.2.5.1 steps 5.b-5.d — another typed array, an
-        // iterable, or an array-like. 刀 3; a loud reject beats a
-        // half-built one that answers zeros.
-        unsafe {
-            __torajs_throw_type_error(
-                c"TypedArray construction from an object is not yet supported".as_ptr(),
-            )
-        };
-        return VALUE_UNDEFINED;
+        // iterable, or an array-like.
+        return unsafe { crate::typedarray_from::from_object(kind, a0) };
     }
     unsafe { from_length(kind, a0) }
 }

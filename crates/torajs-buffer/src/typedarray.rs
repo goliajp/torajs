@@ -125,6 +125,19 @@ impl Kind {
     }
 }
 
+/// §7.1 — is `av` an Object? Three heap tags are PRIMITIVES that
+/// happen to live on the heap (a long string, a BigInt, a Symbol),
+/// and `is_cell` alone would send `new Uint8Array("ab")` down the
+/// object path instead of `ToIndex("ab")`, which is 0.
+#[inline]
+pub fn is_object_value(av: AnyValue) -> bool {
+    if !is_cell(av) {
+        return false;
+    }
+    let tag = unsafe { as_void_ptr(av).cast::<u8>().add(4).cast::<u16>().read() };
+    tag != Tag::Str as u16 && tag != Tag::BigInt as u16 && tag != Tag::Symbol as u16
+}
+
 /// Is `av` a TypedArray cell? Answers on the heap tag alone.
 #[inline]
 pub fn is_typedarray(av: AnyValue) -> bool {
