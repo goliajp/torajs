@@ -34,7 +34,8 @@ use alloc::format;
 use alloc::string::String;
 
 use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use torajs_rc::HeapHeader;
 
 const ANY_HEAP: i64 = 4;
 
@@ -69,10 +70,10 @@ pub(super) fn json_throw(msg: &str, pos: i64) {
     unsafe { __torajs_throw_set(ANY_HEAP, err as i64) };
 }
 
-/// Advance `*pos` past JSON whitespace bytes (` `, `\t`, `\n`, `\r`).
-pub(super) fn json_skip_ws(data: &[u8], pos: &mut i64) {
+/// Advance `*pos` past JSON whitespace (` `, `\t`, `\n`, `\r`).
+pub(super) fn json_skip_ws(data: &JsonSrc, pos: &mut i64) {
     while (*pos as usize) < data.len() {
-        let c = data[*pos as usize];
+        let c = data.ascii(*pos as usize);
         if c == b' ' || c == b'\t' || c == b'\n' || c == b'\r' {
             *pos += 1;
         } else {
@@ -81,11 +82,90 @@ pub(super) fn json_skip_ws(data: &[u8], pos: &mut i64) {
     }
 }
 
-/// Reborrow a Str pointer's payload as `(data: &[u8], len: usize)`.
+/// The source text of one `JSON.parse`, addressed by **code unit**.
+///
+/// The JSON grammar is defined over code units and every unit that
+/// shapes it — braces, brackets, commas, colons, quotes, digits,
+/// the three keywords, whitespace — is ASCII. So the parser indexes
+/// units and compares them against byte constants; a unit above
+/// ASCII matches none of them and only ever reaches string content.
+///
+/// Post-P11.1-S2 a Str payload is Latin-1 (one byte per unit) or
+/// UTF-16 LE (two), with `length` counting units either way. Reading
+/// `length` bytes and calling them the text was right only for the
+/// first: a UTF-16 source handed the parser half its own payload,
+/// and `JSON.parse(JSON.stringify(["中"]))` threw SyntaxError on the
+/// opening bracket.
+pub(super) struct JsonSrc {
+    base: *const u8,
+    len: usize,
+    latin1: bool,
+}
+
+impl JsonSrc {
+    /// Code units in the source.
+    #[inline]
+    pub(super) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the payload is one byte per unit — the numeric-token
+    /// path borrows the bytes directly when it is.
+    #[inline]
+    pub(super) fn is_latin1(&self) -> bool {
+        self.latin1
+    }
+
+    /// First payload byte, for the borrow above.
+    #[inline]
+    pub(super) fn base(&self) -> *const u8 {
+        self.base
+    }
+
+    /// The code unit at `i`. Callers keep `i < len()`.
+    #[inline]
+    pub(super) fn unit(&self, i: usize) -> u16 {
+        debug_assert!(i < self.len);
+        unsafe {
+            if self.latin1 {
+                *self.base.add(i) as u16
+            } else {
+                u16::from_le_bytes([*self.base.add(i * 2), *self.base.add(i * 2 + 1)])
+            }
+        }
+    }
+
+    /// The unit at `i` when it is ASCII, else `0`. Every caller of
+    /// this compares against a token byte, and NUL is not one: a raw
+    /// NUL is a control character JSON forbids unescaped, and an
+    /// escaped one arrives as `\u0000` through the string parser,
+    /// which reads units rather than this.
+    #[inline]
+    pub(super) fn ascii(&self, i: usize) -> u8 {
+        let u = self.unit(i);
+        if u < 0x80 { u as u8 } else { 0 }
+    }
+
+    /// Whether the units from `i` spell the ASCII `kw`.
+    pub(super) fn keyword(&self, i: usize, kw: &[u8]) -> bool {
+        i + kw.len() <= self.len && kw.iter().enumerate().all(|(k, &b)| self.ascii(i + k) == b)
+    }
+}
+
+/// View a Str pointer's payload as JSON source.
+///
+/// # Safety
+///
+/// `str_ptr` must be a live Str heap block; the view borrows it and
+/// must not outlive the parse.
 #[inline]
-pub(super) unsafe fn str_payload(str_ptr: *const u8) -> &'static [u8] {
-    let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize;
-    unsafe { core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), len) }
+pub(super) unsafe fn json_src(str_ptr: *const u8) -> JsonSrc {
+    let latin1 = unsafe { (*(str_ptr as *const HeapHeader)).flags & STR_FLAG_IS_LATIN1 != 0 };
+    JsonSrc {
+        base: unsafe { str_ptr.add(STR_DATA_OFF) },
+        len: unsafe { (str_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize,
+        latin1,
+    }
 }
 
 // ============================================================
@@ -96,10 +176,10 @@ pub(super) unsafe fn str_payload(str_ptr: *const u8) -> &'static [u8] {
 /// Consume the next non-ws byte if it equals `want`; throw otherwise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_eat_char(str_ptr: *const u8, pos: *mut i64, want: i64) {
-    let data = unsafe { str_payload(str_ptr) };
+    let data = unsafe { json_src(str_ptr) };
     let p = unsafe { &mut *pos };
-    json_skip_ws(data, p);
-    if (*p as usize) >= data.len() || data[*p as usize] != want as u8 {
+    json_skip_ws(&data, p);
+    if (*p as usize) >= data.len() || data.ascii(*p as usize) != want as u8 {
         let msg = format!("JSON.parse: expected '{}'", want as u8 as char);
         json_throw(&msg, *p);
         return;
@@ -111,16 +191,16 @@ pub unsafe extern "C" fn __torajs_json_eat_char(str_ptr: *const u8, pos: *mut i6
 /// on anything else.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_parse_bool(str_ptr: *const u8, pos: *mut i64) -> i64 {
-    let data = unsafe { str_payload(str_ptr) };
+    let data = unsafe { json_src(str_ptr) };
     let p = unsafe { &mut *pos };
-    json_skip_ws(data, p);
+    json_skip_ws(&data, p);
     let start = *p;
     let s = *p as usize;
-    if s + 4 <= data.len() && &data[s..s + 4] == b"true" {
+    if data.keyword(s, b"true") {
         *p += 4;
         return 1;
     }
-    if s + 5 <= data.len() && &data[s..s + 5] == b"false" {
+    if data.keyword(s, b"false") {
         *p += 5;
         return 0;
     }
@@ -136,14 +216,14 @@ pub unsafe extern "C" fn __torajs_json_arr_step(
     pos: *mut i64,
     terminator: i64,
 ) -> i64 {
-    let data = unsafe { str_payload(str_ptr) };
+    let data = unsafe { json_src(str_ptr) };
     let p = unsafe { &mut *pos };
-    json_skip_ws(data, p);
+    json_skip_ws(&data, p);
     if (*p as usize) >= data.len() {
         json_throw("JSON.parse: unexpected end-of-input", *p);
         return -1;
     }
-    let c = data[*p as usize];
+    let c = data.ascii(*p as usize);
     if c == b',' {
         *p += 1;
         return 1;
@@ -166,14 +246,14 @@ pub unsafe extern "C" fn __torajs_json_arr_first(
     pos: *mut i64,
     terminator: i64,
 ) -> i64 {
-    let data = unsafe { str_payload(str_ptr) };
+    let data = unsafe { json_src(str_ptr) };
     let p = unsafe { &mut *pos };
-    json_skip_ws(data, p);
+    json_skip_ws(&data, p);
     if (*p as usize) >= data.len() {
         json_throw("JSON.parse: unexpected end-of-input", *p);
         return -1;
     }
-    if data[*p as usize] == terminator as u8 {
+    if data.ascii(*p as usize) == terminator as u8 {
         *p += 1;
         return 0;
     }

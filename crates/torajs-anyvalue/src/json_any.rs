@@ -23,9 +23,11 @@
 
 use core::ffi::c_void;
 
+use crate::compare::STR_FLAG_IS_LATIN1;
 use crate::member_set::{STR_DATA_OFF, STR_LEN_OFF};
 use crate::nanbox::{AnyValue, VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFINED};
 use crate::nanbox_encode::{__torajs_anyv_box_f64, __torajs_anyv_box_from_pair};
+use torajs_rc::HeapHeader;
 
 /// `nanbox_encode` pair-encoding heap tag (0=Null 1=Bool 2=I64 3=F64
 /// 4=Heap 5=Undef).
@@ -80,8 +82,8 @@ pub unsafe extern "C" fn __torajs_json_parse_any(text: AnyValue) -> AnyValue {
         }
         // A complete JSON text has nothing but whitespace after the
         // value (`ECMA-404`); `{"a":1} x` must throw.
-        let data = str_bytes(s.cast::<u8>());
-        skip_ws(data, &mut pos);
+        let data = str_units(s.cast::<u8>());
+        skip_ws(&data, &mut pos);
         if (pos as usize) < data.len() {
             __torajs_throw_syntax_error(c"JSON.parse: unexpected trailing characters".as_ptr());
             release(v);
@@ -93,17 +95,71 @@ pub unsafe extern "C" fn __torajs_json_parse_any(text: AnyValue) -> AnyValue {
     }
 }
 
-unsafe fn str_bytes(str_ptr: *const u8) -> &'static [u8] {
-    unsafe {
-        let len = (str_ptr.add(STR_LEN_OFF) as *const u32).read() as usize;
-        core::slice::from_raw_parts(str_ptr.add(STR_DATA_OFF), len)
+/// The JSON text addressed by **code unit**, which is what the
+/// grammar is written over. Every unit that shapes it is ASCII, so
+/// this view answers "the ASCII unit at `i`" and lets everything
+/// else — string content — reach the token helper untouched.
+///
+/// Post-P11.1-S2 a Str payload is Latin-1 (one byte per unit) or
+/// UTF-16 LE (two), with `length` counting units either way. Reading
+/// `length` bytes and calling them the text handed a UTF-16 source
+/// half of its own payload: `JSON.parse(JSON.stringify(["中"]))`
+/// threw SyntaxError on the opening bracket.
+struct JsonUnits {
+    base: *const u8,
+    len: usize,
+    latin1: bool,
+}
+
+impl JsonUnits {
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    /// The unit at `i` when it is in range and ASCII. `None` covers
+    /// both "past the end" and "not a byte any token is made of".
+    #[inline]
+    fn ascii(&self, i: usize) -> Option<u8> {
+        if i >= self.len {
+            return None;
+        }
+        let u = unsafe {
+            if self.latin1 {
+                *self.base.add(i) as u16
+            } else {
+                u16::from_le_bytes([*self.base.add(i * 2), *self.base.add(i * 2 + 1)])
+            }
+        };
+        if u < 0x80 { Some(u as u8) } else { None }
+    }
+
+    /// Whether the units from `i` spell the ASCII `kw`.
+    fn keyword(&self, i: usize, kw: &[u8]) -> bool {
+        kw.iter()
+            .enumerate()
+            .all(|(k, &b)| self.ascii(i + k) == Some(b))
     }
 }
 
-fn skip_ws(data: &[u8], pos: &mut i64) {
+/// View a Str pointer's payload as JSON text.
+///
+/// # Safety
+/// `str_ptr` must be a live Str heap block outliving the view.
+unsafe fn str_units(str_ptr: *const u8) -> JsonUnits {
+    unsafe {
+        JsonUnits {
+            base: str_ptr.add(STR_DATA_OFF),
+            len: (str_ptr.add(STR_LEN_OFF) as *const u32).read() as usize,
+            latin1: (*(str_ptr as *const HeapHeader)).flags & STR_FLAG_IS_LATIN1 != 0,
+        }
+    }
+}
+
+fn skip_ws(data: &JsonUnits, pos: &mut i64) {
     while (*pos as usize) < data.len() {
-        match data[*pos as usize] {
-            b' ' | b'\t' | b'\n' | b'\r' => *pos += 1,
+        match data.ascii(*pos as usize) {
+            Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') => *pos += 1,
             _ => break,
         }
     }
@@ -124,13 +180,13 @@ unsafe fn parse_value(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValue
             __torajs_throw_syntax_error(c"JSON.parse: structure too deep".as_ptr());
             return VALUE_UNDEFINED;
         }
-        let data = str_bytes(str_ptr);
-        skip_ws(data, pos);
-        let Some(&c) = data.get(*pos as usize) else {
+        let data = str_units(str_ptr);
+        skip_ws(&data, pos);
+        if *pos as usize >= data.len() {
             __torajs_throw_syntax_error(c"JSON.parse: unexpected end of input".as_ptr());
             return VALUE_UNDEFINED;
-        };
-        match c {
+        }
+        match data.ascii(*pos as usize).unwrap_or(0) {
             b'{' => parse_object(str_ptr, pos, depth),
             b'[' => parse_array(str_ptr, pos, depth),
             b'"' => {
@@ -142,10 +198,10 @@ unsafe fn parse_value(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValue
                 __torajs_anyv_box_from_pair(ANY_HEAP as i64, cell as i64)
             }
             b't' | b'f' => {
-                if data[*pos as usize..].starts_with(b"true") {
+                if data.keyword(*pos as usize, b"true") {
                     *pos += 4;
                     VALUE_TRUE
-                } else if data[*pos as usize..].starts_with(b"false") {
+                } else if data.keyword(*pos as usize, b"false") {
                     *pos += 5;
                     VALUE_FALSE
                 } else {
@@ -154,7 +210,7 @@ unsafe fn parse_value(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValue
                 }
             }
             b'n' => {
-                if data[*pos as usize..].starts_with(b"null") {
+                if data.keyword(*pos as usize, b"null") {
                     *pos += 4;
                     VALUE_NULL
                 } else {
@@ -181,9 +237,9 @@ unsafe fn parse_array(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValue
     unsafe {
         *pos += 1; // consume '['
         let mut arr = __torajs_arr_alloc_any(0) as *mut c_void;
-        let data = str_bytes(str_ptr);
-        skip_ws(data, pos);
-        if data.get(*pos as usize) == Some(&b']') {
+        let data = str_units(str_ptr);
+        skip_ws(&data, pos);
+        if data.ascii(*pos as usize) == Some(b']') {
             *pos += 1;
             return __torajs_anyv_box_from_pair(ANY_HEAP as i64, arr as i64);
         }
@@ -198,11 +254,11 @@ unsafe fn parse_array(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValue
                 crate::__torajs_anyv_unbox_value(elem),
             );
             arr = __torajs_arr_push_any(arr, t as u64, p as u64) as *mut c_void;
-            let data = str_bytes(str_ptr);
-            skip_ws(data, pos);
-            match data.get(*pos as usize) {
-                Some(&b',') => *pos += 1,
-                Some(&b']') => {
+            let data = str_units(str_ptr);
+            skip_ws(&data, pos);
+            match data.ascii(*pos as usize) {
+                Some(b',') => *pos += 1,
+                Some(b']') => {
                     *pos += 1;
                     return __torajs_anyv_box_from_pair(ANY_HEAP as i64, arr as i64);
                 }
@@ -220,16 +276,16 @@ unsafe fn parse_object(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValu
     unsafe {
         *pos += 1; // consume '{'
         let mut obj = __torajs_dynobj_alloc();
-        let data = str_bytes(str_ptr);
-        skip_ws(data, pos);
-        if data.get(*pos as usize) == Some(&b'}') {
+        let data = str_units(str_ptr);
+        skip_ws(&data, pos);
+        if data.ascii(*pos as usize) == Some(b'}') {
             *pos += 1;
             return __torajs_anyv_box_from_pair(ANY_HEAP as i64, obj as i64);
         }
         loop {
-            let data = str_bytes(str_ptr);
-            skip_ws(data, pos);
-            if data.get(*pos as usize) != Some(&b'"') {
+            let data = str_units(str_ptr);
+            skip_ws(&data, pos);
+            if data.ascii(*pos as usize) != Some(b'"') {
                 __torajs_throw_syntax_error(c"JSON.parse: expected string key".as_ptr());
                 release(__torajs_anyv_box_from_pair(ANY_HEAP as i64, obj as i64));
                 return VALUE_UNDEFINED;
@@ -240,9 +296,9 @@ unsafe fn parse_object(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValu
                 release(__torajs_anyv_box_from_pair(ANY_HEAP as i64, obj as i64));
                 return VALUE_UNDEFINED;
             }
-            let data = str_bytes(str_ptr);
-            skip_ws(data, pos);
-            if data.get(*pos as usize) != Some(&b':') {
+            let data = str_units(str_ptr);
+            skip_ws(&data, pos);
+            if data.ascii(*pos as usize) != Some(b':') {
                 __torajs_throw_syntax_error(c"JSON.parse: expected ':'".as_ptr());
                 __torajs_str_drop(key.cast());
                 release(__torajs_anyv_box_from_pair(ANY_HEAP as i64, obj as i64));
@@ -263,11 +319,11 @@ unsafe fn parse_object(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValu
             // overwrite drops the earlier value inside dynobj_set).
             __torajs_dynobj_set(&mut obj, key.cast(), t as u64, p as u64);
             __torajs_str_drop(key.cast());
-            let data = str_bytes(str_ptr);
-            skip_ws(data, pos);
-            match data.get(*pos as usize) {
-                Some(&b',') => *pos += 1,
-                Some(&b'}') => {
+            let data = str_units(str_ptr);
+            skip_ws(&data, pos);
+            match data.ascii(*pos as usize) {
+                Some(b',') => *pos += 1,
+                Some(b'}') => {
                     *pos += 1;
                     return __torajs_anyv_box_from_pair(ANY_HEAP as i64, obj as i64);
                 }

@@ -1,6 +1,6 @@
 //! `JSON.parse` floating-point literal parser.
 
-use super::{json_skip_ws, json_throw, str_payload};
+use super::{json_skip_ws, json_src, json_throw};
 
 unsafe extern "C" {
     // v0.7-A4 Step 15-e: 0-libc string → f64 parser. Replaces
@@ -18,33 +18,33 @@ unsafe extern "C" {
 /// `str_ptr` valid Str heap block; `pos` writable i64.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_parse_float(str_ptr: *const u8, pos: *mut i64) -> f64 {
-    let data = unsafe { str_payload(str_ptr) };
+    let data = unsafe { json_src(str_ptr) };
     let p = unsafe { &mut *pos };
-    json_skip_ws(data, p);
+    json_skip_ws(&data, p);
     let start = *p as usize;
     let mut end = start;
-    if end < data.len() && data[end] == b'-' {
+    if end < data.len() && data.ascii(end) == b'-' {
         end += 1;
     }
-    while end < data.len() && data[end].is_ascii_digit() {
+    while end < data.len() && data.ascii(end).is_ascii_digit() {
         end += 1;
     }
-    if end < data.len() && data[end] == b'.' {
+    if end < data.len() && data.ascii(end) == b'.' {
         end += 1;
-        while end < data.len() && data[end].is_ascii_digit() {
+        while end < data.len() && data.ascii(end).is_ascii_digit() {
             end += 1;
         }
     }
-    if end < data.len() && (data[end] == b'e' || data[end] == b'E') {
+    if end < data.len() && (data.ascii(end) == b'e' || data.ascii(end) == b'E') {
         end += 1;
-        if end < data.len() && (data[end] == b'+' || data[end] == b'-') {
+        if end < data.len() && (data.ascii(end) == b'+' || data.ascii(end) == b'-') {
             end += 1;
         }
-        while end < data.len() && data[end].is_ascii_digit() {
+        while end < data.len() && data.ascii(end).is_ascii_digit() {
             end += 1;
         }
     }
-    let bare_minus = end == start + 1 && data[start] == b'-';
+    let bare_minus = end == start + 1 && data.ascii(start) == b'-';
     if end == start || bare_minus {
         json_throw("JSON.parse: expected number digits", start as i64);
         return 0.0;
@@ -55,5 +55,16 @@ pub unsafe extern "C" fn __torajs_json_parse_float(str_ptr: *const u8, pos: *mut
     let span_len = end - start;
     *p = end as i64;
     let mut endp_ignored: usize = 0;
-    unsafe { __torajs_fmt_atod(data.as_ptr().add(start), span_len, &mut endp_ignored) }
+    if data.is_latin1() {
+        // One byte per unit, so the span already reads as the ASCII
+        // digits it is — hand `atod` the payload directly.
+        return unsafe { __torajs_fmt_atod(data.base().add(start), span_len, &mut endp_ignored) };
+    }
+    // UTF-16 payload: the digits are two bytes apiece there. Gather
+    // the span's low halves, which is what a numeric token can hold.
+    let mut span = alloc::vec::Vec::with_capacity(span_len);
+    for i in start..end {
+        span.push(data.ascii(i));
+    }
+    unsafe { __torajs_fmt_atod(span.as_ptr(), span_len, &mut endp_ignored) }
 }

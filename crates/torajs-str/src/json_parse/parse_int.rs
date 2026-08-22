@@ -1,6 +1,6 @@
 //! `JSON.parse` integer-literal parser.
 
-use super::{json_skip_ws, json_throw, str_payload};
+use super::{json_skip_ws, json_src, json_throw};
 
 /// Parse a JSON integer literal (`-?[0-9]+`). Throws on missing
 /// digits.
@@ -10,19 +10,19 @@ use super::{json_skip_ws, json_throw, str_payload};
 /// (the per-parse cursor alloca'd by the recursive-descent caller).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_parse_int(str_ptr: *const u8, pos: *mut i64) -> i64 {
-    let data = unsafe { str_payload(str_ptr) };
+    let data = unsafe { json_src(str_ptr) };
     let p = unsafe { &mut *pos };
-    json_skip_ws(data, p);
+    json_skip_ws(&data, p);
     let start = *p;
     let mut neg = false;
-    if (*p as usize) < data.len() && data[*p as usize] == b'-' {
+    if (*p as usize) < data.len() && data.ascii(*p as usize) == b'-' {
         neg = true;
         *p += 1;
     }
     let digits_start = *p;
     let mut value: i64 = 0;
     while (*p as usize) < data.len() {
-        let c = data[*p as usize];
+        let c = data.ascii(*p as usize);
         if !c.is_ascii_digit() {
             break;
         }
