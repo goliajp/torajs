@@ -8,9 +8,21 @@
 //! - escapes inside the class (`\n`/`\t`/`\xHH`/`\d`/`\w`/`\s`/`\p{}`),
 //! - the leading `^` for negation,
 //! - the special empty form `[]` / `[^]`.
+//!
+//! Members are **code points**, not pattern bytes. A class reads its
+//! literals by decoding one UTF-8 code point at a time and files
+//! anything past U+00FF in [`CharClass::owned_ranges`], the same
+//! place the v-flag set parser puts its ranges — which is why
+//! `test_cp` and the chunk-10d expansion already know what to do
+//! with them. Reading a byte instead made `[キク]` the six bytes of
+//! its own UTF-8 encoding, so it matched none of them and, without
+//! the u flag, a one-byte match through the middle of a character
+//! took the string layer down with it.
 
 use super::{Parser, apply_property_name, unicode_mode};
 use crate::node::{Node, NodeKind};
+use crate::ucd::UPropRange;
+use crate::utf8::utf8_decode_cp;
 use alloc::boxed::Box;
 
 impl<'p> Parser<'p> {
@@ -76,9 +88,9 @@ impl<'p> Parser<'p> {
                     self.set_err();
                     return None;
                 }
-                n.cc.add_range(first, hi);
+                add_cp_range(&mut n, first, hi);
             } else {
-                n.cc.add(first);
+                add_cp_range(&mut n, first, first);
             }
         }
         self.get(); // consume `]`
@@ -128,8 +140,20 @@ impl<'p> Parser<'p> {
             let c = self.read_class_escape_char(e)?;
             Some(ClassItem::Char(c))
         } else {
-            Some(ClassItem::Char(self.get()))
+            Some(ClassItem::Char(self.read_class_literal_cp()))
         }
+    }
+
+    /// One literal class member — a full UTF-8 code point, so a
+    /// multi-byte character is one member rather than a set of its
+    /// own encoding bytes.
+    fn read_class_literal_cp(&mut self) -> u32 {
+        let (cp, len) = utf8_decode_cp(&self.p[self.i..]);
+        // A malformed byte decodes as itself with length 1, which is
+        // the pre-existing byte behaviour and keeps `[\xE9]`-style
+        // raw patterns doing what they did.
+        self.i += len.max(1);
+        cp as u32
     }
 
     /// Shared escape-char reader for both class items and class-range
@@ -140,20 +164,25 @@ impl<'p> Parser<'p> {
     /// `\NN` / `\NNN`, first digit 0-3 up to 3 octal digits, 4-7 up to
     /// 2). Anything else falls through as literal byte `e` (annexB
     /// IdentityEscape).
-    fn read_class_escape_char(&mut self, e: u8) -> Option<u8> {
+    fn read_class_escape_char(&mut self, e: u8) -> Option<u32> {
         match e {
-            b'n' => Some(b'\n'),
-            b't' => Some(b'\t'),
-            b'r' => Some(b'\r'),
-            b'f' => Some(0x0C),
-            b'v' => Some(0x0B),
-            b'b' => Some(0x08),
-            b'0' => Some(0),
+            b'n' => Some(u32::from(b'\n')),
+            b't' => Some(u32::from(b'\t')),
+            b'r' => Some(u32::from(b'\r')),
+            b'f' => Some(0x0C_u32),
+            b'v' => Some(0x0B_u32),
+            b'b' => Some(0x08_u32),
+            b'0' => Some(0_u32),
             b'x' => {
-                let h1 = self.read_hex_digit()?;
-                let h2 = self.read_hex_digit()?;
+                let h1 = self.read_hex_digit()? as u32;
+                let h2 = self.read_hex_digit()? as u32;
                 Some((h1 << 4) | h2)
             }
+            // `\uHHHH` is a code point in every mode; the braced
+            // `\u{HHHHHH}` form is Unicode-mode only, and outside it
+            // annexB reads `\u` as the literal `u` (bun answers null
+            // for `/[\u{41}]/` on "A" for exactly that reason).
+            b'u' => self.read_class_u_escape(),
             b'1'..=b'7' if !unicode_mode(self.flags) => {
                 let mut n: u32 = (e - b'0') as u32;
                 let max_more = if e <= b'3' { 2 } else { 1 };
@@ -168,17 +197,61 @@ impl<'p> Parser<'p> {
                         break;
                     }
                 }
-                Some((n & 0xff) as u8)
+                Some(n & 0xff)
             }
-            other => Some(other),
+            other => Some(other as u32),
         }
+    }
+
+    /// `\uHHHH`, plus `\u{HHHHHH}` under u/v. Mirrors the v-flag
+    /// parser's reader; the two differ only in that the braced form
+    /// is unconditional there.
+    fn read_class_u_escape(&mut self) -> Option<u32> {
+        if unicode_mode(self.flags) && !self.eof() && self.peek() == b'{' {
+            self.get();
+            let mut cp: u32 = 0;
+            let mut n = 0;
+            while !self.eof() && self.peek() != b'}' {
+                cp = (cp << 4) | u32::from(self.read_hex_digit()?);
+                n += 1;
+                if n > 6 || cp > 0x10_FFFF {
+                    self.set_err();
+                    return None;
+                }
+            }
+            if !self.match_byte(b'}') || n == 0 {
+                self.set_err();
+                return None;
+            }
+            return Some(cp);
+        }
+        if !unicode_mode(self.flags) && self.remaining_hex_digits() < 4 {
+            // annexB IdentityEscape — `\u` with no four hex digits
+            // behind it is the literal `u`.
+            return Some(u32::from(b'u'));
+        }
+        let mut cp: u32 = 0;
+        for _ in 0..4 {
+            cp = (cp << 4) | u32::from(self.read_hex_digit()?);
+        }
+        Some(cp)
+    }
+
+    /// How many hex digits sit at the cursor, capped at four — the
+    /// lookahead annexB needs to tell `\u0041` from a literal `u`.
+    fn remaining_hex_digits(&self) -> usize {
+        (0..4)
+            .take_while(|k| {
+                self.i + k < self.p.len() && self.byte_at(self.i + k).is_ascii_hexdigit()
+            })
+            .count()
     }
 
     /// `\p{}` inside `[...]` under the u flag. Without the u flag
     /// returns literal `p`. `\P` complement inside class is L3b.
     fn parse_class_property(&mut self, n: &mut Node) -> Option<ClassItem> {
         if !unicode_mode(self.flags) {
-            return Some(ClassItem::Char(b'p'));
+            return Some(ClassItem::Char(u32::from(b'p')));
         }
         if self.eof() || self.peek() != b'{' {
             self.set_err();
@@ -199,7 +272,7 @@ impl<'p> Parser<'p> {
     /// hex and annexB `\NN` legacy octal escapes work as range
     /// endpoints (bun-accept, previously tr rejected → misfired
     /// `SyntaxError` at `ast_desugar_regex_syntax_error`).
-    fn parse_class_range_end(&mut self) -> Option<u8> {
+    fn parse_class_range_end(&mut self) -> Option<u32> {
         if self.peek() == b'\\' {
             self.get();
             if self.eof() {
@@ -218,14 +291,50 @@ impl<'p> Parser<'p> {
             }
             self.read_class_escape_char(e)
         } else {
-            Some(self.get())
+            Some(self.read_class_literal_cp())
         }
     }
 }
 
 enum ClassItem {
-    Char(u8),
+    Char(u32),
     ContinueLoop,
+}
+
+/// File one code point range on the class: the U+0000..U+00FF part
+/// in the bitmap, the rest in `owned_ranges`, which is the shape
+/// `test_cp` reads and the chunk-10d expansion re-encodes. Ranges
+/// land sorted and disjoint, as the binary search there requires.
+fn add_cp_range(n: &mut Node, lo: u32, hi: u32) {
+    if lo < 0x100 {
+        for b in lo..=hi.min(0xFF) {
+            n.cc.add(b as u8);
+        }
+    }
+    if hi < 0x100 {
+        return;
+    }
+    let lo = lo.max(0x100) as i32;
+    let hi = hi as i32;
+    let ranges = &mut n.cc.owned_ranges;
+    let at = ranges.partition_point(|r| r.lo < lo);
+    ranges.insert(at, UPropRange { lo, hi });
+    merge_overlaps(ranges);
+}
+
+/// Coalesce the neighbours an insert may have made adjacent or
+/// overlapping. Linear over an already-sorted list.
+fn merge_overlaps(ranges: &mut alloc::vec::Vec<UPropRange>) {
+    let mut w = 0;
+    for r in 1..ranges.len() {
+        if ranges[r].lo <= ranges[w].hi.saturating_add(1) {
+            ranges[w].hi = ranges[w].hi.max(ranges[r].hi);
+        } else {
+            w += 1;
+            ranges[w] = ranges[r];
+        }
+    }
+    ranges.truncate(w + 1);
 }
 
 fn add_complement_digit(n: &mut Node) {
