@@ -67,7 +67,11 @@ fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
             if uflag && node.cc.is_uflag_property_only() {
                 let cidx = prog.intern_class(&node.cc);
                 emit_with_ims(prog, Inst::class_ref(cidx), node);
-            } else if let Some(mut expansion) = expand_unsafe_class(&node.cc, uflag) {
+            } else if let Some(mut expansion) = expand_unsafe_class(
+                &node.cc,
+                uflag,
+                node.eff_ims & crate::parser::RE_FLAG_I != 0,
+            ) {
                 // rev threads through: the expansion is an Alt of
                 // per-length Concats of byte-level ops, and reversing
                 // those Concats makes the reverse VM consume the

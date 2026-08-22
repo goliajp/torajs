@@ -101,7 +101,7 @@ use crate::utf8::utf8_encode_cp;
 ///   verbatim.
 ///
 /// Returns `Some(node)` otherwise.
-pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
+pub fn expand_unsafe_class(cc: &CharClass, uflag: bool, ci: bool) -> Option<Box<Node>> {
     // chunk 10d invariant: never re-expand a class that is itself a
     // leaf produced by this module. byte_only leaves carry non-ASCII
     // byte values (0xC2..0xF4 leading bytes, 0x80..0xBF continuation
@@ -126,7 +126,7 @@ pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
     if byte_steppable(cc, uflag) {
         return None;
     }
-    let ranges = cp_ranges_of(cc);
+    let ranges = cp_ranges_of(cc, ci);
     if ranges.is_empty() {
         return Some(empty_class_node());
     }
@@ -178,14 +178,24 @@ fn byte_steppable(cc: &CharClass, uflag: bool) -> bool {
     uflag || cc.owned_ranges.is_empty()
 }
 
-/// Walk `cc.test_cp(cp)` over the full cp space; return sorted
-/// disjoint inclusive ranges. Surrogate cp (`U+D800..U+DFFF`) are
+/// Walk `cc.test_cp_fold(cp, ci)` over the full cp space; return
+/// sorted disjoint inclusive ranges.
+///
+/// The fold has to happen HERE, before the class-level negate the
+/// walk reads through — ES canonicalizes the input and then asks for
+/// membership, so `/[^ab]/i` rejects `A`. Asking `test_cp` instead
+/// and leaving the fold to match time inverted that: the complement
+/// was built over the raw set, `A` was in it, and the later
+/// `test_fold` had nothing left to reject. Folding first also leaves
+/// the set closed under the ASCII case pair, so that later
+/// `test_fold` is a no-op rather than a second, wrong fold.
+/// Surrogate cp (`U+D800..U+DFFF`) are
 /// skipped — UCD tables don't list them and `bits` only reaches the
 /// first 256 cp, but `cc.negate` could synthesise them via inversion.
 /// Encoding surrogate cp via [`utf8_encode_cp`] produces invalid
 /// UTF-8 that never appears in well-formed haystacks, so dropping
 /// them costs nothing.
-fn cp_ranges_of(cc: &CharClass) -> Vec<(u32, u32)> {
+fn cp_ranges_of(cc: &CharClass, ci: bool) -> Vec<(u32, u32)> {
     let mut out: Vec<(u32, u32)> = Vec::new();
     let mut start: Option<u32> = None;
     let mut cp: u32 = 0;
@@ -197,7 +207,7 @@ fn cp_ranges_of(cc: &CharClass) -> Vec<(u32, u32)> {
             cp = 0xE000;
             continue;
         }
-        if cc.test_cp(cp as i32) {
+        if cc.test_cp_fold(cp as i32, ci) {
             if start.is_none() {
                 start = Some(cp);
             }
@@ -452,8 +462,8 @@ mod tests {
         let mut cc = CharClass::new();
         cc.add(b'a');
         cc.negate = true;
-        assert!(expand_unsafe_class(&cc, false).is_some());
-        assert!(expand_unsafe_class(&cc, true).is_some());
+        assert!(expand_unsafe_class(&cc, false, false).is_some());
+        assert!(expand_unsafe_class(&cc, true, false).is_some());
     }
 
     /// Code points past U+00FF are the one answer that depends on
@@ -467,15 +477,15 @@ mod tests {
             lo: 0x30AD,
             hi: 0x30AF,
         });
-        assert!(expand_unsafe_class(&cc, true).is_none());
-        assert!(expand_unsafe_class(&cc, false).is_some());
+        assert!(expand_unsafe_class(&cc, true, false).is_none());
+        assert!(expand_unsafe_class(&cc, false, false).is_some());
     }
 
     #[test]
     fn no_op_for_uflag_safe_class() {
         let mut cc = CharClass::new();
         cc.add_digit();
-        assert!(expand_unsafe_class(&cc, true).is_none());
+        assert!(expand_unsafe_class(&cc, true, false).is_none());
     }
 
     #[test]
@@ -484,7 +494,7 @@ mod tests {
         let mut cc = CharClass::new();
         cc.add(b'a');
         cc.negate = true;
-        let node = expand_unsafe_class(&cc, true).expect("expansion");
+        let node = expand_unsafe_class(&cc, true, false).expect("expansion");
         // ASCII spot checks
         assert!(!accept_cp(&node, b'a' as u32));
         for cp in [b'b' as u32, b'A' as u32, b'0' as u32, 0u32, 0x7F] {
@@ -517,7 +527,7 @@ mod tests {
         // Sanity: cc.test_cp(0xE6) accepts; cc.test_cp(0xE7) doesn't.
         assert!(cc.test_cp(0xE6));
         assert!(!cc.test_cp(0xE7));
-        let node = expand_unsafe_class(&cc, true).expect("expansion");
+        let node = expand_unsafe_class(&cc, true, false).expect("expansion");
         assert!(accept_cp(&node, 0x00E6));
         assert!(!accept_cp(&node, 0x00E7));
         assert!(!accept_cp(&node, b'a' as u32));
@@ -533,7 +543,7 @@ mod tests {
         let mut neg = CharClass::new();
         neg.add_property_table(crate::ucd::lookup_gc_value("L").unwrap());
         neg.negate = true;
-        assert!(expand_unsafe_class(&neg, true).is_none());
+        assert!(expand_unsafe_class(&neg, true, false).is_none());
         // Sanity: the cp-aware membership the Pike VM consults is the
         // inverted table union.
         for cp in [b'A' as i32, 0x03B1, 0x4E2D] {
@@ -547,20 +557,20 @@ mod tests {
         let mut mixed = CharClass::new();
         mixed.add_property_table(crate::ucd::lookup_gc_value("L").unwrap());
         mixed.bits[24] = 0x01;
-        assert!(expand_unsafe_class(&mixed, true).is_none());
+        assert!(expand_unsafe_class(&mixed, true, false).is_none());
         // Small negated bitmap classes (no tables) keep the chunk-10d
         // expansion path.
         let mut small_neg = CharClass::new();
         small_neg.add(b'a');
         small_neg.negate = true;
-        assert!(expand_unsafe_class(&small_neg, true).is_some());
+        assert!(expand_unsafe_class(&small_neg, true, false).is_some());
     }
 
     #[test]
     fn cp_ranges_skip_surrogate_gap() {
         let mut cc = CharClass::new();
         cc.negate = true;
-        let ranges = cp_ranges_of(&cc);
+        let ranges = cp_ranges_of(&cc, false);
         for &(lo, hi) in &ranges {
             assert!(
                 hi < 0xD800 || lo > 0xDFFF,
@@ -590,7 +600,7 @@ mod tests {
         let mut cc = CharClass::new();
         cc.add(b'A');
         cc.negate = true;
-        let node = expand_unsafe_class(&cc, true).expect("expansion");
+        let node = expand_unsafe_class(&cc, true, false).expect("expansion");
         let cp_set = enumerate_cp_set(&node);
         // Spot-verify ASCII portion: every byte 0..0x7F except 'A'.
         for cp in 0u32..=0x7F {
@@ -605,5 +615,36 @@ mod tests {
         for cp in [0x80u32, 0xA9, 0x7FF] {
             assert!(cp_set.contains(&cp), "2-byte cp 0x{cp:X} missing");
         }
+    }
+
+    /// ES canonicalizes the input and then asks for membership, so a
+    /// negated class under `i` rejects both cases of what it lists.
+    /// Building the complement over the unfolded set let `A` through.
+    #[test]
+    fn negated_class_folds_before_it_complements() {
+        let mut cc = CharClass::new();
+        cc.add(b'a');
+        cc.add(b'b');
+        cc.negate = true;
+        let folded = cp_ranges_of(&cc, true);
+        for cp in [b'a', b'b', b'A', b'B'] {
+            assert!(
+                !folded
+                    .iter()
+                    .any(|&(lo, hi)| (lo..=hi).contains(&(cp as u32))),
+                "0x{cp:02x} should be excluded under i"
+            );
+        }
+        assert!(
+            folded
+                .iter()
+                .any(|&(lo, hi)| (lo..=hi).contains(&(b'c' as u32)))
+        );
+        // Without `i` only the listed pair is excluded.
+        let raw = cp_ranges_of(&cc, false);
+        assert!(
+            raw.iter()
+                .any(|&(lo, hi)| (lo..=hi).contains(&(b'A' as u32)))
+        );
     }
 }
