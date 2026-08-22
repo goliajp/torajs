@@ -32,12 +32,14 @@ pub use super::state::DfaState;
 /// word of 0 still means "dead" and the `packed != 0` liveness test
 /// is unchanged.
 ///
-/// `monotone_accept` implies `is_accept`
-/// ([`super::build_helpers::compute_monotone_accept`] condition 1),
-/// so a self-loop slot inside a monotone run always reads exactly
-/// `state | TX_ACCEPT_BIT | TX_MONOTONE_BIT` — [`run_monotone_accept`]
-/// compares against that precomputed constant, keeping its inner loop
-/// at one load + one compare per byte.
+/// A slot that transitions back into its own state therefore reads a
+/// word known before the run starts — `state | TX_ACCEPT_BIT |
+/// TX_MONOTONE_BIT` on a monotone-accepting state (`monotone_accept`
+/// implies `is_accept`, see
+/// [`super::build_helpers::compute_monotone_accept`] condition 1),
+/// plain `state` on one that does not accept. [`run_self_loop`]
+/// compares against that constant, keeping its inner loop at one load
+/// and one compare per byte.
 ///
 /// The `is_accept` / `monotone_accept` fields stay authoritative for
 /// every cold read (start-state probe, pending-class fallback,
@@ -193,36 +195,42 @@ pub fn dfa_search_mid_nonword(
     dfa_search_from(dfa, prog, hay, dfa.start_mid_nonword)
 }
 
-/// Round 3 Phase B sub-batch 6 attack #R-G — monotone-accept inner
-/// tight loop. When `state.monotone_accept` is set, every
-/// `transitions[b]` either self-loops (still an accepting state by
-/// `compute_monotone_accept` invariant) or exits via a non-self
-/// target (eventually dead). Skip the per-byte
-/// `last_accept = Some(cursor)` store + the `is_accept` check inside
-/// the run — the exit boundary writes `last_accept` once with the
-/// same value. For `/\p{L}+/u` against `'  Hello42 word  '`, this
-/// collapses the 5-byte letter-run's hot path from (load tx + cmp +
-/// cond store last_accept) per byte to (load tx + cmp) per byte,
-/// saving ~2-8 ns/iter.
+/// Consume the run of bytes that all transition back into the state
+/// whose row is `tx`. The row is fixed for the whole run, so the
+/// address of each step's load no longer depends on the previous
+/// step's loaded value — the loop-carried `load -> mask -> multiply
+/// by the 1072-byte state stride -> load` recurrence that paces the
+/// main byte walk collapses to a pipelined load + compare.
 ///
-/// Returns the cursor where the self-loop run ended — either the
-/// first byte whose transition leaves `state` (caller's outer loop
-/// re-dispatches it from the same cursor) or `hay.len()`. Both exits
-/// are accepting positions (`monotone_accept` implies `is_accept`),
-/// so the caller unconditionally records `last_accept` at the
-/// returned cursor.
+/// Every slot inside the run reads one precomputed word. Round 5
+/// attack #9 packs the destination's `is_accept` / `monotone_accept`
+/// into the transition word's top two bits, and the destination here
+/// IS the source, so the whole word is known before the run starts:
+/// `state` for a non-accepting state, `state | TX_ACCEPT_BIT |
+/// TX_MONOTONE_BIT` for a monotone-accepting one.
+///
+/// Returns the cursor where the run ended — either the first byte
+/// whose transition leaves the state (the caller's outer loop
+/// re-dispatches it from that cursor) or `hay.len()`.
+///
+/// Two callers, and what each of them is allowed to skip inside the
+/// run:
+///
+/// - Round 3 Phase B sub-batch 6 attack #R-G — a `monotone_accept`
+///   state. Every position in the run accepts, so the per-byte
+///   `last_accept = cursor` store is redundant with the one the
+///   caller makes at the exit boundary. `/\p{L}+/u` against
+///   `'  Hello42 word  '` rides this on its letter run.
+///
+/// - Rotation 472 — a state that does NOT accept. Nothing in the run
+///   can move `last_accept` at all: the state has no accept bit, and
+///   the caller has checked that it carries no zero-width accept
+///   either. This is the shape `/a.+c/s` spends its search in — the
+///   `.+` state self-loops on every byte but `c`, 16 of the 21 steps
+///   over a 25-byte line, and `monotone_accept` never covered it
+///   because that state is not an accepting one.
 #[inline]
-fn run_monotone_accept(dfa: &DfaProgram, hay: &[u8], state: u32, mut cursor: usize) -> usize {
-    // Round 5 attack #9 — transitions are packed words. A self-loop
-    // slot on a monotone-accept state always reads exactly
-    // `state | TX_ACCEPT_BIT | TX_MONOTONE_BIT` (monotone implies
-    // accept, and the destination IS this state), so one compare
-    // against the precomputed constant keeps the inner loop at
-    // load + cmp per byte — same shape as the pre-#9 `nxt != state`.
-    // Rotation 470 — `state` is fixed for this whole loop, so its row
-    // is taken once rather than re-indexed per byte.
-    let self_packed = state | TX_ACCEPT_BIT | TX_MONOTONE_BIT;
-    let tx = &dfa.states[state as usize].transitions;
+fn run_self_loop(hay: &[u8], tx: &[u32; 256], self_packed: u32, mut cursor: usize) -> usize {
     while cursor < hay.len() {
         if tx[hay[cursor] as usize] != self_packed {
             break;
@@ -230,6 +238,16 @@ fn run_monotone_accept(dfa: &DfaProgram, hay: &[u8], state: u32, mut cursor: usi
         cursor += 1;
     }
     cursor
+}
+
+/// True when no byte at this state carries a zero-width accept, so a
+/// self-loop run may skip the per-byte `accept_before_byte` probe.
+/// Only consulted when the program has any such mask at all — after
+/// rotation 472 that means the pattern really does contain `\b` /
+/// `\B` / multiline-`$`.
+#[inline]
+fn abb_is_empty(mask: &[u32; 8]) -> bool {
+    mask.iter().all(|w| *w == 0)
 }
 
 /// Round 3 Phase B sub-batch 4 attack #R-J v2 + v4 fallback — one
@@ -375,14 +393,38 @@ fn dfa_search_from(
         // non-accept step pays a single untaken branch.
         let packed = st.transitions[byte as usize];
         if packed != 0 {
-            state = packed & TX_STATE_MASK;
             cursor += 1;
             if packed & TX_ACCEPT_BIT != 0 {
+                let next = packed & TX_STATE_MASK;
+                state = next;
                 last_accept = cursor;
                 if packed & TX_MONOTONE_BIT != 0 {
-                    cursor = run_monotone_accept(dfa, hay, state, cursor);
+                    let tx = &states[next as usize].transitions;
+                    cursor = run_self_loop(hay, tx, packed, cursor);
                     last_accept = cursor;
                 }
+                continue;
+            }
+            // No flag bits are set below here, so the word IS the
+            // destination index — the accept-bit mask is only needed
+            // on the branch above.
+            if packed != state {
+                state = packed;
+                continue;
+            }
+            if !any_aab || abb_is_empty(&st.accept_before_byte) {
+                // Rotation 472 — the same run, on a state that does
+                // not accept. `packed` carries no flag bits here
+                // (monotone implies accept), so `packed == state` is
+                // exactly "this byte transitions back into the state
+                // we are already in", and `st` is already the
+                // destination's row. Nothing in the run can move
+                // `last_accept`: the destination does not accept, and
+                // the gate has established it carries no zero-width
+                // accept either. `/a.+c/s` spends 16 of its 21 steps
+                // here — `monotone_accept` never covered them because
+                // the `.+` state is not an accepting one.
+                cursor = run_self_loop(hay, &st.transitions, packed, cursor);
             }
             continue;
         }

@@ -168,6 +168,11 @@ pub(super) fn fold_accept_bits(states: &mut [super::search::DfaState]) {
     // BFS subset construction is bounded far below 2^30 states; the
     // two flag bits must never collide with a real index.
     debug_assert!(states.len() as u64 <= TX_STATE_MASK as u64);
+    // `compute_monotone_accept` condition 1 makes monotone imply
+    // accept. The executor leans on it: a word with the accept bit
+    // clear carries no flag bits at all, so it reads the destination
+    // index straight off the word without masking.
+    debug_assert!(states.iter().all(|s| s.is_accept || !s.monotone_accept));
     let flags: alloc::vec::Vec<u32> = states
         .iter()
         .map(|s| {
