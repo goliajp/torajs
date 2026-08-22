@@ -142,6 +142,17 @@ fn emit_body_and_step(
         Type::I64,
         None,
     );
+    // §23.1.3.{29,6} — `some` and `every` gate the visit on
+    // HasProperty, so a hole is skipped and the predicate never sees
+    // it (`[1, <hole>, 3].some(v => v === undefined)` is false).
+    // `find` / `findLast` / `findIndex` / `findLastIndex` are NOT in
+    // that list: §23.1.3.9 Get's every index, holes included, so they
+    // keep walking straight through. The step block is minted here so
+    // the gate has somewhere to jump.
+    let next_blk = ctx.f.add_block();
+    if method == "some" || method == "every" {
+        ctx.emit_hof_present_gate(src_arr, i_now2, next_blk);
+    }
     // T-13.5: head-aware offset for some/every/findIndex.
     // RFC 20260707 chunk 625 — an Any elem reads through the
     // kind-aware borrowed-box helper (typed-behind-Arr<Any> raw
@@ -252,7 +263,6 @@ fn emit_body_and_step(
         pred_op
     };
     let hit_blk = ctx.f.add_block();
-    let next_blk = ctx.f.add_block();
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {

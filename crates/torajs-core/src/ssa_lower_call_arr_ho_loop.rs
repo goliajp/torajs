@@ -13,7 +13,7 @@ use crate::ssa::{
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 mod methods;
-use methods::{emit_filter, emit_map, emit_reduce};
+use methods::{emit_filter, emit_map, emit_map_hole_block, emit_reduce};
 
 /// Per-loop SSA state shared by `begin_loop` / `emit_per_method_body` /
 /// `end_loop_and_produce`. Copy so callers don't borrow-check ping-pong.
@@ -21,6 +21,10 @@ use methods::{emit_filter, emit_map, emit_reduce};
 pub(crate) struct LoopFrame {
     pub(crate) i_slot: ValueId,
     pub(crate) header_blk: BlockId,
+    /// Where the cursor advances. A block of its own so the §23.1.3
+    /// hole gate has somewhere to jump that skips the visit without
+    /// duplicating the step (`end_loop_and_produce` fills it).
+    pub(crate) step_blk: BlockId,
     pub(crate) after_blk: BlockId,
 }
 
@@ -44,6 +48,7 @@ pub(crate) fn begin_loop(
 ) -> LoopFrame {
     let header_blk = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
+    let step_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
     let i_slot = ctx.alloca(Type::I64, Some("__iter_i"));
     let len = ctx.f.append_inst(
@@ -132,6 +137,7 @@ pub(crate) fn begin_loop(
     LoopFrame {
         i_slot,
         header_blk,
+        step_blk,
         after_blk,
     }
 }
@@ -164,6 +170,30 @@ pub(crate) fn emit_per_method_body(
         Type::I64,
         None,
     );
+    // §23.1.3 — these methods gate the visit on HasProperty, so a
+    // hole is skipped and the callback never sees it.
+    //
+    // `map` alone cannot just step past one: its product has the
+    // source's length, so the skipped index has to arrive in the
+    // destination as a hole of its own (§23.1.3.20 step 6.c leaves it
+    // uncreated) — push the undefined slot and mark it, exactly as the
+    // array-literal elision lowering does. That needs a destination
+    // whose slots can SAY hole, which is the same requirement the
+    // delete side has: only a boxed-element product can. A `map` whose
+    // callback answers a number builds a `number[]`, and marking a
+    // hole in one is the element-kind change the runtime refuses — so
+    // that shape keeps today's answer (the callback runs on the hole)
+    // rather than a shorter product or a corrupt slot. Recorded
+    // boundary; it lifts when a typed product can express absence,
+    // which is the same day the typed `delete` does.
+    let map_hole_blk = if method == "map" {
+        emit_map_hole_block(ctx, dst_slot, dst_arr_ty, frame.step_blk)
+    } else {
+        Some(frame.step_blk)
+    };
+    if let Some(skip_blk) = map_hole_blk {
+        ctx.emit_hof_present_gate(src_arr, i_now2, skip_blk);
+    }
     // T-13.5: head-aware offset for map/filter/reduce src walk.
     // RFC 20260707 chunk 625 — an Any elem reads through the
     // kind-aware borrowed-box helper instead of a raw LoadDyn: a
@@ -381,6 +411,9 @@ pub(crate) fn end_loop_and_produce(
     dst_arr_ty: Type,
     acc_ty: Type,
 ) -> Operand {
+    let cur = ctx.cur_block;
+    ctx.f.set_term(cur, Terminator::Br(frame.step_blk));
+    ctx.cur_block = frame.step_blk;
     let i_then = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(frame.i_slot), 0),

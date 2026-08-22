@@ -5,7 +5,7 @@
 //! / `cb_args` / `emit_undef_any_box` with zero visibility changes.
 
 use super::{cb_args, emit_do_call, emit_undef_any_box};
-use crate::ssa::{FuncId, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{BlockId, FuncId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 #[allow(clippy::too_many_arguments)]
@@ -276,4 +276,62 @@ pub(super) fn emit_reduce(
     if acc_ty.is_refcounted() {
         ctx.emit_drop_value(Operand::Value(acc_now), acc_ty);
     }
+}
+
+/// The block `map` jumps to when §23.1.3.20's HasProperty gate says the
+/// source index is absent: the product has the source's length, so the
+/// skipped index has to arrive as a hole of its own (step 6.c leaves it
+/// uncreated) — push the undefined slot and mark it, exactly as the
+/// array-literal elision lowering does.
+///
+/// `None` = do not gate this `map` at all. Marking a hole needs a
+/// destination whose slots can SAY hole, which is the same requirement
+/// the `delete` side has: only a boxed-element product can. A callback
+/// answering a number builds a `number[]`, and marking a hole in one is
+/// the element-kind change the runtime refuses — so that shape keeps
+/// today's answer (the callback runs on the hole) rather than a shorter
+/// product or a corrupt slot. Recorded boundary; it lifts the day a
+/// typed product can express absence, which is the day the typed
+/// `delete` does.
+pub(super) fn emit_map_hole_block(
+    ctx: &mut LowerCtx<'_>,
+    dst_slot: Option<ValueId>,
+    dst_arr_ty: Type,
+    step_blk: BlockId,
+) -> Option<BlockId> {
+    if !matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::Any) {
+        return None;
+    }
+    let hole_blk = ctx.f.add_block();
+    let saved = ctx.cur_block;
+    ctx.cur_block = hole_blk;
+    let undef = Operand::Value(emit_undef_any_box(ctx));
+    let cur_dst = ctx.f.append_inst(
+        hole_blk,
+        InstKind::Load(
+            dst_arr_ty,
+            Operand::Value(dst_slot.expect("map has a dst")),
+            0,
+        ),
+        dst_arr_ty,
+        None,
+    );
+    let slot_arg = ctx.raw_slot_arg(undef);
+    ctx.f.append_void(
+        hole_blk,
+        InstKind::Call(
+            ctx.intrinsics.arr_push_unchecked,
+            vec![Operand::Value(cur_dst), slot_arg],
+        ),
+    );
+    ctx.f.append_void(
+        hole_blk,
+        InstKind::Call(
+            ctx.intrinsics.arr_mark_last_hole,
+            vec![Operand::Value(cur_dst)],
+        ),
+    );
+    ctx.f.set_term(hole_blk, Terminator::Br(step_blk));
+    ctx.cur_block = saved;
+    Some(hole_blk)
 }
