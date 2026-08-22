@@ -23,7 +23,7 @@
 //! | 12    | [`FLAG_CLOSURE_RECV_FIRST`] (Closure) / [`FLAG_OBJ_EXPANDO`] (Obj) | disjoint-by-tag with Arr kind |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
-//! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] | DynObj (disjoint-by-tag with Closure / Arr) |
+//! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] (DynObj) / `STR_FLAG_HAS_CAPACITY` (torajs-str private, Str) | disjoint-by-tag with Closure / Arr |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
 //! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) / [`FLAG_OBJ_EXOTIC_FIELD`] (Obj) | disjoint-by-tag |
 //!

@@ -120,6 +120,20 @@ pub const STR_POOL_SLOTS: usize = 32;
 /// Promise, ...) don't carry an encoding.
 pub const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 
+/// `flags u16 @6` bit 11 — set when the block owns more payload than
+/// its length accounts for, in which case [`STR_PAD_OFF`] holds the
+/// real byte capacity. Only [`crate::append`]'s grow path sets it.
+///
+/// It lives in the flags word rather than being inferred from a
+/// non-zero capacity slot because `free_pool_aware` has already
+/// loaded flags to test `FLAG_STATIC_LITERAL`; folding the question
+/// into that same test leaves the overwhelmingly common "nothing ever
+/// appended to this cell" path costing exactly what it cost before.
+///
+/// Bit 11 is Tag::Closure / Tag::DynObj territory on other tags —
+/// disjoint by tag, per the occupancy map in `torajs_rc::flags`.
+pub const STR_FLAG_HAS_CAPACITY: u16 = 1 << 11;
+
 /// Packed `u64` representation of a freshly-allocated Str header.
 ///
 /// Byte layout (little-endian, all fields packed into one word):
@@ -319,5 +333,6 @@ mod tests {
         assert_eq!(STR_POOL_PAYLOADS, [16, 32, 64]);
         assert_eq!(STR_POOL_SLOTS, 32);
         assert_eq!(STR_FLAG_IS_LATIN1, 0x0002);
+        assert_eq!(STR_FLAG_HAS_CAPACITY, 0x0800);
     }
 }

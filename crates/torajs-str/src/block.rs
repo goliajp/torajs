@@ -46,8 +46,8 @@ use core::ptr::NonNull;
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::layout::{
-    STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF, STR_PAD_OFF, STR_POOL_PAYLOADS,
-    block_size, byte_capacity, packed_header_init, pool_class_of,
+    STR_DATA_OFF, STR_FLAG_HAS_CAPACITY, STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF,
+    STR_PAD_OFF, STR_POOL_PAYLOADS, block_size, byte_capacity, packed_header_init, pool_class_of,
 };
 use crate::pool;
 
@@ -152,11 +152,8 @@ impl StrBlock {
     /// capacity slot so `free` gives the right size back and the next
     /// append can write into the slack.
     ///
-    /// `cap` must come from [`grow_capacity`] and be at least
-    /// `byte_capacity(length, is_latin1)`. Bypasses the pool: a
-    /// pooled block's payload is its class payload, which is exactly
-    /// the case where `grow_capacity` answers that same number, so
-    /// the caller reaching here wants a size the pool does not hold.
+    /// `cap` must be at least `byte_capacity(length, is_latin1)`;
+    /// [`crate::layout::grow_capacity`] is what produces it.
     ///
     /// # Panics
     ///
@@ -164,31 +161,37 @@ impl StrBlock {
     #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
     pub fn alloc_with_capacity(length: u32, is_latin1: bool, cap: u32) -> Self {
         debug_assert!(cap >= byte_capacity(length, is_latin1));
-        if let Some(class) = pool_class_of(cap) {
-            if STR_POOL_PAYLOADS[class] == cap {
-                if let Some(p) = pool::pop(class) {
-                    Self::init_header_and_length(p, length, is_latin1);
-                    return Self(p);
-                }
-            }
+        // The pool only holds blocks at its class payloads, so it can
+        // serve this request when `cap` is one of them — which is the
+        // whole small end of a growing string's walk.
+        let p = pool_class_of(cap)
+            .filter(|&class| STR_POOL_PAYLOADS[class] == cap)
+            .and_then(pool::pop)
+            .unwrap_or_else(|| {
+                // SAFETY: same contract as `alloc_with_encoding` —
+                // libc malloc, null means OOM.
+                let raw = unsafe { malloc(STR_HDR_SIZE + cap as usize) } as *mut u8;
+                NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"))
+            });
+        Self::init_header_and_length(p, length, is_latin1);
+        // Recorded together with the flag bit that announces it, so
+        // "carries a capacity" means exactly "owns more than its
+        // length says" — the question `free_pool_aware` has to
+        // answer. Deriving it instead would understate a pool block
+        // handed out above its length.
+        // SAFETY: the first 16 bytes are exclusively ours until we
+        // return.
+        unsafe {
+            (p.as_ptr().add(STR_PAD_OFF) as *mut u32).write(cap);
+            (p.as_ptr().add(6) as *mut u16)
+                .write((p.as_ptr().add(6) as *const u16).read() | STR_FLAG_HAS_CAPACITY);
         }
-        // SAFETY: same contract as `alloc_with_encoding` — libc
-        // malloc, null means OOM, header written before exposure.
-        let raw = unsafe { malloc(STR_HDR_SIZE + cap as usize) } as *mut u8;
-        let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
-        Self::init_header_and_length(nn, length, is_latin1);
-        // Only past the pool ladder does the block hold more than
-        // `block_size` would say; below it the two agree and zero
-        // keeps the slot inert.
-        if cap != (block_size(length, is_latin1) - STR_HDR_SIZE) as u32 {
-            unsafe { (nn.as_ptr().add(STR_PAD_OFF) as *mut u32).write(cap) };
-        }
-        Self(nn)
+        Self(p)
     }
 
     /// Free a Str block via the pool when eligible, otherwise via
-    /// `libc::free`. Pool eligibility: `byte_capacity ≤
-    /// a pool class AND that class has a free slot AND the
+    /// `libc::free`. Pool eligibility: the block's payload IS a pool
+    /// class payload AND that class has a free slot AND the
     /// block does not carry `FLAG_STATIC_LITERAL` (`.rodata`
     /// blocks must never be freed).
     ///
@@ -197,56 +200,88 @@ impl StrBlock {
     /// otherwise try to `free` `.rodata` bytes and crash. The
     /// check is kept here to keep the contract local.
     ///
-    /// `byte_capacity` is recomputed from `(length, is_latin1)` on
-    /// every drop — mirrors V8 SeqString sizing. Latin-1 path is a
-    /// no-op multiply; UTF-16 path is a single shift.
+    /// A cell nothing appended to carries no capacity, so its size is
+    /// recomputed from `(length, is_latin1)` on every drop — mirrors
+    /// V8 SeqString sizing. Latin-1 path is a no-op multiply; UTF-16
+    /// path is a single shift. An appended-to cell records what it
+    /// was actually taken at, which is the number the allocator has
+    /// to be handed back.
     #[inline]
-    pub fn free_pool_aware(mut self) {
+    pub fn free_pool_aware(self) {
         // SAFETY: caller's contract is that `self.0` points at a
-        // valid Str block; the header u64 at offset 0 was written
-        // by `init_header_and_length` at alloc time and may have
-        // been mutated by rc_inc / rc_dec / static-literal setup.
-        let header_ref = unsafe { self.header() };
-        if header_ref.flags & FLAG_STATIC_LITERAL != 0 {
+        // valid Str block; the header u64 at offset 0 was written by
+        // `init_header_and_length` at alloc time.
+        let flags = unsafe { &*(self.0.as_ptr() as *const HeapHeader) }.flags;
+        // Both of the questions this path has to ask up front live in
+        // the flags word, so ask them together: a plain owned cell —
+        // which is nearly every cell — falls through one test into
+        // exactly the sequence it took before capacities existed.
+        if flags & (FLAG_STATIC_LITERAL | STR_FLAG_HAS_CAPACITY) != 0 {
+            return self.free_marked(flags);
+        }
+        let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
+        // SAFETY: length u32 was written at alloc time; offset
+        // STR_LEN_OFF mirrors runtime_str.c __TORAJS_STR_LEN.
+        let length = unsafe { self.length() };
+        let cap = byte_capacity(length, is_latin1);
+        if let Some(class) = pool_class_of(cap) {
+            if pool::push(class, self.0) {
+                return;
+            }
+        }
+        // SAFETY: block was `malloc(block_size(length, is_latin1))`-
+        // allocated by `Self::alloc` (or a future caller follows the
+        // same shape). Layer 1 `free` takes the same size we alloc'd
+        // with — derived deterministically from `(length, is_latin1)`.
+        unsafe {
+            free(
+                self.0.as_ptr() as *mut c_void,
+                block_size(length, is_latin1),
+            )
+        };
+    }
+
+    /// The two cold answers `free_pool_aware` peels off: a `.rodata`
+    /// literal is not ours to release at all, and an appended-to cell
+    /// owns the capacity it recorded rather than the one its length
+    /// implies.
+    #[cold]
+    fn free_marked(self, flags: u16) {
+        if flags & FLAG_STATIC_LITERAL != 0 {
             return;
         }
-        // SAFETY: length u32 + capacity u32 were written at alloc
-        // time; the offsets mirror runtime_str.c __TORAJS_STR_LEN.
-        let cap = unsafe { self.payload_capacity() };
-        // The pool hands blocks back out by class, so a block may
-        // only enter one whose payload it matches EXACTLY — a
-        // 32-byte cell parked in the 16-byte class would later be
-        // freed at 16 and corrupt the heap. Every cell sized through
-        // `block_size` satisfies this by construction (the ladder
-        // rounds up); an append-grown cell satisfies it because
-        // `grow_capacity` floors at a class payload.
+        // SAFETY: the capacity bit is only ever set together with the
+        // slot at STR_PAD_OFF, by `alloc_with_capacity`.
+        let cap = unsafe { (self.0.as_ptr().add(STR_PAD_OFF) as *const u32).read() };
+        // The pool hands blocks out by class, so it may only take one
+        // whose payload it matches exactly — a 32-byte cell parked in
+        // the 16-byte class would later be freed at 16.
         if let Some(class) = pool_class_of(cap) {
             if STR_POOL_PAYLOADS[class] == cap && pool::push(class, self.0) {
                 return;
             }
         }
-        // SAFETY: block was `malloc(STR_HDR_SIZE + cap)`-allocated by
-        // `Self::alloc*` (or a future caller follows the same shape).
-        // Layer 1 `free` takes the same size we alloc'd with.
+        // SAFETY: `alloc_with_capacity` took the block at exactly
+        // this size and recorded it.
         unsafe { free(self.0.as_ptr() as *mut c_void, STR_HDR_SIZE + cap as usize) };
     }
 
     /// Payload bytes the block actually owns — what `free` must be
     /// handed back, and how much room an in-place append has.
     ///
-    /// Reads the capacity slot at [`STR_PAD_OFF`]; zero (what every
-    /// alloc site writes) means "exactly what [`block_size`] asked
-    /// for", so the answer stays a pure function of `(length,
-    /// is_latin1)` for every cell nothing has appended to.
+    /// Reads the capacity slot at [`STR_PAD_OFF`] when
+    /// [`STR_FLAG_HAS_CAPACITY`] says it is meaningful; otherwise the
+    /// answer stays what it always was, a pure function of `(length,
+    /// is_latin1)`.
     ///
     /// # Safety
     ///
     /// Caller guarantees `self.0` points at a valid Str block.
     #[inline]
     pub unsafe fn payload_capacity(&self) -> u32 {
-        let stored = unsafe { (self.0.as_ptr().add(STR_PAD_OFF) as *const u32).read() };
-        if stored != 0 {
-            return stored;
+        let flags = unsafe { &*(self.0.as_ptr() as *const HeapHeader) }.flags;
+        if flags & STR_FLAG_HAS_CAPACITY != 0 {
+            return unsafe { (self.0.as_ptr().add(STR_PAD_OFF) as *const u32).read() };
         }
         let length = unsafe { self.length() };
         let is_latin1 = unsafe { self.is_latin1() };
