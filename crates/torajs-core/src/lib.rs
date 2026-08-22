@@ -360,6 +360,7 @@ pub(crate) mod ssa_lower_call_object_values;
 pub(crate) mod ssa_lower_call_promise_keyed;
 pub(crate) mod ssa_lower_call_promise_resolve;
 pub(crate) mod ssa_lower_call_promise_static;
+pub(crate) mod ssa_lower_call_proxy_revocable;
 pub(crate) mod ssa_lower_call_recognizers;
 pub(crate) mod ssa_lower_call_recv_gate;
 pub(crate) mod ssa_lower_call_reflect_get;

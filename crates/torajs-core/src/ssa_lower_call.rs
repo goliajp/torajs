@@ -202,6 +202,9 @@ fn try_dispatch_a(
         return Some(op);
     }
     // `Iterator.from(O)` — GetIteratorFlattenable + wrap-or-pass.
+    if let Some(op) = crate::ssa_lower_call_proxy_revocable::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     if let Some(op) = crate::ssa_lower_call_iterator_from::try_lower(ctx, callee, args) {
         return Some(op);
     }

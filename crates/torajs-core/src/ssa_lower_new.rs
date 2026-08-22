@@ -85,6 +85,35 @@ pub(crate) fn try_lower(
 /// check. Missing arguments pass `undefined`, which the kernel
 /// rejects exactly like any other non-object.
 fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let ops = lower_proxy_args(ctx, args);
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.proxy_create, argv),
+        Type::Any,
+        None,
+    );
+    release_proxy_args(ctx, ops);
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
+}
+
+/// The `(target, handler)` argument pair both ProxyCreate spellings
+/// take — `new Proxy(t, h)` and `Proxy.revocable(t, h)`. Each slot
+/// answers `(operand, we_boxed, source)` so the caller can release
+/// exactly what it made.
+///
+/// A LITERAL argument takes the dynobj lane, exactly like an
+/// `any`-typed parameter's does (`ssa_lower_call_terminal`): the
+/// target and the handler are reached ONLY through the any lane, and
+/// a nominal struct answers different questions there — its fields
+/// are not configurable, so a trap-less `delete p.k` refused on a
+/// literal that spells an ordinary object.
+pub(crate) fn lower_proxy_args(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> Vec<(Operand, bool, Option<ExprId>)> {
     let mut ops: Vec<(Operand, bool, Option<ExprId>)> = Vec::with_capacity(2);
     for slot in 0..2usize {
         let Some(&eid) = args.get(slot) else {
@@ -100,13 +129,6 @@ fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ops.push((Operand::Value(undef), false, None));
             continue;
         };
-        // A literal argument takes the dynobj lane, exactly like an
-        // `any`-typed param's does (`ssa_lower_call_terminal`): the
-        // target and the handler are reached ONLY through the any
-        // lane, and a nominal struct answers different questions
-        // there — its fields are not configurable, so a forwarded
-        // `delete p.k` refuses on a literal that spells an ordinary
-        // object.
         if matches!(ctx.ast.get_expr(eid), crate::ast::Expr::ObjectLit { .. }) {
             let dynobj = ctx.lower_dynobj_init(eid);
             let boxed = ctx.box_to_any(dynobj);
@@ -146,15 +168,15 @@ fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
-    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.proxy_create, argv),
-        Type::Any,
-        None,
-    );
-    // The kernel borrows both arguments (the cell takes its own).
+    ops
+}
+
+/// The kernel borrows both arguments (the cell takes its own), so
+/// whatever [`lower_proxy_args`] made is released after the call.
+pub(crate) fn release_proxy_args(
+    ctx: &mut LowerCtx<'_>,
+    ops: Vec<(Operand, bool, Option<ExprId>)>,
+) {
     for (op, we_boxed, eid) in ops {
         if we_boxed {
             ctx.emit_drop_value(op, Type::Any);
@@ -162,8 +184,6 @@ fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ctx.release_owned_temp(eid, &op);
         }
     }
-    ctx.emit_throw_check(None);
-    Operand::Value(v)
 }
 
 /// `new Iterator(...)` — call the abstract-ctor TypeError kernel and

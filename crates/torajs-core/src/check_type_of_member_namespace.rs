@@ -171,6 +171,13 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Promise"), "withResolvers") => {
             Type::Function(Vec::new(), Box::new(Type::Any))
         }
+        // §28.2.2.1 Proxy.revocable — the result `{ proxy, revoke }`
+        // is a runtime-minted dynobj, so it surfaces as `any` and
+        // both members ride the any lane (RFC 20260823-proxy-
+        // substrate 刀 3).
+        (Type::Object("Proxy"), "revocable") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
+        }
         // §24.2.2.4 Map.groupBy read as a VALUE — call positions hit
         // the route_arity_widen wedge first; the reified cell's
         // dispatch arm runs the real torajs-meta kernel (groupBy has
