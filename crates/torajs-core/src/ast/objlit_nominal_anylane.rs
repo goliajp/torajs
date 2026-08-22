@@ -47,8 +47,9 @@ use super::{Expr, ExprId, Stmt};
 ///   SHORTHAND spelling (`{ __proto__ }`) is an ordinary own field
 ///   (`objlit_shorthand_proto_exprs`) and keeps the nominal stamp.
 ///
-/// - (i) an ACCESSOR-bearing literal whose binding a LATER statement
-///   pushes onto the dynobj lane (`Object.defineProperty(o, …)` /
+/// - (i) an ACCESSOR- or METHOD-bearing literal whose binding a
+///   LATER statement pushes onto the dynobj lane
+///   (`Object.defineProperty(o, …)` / `Object.setPrototypeOf(o, …)` /
 ///   `delete o.x` / `o[k] = v`) — the one leg that does not read the
 ///   literal's own site, and the only one that asks
 ///   [`crate::dynobj_degrade`] rather than re-deriving a rule
@@ -61,6 +62,7 @@ use super::{Expr, ExprId, Stmt};
 pub(super) fn collect_anylane_objlits(
     stmts: &[Stmt],
     exprs: &[Expr],
+    objlit_method_exprs: &std::collections::HashSet<ExprId>,
     shorthand_proto: &std::collections::HashSet<ExprId>,
     computed_keys: &HashMap<ExprId, ExprId>,
     computed_accessors: &HashMap<ExprId, bool>,
@@ -68,12 +70,13 @@ pub(super) fn collect_anylane_objlits(
     let mut marked: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut roots: Vec<ExprId> = Vec::new();
     collect_any_let_inits(stmts, &mut roots);
-    // (i) — an accessor-bearing literal whose BINDING a later
+    // (i) — a literal with a receiver face whose BINDING a later
     // statement degrades to the dynobj lane; see
     // [`super::objlit_nominal_degraded`].
-    roots.extend(super::objlit_nominal_degraded::degraded_accessor_objlits(
+    roots.extend(super::objlit_nominal_degraded::degraded_recv_face_objlits(
         stmts,
         exprs,
+        objlit_method_exprs,
         computed_keys,
         computed_accessors,
     ));

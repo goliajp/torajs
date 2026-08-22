@@ -160,6 +160,7 @@ mod ns_alias;
 pub(crate) mod objlit_nominal;
 mod objlit_nominal_anylane;
 mod objlit_nominal_degraded;
+mod objlit_nominal_proto_source;
 mod objlit_nominal_returned;
 mod objlit_nominal_settle;
 mod prop_key;

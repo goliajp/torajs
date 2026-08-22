@@ -79,9 +79,14 @@ pub(crate) fn run(
     // RFC 20260813-detached-objlit-method — widen FIRST: the (a) leg
     // of the collector below is what picks the widened binding up.
     super::objlit_nominal_anylane::widen_detached_method_objlits(stmts, exprs, spans);
+    // Same widen-not-mark rule, the other reason a literal's methods
+    // can meet a foreign receiver: the program installs the literal
+    // as somebody's [[Prototype]].
+    super::objlit_nominal_proto_source::widen_prototype_source_objlits(stmts, exprs);
     let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(
         stmts,
         exprs,
+        objlit_method_exprs,
         objlit_shorthand_proto_exprs,
         objlit_computed_keys,
         objlit_computed_accessors,

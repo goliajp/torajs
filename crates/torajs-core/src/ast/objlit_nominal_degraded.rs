@@ -31,18 +31,33 @@
 //! deleted property read back `undefined` instead of raising the
 //! §9.1.1.2 ReferenceError.
 //!
-//! Restricted to ACCESSOR-bearing literals: those are the only faces
-//! `guard_anylane_recv_face` rejects, and a degraded literal without
-//! one already lowers correctly with its nominal stamp intact.
+//! Restricted to literals carrying an ACCESSOR or a METHOD. The
+//! accessor half is what `guard_anylane_recv_face` rejects loudly.
+//! The method half was assumed correct with its nominal stamp intact
+//! and is not: a plain `var a = { k: 1, method() { return this } }`
+//! whose binding a later `Object.setPrototypeOf(a, …)` degrades kept
+//! the `__this: __ObjLit_n` stamp while the binding lowered dynobj,
+//! so the receiver arriving at the method was a struct-unbox COPY —
+//! `a.method() === a` answered FALSE with no diagnostic. That is the
+//! same "receiver writes land on a copy / identity-loss" family the
+//! (b)/(g) legs of `objlit_nominal_anylane` already name; those legs
+//! read the literal's own site and this one is the late-degrade
+//! direction of it.
+//!
+//! A method that never touches `this` would be safe either way, but
+//! the set is not narrowed on that: over-broad `any` is slower and
+//! never wrong, which is the posture `dynobj_degrade`'s own
+//! conservative fallback takes for the same reason.
 
 use std::collections::{HashMap, HashSet};
 
 use super::{Expr, ExprId, Stmt};
 use crate::dynobj_degrade::DegradeView;
 
-pub(super) fn degraded_accessor_objlits(
+pub(super) fn degraded_recv_face_objlits(
     stmts: &[Stmt],
     exprs: &[Expr],
+    objlit_method_exprs: &HashSet<ExprId>,
     objlit_computed_keys: &HashMap<ExprId, ExprId>,
     objlit_computed_accessors: &HashMap<ExprId, bool>,
 ) -> Vec<ExprId> {
@@ -53,8 +68,24 @@ pub(super) fn degraded_accessor_objlits(
     });
     degraded
         .into_iter()
-        .filter(|e| has_accessor_field(exprs, *e, objlit_computed_accessors))
+        .filter(|e| {
+            has_accessor_field(exprs, *e, objlit_computed_accessors)
+                || has_method_field(exprs, *e, objlit_method_exprs)
+        })
         .collect()
+}
+
+/// Does the literal carry a method shorthand? The parser records
+/// every one in `objlit_method_exprs` keyed by its VALUE expression,
+/// which is the same set `objlit_nominal::run` gates its whole pass
+/// on.
+fn has_method_field(exprs: &[Expr], init: ExprId, objlit_method_exprs: &HashSet<ExprId>) -> bool {
+    let Expr::ObjectLit { fields } = &exprs[init.0 as usize] else {
+        return false;
+    };
+    fields
+        .iter()
+        .any(|(_, fe)| objlit_method_exprs.contains(fe))
 }
 
 /// Does the literal carry an accessor member? The shorthand spelling
