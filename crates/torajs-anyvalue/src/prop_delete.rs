@@ -105,7 +105,23 @@ unsafe fn refuse(throw_on_refusal: bool) -> i64 {
     0
 }
 
+/// The Proxy arm shared by both delete shells — §10.5.10.
+///
+/// # Safety
+/// `recv` is a live Proxy AnyValue; `key` a live Str or Symbol cell.
+unsafe fn proxy_delete(recv: AnyValue, key: *const c_void, throw_on_refusal: bool) -> i64 {
+    let cell = crate::nanbox::as_void_ptr(recv);
+    match unsafe { crate::proxy_ops::delete(cell, key, throw_on_refusal) } {
+        Ok(true) => 1,
+        Ok(false) => unsafe { refuse(throw_on_refusal) },
+        Err(()) => 0,
+    }
+}
+
 unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refusal: bool) -> i64 {
+    if crate::proxy::is_proxy(recv) {
+        return unsafe { proxy_delete(recv, key, throw_on_refusal) };
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot delete a property of null or undefined".as_ptr());

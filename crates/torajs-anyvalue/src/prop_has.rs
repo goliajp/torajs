@@ -169,6 +169,12 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
 /// Same contract as [`__torajs_any_prop_has`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c_void) -> i64 {
+    // §10.5.7 — a Proxy answers the whole question, chain included
+    // (RFC 20260823-proxy-substrate 刀 2).
+    if crate::proxy::is_proxy(recv) {
+        return unsafe { crate::proxy_ops::has(crate::nanbox::as_void_ptr(recv), key) }
+            .unwrap_or(false) as i64;
+    }
     if unsafe { __torajs_any_prop_has(recv, key) } != 0 {
         return 1;
     }
@@ -216,6 +222,14 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
 /// Cell receivers are valid heap pointers; `key` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_void) -> i64 {
+    // A Proxy has no own/inherited split of its own: §10.5.7 is the
+    // only membership question it answers, and the `has` trap sees
+    // both spellings. §10.5.5 [[GetOwnProperty]] — the real own-only
+    // probe — is knife 4.
+    if crate::proxy::is_proxy(recv) {
+        return unsafe { crate::proxy_ops::has(crate::nanbox::as_void_ptr(recv), key) }
+            .unwrap_or(false) as i64;
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());

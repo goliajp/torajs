@@ -31,6 +31,8 @@ unsafe extern "C" {
     /// torajs-dynobj — keyed store (resize writes the relocated
     /// block back through the slot).
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    /// torajs-num — the canonical decimal spelling of an index key.
+    fn __torajs_i64_to_str(n: i64) -> *mut c_void;
 }
 
 /// `recv[idx] = (tag, value)` where the receiver is an `any` value
@@ -80,6 +82,12 @@ pub unsafe extern "C" fn __torajs_any_index_set(
     }
     let ptr = as_void_ptr(recv);
     let hdr_tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+    // §6.1.7 — a Proxy sees `p[0] = v` spelled `"0"`, and the write
+    // is its [[Set]] (RFC 20260823-proxy-substrate 刀 2).
+    if hdr_tag == Tag::Proxy as u16 {
+        unsafe { proxy_index_set(recv, ptr, idx, tag, value) };
+        return;
+    }
     if hdr_tag == Tag::Arr as u16 {
         // §10.4.2.1 / OrdinarySetWithOwnDescriptor — a non-writable
         // own index refuses the store, and a module-strict program
@@ -186,5 +194,23 @@ pub unsafe extern "C" fn __torajs_any_index_set(
 unsafe fn drop_transferred_pair(tag: u64, value: u64) {
     if tag == 4 {
         unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+    }
+}
+
+/// The Proxy arm of [`__torajs_any_index_set`] — mint the canonical
+/// decimal key, run [[Set]], and turn a refusal into the strict
+/// assignment TypeError (the index lane has no Reflect flavor).
+///
+/// # Safety
+/// `recv` boxes `ptr`, a live Proxy cell; the `(tag, value)` pair
+/// transfers in.
+unsafe fn proxy_index_set(recv: AnyValue, ptr: *mut c_void, idx: i64, tag: u64, value: u64) {
+    unsafe {
+        let key = __torajs_i64_to_str(idx);
+        let r = crate::proxy_ops::set(ptr, key, tag, value, recv);
+        __torajs_str_drop(key);
+        if let Ok(false) = r {
+            __torajs_throw_type_error(c"proxy 'set' trap returned falsish".as_ptr());
+        }
     }
 }

@@ -163,6 +163,7 @@ mod objlit_nominal_degraded;
 mod objlit_nominal_proto_source;
 mod objlit_nominal_returned;
 mod objlit_nominal_settle;
+mod objlit_nominal_widen;
 mod prop_key;
 mod prototype_call;
 mod readonly_globals;

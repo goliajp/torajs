@@ -209,6 +209,7 @@ mod proxy;
 mod proxy_call;
 mod proxy_get_prop;
 mod proxy_key;
+mod proxy_ops;
 mod reflect_apply;
 mod reflect_construct;
 mod set_like;

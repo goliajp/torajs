@@ -100,6 +100,19 @@ fn lower_proxy(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ops.push((Operand::Value(undef), false, None));
             continue;
         };
+        // A literal argument takes the dynobj lane, exactly like an
+        // `any`-typed param's does (`ssa_lower_call_terminal`): the
+        // target and the handler are reached ONLY through the any
+        // lane, and a nominal struct answers different questions
+        // there — its fields are not configurable, so a forwarded
+        // `delete p.k` refuses on a literal that spells an ordinary
+        // object.
+        if matches!(ctx.ast.get_expr(eid), crate::ast::Expr::ObjectLit { .. }) {
+            let dynobj = ctx.lower_dynobj_init(eid);
+            let boxed = ctx.box_to_any(dynobj);
+            ops.push((boxed, true, None));
+            continue;
+        }
         let raw = ctx.lower_expr(eid);
         let ty = ctx.operand_ty(&raw);
         let (op, we_boxed) = match ty {
