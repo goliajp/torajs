@@ -526,6 +526,7 @@ pub(crate) fn build(
         ctorany_register: init_c.ctorany.ctorany_register,
         super_call_value: init_c.ctorany.super_call_value,
         super_prop_get: init_c.super_prop.super_prop_get,
+        super_prop_set: init_c.super_prop.super_prop_set,
         super_prop_call: init_c.super_prop.super_prop_call,
         heritage_check: init_c.ctorany.heritage_check,
         any_method_call: init_c.any_substrate.any_method_call,

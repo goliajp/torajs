@@ -1,7 +1,8 @@
-//! `__torajs_super_prop_get(base, key, this)` and
+//! `__torajs_super_prop_get(base, key, this)`,
+//! `__torajs_super_prop_set(base, key, value, this)` and
 //! `__torajs_super_prop_call(base, key, this, [args…])` — the
-//! SuperProperty synthetics the class desugar emits for `super[k]`
-//! and `super[k](…)`.
+//! SuperProperty synthetics the desugars emit for `super[k]`,
+//! `super[k] = v` and `super[k](…)`.
 //!
 //! Every operand boxes into the any world: the super base, the
 //! property key (a string literal for `super.m`, a runtime value for
@@ -21,6 +22,7 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> Option<Operand> {
     let (kernel, arity) = match name {
         "__torajs_super_prop_get" => (ctx.intrinsics.super_prop_get, 3),
+        "__torajs_super_prop_set" => (ctx.intrinsics.super_prop_set, 4),
         "__torajs_super_prop_call" => (ctx.intrinsics.super_prop_call, 4),
         _ => return None,
     };

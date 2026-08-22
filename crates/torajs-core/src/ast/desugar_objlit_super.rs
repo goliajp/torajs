@@ -30,9 +30,13 @@
 //!   the call — the two things the home-object shortcut would have
 //!   conflated.
 //!
+//!   Writes take the same route through `_set`: §9.1.9 OrdinarySet
+//!   walks the BASE's chain to decide whether a setter runs and
+//!   stores onto the RECEIVER otherwise, which is exactly the split
+//!   the kernel's two object operands express.
+//!
 //!   left loud (marker → unknown ident, same posture as the class
-//!   pass): writes (`super.x = v` needs §9.1.9 receiver-is-this
-//!   PutValue); `super.x++`; `super.m?.()`; a literal in any position
+//!   pass): `super.x++`; `super.m?.()`; a literal in any position
 //!   other than a declaration init; and a method whose body nests
 //!   ANOTHER literal-with-method — the inner method's markers belong
 //!   to the inner home, and rewriting them against the outer one
@@ -174,15 +178,7 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
     if nested_home {
         return None;
     }
-    let claimable = !supercalls.is_empty()
-        || prop.sites.iter().any(|s| {
-            matches!(
-                s,
-                SuperPropSite::Read { .. }
-                    | SuperPropSite::IndexRead { .. }
-                    | SuperPropSite::CallIndex { .. }
-            )
-        });
+    let claimable = !supercalls.is_empty() || !prop.sites.is_empty();
     if !claimable {
         return None;
     }
@@ -208,8 +204,40 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
         .collect();
     for (site, plan) in reads {
         let key = plan.mint(ast);
-        let node = super_prop_kernel_call(ast, &home, key, None);
+        let node = super_prop_kernel_call(ast, &home, key, Kernel::Get);
         ast.exprs[site.0 as usize] = node;
+    }
+    // Writes: the whole Assign node becomes the kernel call, so the
+    // §9.1.9 receiver split (base decides, receiver stores) is the
+    // kernel's business rather than something spelled in the AST.
+    let writes: Vec<(ExprId, KeyPlan, ExprId)> = prop
+        .sites
+        .iter()
+        .filter_map(|s| match s {
+            SuperPropSite::AssignName {
+                assign,
+                name,
+                value,
+                ..
+            } => Some((*assign, KeyPlan::Name(name.clone()), *value)),
+            SuperPropSite::AssignIndex { target_index } => None.or_else(|| {
+                let Expr::Index { index, .. } = ast.get_expr(*target_index) else {
+                    return None;
+                };
+                let key = *index;
+                let assign = assign_of_target(ast, *target_index)?;
+                let Expr::Assign { value, .. } = ast.get_expr(assign) else {
+                    return None;
+                };
+                Some((assign, KeyPlan::Computed(key), *value))
+            }),
+            _ => None,
+        })
+        .collect();
+    for (assign, plan, value) in writes {
+        let key = plan.mint(ast);
+        let node = super_prop_kernel_call(ast, &home, key, Kernel::Set(value));
+        ast.exprs[assign.0 as usize] = node;
     }
     let calls: Vec<(ExprId, KeyPlan)> = prop
         .sites
@@ -238,7 +266,7 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
         let args = args.clone();
         let key = plan.mint(ast);
         let pack = ast.add_expr(Expr::Array(args));
-        let node = super_prop_kernel_call(ast, &home, key, Some(pack));
+        let node = super_prop_kernel_call(ast, &home, key, Kernel::Call(pack));
         ast.exprs[call.0 as usize] = node;
     }
     Some(home)
@@ -262,26 +290,44 @@ impl KeyPlan {
     }
 }
 
-/// `__torajs_super_prop_get(base, key, __this)`, or the `_call` twin
-/// when an args pack is supplied.
+/// Which of the three SuperProperty kernels a site wants, and the
+/// one extra operand two of them carry.
+enum Kernel {
+    Get,
+    Set(ExprId),
+    Call(ExprId),
+}
+
+/// `__torajs_super_prop_{get,set,call}(base, key, …, __this)`.
 ///
 /// `__this`, not `Expr::This`: `desugar_classes` pass 2 has already
 /// run and turned every method-body `this` into that spelling — a
 /// bare `Expr::This` minted now reaches the checker unrewritten (it
 /// says so by name).
-fn super_prop_kernel_call(ast: &mut Ast, home: &str, key: ExprId, pack: Option<ExprId>) -> Expr {
+fn super_prop_kernel_call(ast: &mut Ast, home: &str, key: ExprId, kind: Kernel) -> Expr {
     let base_expr = super_base_expr(ast, home);
     let base = ast.add_expr(base_expr);
     let recv = ast.add_expr(Expr::Ident("__this".to_string()));
-    let name = if pack.is_some() {
-        "__torajs_super_prop_call"
-    } else {
-        "__torajs_super_prop_get"
+    // The write puts its value BEFORE the receiver, matching the
+    // kernel's `(base, key, value, this)` order; the call puts its
+    // pack after.
+    let (name, args) = match kind {
+        Kernel::Get => ("__torajs_super_prop_get", vec![base, key, recv]),
+        Kernel::Set(v) => ("__torajs_super_prop_set", vec![base, key, v, recv]),
+        Kernel::Call(pack) => ("__torajs_super_prop_call", vec![base, key, recv, pack]),
     };
     let callee = ast.add_expr(Expr::Ident(name.to_string()));
-    let mut args = vec![base, key, recv];
-    args.extend(pack);
     Expr::Call { callee, args }
+}
+
+/// The `Assign` whose target is `target` — `AssignIndex` records only
+/// the target node, and the write rewrite replaces the whole
+/// assignment.
+fn assign_of_target(ast: &Ast, target: ExprId) -> Option<ExprId> {
+    ast.exprs
+        .iter()
+        .position(|e| matches!(e, Expr::Assign { target: t, .. } if *t == target))
+        .map(|i| ExprId(i as u32))
 }
 
 /// `Object.getPrototypeOf(__home_N)` — minted fresh per site so each

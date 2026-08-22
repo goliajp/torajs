@@ -87,7 +87,7 @@ pub(crate) fn try_lower(
             crate::ssa_lower_call_class_synth_error::try_lower_register_native_error(ctx, args)
         }
         "__torajs_undef_str" => crate::ssa_lower_call_error_magic::try_lower_undef_str(ctx, args),
-        "__torajs_super_prop_get" | "__torajs_super_prop_call" => {
+        "__torajs_super_prop_get" | "__torajs_super_prop_set" | "__torajs_super_prop_call" => {
             crate::ssa_lower_call_super_prop::try_lower(ctx, &name, args)
         }
         "__torajs_ctor_no_super_throw" => {

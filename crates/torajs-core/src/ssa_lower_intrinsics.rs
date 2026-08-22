@@ -614,6 +614,8 @@ pub(crate) struct Intrinsics {
     pub(crate) super_call_value: FuncId,
     /// §13.3.7 read off a Super Reference (base, key, receiver).
     pub(crate) super_prop_get: FuncId,
+    /// §9.1.9 write through a Super Reference (base, key, value, receiver).
+    pub(crate) super_prop_set: FuncId,
     /// §13.3.6 call off a Super Reference (base, key, receiver, args).
     pub(crate) super_prop_call: FuncId,
     pub(crate) heritage_check: FuncId,
