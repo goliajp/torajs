@@ -53,6 +53,14 @@ pub(super) fn emit_predicate_iter(
     let header_blk = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
+    // §23.1.3.{29,6} — `some` and `every` gate each visit on
+    // HasProperty; the other four Get every index, holes included.
+    // Read the header once here, in the preheader, so the body's
+    // branch is a register test on a loop-invariant value.
+    // Only a boxed-element source can hold an interior hole, and only
+    // it pays the gate — see `ssa_lower_arr_hole_gate`'s module doc.
+    let sparse = ((method == "some" || method == "every") && elem_ty == Type::Any)
+        .then(|| ctx.emit_hof_sparse_probe(src_arr));
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
     // header
     ctx.cur_block = header_blk;
@@ -97,6 +105,7 @@ pub(super) fn emit_predicate_iter(
         fn_val,
         fn_ty,
         this_arg,
+        sparse,
         result_slot,
         argv_face,
     );
@@ -131,6 +140,7 @@ fn emit_body_and_step(
     fn_val: Operand,
     fn_ty: Type,
     this_arg: Option<&Operand>,
+    sparse: Option<ValueId>,
     result_slot: ValueId,
     argv_face: bool,
 ) {
@@ -142,16 +152,12 @@ fn emit_body_and_step(
         Type::I64,
         None,
     );
-    // §23.1.3.{29,6} — `some` and `every` gate the visit on
-    // HasProperty, so a hole is skipped and the predicate never sees
-    // it (`[1, <hole>, 3].some(v => v === undefined)` is false).
-    // `find` / `findLast` / `findIndex` / `findLastIndex` are NOT in
-    // that list: §23.1.3.9 Get's every index, holes included, so they
-    // keep walking straight through. The step block is minted here so
-    // the gate has somewhere to jump.
+    // A hole is skipped and the predicate never sees it
+    // (`[1, <hole>, 3].some(v => v === undefined)` is false). The step
+    // block is minted here so the gate has somewhere to jump.
     let next_blk = ctx.f.add_block();
-    if method == "some" || method == "every" {
-        ctx.emit_hof_present_gate(src_arr, i_now2, next_blk);
+    if let Some(sparse) = sparse {
+        ctx.emit_hof_present_gate(sparse, src_arr, i_now2, next_blk);
     }
     // T-13.5: head-aware offset for some/every/findIndex.
     // RFC 20260707 chunk 625 — an Any elem reads through the

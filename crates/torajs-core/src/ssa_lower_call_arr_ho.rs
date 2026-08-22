@@ -166,7 +166,15 @@ fn lower_higher_order(
         Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
         || matches!(ctx.ast.get_expr(args[0]),
             Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n));
-    let frame = begin_loop(ctx, &method, src_arr, dst_slot, dst_arr_ty, reduce_no_init);
+    let frame = begin_loop(
+        ctx,
+        &method,
+        src_arr,
+        dst_slot,
+        dst_arr_ty,
+        elem_ty,
+        reduce_no_init,
+    );
     emit_per_method_body(
         ctx,
         frame,

@@ -37,3 +37,14 @@ console.log("dense    :", s, JSON.stringify(d.map(function (v: number) { return 
   d.some(function (v: number) { return v === 2; }),
   d.every(function (v: number) { return v > 0; }),
   d.reduce(function (a: number, v: number) { return a + v; }, 0));
+
+// The gate is emitted only for a boxed-element source: an unboxed slot
+// has no value that means absent, so a typed array cannot hold an
+// interior hole in the first place. A `number[]` therefore emits the
+// same loop it did before this rule existed — measured byte-identical.
+let big: number[] = [];
+for (let i: number = 0; i < 4; i = i + 1) { big.push(i); }
+let acc: number = 0;
+big.forEach(function (v: number) { acc = acc + v; });
+console.log("typed    :", acc, big.reduce(function (a: number, v: number) { return a + v; }, 0),
+  big.some(function (v: number) { return v === 2; }), big.every(function (v: number) { return v >= 0; }));

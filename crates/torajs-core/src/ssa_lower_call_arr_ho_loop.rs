@@ -26,6 +26,10 @@ pub(crate) struct LoopFrame {
     /// duplicating the step (`end_loop_and_produce` fills it).
     pub(crate) step_blk: BlockId,
     pub(crate) after_blk: BlockId,
+    /// The preheader's answer to "can any index of the source be
+    /// absent?" — read once, before the loop, so the body's hole gate
+    /// is a register test on a loop-invariant value.
+    pub(crate) sparse: Option<ValueId>,
 }
 
 /// Set up i_slot + init_i, fast-path `arr_reserve(dst, len)` for
@@ -44,6 +48,7 @@ pub(crate) fn begin_loop(
     src_arr: ValueId,
     dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
+    src_elem_ty: Type,
     reduce_no_init: bool,
 ) -> LoopFrame {
     let header_blk = ctx.f.add_block();
@@ -51,6 +56,10 @@ pub(crate) fn begin_loop(
     let step_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
     let i_slot = ctx.alloca(Type::I64, Some("__iter_i"));
+    // Only a boxed-element source can hold an interior hole, and only
+    // it pays the gate — see `ssa_lower_arr_hole_gate`'s module doc for
+    // the measurement that decided this.
+    let sparse = (src_elem_ty == Type::Any).then(|| ctx.emit_hof_sparse_probe(src_arr));
     let len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
@@ -139,6 +148,7 @@ pub(crate) fn begin_loop(
         header_blk,
         step_blk,
         after_blk,
+        sparse,
     }
 }
 
@@ -191,8 +201,8 @@ pub(crate) fn emit_per_method_body(
     } else {
         Some(frame.step_blk)
     };
-    if let Some(skip_blk) = map_hole_blk {
-        ctx.emit_hof_present_gate(src_arr, i_now2, skip_blk);
+    if let (Some(sparse), Some(skip_blk)) = (frame.sparse, map_hole_blk) {
+        ctx.emit_hof_present_gate(sparse, src_arr, i_now2, skip_blk);
     }
     // T-13.5: head-aware offset for map/filter/reduce src walk.
     // RFC 20260707 chunk 625 — an Any elem reads through the
