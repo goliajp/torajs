@@ -140,7 +140,7 @@ pub(crate) unsafe fn str_effective_ptr(tag: i64, value: i64) -> Option<i64> {
 /// `flags u16 @6` bit 1 of a Str header — the payload is Latin-1
 /// (one byte per code unit); clear means UTF-16 little-endian (two
 /// bytes per unit). Mirror of torajs-str `layout::STR_FLAG_IS_LATIN1`.
-const STR_FLAG_IS_LATIN1: u16 = 0x0002;
+pub(crate) const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 
 /// Ordinal compare of two OWNED Str heap pointers by UTF-16 code
 /// unit — ES §7.2.13 step 3.d, with the length tie-break falling out

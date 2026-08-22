@@ -20,11 +20,11 @@
 
 use std::ffi::c_void;
 
-use torajs_rc::AnySlotTag;
+use torajs_rc::{AnySlotTag, HeapHeader};
 
 use crate::STR_HDR_SIZE;
 use crate::coerce::{any_to_number, any_to_str};
-use crate::compare::{STR_LEN_OFF, is_heap_str};
+use crate::compare::{STR_FLAG_IS_LATIN1, STR_LEN_OFF, is_heap_str};
 use crate::nanbox::{
     AnyValue, SHORT_STR_CAP, box_double, box_int32, box_void_ptr, try_box_short_str,
 };
@@ -347,14 +347,33 @@ unsafe fn add_operand_to_primitive(tag: i64, value: i64) -> (i64, i64, Option<An
 /// skipping one heap allocation (the concat buffer) plus the
 /// eventual `box_void_ptr` round-trip into a Heap+Str cell.
 ///
-/// Returns `None` when the combined length exceeds the ShortStr
-/// capacity; the caller falls back to the heap-allocating
-/// `str_concat` path. Substr-layout inputs (Tag::Str with
-/// `FLAG_SUBSTR_INLINE`) carry the same `[header:8][len:8]…`
-/// header prefix but their bytes live behind an offset+parent
-/// indirection rather than at `STR_HDR_SIZE`; this fast-path does
-/// not currently special-case them — they fall through to
-/// `str_concat`, matching the existing pre-8c behavior.
+/// A ShortStr payload is **UTF-8**: `materialize_short_str` hands
+/// it to `__torajs_str_alloc`, which decodes it as UTF-8, and
+/// `__torajs_any_length_get` counts its code units the same way.
+/// A heap Str payload is neither — post-P11.1-S2 it is Latin-1 or
+/// UTF-16 LE, and its `length` field counts **code units**, not
+/// bytes. Those two descriptions agree on exactly one set of
+/// strings: the ASCII ones, where a code unit is one byte and that
+/// byte is already its own UTF-8 encoding. So both sides must be
+/// Latin-1 *and* ASCII before their bytes may be copied across
+/// verbatim; everything else goes to `__torajs_str_concat`, which
+/// reads the encoding flag and gets it right.
+///
+/// Copying without that gate minted a ShortStr whose payload was
+/// not UTF-8 at all, and the damage surfaced one step later, at
+/// materialization: `"é" + "x"` packed the Latin-1 byte `0xE9`
+/// ahead of `0x78 0x79`, and reading `E9 78 79` back as UTF-8
+/// makes one three-byte sequence — `"éxy"` printed as `"鸹"`. A
+/// Latin-1 byte with nothing valid behind it walked off the end of
+/// the five-byte buffer instead and took the process down.
+///
+/// Returns `None` when either side is non-ASCII or the combined
+/// length exceeds the ShortStr capacity; the caller falls back to
+/// the heap-allocating `str_concat` path. Substr-layout inputs
+/// (Tag::Str with `FLAG_SUBSTR_INLINE`) keep their bytes behind an
+/// offset+parent indirection rather than at `STR_HDR_SIZE`, so
+/// reading one here would be wrong — `any_to_str` materializes
+/// them, and this fn only ever sees plain owned Strs.
 ///
 /// # Safety
 ///
@@ -367,11 +386,23 @@ unsafe fn add_operand_to_primitive(tag: i64, value: i64) -> (i64, i64, Option<An
 unsafe fn try_concat_short(l_str: *mut c_void, r_str: *mut c_void) -> Option<AnyValue> {
     let l_ptr = l_str as *const u8;
     let r_ptr = r_str as *const u8;
-    // SAFETY: Str layout invariant — `length: u32` at byte offset
-    // STR_LEN_OFF (= 8), with the capacity slot in the four bytes
-    // above it.
-    let l_len = unsafe { (l_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize;
-    let r_len = unsafe { (r_ptr.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    // SAFETY: Str layout invariant — `flags: u16` at byte offset 6
+    // inside the HeapHeader, `length: u32` at STR_LEN_OFF (= 8)
+    // with the capacity slot in the four bytes above it.
+    let (l_len, r_len) = unsafe {
+        let is_latin1 = |p: *const u8| (*(p as *const HeapHeader)).flags & STR_FLAG_IS_LATIN1 != 0;
+        if !is_latin1(l_ptr) || !is_latin1(r_ptr) {
+            // UTF-16 payload: `length` counts u16s, so it is not
+            // the byte count the copy below would need — and a
+            // string wide enough to be stored that way has a
+            // codepoint past 0xFF in it, which is never ASCII.
+            return None;
+        }
+        (
+            (l_ptr.add(STR_LEN_OFF) as *const u32).read() as usize,
+            (r_ptr.add(STR_LEN_OFF) as *const u32).read() as usize,
+        )
+    };
     let total = l_len + r_len;
     if total > SHORT_STR_CAP {
         return None;
@@ -394,6 +425,13 @@ unsafe fn try_concat_short(l_str: *mut c_void, r_str: *mut c_void) -> Option<Any
             );
         }
     }
+    // Latin-1 and UTF-8 agree below 0x80 and nowhere above it, so
+    // this is all that is left to ask. It runs after the capacity
+    // check on purpose: at most five bytes are ever scanned, however
+    // long the operands are.
+    if bytes[..total].iter().any(|b| *b >= 0x80) {
+        return None;
+    }
     try_box_short_str(&bytes[..total])
 }
 
@@ -402,16 +440,30 @@ mod tests {
     use super::*;
     use crate::nanbox::{is_short_str, short_str_bytes, short_str_len};
 
-    /// Build a fake `[header:8][len:8][bytes:N]` Str block on the
-    /// heap (Vec<u8>) for unit-testing the layout-aware
-    /// `try_concat_short`. Header is zeroed (refcount/type_tag/
-    /// flags fields aren't read by the fast-path; only `len` at
-    /// offset STR_LEN_OFF and bytes at STR_HDR_SIZE are touched).
+    /// Build a fake `[header:8][length:u32@8][pad:u32@12][bytes:N]`
+    /// Latin-1 Str block on the heap (Vec<u8>) for unit-testing the
+    /// layout-aware `try_concat_short`. `length` is the code-unit
+    /// count, which for Latin-1 is the payload byte count; the
+    /// `IS_LATIN1` flag has to be set because the fast-path reads it
+    /// to learn that fact.
     fn make_fake_str(payload: &[u8]) -> Vec<u8> {
         let mut buf = vec![0u8; STR_HDR_SIZE + payload.len()];
-        let len_bytes = (payload.len() as u64).to_le_bytes();
-        buf[STR_LEN_OFF..STR_LEN_OFF + 8].copy_from_slice(&len_bytes);
+        buf[6..8].copy_from_slice(&STR_FLAG_IS_LATIN1.to_le_bytes());
+        let len_bytes = (payload.len() as u32).to_le_bytes();
+        buf[STR_LEN_OFF..STR_LEN_OFF + 4].copy_from_slice(&len_bytes);
         buf[STR_HDR_SIZE..].copy_from_slice(payload);
+        buf
+    }
+
+    /// Same, for a UTF-16 LE Str: `length` counts u16 code units and
+    /// the payload is twice that many bytes, with `IS_LATIN1` clear.
+    fn make_fake_utf16(units: &[u16]) -> Vec<u8> {
+        let mut buf = vec![0u8; STR_HDR_SIZE + units.len() * 2];
+        let len_bytes = (units.len() as u32).to_le_bytes();
+        buf[STR_LEN_OFF..STR_LEN_OFF + 4].copy_from_slice(&len_bytes);
+        for (i, &u) in units.iter().enumerate() {
+            buf[STR_HDR_SIZE + i * 2..STR_HDR_SIZE + i * 2 + 2].copy_from_slice(&u.to_le_bytes());
+        }
         buf
     }
 
@@ -483,5 +535,59 @@ mod tests {
         let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
             .expect("3 byte total fits");
         assert_eq!(&short_str_bytes(v)[..3], b"XYZ");
+    }
+
+    #[test]
+    fn try_concat_short_declines_latin1_supplement_bytes() {
+        // "é" is one Latin-1 code unit stored as the single byte
+        // 0xE9 — which is not its UTF-8 encoding, and a ShortStr
+        // payload is UTF-8. Copying it across produced `E9 78 79`,
+        // read back as the one codepoint U+9E39.
+        let l = make_fake_str(&[0xE9, b'x']);
+        let r = make_fake_str(b"y");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) };
+        assert!(
+            v.is_none(),
+            "non-ASCII Latin-1 must fall through to str_concat"
+        );
+    }
+
+    #[test]
+    fn try_concat_short_declines_lone_latin1_byte() {
+        // The shape that crashed: 0xA0 announces a UTF-8 sequence
+        // whose continuation bytes are not there, so decoding the
+        // materialized ShortStr ran off the buffer.
+        let l = make_fake_str(&[0xA0]);
+        let r = make_fake_str(&[0xA0]);
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) };
+        assert!(v.is_none());
+    }
+
+    #[test]
+    fn try_concat_short_declines_utf16_operand() {
+        // "中" is one code unit in two bytes, so `length` is not a
+        // byte count here; the old copy took byte 0x2D alone and
+        // answered "-a".
+        let l = make_fake_utf16(&[0x4E2D]);
+        let r = make_fake_str(b"a");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) };
+        assert!(v.is_none());
+        // and on the right-hand side too
+        let l2 = make_fake_str(b"a");
+        let r2 = make_fake_utf16(&[0x4E2D]);
+        let v2 =
+            unsafe { try_concat_short(l2.as_ptr() as *mut c_void, r2.as_ptr() as *mut c_void) };
+        assert!(v2.is_none());
+    }
+
+    #[test]
+    fn try_concat_short_still_takes_the_ascii_path() {
+        // The gate must not cost the case it exists for.
+        let l = make_fake_str(b"ab");
+        let r = make_fake_str(b"cde");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
+            .expect("all-ASCII, 5 bytes");
+        assert_eq!(short_str_len(v), 5);
+        assert_eq!(short_str_bytes(v), *b"abcde");
     }
 }
