@@ -39,6 +39,9 @@ unsafe extern "C" {
     /// torajs-buffer — §10.4.5.4 element read; out of range answers
     /// `undefined` and does not continue up the chain.
     fn __torajs_typedarray_index_get(recv: AnyValue, index: f64) -> AnyValue;
+    /// torajs-buffer §23.2.4.4 — the view's length now, or -1 with a
+    /// pending throw.
+    fn __torajs_typedarray_validate(recv: AnyValue) -> i64;
     /// torajs-str — `s[idx]` (Str or Substr); NULL = OOB.
     fn __torajs_str_index_get(s: *mut u8, idx: i64) -> *mut u8;
     /// torajs-arr — kind-aware `arr[idx]`; returns a balanced
@@ -440,6 +443,15 @@ pub unsafe extern "C" fn __torajs_any_iter_len(recv: AnyValue) -> i64 {
             let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
             if tag == Tag::Arr as u16 {
                 return *(ptr.cast::<u8>().add(MIRROR_ARR_LEN_OFF) as *const u64) as i64;
+            }
+            // §23.2.5.1 — the Array Iterator's typed-array branch
+            // asks ValidateTypedArray on EVERY step, not once at the
+            // start, which is why detaching mid-loop throws here and
+            // does nothing over an array. -1 carries that pending
+            // throw out: the caller's `idx >= len` is then true and
+            // the loop ends, leaving the throw for its own check.
+            if tag == Tag::TypedArray as u16 {
+                return __torajs_typedarray_validate(recv);
             }
             if tag == Tag::Str as u16 {
                 let flags = (ptr.cast::<u8>().add(6) as *const u16).read();

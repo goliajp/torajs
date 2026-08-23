@@ -205,6 +205,7 @@ unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
         let tag = (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read();
         if tag == Tag::Str as u16
             || tag == Tag::Arr as u16
+            || tag == Tag::TypedArray as u16
             || tag == Tag::Map as u16
             || tag == Tag::Set as u16
             || tag == Tag::MapIter as u16

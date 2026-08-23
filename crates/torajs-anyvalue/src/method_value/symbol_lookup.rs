@@ -81,6 +81,16 @@ pub(crate) unsafe fn builtin_symbol_method_lookup(
     let (family, mid) = match recv_tag {
         t if t == Tag::Arr as u16 => (2, torajs_rc::ANY_METHOD_VALUES),
         t if t == Tag::Map as u16 => (11, torajs_rc::ANY_METHOD_ENTRIES),
+        // §23.2.3.36 — `%TypedArray%.prototype[@@iterator]` IS the
+        // same function object as `%TypedArray%.prototype.values`,
+        // so it must reify to the very cell the named read answers.
+        // That read is family-less today (`recv_proto_family` has no
+        // TypedArray row, because the eleven per-kind prototypes
+        // share one method face and the abstract
+        // %TypedArray%.prototype they hang off is a recorded gap in
+        // RFC 20260823) — so -1 here is not a shrug, it is the way
+        // to land on the same cell.
+        t if t == Tag::TypedArray as u16 => (-1, torajs_rc::ANY_METHOD_VALUES),
         t if t == Tag::Set as u16 => (12, torajs_rc::ANY_METHOD_VALUES),
         // §22.1.3.36 — no named alias; the dedicated own id (a
         // Substr view shares Tag::Str). A StringWrapper inherits

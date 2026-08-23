@@ -70,6 +70,44 @@ unsafe extern "C" {
     /// originally designed against.
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-buffer §23.2.4.4 — the view's length right now, or -1
+    /// with a pending throw. Re-asked every step; see
+    /// [`typedarray_source_len`].
+    fn __torajs_typedarray_validate(av: u64) -> i64;
+    /// torajs-buffer §10.4.5 — the element, OWNED (a BigInt kind
+    /// mints a fresh cell).
+    fn __torajs_typedarray_index_get(av: u64, index: f64) -> u64;
+}
+
+/// `type_tag` for TypedArray heap blocks (mirror of
+/// `torajs_rc::Tag::TypedArray` = 28).
+const TAG_TYPEDARRAY: u16 = 28;
+
+/// §23.2.5.1 — `%TypedArray%.prototype.values` returns the SAME
+/// Array Iterator arrays get, and CreateArrayIterator's own closure
+/// branches on whether the source has a `[[TypedArrayName]]`. This
+/// is that branch: the length comes from ValidateTypedArray rather
+/// than the array header, and it is asked FRESH on every step —
+/// which is what makes detaching mid-iteration a throw here and
+/// nothing at all over there.
+///
+/// `None` = the validate threw; the caller stops and leaves the
+/// pending throw for its own caller.
+///
+/// # Safety
+/// `arr` is a live heap cell.
+unsafe fn typedarray_source_len(arr: *mut c_void) -> Option<u64> {
+    let len = unsafe { __torajs_typedarray_validate(arr as u64) };
+    if len < 0 { None } else { Some(len as u64) }
+}
+
+/// True when the iterator's source is an integer-indexed exotic
+/// view rather than an `Array<Any>`.
+///
+/// # Safety
+/// `arr` is a live heap cell.
+unsafe fn source_is_typedarray(arr: *mut c_void) -> bool {
+    unsafe { (arr.cast::<u8>().add(4) as *const u16).read() == TAG_TYPEDARRAY }
 }
 
 /// Internal: alloc + init a fresh ArrIter struct. rc_inc the source
@@ -160,7 +198,21 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
         }
         return 0;
     }
-    let len = unsafe { *((arr as *const u8).add(8) as *const u64) };
+    let typed = unsafe { source_is_typedarray(arr) };
+    let len = if typed {
+        match unsafe { typedarray_source_len(arr) } {
+            Some(n) => n,
+            None => {
+                unsafe {
+                    *out_tag = ANY_UNDEF as i64;
+                    *out_payload = 0;
+                }
+                return 0;
+            }
+        }
+    } else {
+        unsafe { *((arr as *const u8).add(8) as *const u64) }
+    };
     let i = unsafe { (*it).cursor } as u32;
     if i as u64 >= len {
         // §23.1.5.2.1 — exhaustion latches: [[IteratedObject]] is set
@@ -178,13 +230,33 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
     // Kind-aware borrowed whole-box read (backfill chunk 4) — a
     // typed block behind an `any` view reboxes per its recorded elem
     // kind; FLAG_ARR_ANY blocks keep the raw NaN-box slot read.
-    let slot_av = unsafe { crate::any::__torajs_arr_get_any_boxed(arr, i as u64) };
+    // The typed read is OWNED where the array read is borrowed, so
+    // the +1 the VALUES / ENTRIES arms below apply would be one too
+    // many — `owned_read` tracks which it was.
+    let (slot_av, owned_read) = if typed {
+        (
+            unsafe { __torajs_typedarray_index_get(arr as u64, i as f64) },
+            true,
+        )
+    } else {
+        (
+            unsafe { crate::any::__torajs_arr_get_any_boxed(arr, i as u64) },
+            false,
+        )
+    };
     let slot_tag = unsafe { __torajs_anyv_unbox_tag(slot_av) } as u64;
     let slot_val = unsafe { __torajs_anyv_unbox_value(slot_av) } as u64;
     unsafe { (*it).cursor = (i + 1) as i64 };
 
     let (tag, payload) = match unsafe { (*it).kind } {
-        k if k == ARR_ITER_KEYS => (ANY_I64 as i64, i as i64),
+        k if k == ARR_ITER_KEYS => {
+            // KEYS yields the index alone, so an owned element read
+            // has nowhere to go.
+            if owned_read && (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
+                unsafe { __torajs_value_drop_heap(slot_val as *mut c_void) };
+            }
+            (ANY_I64 as i64, i as i64)
+        }
         k if k == ARR_ITER_VALUES => {
             // The `.value` box adopts what it is handed, and
             // `__torajs_arr_get_any_boxed` above is an explicit borrow
@@ -193,7 +265,7 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
             // the element's only stake and the element died under the
             // array — `arr[0][0]` answered undefined after five steps
             // (rotation 323).
-            if (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
+            if !owned_read && (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
                 unsafe { __torajs_rc_inc(slot_val as *mut c_void) };
             }
             (slot_tag as i64, slot_val as i64)
@@ -208,7 +280,7 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
                 // Index — primitive i64, no rc_inc.
                 out_arr = __torajs_arr_push_any(out_arr, ANY_I64 as u64, i as u64);
                 // Value — heap payload needs rc_inc before push.
-                if (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
+                if !owned_read && (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
                     __torajs_rc_inc(slot_val as *mut c_void);
                 }
                 out_arr = __torajs_arr_push_any(out_arr, slot_tag, slot_val);

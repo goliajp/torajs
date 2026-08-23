@@ -398,9 +398,15 @@ pub(crate) unsafe fn iter_next_inner(
     // wrapper tag as `indexed` is the only site left. NumberWrapper /
     // BooleanWrapper stay non-indexed (a `for..of` on those throws per
     // spec, matching bun).
+    // A TypedArray joins the indexed lane rather than deriving a
+    // cursor: §23.2.5.1's `values` IS the Array Iterator, and the
+    // pair this lane already uses answers both of its questions —
+    // `__torajs_any_iter_len` re-validates per step (a detach
+    // mid-loop throws), `__torajs_any_index_get` is §10.4.5.
     let indexed = is_short_str(recv)
         || matches!(cell_tag, Some(t) if t == Tag::Str as u16
                                     || t == Tag::Arr as u16
+                                    || t == Tag::TypedArray as u16
                                     || t == Tag::StringWrapper as u16);
     if indexed {
         unsafe {

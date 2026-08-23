@@ -47,6 +47,11 @@ unsafe extern "C" {
     fn __torajs_typedarray_to_reversed(recv: AnyValue) -> AnyValue;
     fn __torajs_typedarray_with(recv: AnyValue, index: AnyValue, value: AnyValue) -> AnyValue;
     fn __torajs_typedarray_set(recv: AnyValue, source: AnyValue, offset: AnyValue) -> AnyValue;
+    /// §23.2.4.4 at the ABI — the length, or -1 with a pending throw.
+    fn __torajs_typedarray_validate(recv: AnyValue) -> i64;
+    fn __torajs_arr_iter_create_keys(src: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+    fn __torajs_arr_iter_create_values(src: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+    fn __torajs_arr_iter_create_entries(src: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
 }
 
 /// `None` = this mid is not one ArrayBuffer.prototype owns, and the
@@ -162,6 +167,42 @@ pub(crate) unsafe fn typedarray_method(
         torajs_rc::ANY_METHOD_TO_STRING => Some(unsafe {
             crate::method_call_buffer_join::typedarray_join(recv, core::ptr::null(), 0)
         }),
-        _ => None,
+        // §23.2.5.1-3 — `values` / `keys` / `entries` answer the
+        // SAME Array Iterator arrays do; CreateArrayIterator's own
+        // closure branches on the source having a
+        // `[[TypedArrayName]]`, and that branch lives in the
+        // iterator cell's step (`torajs_arr::iter`). Only the
+        // up-front ValidateTypedArray is ours: `detached.values()`
+        // throws before any cell is minted.
+        //
+        // §23.2.3.36 `[Symbol.iterator]` is the same function
+        // object as `values`, so it interns to the same id and
+        // needs no arm of its own.
+        m if m == torajs_rc::ANY_METHOD_KEYS
+            || m == torajs_rc::ANY_METHOD_VALUES
+            || m == torajs_rc::ANY_METHOD_ENTRIES =>
+        {
+            if unsafe { __torajs_typedarray_validate(recv) } < 0 {
+                return Some(VALUE_UNDEFINED);
+            }
+            let src = crate::nanbox::as_void_ptr(recv);
+            // Fresh cell at rc=1; the owned-return protocol takes it
+            // as-is, and the mint took its own share of the view.
+            let it = unsafe {
+                if m == torajs_rc::ANY_METHOD_KEYS {
+                    __torajs_arr_iter_create_keys(src)
+                } else if m == torajs_rc::ANY_METHOD_VALUES {
+                    __torajs_arr_iter_create_values(src)
+                } else {
+                    __torajs_arr_iter_create_entries(src)
+                }
+            };
+            Some(crate::nanbox::box_void_ptr(it))
+        }
+        // §23.2.3's iteration family — the walks that call user
+        // code, in [`crate::method_call_buffer_iter`].
+        _ => unsafe {
+            crate::method_call_buffer_iter::typedarray_iter_method(recv, mid, argv, argc)
+        },
     }
 }
