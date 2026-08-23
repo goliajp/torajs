@@ -568,6 +568,7 @@ pub(crate) mod ssa_lower_stmt_let_decl_general;
 pub(crate) mod ssa_lower_stmt_let_decl_global;
 pub(crate) mod ssa_lower_stmt_let_decl_json_parse;
 pub(crate) mod ssa_lower_stmt_let_decl_recursive;
+pub(crate) mod ssa_lower_stmt_let_decl_share;
 pub(crate) mod ssa_lower_stmt_return;
 pub(crate) mod ssa_lower_stmt_switch;
 pub(crate) mod ssa_lower_stmt_throw;

@@ -55,6 +55,9 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) use crate::ssa_lower_stmt_let_decl_convert::{
     maybe_any_to_typed_scalar, maybe_arr_any_to_typed,
 };
+// Both halves of the ownership question the pipeline below asks about
+// an init — does the binding borrow, and if not does it owe a share —
+// live in `ssa_lower_stmt_let_decl_share`.
 
 pub(crate) fn lower(
     ctx: &mut LowerCtx,
@@ -103,36 +106,7 @@ pub(crate) fn lower(
     }
     crate::ssa_lower_stmt_let_decl_general::record_binding_flags(ctx, name, type_ann, init);
     let cur_depth = ctx.scope_stack.len() - 1;
-    let is_alias_init = match ctx.ast.get_expr(init) {
-        // L3b #15 residual (chunk 561) — string indexing (`s[i]` on
-        // a Str/Substr receiver) emits a FRESH standalone Substr
-        // view (str_char_at / substr_slice, rc=1), not a borrow of
-        // an element slot: marking it moved skipped the scope drop
-        // and leaked 32B per binding. Array/map/any indexing keeps
-        // the alias path (element loads borrow the container).
-        Expr::Index { obj, .. } => {
-            !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
-        }
-        Expr::Member { .. } => true,
-        // Blade 3 — an array pattern's group temp is a compiler-
-        // generated, read-only view of its source and never outlives
-        // it, so an Ident source is a borrow at ANY scope depth. (The
-        // pre-blade-3 desugar expressed the same rule by aliasing onto
-        // the source binding and emitting no temp at all; keeping the
-        // temp is what gives the iterator lane something to rebind, and
-        // it must stay free on the indexable one.) Reaching here at all
-        // means the group took the indexable lane — the iterator lane
-        // returned above, owning the array it materialized.
-        Expr::Ident(src) => {
-            ctx.ast.ary_destr_groups.contains_key(&init)
-                || ctx
-                    .locals
-                    .get(src)
-                    .map(|info| info.scope_depth < cur_depth)
-                    .unwrap_or(false)
-        }
-        _ => false,
-    };
+    let is_alias_init = crate::ssa_lower_stmt_let_decl_share::init_is_alias(ctx, init, cur_depth);
     let stack_alloc_hinted = matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
         && !ctx.escape_obj_lets.contains(name);
     if stack_alloc_hinted {
@@ -195,73 +169,9 @@ pub(crate) fn lower(
     let boxed_any = ty == Type::Any && ctx.operand_ty(&init_val) != Type::Any;
     if !is_alias_init {
         let pre_ty = ctx.operand_ty(&init_val);
-        let shares = match ctx.ast.get_expr(init) {
-            Expr::Ident(src) => {
-                // Chunk 698 — a converted init is a fresh cell the
-                // binding owns outright; no share with the source.
-                !converted
-                    && ctx.locals.contains_key(src)
-                    && pre_ty.is_refcounted()
-                    && !(ty == Type::Any && pre_ty != Type::Any)
-            }
-            // A regex literal is the fn-scope LICM singleton
-            // (`ssa_lower_lit::lower_regex` hoists one compile into
-            // the entry block; fn exit drops its single stake) — a
-            // binding taking it is a SHARE, not a transfer. Without
-            // the +1 the binding's scope-drop stole the fn's stake
-            // and every later occurrence ran use-after-free
-            // (`for { const a = /x/; a.test(s) }` answered 1/4).
-            Expr::Regex { .. } => {
-                !converted && pre_ty.is_refcounted() && !(ty == Type::Any && pre_ty != Type::Any)
-            }
-            // Rotation 325 — an `as` cast is a value-layer
-            // pass-through (lower_as_cast answers the inner operand),
-            // so ownership follows the inner expression: `const s =
-            // arr as any` binding a local is the same SHARE the bare
-            // Ident init takes. Off this arm the binding took the
-            // borrow as if it owned it, and its scope-end drop stole
-            // the source binding's stake (census underflow on
-            // dstr-numeric-key-001 — the destructuring desugar mints
-            // exactly this let for a non-Ident source).
-            Expr::As { expr, .. } => {
-                if let Expr::Ident(src) = ctx.ast.get_expr(*expr) {
-                    !converted
-                        && ctx.locals.contains_key(src)
-                        && pre_ty.is_refcounted()
-                        && !(ty == Type::Any && pre_ty != Type::Any)
-                } else {
-                    false
-                }
-            }
-            // Rotation 326 — a Ternary / Nullish / `&&` / `||` join
-            // over pure borrows answers a borrow (chunk 722 keeps
-            // those joins at zero rc traffic); an owned-unified join
-            // recorded itself in owned_member_reads and transfers
-            // its fresh stake instead. The binding is a consumer
-            // like any other: it takes +1 and the arm sources keep
-            // theirs. Off this arm the store took the borrow as if
-            // it owned it and the scope-end drop stole an arm
-            // source's stake — the destructuring-default desugar
-            // mints exactly this shape (`let cls = <in-range> ?
-            // src[0] : __ClassExpr_N`), and the class registry's
-            // stake went through zero at the exit drain (census:
-            // dstr-classname-001).
-            Expr::Ternary { .. } | Expr::Nullish { .. } => {
-                !converted
-                    && !ctx.owned_member_reads.contains(&init)
-                    && pre_ty.is_refcounted()
-                    && !(ty == Type::Any && pre_ty != Type::Any)
-            }
-            Expr::BinOp { op, .. }
-                if matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr) =>
-            {
-                !converted
-                    && !ctx.owned_member_reads.contains(&init)
-                    && pre_ty.is_refcounted()
-                    && !(ty == Type::Any && pre_ty != Type::Any)
-            }
-            _ => false,
-        };
+        let shares = crate::ssa_lower_stmt_let_decl_share::init_shares_source_stake(
+            ctx, init, pre_ty, ty, converted,
+        );
         // No consume on the non-share side: every shape reaching it is
         // a no-op for the move-walk (Copy / non-local Ident / non-Ident
         // expr — local refcounted Idents all take the share arm) —
