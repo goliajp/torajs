@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T10:40:49.844Z",
+  "generatedAt": "2026-08-23T13:01:18.334Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-23T10:38:21Z",
-    "headSha": "bce8fd9c0",
-    "elapsedSec": 364.12,
+    "ranAt": "2026-08-23T12:52:26Z",
+    "headSha": "0835c8931",
+    "elapsedSec": 408.15,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 28917,
-    "passNoOracle": 923,
+    "pass": 29422,
+    "passNoOracle": 924,
     "passNegative": 4147,
-    "passTotal": 33987,
-    "bug": 13335,
-    "incompatible": 5852,
+    "passTotal": 34493,
+    "bug": 12834,
+    "incompatible": 5847,
     "bunSkip": 3044,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47322,
-    "passRateInScope": 63.92,
-    "passRateTrAccepted": 71.82
+    "trAccepted": 47327,
+    "passRateInScope": 64.87,
+    "passRateTrAccepted": 72.88
   },
   "torajs": {
-    "commit": "bce8fd9c0",
-    "commitSubject": "fix: a non-extensible view refuses a new expando define",
+    "commit": "0835c8931",
+    "commitSubject": "fix: filter's species read comes after the callback loop",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "0835c8931",
+      "subject": "fix: filter's species read comes after the callback loop"
+    },
+    {
+      "hash": "e579700c3",
+      "subject": "feat: the buffer family answers its prototype chain"
+    },
+    {
+      "hash": "6ffa6c82e",
+      "subject": "feat: the TypedArray species construct channel"
+    },
+    {
+      "hash": "ec8e60232",
+      "subject": "feat: the DataView get/set accessor family — 22 methods, 2 kernels"
+    },
+    {
+      "hash": "6f1277e44",
+      "subject": "fix: HasProperty prototype half moved off the own-property kernel"
+    },
+    {
+      "hash": "ee4106efc",
+      "subject": "feat: the DataView cell — ctor, accessors, ordinary-object face"
+    },
+    {
+      "hash": "5101cce6e",
+      "subject": "chore: rotation 481 close — sweep ingest, roadmap stamp, dashboard"
+    },
+    {
       "hash": "bce8fd9c0",
       "subject": "fix: a non-extensible view refuses a new expando define"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "02b446803",
       "subject": "style: fmt-drift fix for the species knife"
-    },
-    {
-      "hash": "ed2543119",
-      "subject": "feat: species constructor-face guard for the buffer family"
-    },
-    {
-      "hash": "262f4ece6",
-      "subject": "feat: own properties on a view — buffer-family expando bag"
-    },
-    {
-      "hash": "2edbe9535",
-      "subject": "chore: rotation 480 close — sweep ingest, roadmap stamp, dashboard"
-    },
-    {
-      "hash": "469743816",
-      "subject": "fix: coercing an element to BigInt takes a share, not ownership"
-    },
-    {
-      "hash": "30bfed094",
-      "subject": "feat: ArrayBuffer transfer / transferToFixedLength, and $DETACHBUFFER over it"
-    },
-    {
-      "hash": "17e770c15",
-      "subject": "fix: keep the wrapper arm in the inherited-symbol walk"
-    },
-    {
-      "hash": "d4e644cca",
-      "subject": "fix: a builtin instance inherits its prototype's symbol properties"
     }
   ],
-  "headSha": "bce8fd9c0",
+  "headSha": "0835c8931",
   "autorun": {
-    "total": 784,
+    "total": 785,
     "baselineTarget": 10,
-    "bySelf": 779,
+    "bySelf": 780,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787468886-772e",
-      "at": "2026-08-23T07:08:06Z",
-      "ts": 1787468886,
+      "rotationId": "r-1787481744-013d",
+      "at": "2026-08-23T10:42:24Z",
+      "ts": 1787481744,
       "trigger": "self",
-      "prevHead": "2edbe9535",
-      "handoffSha": "sha256:f75a3b448d5421ac6aea98b751d2d32721597e674345e352f0eeae5a00c4eded",
-      "handoffAgeSec": 18,
+      "prevHead": "5101cce6e",
+      "handoffSha": "sha256:930718db3860ea1c6bad435cf9735cc4287687ef57ad15d5451c0ab220a92860",
+      "handoffAgeSec": 19,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787481744-013d",
+        "at": "2026-08-23T10:42:24Z",
+        "ts": 1787481744,
+        "trigger": "self",
+        "prevHead": "5101cce6e",
+        "handoffSha": "sha256:930718db3860ea1c6bad435cf9735cc4287687ef57ad15d5451c0ab220a92860",
+        "handoffAgeSec": 19,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787468886-772e",
         "at": "2026-08-23T07:08:06Z",
@@ -876,17 +887,6 @@
         "prevHead": "2790916a7",
         "handoffSha": "sha256:41551be496583da07947cb4e549d4fafd18007de75940e90bc1ebec73c817c9a",
         "handoffAgeSec": 27,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787368004-17c6",
-        "at": "2026-08-22T03:06:44Z",
-        "ts": 1787368004,
-        "trigger": "self",
-        "prevHead": "27bf81551",
-        "handoffSha": "sha256:a08302cee8ca778281abe46b2bb8abcebd3969158a3bd28fdd159d0c853b1ff4",
-        "handoffAgeSec": 28,
         "conformanceBefore": null,
         "commitsInSession": null
       }

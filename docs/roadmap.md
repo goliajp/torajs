@@ -1557,7 +1557,26 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `bce8fd9c0`** (2026-08-23, rotation 481 — own properties on
+**Latest @ `0835c8931`** (2026-08-23, rotation 482 — DataView whole:
+the cell + ctor + accessors + the 22 get*/set* methods on two
+endianness-parameterized kernels; the TypedArray species CONSTRUCT
+channel for filter / map / slice / subarray (products really swap,
+§23.2.4.2 validation real, filter's read after the callback loop per
+its own step order); and the buffer family answering getPrototypeOf
+(per-kind slots, ArrayBuffer 19, DataView 32 — no %TypedArray%
+intermediate yet, iterator-proto shape)). Gate predicate: **162**
+clusters of ≥ 4 holding **1339** cases (both flat — the harvest sits
+in the bug bucket), register 2 · 251, residue 650 · 809 (33.7%), core
+**2399** (flat). Sweep passTotal 33987 → **34493 (+506)**, bug 13335 →
+**12834 (−501)**, incompatible −5, trAccepted +5, conservation exact
+(+5 = +506 − 501); **DataView's 377 prototype cases are the head**,
+then 50 TypedArray prototype (species-construct family), 41 ctors, 6
+ArrayBuffer. Zero pass regressions in the closing sweep (the four
+filter callbackfn-called-before cases regressed mid-rotation and were
+fixed the same rotation — filter is the one family method whose
+species read follows the callback loop), zero new crashes or timeouts.
+
+**Previous @ `bce8fd9c0`** (2026-08-23, rotation 481 — own properties on
 a view: the buffer family's lazy expando bag across all nine
 own-property surfaces, both halves of the @@species read, the
 canonical-numeric-key element face, and the harness shake gated on
