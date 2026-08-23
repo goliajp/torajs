@@ -400,6 +400,12 @@ unsafe fn dynobj_builtin_tail_tag(ptr: *mut c_void, recv: AnyValue, key: *const 
         {
             return mtag;
         }
+        // A virtual accessor read directly off its proto singleton
+        // runs the getter on the prototype itself — brand-check
+        // throw (rationale on the helper).
+        if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
+            return AnySlotTag::Undef as u64;
+        }
         reify_tag(recv, key)
     }
 }

@@ -18,6 +18,8 @@ use crate::nanbox::VALUE_UNDEFINED;
 use crate::nanbox::box_double;
 
 unsafe extern "C" {
+    /// torajs-buffer — §25.1.6.13 [[ArrayBufferMaxByteLength]] probe.
+    fn __torajs_arraybuffer_resizable(av: AnyValue) -> i64;
     fn __torajs_arraybuffer_slice(av: AnyValue, start: AnyValue, end: AnyValue) -> AnyValue;
     fn __torajs_arraybuffer_resize(av: AnyValue, new_length: AnyValue);
     fn __torajs_arraybuffer_transfer(
@@ -79,6 +81,15 @@ pub(crate) unsafe fn arraybuffer_method(
         }
     };
     match mid {
+        // §25.1.6.13 — the reified `get resizable` invoked through
+        // `.call(recv)`; the id never interns (the GET_SIZE
+        // posture), so only the carried-mid re-dispatch lands here.
+        torajs_rc::ANY_METHOD_GET_RESIZABLE => Some(unsafe {
+            crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                1,
+                (__torajs_arraybuffer_resizable(recv) != 0) as i64,
+            )
+        }),
         torajs_rc::ANY_METHOD_SLICE => {
             Some(unsafe { __torajs_arraybuffer_slice(recv, arg(0), arg(1)) })
         }

@@ -101,6 +101,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 {
                     return mval;
                 }
+                // Direct proto-accessor read (tag twin above) — the
+                // getter brand-checks its own prototype and throws.
+                if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
+                    return 0;
+                }
                 // Inherited Object.prototype reify (tag twin above).
                 return reify_value(recv, key);
             }

@@ -187,6 +187,11 @@ fn lower_proto_method_value(ctx: &mut LowerCtx<'_>, tag: i64, name: &str) -> Ope
         Type::Any,
         None,
     );
+    // The kernel can throw now — a virtual accessor read directly
+    // off its prototype brand-checks (§10.1.8.1 [[Get]] with the
+    // singleton as receiver) — so the pending throw must divert here
+    // for try/catch to see it.
+    ctx.emit_throw_check(None);
     Operand::Value(v)
 }
 

@@ -39,6 +39,7 @@ fn proto_tag_accessors(tag: i64) -> &'static [(i64, &'static str)] {
     match tag {
         5 => &[(torajs_rc::ANY_METHOD_GET_DESCRIPTION, "description")],
         11 | 12 => &[(torajs_rc::ANY_METHOD_GET_SIZE, "size")],
+        19 => &[(torajs_rc::ANY_METHOD_GET_RESIZABLE, "resizable")],
         _ => &[],
     }
 }

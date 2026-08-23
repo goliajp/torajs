@@ -430,6 +430,10 @@ pub const ANY_METHOD_DV_GET_BIGINT64: i64 = 200; // `getBigInt64`
 pub const ANY_METHOD_DV_SET_BIGINT64: i64 = 201; // `setBigInt64`
 pub const ANY_METHOD_DV_GET_BIGUINT64: i64 = 202; // `getBigUint64`
 pub const ANY_METHOD_DV_SET_BIGUINT64: i64 = 203; // `setBigUint64`
+/// §25.1.6.13 `get ArrayBuffer.prototype.resizable` — reified
+/// accessor getter (never interned by name; reachable only via the
+/// carried-mid re-dispatch, the GET_SIZE posture).
+pub const ANY_METHOD_GET_RESIZABLE: i64 = 204;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

@@ -18,7 +18,7 @@ use super::{
     CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, bare_entry, native_entry,
 };
 
-static ACCESSOR_GETTER_CELLS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+static ACCESSOR_GETTER_CELLS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
 
 /// The getter cell for a builtin-proto accessor — Map (proto tag
 /// 11) / Set (proto tag 12) `size`, Symbol (proto tag 5)
@@ -29,6 +29,8 @@ pub(crate) fn proto_accessor_getter_cell(proto_tag: i64) -> *mut u8 {
     let (idx, mid) = match proto_tag {
         11 => (0, torajs_rc::ANY_METHOD_GET_SIZE),
         12 => (1, torajs_rc::ANY_METHOD_GET_SIZE),
+        // §25.1.6.13 `get ArrayBuffer.prototype.resizable`.
+        19 => (3, torajs_rc::ANY_METHOD_GET_RESIZABLE),
         _ => (2, torajs_rc::ANY_METHOD_GET_DESCRIPTION),
     };
     let slot = &ACCESSOR_GETTER_CELLS[idx];

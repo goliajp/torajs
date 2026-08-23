@@ -25,6 +25,7 @@ use crate::method_support_proto_alias::proto_cell_key;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 
 unsafe extern "C" {
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
@@ -190,6 +191,11 @@ pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Opt
         5 if unsafe { crate::prop_has::key_is(key, b"description") } => {
             Some(torajs_rc::ANY_METHOD_GET_DESCRIPTION)
         }
+        // §25.1.6.13 — `ArrayBuffer.prototype` (tag 19) owns a
+        // `resizable` accessor.
+        19 if unsafe { crate::prop_has::key_is(key, b"resizable") } => {
+            Some(torajs_rc::ANY_METHOD_GET_RESIZABLE)
+        }
         _ => None,
     }
 }
@@ -277,6 +283,18 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
             let len = unsafe { proto.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
             return crate::nanbox_encode::__torajs_anyv_box_i64(len as i64);
         }
+    }
+    // A virtual accessor entry read DIRECTLY off its prototype
+    // (`Map.prototype.size` / `ArrayBuffer.prototype.resizable`) —
+    // §10.1.8.1 [[Get]] runs the getter with the singleton itself as
+    // receiver, and the spec getters brand-check and throw.
+    if unsafe { proto_tag_accessor_mid(tag, key) }.is_some() {
+        unsafe {
+            __torajs_throw_type_error(
+                c"builtin prototype accessor requires |this| to match its brand".as_ptr(),
+            );
+        }
+        return VALUE_UNDEFINED;
     }
     // `constructor` is an own property of every builtin prototype
     // (§20.x.3.1 family) — the same interned identity the gOPD
@@ -415,5 +433,20 @@ mod tests {
         // Sibling tag / sibling mid unaffected.
         assert!(proto_tag_owns(2, ANY_METHOD_SLICE));
         assert!(proto_tag_owns(3, ANY_METHOD_SPLIT));
+    }
+}
+
+/// The shared throw half of the direct proto-accessor read — 1 hit
+/// per channel, first-throw-wins makes the pair idempotent.
+pub(crate) unsafe fn proto_virtual_accessor_throws(ptr: *mut c_void, key: *const c_void) -> bool {
+    unsafe {
+        let ptag = torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr);
+        if ptag >= 0 && proto_tag_accessor_mid(ptag, key).is_some() {
+            __torajs_throw_type_error(
+                c"builtin prototype accessor requires |this| to match its brand".as_ptr(),
+            );
+            return true;
+        }
+        false
     }
 }
