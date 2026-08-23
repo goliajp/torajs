@@ -7193,6 +7193,35 @@ v3 roadmap appendix).
 > 实测证据在 `.claude/tasks/2026-08-21/bun-14-competitive-study.md`；
 > 本节只留**执行项与判据**。
 
+### v1 目标（takagi 2026-08-24 立）
+
+> takagi：「perf 还是不太够，我期待最后 v1 要 3-4× 于 bun」。
+
+**轴 B 的 v1.0 gate 从 r470 的「零落后」（下界，已达成：总时间 43/43
+全赢）抬到：bench-tr 全矩阵总时间中位 tr/bun-aot ≤ 0.33（3×），追
+0.25（4×）。** 实测 @ `6abe7e8`（2026-08-24，runs=3，44 cell）：
+median **0.618**。通路量化（分解见
+`bench/results/2026-08-23-mini-6abe7e8.json`，startup 基线 tr 2.09 /
+bun-aot 3.97 / rust 1.12 ms）：
+
+1. **S7（新）— tr-vs-rust abstraction gap 关闭。** rust 行是 native
+   ceiling 代理；work-only 口径 >1.5× 的族全部是 §perf-decomposition
+   意义上的 abstraction 浪费，此前因「总口径赢 bun」从未进攻击名单：
+   `rpn-eval` **3.98×** / `generic-id-1m` **2.17×** / `collatz`
+   **1.89×** / `array-map-1m` **1.88×** / `stack-pop-1m` **1.77×** /
+   `array-sum-1m` **1.77×**（中位 trW/rustW = 1.32）。共因假说待
+   profile：数组热环 per-iter 成本 + 调用/分派固定价。
+2. **S2 — startup 2.09 → ≤1.0 ms**（独立贡献：median 0.618 → 0.515）。
+3. **1+2 全落地的投影 median = 0.442，尚不达标。** 残余三族：
+   regex-dfa 全族（proj 0.58-0.63）与 json/str/csv（0.56-0.77）→
+   S1-A2 逃逸栈分配（架构件）；纯数值 `gcd1m` / `prime_count` /
+   `mandelbrot`（0.85-0.95 —— bun JIT 已贴 native，rust 自身仅
+   1.05-1.26× 于 bun）→ 要超越 -O native 的 codegen：**S6 SIMD 从
+   「独立轴、大载荷才兑现」升格为 v1 达标必需**（mandelbrot 是 f64
+   密集，NEON 双 lane 有 ~2× 的物理空间），外加 regalloc / 调度轴。
+4. **3-4× 是 S1-A2 + S2 + S6 + S7 的合取，无单点银弹。** 各族分头
+   走两步舞（Phase A decomposition → Phase B attack），禁 polish。
+
 ### 立项事实（全部 2026-08-21 实测，两轮互证）
 
 1. **总口径领先 39/44，work-only 口径输 17/41。** 差别是我们的固定
