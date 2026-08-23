@@ -109,6 +109,46 @@ pub(crate) unsafe fn read(base: *const u8, kind: Kind, i: i64) -> AnyValue {
     }
 }
 
+/// The element as an `f64`, for the ten kinds that are Numbers.
+///
+/// This is exact for every one of them — the widest integer kind is
+/// 32 bits and the widest float is `f64` itself — so a comparison
+/// done here answers what a comparison against the boxed value would
+/// have, without minting anything. The two BigInt kinds are not
+/// Numbers and go through [`read_u64`] instead.
+///
+/// # Safety
+/// `base` addresses at least `(i + 1) * kind.element_size()` bytes,
+/// and `kind` is not one of the two BigInt kinds.
+pub(crate) unsafe fn read_f64(base: *const u8, kind: Kind, i: i64) -> f64 {
+    let p = unsafe { base.add((i * kind.element_size()) as usize) };
+    unsafe {
+        match kind {
+            Kind::Int8 => f64::from(p.cast::<i8>().read_unaligned()),
+            Kind::Uint8 | Kind::Uint8Clamped => f64::from(p.read_unaligned()),
+            Kind::Int16 => f64::from(p.cast::<i16>().read_unaligned()),
+            Kind::Uint16 => f64::from(p.cast::<u16>().read_unaligned()),
+            Kind::Int32 => f64::from(p.cast::<i32>().read_unaligned()),
+            Kind::Uint32 => f64::from(p.cast::<u32>().read_unaligned()),
+            Kind::Float16 => crate::binary16::f16_bits_to_f64(p.cast::<u16>().read_unaligned()),
+            Kind::Float32 => f64::from(p.cast::<f32>().read_unaligned()),
+            Kind::Float64 => p.cast::<f64>().read_unaligned(),
+            Kind::BigInt64 | Kind::BigUint64 => unreachable!("a BigInt element is not a Number"),
+        }
+    }
+}
+
+/// The raw 64 bits of a BigInt element. Two BigInts are equal iff
+/// their two's-complement bit patterns are, once both are known to
+/// be in the element type's range — which is what the caller
+/// establishes for the needle before it starts scanning.
+///
+/// # Safety
+/// `base` addresses at least `(i + 1) * 8` bytes.
+pub(crate) unsafe fn read_u64(base: *const u8, i: i64) -> u64 {
+    unsafe { base.add((i * 8) as usize).cast::<u64>().read_unaligned() }
+}
+
 /// The coerced form of a value on its way into an element — §7.1's
 /// answer, held between step 1 of §10.4.5.5 (which always runs) and
 /// the store (which may not happen at all).

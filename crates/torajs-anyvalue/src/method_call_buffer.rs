@@ -15,6 +15,7 @@
 
 use crate::nanbox::AnyValue;
 use crate::nanbox::VALUE_UNDEFINED;
+use crate::nanbox::box_double;
 
 unsafe extern "C" {
     fn __torajs_arraybuffer_slice(av: AnyValue, start: AnyValue, end: AnyValue) -> AnyValue;
@@ -33,6 +34,14 @@ unsafe extern "C" {
         end: AnyValue,
     ) -> AnyValue;
     fn __torajs_typedarray_reverse(recv: AnyValue) -> AnyValue;
+    fn __torajs_typedarray_index_of(recv: AnyValue, search: AnyValue, from: AnyValue) -> f64;
+    fn __torajs_typedarray_last_index_of(
+        recv: AnyValue,
+        search: AnyValue,
+        from: AnyValue,
+        has_from: i64,
+    ) -> f64;
+    fn __torajs_typedarray_includes(recv: AnyValue, search: AnyValue, from: AnyValue) -> AnyValue;
 }
 
 /// `None` = this mid is not one ArrayBuffer.prototype owns, and the
@@ -102,6 +111,19 @@ pub(crate) unsafe fn typedarray_method(
             Some(unsafe { __torajs_typedarray_copy_within(recv, arg(0), arg(1), arg(2)) })
         }
         torajs_rc::ANY_METHOD_REVERSE => Some(unsafe { __torajs_typedarray_reverse(recv) }),
+        torajs_rc::ANY_METHOD_INDEX_OF => Some(box_double(unsafe {
+            __torajs_typedarray_index_of(recv, arg(0), arg(1))
+        })),
+        // An ABSENT `fromIndex` starts the scan at `len - 1`; an
+        // explicit `undefined` coerces to 0 and looks at index 0
+        // alone (§23.2.3.19 step 4). The two are the same slot here
+        // and different answers there, so `argc` has to travel.
+        torajs_rc::ANY_METHOD_LAST_INDEX_OF => Some(box_double(unsafe {
+            __torajs_typedarray_last_index_of(recv, arg(0), arg(1), i64::from(argc > 1))
+        })),
+        torajs_rc::ANY_METHOD_INCLUDES => {
+            Some(unsafe { __torajs_typedarray_includes(recv, arg(0), arg(1)) })
+        }
         _ => None,
     }
 }
