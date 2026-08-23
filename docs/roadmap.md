@@ -1557,7 +1557,21 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `7977d5e80`** (2026-08-22, rotation 474 — a name a program
+**Latest @ `469743816`** (2026-08-23, rotation 480 — the typed-array
+substrate's iteration slab plus `transfer`, and three ownership fixes
+the crashes led to). Gate predicate: **162** clusters of ≥ 4 holding
+**1339** cases (was 163 · 1348), register 2 · 251, residue 651 · 810
+(33.8%), core **2400** (was 2408). Sweep passTotal 33399 → **33835
+(+436)**, bug −129, incompatible 6161 → **5854 (−307)**, trAccepted
++307, conservation exact (+307 = +436 − 129); **654 verdict moves,
+5 attributed pass regressions (4 = @@species debt now that filter/map
+exist; 1 = harness-shake lexical over-include on the helper's own
+self-test), zero new crashes or timeouts**. The single key that moved
+most of it: `detachArrayBuffer.js` ported over §25.1.6.7 `transfer`
+(no host hook — both engines have the spec method), which released
+326 cases split roughly half `→ pass`, half `→ bug`.
+
+**Previous @ `7977d5e80`** (2026-08-22, rotation 474 — a name a program
 writes to needs somewhere to put it). The gate predicate moves for the
 first time in three rotations: **163** clusters of ≥ 4 holding **1351**
 cases (was 165 · 1379), register 2 · 259, residue 657 · 824 (33.9%),
