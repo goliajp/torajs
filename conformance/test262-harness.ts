@@ -1880,3 +1880,137 @@ function $DETACHBUFFER(buffer: any): void {
   }
   $262.detachArrayBuffer(buffer);
 }
+
+// ─── resizableArrayBufferUtils.js port (2026-08-23) ───
+//
+// The stock harness builds its TypedArray subclasses through
+// `new Function('return class My…')` — a try-caught capability probe
+// for engines without `class`. tr compiles ahead of time, so the
+// probe becomes three static class declarations (the same three
+// subclasses, minus the indirection); everything downstream reads
+// them identically. Float16Array / the BigInt kinds exist in both
+// engines, so the stock `typeof` guards collapse to unconditional
+// pushes.
+
+class MyUint8Array extends Uint8Array {}
+class MyFloat32Array extends Float32Array {}
+class MyBigInt64Array extends BigInt64Array {}
+
+const builtinCtors: any[] = [
+  Uint8Array,
+  Int8Array,
+  Uint16Array,
+  Int16Array,
+  Uint32Array,
+  Int32Array,
+  Float32Array,
+  Float64Array,
+  Uint8ClampedArray,
+  Float16Array,
+  BigUint64Array,
+  BigInt64Array,
+];
+
+const floatCtors: any[] = [Float32Array, Float64Array, MyFloat32Array, Float16Array];
+
+const ctors: any[] = builtinCtors.concat(MyUint8Array, MyFloat32Array, MyBigInt64Array);
+
+function CreateResizableArrayBuffer(byteLength: any, maxByteLength: any): any {
+  return new ArrayBuffer(byteLength, { maxByteLength: maxByteLength });
+}
+
+function Convert(item: any): any {
+  if (typeof item == "bigint") {
+    return Number(item);
+  }
+  return item;
+}
+
+function ToNumbers(array: any): any {
+  let result: any[] = [];
+  for (let i = 0; i < array.length; i++) {
+    let item: any = array[i];
+    result.push(Convert(item));
+  }
+  return result;
+}
+
+function MayNeedBigInt(ta: any, n: any): any {
+  __t262_sameValue(typeof n, "number");
+  if (ta instanceof BigInt64Array || ta instanceof BigUint64Array) {
+    return BigInt(n);
+  }
+  return n;
+}
+
+function CreateRabForTest(ctor: any): any {
+  const rab: any = CreateResizableArrayBuffer(
+    4 * ctor.BYTES_PER_ELEMENT,
+    8 * ctor.BYTES_PER_ELEMENT,
+  );
+  // Write some data into the array.
+  const taWrite: any = new ctor(rab);
+  for (let i = 0; i < 4; ++i) {
+    taWrite[i] = MayNeedBigInt(taWrite, 2 * i);
+  }
+  return rab;
+}
+
+function CollectValuesAndResize(
+  n: any,
+  values: any,
+  rab: any,
+  resizeAfter: any,
+  resizeTo: any,
+): any {
+  if (typeof n == "bigint") {
+    values.push(Number(n));
+  } else {
+    values.push(n);
+  }
+  if (values.length == resizeAfter) {
+    rab.resize(resizeTo);
+  }
+  return true;
+}
+
+function TestIterationAndResize(
+  iterable: any,
+  expected: any,
+  rab: any,
+  resizeAfter: any,
+  newByteLength: any,
+): void {
+  let values: any[] = [];
+  let resized: boolean = false;
+  let arrayValues: boolean = false;
+
+  for (let value of iterable) {
+    if (Array.isArray(value)) {
+      arrayValues = true;
+      values.push([value[0], Number(value[1])]);
+    } else {
+      values.push(Number(value));
+    }
+    if (!resized && values.length == resizeAfter) {
+      rab.resize(newByteLength);
+      resized = true;
+    }
+  }
+  if (!arrayValues) {
+    __t262_compareArray_assert(
+      ([] as any[]).concat(values),
+      expected,
+      "TestIterationAndResize: list of iterated values",
+    );
+  } else {
+    for (let i = 0; i < expected.length; i++) {
+      __t262_compareArray_assert(
+        values[i],
+        expected[i],
+        "TestIterationAndResize: list of iterated lists of values",
+      );
+    }
+  }
+  __t262_assert(resized, "TestIterationAndResize: resize condition should have been hit");
+}

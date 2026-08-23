@@ -461,6 +461,12 @@ fn run_case(
         // rather than a host hook: `transfer` empties its receiver,
         // which is the whole job, and both engines have it.
         "detachArrayBuffer.js",
+        // 2026-08-23 — resizable-buffer helper constants/functions,
+        // now that the TypedArray subclasses it builds
+        // (`class My… extends …`) construct for real. The stock
+        // `new Function('return class …')` capability probe becomes
+        // three static class declarations in the port.
+        "resizableArrayBufferUtils.js",
     ];
     let unported: Vec<&str> = fm
         .includes

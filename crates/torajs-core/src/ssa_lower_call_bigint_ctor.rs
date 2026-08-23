@@ -77,6 +77,15 @@ pub(crate) fn try_lower(
                 None,
             )
         }
+        // §21.2.1.1 over an Any operand — ToPrimitive first, a
+        // Number primitive through NumberToBigInt, the rest through
+        // the §7.1.13 dispatch. The kernel records its own throws.
+        Type::Any => ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.bigint_ctor_any, vec![arg_op.clone()]),
+            Type::BigInt,
+            None,
+        ),
         _ => panic!("ssa-lower: BigInt() expects bigint / string / number arg, got {arg_ty:?}"),
     };
     // `bigint_from_str` / `bigint_clone` borrow their arg (pure reads

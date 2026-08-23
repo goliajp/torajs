@@ -42,6 +42,9 @@ pub(crate) struct BigIntIds {
     pub bigint_shr: FuncId,
     pub bigint_from_str: FuncId,
     pub bigint_from_number: FuncId,
+    /// §21.2.1.1 over an Any operand (ToPrimitive → NumberToBigInt
+    /// / ToBigInt split).
+    pub bigint_ctor_any: FuncId,
     /// §21.1.1.1 step 3 — `Number(bigint)` = 𝔽(ℝ(value)).
     pub bigint_to_number: FuncId,
     /// The `Number(any)` pre-gate kernel (BigInt window + generic
@@ -118,6 +121,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_bigint_from_number",
             &[Type::F64],
+            Type::BigInt,
+        ),
+        bigint_ctor_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_bigint_ctor_any",
+            &[Type::Any],
             Type::BigInt,
         ),
         bigint_to_number: declare_intrinsic(

@@ -83,7 +83,10 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if !matches!(arg_ty, Type::BigInt | Type::String | Type::Number) {
+        if !matches!(
+            arg_ty,
+            Type::BigInt | Type::String | Type::Number | Type::Any
+        ) {
             return Some(Err(format!(
                 "BigInt(value) — value must be bigint / string / number, got {arg_ty:?}"
             )));

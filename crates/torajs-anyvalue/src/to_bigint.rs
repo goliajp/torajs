@@ -90,6 +90,42 @@ pub(crate) unsafe fn any_to_bigint(v: AnyValue) -> Option<*mut u8> {
     }
 }
 
+/// §21.2.1.1 `BigInt(value)` over an Any operand — ToPrimitive
+/// (hint number) FIRST, then a Number primitive takes NumberToBigInt
+/// (integral or RangeError) where plain ToBigInt would TypeError;
+/// every other primitive re-enters the §7.1.13 dispatch. NULL = a
+/// pending throw was recorded.
+///
+/// # Safety
+/// `v` is a live NaN-boxed Any value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_bigint_ctor_any(v: AnyValue) -> *mut u8 {
+    unsafe {
+        let (prim, owned) =
+            if is_cell(v) && !matches!(cell_tag(v), Tag::BigInt | Tag::Symbol | Tag::Str) {
+                match crate::to_primitive::heap_to_primitive(as_void_ptr(v), false) {
+                    Some(p) => (p, true),
+                    None => return core::ptr::null_mut(),
+                }
+            } else {
+                (v, false)
+            };
+        let r = if crate::nanbox::is_int32(prim) {
+            bigint_ffi::__torajs_bigint_from_number(crate::nanbox::as_int32(prim) as f64)
+        } else if crate::nanbox::is_double(prim) {
+            // NumberToBigInt — from_number's own RangeError gate
+            // covers the non-integral / non-finite cases.
+            bigint_ffi::__torajs_bigint_from_number(crate::nanbox::as_double(prim))
+        } else {
+            any_to_bigint(prim).unwrap_or(core::ptr::null_mut())
+        };
+        if owned {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);
+        }
+        r
+    }
+}
+
 /// Heap tag of a cell-form Any — caller already gated on `is_cell`.
 #[inline]
 unsafe fn cell_tag(v: AnyValue) -> Tag {
