@@ -34,7 +34,9 @@ unsafe extern "C" {
     /// §7.1.x `ToBigInt64` / `ToBigUint64` modulo, which is the same
     /// bit pattern for both.
     fn __torajs_bigint_to_u64_wrapping(p: *const c_void) -> u64;
-    fn __torajs_bigint_drop(p: *mut c_void);
+    /// **rc-aware** — `__torajs_bigint_drop` is an unconditional
+    /// `free`, and the cell below is not always ours alone.
+    fn __torajs_bigint_drop_rc(p: *mut c_void);
 }
 
 /// §7.1.5-ish truncation shared by the six wrapping integer kinds:
@@ -170,15 +172,25 @@ pub(crate) enum Coerced {
 pub(crate) unsafe fn coerce(kind: Kind, v: AnyValue) -> Option<Coerced> {
     unsafe {
         if kind.is_bigint() {
+            // §7.1.13 hands back an OWNED stake, and for a value
+            // that is already a BigInt that stake is a +1 on the
+            // CALLER'S cell — not a fresh mint. Releasing it with
+            // the unconditional `__torajs_bigint_drop` therefore
+            // freed a cell the source still held, and the source's
+            // own release then ran on dead memory: `new
+            // BigInt64Array(arr)` a second time over the same array
+            // read a recycled slot ("Failed to parse String to
+            // BigInt"), and the walks that keep an element alive
+            // across a user callback took SIGSEGV.
             let cell = __torajs_any_to_bigint(v);
             if cell.is_null() || __torajs_throw_check() != 0 {
                 if !cell.is_null() {
-                    __torajs_bigint_drop(cell as *mut c_void);
+                    __torajs_bigint_drop_rc(cell as *mut c_void);
                 }
                 return None;
             }
             let raw = __torajs_bigint_to_u64_wrapping(cell as *const c_void);
-            __torajs_bigint_drop(cell as *mut c_void);
+            __torajs_bigint_drop_rc(cell as *mut c_void);
             return Some(Coerced::Bits(raw));
         }
         let n = __torajs_anyv_to_number(v);

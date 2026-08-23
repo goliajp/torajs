@@ -99,15 +99,9 @@ impl Callback {
 /// `None` leaves a pending throw already raised.
 ///
 /// # Safety
-/// `recv` is a live TypedArray AnyValue; `argv` holds `argc` live
-/// AnyValues.
-unsafe fn prologue(
-    recv: AnyValue,
-    argv: *const u64,
-    argc: i64,
-    arg: &dyn Fn(i64) -> AnyValue,
-) -> Option<(i64, Callback)> {
-    let _ = (argv, argc);
+/// `recv` is a live TypedArray AnyValue; `arg` reads the caller's
+/// live argument slots.
+unsafe fn prologue(recv: AnyValue, arg: &dyn Fn(i64) -> AnyValue) -> Option<(i64, Callback)> {
     let len = unsafe { __torajs_typedarray_validate(recv) };
     if len < 0 {
         return None;
@@ -347,7 +341,7 @@ pub(crate) unsafe fn typedarray_iter_method(
     };
     let mode = iter_mode(mid)?;
     unsafe {
-        let Some((len, cb)) = prologue(recv, argv, argc, &arg) else {
+        let Some((len, cb)) = prologue(recv, &arg) else {
             return Some(VALUE_UNDEFINED);
         };
         Some(match mode {

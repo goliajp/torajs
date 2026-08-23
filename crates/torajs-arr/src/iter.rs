@@ -233,7 +233,17 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
     // The typed read is OWNED where the array read is borrowed, so
     // the +1 the VALUES / ENTRIES arms below apply would be one too
     // many — `owned_read` tracks which it was.
-    let (slot_av, owned_read) = if typed {
+    //
+    // KEYS yields the index alone. Over an array the slot read is a
+    // borrow and costs nothing, but a typed one MINTS (a BigInt
+    // element is a fresh cell), so `keys()` would allocate and free
+    // one per step for a value it never looks at. §23.2.5.1's `key`
+    // kind does not read the element either.
+    let kind = unsafe { (*it).kind };
+    let read = !(typed && kind == ARR_ITER_KEYS);
+    let (slot_av, owned_read) = if !read {
+        (0u64, false)
+    } else if typed {
         (
             unsafe { __torajs_typedarray_index_get(arr as u64, i as f64) },
             true,
@@ -244,19 +254,22 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
             false,
         )
     };
-    let slot_tag = unsafe { __torajs_anyv_unbox_tag(slot_av) } as u64;
-    let slot_val = unsafe { __torajs_anyv_unbox_value(slot_av) } as u64;
+    // Nothing was read on the skipped path, so nothing is decoded
+    // either — `slot_av` there is a placeholder no arm looks at.
+    let (slot_tag, slot_val) = if read {
+        unsafe {
+            (
+                __torajs_anyv_unbox_tag(slot_av) as u64,
+                __torajs_anyv_unbox_value(slot_av) as u64,
+            )
+        }
+    } else {
+        (ANY_UNDEF as u64, 0)
+    };
     unsafe { (*it).cursor = (i + 1) as i64 };
 
     let (tag, payload) = match unsafe { (*it).kind } {
-        k if k == ARR_ITER_KEYS => {
-            // KEYS yields the index alone, so an owned element read
-            // has nowhere to go.
-            if owned_read && (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
-                unsafe { __torajs_value_drop_heap(slot_val as *mut c_void) };
-            }
-            (ANY_I64 as i64, i as i64)
-        }
+        k if k == ARR_ITER_KEYS => (ANY_I64 as i64, i as i64),
         k if k == ARR_ITER_VALUES => {
             // The `.value` box adopts what it is handed, and
             // `__torajs_arr_get_any_boxed` above is an explicit borrow
