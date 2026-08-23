@@ -102,6 +102,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "compile" => ANY_METHOD_COMPILE,
         "resize" => ANY_METHOD_RESIZE,
         "subarray" => ANY_METHOD_SUBARRAY,
+        "transfer" => ANY_METHOD_TRANSFER,
+        "transferToFixedLength" => ANY_METHOD_TRANSFER_TO_FIXED_LENGTH,
         "then" => ANY_METHOD_THEN,
         "catch" => ANY_METHOD_CATCH,
         "finally" => ANY_METHOD_FINALLY,

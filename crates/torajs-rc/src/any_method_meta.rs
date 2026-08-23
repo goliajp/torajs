@@ -222,6 +222,8 @@ fn buffer_method_meta(mid: i64) -> Option<(&'static str, u32)> {
     Some(match mid {
         ANY_METHOD_RESIZE => ("resize", 1),
         ANY_METHOD_SUBARRAY => ("subarray", 2),
+        ANY_METHOD_TRANSFER => ("transfer", 0),
+        ANY_METHOD_TRANSFER_TO_FIXED_LENGTH => ("transferToFixedLength", 0),
         _ => return iter_method_meta(mid),
     })
 }

@@ -395,6 +395,16 @@ pub const ANY_METHOD_RESIZE: i64 = 178;
 /// only one that needed an id. Same append-only ABI contract.
 pub const ANY_METHOD_SUBARRAY: i64 = 179;
 
+/// §25.1.6.7 `ArrayBuffer.prototype.transfer` / §25.1.6.8
+/// `transferToFixedLength` (RFC 20260823-typedarray-substrate 刀 8).
+/// The only way a program detaches a buffer without a host hook, and
+/// therefore what test262's `$DETACHBUFFER` runs on. Two ids rather
+/// than one flag: they are two function objects with two names, and
+/// the reflection faces read the name out of this table. Same
+/// append-only ABI contract as the ids above.
+pub const ANY_METHOD_TRANSFER: i64 = 180;
+pub const ANY_METHOD_TRANSFER_TO_FIXED_LENGTH: i64 = 181;
+
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
 /// receiver. ssa-lower interns the member NAME into one of these at

@@ -38,7 +38,8 @@ use torajs_rc::{
     ANY_METHOD_TO_FIXED, ANY_METHOD_TO_LOCALE_LOWER_CASE, ANY_METHOD_TO_LOCALE_STRING,
     ANY_METHOD_TO_LOCALE_UPPER_CASE, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_PRECISION,
     ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED, ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING,
-    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TO_WELL_FORMED, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END,
+    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TO_WELL_FORMED, ANY_METHOD_TRANSFER,
+    ANY_METHOD_TRANSFER_TO_FIXED_LENGTH, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END,
     ANY_METHOD_TRIM_START, ANY_METHOD_UNION, ANY_METHOD_UNSHIFT, ANY_METHOD_VALUE_OF,
     ANY_METHOD_VALUES, ANY_METHOD_WITH,
 };
@@ -317,7 +318,13 @@ pub(crate) fn date_supports(mid: i64) -> bool {
 /// `maxByteLength`, `resizable`, `detached`) are getters, not
 /// methods, and answer through the member-read face instead.
 pub(crate) fn arraybuffer_supports(mid: i64) -> bool {
-    matches!(mid, ANY_METHOD_SLICE | ANY_METHOD_RESIZE)
+    matches!(
+        mid,
+        ANY_METHOD_SLICE
+            | ANY_METHOD_RESIZE
+            | ANY_METHOD_TRANSFER
+            | ANY_METHOD_TRANSFER_TO_FIXED_LENGTH
+    )
 }
 
 /// §23.2.3 `%TypedArray%.prototype`'s own methods — slab A and

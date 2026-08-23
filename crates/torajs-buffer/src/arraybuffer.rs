@@ -214,6 +214,35 @@ pub unsafe extern "C" fn __torajs_arraybuffer_create(
     }
 }
 
+/// §25.1.3.3 DetachArrayBuffer — the byte store goes back and the
+/// slot becomes null, which IS the detached state (there is nothing
+/// else to read, so there is nothing else to set).
+///
+/// Every view over this buffer keeps its reference to the CELL, so
+/// they all learn at once: `resolve` reads a null `data` and answers
+/// "detached" from that moment. Idempotent — a second detach has
+/// nothing to give back.
+///
+/// # Safety
+/// `ptr` is a live ArrayBuffer cell.
+pub(crate) unsafe fn detach(ptr: *mut c_void) {
+    unsafe {
+        let data = data_ptr(ptr);
+        if data.is_null() {
+            return;
+        }
+        // The reservation is read BEFORE the length is cleared: a
+        // resizable buffer gave back its maximum, not its current
+        // length, and `reserved_bytes` computes that from the two
+        // fields below.
+        let n = reserved_bytes(ptr);
+        let layout = core::alloc::Layout::from_size_align(n, 8).unwrap();
+        std::alloc::dealloc(data, layout);
+        *(ptr.cast::<u8>().add(DATA_OFF) as *mut *mut u8) = core::ptr::null_mut();
+        *(ptr.cast::<u8>().add(BYTE_LEN_OFF) as *mut i64) = 0;
+    }
+}
+
 /// `value_drop`'s ArrayBuffer arm — release the byte store and free.
 ///
 /// # Safety

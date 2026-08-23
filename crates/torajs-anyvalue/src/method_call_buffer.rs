@@ -20,6 +20,11 @@ use crate::nanbox::box_double;
 unsafe extern "C" {
     fn __torajs_arraybuffer_slice(av: AnyValue, start: AnyValue, end: AnyValue) -> AnyValue;
     fn __torajs_arraybuffer_resize(av: AnyValue, new_length: AnyValue);
+    fn __torajs_arraybuffer_transfer(
+        av: AnyValue,
+        new_length: AnyValue,
+        preserve_resizability: i64,
+    ) -> AnyValue;
     fn __torajs_typedarray_at(recv: AnyValue, index: AnyValue) -> AnyValue;
     fn __torajs_typedarray_fill(
         recv: AnyValue,
@@ -80,6 +85,15 @@ pub(crate) unsafe fn arraybuffer_method(
         torajs_rc::ANY_METHOD_RESIZE => {
             unsafe { __torajs_arraybuffer_resize(recv, arg(0)) };
             Some(VALUE_UNDEFINED)
+        }
+        // §25.1.6.7 / §25.1.6.8 — one body, two names; the flag is
+        // the whole difference (`transfer` keeps a resizable buffer
+        // resizable, `transferToFixedLength` does not).
+        torajs_rc::ANY_METHOD_TRANSFER => {
+            Some(unsafe { __torajs_arraybuffer_transfer(recv, arg(0), 1) })
+        }
+        torajs_rc::ANY_METHOD_TRANSFER_TO_FIXED_LENGTH => {
+            Some(unsafe { __torajs_arraybuffer_transfer(recv, arg(0), 0) })
         }
         _ => None,
     }

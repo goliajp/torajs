@@ -457,6 +457,10 @@ fn run_case(
         // 20260823-typedarray-substrate 刀 6). The single largest
         // unported gate in the suite: 2064 cases sat behind it.
         "testTypedArray.js",
+        // 2026-08-23 — `$DETACHBUFFER` over §25.1.6.7 `transfer`
+        // rather than a host hook: `transfer` empties its receiver,
+        // which is the whole job, and both engines have it.
+        "detachArrayBuffer.js",
     ];
     let unported: Vec<&str> = fm
         .includes

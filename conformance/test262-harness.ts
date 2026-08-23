@@ -36,10 +36,11 @@
 // asyncHelpers.js — PORTED 2026-07-30 (real `__t262_asyncTest` +
 //   `__t262_throwsAsync` below; the `$DONE` completion protocol was
 //   already ported 2026-07-27).
-// detachArrayBuffer.js (326) — needs $262.detachArrayBuffer, i.e. a
-//   host hook that detaches a buffer; the buffer substrate itself is
-//   in as of 2026-08-23. resizableArrayBufferUtils.js (188) needs
-//   only the port.
+// detachArrayBuffer.js — PORTED 2026-08-23 over §25.1.6.7
+//   `transfer` (see the segment at the end of this file); no host
+//   hook, because both engines have the spec method.
+//   resizableArrayBufferUtils.js (188) needs subclassing a typed
+//   array through `new Function('return class My… extends …')`.
 // testIntl.js (175) — Intl is unimplemented.
 // fnGlobalObject.js — PORTED 2026-08-11: `globalThis` has a value
 //   surface (G2 singleton) and `Function("return this;")()` answers
@@ -1848,4 +1849,34 @@ function floatTypedArrayConstructorPrecision(FA: any): string {
   throw new Error(
     "Malformed test - floatTypedArrayConstructorPrecision called with non-float TypedArray",
   );
+}
+
+// ─── detachArrayBuffer.js port (2026-08-23) ───
+//
+// The stock harness calls `$262.detachArrayBuffer`, a hook the HOST
+// is supposed to provide. tr has no host object, and inventing one
+// would only be half an answer: bun has no `$262` either, so the two
+// engines would need two different bodies for the same helper.
+//
+// §25.1.6.7 `transfer` already does the one thing the hook is for.
+// It moves the bytes to a fresh buffer and empties the receiver —
+// detaching it is the point, not a side effect — and it is the only
+// way a PROGRAM can detach anything. So the port defines `$262`
+// itself, in the harness, out of spec surface both engines have.
+//
+// The transferred buffer is dropped on the floor, which is what
+// `$DETACHBUFFER(buffer)` means: the caller wants the argument dead,
+// not a replacement.
+const $262: any = {
+  detachArrayBuffer: function (buffer: any): any {
+    buffer.transfer();
+    return undefined;
+  },
+};
+
+function $DETACHBUFFER(buffer: any): void {
+  if (!$262 || typeof $262.detachArrayBuffer !== "function") {
+    throw new Test262Error("No method available to detach an ArrayBuffer");
+  }
+  $262.detachArrayBuffer(buffer);
 }

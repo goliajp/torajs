@@ -1,5 +1,6 @@
-//! The two ArrayBuffer methods that move bytes — §25.1.6.6 `resize`
-//! and §25.1.6.7 `slice` (RFC 20260823-typedarray-substrate 刀 1).
+//! The ArrayBuffer methods that move bytes — §25.1.6.6 `resize`,
+//! §25.1.6.7 `slice` (RFC 20260823-typedarray-substrate 刀 1), and
+//! §25.1.6.7-8 `transfer` / `transferToFixedLength` (刀 8).
 //!
 //! Split from `arraybuffer.rs` along the seam that file already has:
 //! the cell and its getters *answer questions about* a buffer, these
@@ -191,5 +192,95 @@ mod tests {
         assert_eq!(to_integer_or_infinity(f64::NAN), 0.0);
         assert_eq!(to_integer_or_infinity(-3.9), -3.0);
         assert_eq!(to_integer_or_infinity(3.9), 3.0);
+    }
+}
+
+/// §25.1.6.7 `ArrayBuffer.prototype.transfer(newLength)` and
+/// §25.1.6.8 `transferToFixedLength(newLength)` — one body, because
+/// the spec gives them one (AbstractSetBufferMaxByteLength calls the
+/// same steps with `preserve-resizability` set either way).
+///
+/// This is the only way a program detaches a buffer: the bytes move
+/// to a fresh cell and the old one is emptied. test262 reaches for it
+/// through `$DETACHBUFFER`, which is why so many typed-array cases
+/// sit behind it.
+///
+/// Step order matters twice. `ToIndex` runs BEFORE the detached
+/// check (step 3 before step 4), so `detached.transfer({valueOf(){…}})`
+/// runs the user code and only then reports the buffer. And the
+/// allocation happens before the detach, so a failed reservation
+/// leaves the receiver intact rather than half-transferred.
+///
+/// # Safety
+/// `av` and `new_length` are live AnyValues.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arraybuffer_transfer(
+    av: AnyValue,
+    new_length: AnyValue,
+    preserve_resizability: i64,
+) -> AnyValue {
+    if !is_arraybuffer(av) {
+        unsafe {
+            __torajs_throw_type_error(
+                c"ArrayBuffer.prototype.transfer called on incompatible receiver".as_ptr(),
+            )
+        };
+        return VALUE_UNDEFINED;
+    }
+    unsafe {
+        let ptr = as_void_ptr(av);
+        let old_len = byte_len(ptr);
+        // Step 3 — an absent newLength keeps the current length; a
+        // present one coerces, and that can run user code.
+        let new_len = if torajs_anyvalue::nanbox::is_undefined(new_length) {
+            old_len
+        } else {
+            let n = __torajs_anyv_to_number(new_length);
+            if __torajs_throw_check() != 0 {
+                return VALUE_UNDEFINED;
+            }
+            let idx = __torajs_to_index(n);
+            if __torajs_throw_check() != 0 {
+                return VALUE_UNDEFINED;
+            }
+            idx
+        };
+        // Step 4 — after the coercion, which may have detached it.
+        if data_ptr(ptr).is_null() {
+            __torajs_throw_type_error(
+                c"ArrayBuffer.prototype.transfer: buffer is detached".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
+        // Step 5 — `transfer` keeps a resizable buffer resizable;
+        // `transferToFixedLength` is the same steps with that turned
+        // off, which is the whole difference between the two names.
+        let old_max = max_byte_len(ptr);
+        let new_max = if preserve_resizability != 0 && old_max != NOT_RESIZABLE {
+            old_max
+        } else {
+            NOT_RESIZABLE
+        };
+        if new_max != NOT_RESIZABLE && new_len > new_max {
+            __torajs_throw_range_error(
+                b"ArrayBuffer.prototype.transfer: newLength exceeds maxByteLength\0".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
+        let fresh = allocate(new_len, new_max);
+        if fresh.is_null() {
+            __torajs_throw_range_error(
+                b"ArrayBuffer.prototype.transfer: allocation failed\0".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
+        // Steps 8-9 — the shorter of the two lengths travels; a grow
+        // reads the fresh cell's zeroed tail.
+        let copied = if new_len < old_len { new_len } else { old_len };
+        if copied > 0 {
+            core::ptr::copy_nonoverlapping(data_ptr(ptr), data_ptr(fresh), copied as usize);
+        }
+        crate::arraybuffer::detach(ptr);
+        __torajs_anyv_box_pointer(fresh)
     }
 }
