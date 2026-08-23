@@ -45,7 +45,17 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         // its `length` field through the class-layouts probe; absent
         // field answers the undefined pair (→ ToLength 0).
         let obj_tag = (obj.cast::<u8>().add(4) as *const u16).read();
-        let (dtag, dval) = if obj_tag == torajs_rc::Tag::Obj as u16 {
+        let (dtag, dval) = if obj_tag == torajs_rc::Tag::TypedArray as u16 {
+            // §23.2.3.21 — a TypedArray receiver's `length` is the
+            // prototype getter (0 for a detached / out-of-bounds
+            // view, never a throw); the any member-get face carries
+            // exactly that, own-expando shadow included.
+            let recv = __torajs_anyv_box_pointer(obj);
+            (
+                crate::member_get::__torajs_any_member_get_tag(recv, key as *const c_void),
+                crate::member_get_value::__torajs_any_member_get_value(recv, key as *const c_void),
+            )
+        } else if obj_tag == torajs_rc::Tag::Obj as u16 {
             crate::struct_probe::struct_field_pair(obj, key as *const c_void).unwrap_or((5, 0))
         } else if crate::member_get::is_wrapper_tag(obj_tag) {
             // 刀 9 G2c — a primitive-wrapper receiver's own `length`

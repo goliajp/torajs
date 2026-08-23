@@ -160,11 +160,17 @@ impl<'a> LowerCtx<'a> {
             // unfixed sibling of the chunk-565 push/fill lanes.
             let v_ty = self.operand_ty(&v_raw);
             let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
+            // The assignment-expression value takes its own stake
+            // BEFORE the store: the pack transferred an owned temp's
+            // only reference, and a consuming receiver (a TypedArray
+            // element coercion) releases it inside the kernel — an
+            // inc after the call runs on a freed cell (the
+            // BigInt64Array `w[i] = BigInt(x)` UAF).
+            mint_index_assign_value(self, eid, &v_raw);
             self.emit_arr_set_any(writeback, arr_val, arr_ty, idx_val, tag_op, value_op);
             // Both entries can raise (dense-limit / temporary-receiver
             // RangeError) — propagate.
             self.emit_throw_check(None);
-            mint_index_assign_value(self, eid, &v_raw);
             return v_raw;
         }
         // Typed tier. The value lowers BEFORE the bounds guard — both
@@ -386,10 +392,11 @@ impl<'a> LowerCtx<'a> {
             let v_ty = self.operand_ty(&v_raw);
             let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
             let recv_owned = self.expr_transfers_ownership(obj);
+            // Stake before the store (see the Any-slot site above).
+            mint_index_assign_value(self, eid, &v_raw);
             crate::ssa_lower_assign_member_any::emit_any_member_set(
                 self, arr_val, &lit, tag_op, value_op, &obj_ident, recv_owned,
             );
-            mint_index_assign_value(self, eid, &v_raw);
             return v_raw;
         }
         if matches!(
@@ -427,6 +434,8 @@ impl<'a> LowerCtx<'a> {
         let v_ty = self.operand_ty(&v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_slot = self.resolve_any_recv_slot(obj);
+        // Stake before the store (see the Any-slot site above).
+        mint_index_assign_value(self, eid, &v_raw);
         let cur_block = self.cur_block;
         self.f.append_void(
             cur_block,
@@ -436,7 +445,6 @@ impl<'a> LowerCtx<'a> {
             ),
         );
         self.emit_throw_check(None);
-        mint_index_assign_value(self, eid, &v_raw);
         return v_raw;
     }
 }

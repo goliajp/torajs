@@ -161,6 +161,9 @@ impl<'a> LowerCtx<'a> {
         let v_ty = self.operand_ty(&v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_owned = self.expr_transfers_ownership(obj);
+        // Stake before the store (consuming receivers release the
+        // transferred pair inside the kernel).
+        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
             self,
             self.intrinsics.any_member_set,
@@ -181,7 +184,6 @@ impl<'a> LowerCtx<'a> {
             // its own reference too — substr_to_owned only reads.
             self.emit_drop_value(key_raw_keep, k_ty);
         }
-        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         v_raw
     }
 
@@ -211,6 +213,9 @@ impl<'a> LowerCtx<'a> {
             let v_ty = self.operand_ty(&v_raw);
             let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
             let recv_slot = self.resolve_any_recv_slot(obj);
+            // Stake before the store (consuming receivers release
+            // the transferred pair inside the kernel).
+            crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
             let cur_block = self.cur_block;
             self.f.append_void(
                 cur_block,
@@ -220,7 +225,6 @@ impl<'a> LowerCtx<'a> {
                 ),
             );
             self.emit_throw_check(None);
-            crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
             return v_raw;
         }
         let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, index);
@@ -280,6 +284,9 @@ impl<'a> LowerCtx<'a> {
         let v_ty = self.operand_ty(&v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_slot = self.resolve_any_recv_slot(obj);
+        // Stake before the store (consuming receivers release the
+        // transferred pair inside the kernel).
+        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         let cur_block = self.cur_block;
         self.f.append_void(
             cur_block,
@@ -295,7 +302,6 @@ impl<'a> LowerCtx<'a> {
         if compound_shared || key_transfers {
             self.emit_drop_value(k_final, Type::Any);
         }
-        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         v_raw
     }
 
@@ -331,6 +337,9 @@ impl<'a> LowerCtx<'a> {
         let v_ty = self.operand_ty(&v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
         let recv_owned = self.expr_transfers_ownership(obj);
+        // Stake before the store (consuming receivers release the
+        // transferred pair inside the kernel).
+        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         crate::ssa_lower_assign_member_any::emit_any_member_set_dyn(
             self,
             self.intrinsics.any_member_set,
@@ -345,7 +354,6 @@ impl<'a> LowerCtx<'a> {
         if key_transfers {
             self.emit_drop_value(key_raw_keep, k_ty);
         }
-        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
         v_raw
     }
 }

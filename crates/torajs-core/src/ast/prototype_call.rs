@@ -107,6 +107,46 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         if ns == "Error" && method_name == "toString" {
             continue;
         }
+        // §23.1.3 "intentionally generic" — the Array read family
+        // SKIPS the rewrite: `recv.find(...)` is the receiver's OWN
+        // find (a TypedArray receiver's §23.2.3 twin ValidateTypedArray-
+        // throws on an out-of-bounds view exactly where the generic
+        // scan answers empty — the resizable-buffer families count
+        // that difference). The runtime path reifies the
+        // Array-prototype-minted cell and the `.call` short-circuit's
+        // family gate routes a non-Array receiver through the
+        // array-like generic arm. Mutators keep the rewrite (the
+        // array-like write face is dynobj-shaped).
+        if ns == "Array"
+            && matches!(
+                method_name.as_str(),
+                "find"
+                    | "findIndex"
+                    | "findLast"
+                    | "findLastIndex"
+                    | "forEach"
+                    | "some"
+                    | "every"
+                    | "indexOf"
+                    | "lastIndexOf"
+                    | "includes"
+                    | "at"
+                    | "join"
+                    | "map"
+                    | "filter"
+                    | "slice"
+                    | "reduce"
+                    | "reduceRight"
+                    | "flat"
+                    | "flatMap"
+                    | "toReversed"
+                    | "toSorted"
+                    | "toSpliced"
+                    | "with"
+            )
+        {
+            continue;
+        }
         // §20.4.3 — the WHOLE Symbol namespace SKIPS the rewrite:
         // toString / valueOf run thisSymbolValue, which throws a
         // TypeError on every non-Symbol receiver — `recv.m()` would

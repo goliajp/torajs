@@ -82,6 +82,31 @@ pub(crate) unsafe fn generic_builtin_this(
             crate::method_call_arraylike_concat::prim_method(this_arg, argv, argc)
         });
     }
+    // §23.1.3 "intentionally generic" over a TYPED-ARRAY receiver —
+    // an Array-prototype-minted read-family method must run the
+    // array-like scan (`ToLength(Get(O,"length"))` answers 0 for an
+    // out-of-bounds view, per-index Gets answer undefined), NOT the
+    // receiver's own §23.2.3 twin, whose ValidateTypedArray throws
+    // exactly where the generic answers empty (the resizable-buffer
+    // families count that difference). Mutators stay on the ordinary
+    // lane — the array-like write face is dynobj-shaped.
+    if fam == crate::method_value::family::ARR_PROTO_FAMILY
+        && is_cell(this_arg)
+        && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
+            == Tag::TypedArray as u16
+        && crate::method_call_arraylike::arraylike_supported(mid)
+        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+    {
+        return Some(unsafe {
+            crate::method_call_arraylike::arraylike_method(
+                as_void_ptr(this_arg),
+                mid,
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            )
+        });
+    }
     // §24.1.3 / §24.2.3 / §24.3.3 / §24.4.3 — every own method of the
     // Map / Set / WeakMap / WeakSet prototypes brand-checks its
     // receiver's internal slot ([[MapData]] and kin). The ordinary
