@@ -80,6 +80,8 @@ fn tag_for_proto(idx: i64) -> Option<&'static [u8]> {
         // the real accessor lives on is a recorded gap in RFC
         // 20260823-typedarray-substrate.
         19 => Some(b"ArrayBuffer"),
+        // §25.3.4.25 — a plain data property like ArrayBuffer's.
+        32 => Some(b"DataView"),
         16 => Some(b"WeakMap"),
         17 => Some(b"WeakSet"),
         18 => Some(b"WeakRef"),

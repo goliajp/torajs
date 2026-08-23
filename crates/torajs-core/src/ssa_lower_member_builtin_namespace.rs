@@ -261,6 +261,8 @@ fn builtin_proto_tag(ns_name: &str) -> Option<i64> {
         // `[Float64Array, Float32Array]` needs, and that is the
         // shape testTypedArray.js is built out of.
         "ArrayBuffer" => Some(19),
+        // 刀 7 — DataView after the per-kind block.
+        "DataView" => Some(32),
         n => crate::ssa_lower_call_typedarray::kind_of_name(n).map(|k| 20 + k),
     }
 }

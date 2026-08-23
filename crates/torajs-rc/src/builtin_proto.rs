@@ -52,7 +52,7 @@ unsafe extern "C" {
 /// buffer, because that is the order the discriminant already
 /// fixes and a second ordering would be a second thing to keep in
 /// step).
-pub const NUM_BUILTIN_PROTOS: usize = 32;
+pub const NUM_BUILTIN_PROTOS: usize = 33;
 
 /// ES `name` / ctor-clause `length` of the builtin constructor
 /// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
@@ -149,6 +149,11 @@ pub const SET_PROTO_TAG: usize = 12;
 /// `[Symbol.iterator]` / §27.1.4.1 `[Symbol.dispose]` own entries
 /// (see the mint site; RFC 20260809 B6).
 pub const ITERATOR_PROTO_TAG: usize = 15;
+
+/// `DataView.prototype`'s slot — after the eleven per-kind typed
+/// array slots (20 + Kind, RFC 20260823-typedarray-substrate 刀 4's
+/// layout), the next free one.
+pub const DATAVIEW_PROTO_TAG: usize = 32;
 
 // One AtomicUsize slot per builtin tag. Initialized to 0 (= "not yet
 // allocated"); `__torajs_get_builtin_prototype` CAS-installs the

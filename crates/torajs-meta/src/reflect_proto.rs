@@ -369,6 +369,22 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             25 => 15, // IterHelper → Iterator.prototype (刀 2; the
             // %IteratorHelperPrototype% intermediate is the same
             // recorded boundary as the per-family iterator protos)
+            // RFC 20260823-typedarray-substrate — the buffer family:
+            // ArrayBuffer at 19, DataView after the per-kind block,
+            // and a typed array at 20 + its element kind (the 刀 4
+            // slot layout), read off the cell since a static match
+            // cannot see the discriminant. Recorded boundary: the
+            // chain above a per-kind prototype is %Object.prototype%
+            // — no %TypedArray%.prototype intermediate exists yet,
+            // the same one-hop-shorter shape as the iterator protos.
+            27 => 19, // ArrayBuffer → ArrayBuffer.prototype
+            28 => {
+                // Kind byte at +32 (torajs-buffer
+                // `typedarray.rs::KIND_OFF` mirror).
+                let kind = unsafe { dynobj.cast::<u8>().add(32).read() } as i64;
+                20 + kind
+            }
+            29 => 32, // DataView → DataView.prototype
             _ => -1,
         };
         if proto_tag >= 0 {
