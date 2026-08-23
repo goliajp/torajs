@@ -21,6 +21,11 @@ use crate::nanbox::{
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-arr — Array Iterator mints (fresh cell at rc=1; the
+    /// cell takes its own share of the source view).
+    fn __torajs_arr_iter_create_keys(src: *mut c_void) -> *mut c_void;
+    fn __torajs_arr_iter_create_values(src: *mut c_void) -> *mut c_void;
+    fn __torajs_arr_iter_create_entries(src: *mut c_void) -> *mut c_void;
 }
 
 /// §22.1.3 "the String.prototype methods are generic" — a reified
@@ -88,14 +93,44 @@ pub(crate) unsafe fn generic_builtin_this(
     // out-of-bounds view, per-index Gets answer undefined), NOT the
     // receiver's own §23.2.3 twin, whose ValidateTypedArray throws
     // exactly where the generic answers empty (the resizable-buffer
-    // families count that difference). Mutators stay on the ordinary
-    // lane — the array-like write face is dynobj-shaped.
+    // families count that difference). The mutators ride too: their
+    // per-index Set / Delete helpers dispatch by receiver (刀 8 G2a),
+    // and over a TypedArray the member-set route lands on the
+    // canonical-numeric-index element store — §10.4.5 [[Set]], which
+    // IS the generic semantics.
+    // §23.1.3.{5,19,35} — the Array iterator flavors do NOT validate
+    // at creation (the TypedArray twins do): the cell mints over an
+    // out-of-bounds view and its own next throws, which is the half
+    // the resizable entries/keys/values cases count. The cell's step
+    // already branches on the source's [[TypedArrayName]].
+    if fam == crate::method_value::family::ARR_PROTO_FAMILY
+        && is_cell(this_arg)
+        && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
+            == Tag::TypedArray as u16
+        && matches!(
+            mid,
+            m if m == torajs_rc::ANY_METHOD_KEYS
+                || m == torajs_rc::ANY_METHOD_VALUES
+                || m == torajs_rc::ANY_METHOD_ENTRIES
+        )
+    {
+        let src = as_void_ptr(this_arg);
+        let it = unsafe {
+            if mid == torajs_rc::ANY_METHOD_KEYS {
+                __torajs_arr_iter_create_keys(src)
+            } else if mid == torajs_rc::ANY_METHOD_VALUES {
+                __torajs_arr_iter_create_values(src)
+            } else {
+                __torajs_arr_iter_create_entries(src)
+            }
+        };
+        return Some(crate::nanbox::box_void_ptr(it));
+    }
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && is_cell(this_arg)
         && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
             == Tag::TypedArray as u16
         && crate::method_call_arraylike::arraylike_supported(mid)
-        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
     {
         return Some(unsafe {
             crate::method_call_arraylike::arraylike_method(

@@ -143,6 +143,13 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
                     | "toSorted"
                     | "toSpliced"
                     | "with"
+                    | "entries"
+                    | "keys"
+                    | "values"
+                    | "fill"
+                    | "copyWithin"
+                    | "reverse"
+                    | "sort"
             )
         {
             continue;
