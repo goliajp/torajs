@@ -1663,6 +1663,7 @@ mod tests {
         __torajs_typedarray_slice,
         __torajs_typedarray_to_reversed,
         __torajs_typedarray_with,
+        __torajs_typedarray_set,
         __torajs_arr_alloc_any_filled,
         __torajs_arr_alloc_any_filled_f64,
         __torajs_make_aggregate_error,

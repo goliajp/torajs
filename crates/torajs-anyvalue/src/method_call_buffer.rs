@@ -46,6 +46,7 @@ unsafe extern "C" {
     fn __torajs_typedarray_slice(recv: AnyValue, start: AnyValue, end: AnyValue) -> AnyValue;
     fn __torajs_typedarray_to_reversed(recv: AnyValue) -> AnyValue;
     fn __torajs_typedarray_with(recv: AnyValue, index: AnyValue, value: AnyValue) -> AnyValue;
+    fn __torajs_typedarray_set(recv: AnyValue, source: AnyValue, offset: AnyValue) -> AnyValue;
 }
 
 /// `None` = this mid is not one ArrayBuffer.prototype owns, and the
@@ -138,6 +139,7 @@ pub(crate) unsafe fn typedarray_method(
         torajs_rc::ANY_METHOD_WITH => {
             Some(unsafe { __torajs_typedarray_with(recv, arg(0), arg(1)) })
         }
+        torajs_rc::ANY_METHOD_SET => Some(unsafe { __torajs_typedarray_set(recv, arg(0), arg(1)) }),
         _ => None,
     }
 }
