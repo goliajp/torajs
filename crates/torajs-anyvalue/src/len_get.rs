@@ -147,9 +147,28 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             return __torajs_any_length_get(inner);
         }
         // §23.2.3.18 — re-derived every read, because a
-        // length-tracking view has no stored length at all.
-        if tag == Tag::TypedArray as u16 {
-            return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_typedarray_length(recv));
+        // length-tracking view has no stored length at all. An OWN
+        // expando `length` (a define lands there) answers first —
+        // §10.1.8.1 own-before-proto, the wrapper-arm shape above;
+        // same probe for an ArrayBuffer, which then falls through
+        // (no inherent length).
+        if tag == Tag::TypedArray as u16 || tag == Tag::ArrayBuffer as u16 {
+            let props = crate::member_get_layout::buffer_props(ptr, tag);
+            if !props.is_null() {
+                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+                let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
+                __torajs_str_drop(key as *mut c_void);
+                if present {
+                    return box_probe_pair(dtag, dval, recv);
+                }
+            }
+            if tag == Tag::TypedArray as u16 {
+                return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_typedarray_length(
+                    recv,
+                ));
+            }
         }
         if tag == Tag::Arr as u16 {
             let n = *(ptr.cast::<u8>().add(MIRROR_ARR_LEN_OFF) as *const u64);

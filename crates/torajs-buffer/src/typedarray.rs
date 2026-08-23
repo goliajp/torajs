@@ -28,7 +28,13 @@ pub(crate) const BUFFER_OFF: usize = 8;
 pub(crate) const BYTE_OFFSET_OFF: usize = 16;
 pub(crate) const ARRAY_LEN_OFF: usize = 24;
 pub(crate) const KIND_OFF: usize = 32;
-pub(crate) const CELL_SIZE: usize = 40;
+/// Lazy expando props dynobj — NULL until the first own-property
+/// write / define against the view (mirror of torajs-anyvalue
+/// `member_get_layout` and torajs-dynobj
+/// `layout.rs::TYPEDARRAY_PROPS_OFF`). +33..40 is `kind`'s pad;
+/// `alloc_zeroed` seeds the slot.
+pub(crate) const PROPS_OFF: usize = 40;
+pub(crate) const CELL_SIZE: usize = 48;
 
 /// `array_len` for a view whose length tracks its buffer.
 pub(crate) const AUTO_LENGTH: i64 = -1;

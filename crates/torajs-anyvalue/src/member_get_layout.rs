@@ -77,6 +77,26 @@ pub(crate) unsafe fn promise_props(ptr: *mut c_void) -> *const c_void {
     unsafe { *(ptr.cast::<u8>().add(PROMISE_PROPS_OFF) as *const u64) as *const c_void }
 }
 
+/// Buffer-family lazy expando slots — mirrors of torajs-buffer
+/// `arraybuffer.rs::PROPS_OFF` / `typedarray.rs::PROPS_OFF`. Both
+/// cells are ordinary objects on their non-index face (§25.1 /
+/// §23.2), so a define / plain assign needs somewhere to land — the
+/// test262 species cases install a throwing `constructor` getter ON
+/// THE INSTANCE.
+pub(crate) const ARRAYBUFFER_PROPS_OFF: usize = 32;
+pub(crate) const TYPEDARRAY_PROPS_OFF: usize = 40;
+
+/// The buffer-family cell's `props_dynobj` pointer, NULL when no
+/// own property was ever written. `tag` picks the slot offset.
+pub(crate) unsafe fn buffer_props(ptr: *mut c_void, tag: u16) -> *const c_void {
+    let off = if tag == Tag::TypedArray as u16 {
+        TYPEDARRAY_PROPS_OFF
+    } else {
+        ARRAYBUFFER_PROPS_OFF
+    };
+    unsafe { *(ptr.cast::<u8>().add(off) as *const u64) as *const c_void }
+}
+
 /// Universal heap-header flags probe — u16 at +6 (RFC 20260711
 /// chunk C consumers test the `FLAG_FN_*_DELETED` tombstones).
 ///

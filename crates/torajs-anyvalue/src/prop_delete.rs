@@ -96,6 +96,52 @@ pub unsafe extern "C" fn __torajs_any_prop_delete_soft(recv: AnyValue, key: *con
 }
 
 /// Shared refusal answer — see the two extern shells above.
+/// §10.4.5.4 / §25.1 — delete against a buffer-family receiver:
+/// deleting an IN-BOUNDS canonical index of a typed array answers
+/// false (module-strict: throws); an out-of-bounds one is a spec
+/// success; every other key runs the promise-shaped bag delete.
+unsafe fn delete_buffer_member(
+    ptr: *mut c_void,
+    t: u16,
+    recv: AnyValue,
+    key: *const c_void,
+    throw_on_refusal: bool,
+) -> i64 {
+    if t == Tag::TypedArray as u16
+        && let Some(i) = unsafe { crate::prop_has::canonical_index(key) }
+    {
+        let len = unsafe { crate::member_get_buffer::typedarray_len(recv) };
+        if (i as i64) < len {
+            return unsafe { refuse(throw_on_refusal) };
+        }
+        return 1;
+    }
+    unsafe {
+        delete_expando_bag(
+            crate::member_get_layout::buffer_props(ptr, t),
+            key,
+            throw_on_refusal,
+        )
+    }
+}
+
+/// Shared bag delete for lazy-expando receivers (Promise / buffer
+/// family): configurability gate, then the entry drop. A NULL bag
+/// answers 1 idempotently (spec success on a nonexistent key).
+unsafe fn delete_expando_bag(
+    props: *const c_void,
+    key: *const c_void,
+    throw_on_refusal: bool,
+) -> i64 {
+    if !props.is_null() {
+        if unsafe { refuse_non_configurable(props as *mut c_void, key, throw_on_refusal) } {
+            return 0;
+        }
+        unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+    }
+    1
+}
+
 unsafe fn refuse(throw_on_refusal: bool) -> i64 {
     if throw_on_refusal {
         unsafe {
@@ -263,16 +309,14 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
         // gate, then the entry drop. No virtual pair and no ctor
         // statics on an instance cell; a NULL bag answers 1
         // idempotently (spec success on a nonexistent key).
-        Some((ptr, t)) if t == Tag::Promise as u16 => {
-            let props = unsafe { crate::member_get::promise_props(ptr) };
-            if !props.is_null() {
-                if unsafe { refuse_non_configurable(props as *mut c_void, key, throw_on_refusal) } {
-                    return 0;
-                }
-                unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
-            }
-            1
-        }
+        Some((ptr, t)) if t == Tag::Promise as u16 => unsafe {
+            delete_expando_bag(crate::member_get::promise_props(ptr), key, throw_on_refusal)
+        },
+        // Buffer-family bag delete (body below — promise-arm shape
+        // plus the §10.4.5.4 index gate).
+        Some((ptr, t)) if crate::member_get_buffer::is_buffer_family(t) => unsafe {
+            delete_buffer_member(ptr, t, recv, key, throw_on_refusal)
+        },
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             struct_delete(ptr, key, throw_on_refusal)
         },

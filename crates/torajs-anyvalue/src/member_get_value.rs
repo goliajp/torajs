@@ -208,12 +208,20 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // §22.2.4.1 lastIndex — value channel (mirror of the tag
         // twin in member_get.rs; borrow-shaped like the dynobj
         // bucket).
-        // §25.1.6 accessor pair — value twin of the tag arm.
-        // §25.1.6 / §23.2.3 — the buffer family's accessors read as
-        // values, so they answer on the probe pair. Only the [[Get]]
-        // face: own-key enumeration is a different kernel and still
-        // says a buffer owns nothing.
-        Some((_, t)) if crate::member_get_buffer::is_buffer_family(t) => unsafe {
+        // §25.1.6 / §23.2.3 — buffer family, value twin of the tag
+        // arm: expando bag first, then the prototype accessors, then
+        // the builtin-method reify.
+        Some((ptr, t)) if crate::member_get_buffer::is_buffer_family(t) => unsafe {
+            let props = crate::member_get_layout::buffer_props(ptr, t);
+            if !props.is_null() {
+                if __torajs_dynobj_get_tag(props, key) != 5 {
+                    return __torajs_dynobj_get_value(props, key);
+                }
+                // Stored-undefined shadow — see the tag twin.
+                if __torajs_dynobj_has(props, key) != 0 {
+                    return 0;
+                }
+            }
             match crate::member_get_buffer::buffer_family_prop(recv, key, t) {
                 Some((_, val)) => val,
                 None => reify_value(recv, key),

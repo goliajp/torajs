@@ -2,7 +2,7 @@
 //! on (RFC 20260823-typedarray-substrate 刀 1).
 //!
 //! ```text
-//! { header:8 | data:8 | byte_len:8 | max_byte_len:8 }   (32 B)
+//! { header:8 | data:8 | byte_len:8 | max_byte_len:8 | props:8 }   (40 B)
 //! ```
 //!
 //! `data == null` IS detached and `max_byte_len == -1` IS "has no
@@ -26,7 +26,12 @@ use torajs_rc::Tag;
 pub(crate) const DATA_OFF: usize = 8;
 pub(crate) const BYTE_LEN_OFF: usize = 16;
 pub(crate) const MAX_BYTE_LEN_OFF: usize = 24;
-const CELL_SIZE: usize = 32;
+/// Lazy expando props dynobj — NULL until the first own-property
+/// write / define against the buffer (§10.1 ordinary object face;
+/// mirror of torajs-anyvalue `member_get_layout` and torajs-dynobj
+/// `layout.rs::ARRAYBUFFER_PROPS_OFF`). `alloc_zeroed` seeds it.
+pub(crate) const PROPS_OFF: usize = 32;
+const CELL_SIZE: usize = 40;
 
 /// `max_byte_len` when the object has no `[[ArrayBufferMaxByteLength]]`.
 pub(crate) const NOT_RESIZABLE: i64 = -1;
@@ -52,6 +57,9 @@ unsafe extern "C" {
     fn __torajs_anyv_rc_dec(v: AnyValue);
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
+    /// Tag-dispatched heap release — how the expando props dynobj is
+    /// dropped without this crate knowing the dynobj layout.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// Is `av` an ArrayBuffer cell? Answers on the heap tag alone.
@@ -258,6 +266,10 @@ pub unsafe extern "C" fn __torajs_arraybuffer_drop(cell: *mut c_void) {
             let n = reserved_bytes(cell);
             let data_layout = core::alloc::Layout::from_size_align(n, 8).unwrap();
             std::alloc::dealloc(data, data_layout);
+        }
+        let props = (cell.cast::<u8>().add(PROPS_OFF) as *const u64).read() as *mut c_void;
+        if !props.is_null() {
+            __torajs_value_drop_heap(props);
         }
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(cell.cast::<u8>(), layout);

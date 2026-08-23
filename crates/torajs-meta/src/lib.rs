@@ -24,6 +24,7 @@
 //! - `__torajs_value_drop_heap` — `runtime_str.c` (will move in P7.i)
 
 pub(crate) mod arr_reflect;
+pub(crate) mod buffer_reflect;
 pub mod classmeta;
 pub(crate) mod closure_reflect;
 pub mod error_to_string;
@@ -38,11 +39,13 @@ pub mod obj_assign;
 pub mod obj_forin_keys;
 pub mod obj_own_descriptors;
 pub mod obj_own_keys;
+pub(crate) mod obj_own_keys_buffer;
 pub(crate) mod obj_own_keys_key_shape;
 mod obj_own_keys_layout;
 pub(crate) mod obj_own_keys_proto_names;
 pub(crate) mod obj_own_keys_struct;
 pub mod obj_own_values;
+pub(crate) mod obj_own_values_buffer;
 pub mod object_group_by;
 pub mod object_proto_install;
 pub mod own_names;

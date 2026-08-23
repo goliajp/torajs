@@ -97,7 +97,7 @@ unsafe fn is_dynobj(obj: *const c_void) -> bool {
 /// virtual `length` / `name` pair the closure arm emits, not at
 /// whatever position the lazy mint happened to land in. The closure arm
 /// always emits it and filters it here.
-unsafe fn dynobj_keys_append(
+pub(crate) unsafe fn dynobj_keys_append(
     obj: *const c_void,
     include_nonenum: i64,
     mut arr: *mut u8,
@@ -394,6 +394,14 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             }
             TAG_OBJ_CELL => unsafe {
                 crate::struct_enum::__torajs_anyv_struct_keys(v, include_nonenum)
+            },
+            // §10.4.5.6 / §25.1 — buffer-family own keys (bodies in
+            // `obj_own_keys_buffer.rs`, file-size split).
+            TAG_TYPEDARRAY_CELL => unsafe {
+                crate::obj_own_keys_buffer::typedarray_cell_keys(v, cell, include_nonenum)
+            },
+            TAG_ARRAYBUFFER_CELL => unsafe {
+                crate::obj_own_keys_buffer::arraybuffer_cell_keys(cell, include_nonenum)
             },
             // Rotation 354 — promise cell enumerates its +32 expando
             // bag (defineProperty / plain-assign entries); no

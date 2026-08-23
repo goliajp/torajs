@@ -68,6 +68,13 @@ const CELL_PROPS_OFF: usize = 24;
 /// PROMISE_PROPS_OFF` mirror — +24 is the callback list).
 const PROMISE_PROPS_OFF: usize = 32;
 
+/// Buffer-family cells and their lazy expando slots (torajs-buffer
+/// `arraybuffer.rs` / `typedarray.rs::PROPS_OFF` mirrors).
+const TAG_ARRAYBUFFER: u16 = 27;
+pub(crate) const TAG_TYPEDARRAY: u16 = 28;
+pub(crate) const ARRAYBUFFER_PROPS_OFF: usize = 32;
+pub(crate) const TYPEDARRAY_PROPS_OFF: usize = 40;
+
 /// True when the property-key cell is a Symbol rather than a Str.
 ///
 /// # Safety
@@ -105,6 +112,9 @@ unsafe fn symbol_key_descriptor_via_dict(
         // Rotation 354 — promise bag at +32 (the +24 slot is the
         // callback list).
         TAG_PROMISE => PROMISE_PROPS_OFF,
+        // §25.1 / §23.2 buffer-family expando bags.
+        TAG_ARRAYBUFFER => ARRAYBUFFER_PROPS_OFF,
+        TAG_TYPEDARRAY => TYPEDARRAY_PROPS_OFF,
         t if is_wrapper_tag(t) => WRAPPER_PROPS_OFF,
         _ => return VALUE_UNDEFINED_IMM,
     };
@@ -242,22 +252,18 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     if htag == TAG_CLOSURE {
         return unsafe { crate::closure_reflect::closure_cell_descriptor(dynobj, key) };
     }
-    // Rotation 354 — promise cell probes the +32 expando bag and
-    // delegates a hit to the DynObj descriptor path (closure_reflect
-    // step-1 mirror); no virtual own pair — `then` / `catch` are
-    // prototype surface, absent as own.
+    // Rotation 354 — promise cell probes the +32 expando bag; no
+    // virtual own pair — `then` / `catch` are prototype surface,
+    // absent as own. Shared bag body in `buffer_reflect.rs`.
     if htag == TAG_PROMISE {
-        let props = unsafe {
-            dynobj
-                .cast::<u8>()
-                .add(PROMISE_PROPS_OFF)
-                .cast::<*const c_void>()
-                .read()
+        return unsafe {
+            crate::buffer_reflect::expando_bag_descriptor(dynobj, PROMISE_PROPS_OFF, key)
         };
-        if !props.is_null() && unsafe { __torajs_dynobj_has(props, key as *const u8) } {
-            return unsafe { __torajs_anyv_get_property_descriptor(props as u64, key) };
-        }
-        return VALUE_UNDEFINED_IMM;
+    }
+    // §25.1 / §23.2 — buffer-family expando bag (body in
+    // `buffer_reflect.rs`, file-size split).
+    if htag == TAG_ARRAYBUFFER || htag == TAG_TYPEDARRAY {
+        return unsafe { crate::buffer_reflect::buffer_cell_descriptor(dynobj, htag, key) };
     }
     // RFC 20260722 刀 4 — a RegExp instance owns exactly its
     // `lastIndex` (§22.2.4.1 RegExpAlloc: {writable: true,

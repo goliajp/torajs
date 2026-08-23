@@ -388,6 +388,19 @@ unsafe fn any_member_set_impl(
                 throw_on_refusal,
             );
         }
+        // Buffer-family receiver — the same lazy-expando write
+        // (§25.1 / §23.2 views are ordinary objects off their index
+        // face; element stores go through the index-assign kernel).
+        if crate::member_get_buffer::is_buffer_family(cell_tag) {
+            return crate::member_set_closure::set_buffer_member(
+                ptr,
+                cell_tag,
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            );
+        }
         // RFC 20260714-objlit-accessor blade 7 — a struct accessor's
         // [[Set]] (the write mirror of blade 5's read). A setter runs
         // with the value; a GET-ONLY property throws (ES §10.1.9 — an

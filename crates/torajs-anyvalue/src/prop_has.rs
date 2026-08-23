@@ -337,6 +337,20 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             let props = unsafe { crate::member_get::promise_props(ptr) };
             (!props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0) as i64
         }
+        // §10.4.5.2 / §25.1 — buffer-family own face. A typed
+        // array's in-bounds canonical indices are own properties
+        // (`length` / `byteLength` etc. stay PROTOTYPE accessors,
+        // absent as own); everything else asks the expando bag.
+        Some((ptr, t)) if crate::member_get_buffer::is_buffer_family(t) => {
+            if t == Tag::TypedArray as u16
+                && let Some(i) = unsafe { canonical_index(key) }
+            {
+                let len = unsafe { crate::member_get_buffer::typedarray_len(recv) };
+                return (i < len as u64 && len >= 0) as i64;
+            }
+            let props = unsafe { crate::member_get_layout::buffer_props(ptr, t) };
+            (!props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0) as i64
+        }
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
         Some((ptr, t)) if t == Tag::Str as u16 => {
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;

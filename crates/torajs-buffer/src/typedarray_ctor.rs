@@ -36,6 +36,9 @@ unsafe extern "C" {
     fn __torajs_anyv_to_number(v: AnyValue) -> f64;
     fn __torajs_anyv_rc_inc(v: AnyValue);
     fn __torajs_anyv_rc_dec(v: AnyValue);
+    /// Tag-dispatched heap release — drops the expando props dynobj
+    /// without this crate knowing the dynobj layout.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// Mint a view cell over `buffer`, which the cell takes its own
@@ -74,6 +77,11 @@ pub unsafe extern "C" fn __torajs_typedarray_drop(cell: *mut c_void) {
             return;
         }
         __torajs_anyv_rc_dec((cell.cast::<u8>().add(BUFFER_OFF) as *const u64).read());
+        let props = (cell.cast::<u8>().add(crate::typedarray::PROPS_OFF) as *const u64).read()
+            as *mut c_void;
+        if !props.is_null() {
+            __torajs_value_drop_heap(props);
+        }
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(cell.cast::<u8>(), layout);
     }

@@ -70,7 +70,61 @@ pub(crate) unsafe fn set_promise_member(
     throw_on_refusal: bool,
 ) -> i64 {
     unsafe {
-        let props_slot = ptr.cast::<u8>().add(MEMBER_SET_PROMISE_PROPS_OFF) as *mut u64;
+        set_expando_member(
+            ptr,
+            MEMBER_SET_PROMISE_PROPS_OFF,
+            key,
+            tag,
+            value,
+            throw_on_refusal,
+        )
+    }
+}
+
+/// Buffer-family cell lazy props slots — mirrors of torajs-buffer
+/// `arraybuffer.rs::PROPS_OFF` / `typedarray.rs::PROPS_OFF` (and of
+/// `member_get_layout`'s read-side pair).
+const MEMBER_SET_ARRAYBUFFER_PROPS_OFF: usize = 32;
+const MEMBER_SET_TYPEDARRAY_PROPS_OFF: usize = 40;
+
+/// `Tag::ArrayBuffer` / `Tag::TypedArray` receiver — the plain-assign
+/// half of the view's ordinary-object face (§25.1 / §23.2): every
+/// non-index key takes the expando write the get channel's bag-first
+/// probe reads back. Numeric element stores never reach here — the
+/// index-assign kernel owns §10.4.5.5 (`index_any_set`).
+///
+/// # Safety
+/// `ptr` is a live buffer-family cell of `cell_tag`; `key` is a live
+/// Str cell; `(tag, value)` carries the caller's +1 on heap payloads.
+pub(crate) unsafe fn set_buffer_member(
+    ptr: *mut c_void,
+    cell_tag: u16,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    let off = if cell_tag == torajs_rc::Tag::TypedArray as u16 {
+        MEMBER_SET_TYPEDARRAY_PROPS_OFF
+    } else {
+        MEMBER_SET_ARRAYBUFFER_PROPS_OFF
+    };
+    unsafe { set_expando_member(ptr, off, key, tag, value, throw_on_refusal) }
+}
+
+/// Shared plain-assign expando write for cells whose own properties
+/// live in a lazy props dynobj at `props_off` (Promise / ArrayBuffer
+/// / TypedArray). Integrity-gated; first write allocates the table.
+unsafe fn set_expando_member(
+    ptr: *mut c_void,
+    props_off: usize,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    unsafe {
+        let props_slot = ptr.cast::<u8>().add(props_off) as *mut u64;
         let mut props = *props_slot as *mut c_void;
         if expando_integrity_refuses(ptr, props, key) {
             drop_payload(tag, value);
@@ -84,8 +138,8 @@ pub(crate) unsafe fn set_promise_member(
         }
         let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
         // First-write alloc and resize relocation both land the
-        // fresh table back in the +32 slot; the promise cell
-        // itself never moves.
+        // fresh table back in the slot; the receiver cell itself
+        // never moves.
         *props_slot = props as u64;
         wrote
     }

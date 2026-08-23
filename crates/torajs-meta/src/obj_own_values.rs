@@ -107,7 +107,7 @@ unsafe fn entry_value_pair(obj: *const c_void, i: u64) -> (u64, u64) {
 /// Append a live DynObj walk's values onto the `Arr<Any>` `arr` in ES
 /// §10.1.11.1 order, enumerable-only. Returns the (possibly
 /// reallocated) array.
-unsafe fn dynobj_values_append(obj: *const c_void, mut arr: *mut u8) -> *mut u8 {
+pub(crate) unsafe fn dynobj_values_append(obj: *const c_void, mut arr: *mut u8) -> *mut u8 {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let mut order = vec![0u64; len as usize];
     let n = unsafe { __torajs_dynobj_iter_order(obj, order.as_mut_ptr(), len) };
@@ -128,7 +128,7 @@ unsafe fn dynobj_values_append(obj: *const c_void, mut arr: *mut u8) -> *mut u8 
 /// Append a live DynObj walk's `[key, value]` pairs onto the 8-byte-
 /// slot `outer` in ES order, enumerable-only. Returns the (possibly
 /// reallocated) array; the caller stamps the elem kind once.
-unsafe fn dynobj_entries_append(obj: *const c_void, mut outer: *mut u8) -> *mut u8 {
+pub(crate) unsafe fn dynobj_entries_append(obj: *const c_void, mut outer: *mut u8) -> *mut u8 {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let mut order = vec![0u64; len as usize];
     let n = unsafe { __torajs_dynobj_iter_order(obj, order.as_mut_ptr(), len) };
@@ -319,6 +319,14 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
                 }
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_values(v) },
+            // Buffer family — keys-face value twins (bodies in
+            // `obj_own_values_buffer.rs`).
+            crate::obj_own_keys_layout::TAG_TYPEDARRAY_CELL => unsafe {
+                crate::obj_own_values_buffer::typedarray_cell_values(v, cell)
+            },
+            crate::obj_own_keys_layout::TAG_ARRAYBUFFER_CELL => unsafe {
+                crate::obj_own_values_buffer::arraybuffer_cell_values(cell)
+            },
             // Rotation 354 — promise cell walks its +32 expando bag
             // (keys-face twin; no inherent own keys).
             TAG_PROMISE_CELL => {
@@ -412,6 +420,13 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 outer as *mut c_void
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_entries(v) },
+            // Buffer family — keys-face pair twins.
+            crate::obj_own_keys_layout::TAG_TYPEDARRAY_CELL => unsafe {
+                crate::obj_own_values_buffer::typedarray_cell_entries(v, cell)
+            },
+            crate::obj_own_keys_layout::TAG_ARRAYBUFFER_CELL => unsafe {
+                crate::obj_own_values_buffer::arraybuffer_cell_entries(cell)
+            },
             // Rotation 354 — promise bag pairs (keys-face twin).
             TAG_PROMISE_CELL => {
                 let props =

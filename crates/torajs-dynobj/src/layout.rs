@@ -142,6 +142,23 @@ pub const TAG_PROMISE_HDR: u16 = 8;
 /// `layout.rs::Promise::props` mirror, lockstep).
 pub const PROMISE_PROPS_OFF: usize = 32;
 
+/// ArrayBuffer heap tag (torajs-rc `Tag::ArrayBuffer` = 27). Its
+/// lazy expando props dynobj lives at +32
+/// ([`ARRAYBUFFER_PROPS_OFF`], torajs-buffer `arraybuffer.rs`
+/// mirror).
+pub const TAG_ARRAYBUFFER_HDR: u16 = 27;
+
+/// ArrayBuffer expando slot (torajs-buffer `PROPS_OFF` mirror).
+pub const ARRAYBUFFER_PROPS_OFF: usize = 32;
+
+/// TypedArray heap tag (torajs-rc `Tag::TypedArray` = 28). Its lazy
+/// expando props dynobj lives at +40 ([`TYPEDARRAY_PROPS_OFF`],
+/// torajs-buffer `typedarray.rs` mirror — +32 is `kind` + pad).
+pub const TAG_TYPEDARRAY_HDR: u16 = 28;
+
+/// TypedArray expando slot (torajs-buffer `PROPS_OFF` mirror).
+pub const TYPEDARRAY_PROPS_OFF: usize = 40;
+
 /// HOLE sentinel bit pattern for a shadow entry's dead value slot
 /// (RFC 20260713 chunk C — `delete arr[i]`). Deliberately NOT a
 /// NaN-box encoder product: `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED

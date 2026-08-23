@@ -167,15 +167,24 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
         // slot keeps the stake, same convention as the dynobj
         // bucket); numeric form is an F64 pair. Any other key falls
         // to the builtin-method reify probe.
-        // §25.1.6 — the four ArrayBuffer.prototype accessors read
-        // as a value, so they answer on the probe pair. Only the
-        // [[Get]] face: own-key enumeration is a different kernel
-        // and still says a buffer owns nothing.
-        // §25.1.6 / §23.2.3 — the buffer family's accessors read as
-        // values, so they answer on the probe pair. Only the [[Get]]
-        // face: own-key enumeration is a different kernel and still
-        // says a buffer owns nothing.
-        Some((_, t)) if crate::member_get_buffer::is_buffer_family(t) => unsafe {
+        // §25.1.6 / §23.2.3 — the buffer family. The lazy expando
+        // bag answers FIRST (own properties, §10.1.8.1 own-first —
+        // the species cases install a throwing `constructor` getter
+        // ON THE INSTANCE, and an accessor entry rides through as
+        // the ANY_ACCESSOR sentinel), then the prototype accessors
+        // on the probe pair, then the builtin-method reify.
+        Some((ptr, t)) if crate::member_get_buffer::is_buffer_family(t) => unsafe {
+            let props = crate::member_get_layout::buffer_props(ptr, t);
+            if !props.is_null() {
+                let tag = __torajs_dynobj_get_tag(props, key);
+                if tag != 5 {
+                    return tag;
+                }
+                // Stored-undefined expando shadows the accessors.
+                if __torajs_dynobj_has(props, key) != 0 {
+                    return 5;
+                }
+            }
             match crate::member_get_buffer::buffer_family_prop(recv, key, t) {
                 Some((tag, _)) => tag,
                 None => reify_tag(recv, key),

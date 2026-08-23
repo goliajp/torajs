@@ -32,6 +32,16 @@ unsafe extern "C" {
     fn __torajs_typedarray_bytes_per_element(av: AnyValue) -> i64;
 }
 
+/// The view's current element count (re-derived each call — a
+/// tracking view over a resizable buffer changes length without
+/// being touched). Detached answers 0.
+///
+/// # Safety
+/// `recv` is a live TypedArray AnyValue.
+pub(crate) unsafe fn typedarray_len(recv: AnyValue) -> i64 {
+    unsafe { __torajs_typedarray_length(recv) }
+}
+
 /// Does `tag` name a cell whose accessors this module answers? One
 /// question asked once, so the two probe channels each keep a single
 /// match arm instead of one per buffer-family tag.

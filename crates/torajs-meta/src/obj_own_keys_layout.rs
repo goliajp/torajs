@@ -20,6 +20,16 @@ pub(crate) const TAG_CLOSURE_CELL: u16 = 3;
 /// bag (rotation 354).
 pub(crate) const TAG_PROMISE_CELL: u16 = 8;
 
+/// ArrayBuffer cell (torajs-rc `Tag::ArrayBuffer`; expando bag at
+/// +32, torajs-buffer `arraybuffer.rs::PROPS_OFF` mirror).
+pub(crate) const TAG_ARRAYBUFFER_CELL: u16 = 27;
+pub(crate) const ARRAYBUFFER_PROPS_OFF: usize = 32;
+
+/// TypedArray cell (torajs-rc `Tag::TypedArray`; expando bag at
+/// +40, torajs-buffer `typedarray.rs::PROPS_OFF` mirror).
+pub(crate) const TAG_TYPEDARRAY_CELL: u16 = 28;
+pub(crate) const TYPEDARRAY_PROPS_OFF: usize = 40;
+
 /// Promise-cell lazy expando slot (`torajs_dynobj::layout::
 /// PROMISE_PROPS_OFF` mirror — +24 is the callback list).
 pub(crate) const PROMISE_PROPS_OFF: usize = 32;
