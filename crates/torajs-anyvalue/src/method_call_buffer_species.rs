@@ -64,6 +64,29 @@ pub(crate) unsafe fn ta_species_route(
     if !is_species_mid(mid) {
         return None;
     }
+    // §23.2.3.10 — `filter` is the one family method whose species
+    // read comes AFTER the callback loop (step 9 vs map's step 5),
+    // and the callbackfn-called-before-{ctor,species} cases count
+    // exactly that. Kernel first, face after.
+    if mid == torajs_rc::ANY_METHOD_FILTER {
+        let d = unsafe {
+            crate::method_call_buffer::typedarray_method(recv, mid, argv, argc)
+                .unwrap_or(VALUE_UNDEFINED)
+        };
+        unsafe {
+            if __torajs_throw_check() != 0 || !is_typedarray_cell(d) {
+                return Some(d);
+            }
+            return Some(match ta_species_resolve(recv) {
+                SpeciesResolved::Default => d,
+                SpeciesResolved::Threw => {
+                    release_species_product(d);
+                    VALUE_UNDEFINED
+                }
+                SpeciesResolved::Ctor(c) => construct_and_transplant(c, d, mid),
+            });
+        }
+    }
     let ctor = match unsafe { ta_species_resolve(recv) } {
         SpeciesResolved::Default => return None,
         SpeciesResolved::Threw => return Some(VALUE_UNDEFINED),
