@@ -12,12 +12,22 @@
 //! join`. The emptied arm blocks stay as `Br` forwarders — codegen's
 //! brfuse `resolve_forwarded_target` folds them to zero machine code.
 //!
-//! Why: an unpredictable data-dependent branch (collatz parity ≈ coin
-//! flip) costs ~2.5-4 cyc/iter in mispredicts that csel eliminates
-//! outright (decomposition O01). Both arms ALWAYS execute after
+//! Why: an unpredictable data-dependent branch costs mispredicts that
+//! csel eliminates outright. Both arms ALWAYS execute after
 //! conversion, hence the whitelist: no calls (incl. FRem's libm BL),
 //! no loads (trap), no stores, and arm size capped so speculation
 //! can't out-cost the branch it replaces.
+//!
+//! Blade 3 (guarded-arm speculation over float_demote's window-guard
+//! chains) was RETIRED in S7 (rotation 484, 2026-08-24): a full-bench
+//! survey showed collatz was its only real hit, and a same-HEAD
+//! ablation measured the conversion as a 9.5% LOSS there — the
+//! never-taken side-exit guards are perfectly predicted branches
+//! (free), while the Select cascade it built put ~4 cycles of
+//! cset/csel latency onto the loop-carried n chain. Its founding
+//! premise ("collatz parity ≈ coin flip") undercounted the structural
+//! predictability (odd → 3n+1 is always even) that a modern TAGE
+//! predictor exploits. Deopt-style guards want branches, not selects.
 //!
 //! Runs after ctpop_idiom (all arm-shaping rewrites — float_demote /
 //! srem_parity — are done) and before rc_peephole, which treats Select
@@ -25,7 +35,6 @@
 //! skips, `TORAJS_SELECT_FORM_STATS=1` dumps counters.
 
 pub mod cmp_sink;
-mod guard;
 
 use std::collections::HashMap;
 
@@ -36,8 +45,6 @@ use torajs_core::ssa::{Type, ValueId};
 pub struct SelectFormStats {
     /// pure diamonds fully converted (CondBr → Br + selects).
     pub diamonds_converted: u32,
-    /// guarded diamonds converted (blade 3: pure arm + guard chain).
-    pub guarded_converted: u32,
     /// Select instructions formed (one per φ-merged join value; the
     /// guard-reduction Selects are plumbing and not counted here).
     pub selects_formed: u32,
@@ -127,7 +134,7 @@ pub(super) fn plan_arm(func: &Function, blk: usize) -> Option<ArmPlan> {
     Some(ArmPlan { hoisted, copies })
 }
 
-/// Scan for one convertible diamond (pure, then guarded); convert it
+/// Scan for one convertible pure diamond; convert it
 /// and report `true`, or return `false` when none is left.
 fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
     // predecessor counts + global def counts (multi-def Copy check)
@@ -166,30 +173,7 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
         if t_id == e_id || t_id == func.blocks[h].id || e_id == func.blocks[h].id {
             continue;
         }
-        if try_form_pure(func, h, &cond, t_id, e_id, &pred_count, &def_count, stats)
-            || guard::try_form_guarded(
-                func,
-                h,
-                &cond,
-                t_id,
-                e_id,
-                true,
-                &pred_count,
-                &def_count,
-                stats,
-            )
-            || guard::try_form_guarded(
-                func,
-                h,
-                &cond,
-                e_id,
-                t_id,
-                false,
-                &pred_count,
-                &def_count,
-                stats,
-            )
-        {
+        if try_form_pure(func, h, &cond, t_id, e_id, &pred_count, &def_count, stats) {
             return true;
         }
     }
@@ -267,13 +251,6 @@ fn try_form_pure(
     func.blocks[e].insts.clear();
     stats.diamonds_converted += 1;
     true
-}
-
-/// Test-only driver: run the fixpoint on one function (guard.rs unit
-/// tests exercise the whole matcher through this).
-#[cfg(test)]
-pub(super) fn form_selects_in_function_for_tests(func: &mut Function, stats: &mut SelectFormStats) {
-    while form_once(func, stats) {}
 }
 
 #[cfg(test)]
