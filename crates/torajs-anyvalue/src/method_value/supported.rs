@@ -89,6 +89,7 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         // answer through the member-read face, not here.
         t if t == Tag::ArrayBuffer as u16 => arraybuffer_supports(mid),
         t if t == Tag::TypedArray as u16 => typedarray_supports(mid),
+        t if t == Tag::DataView as u16 => crate::method_support::dataview_supports(mid),
         t if t == Tag::Date as u16 => date_supports(mid),
         t if t == Tag::RegExp as u16 => regexp_supports(mid),
         t if t == Tag::WeakMap as u16 => weakmap_supports(mid),

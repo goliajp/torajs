@@ -42,7 +42,7 @@ unsafe extern "C" {
 /// §7.1.5-ish truncation shared by the six wrapping integer kinds:
 /// NaN and the infinities are 0, everything else truncates toward
 /// zero and then wraps modulo `2^bits`.
-fn wrap_to_u64(n: f64, bits: u32) -> u64 {
+pub(crate) fn wrap_to_u64(n: f64, bits: u32) -> u64 {
     if !n.is_finite() {
         return 0;
     }

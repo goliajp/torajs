@@ -405,6 +405,32 @@ pub const ANY_METHOD_SUBARRAY: i64 = 179;
 pub const ANY_METHOD_TRANSFER: i64 = 180;
 pub const ANY_METHOD_TRANSFER_TO_FIXED_LENGTH: i64 = 181;
 
+/// §25.3.4 `DataView.prototype.get*` / `set*` (RFC
+/// 20260823-typedarray-substrate 刀 7) — one mid per method name;
+/// the dispatcher folds each pair onto the two shared kernels.
+pub const ANY_METHOD_DV_GET_INT8: i64 = 182; // `getInt8`
+pub const ANY_METHOD_DV_SET_INT8: i64 = 183; // `setInt8`
+pub const ANY_METHOD_DV_GET_UINT8: i64 = 184; // `getUint8`
+pub const ANY_METHOD_DV_SET_UINT8: i64 = 185; // `setUint8`
+pub const ANY_METHOD_DV_GET_INT16: i64 = 186; // `getInt16`
+pub const ANY_METHOD_DV_SET_INT16: i64 = 187; // `setInt16`
+pub const ANY_METHOD_DV_GET_UINT16: i64 = 188; // `getUint16`
+pub const ANY_METHOD_DV_SET_UINT16: i64 = 189; // `setUint16`
+pub const ANY_METHOD_DV_GET_INT32: i64 = 190; // `getInt32`
+pub const ANY_METHOD_DV_SET_INT32: i64 = 191; // `setInt32`
+pub const ANY_METHOD_DV_GET_UINT32: i64 = 192; // `getUint32`
+pub const ANY_METHOD_DV_SET_UINT32: i64 = 193; // `setUint32`
+pub const ANY_METHOD_DV_GET_FLOAT16: i64 = 194; // `getFloat16`
+pub const ANY_METHOD_DV_SET_FLOAT16: i64 = 195; // `setFloat16`
+pub const ANY_METHOD_DV_GET_FLOAT32: i64 = 196; // `getFloat32`
+pub const ANY_METHOD_DV_SET_FLOAT32: i64 = 197; // `setFloat32`
+pub const ANY_METHOD_DV_GET_FLOAT64: i64 = 198; // `getFloat64`
+pub const ANY_METHOD_DV_SET_FLOAT64: i64 = 199; // `setFloat64`
+pub const ANY_METHOD_DV_GET_BIGINT64: i64 = 200; // `getBigInt64`
+pub const ANY_METHOD_DV_SET_BIGINT64: i64 = 201; // `setBigInt64`
+pub const ANY_METHOD_DV_GET_BIGUINT64: i64 = 202; // `getBigUint64`
+pub const ANY_METHOD_DV_SET_BIGUINT64: i64 = 203; // `setBigUint64`
+
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
 /// receiver. ssa-lower interns the member NAME into one of these at

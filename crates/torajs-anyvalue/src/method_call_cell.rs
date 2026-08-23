@@ -390,6 +390,14 @@ pub(crate) unsafe fn cell_method(
                 .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
         );
     }
+    // §25.3.4 — the twenty-two get*/set* accessors. Same miss
+    // posture as its buffer-family siblings.
+    if tag == Tag::DataView as u16 {
+        return Some(
+            unsafe { crate::method_call_buffer_dataview::dataview_method(recv, mid, argv, argc) }
+                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
+        );
+    }
     if tag == Tag::Date as u16 {
         return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
     }

@@ -283,8 +283,7 @@ pub(crate) unsafe fn buffer_proto_key(tag: u16, key: *const c_void) -> bool {
     } else if tag == Tag::ArrayBuffer as u16 {
         crate::method_support::arraybuffer_supports(mid)
     } else {
-        // DataView's get*/set* methods are the 刀 7 second half.
-        false
+        crate::method_support::dataview_supports(mid)
     }
 }
 

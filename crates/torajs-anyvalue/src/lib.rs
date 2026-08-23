@@ -169,6 +169,7 @@ mod method_call_arraylike_mut;
 mod method_call_arraylike_mut_prim;
 mod method_call_bigint;
 mod method_call_buffer;
+mod method_call_buffer_dataview;
 mod method_call_buffer_iter;
 mod method_call_buffer_join;
 mod method_call_buffer_sort;
@@ -1660,6 +1661,8 @@ mod tests {
         __torajs_dataview_byte_offset,
         __torajs_dataview_buffer,
         __torajs_dataview_print,
+        __torajs_dataview_get,
+        __torajs_dataview_set,
         __torajs_typedarray_is_kind,
         __torajs_typedarray_create,
         __torajs_typedarray_tracks_length,
