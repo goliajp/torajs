@@ -26,14 +26,20 @@
 //   /mid-delete guard, hasOwnProperty / propertyIsEnumerable /
 //   Object.hasOwn on any). Real verifyProperty family below.
 // temporalHelpers.js (2,765) — Temporal API itself is unimplemented.
-// testTypedArray.js (2,064) — TypedArray family is unimplemented
-//   (loud reject in check.rs).
+// (The typed-array driver is PORTED as of 2026-08-23 — RFC
+//   20260823-typedarray-substrate 刀 6. Its own name is deliberately
+//   NOT spelled here: the harness shake matches segment names
+//   LEXICALLY, comments included, so naming a segment in an
+//   always-present note drags it into every case in the suite. This
+//   line used to do exactly that, and cost 205 passes.)
 // isConstructor.js (637) — needs Reflect.construct; no Reflect.
 // asyncHelpers.js — PORTED 2026-07-30 (real `__t262_asyncTest` +
 //   `__t262_throwsAsync` below; the `$DONE` completion protocol was
 //   already ported 2026-07-27).
-// detachArrayBuffer.js (326) / resizableArrayBufferUtils.js (188) —
-//   ArrayBuffer is unimplemented.
+// detachArrayBuffer.js (326) — needs $262.detachArrayBuffer, i.e. a
+//   host hook that detaches a buffer; the buffer substrate itself is
+//   in as of 2026-08-23. resizableArrayBufferUtils.js (188) needs
+//   only the port.
 // testIntl.js (175) — Intl is unimplemented.
 // fnGlobalObject.js — PORTED 2026-08-11: `globalThis` has a value
 //   surface (G2 singleton) and `Function("return this;")()` answers
