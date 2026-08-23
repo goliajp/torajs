@@ -1557,7 +1557,21 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `db6e2a063`** (2026-08-23, rotation 483 — the buffer
+**Latest @ `41a66d4ee`** (2026-08-24, rotation 484 — a perf rotation:
+takagi set the v1 target at 3-4x vs bun, the S7 abstraction-gap track
+opened with a Phase-A decomposition, and four codegen knives landed
+(immediate-form shifts / scaled addressing / select-form blade 3
+retirement / STR-XZR zero stores); bench median tr/bun-aot 0.618 →
+**0.593**. The spec surface moved only by rotation 483's own
+harness-shake fix (`d19e896b9`, committed after that rotation's sweep):
+9 staging/sm cases — 3 to pass, 4 into scope as bugs, 2 rewordings —
+zero pass regressions). Gate predicate: **161** clusters of ≥ 4 holding
+**1248** cases, register 2 · 251, residue 653 · 811 (35.1%), core
+**2310** (was 2313). Sweep passTotal 34696 → **34699 (+3)**, bug
+**12818 (+4)**, incompatible **5657 (−7)**, trAccepted +7,
+conservation exact (+7 = +3 + 4).
+
+**Prior @ `db6e2a063`** (2026-08-23, rotation 483 — the buffer
 family joins the exotic-subclass table (one shared mint + one shared
 super kernel with a transplant onto the minted cell; a fixed
 three-slot forward is the exact derived default ctor); the
