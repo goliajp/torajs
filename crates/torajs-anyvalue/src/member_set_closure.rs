@@ -130,6 +130,7 @@ pub(crate) unsafe fn set_buffer_member(
     let off = if cell_tag == torajs_rc::Tag::TypedArray as u16 {
         MEMBER_SET_TYPEDARRAY_PROPS_OFF
     } else {
+        // ArrayBuffer and DataView share +32 by construction.
         MEMBER_SET_ARRAYBUFFER_PROPS_OFF
     };
     unsafe { set_expando_member(ptr, off, key, tag, value, throw_on_refusal) }

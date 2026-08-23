@@ -7,7 +7,9 @@
 
 use core::ffi::c_void;
 
-use super::buffer_print::{__torajs_arraybuffer_print, __torajs_typedarray_print};
+use super::buffer_print::{
+    __torajs_arraybuffer_print, __torajs_dataview_print, __torajs_typedarray_print,
+};
 use super::formatters::{
     __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_bigint_print_inline,
     __torajs_fn_print_inline, __torajs_inspect_line_reset, __torajs_io_putc_out,
@@ -156,6 +158,10 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // a resizable buffer prints like a fixed-length one of
             // the same current length.
             unsafe { __torajs_arraybuffer_print(child) };
+            unsafe { __torajs_io_putc_out(b'\n' as i32) };
+        } else if tag == Tag::DataView as u16 {
+            // 刀 7 — `DataView(N) [ … ]`, the view's bytes.
+            unsafe { __torajs_dataview_print(child) };
             unsafe { __torajs_io_putc_out(b'\n' as i32) };
         } else if tag == Tag::RegExp as u16 {
             // Commit 6 — RegExp wire. Bun prints RegExp values as
@@ -313,6 +319,8 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
             unsafe { __torajs_typedarray_print(child) };
         } else if tag == Tag::ArrayBuffer as u16 {
             unsafe { __torajs_arraybuffer_print(child) };
+        } else if tag == Tag::DataView as u16 {
+            unsafe { __torajs_dataview_print(child) };
         } else if tag == Tag::RegExp as u16 {
             unsafe { __torajs_regex_print_inline(child) };
         } else if tag == Tag::Promise as u16 {

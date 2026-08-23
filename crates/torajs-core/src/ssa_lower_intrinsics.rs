@@ -538,6 +538,8 @@ pub(crate) struct Intrinsics {
     pub(crate) typedarray_create: FuncId,
     /// §23.2 `x instanceof <T>` — the element-kind test.
     pub(crate) typedarray_is_kind: FuncId,
+    /// §25.3.2 `new DataView(buffer, byteOffset, byteLength)` (刀 7).
+    pub(crate) dataview_create: FuncId,
     /// RFC 20260823-proxy-substrate 刀 3 — §28.2.2.1 Proxy.revocable.
     pub(crate) proxy_revocable: FuncId,
     /// RFC 20260730-iterator-global 刀 4 — §27.1.6.2 `Iterator.from`

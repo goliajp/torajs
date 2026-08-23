@@ -59,6 +59,7 @@ fn buffer_props_off(htag: u16) -> usize {
     if htag == crate::layout::TAG_TYPEDARRAY_HDR {
         crate::layout::TYPEDARRAY_PROPS_OFF
     } else {
+        // ArrayBuffer and DataView share +32 by construction.
         crate::layout::ARRAYBUFFER_PROPS_OFF
     }
 }

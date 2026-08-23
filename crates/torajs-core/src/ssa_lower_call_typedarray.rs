@@ -44,6 +44,25 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, kind: i64, args: &[ExprId]) -> Opera
     Operand::Value(v)
 }
 
+/// `new DataView(buffer [, byteOffset [, byteLength]])` — §25.3.2
+/// (刀 7). The same three-borrowed-`any` shape as the typed-array
+/// constructors, minus the kind discriminant: there is only one
+/// DataView.
+pub(crate) fn lower_dataview(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let ops = lower_borrowed_any_triple(ctx, args);
+    let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.dataview_create, argv),
+        Type::Any,
+        None,
+    );
+    crate::ssa_lower_new::release_borrowed_any_pair(ctx, ops);
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
+}
+
 /// Three BORROWED-`any` slots, the same per-slot shape
 /// `ssa_lower_new::lower_borrowed_any_pair` builds for two. Kept
 /// here rather than generalised over a count because the pair form

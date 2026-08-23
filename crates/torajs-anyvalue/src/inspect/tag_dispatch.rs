@@ -12,7 +12,9 @@
 
 use core::ffi::c_void;
 
-use super::buffer_print::{__torajs_arraybuffer_print, __torajs_typedarray_print};
+use super::buffer_print::{
+    __torajs_arraybuffer_print, __torajs_dataview_print, __torajs_typedarray_print,
+};
 use super::formatters::{
     __torajs_anyv_struct_print_inline_at, __torajs_arr_print_any_at, __torajs_bigint_print_inline,
     __torajs_inspect_line_add, __torajs_map_print_at, __torajs_obj_print_any_at,
@@ -164,6 +166,9 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             // not re-indent it, so the byte list stays on one line
             // however deeply it is nested.
             unsafe { __torajs_arraybuffer_print(child) };
+        } else if tag == Tag::DataView as u16 {
+            // Nested DataView keeps the same one-line byte list.
+            unsafe { __torajs_dataview_print(child) };
         } else if tag == Tag::RegExp as u16 {
             // Commit 6 — nested RegExp prints unquoted same as
             // top-level (bun: `[ /abc/g ]` not `[ "/abc/g" ]`).

@@ -46,7 +46,8 @@
 
 use core::ffi::c_void;
 
-use crate::index_any::{__torajs_any_index_get, __torajs_any_iter_len};
+use crate::index_any::__torajs_any_index_get;
+use crate::index_any_iter_len::__torajs_any_iter_len;
 use crate::iter_any_step::step_derived_iterator;
 use crate::method_call::invoke_boxed;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_int32, is_short_str};

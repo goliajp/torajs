@@ -117,6 +117,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: TypedArray ctor sibling miss");
         }
+        // 刀 7 — §25.3.2 the DataView constructor.
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "DataView" => {
+            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: DataView ctor sibling miss");
+        }
         // Number literals coerce to i64 — type inference lifts them to
         // f64 once we wire numeric-mode detection into the lowerer.
         Expr::Number(n) => {

@@ -17,6 +17,7 @@ pub(crate) struct BufferIds {
     pub arraybuffer_is_view: FuncId,
     pub typedarray_create: FuncId,
     pub typedarray_is_kind: FuncId,
+    pub dataview_create: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> BufferIds {
@@ -59,6 +60,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_typedarray_is_kind",
             &[Type::Any, Type::I64],
             Type::Bool,
+        ),
+        // (buffer, byteOffset, byteLength — all borrowed Any) →
+        // owned DataView Any. §25.3.2's coercions live in the
+        // kernel so their spec order survives.
+        dataview_create: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_dataview_create",
+            &[Type::Any, Type::Any, Type::Any],
+            Type::Any,
         ),
     }
 }

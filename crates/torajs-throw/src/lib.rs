@@ -249,6 +249,21 @@ unsafe fn throw_native(slot: i64, msg: *const c_char) {
 /// `err` must be a valid, owned (rc = 1) Str block; ownership
 /// transfers to this function.
 unsafe fn throw_native_str(slot: i64, err: *mut u8) {
+    // First throw wins. A kernel that records a throw can be called
+    // again before the compiled caller's throw check runs — the
+    // any-lane member probe's tag/value twin channels each invoke
+    // the same accessor kernel back-to-back — and the second raise
+    // here would run the error FACTORY (a codegen'd TS ctor) with
+    // the pending throw still set, which makes its internal call
+    // sites early-return and hands back null as the "instance".
+    // Spec-wise the first abrupt completion already ended the
+    // operation; a second record inside the same window is the same
+    // completion re-announced, never a new one.
+    if THROW_ACTIVE.load(Ordering::Relaxed) != 0 {
+        // SAFETY: err is the caller's owned just-minted Str.
+        unsafe { __torajs_str_drop(err) };
+        return;
+    }
     if slot >= 0 && (slot as usize) < SLOT_COUNT {
         if let Some(factory) = lookup_factory(slot as usize) {
             // SAFETY: factory is a valid NativeErrorFactory per the

@@ -159,6 +159,12 @@ pub const TAG_TYPEDARRAY_HDR: u16 = 28;
 /// TypedArray expando slot (torajs-buffer `PROPS_OFF` mirror).
 pub const TYPEDARRAY_PROPS_OFF: usize = 40;
 
+/// DataView heap tag (torajs-rc `Tag::DataView` = 29). Its lazy
+/// expando props dynobj lives at +32 — deliberately the ArrayBuffer
+/// offset, so every off-32 bag consumer already answers for it
+/// (torajs-buffer `dataview.rs::PROPS_OFF` mirror).
+pub const TAG_DATAVIEW_HDR: u16 = 29;
+
 /// HOLE sentinel bit pattern for a shadow entry's dead value slot
 /// (RFC 20260713 chunk C — `delete arr[i]`). Deliberately NOT a
 /// NaN-box encoder product: `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED

@@ -30,6 +30,11 @@ pub(crate) const ARRAYBUFFER_PROPS_OFF: usize = 32;
 pub(crate) const TAG_TYPEDARRAY_CELL: u16 = 28;
 pub(crate) const TYPEDARRAY_PROPS_OFF: usize = 40;
 
+/// DataView cell (torajs-rc `Tag::DataView`; expando bag at +32 —
+/// deliberately the ArrayBuffer offset, so the two share every
+/// off-32 bag consumer).
+pub(crate) const TAG_DATAVIEW_CELL: u16 = 29;
+
 /// Promise-cell lazy expando slot (`torajs_dynobj::layout::
 /// PROMISE_PROPS_OFF` mirror — +24 is the callback list).
 pub(crate) const PROMISE_PROPS_OFF: usize = 32;

@@ -52,6 +52,7 @@ per_tag_drop_stub!(
     __torajs_proxy_drop,
     __torajs_arraybuffer_drop,
     __torajs_typedarray_drop,
+    __torajs_dataview_drop,
     __torajs_dynobj_drop,
     __torajs_accessor_drop,
     __torajs_response_drop,

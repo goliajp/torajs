@@ -30,6 +30,9 @@ unsafe extern "C" {
     fn __torajs_typedarray_byte_offset(av: AnyValue) -> i64;
     fn __torajs_typedarray_buffer(av: AnyValue) -> AnyValue;
     fn __torajs_typedarray_bytes_per_element(av: AnyValue) -> i64;
+    fn __torajs_dataview_byte_length(av: AnyValue) -> i64;
+    fn __torajs_dataview_byte_offset(av: AnyValue) -> i64;
+    fn __torajs_dataview_buffer(av: AnyValue) -> AnyValue;
 }
 
 /// The view's current element count (re-derived each call — a
@@ -122,7 +125,7 @@ pub unsafe extern "C" fn __torajs_buffer_canonical_numeric_index(
 /// match arm instead of one per buffer-family tag.
 #[inline]
 pub(crate) fn is_buffer_family(tag: u16) -> bool {
-    tag == Tag::ArrayBuffer as u16 || tag == Tag::TypedArray as u16
+    tag == Tag::ArrayBuffer as u16 || tag == Tag::TypedArray as u16 || tag == Tag::DataView as u16
 }
 
 /// The accessor pair for whichever buffer-family cell `recv` is.
@@ -137,6 +140,9 @@ pub(crate) unsafe fn buffer_family_prop(
 ) -> Option<(u64, u64)> {
     if tag == Tag::TypedArray as u16 {
         return unsafe { typedarray_prop(recv, key) };
+    }
+    if tag == Tag::DataView as u16 {
+        return unsafe { dataview_prop(recv, key) };
     }
     unsafe { arraybuffer_prop(recv, key) }
 }
@@ -198,6 +204,86 @@ pub(crate) unsafe fn typedarray_prop(recv: AnyValue, key: *const c_void) -> Opti
             ));
         }
         None
+    }
+}
+
+/// The §25.3.4 accessors a DataView answers on the probe pair.
+/// `byteLength` / `byteOffset` throw a TypeError over a detached
+/// buffer or an out-of-bounds view (the kernels own that — unlike
+/// the typed-array getters, which answer 0 there); `buffer` answers
+/// regardless, same borrow shape as the typed-array arm's.
+///
+/// # Safety
+/// `recv` is a live DataView AnyValue; `key` is NULL or a live Str
+/// cell.
+pub(crate) unsafe fn dataview_prop(recv: AnyValue, key: *const c_void) -> Option<(u64, u64)> {
+    unsafe {
+        if crate::prop_has::key_is(key, b"byteLength") {
+            return Some(num(__torajs_dataview_byte_length(recv)));
+        }
+        if crate::prop_has::key_is(key, b"byteOffset") {
+            return Some(num(__torajs_dataview_byte_offset(recv)));
+        }
+        if crate::prop_has::key_is(key, b"buffer") {
+            let owned = __torajs_dataview_buffer(recv);
+            crate::__torajs_anyv_rc_dec(owned);
+            return Some((
+                AnySlotTag::Heap as u64,
+                crate::nanbox::as_void_ptr(owned) as u64,
+            ));
+        }
+        None
+    }
+}
+
+/// §7.3.12 HasProperty's prototype half for a buffer-family
+/// receiver: does the family's PROTOTYPE own `key`? Name-level only
+/// — `in` never invokes a getter, so this must not touch the
+/// accessor kernels (an out-of-bounds DataView still answers true
+/// for "byteLength" without throwing).
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+pub(crate) unsafe fn buffer_proto_key(tag: u16, key: *const c_void) -> bool {
+    let names: &[&[u8]] = if tag == Tag::TypedArray as u16 {
+        &[
+            b"length",
+            b"byteLength",
+            b"byteOffset",
+            b"buffer",
+            b"BYTES_PER_ELEMENT",
+        ]
+    } else if tag == Tag::DataView as u16 {
+        &[b"byteLength", b"byteOffset", b"buffer"]
+    } else {
+        &[b"byteLength", b"maxByteLength", b"resizable", b"detached"]
+    };
+    for n in names {
+        if unsafe { crate::prop_has::key_is(key, n) } {
+            return true;
+        }
+    }
+    // Interned prototype methods — the same per-tag support tables
+    // the method dispatch resolves with.
+    let (bytes, len) = unsafe { crate::prop_has::key_bytes(key) };
+    if bytes.is_null() {
+        return false;
+    }
+    let Ok(name) =
+        core::str::from_utf8(unsafe { core::slice::from_raw_parts(bytes, len as usize) })
+    else {
+        return false;
+    };
+    let mid = torajs_rc::any_method_intern::any_method_id(name);
+    if mid == torajs_rc::ANY_METHOD_UNKNOWN {
+        return false;
+    }
+    if tag == Tag::TypedArray as u16 {
+        crate::method_support::typedarray_supports(mid)
+    } else if tag == Tag::ArrayBuffer as u16 {
+        crate::method_support::arraybuffer_supports(mid)
+    } else {
+        false
     }
 }
 

@@ -358,6 +358,8 @@ fn builtin_type_tag(class_name: &str) -> Option<i64> {
         "Symbol" => Some(24),
         // RFC 20260823-typedarray-substrate 刀 1 — Tag::ArrayBuffer.
         "ArrayBuffer" => Some(27),
+        // 刀 7 — Tag::DataView.
+        "DataView" => Some(29),
         _ => None,
     }
 }

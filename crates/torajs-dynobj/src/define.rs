@@ -330,7 +330,10 @@ pub(crate) unsafe fn define_apply(
     }
     // Buffer-family receiver — the numeric element face or the bag
     // (body in `define_typedarray.rs`, file-size split).
-    if htag == crate::layout::TAG_ARRAYBUFFER_HDR || htag == crate::layout::TAG_TYPEDARRAY_HDR {
+    if htag == crate::layout::TAG_ARRAYBUFFER_HDR
+        || htag == crate::layout::TAG_TYPEDARRAY_HDR
+        || htag == crate::layout::TAG_DATAVIEW_HDR
+    {
         return unsafe {
             crate::define_typedarray::buffer_receiver_define(
                 obj,

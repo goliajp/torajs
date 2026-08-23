@@ -20,4 +20,7 @@ unsafe extern "C" {
     /// `Uint8Array(N) [ … ]` — elements read through the element
     /// type, and the BigInt kinds carry the `n` suffix.
     pub(super) fn __torajs_typedarray_print(cell: *const c_void);
+    /// `DataView(N) [ … ]` — the view's bytes; detached or
+    /// out-of-bounds prints as length zero.
+    pub(super) fn __torajs_dataview_print(cell: *const c_void);
 }

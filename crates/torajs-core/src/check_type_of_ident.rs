@@ -28,7 +28,7 @@ use crate::check::{Checker, Type};
 /// Iterator grew their arms in their own RFCs). `eval` / `globalThis`
 /// are NOT here: they type Any (runtime cells riding the any lanes),
 /// not namespace objects.
-const NS_OBJECT_IDENTS: [&str; 39] = [
+const NS_OBJECT_IDENTS: [&str; 40] = [
     "console",
     "Math",
     "Object",
@@ -52,6 +52,7 @@ const NS_OBJECT_IDENTS: [&str; 39] = [
     "Iterator",
     "Proxy",
     "ArrayBuffer",
+    "DataView",
     // RFC 20260823-typedarray-substrate 刀 2 — the eleven §23.2
     // constructors, each also a namespace for its own statics.
     "Int8Array",

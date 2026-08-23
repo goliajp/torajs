@@ -367,7 +367,7 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
     unsafe {
         __torajs_jsb_push_byte(sb, b'[');
         let boxed = crate::nanbox::box_void_ptr(ptr);
-        let len = crate::index_any::__torajs_any_iter_len(boxed);
+        let len = crate::index_any_iter_len::__torajs_any_iter_len(boxed);
         for i in 0..len {
             if i > 0 {
                 __torajs_jsb_push_byte(sb, b',');

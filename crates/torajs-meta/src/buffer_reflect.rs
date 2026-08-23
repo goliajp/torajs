@@ -54,6 +54,7 @@ pub(crate) unsafe fn buffer_cell_descriptor(
     let off = if htag == TAG_TYPEDARRAY {
         TYPEDARRAY_PROPS_OFF
     } else {
+        // ArrayBuffer and DataView share +32 by construction.
         ARRAYBUFFER_PROPS_OFF
     };
     unsafe { expando_bag_descriptor(dynobj, off, key) }

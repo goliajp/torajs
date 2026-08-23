@@ -179,6 +179,13 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         || hdr_tag == Tag::BooleanWrapper as u16
         || hdr_tag == Tag::Obj as u16
         || hdr_tag == Tag::Closure as u16
+        // §25.1 / §25.3 — ArrayBuffer and DataView are ordinary off
+        // their index face (a DataView reaches its bytes only through
+        // the §25.3.4 methods), so a numeric key is the stringified
+        // bag write member_set's buffer arm owns. TypedArray stays on
+        // its §10.4.5 element arm above.
+        || hdr_tag == Tag::ArrayBuffer as u16
+        || hdr_tag == Tag::DataView as u16
     {
         let mut buf = [0u8; 20];
         let (start, len) = i64_dec(&mut buf, idx);

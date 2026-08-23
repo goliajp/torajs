@@ -72,6 +72,8 @@ const PROMISE_PROPS_OFF: usize = 32;
 /// `arraybuffer.rs` / `typedarray.rs::PROPS_OFF` mirrors).
 const TAG_ARRAYBUFFER: u16 = 27;
 pub(crate) const TAG_TYPEDARRAY: u16 = 28;
+/// DataView shares the ArrayBuffer bag offset (+32) by construction.
+const TAG_DATAVIEW: u16 = 29;
 pub(crate) const ARRAYBUFFER_PROPS_OFF: usize = 32;
 pub(crate) const TYPEDARRAY_PROPS_OFF: usize = 40;
 
@@ -113,7 +115,7 @@ unsafe fn symbol_key_descriptor_via_dict(
         // callback list).
         TAG_PROMISE => PROMISE_PROPS_OFF,
         // §25.1 / §23.2 buffer-family expando bags.
-        TAG_ARRAYBUFFER => ARRAYBUFFER_PROPS_OFF,
+        TAG_ARRAYBUFFER | TAG_DATAVIEW => ARRAYBUFFER_PROPS_OFF,
         TAG_TYPEDARRAY => TYPEDARRAY_PROPS_OFF,
         t if is_wrapper_tag(t) => WRAPPER_PROPS_OFF,
         _ => return VALUE_UNDEFINED_IMM,
@@ -262,7 +264,7 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     }
     // §25.1 / §23.2 — buffer-family expando bag (body in
     // `buffer_reflect.rs`, file-size split).
-    if htag == TAG_ARRAYBUFFER || htag == TAG_TYPEDARRAY {
+    if htag == TAG_ARRAYBUFFER || htag == TAG_TYPEDARRAY || htag == TAG_DATAVIEW {
         return unsafe { crate::buffer_reflect::buffer_cell_descriptor(dynobj, htag, key) };
     }
     // RFC 20260722 刀 4 — a RegExp instance owns exactly its

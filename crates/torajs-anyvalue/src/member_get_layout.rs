@@ -92,6 +92,8 @@ pub(crate) unsafe fn buffer_props(ptr: *mut c_void, tag: u16) -> *const c_void {
     let off = if tag == Tag::TypedArray as u16 {
         TYPEDARRAY_PROPS_OFF
     } else {
+        // ArrayBuffer and DataView deliberately share +32
+        // (torajs-buffer keeps the two cells' props slots aligned).
         ARRAYBUFFER_PROPS_OFF
     };
     unsafe { *(ptr.cast::<u8>().add(off) as *const u64) as *const c_void }

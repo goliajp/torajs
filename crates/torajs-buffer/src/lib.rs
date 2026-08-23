@@ -21,6 +21,8 @@ pub mod arraybuffer;
 pub mod arraybuffer_ops;
 pub mod arraybuffer_print;
 pub mod binary16;
+pub mod dataview;
+pub mod dataview_print;
 pub mod typedarray;
 pub mod typedarray_ctor;
 pub mod typedarray_elem;

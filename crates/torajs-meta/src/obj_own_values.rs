@@ -327,6 +327,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
             crate::obj_own_keys_layout::TAG_ARRAYBUFFER_CELL => unsafe {
                 crate::obj_own_values_buffer::arraybuffer_cell_values(cell)
             },
+            // DataView shares the ArrayBuffer twin (same +32 bag).
+            crate::obj_own_keys_layout::TAG_DATAVIEW_CELL => unsafe {
+                crate::obj_own_values_buffer::arraybuffer_cell_values(cell)
+            },
             // Rotation 354 — promise cell walks its +32 expando bag
             // (keys-face twin; no inherent own keys).
             TAG_PROMISE_CELL => {
@@ -425,6 +429,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 crate::obj_own_values_buffer::typedarray_cell_entries(v, cell)
             },
             crate::obj_own_keys_layout::TAG_ARRAYBUFFER_CELL => unsafe {
+                crate::obj_own_values_buffer::arraybuffer_cell_entries(cell)
+            },
+            // DataView shares the ArrayBuffer twin (same +32 bag).
+            crate::obj_own_keys_layout::TAG_DATAVIEW_CELL => unsafe {
                 crate::obj_own_values_buffer::arraybuffer_cell_entries(cell)
             },
             // Rotation 354 — promise bag pairs (keys-face twin).

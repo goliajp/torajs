@@ -138,7 +138,7 @@ unsafe fn property_list(replacer: AnyValue) -> Option<Vec<*mut c_void>> {
         {
             return None;
         }
-        let len = crate::index_any::__torajs_any_iter_len(replacer);
+        let len = crate::index_any_iter_len::__torajs_any_iter_len(replacer);
         let mut out: Vec<*mut c_void> = Vec::new();
         for i in 0..len {
             let elem = crate::index_any::__torajs_any_index_get(replacer, i);

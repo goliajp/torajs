@@ -403,6 +403,11 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             TAG_ARRAYBUFFER_CELL => unsafe {
                 crate::obj_own_keys_buffer::arraybuffer_cell_keys(cell, include_nonenum)
             },
+            // DataView shares the ArrayBuffer walk: same +32 bag,
+            // and like a buffer it has no inherent own keys.
+            crate::obj_own_keys_layout::TAG_DATAVIEW_CELL => unsafe {
+                crate::obj_own_keys_buffer::arraybuffer_cell_keys(cell, include_nonenum)
+            },
             // Rotation 354 — promise cell enumerates its +32 expando
             // bag (defineProperty / plain-assign entries); no
             // inherent own keys — `then` / `catch` are prototype

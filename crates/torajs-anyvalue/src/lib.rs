@@ -111,6 +111,7 @@ mod date_from_value;
 mod error_cause;
 mod function_subclass;
 pub(crate) mod index_any;
+mod index_any_iter_len;
 mod index_any_keyed;
 mod index_any_method_call;
 mod index_any_set;
@@ -1654,6 +1655,11 @@ mod tests {
         __torajs_typedarray_index_get,
         __torajs_typedarray_index_set,
         __torajs_typedarray_print,
+        // 刀 7 — the DataView accessors and printer.
+        __torajs_dataview_byte_length,
+        __torajs_dataview_byte_offset,
+        __torajs_dataview_buffer,
+        __torajs_dataview_print,
         __torajs_typedarray_is_kind,
         __torajs_typedarray_create,
         __torajs_typedarray_tracks_length,

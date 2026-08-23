@@ -68,6 +68,8 @@ pub(crate) fn try_check(
         // types `Type::Any` for the same reason: the byte store is
         // reached only through the any-lane kernels in this slab.
         "ArrayBuffer" => check_any_result_ctor(checker, ast, args),
+        // 刀 7 — `new DataView` types `Type::Any` like its buffer.
+        "DataView" => check_any_result_ctor(checker, ast, args),
         // RFC 20260823-typedarray-substrate 刀 2 — same call for all
         // eleven: the view is reached through the any-lane kernels.
         n if crate::ssa_lower_call_typedarray::kind_of_name(n).is_some() => {
