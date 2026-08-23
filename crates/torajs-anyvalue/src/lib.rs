@@ -167,6 +167,7 @@ mod method_call_arraylike_mut;
 mod method_call_arraylike_mut_prim;
 mod method_call_bigint;
 mod method_call_buffer;
+mod method_call_buffer_join;
 mod method_call_buffer_sort;
 mod method_call_cell;
 mod method_call_closure;

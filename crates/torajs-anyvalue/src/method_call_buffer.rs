@@ -149,6 +149,19 @@ pub(crate) unsafe fn typedarray_method(
         torajs_rc::ANY_METHOD_TO_SORTED => Some(unsafe {
             crate::method_call_buffer_sort::typedarray_sort(recv, argv, argc, false)
         }),
+        // §23.2.3.16 delegates to the array join — same six steps,
+        // and that walk already answers the encoding question a
+        // second copy would have to answer again.
+        torajs_rc::ANY_METHOD_JOIN => {
+            Some(unsafe { crate::method_call_buffer_join::typedarray_join(recv, argv, argc) })
+        }
+        // §23.2.3.31 is `Array.prototype.toString`, which is
+        // `join()` with no separator — the argument list is dropped
+        // rather than forwarded, so `ta.toString("-")` is still
+        // comma-separated.
+        torajs_rc::ANY_METHOD_TO_STRING => Some(unsafe {
+            crate::method_call_buffer_join::typedarray_join(recv, core::ptr::null(), 0)
+        }),
         _ => None,
     }
 }
