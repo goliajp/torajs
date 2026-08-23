@@ -55,7 +55,7 @@ pub fn escape_analyze_array_literals(ast: &mut Ast) {
     let named_fn_refs = crate::ast_refs::toplevel_binding_refs(ast).named_fn_refs;
     let mut found: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     let stmts = ast.stmts.clone();
-    eal_walk_stmts(ast, &stmts, &mut found, &named_fn_refs);
+    eal_walk_stmts(ast, &stmts, &mut found, &named_fn_refs, false);
     ast.stack_array_literals = found;
 }
 
@@ -64,15 +64,36 @@ fn eal_walk_stmts(
     stmts: &[Stmt],
     found: &mut std::collections::HashSet<ExprId>,
     named_fn_refs: &std::collections::HashSet<String>,
+    in_fn_body: bool,
 ) {
     // Pass 1: at this level, check each `let X = [...]` against the
     // stmts that follow it (in source order — `let` is in scope from
     // its decl to end of block).
+    //
+    // The K.3b promote-coherence guard (`named_fn_refs`) applies only
+    // OUTSIDE fn bodies: promotion to a data-global slot is a
+    // top-level-binding mechanism, so a binding declared inside a
+    // FnDecl / class-method body can never sit behind a global slot
+    // and the UAF the guard exists for cannot arise there. The
+    // guard's over-approximation ("fn-local shadows count too") was
+    // priced in S7-r3 (rotation 485): `named_fn_refs` contains every
+    // ident a named-fn body mentions — including the fn's own
+    // locals — so applying it inside fn bodies silently sent EVERY
+    // fn-local array literal back to the heap since rotation 253
+    // (the rpn probe's per-eval `stack` paid a heap
+    // alloc + drop + free cycle 30M times).
     for (i, s) in stmts.iter().enumerate() {
         if let Stmt::LetDecl { name, init, .. } = s
-            && !named_fn_refs.contains(name)
+            && (in_fn_body || !named_fn_refs.contains(name))
             && let Expr::Array(els) = ast.get_expr(*init)
             && !els.is_empty()
+            // In-fn literals live in a frame that recursion
+            // multiplies; cap them at 64 slots (512 B/frame) so a
+            // deep-recursion program that was fine with heap cells
+            // can't newly overflow the stack. Top-level literals
+            // keep the uncapped pre-existing behavior — main runs
+            // once.
+            && (!in_fn_body || els.len() <= 64)
             && !els
                 .iter()
                 .any(|e| matches!(ast.get_expr(*e), Expr::Spread { .. }))
@@ -87,7 +108,7 @@ fn eal_walk_stmts(
     }
     // Pass 2: recurse into every nested stmt list.
     for s in stmts {
-        eal_recurse_into(ast, s, found, named_fn_refs);
+        eal_recurse_into(ast, s, found, named_fn_refs, in_fn_body);
     }
 }
 
@@ -96,37 +117,40 @@ fn eal_recurse_into(
     s: &Stmt,
     found: &mut std::collections::HashSet<ExprId>,
     named_fn_refs: &std::collections::HashSet<String>,
+    in_fn_body: bool,
 ) {
     match s {
-        Stmt::Block(inner) | Stmt::Multi(inner) => eal_walk_stmts(ast, inner, found, named_fn_refs),
+        Stmt::Block(inner) | Stmt::Multi(inner) => {
+            eal_walk_stmts(ast, inner, found, named_fn_refs, in_fn_body)
+        }
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            eal_recurse_into(ast, then_branch, found, named_fn_refs);
+            eal_recurse_into(ast, then_branch, found, named_fn_refs, in_fn_body);
             if let Some(eb) = else_branch {
-                eal_recurse_into(ast, eb, found, named_fn_refs);
+                eal_recurse_into(ast, eb, found, named_fn_refs, in_fn_body);
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            eal_recurse_into(ast, body, found, named_fn_refs)
+            eal_recurse_into(ast, body, found, named_fn_refs, in_fn_body)
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                eal_recurse_into(ast, i, found, named_fn_refs);
+                eal_recurse_into(ast, i, found, named_fn_refs, in_fn_body);
             }
-            eal_recurse_into(ast, body, found, named_fn_refs);
+            eal_recurse_into(ast, body, found, named_fn_refs, in_fn_body);
         }
         Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
-            eal_recurse_into(ast, body, found, named_fn_refs)
+            eal_recurse_into(ast, body, found, named_fn_refs, in_fn_body)
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
-                eal_walk_stmts(ast, &c.body, found, named_fn_refs);
+                eal_walk_stmts(ast, &c.body, found, named_fn_refs, in_fn_body);
             }
             if let Some(db) = default {
-                eal_walk_stmts(ast, db, found, named_fn_refs);
+                eal_walk_stmts(ast, db, found, named_fn_refs, in_fn_body);
             }
         }
         Stmt::Try {
@@ -135,24 +159,27 @@ fn eal_recurse_into(
             finally_body,
             ..
         } => {
-            eal_walk_stmts(ast, body, found, named_fn_refs);
-            eal_walk_stmts(ast, catch_body, found, named_fn_refs);
+            eal_walk_stmts(ast, body, found, named_fn_refs, in_fn_body);
+            eal_walk_stmts(ast, catch_body, found, named_fn_refs, in_fn_body);
             if let Some(fb) = finally_body {
-                eal_walk_stmts(ast, fb, found, named_fn_refs);
+                eal_walk_stmts(ast, fb, found, named_fn_refs, in_fn_body);
             }
         }
-        Stmt::FnDecl { body, .. } => eal_walk_stmts(ast, body, found, named_fn_refs),
+        // A binding declared inside a fn / method body is fn-local —
+        // promotion (and its UAF hazard) is off the table there, so
+        // the K.3b guard lifts for everything beneath.
+        Stmt::FnDecl { body, .. } => eal_walk_stmts(ast, body, found, named_fn_refs, true),
         Stmt::ClassDecl { methods, .. } => {
             for m in methods {
-                eal_walk_stmts(ast, &m.body, found, named_fn_refs);
+                eal_walk_stmts(ast, &m.body, found, named_fn_refs, true);
             }
         }
         Stmt::ExportDecl { inner, .. } => {
             if let Some(inner) = inner {
-                eal_recurse_into(ast, inner, found, named_fn_refs);
+                eal_recurse_into(ast, inner, found, named_fn_refs, in_fn_body);
             }
         }
-        Stmt::Labeled { body, .. } => eal_recurse_into(ast, body, found, named_fn_refs),
+        Stmt::Labeled { body, .. } => eal_recurse_into(ast, body, found, named_fn_refs, in_fn_body),
         _ => {}
     }
 }
