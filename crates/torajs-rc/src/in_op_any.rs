@@ -75,6 +75,9 @@ unsafe extern "C" {
     // accessor halves) for a `Tag::Obj` receiver, the chain link
     // between the instance's own face and the Object root.
     fn __torajs_struct_proto_member_has(ptr: *const c_void, key: *const c_void) -> i64;
+    // torajs-anyvalue — the buffer family's name-level prototype
+    // face (accessor names + interned methods; never a getter call).
+    fn __torajs_buffer_family_proto_key(tag: i64, key: *const c_void) -> i64;
     // torajs-throw — arms a pending TypeError and returns; the
     // caller must return on its own (see the C→Rust port playbook
     // B-2: a `-> !` signature here would let LLVM DCE the resume
@@ -357,6 +360,20 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
     {
         return true;
     }
+    // §25.1 / §23.2 / §25.3 — the buffer family has no reified
+    // prototype singleton yet; its prototype face is the name-level
+    // predicate torajs-anyvalue owns, then the Object root like
+    // every other chain.
+    if type_tag == crate::Tag::ArrayBuffer as u16
+        || type_tag == crate::Tag::TypedArray as u16
+        || type_tag == crate::Tag::DataView as u16
+    {
+        if unsafe { __torajs_buffer_family_proto_key(type_tag as i64, key as *const c_void) } != 0 {
+            return true;
+        }
+        let root = crate::builtin_proto::OBJECT_PROTO_TAG as i64;
+        return (unsafe { __torajs_proto_chain_key_owned(root, key as *const c_void) }) != 0;
+    }
     match proto_family_of(type_tag) {
         Some(family) => {
             (unsafe { __torajs_proto_chain_key_owned(family, key as *const c_void) }) != 0
@@ -440,6 +457,12 @@ unsafe fn __torajs_proto_chain_key_owned(family_tag: i64, _key: *const c_void) -
 #[cfg(test)]
 unsafe fn __torajs_struct_proto_member_has(_ptr: *const c_void, _key: *const c_void) -> i64 {
     STRUCT_PROTO_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
+unsafe fn __torajs_buffer_family_proto_key(_tag: i64, _key: *const c_void) -> i64 {
+    // Unit tests never build a buffer-family receiver.
+    0
 }
 
 #[cfg(test)]

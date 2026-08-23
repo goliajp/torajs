@@ -181,6 +181,25 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
     let Some((ptr, tag)) = recv_cell(recv) else {
         return 0;
     };
+    // §7.3.11 step 2 — the buffer family's prototype half: accessor
+    // names and interned methods (name-level, never invoking a
+    // getter — an out-of-bounds DataView still answers true for
+    // "byteLength" without throwing), then the %Object.prototype%
+    // root like every other chain. The OWN half already answered
+    // above, which is what keeps `Object.hasOwn` honest.
+    if crate::member_get_buffer::is_buffer_family(tag) {
+        if unsafe { crate::member_get_buffer::buffer_proto_key(tag, key) } {
+            return 1;
+        }
+        let proto = unsafe {
+            torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
+                torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64,
+            )
+        };
+        return (!proto.is_null()
+            && unsafe { __torajs_dynobj_has(proto as *const c_void, key) } != 0)
+            as i64;
+    }
     if tag != Tag::DynObj as u16 {
         return 0;
     }
@@ -349,23 +368,7 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
                 return (i < len as u64 && len >= 0) as i64;
             }
             let props = unsafe { crate::member_get_layout::buffer_props(ptr, t) };
-            if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
-                return 1;
-            }
-            // §7.3.12 — HasProperty walks the prototype: the
-            // family's accessor names and interned methods
-            // (name-level, never invoking a getter), then the
-            // %Object.prototype% root like every other chain.
-            if unsafe { crate::member_get_buffer::buffer_proto_key(t, key) } {
-                return 1;
-            }
-            let proto = unsafe {
-                torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
-                    torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64,
-                )
-            };
-            (!proto.is_null() && unsafe { __torajs_dynobj_has(proto as *const c_void, key) } != 0)
-                as i64
+            (!props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0) as i64
         }
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
         Some((ptr, t)) if t == Tag::Str as u16 => {

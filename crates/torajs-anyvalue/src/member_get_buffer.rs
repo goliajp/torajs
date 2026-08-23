@@ -283,8 +283,19 @@ pub(crate) unsafe fn buffer_proto_key(tag: u16, key: *const c_void) -> bool {
     } else if tag == Tag::ArrayBuffer as u16 {
         crate::method_support::arraybuffer_supports(mid)
     } else {
+        // DataView's get*/set* methods are the 刀 7 second half.
         false
     }
+}
+
+/// [`buffer_proto_key`] at the C edge — torajs-rc's `in` kernel
+/// reaches it link-time (that crate keeps zero Cargo deps).
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_buffer_family_proto_key(tag: i64, key: *const c_void) -> i64 {
+    unsafe { buffer_proto_key(tag as u16, key) as i64 }
 }
 
 /// A byte count on the probe pair. JS numbers are doubles and the
