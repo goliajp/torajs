@@ -167,6 +167,7 @@ mod method_call_arraylike_mut;
 mod method_call_arraylike_mut_prim;
 mod method_call_bigint;
 mod method_call_buffer;
+mod method_call_buffer_sort;
 mod method_call_cell;
 mod method_call_closure;
 mod method_call_closure_apply_like;
@@ -1664,6 +1665,8 @@ mod tests {
         __torajs_typedarray_to_reversed,
         __torajs_typedarray_with,
         __torajs_typedarray_set,
+        __torajs_typedarray_validate,
+        __torajs_typedarray_create_same_type,
         __torajs_arr_alloc_any_filled,
         __torajs_arr_alloc_any_filled_f64,
         __torajs_make_aggregate_error,

@@ -93,6 +93,38 @@ pub(crate) unsafe fn revalidate(av: AnyValue) -> Option<Span> {
     }
 }
 
+/// §23.2.4.4 ValidateTypedArray at the ABI, for the callers that
+/// live outside this crate: the length, or -1 with a pending throw.
+///
+/// Sorting is the caller that needs it. §23.2.3.29 reads every
+/// element into a List, orders the List, and writes it back — which
+/// is an AnyValue-level walk over a user comparator, so it belongs
+/// on the any-lane side. Only the brand-and-extent question has to
+/// come from here.
+///
+/// # Safety
+/// `av` is a live AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_typedarray_validate(av: AnyValue) -> i64 {
+    match unsafe { validate(av) } {
+        Some(span) => span.len,
+        None => -1,
+    }
+}
+
+/// §23.2.4.2 TypedArrayCreateSameType at the ABI — a fresh view of
+/// the receiver's element type over its own buffer.
+///
+/// # Safety
+/// `av` is a live TypedArray AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_typedarray_create_same_type(av: AnyValue, len: i64) -> AnyValue {
+    if !is_typedarray(av) {
+        return torajs_anyvalue::nanbox::VALUE_UNDEFINED;
+    }
+    unsafe { crate::typedarray_ctor::create_same_type(kind_of(as_void_ptr(av)), len) }
+}
+
 /// §7.1.5 ToIntegerOrInfinity, kept as an `f64` so that the two
 /// infinities survive to the clamp — `Infinity` and `len` are the
 /// same clamped index but not the same number, and a saturating cast

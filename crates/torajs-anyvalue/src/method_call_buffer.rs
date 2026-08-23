@@ -140,6 +140,15 @@ pub(crate) unsafe fn typedarray_method(
             Some(unsafe { __torajs_typedarray_with(recv, arg(0), arg(1)) })
         }
         torajs_rc::ANY_METHOD_SET => Some(unsafe { __torajs_typedarray_set(recv, arg(0), arg(1)) }),
+        // §23.2.3.29 / §23.2.3.34 — the ordering is an AnyValue walk
+        // over a user comparator, so it lives on this side; see
+        // [`crate::method_call_buffer_sort`].
+        torajs_rc::ANY_METHOD_SORT => {
+            Some(unsafe { crate::method_call_buffer_sort::typedarray_sort(recv, argv, argc, true) })
+        }
+        torajs_rc::ANY_METHOD_TO_SORTED => Some(unsafe {
+            crate::method_call_buffer_sort::typedarray_sort(recv, argv, argc, false)
+        }),
         _ => None,
     }
 }
