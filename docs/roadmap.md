@@ -7214,9 +7214,13 @@ v3 roadmap appendix).
 **轴 B 的 v1.0 gate 从 r470 的「零落后」（下界，已达成：总时间 43/43
 全赢）抬到：bench-tr 全矩阵总时间中位 tr/bun-aot ≤ 0.33（3×），追
 0.25（4×）。** 实测 @ `6abe7e8`（2026-08-24，runs=3，44 cell）：
-median **0.618**。通路量化（分解见
-`bench/results/2026-08-23-mini-6abe7e8.json`，startup 基线 tr 2.09 /
-bun-aot 3.97 / rust 1.12 ms）：
+median **0.618** → S7 三刀（rotation 484）**0.593** → S7 r1+r2+r3 +
+S2 刀 1（rotation 485，`bench/results/2026-08-23-mini-d9a309e.json`）
+**0.518**。S2 刀 1 = fetch 改 dlopen 懒加载 libcurl（`00c0766b0`）：
+空程序 startup 2.1 → **1.4 ms**（rust-hello 1.3 / C-hello 0.94 同法
+同机；≤1.0 残余通路 = 产物瘦身 dead-strip，架构件）。通路量化（分解
+见 `bench/results/2026-08-23-mini-6abe7e8.json`，startup 旧基线
+tr 2.09 / bun-aot 3.97 / rust 1.12 ms）：
 
 1. **S7（新）— tr-vs-rust abstraction gap 关闭。** rust 行是 native
    ceiling 代理；work-only 口径 >1.5× 的族全部是 §perf-decomposition
