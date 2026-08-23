@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T13:01:18.334Z",
+  "generatedAt": "2026-08-23T15:18:48.035Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-23T12:52:26Z",
-    "headSha": "0835c8931",
-    "elapsedSec": 408.15,
+    "ranAt": "2026-08-23T15:03:11Z",
+    "headSha": "db6e2a063",
+    "elapsedSec": 407.03,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29422,
+    "pass": 29625,
     "passNoOracle": 924,
     "passNegative": 4147,
-    "passTotal": 34493,
-    "bug": 12834,
-    "incompatible": 5847,
-    "bunSkip": 3044,
+    "passTotal": 34696,
+    "bug": 12814,
+    "incompatible": 5664,
+    "bunSkip": 3046,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47327,
-    "passRateInScope": 64.87,
-    "passRateTrAccepted": 72.88
+    "trAccepted": 47510,
+    "passRateInScope": 65.25,
+    "passRateTrAccepted": 73.03
   },
   "torajs": {
-    "commit": "0835c8931",
-    "commitSubject": "fix: filter's species read comes after the callback loop",
+    "commit": "d19e896b9",
+    "commitSubject": "fix: the harness shake yields to a case's own top-level declaration",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "d19e896b9",
+      "subject": "fix: the harness shake yields to a case's own top-level declaration"
+    },
+    {
+      "hash": "db6e2a063",
+      "subject": "refactor: lift the value channel's DynObj arm out of the dispatcher"
+    },
+    {
+      "hash": "e330be98e",
+      "subject": "feat: get ArrayBuffer.prototype.resizable — the reified accessor face"
+    },
+    {
+      "hash": "1b3d6e13d",
+      "subject": "feat: the Array iterator and mutator flavors join the generic-over-TypedArray lane"
+    },
+    {
+      "hash": "463e2bd5c",
+      "subject": "feat: the Array read family is intentionally generic over TypedArray receivers"
+    },
+    {
+      "hash": "9ceaf97b2",
+      "subject": "feat: resizableArrayBufferUtils harness port + BigInt(value) over any"
+    },
+    {
+      "hash": "634f71aea",
+      "subject": "feat: the buffer family joins the exotic-subclass table"
+    },
+    {
+      "hash": "f7207464d",
+      "subject": "chore: rotation 482 close — sweep ingest, roadmap stamp, dashboard"
+    },
+    {
       "hash": "0835c8931",
       "subject": "fix: filter's species read comes after the callback loop"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "ec8e60232",
       "subject": "feat: the DataView get/set accessor family — 22 methods, 2 kernels"
-    },
-    {
-      "hash": "6f1277e44",
-      "subject": "fix: HasProperty prototype half moved off the own-property kernel"
-    },
-    {
-      "hash": "ee4106efc",
-      "subject": "feat: the DataView cell — ctor, accessors, ordinary-object face"
-    },
-    {
-      "hash": "5101cce6e",
-      "subject": "chore: rotation 481 close — sweep ingest, roadmap stamp, dashboard"
-    },
-    {
-      "hash": "bce8fd9c0",
-      "subject": "fix: a non-extensible view refuses a new expando define"
-    },
-    {
-      "hash": "fabedf2ea",
-      "subject": "fix: a canonical numeric key on a view is the element face"
-    },
-    {
-      "hash": "76a7dcada",
-      "subject": "fix: harness shake gates include-ported segments on declared includes"
-    },
-    {
-      "hash": "2708ce118",
-      "subject": "feat: the species read — @@species over a buffer constructor face"
-    },
-    {
-      "hash": "02b446803",
-      "subject": "style: fmt-drift fix for the species knife"
     }
   ],
-  "headSha": "0835c8931",
+  "headSha": "d19e896b9",
   "autorun": {
-    "total": 785,
+    "total": 786,
     "baselineTarget": 10,
-    "bySelf": 780,
+    "bySelf": 781,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787481744-013d",
-      "at": "2026-08-23T10:42:24Z",
-      "ts": 1787481744,
+      "rotationId": "r-1787490139-02ad",
+      "at": "2026-08-23T13:02:19Z",
+      "ts": 1787490139,
       "trigger": "self",
-      "prevHead": "5101cce6e",
-      "handoffSha": "sha256:930718db3860ea1c6bad435cf9735cc4287687ef57ad15d5451c0ab220a92860",
-      "handoffAgeSec": 19,
+      "prevHead": "f7207464d",
+      "handoffSha": "sha256:fd311c19f2e4ef18c1d6ad14095c941655e684568b9766669f5a46ebb1dd20dc",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787490139-02ad",
+        "at": "2026-08-23T13:02:19Z",
+        "ts": 1787490139,
+        "trigger": "self",
+        "prevHead": "f7207464d",
+        "handoffSha": "sha256:fd311c19f2e4ef18c1d6ad14095c941655e684568b9766669f5a46ebb1dd20dc",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787481744-013d",
         "at": "2026-08-23T10:42:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "baa942308",
         "handoffSha": "sha256:ac289cc7345cd35fbba9d051c3a3702e6ddde27ddea599e18b562f687c94d5f2",
         "handoffAgeSec": 43,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787376387-4a33",
-        "at": "2026-08-22T05:26:27Z",
-        "ts": 1787376387,
-        "trigger": "self",
-        "prevHead": "2790916a7",
-        "handoffSha": "sha256:41551be496583da07947cb4e549d4fafd18007de75940e90bc1ebec73c817c9a",
-        "handoffAgeSec": 27,
         "conformanceBefore": null,
         "commitsInSession": null
       }

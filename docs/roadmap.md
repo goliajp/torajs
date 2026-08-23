@@ -1557,7 +1557,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `0835c8931`** (2026-08-23, rotation 482 — DataView whole:
+**Latest @ `db6e2a063`** (2026-08-23, rotation 483 — the buffer
+family joins the exotic-subclass table (one shared mint + one shared
+super kernel with a transplant onto the minted cell; a fixed
+three-slot forward is the exact derived default ctor); the
+resizableArrayBufferUtils.js harness port (the `new Function` probe
+statically declassed, 223 resizable cases enter scope); the Array
+read/iterator/mutator families made intentionally generic over
+TypedArray receivers (OOB view answers length 0 / per-index
+undefined where the typed twins ValidateTypedArray-throw); an
+eight-site index-assign UAF fix (the assignment-expression stake
+taken BEFORE the store — a consuming receiver released the
+transferred pair inside the kernel and the old inc-after-call ran on
+a freed cell); and `get ArrayBuffer.prototype.resizable`'s reified
+accessor face. Gate predicate: **161** clusters of ≥ 4 holding
+**1253** cases, register 2 · 251, residue 651 · 809 (35.0%), core
+**2313** (was 2399 — first drop below 2400; the resizable harness
+keys left the ledger). Sweep passTotal 34493 → **34696 (+203)**, bug
+**12814 (−20)**, incompatible **5664 (−183)**, trAccepted +183,
+conservation exact (+183 = +203 − 20); TypedArray/prototype 81 +
+Array/prototype 73 are the head, then class 23 / ArrayBuffer 7.
+**2 sweep regressions** (staging/sm cases self-declaring `var ctors`
+vs the port's top-level `const ctors` — redeclaration): fixed the
+same rotation (`d19e896b9`, the shake yields to a case's own
+top-level declaration), targeted re-runs green.
+
+**Prior @ `0835c8931`** (2026-08-23, rotation 482 — DataView whole:
 the cell + ctor + accessors + the 22 get*/set* methods on two
 endianness-parameterized kernels; the TypedArray species CONSTRUCT
 channel for filter / map / slice / subarray (products really swap,
