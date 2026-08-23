@@ -25,5 +25,7 @@ pub mod typedarray;
 pub mod typedarray_ctor;
 pub mod typedarray_elem;
 pub mod typedarray_from;
+pub mod typedarray_inplace;
 pub mod typedarray_print;
 pub mod typedarray_props;
+pub mod typedarray_span;

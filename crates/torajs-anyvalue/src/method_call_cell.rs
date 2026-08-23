@@ -381,6 +381,15 @@ pub(crate) unsafe fn cell_method(
                 .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
         );
     }
+    // §23.2.3 slab A — `at` / `fill` / `copyWithin` / `reverse`. A
+    // mid this prototype does not own is a miss like every other
+    // tag's, so the caller raises its usual no-such-method TypeError.
+    if tag == Tag::TypedArray as u16 {
+        return Some(
+            unsafe { crate::method_call_buffer::typedarray_method(recv, mid, argv, argc) }
+                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
+        );
+    }
     if tag == Tag::Date as u16 {
         return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
     }

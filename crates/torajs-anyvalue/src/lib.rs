@@ -1651,6 +1651,11 @@ mod tests {
         __torajs_typedarray_is_kind,
         __torajs_typedarray_create,
         __torajs_typedarray_tracks_length,
+        // 刀 5 slab A — the prototype methods the TypedArray arm reaches.
+        __torajs_typedarray_at,
+        __torajs_typedarray_fill,
+        __torajs_typedarray_copy_within,
+        __torajs_typedarray_reverse,
         __torajs_arr_alloc_any_filled,
         __torajs_arr_alloc_any_filled_f64,
         __torajs_make_aggregate_error,
