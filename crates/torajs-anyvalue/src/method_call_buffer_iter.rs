@@ -200,11 +200,9 @@ unsafe fn walk_find(recv: AnyValue, len: i64, cb: &Callback, mode: u8) -> AnyVal
 /// See [`typedarray_iter_method`].
 unsafe fn walk_map(recv: AnyValue, len: i64, cb: &Callback) -> AnyValue {
     unsafe {
-        // §23.2.3.20 step 6 TypedArraySpeciesCreate — the
-        // constructor-face read runs BEFORE the loop.
-        if crate::buffer_species::__torajs_buffer_species_guard(recv) != 0 {
-            return VALUE_UNDEFINED;
-        }
+        // §23.2.3.20 step 6 TypedArraySpeciesCreate — the construct
+        // channel (`method_call_buffer_species::ta_species_route`)
+        // resolved the constructor face before dispatching here.
         let out = __torajs_typedarray_create_same_type(recv, len);
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
@@ -254,14 +252,10 @@ unsafe fn walk_filter(recv: AnyValue, len: i64, cb: &Callback) -> AnyValue {
                 __torajs_anyv_rc_dec(v);
             }
         }
-        // §23.2.3.10 step 9 TypedArraySpeciesCreate — the
-        // constructor-face read runs AFTER the callback loop.
-        if crate::buffer_species::__torajs_buffer_species_guard(recv) != 0 {
-            for v in kept {
-                __torajs_anyv_rc_dec(v);
-            }
-            return VALUE_UNDEFINED;
-        }
+        // §23.2.3.10 step 9 TypedArraySpeciesCreate — the construct
+        // channel resolved the constructor face before dispatching
+        // here (route doc: the face read lands ahead of the loop, a
+        // recorded approximation shared with the Array family).
         let out = __torajs_typedarray_create_same_type(recv, kept.len() as i64);
         if __torajs_throw_check() == 0 {
             for (j, v) in kept.iter().enumerate() {

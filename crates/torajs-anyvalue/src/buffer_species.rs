@@ -51,16 +51,46 @@ unsafe extern "C" {
 /// `recv` is a live AnyValue.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_buffer_species_guard(recv: AnyValue) -> i64 {
+    match unsafe { ta_species_resolve(recv) } {
+        SpeciesResolved::Threw => 1,
+        SpeciesResolved::Default => 0,
+        // A real species constructor: this guard's callers have no
+        // construct channel (ArrayBuffer `slice`), so the product
+        // stays the default's — recorded, same wording as before.
+        SpeciesResolved::Ctor(c) => {
+            unsafe { crate::method_call_arr_species::release_species_product(c) };
+            0
+        }
+    }
+}
+
+/// What the whole §7.3.20 face resolved to, VALUE included — the
+/// typed-array construct channel consumes the constructor; the
+/// guard above collapses it to a verdict.
+pub(crate) enum SpeciesResolved {
+    /// No face / an explicitly defaulting one.
+    Default,
+    /// The face read recorded a throw.
+    Threw,
+    /// A runnable species constructor (OWNED).
+    Ctor(AnyValue),
+}
+
+/// The face walk behind the guard, resolution-shaped.
+///
+/// # Safety
+/// `recv` is a live AnyValue.
+pub(crate) unsafe fn ta_species_resolve(recv: AnyValue) -> SpeciesResolved {
     unsafe {
         let Some((ptr, t)) = crate::member_get_layout::recv_cell(recv) else {
-            return 0;
+            return SpeciesResolved::Default;
         };
         if !crate::member_get_buffer::is_buffer_family(t) {
-            return 0;
+            return SpeciesResolved::Default;
         }
         let props = crate::member_get_layout::buffer_props(ptr, t);
         if props.is_null() {
-            return 0;
+            return SpeciesResolved::Default;
         }
         let key = __torajs_str_alloc(b"constructor".as_ptr(), 11);
         let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
@@ -72,18 +102,18 @@ pub unsafe extern "C" fn __torajs_buffer_species_guard(recv: AnyValue) -> i64 {
 
 /// The constructor-face dispatch (probe pair or accessor-getter
 /// answer) — torajs-arr `classify_ctor_pair_entry` twin.
-unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> i64 {
+unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> SpeciesResolved {
     unsafe {
         match dtag {
             // Absent or explicit undefined — default constructor.
-            5 => 0,
+            5 => SpeciesResolved::Default,
             // Accessor entry — the getter runs; its throw is the
             // whole point of the speciesctor-abrupt family.
             6 => {
                 let got = __torajs_accessor_invoke_getter(dval as *const c_void, recv);
                 if __torajs_throw_check() != 0 {
                     __torajs_value_drop_heap(as_void_ptr(got));
-                    return 1;
+                    return SpeciesResolved::Threw;
                 }
                 let gtag = crate::nanbox_encode::__torajs_anyv_unbox_tag(got);
                 let gval = crate::nanbox_encode::__torajs_anyv_unbox_value(got);
@@ -98,14 +128,14 @@ unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> i64 {
                 if tag == Tag::Str as u16 || tag == Tag::Symbol as u16 || tag == Tag::BigInt as u16
                 {
                     __torajs_throw_type_error(c"species constructor is not a constructor".as_ptr());
-                    return 1;
+                    return SpeciesResolved::Threw;
                 }
                 species_object_face(dval as *mut c_void)
             }
             // Number / boolean imm — step 4 TypeError.
             _ => {
                 __torajs_throw_type_error(c"species constructor is not a constructor".as_ptr());
-                1
+                SpeciesResolved::Threw
             }
         }
     }
@@ -117,11 +147,11 @@ unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> i64 {
 /// non-constructor. A real species constructor answers 0 too — the
 /// construct channel is the recorded follow-up, so the product it
 /// would build is still the default's.
-unsafe fn species_object_face(ctor: *mut c_void) -> i64 {
+unsafe fn species_object_face(ctor: *mut c_void) -> SpeciesResolved {
     unsafe {
         let sym = __torajs_symbol_well_known(WELL_KNOWN_SPECIES_IDX);
         if sym.is_null() {
-            return 0;
+            return SpeciesResolved::Default;
         }
         let ctor_av = crate::nanbox_encode::__torajs_anyv_box_pointer(ctor);
         let (stag, sval) = symbol_key_pair(ctor_av, sym as *const c_void);
@@ -134,29 +164,32 @@ unsafe fn species_object_face(ctor: *mut c_void) -> i64 {
 /// default; an accessor getter runs and its answer re-classifies;
 /// a constructor proceeds (default product, recorded); anything
 /// else is the step-8 TypeError.
-unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> i64 {
+unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> SpeciesResolved {
     unsafe {
         match stag {
-            5 | 0 => 0,
+            5 | 0 => SpeciesResolved::Default,
             6 => {
                 let got = __torajs_accessor_invoke_getter(sval as *const c_void, ctor_av);
                 if __torajs_throw_check() != 0 {
                     __torajs_value_drop_heap(as_void_ptr(got));
-                    return 1;
+                    return SpeciesResolved::Threw;
                 }
                 let gtag = crate::nanbox_encode::__torajs_anyv_unbox_tag(got);
                 let gval = crate::nanbox_encode::__torajs_anyv_unbox_value(got);
                 let verdict = classify_species_entry(ctor_av, gtag as u64, gval as u64);
+                // A Ctor verdict keeps its own stake (the recursion
+                // inc'd it) — the getter's answer releases either way.
                 __torajs_value_drop_heap(as_void_ptr(got));
                 verdict
             }
             _ => {
                 let s = crate::nanbox_encode::__torajs_anyv_box_from_pair(stag as i64, sval as i64);
                 if is_constructor(s) || crate::method_call::closure_boxed_entry(s).is_some() {
-                    return 0;
+                    crate::nanbox_ffi::__torajs_anyv_rc_inc(s);
+                    return SpeciesResolved::Ctor(s);
                 }
                 __torajs_throw_type_error(c"species constructor is not a constructor".as_ptr());
-                1
+                SpeciesResolved::Threw
             }
         }
     }

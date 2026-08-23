@@ -385,6 +385,13 @@ pub(crate) unsafe fn cell_method(
     // mid this prototype does not own is a miss like every other
     // tag's, so the caller raises its usual no-such-method TypeError.
     if tag == Tag::TypedArray as u16 {
+        // §23.2.4.1 — the species construct channel owns filter /
+        // map / slice / subarray when a constructor face is present.
+        if let Some(v) =
+            unsafe { crate::method_call_buffer_species::ta_species_route(recv, mid, argv, argc) }
+        {
+            return Some(v);
+        }
         return Some(
             unsafe { crate::method_call_buffer::typedarray_method(recv, mid, argv, argc) }
                 .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),

@@ -282,11 +282,24 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) ->
 unsafe fn run_species_ctor(ctor_len: i64, species: AnyValue) -> SpeciesOutcome {
     unsafe {
         let len_boxed = __torajs_anyv_box_i64(ctor_len);
-        let argv = [len_boxed];
+        run_species_ctor_argv(species, &[len_boxed])
+    }
+}
+
+/// The argv-general body of [`run_species_ctor`] — the typed-array
+/// species channel constructs with `« buffer, byteOffset, length »`
+/// for `subarray` and `« len »` elsewhere, so the argument list is
+/// the caller's.
+///
+/// # Safety
+/// `species` is a live AnyValue; `argv` holds live AnyValues.
+pub(crate) unsafe fn run_species_ctor_argv(species: AnyValue, argv: &[AnyValue]) -> SpeciesOutcome {
+    unsafe {
+        let n = argv.len() as i64;
         let product = if is_constructor(species) {
-            crate::construct::__torajs_anyv_construct(species, argv.as_ptr(), 1)
+            crate::construct::__torajs_anyv_construct(species, argv.as_ptr(), n)
         } else if let Some((env, entry)) = closure_boxed_entry(species) {
-            invoke_with_this(env, entry, VALUE_UNDEFINED, argv.as_ptr(), 1)
+            invoke_with_this(env, entry, VALUE_UNDEFINED, argv.as_ptr(), n)
         } else {
             __torajs_throw_type_error(c"array species constructor is not a constructor".as_ptr());
             return SpeciesOutcome::Threw;

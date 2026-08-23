@@ -29,7 +29,6 @@ use crate::typedarray_span::{clamp_relative, revalidate, to_integer_or_infinity,
 unsafe extern "C" {
     /// torajs-anyvalue — §7.3.20 species constructor-face guard
     /// (1 = a throw is pending; `buffer_species.rs`).
-    fn __torajs_buffer_species_guard(recv: AnyValue) -> i64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_range_error(msg: *const u8);
     fn __torajs_throw_check() -> i64;
@@ -83,11 +82,9 @@ pub unsafe extern "C" fn __torajs_typedarray_subarray(
         } else {
             (end_index - start_index).max(0)
         };
-        // Step 15 TypedArraySpeciesCreate — constructor-face read
-        // (`species.rs`), ahead of the mint.
-        if __torajs_buffer_species_guard(recv) != 0 {
-            return VALUE_UNDEFINED;
-        }
+        // Step 12 TypedArraySpeciesCreate — the any-lane construct
+        // channel resolved the constructor face before dispatching
+        // here; the default view is minted unconditionally.
         mint(kind, buffer, begin, new_len)
     }
 }
@@ -121,12 +118,9 @@ pub unsafe extern "C" fn __torajs_typedarray_slice(
             final_ = clamp_relative(rel_end, len);
         }
         let count = (final_ - k).max(0);
-        // Step 9 TypedArraySpeciesCreate begins with the
-        // constructor-face read (`species.rs`) — an instance-
-        // installed throwing getter surfaces here.
-        if __torajs_buffer_species_guard(recv) != 0 {
-            return VALUE_UNDEFINED;
-        }
+        // Step 9 TypedArraySpeciesCreate — the any-lane construct
+        // channel resolved the constructor face before dispatching
+        // here.
         let out = create_same_type(kind, count);
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;

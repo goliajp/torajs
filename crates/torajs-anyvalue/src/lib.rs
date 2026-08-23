@@ -173,6 +173,7 @@ mod method_call_buffer_dataview;
 mod method_call_buffer_iter;
 mod method_call_buffer_join;
 mod method_call_buffer_sort;
+mod method_call_buffer_species;
 mod method_call_cell;
 mod method_call_closure;
 mod method_call_closure_apply_like;

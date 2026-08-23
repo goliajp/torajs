@@ -196,6 +196,12 @@ fn resolve_type_ann_inner(
         // same independent substrate work as object's non-primitive
         // check.
         "Function" => Some(Type::Any),
+        // RFC 20260823-typedarray-substrate — the buffer-family
+        // classes annotate as `Type::Any` for the same reason their
+        // constructors produce it: the cells are reached only
+        // through the any-lane kernels in this slab.
+        "ArrayBuffer" | "DataView" => Some(Type::Any),
+        n2 if crate::ssa_lower_call_typedarray::kind_of_name(n2).is_some() => Some(Type::Any),
         // T-13.a (v0.4.0) — `symbol` is a primitive type alias for
         // Type::Symbol. Lower-case `symbol` is the spec spelling
         // (`typeof Symbol() === "symbol"`); `Symbol` is the constructor

@@ -188,6 +188,14 @@ pub(crate) fn parse_type(
     if s == "Function" {
         return Type::Any;
     }
+    // Buffer-family class annotations — the checker's collapse
+    // (check_type_ann), mirrored: the cells are any-lane only.
+    if s == "ArrayBuffer"
+        || s == "DataView"
+        || crate::ssa_lower_call_typedarray::kind_of_name(s).is_some()
+    {
+        return Type::Any;
+    }
     // Closure-repr marker family — all three spellings decode via
     // markers::parse_cls (env-first CallIndirect ABI):
     // - RFC 20260708-variadic rest-tail fn type
