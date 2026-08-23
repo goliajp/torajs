@@ -42,6 +42,81 @@ pub(crate) unsafe fn typedarray_len(recv: AnyValue) -> i64 {
     unsafe { __torajs_typedarray_length(recv) }
 }
 
+/// §7.1.21 CanonicalNumericIndexString over a Str-cell key —
+/// `Some(n)` when the spelling is `"-0"` or round-trips through
+/// ToString(ToNumber(key)). The buffer family needs the full
+/// grammar, not just array indices: §10.4.5 routes EVERY canonical
+/// numeric spelling ("-0", "1.5", "NaN") to the element face, where
+/// an invalid one still coerces the value and then drops the store.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+pub(crate) unsafe fn canonical_numeric_key(key: *const c_void) -> Option<f64> {
+    let (bytes, len) = unsafe { crate::prop_has::key_bytes(key) };
+    if len == 0 || len > 32 {
+        return None;
+    }
+    let s = unsafe { core::slice::from_raw_parts(bytes, len as usize) };
+    // Integer fast path — the overwhelmingly common spelling, no
+    // allocation. Leading zeros are non-canonical ("01" != "1").
+    if s.iter().all(u8::is_ascii_digit) && !(len > 1 && s[0] == b'0') {
+        let mut v: u64 = 0;
+        for &b in s {
+            v = v.checked_mul(10)?.checked_add((b - b'0') as u64)?;
+        }
+        // Beyond 2^53 the decimal spelling stops round-tripping
+        // exactly; fall to the printed comparison below.
+        if v < (1u64 << 53) {
+            return Some(v as f64);
+        }
+    }
+    if s == b"-0" {
+        return Some(-0.0);
+    }
+    if s == b"NaN" {
+        return Some(f64::NAN);
+    }
+    if s == b"Infinity" {
+        return Some(f64::INFINITY);
+    }
+    if s == b"-Infinity" {
+        return Some(f64::NEG_INFINITY);
+    }
+    // General form — parse, print with the JS ToString kernel, and
+    // demand the exact spelling back.
+    let txt = core::str::from_utf8(s).ok()?;
+    let n: f64 = txt.parse().ok()?;
+    if !n.is_finite() {
+        // "1e999" parses to inf but does not spell "Infinity".
+        return None;
+    }
+    unsafe {
+        let printed = crate::__torajs_f64_to_str(n);
+        let eq = crate::prop_has::key_is(printed as *const c_void, s);
+        crate::__torajs_str_drop(printed);
+        if eq { Some(n) } else { None }
+    }
+}
+
+/// The ABI face of [`canonical_numeric_key`] for torajs-dynobj's
+/// [[DefineOwnProperty]] arm: 1 = numeric (with `out` written).
+///
+/// # Safety
+/// `key` is NULL or a live Str cell; `out` is a valid slot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_buffer_canonical_numeric_index(
+    key: *const c_void,
+    out: *mut f64,
+) -> i64 {
+    match unsafe { canonical_numeric_key(key) } {
+        Some(n) => {
+            unsafe { *out = n };
+            1
+        }
+        None => 0,
+    }
+}
+
 /// Does `tag` name a cell whose accessors this module answers? One
 /// question asked once, so the two probe channels each keep a single
 /// match arm instead of one per buffer-family tag.

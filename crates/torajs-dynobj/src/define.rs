@@ -187,16 +187,6 @@ unsafe fn define_into_expando(
     }
 }
 
-/// The buffer family's expando slot for its header tag
-/// (torajs-buffer `PROPS_OFF` mirrors).
-fn buffer_props_off(htag: u16) -> usize {
-    if htag == crate::layout::TAG_TYPEDARRAY_HDR {
-        crate::layout::TYPEDARRAY_PROPS_OFF
-    } else {
-        crate::layout::ARRAYBUFFER_PROPS_OFF
-    }
-}
-
 /// Seedless expando-arm define shared by Promise (§27.2 — its own
 /// defines land at +32) and the buffer family (§25.1 / §23.2 — a
 /// view is an ordinary object off its index face; the species cases
@@ -205,7 +195,7 @@ fn buffer_props_off(htag: u16) -> usize {
 /// recorded follow-up — the element face is the index kernel's, not
 /// this bag's.
 #[allow(clippy::too_many_arguments)]
-unsafe fn bag_receiver_define(
+pub(crate) unsafe fn bag_receiver_define(
     obj: *mut c_void,
     props_off: usize,
     key: *mut c_void,
@@ -333,24 +323,24 @@ pub(crate) unsafe fn define_apply(
     // observation surface the combinators and the any-lane method
     // dispatch consult.
     if htag == crate::layout::TAG_PROMISE_HDR {
+        let off = crate::layout::PROMISE_PROPS_OFF;
         return unsafe {
-            bag_receiver_define(
+            bag_receiver_define(obj, off, key, tag, value, flags_byte, throw_on_refusal)
+        };
+    }
+    // Buffer-family receiver — the numeric element face or the bag
+    // (body in `define_typedarray.rs`, file-size split).
+    if htag == crate::layout::TAG_ARRAYBUFFER_HDR || htag == crate::layout::TAG_TYPEDARRAY_HDR {
+        return unsafe {
+            crate::define_typedarray::buffer_receiver_define(
                 obj,
-                crate::layout::PROMISE_PROPS_OFF,
+                htag,
                 key,
                 tag,
                 value,
                 flags_byte,
                 throw_on_refusal,
             )
-        };
-    }
-    // Buffer-family receiver — same seedless expando recursion as
-    // the Promise arm (doc on `bag_receiver_define`).
-    if htag == crate::layout::TAG_ARRAYBUFFER_HDR || htag == crate::layout::TAG_TYPEDARRAY_HDR {
-        let off = buffer_props_off(htag);
-        return unsafe {
-            bag_receiver_define(obj, off, key, tag, value, flags_byte, throw_on_refusal)
         };
     }
     // Class-instance receiver — an `any`-typed variable holding one

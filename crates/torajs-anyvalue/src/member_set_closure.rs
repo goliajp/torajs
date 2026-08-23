@@ -15,6 +15,13 @@ use crate::member_set::{
 unsafe extern "C" {
     /// torajs-dynobj — own-entry presence probe (prop_has's kernel).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-buffer — §10.4.5.5 TypedArraySetElement (coerce first,
+    /// store only on a valid index).
+    fn __torajs_typedarray_index_set(
+        recv: crate::nanbox::AnyValue,
+        idx: f64,
+        v: crate::nanbox::AnyValue,
+    );
 }
 
 /// §7.3 integrity gate shared by the closure / promise expando arms.
@@ -104,6 +111,22 @@ pub(crate) unsafe fn set_buffer_member(
     value: u64,
     throw_on_refusal: bool,
 ) -> i64 {
+    // §10.4.5.5 — a canonical numeric spelling on a typed array is
+    // the ELEMENT face, never the bag: `ta["0"] = v` coerces and
+    // stores like `ta[0] = v`, and an invalid index still coerces
+    // (observably — tonumber-value-throws) and then drops the store.
+    // The kernel owns that order.
+    if cell_tag == torajs_rc::Tag::TypedArray as u16
+        && let Some(n) = unsafe { crate::member_get_buffer::canonical_numeric_key(key) }
+    {
+        unsafe {
+            let recv = crate::nanbox_encode::__torajs_anyv_box_pointer(ptr);
+            let boxed = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+            __torajs_typedarray_index_set(recv, n, boxed);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(boxed);
+        }
+        return 1;
+    }
     let off = if cell_tag == torajs_rc::Tag::TypedArray as u16 {
         MEMBER_SET_TYPEDARRAY_PROPS_OFF
     } else {
