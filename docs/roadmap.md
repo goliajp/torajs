@@ -1557,7 +1557,26 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `469743816`** (2026-08-23, rotation 480 — the typed-array
+**Latest @ `bce8fd9c0`** (2026-08-23, rotation 481 — own properties on
+a view: the buffer family's lazy expando bag across all nine
+own-property surfaces, both halves of the @@species read, the
+canonical-numeric-key element face, and the harness shake gated on
+declared includes). Gate predicate: **162** clusters of ≥ 4 holding
+**1339** cases (both flat), register 2 · 251, residue 650 · 809
+(33.7%), core **2399** (was 2400). Sweep passTotal 33835 → **33987
+(+152)**, bug 13485 → **13335 (−150)**, incompatible −2, trAccepted +2,
+conservation exact (+2 = +152 − 150); **218 verdict moves: 170
+bug→pass** (the speciesctor family across filter / map / slice /
+subarray, the DefineOwnProperty / Set internals now running real
+§10.4.5.3/.5 semantics, and HasProperty / GetOwnProperty over the new
+own face), **18 attributed pass regressions — every one the IsHTMLDDA
+family** (`$262.IsHTMLDDA` host face): their old passes were lexical
+water — the harness shake used to mis-inject the detachArrayBuffer
+port's `$262` object, and the case happened to assert true against its
+missing field. The include-gate fix withdrew it; the family is a host
+surface tr does not carry (L3b). Zero new crashes or timeouts.
+
+**Previous @ `469743816`** (2026-08-23, rotation 480 — the typed-array
 substrate's iteration slab plus `transfer`, and three ownership fixes
 the crashes led to). Gate predicate: **162** clusters of ≥ 4 holding
 **1339** cases (was 163 · 1348), register 2 · 251, residue 651 · 810

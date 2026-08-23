@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T07:02:40.750Z",
+  "generatedAt": "2026-08-23T10:40:49.844Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-23T06:59:01Z",
-    "headSha": "469743816",
-    "elapsedSec": 6825.89,
+    "ranAt": "2026-08-23T10:38:21Z",
+    "headSha": "bce8fd9c0",
+    "elapsedSec": 364.12,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 28760,
-    "passNoOracle": 928,
+    "pass": 28917,
+    "passNoOracle": 923,
     "passNegative": 4147,
-    "passTotal": 33835,
-    "bug": 13485,
-    "incompatible": 5854,
-    "bunSkip": 3031,
+    "passTotal": 33987,
+    "bug": 13335,
+    "incompatible": 5852,
+    "bunSkip": 3044,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47320,
-    "passRateInScope": 63.63,
-    "passRateTrAccepted": 71.5
+    "trAccepted": 47322,
+    "passRateInScope": 63.92,
+    "passRateTrAccepted": 71.82
   },
   "torajs": {
-    "commit": "469743816",
-    "commitSubject": "fix: coercing an element to BigInt takes a share, not ownership",
+    "commit": "bce8fd9c0",
+    "commitSubject": "fix: a non-extensible view refuses a new expando define",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "bce8fd9c0",
+      "subject": "fix: a non-extensible view refuses a new expando define"
+    },
+    {
+      "hash": "fabedf2ea",
+      "subject": "fix: a canonical numeric key on a view is the element face"
+    },
+    {
+      "hash": "76a7dcada",
+      "subject": "fix: harness shake gates include-ported segments on declared includes"
+    },
+    {
+      "hash": "2708ce118",
+      "subject": "feat: the species read — @@species over a buffer constructor face"
+    },
+    {
+      "hash": "02b446803",
+      "subject": "style: fmt-drift fix for the species knife"
+    },
+    {
+      "hash": "ed2543119",
+      "subject": "feat: species constructor-face guard for the buffer family"
+    },
+    {
+      "hash": "262f4ece6",
+      "subject": "feat: own properties on a view — buffer-family expando bag"
+    },
+    {
+      "hash": "2edbe9535",
+      "subject": "chore: rotation 480 close — sweep ingest, roadmap stamp, dashboard"
+    },
+    {
       "hash": "469743816",
       "subject": "fix: coercing an element to BigInt takes a share, not ownership"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "d4e644cca",
       "subject": "fix: a builtin instance inherits its prototype's symbol properties"
-    },
-    {
-      "hash": "e57c5e789",
-      "subject": "feat: typed array prototype slab B — iteration and iterator families"
-    },
-    {
-      "hash": "7ae5fd7b3",
-      "subject": "fix: binding a top-level global into a let takes a share, not ownership"
-    },
-    {
-      "hash": "e183da233",
-      "subject": "chore: rotation 479 close — slab A sweep ingest and dashboard"
-    },
-    {
-      "hash": "c1ba36360",
-      "subject": "feat: typed array join / toString"
-    },
-    {
-      "hash": "9f0fd64f3",
-      "subject": "feat: typed array sort / toSorted"
-    },
-    {
-      "hash": "63af2b2c1",
-      "subject": "feat: typed array set"
-    },
-    {
-      "hash": "83bca2a5c",
-      "subject": "feat: typed array subarray / slice / toReversed / with"
-    },
-    {
-      "hash": "f96a35d9d",
-      "subject": "feat: typed array indexOf / lastIndexOf / includes"
     }
   ],
-  "headSha": "469743816",
+  "headSha": "bce8fd9c0",
   "autorun": {
-    "total": 783,
+    "total": 784,
     "baselineTarget": 10,
-    "bySelf": 778,
+    "bySelf": 779,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787453541-10af",
-      "at": "2026-08-23T02:52:21Z",
-      "ts": 1787453541,
+      "rotationId": "r-1787468886-772e",
+      "at": "2026-08-23T07:08:06Z",
+      "ts": 1787468886,
       "trigger": "self",
-      "prevHead": "e183da233",
-      "handoffSha": "sha256:de43afbf27f2699064e8f59e662afe49e3c56cb656ad54ed39977cd30bdf3306",
-      "handoffAgeSec": 12,
+      "prevHead": "2edbe9535",
+      "handoffSha": "sha256:f75a3b448d5421ac6aea98b751d2d32721597e674345e352f0eeae5a00c4eded",
+      "handoffAgeSec": 18,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787468886-772e",
+        "at": "2026-08-23T07:08:06Z",
+        "ts": 1787468886,
+        "trigger": "self",
+        "prevHead": "2edbe9535",
+        "handoffSha": "sha256:f75a3b448d5421ac6aea98b751d2d32721597e674345e352f0eeae5a00c4eded",
+        "handoffAgeSec": 18,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787453541-10af",
         "at": "2026-08-23T02:52:21Z",
@@ -876,17 +887,6 @@
         "prevHead": "27bf81551",
         "handoffSha": "sha256:a08302cee8ca778281abe46b2bb8abcebd3969158a3bd28fdd159d0c853b1ff4",
         "handoffAgeSec": 28,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787352030-3650",
-        "at": "2026-08-21T22:40:30Z",
-        "ts": 1787352030,
-        "trigger": "self",
-        "prevHead": "4380d44f0",
-        "handoffSha": "sha256:e1d328d0a984dfc7056eadbd1d0191cd5a6e97c716ff719d7ad308651d879653",
-        "handoffAgeSec": 26,
         "conformanceBefore": null,
         "commitsInSession": null
       }
