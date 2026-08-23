@@ -104,9 +104,7 @@ unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> i64 {
                 let tag = ((dval as *const u8).add(4) as *const u16).read();
                 if tag == Tag::Str as u16 || tag == Tag::Symbol as u16 || tag == Tag::BigInt as u16
                 {
-                    __torajs_throw_type_error(
-                        c"species constructor is not a constructor".as_ptr(),
-                    );
+                    __torajs_throw_type_error(c"species constructor is not a constructor".as_ptr());
                     return 1;
                 }
                 0
