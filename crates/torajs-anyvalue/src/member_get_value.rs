@@ -62,55 +62,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // hit path stays a single hash probe — only a 0 slot (absent
         // OR a stored 0/false/null payload) pays the tag re-probe to
         // disambiguate.
-        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe {
-            let v = __torajs_dynobj_get_value(ptr, key);
-            if v == 0 && __torajs_dynobj_get_tag(ptr, key) == 5 {
-                // Stored-undefined shadow — see the tag twin.
-                if __torajs_dynobj_has(ptr, key) != 0 {
-                    return 0;
-                }
-                // Annex B §B.2.2.1 dynamic-key `__proto__` read —
-                // see the tag twin.
-                if crate::prop_has::key_is(key, b"__proto__") {
-                    return dynobj_proto_pair(ptr).1;
-                }
-                // Knife 2 — user chain before builtin reify
-                // (tag twin above).
-                if let Some(parent) = user_proto_cell(ptr) {
-                    return __torajs_any_member_get_value(parent, key);
-                }
-                // Explicit null proto cuts the chain — tag twin
-                // above (§10.1.8.1 OrdinaryGet step 2).
-                if crate::member_get_own::dynobj_null_proto(ptr) {
-                    return 0;
-                }
-                // G2 globalThis missing-known probe — tag twin
-                // above (the tag channel already threw; answering 0
-                // here keeps the pair protocol coherent).
-                if crate::method_value::globalthis_object::globalthis_missing_known(ptr, key) {
-                    return 0;
-                }
-                let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
-                if cell != 0 {
-                    return cell;
-                }
-                // Function.prototype's virtual own name/length pair
-                // (§20.2.3, RFC 20260722 刀 3) — tag twin above.
-                if let Some((_, mval)) =
-                    crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key)
-                {
-                    return mval;
-                }
-                // Direct proto-accessor read (tag twin above) — the
-                // getter brand-checks its own prototype and throws.
-                if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
-                    return 0;
-                }
-                // Inherited Object.prototype reify (tag twin above).
-                return reify_value(recv, key);
-            }
-            v
-        },
+        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { dynobj_arm_value(ptr, recv, key) },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { arr_arm_value(ptr, recv, key) },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe { closure_arm_value(ptr, recv, key) },
         // Promise-cell own-property value probe via the +32 lazy
@@ -328,6 +280,63 @@ unsafe fn arr_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void) ->
             return cell;
         }
         reify_value(recv, key)
+    }
+}
+
+/// The `Tag::DynObj` arm — value channel of the tag twin's dynobj
+/// cascade (own probe → stored-undefined shadow → globalThis miss →
+/// builtin-proto own faces → the reify tail), lifted out when the
+/// direct proto-accessor gate pushed the dispatcher past the 200
+/// hard line (r483).
+unsafe fn dynobj_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
+    unsafe {
+        let v = __torajs_dynobj_get_value(ptr, key);
+        if v == 0 && __torajs_dynobj_get_tag(ptr, key) == 5 {
+            // Stored-undefined shadow — see the tag twin.
+            if __torajs_dynobj_has(ptr, key) != 0 {
+                return 0;
+            }
+            // Annex B §B.2.2.1 dynamic-key `__proto__` read —
+            // see the tag twin.
+            if crate::prop_has::key_is(key, b"__proto__") {
+                return dynobj_proto_pair(ptr).1;
+            }
+            // Knife 2 — user chain before builtin reify
+            // (tag twin above).
+            if let Some(parent) = user_proto_cell(ptr) {
+                return __torajs_any_member_get_value(parent, key);
+            }
+            // Explicit null proto cuts the chain — tag twin
+            // above (§10.1.8.1 OrdinaryGet step 2).
+            if crate::member_get_own::dynobj_null_proto(ptr) {
+                return 0;
+            }
+            // G2 globalThis missing-known probe — tag twin
+            // above (the tag channel already threw; answering 0
+            // here keeps the pair protocol coherent).
+            if crate::method_value::globalthis_object::globalthis_missing_known(ptr, key) {
+                return 0;
+            }
+            let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
+            if cell != 0 {
+                return cell;
+            }
+            // Function.prototype's virtual own name/length pair
+            // (§20.2.3, RFC 20260722 刀 3) — tag twin above.
+            if let Some((_, mval)) =
+                crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key)
+            {
+                return mval;
+            }
+            // Direct proto-accessor read (tag twin above) — the
+            // getter brand-checks its own prototype and throws.
+            if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
+                return 0;
+            }
+            // Inherited Object.prototype reify (tag twin above).
+            return reify_value(recv, key);
+        }
+        v
     }
 }
 
