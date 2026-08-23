@@ -88,6 +88,19 @@ pub fn emit_load(
     }
 }
 
+/// A stored constant zero — f64 `+0.0` and i64 `0` share the all-
+/// zero bit pattern — needs no materialization at all: `STR XZR`
+/// writes it directly (S7 knife r0; a 16-slot `[0, 0, …]` array
+/// literal paid MOVZ + FMOV + STR per slot). `-0.0` has a sign bit
+/// and keeps the FPR path.
+fn store_val_is_zero(val: &Operand) -> bool {
+    match val {
+        Operand::ConstI64(0) => true,
+        Operand::ConstF64(c) => c.to_bits() == 0,
+        _ => false,
+    }
+}
+
 /// Emit `STR Xs/Ds, [Xn, #offset]` — store a 64-bit value to the
 /// pointer operand at the given byte offset. The value operand
 /// (`val`) decides FP vs GPR via `operand_is_f64`.
@@ -102,6 +115,19 @@ pub fn emit_store(
         offset < 32760,
         "S3-A2 Store offset {offset} must fit imm12*8 (= 32760 max)"
     );
+    if store_val_is_zero(val) {
+        let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
+        if offset % 8 == 0 {
+            write_u32(bytes, str_x_imm12(Gpr::XZR, rn, offset as u32));
+        } else {
+            assert!(
+                offset < 256,
+                "non-aligned zero Store offset {offset} must fit STUR imm9"
+            );
+            write_u32(bytes, stur_x_imm9(Gpr::XZR, rn, offset as i32));
+        }
+        return;
+    }
     if operand_is_f64(val, alloc) {
         let rs = materialize_operand_fpr(bytes, val, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
@@ -187,6 +213,12 @@ pub fn emit_store_dyn_scaled8(
     idx: &Operand,
     alloc: &Assignment,
 ) {
+    if store_val_is_zero(val) {
+        let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
+        let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_TMP, alloc);
+        write_u32(bytes, str_x_reg_lsl3(Gpr::XZR, rn, rm));
+        return;
+    }
     if operand_is_f64(val, alloc) {
         let rs = materialize_operand_fpr(bytes, val, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
         let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
@@ -209,6 +241,12 @@ pub fn emit_store_dyn(
     dyn_offset: &Operand,
     alloc: &Assignment,
 ) {
+    if store_val_is_zero(val) {
+        let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
+        let rm = materialize_operand_gpr(bytes, dyn_offset, OP_SCRATCH_TMP, alloc);
+        write_u32(bytes, str_x_reg(Gpr::XZR, rn, rm));
+        return;
+    }
     if operand_is_f64(val, alloc) {
         let rs = materialize_operand_fpr(bytes, val, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
         let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
@@ -258,6 +296,70 @@ mod tests {
     ///     LDP x29, x30, [SP], #16       0xA8C17BFD
     ///     RET                           0xD65F03C0
     /// ```
+    /// A stored constant zero takes STR XZR (S7 knife r0) — no MOVZ,
+    /// no FMOV. Same fixture shape as `alloca_store_load_42` but the
+    /// stored value is `ConstI64(0)` / `ConstF64(0.0)`; both must
+    /// produce the identical XZR store word.
+    #[test]
+    fn store_const_zero_uses_xzr() {
+        use torajs_core::ssa::{
+            Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,
+        };
+        for zero in [Operand::ConstI64(0), Operand::ConstF64(0.0)] {
+            let v0 = ValueId(0);
+            let v1 = ValueId(1);
+            let func = Function {
+                name: "store_zero".into(),
+                params: Vec::new(),
+                ret: Type::I64,
+                values: vec![
+                    ValueInfo {
+                        ty: Type::Ptr,
+                        name: None,
+                    },
+                    ValueInfo {
+                        ty: Type::I64,
+                        name: None,
+                    },
+                ],
+                blocks: vec![Block {
+                    id: BlockId(0),
+                    insts: vec![
+                        Inst {
+                            result: Some(v0),
+                            kind: InstKind::AllocaBytes(8),
+                            origin: None,
+                        },
+                        Inst {
+                            result: None,
+                            kind: InstKind::Store(zero.clone(), Operand::Value(v0), 0),
+                            origin: None,
+                        },
+                        Inst {
+                            result: Some(v1),
+                            kind: InstKind::Load(Type::I64, Operand::Value(v0), 0),
+                            origin: None,
+                        },
+                    ],
+                    term: Terminator::Ret(Some(Operand::Value(v1))),
+                }],
+                current_origin: None,
+            };
+            let compiled = compile_function(&func);
+            let zero_store = enc::str_x_imm12(Gpr::XZR, Gpr::X13, 0).to_le_bytes();
+            assert!(
+                compiled.bytes.windows(4).any(|w| w == zero_store),
+                "expected STR XZR store word for {zero:?}"
+            );
+            // and no FMOV materialization word anywhere
+            let fmov = enc::fmov_d_from_x(crate::reg::Fpr::V16, Gpr::X9).to_le_bytes();
+            assert!(
+                !compiled.bytes.windows(4).any(|w| w == fmov),
+                "no FPR materialization expected for {zero:?}"
+            );
+        }
+    }
+
     #[test]
     fn alloca_store_load_42_byte_equal() {
         let func = build_alloca_store_load_42();
