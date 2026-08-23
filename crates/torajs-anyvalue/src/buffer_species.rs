@@ -39,6 +39,9 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-meta — the registered subclass proto dynobj AnyValue
+    /// immediate (0 when the cell carries no subclass entry).
+    fn __torajs_subclass_proto(cell: *const c_void) -> u64;
 }
 
 /// §23.2.4.1 step 2 / §7.3.20 — 1 = a throw is pending (the caller
@@ -89,12 +92,32 @@ pub(crate) unsafe fn ta_species_resolve(recv: AnyValue) -> SpeciesResolved {
             return SpeciesResolved::Default;
         }
         let props = crate::member_get_layout::buffer_props(ptr, t);
-        if props.is_null() {
-            return SpeciesResolved::Default;
-        }
         let key = __torajs_str_alloc(b"constructor".as_ptr(), 11);
-        let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
-        let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+        let (mut dtag, mut dval) = if props.is_null() {
+            (5u64, 0u64)
+        } else {
+            (
+                __torajs_dynobj_get_tag(props, key as *const c_void),
+                __torajs_dynobj_get_value(props, key as *const c_void),
+            )
+        };
+        // A subclass instance's `constructor` lives on its class
+        // prototype (§7.3.20's Get walks own → proto): an own-bag
+        // miss consults the registered subclass proto dynobj before
+        // defaulting, which is what makes `My.prototype.constructor`
+        // — the class itself — the species face.
+        if dtag == 5
+            && (ptr.cast::<u8>().add(6) as *const u16).read() & torajs_rc::FLAG_SUBCLASSED != 0
+        {
+            let proto = __torajs_subclass_proto(ptr);
+            if crate::nanbox::is_cell(proto) {
+                let pp = as_void_ptr(proto);
+                if !pp.is_null() {
+                    dtag = __torajs_dynobj_get_tag(pp, key as *const c_void);
+                    dval = __torajs_dynobj_get_value(pp, key as *const c_void);
+                }
+            }
+        }
         __torajs_str_drop(key as *mut c_void);
         classify_ctor_entry(recv, dtag, dval)
     }
@@ -166,6 +189,16 @@ unsafe fn species_object_face(ctor: *mut c_void) -> SpeciesResolved {
 /// else is the step-8 TypeError.
 unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> SpeciesResolved {
     unsafe {
+        // §23.2.2.4 with the INHERITED default getter — `get
+        // %TypedArray%[@@species]` returns this, and a subclass
+        // inherits it through its static chain, which tr does not
+        // walk: an own-miss on a marked class answers the class
+        // itself (the Array family's `ctor_arr_species_self` mark,
+        // same table, same recorded approximation).
+        if stag == 5 && crate::construct::ctor_arr_species_self(as_void_ptr(ctor_av) as u64) {
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(ctor_av);
+            return SpeciesResolved::Ctor(ctor_av);
+        }
         match stag {
             5 | 0 => SpeciesResolved::Default,
             6 => {

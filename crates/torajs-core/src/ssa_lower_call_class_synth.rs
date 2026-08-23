@@ -417,9 +417,15 @@ fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
     // class itself. Not gated on the factory adapter below — the
     // mark is a property-read fact; a missing adapter surfaces as
     // the construct kernel's own loud miss.
-    if crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ctx.ast, cname)
-        == Some("Array")
-    {
+    // The buffer family rides the same mark: §23.2.2.4
+    // `%TypedArray%[@@species]` is the identical default getter,
+    // inherited the identical way.
+    let species_root =
+        crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ctx.ast, cname)
+            .is_some_and(|r| {
+                r == "Array" || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(r)
+            });
+    if species_root {
         let cur_block = ctx.cur_block;
         let mark = ctx.intrinsics.ctor_mark_arr_species;
         ctx.f

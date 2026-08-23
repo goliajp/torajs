@@ -30,6 +30,18 @@ use crate::check::Type;
 /// registered known-debt cascade below with every new builtin
 /// (rotation 373's three pushed it over the fn hard limit).
 fn subclass_magic_ty(name: &str) -> Option<Type> {
+    // Buffer-family blade — the shared TypedArray pair breaks both
+    // suffix-grammar shapes (its mint takes the kind discriminant,
+    // its super three value slots), so it resolves ahead of them.
+    if name == "__torajs_typedarray_subclass_alloc_self" {
+        return Some(Type::Function(vec![Type::Number], Box::new(Type::Any)));
+    }
+    if name == "__torajs_typedarray_subclass_super" {
+        return Some(Type::Function(
+            vec![Type::Any, Type::Any, Type::Any, Type::Any],
+            Box::new(Type::Any),
+        ));
+    }
     let alloc_self = name.strip_prefix("__torajs_").is_some_and(|r| {
         r.strip_suffix("_subclass_alloc_self")
             .is_some_and(|b| !b.is_empty())

@@ -121,8 +121,56 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
             let f = ctx.intrinsics.boolean_wrapper_subclass_super;
             lower_super_one_arg(ctx, args, f)
         }
+        // Buffer-family blade — one mint + one super kernel shared
+        // by the eleven §23.2 kinds. The mint carries the kind
+        // discriminant as a desugar-time constant argument; `super`
+        // re-reads it off the minted cell.
+        "__torajs_typedarray_subclass_alloc_self" => {
+            let f = ctx.intrinsics.typedarray_subclass_alloc;
+            lower_alloc_self_with_kind(ctx, args, f)
+        }
+        "__torajs_typedarray_subclass_super" => {
+            let f = ctx.intrinsics.typedarray_subclass_super;
+            if args.len() != 4 {
+                return None;
+            }
+            lower_super_boxed(ctx, args, f)
+        }
         _ => None,
     }
+}
+
+/// The TypedArray mint site — `lower_alloc_self`'s shape plus the
+/// kind discriminant the heritage desugar wrote as a literal number
+/// argument (the kernel is shared across the eleven kinds and the
+/// enclosing `__new_<C>` name says nothing about which one).
+fn lower_alloc_self_with_kind(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    kernel: FuncId,
+) -> Option<Operand> {
+    let [kind_arg] = args else { return None };
+    let crate::ast::Expr::Number(kind) = &ctx.ast.exprs[kind_arg.0 as usize] else {
+        return None;
+    };
+    let kind = *kind;
+    let tag = ctx
+        .f
+        .name
+        .strip_prefix("__new_")
+        .and_then(|cname| ctx.class_name_to_tag.get(cname).copied())?;
+    let call_args = vec![
+        Operand::ConstI64(tag as i64),
+        Operand::ConstI64(kind as i64),
+    ];
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(kernel, call_args),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 /// The factory's mint site: resolve the class from the enclosing

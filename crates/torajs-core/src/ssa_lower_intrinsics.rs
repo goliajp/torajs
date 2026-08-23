@@ -517,6 +517,8 @@ pub(crate) struct Intrinsics {
     pub(crate) regex_subclass_super_flags: FuncId,
     pub(crate) string_wrapper_subclass_super: FuncId,
     pub(crate) boolean_wrapper_subclass_super: FuncId,
+    pub(crate) typedarray_subclass_alloc: FuncId,
+    pub(crate) typedarray_subclass_super: FuncId,
     pub(crate) genfn_proto: FuncId,
     pub(crate) genfn_chain: FuncId,
     /// RFC 20260730-iterator-global 刀 1 — stripped-heir prototype

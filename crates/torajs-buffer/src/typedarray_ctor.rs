@@ -36,6 +36,9 @@ unsafe extern "C" {
     fn __torajs_anyv_to_number(v: AnyValue) -> f64;
     fn __torajs_anyv_rc_inc(v: AnyValue);
     fn __torajs_anyv_rc_dec(v: AnyValue);
+    /// torajs-meta — scrub a subclass instance's blade-0 side-table
+    /// entry at drop time.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
     /// Tag-dispatched heap release — drops the expando props dynobj
     /// without this crate knowing the dynobj layout.
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -75,6 +78,11 @@ pub unsafe extern "C" fn __torajs_typedarray_drop(cell: *mut c_void) {
     unsafe {
         if torajs_rc::__torajs_rc_dec(cell) == 0 {
             return;
+        }
+        // Subclass instances carry a blade-0 side-table entry —
+        // scrubbed before the cell frees (the map/set drop shape).
+        if (cell.cast::<u8>().add(6) as *const u16).read() & torajs_rc::FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(cell);
         }
         __torajs_anyv_rc_dec((cell.cast::<u8>().add(BUFFER_OFF) as *const u64).read());
         let props = (cell.cast::<u8>().add(crate::typedarray::PROPS_OFF) as *const u64).read()

@@ -282,8 +282,21 @@ fn collect_boxed_targets(
         // the inherited settle statics run NewPromiseCapability(C)
         // through the construct channel at runtime (rotation 451),
         // and no syntactic probe can see that consumer.
-        let is_factory = name.starts_with("__new_")
-            && (constructs_from_value || promise_heirs.contains(&name["__new_".len()..]));
+        // A species-family heir (`extends Array` / a TypedArray
+        // kind) is admitted the same way: the §23.1.2.5 / §23.2.2.4
+        // inherited `@@species` construct runs inside the family
+        // methods at runtime, and no syntactic probe can see that
+        // consumer either.
+        let is_factory = name.starts_with("__new_") && {
+            let cname = &name["__new_".len()..];
+            constructs_from_value
+                || promise_heirs.contains(cname)
+                || crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ast, cname)
+                    .is_some_and(|r| {
+                        r == "Array"
+                            || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(r)
+                    })
+        };
         if !first_is_env && !first_is_this && !is_static && !is_factory && !is_twin {
             continue;
         }

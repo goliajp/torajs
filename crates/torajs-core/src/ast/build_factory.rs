@@ -37,9 +37,16 @@ pub(crate) fn build_factory_body(
         }
         let magic = super::desugar_classes_builtin_heritage::exotic_alloc_self_magic(&root);
         let callee = ast.add_expr(Expr::Ident(magic.to_string()));
+        // The buffer-family mint is one kernel shared by eleven
+        // kinds — the kind discriminant rides as a literal argument
+        // (every other magic stays zero-arg).
+        let magic_args = match torajs_buffer::typedarray::Kind::from_name(&root) {
+            Some(k) => vec![ast.add_expr(Expr::Number(k as u8 as f64))],
+            None => Vec::new(),
+        };
         ast.add_expr(Expr::Call {
             callee,
-            args: Vec::new(),
+            args: magic_args,
         })
     } else {
         ast.add_expr(Expr::ObjectLit {

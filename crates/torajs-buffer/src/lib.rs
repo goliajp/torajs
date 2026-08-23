@@ -35,3 +35,4 @@ pub mod typedarray_search;
 pub mod typedarray_set;
 pub mod typedarray_slice;
 pub mod typedarray_span;
+pub mod typedarray_subclass;

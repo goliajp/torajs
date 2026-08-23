@@ -83,6 +83,11 @@ unsafe extern "C" {
     fn __torajs_arraybuffer_create(length: u64, options: u64) -> u64;
     fn __torajs_typedarray_create(kind: i64, a0: u64, a1: u64, a2: u64) -> u64;
     fn __torajs_typedarray_kind(av: u64) -> i64;
+    /// torajs-meta / torajs-dynobj — the subclass-proto `constructor`
+    /// shadow read (see `ctor_cell_for_recv`).
+    fn __torajs_subclass_proto(cell: *const c_void) -> u64;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
     /// torajs-arr — the §23.1.1.1 length-form mint (its own
@@ -224,6 +229,28 @@ pub extern "C" fn __torajs_builtin_ctor_value(proto_tag: i64) -> u64 {
 pub(crate) unsafe fn ctor_cell_for_recv(recv: AnyValue, key: *const c_void) -> Option<*mut u8> {
     if !unsafe { crate::prop_has::key_is(key, b"constructor") } {
         return None;
+    }
+    // A subclass instance's `constructor` resolves through its class
+    // prototype FIRST (Get walks own → proto, and `My.prototype`
+    // sits ahead of the builtin's): the registered proto dynobj's
+    // entry — `My.prototype.constructor`, the class itself — shadows
+    // the family cell. The entry's heap cell is borrow-shaped like
+    // every other probe answer (the proto dynobj holds it alive).
+    if let Some((ptr, _)) = crate::member_get_layout::recv_cell(recv)
+        && unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() } & torajs_rc::FLAG_SUBCLASSED
+            != 0
+    {
+        let proto = unsafe { __torajs_subclass_proto(ptr) };
+        if crate::nanbox::is_cell(proto) {
+            let pp = crate::nanbox::as_void_ptr(proto);
+            if !pp.is_null() {
+                let dtag = unsafe { __torajs_dynobj_get_tag(pp, key) };
+                if dtag == 4 {
+                    let dval = unsafe { __torajs_dynobj_get_value(pp, key) };
+                    return Some(dval as *mut u8);
+                }
+            }
+        }
     }
     let tag = ctor_family_tag(recv)?;
     Some(builtin_ctor_cell(tag))
@@ -408,6 +435,11 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         t if t == Tag::Str as u16 => Some(3),
         t if t == Tag::Arr as u16 => Some(2),
         t if t == Tag::DynObj as u16 => Some(1),
+        // A struct cell reaches the reify tail only AFTER its class
+        // prototype chain missed (the member-get struct arm walks it
+        // first), so the §10.1.8.1 chain bottom applies:
+        // `Object.prototype.constructor` — the Object family cell.
+        t if t == Tag::Obj as u16 => Some(1),
         // RFC 20260721 刀 4 — an async-form cell (FLAG_FN_ASYNC,
         // bit 7 Closure-private) reflects %AsyncFunction% (§27.7.1);
         // every other closure keeps the Function ctor.

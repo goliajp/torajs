@@ -159,6 +159,7 @@ mod method_call_arr;
 mod method_call_arr_copy;
 mod method_call_arr_species;
 mod method_call_arr_species_len;
+mod method_call_arr_species_store;
 mod method_call_arr_to_string;
 mod method_call_arraylike;
 mod method_call_arraylike_concat;
@@ -1906,6 +1907,7 @@ mod tests {
         __torajs_str_index_get,
         __torajs_string_wrapper_new,
         __torajs_subclass_class_tag,
+        __torajs_subclass_proto,
         __torajs_class_cell_raw,
         __torajs_symbol_to_str,
         __torajs_symbol_wrapper_new,

@@ -51,6 +51,7 @@ mod desugar_async;
 mod desugar_classes;
 mod desugar_classes_abstract;
 pub(crate) mod desugar_classes_builtin_heritage;
+mod desugar_classes_builtin_heritage_rest;
 mod desugar_classes_ctor_return;
 mod desugar_classes_default_ctor;
 mod desugar_classes_dispatch;

@@ -48,6 +48,11 @@ pub(crate) struct ExoticSubclassIds {
     pub regex_subclass_super_flags: FuncId,
     pub string_wrapper_subclass_super: FuncId,
     pub boolean_wrapper_subclass_super: FuncId,
+    /// Buffer-family blade — one mint + one super kernel shared by
+    /// the eleven §23.2 kinds (the kind discriminant rides in as a
+    /// constant on the mint; `super` re-reads it off the cell).
+    pub typedarray_subclass_alloc: FuncId,
+    pub typedarray_subclass_super: FuncId,
 }
 
 pub(crate) fn declare(
@@ -217,6 +222,18 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_boolean_wrapper_subclass_super",
             super_pair,
+        ),
+        typedarray_subclass_alloc: d(
+            module,
+            fn_table,
+            "__torajs_typedarray_subclass_alloc",
+            &[Type::I64, Type::I64],
+        ),
+        typedarray_subclass_super: d(
+            module,
+            fn_table,
+            "__torajs_typedarray_subclass_super",
+            &[Type::Any, Type::Any, Type::Any, Type::Any],
         ),
     }
 }

@@ -72,6 +72,27 @@ impl<'a> LowerCtx<'a> {
             }
             _ => return None,
         };
+        // The fold's whole premise is a NAMESPACE ctor ident (those
+        // can't lower as values); a user class name is a real runtime
+        // value the generic path compares correctly — bail, don't
+        // fold `c.constructor === MyC` to false.
+        const NS_CTORS: &[&str] = &[
+            "Number", "String", "Boolean", "BigInt", "Symbol", "Object", "Array",
+        ];
+        if !NS_CTORS.contains(&ctor_name.as_str()) {
+            return None;
+        }
+        // A named-class instance is Obj-typed too, but its
+        // `constructor` is the class object, not `Object` — only an
+        // anonymous object-literal shape folds.
+        if let Type::Obj(sid) = recv_ty
+            && self
+                .class_name_to_tag
+                .keys()
+                .any(|cname| matches!(self.aliases.get(cname), Some(Type::Obj(s)) if *s == sid))
+        {
+            return None;
+        }
         let actual = prim_type_tag(recv_ty)?;
         let matches_ctor = actual == ctor_name.as_str();
         let result = match op {

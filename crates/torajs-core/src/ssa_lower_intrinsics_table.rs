@@ -456,6 +456,8 @@ pub(crate) fn build(
         regex_subclass_super_flags: init_c.subclass.regex_subclass_super_flags,
         string_wrapper_subclass_super: init_c.subclass.string_wrapper_subclass_super,
         boolean_wrapper_subclass_super: init_c.subclass.boolean_wrapper_subclass_super,
+        typedarray_subclass_alloc: init_c.subclass.typedarray_subclass_alloc,
+        typedarray_subclass_super: init_c.subclass.typedarray_subclass_super,
         genfn_proto: init_c.any_substrate.genfn_proto,
         genfn_chain: init_c.any_substrate.genfn_chain,
         proto_chain_builtin: init_c.iterator.proto_chain_builtin,

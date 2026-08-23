@@ -135,7 +135,10 @@ unsafe fn wrapper_subclass_probe(
         // exotic-subclass table.
         || tag == Tag::WeakMap as u16
         || tag == Tag::WeakSet as u16
-        || tag == Tag::Date as u16;
+        || tag == Tag::Date as u16
+        // Buffer-family blade — the TypedArray kinds joined the
+        // exotic-subclass table.
+        || tag == Tag::TypedArray as u16;
     if !probed || name_str.is_null() {
         return None;
     }

@@ -30,6 +30,9 @@
 //! Array / RegExp / Promise / Iterator parents each need their own
 //! exotic-instance substrate and join this table one by one.
 
+use super::desugar_classes_builtin_heritage_rest::{
+    synthesize_exotic_rest_ctor, synthesize_typedarray_forward_ctor,
+};
 use super::desugar_classes_super::ClassIndexEntry;
 use super::super_collect::collect_super_in_stmt;
 use super::*;
@@ -55,7 +58,16 @@ const EXOTIC_SUBCLASSABLE: &[&str] = &[
 /// strip below recognises it by NAME, and an extracted `__ccp<N>`
 /// alias would hide it from this table.
 pub(super) fn is_subclassable_builtin(name: &str) -> bool {
-    SUBCLASSABLE_BUILTINS.contains(&name) || EXOTIC_SUBCLASSABLE.contains(&name)
+    SUBCLASSABLE_BUILTINS.contains(&name)
+        || EXOTIC_SUBCLASSABLE.contains(&name)
+        || is_typedarray_ctor(name)
+}
+
+/// The eleven §23.2 TypedArray constructor names (buffer-family
+/// blade). One shared mint/super kernel pair; the kind discriminant
+/// resolves from the name at desugar time.
+pub(crate) fn is_typedarray_ctor(name: &str) -> bool {
+    torajs_buffer::typedarray::Kind::from_name(name).is_some()
 }
 
 /// The builtin name at the root of `cname`'s ctor chain when that
@@ -97,6 +109,7 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
         "WeakMap" => "__torajs_weakmap_subclass_alloc_self",
         "WeakSet" => "__torajs_weakset_subclass_alloc_self",
         "Date" => "__torajs_date_subclass_alloc_self",
+        p if is_typedarray_ctor(p) => "__torajs_typedarray_subclass_alloc_self",
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -128,6 +141,7 @@ fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
         "WeakSet" => Some("__torajs_weakset_subclass_super"),
         "Date" => Some("__torajs_date_subclass_super"),
         "Function" => None,
+        p if is_typedarray_ctor(p) => Some("__torajs_typedarray_subclass_super"),
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -170,7 +184,7 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         if declared.contains(p) {
             continue;
         }
-        let exotic = EXOTIC_SUBCLASSABLE.contains(&p.as_str());
+        let exotic = EXOTIC_SUBCLASSABLE.contains(&p.as_str()) || is_typedarray_ctor(p);
         if !exotic && !SUBCLASSABLE_BUILTINS.contains(&p.as_str()) {
             continue;
         }
@@ -211,6 +225,12 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         // shape until an arguments-length-aware forward exists
         // (rest-forwarding is the recorded call-spread boundary,
         // L3b 371-01).
+        // Buffer-family blade — a fixed three-slot forward IS the
+        // spec derived default ctor (§23.2.5.1 is argument-count
+        // agnostic); the body lives beside the rest-ctor synth.
+        if exotic && ctor.is_none() && is_typedarray_ctor(p) {
+            *ctor = Some(synthesize_typedarray_forward_ctor(ast));
+        }
         if exotic && ctor.is_none() && matches!(p.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
             let arg = ast.add_expr(Expr::Ident("__superarg".to_string()));
             let sup = ast.add_expr(Expr::Super { args: vec![arg] });
@@ -273,6 +293,25 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                         0 if exotic_super_zero_is_noop(p) => {
                             ast.exprs[eid.0 as usize] = Expr::Ident("undefined".into());
                         }
+                        // Buffer-family blade — up to three slots,
+                        // padded with undefined (argument-count
+                        // agnostic per the kernel's contract).
+                        1..=3 if is_typedarray_ctor(p) => {
+                            let callee = ast.add_expr(Expr::Ident(
+                                "__torajs_typedarray_subclass_super".to_string(),
+                            ));
+                            let this_id = ast.add_expr(Expr::This);
+                            let mut call_args = vec![this_id];
+                            for slot in 0..3usize {
+                                call_args.push(args.get(slot).copied().unwrap_or_else(|| {
+                                    ast.add_expr(Expr::Ident("undefined".to_string()))
+                                }));
+                            }
+                            ast.exprs[eid.0 as usize] = Expr::Call {
+                                callee,
+                                args: call_args,
+                            };
+                        }
                         0 | 1 if exotic_super_kernel(p).is_some() => {
                             let callee = ast
                                 .add_expr(Expr::Ident(exotic_super_kernel(p).unwrap().to_string()));
@@ -324,124 +363,5 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
             }
         }
         *parent = None;
-    }
-}
-
-/// The rest-param derived default ctor for a ctor-less exotic
-/// subclass whose builtin parent is NOT argument-count agnostic:
-///
-/// ```text
-/// constructor(...__superargs: any[]) {
-///   if (__superargs.length === 0) { super(); }
-///   else { super(__superargs[0]); }          // wrappers / Promise
-///   // Array / RegExp / Date split the else again: 1 →
-///   // super(args[0]), 2+ → the multi-argument kernel (Array hands
-///   // the packed rest array to the §23.1.1.3 elements kernel,
-///   // Date to the §21.4.2.1 components kernel, RegExp its first
-///   // two slots to the §22.2.4.1 flags kernel).
-/// }
-/// ```
-///
-/// The wrappers and Promise ignore arguments past the first per
-/// spec (§21.1.1.1 / §22.1.1.1 / §20.3.1.1 / §27.2.3.1 read only
-/// the first), so the two-arm dispatch is semantically complete for
-/// them. The `super` sites synthesized here are rewritten by the
-/// caller's rewrite loop exactly like a user-written ctor's.
-fn synthesize_exotic_rest_ctor(ast: &mut Ast, parent: &str) -> crate::ast::ClassCtor {
-    let args_len = |ast: &mut Ast| {
-        let obj = ast.add_expr(Expr::Ident("__superargs".to_string()));
-        ast.add_expr(Expr::Member {
-            obj,
-            name: "length".to_string(),
-        })
-    };
-    let len0 = args_len(ast);
-    let zero = ast.add_expr(Expr::Number(0.0));
-    let is_zero = ast.add_expr(Expr::BinOp {
-        op: BinOp::Eq,
-        left: len0,
-        right: zero,
-    });
-    let super0 = ast.add_expr(Expr::Super { args: Vec::new() });
-    let arg0_obj = ast.add_expr(Expr::Ident("__superargs".to_string()));
-    let idx0 = ast.add_expr(Expr::Number(0.0));
-    let arg0 = ast.add_expr(Expr::Index {
-        obj: arg0_obj,
-        index: idx0,
-    });
-    let super1 = ast.add_expr(Expr::Super { args: vec![arg0] });
-    let else_branch = if matches!(parent, "Array" | "RegExp" | "Date") {
-        let len1 = args_len(ast);
-        let one = ast.add_expr(Expr::Number(1.0));
-        let is_one = ast.add_expr(Expr::BinOp {
-            op: BinOp::Eq,
-            left: len1,
-            right: one,
-        });
-        let multi_arm = if matches!(parent, "Array" | "Date") {
-            // Array §23.1.1.3 — the packed rest array IS the elements
-            // list; the kernel appends each onto the minted cell.
-            // Date §21.4.2.1 step 6 — the rest array carries the
-            // components; the kernel runs ToNumber per present slot
-            // (day defaults 1, time components 0) and writes the
-            // clipped LOCAL-time ms into the mint. Both bypass the
-            // super rewrite (already the lowered spelling — the
-            // exotic-subclass magic dispatch owns them).
-            let kernel = if parent == "Array" {
-                "__torajs_arr_subclass_super_elems"
-            } else {
-                "__torajs_date_subclass_super_components"
-            };
-            let callee = ast.add_expr(Expr::Ident(kernel.to_string()));
-            let this_id = ast.add_expr(Expr::This);
-            let rest_id = ast.add_expr(Expr::Ident("__superargs".to_string()));
-            Stmt::Expr(ast.add_expr(Expr::Call {
-                callee,
-                args: vec![this_id, rest_id],
-            }))
-        } else {
-            // RegExp §22.2.4.1 — `(pattern, flags)` out of the rest
-            // array's first two slots; extras were evaluated into the
-            // array already and are ignored per ordinary-call
-            // semantics. The outer dispatch admits only Array /
-            // RegExp / Date here, so this arm IS the RegExp arm
-            // (previously the loud not-yet-supported throw — RFC
-            // 20260815 residue close, the family's last loud arm).
-            let callee = ast.add_expr(Expr::Ident(
-                "__torajs_regex_subclass_super_flags".to_string(),
-            ));
-            let this_id = ast.add_expr(Expr::This);
-            let slot = |ast: &mut Ast, i: f64| {
-                let obj = ast.add_expr(Expr::Ident("__superargs".to_string()));
-                let idx = ast.add_expr(Expr::Number(i));
-                ast.add_expr(Expr::Index { obj, index: idx })
-            };
-            let a0 = slot(ast, 0.0);
-            let a1 = slot(ast, 1.0);
-            Stmt::Expr(ast.add_expr(Expr::Call {
-                callee,
-                args: vec![this_id, a0, a1],
-            }))
-        };
-        Stmt::If {
-            cond: is_one,
-            then_branch: Box::new(Stmt::Expr(super1)),
-            else_branch: Some(Box::new(multi_arm)),
-        }
-    } else {
-        Stmt::Expr(super1)
-    };
-    crate::ast::ClassCtor {
-        params: vec![crate::ast::Param {
-            name: "__superargs".to_string(),
-            type_ann: Some("any[]".to_string()),
-            default: None,
-            is_rest: true,
-        }],
-        body: vec![Stmt::If {
-            cond: is_zero,
-            then_branch: Box::new(Stmt::Expr(super0)),
-            else_branch: Some(Box::new(else_branch)),
-        }],
     }
 }
