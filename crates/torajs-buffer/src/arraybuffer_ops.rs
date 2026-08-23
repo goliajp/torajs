@@ -152,6 +152,12 @@ pub unsafe extern "C" fn __torajs_arraybuffer_slice(
             }
             clamp_relative(to_integer_or_infinity(n), len)
         };
+        // §25.1.6.16 step 14 — the species constructor-face read
+        // (`species.rs`); a poisoned instance `constructor` throws
+        // before any allocation.
+        if crate::species::__torajs_buffer_species_guard(av) != 0 {
+            return VALUE_UNDEFINED;
+        }
         // The coercions above can run user code, so the source may
         // have been detached (or shrunk) since the length was read.
         let src = data_ptr(ptr);

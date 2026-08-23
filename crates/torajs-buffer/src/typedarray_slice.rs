@@ -80,6 +80,11 @@ pub unsafe extern "C" fn __torajs_typedarray_subarray(
         } else {
             (end_index - start_index).max(0)
         };
+        // Step 15 TypedArraySpeciesCreate — constructor-face read
+        // (`species.rs`), ahead of the mint.
+        if crate::species::__torajs_buffer_species_guard(recv) != 0 {
+            return VALUE_UNDEFINED;
+        }
         mint(kind, buffer, begin, new_len)
     }
 }
@@ -113,6 +118,12 @@ pub unsafe extern "C" fn __torajs_typedarray_slice(
             final_ = clamp_relative(rel_end, len);
         }
         let count = (final_ - k).max(0);
+        // Step 9 TypedArraySpeciesCreate begins with the
+        // constructor-face read (`species.rs`) — an instance-
+        // installed throwing getter surfaces here.
+        if crate::species::__torajs_buffer_species_guard(recv) != 0 {
+            return VALUE_UNDEFINED;
+        }
         let out = create_same_type(kind, count);
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;

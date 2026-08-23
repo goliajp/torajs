@@ -30,5 +30,6 @@ pub mod typedarray_print;
 pub mod typedarray_props;
 pub mod typedarray_search;
 pub mod typedarray_set;
+pub mod species;
 pub mod typedarray_slice;
 pub mod typedarray_span;

@@ -1642,6 +1642,8 @@ mod tests {
         __torajs_arraybuffer_resize,
         // 刀 8 — §25.1.6.7-8 transfer / transferToFixedLength.
         __torajs_arraybuffer_transfer,
+        // @@species knife — the §7.3.20 constructor-face guard.
+        __torajs_buffer_species_guard,
         __torajs_arraybuffer_print,
         __torajs_arraybuffer_create,
         __torajs_typedarray_length,

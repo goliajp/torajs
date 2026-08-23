@@ -43,6 +43,9 @@ use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_boxed, rec
 use crate::nanbox::{AnyValue, VALUE_FALSE, VALUE_TRUE, VALUE_UNDEFINED, box_double};
 
 unsafe extern "C" {
+    /// torajs-buffer — §7.3.20 constructor-face species guard
+    /// (1 = a throw is pending).
+    fn __torajs_buffer_species_guard(recv: AnyValue) -> i64;
     fn __torajs_throw_check() -> i64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_anyv_rc_dec(v: AnyValue);
@@ -200,6 +203,11 @@ unsafe fn walk_find(recv: AnyValue, len: i64, cb: &Callback, mode: u8) -> AnyVal
 /// See [`typedarray_iter_method`].
 unsafe fn walk_map(recv: AnyValue, len: i64, cb: &Callback) -> AnyValue {
     unsafe {
+        // §23.2.3.20 step 6 TypedArraySpeciesCreate — the
+        // constructor-face read runs BEFORE the loop.
+        if __torajs_buffer_species_guard(recv) != 0 {
+            return VALUE_UNDEFINED;
+        }
         let out = __torajs_typedarray_create_same_type(recv, len);
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
@@ -248,6 +256,14 @@ unsafe fn walk_filter(recv: AnyValue, len: i64, cb: &Callback) -> AnyValue {
             } else {
                 __torajs_anyv_rc_dec(v);
             }
+        }
+        // §23.2.3.10 step 9 TypedArraySpeciesCreate — the
+        // constructor-face read runs AFTER the callback loop.
+        if __torajs_buffer_species_guard(recv) != 0 {
+            for v in kept {
+                __torajs_anyv_rc_dec(v);
+            }
+            return VALUE_UNDEFINED;
         }
         let out = __torajs_typedarray_create_same_type(recv, kept.len() as i64);
         if __torajs_throw_check() == 0 {
