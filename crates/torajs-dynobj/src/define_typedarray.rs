@@ -26,6 +26,33 @@ unsafe extern "C" {
     fn __torajs_typedarray_index_set(recv: u64, idx: f64, v: u64);
 }
 
+/// §7.3 integrity flags on the universal heap header (torajs-rc
+/// `flags.rs` mirrors — this crate reads the header raw).
+const FLAG_FROZEN: u16 = 1 << 4;
+const FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
+const FLAG_SEALED: u16 = 1 << 9;
+
+unsafe extern "C" {
+    /// torajs-dynobj's own presence probe, spelled through the ABI
+    /// face so this sibling stays layout-agnostic.
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+}
+
+/// §10.1.6.3 precondition over the header-flag integrity levels
+/// (member-set's `expando_integrity_refuses` twin): frozen refuses
+/// every define; sealed / non-extensible refuse a NEW key.
+unsafe fn bag_integrity_refuses(obj: *const c_void, off: usize, key: *const c_void) -> bool {
+    let hflags = unsafe { (obj.cast::<u8>().add(6) as *const u16).read() };
+    if hflags & FLAG_FROZEN != 0 {
+        return true;
+    }
+    if hflags & (FLAG_SEALED | FLAG_NON_EXTENSIBLE) != 0 {
+        let props = unsafe { (obj.cast::<u8>().add(off) as *const *const c_void).read() };
+        return props.is_null() || unsafe { __torajs_dynobj_has(props, key) } == 0;
+    }
+    false
+}
+
 /// The buffer family's expando slot for its header tag
 /// (torajs-buffer `PROPS_OFF` mirrors).
 fn buffer_props_off(htag: u16) -> usize {
@@ -59,6 +86,18 @@ pub(crate) unsafe fn buffer_receiver_define(
             }
         }
         let off = buffer_props_off(htag);
+        if bag_integrity_refuses(obj, off, key) {
+            if flags_byte & DEFINE_PRESENT_VALUE != 0 {
+                drop_rejected_value(tag, value);
+            }
+            if throw_on_refusal && __torajs_throw_check() == 0 {
+                __torajs_throw_type_error(
+                    c"Attempting to define property on object that is not extensible.".as_ptr()
+                        as *const u8,
+                );
+            }
+            return 0;
+        }
         bag_receiver_define(obj, off, key, tag, value, flags_byte, throw_on_refusal)
     }
 }
