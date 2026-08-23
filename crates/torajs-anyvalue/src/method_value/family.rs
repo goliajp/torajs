@@ -135,6 +135,15 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::WeakMap as u16 => 16,
         t if t == Tag::WeakSet as u16 => 17,
         t if t == Tag::WeakRef as u16 => 18,
+        // §25.1.6 — ArrayBuffer.prototype is its own singleton, so
+        // its row is exact. Tag::TypedArray deliberately has NO row:
+        // the eleven per-kind prototypes share one method face, and
+        // the %TypedArray%.prototype they should hang off is a
+        // recorded gap in RFC 20260823-typedarray-substrate. Giving
+        // them per-kind rows would break §23.2.3.36's requirement
+        // that all eleven see the SAME `values` function object,
+        // which the family-less mint gets right by construction.
+        t if t == Tag::ArrayBuffer as u16 => 19,
         // Iterator-protocol cells hang off %Iterator.prototype%
         // (builtin-proto tag 15; the per-family intermediate
         // prototypes are a recorded boundary — RFC

@@ -1,11 +1,12 @@
 //! `@@toStringTag` own entries on the builtin prototypes that the
 //! spec gives one.
 //!
-//! Eight prototypes carry the tag as a plain data property with
+//! Nine prototypes carry the tag as a plain data property with
 //! `{ [[Writable]]: false, [[Enumerable]]: false,
 //! [[Configurable]]: true }` — Symbol §20.4.3.5, BigInt §21.2.3.5,
 //! Promise §27.2.5.5, Map §24.1.3.14, Set §24.2.3.13, WeakMap
-//! §24.3.3.4, WeakSet §24.4.3.5, WeakRef §26.1.3.3. Everything else
+//! §24.3.3.4, WeakSet §24.4.3.5, WeakRef §26.1.3.3, ArrayBuffer
+//! §25.1.6.5. Everything else
 //! (Object / Array / String / Number / Boolean / Function / Date /
 //! RegExp / Error) has NO tag: its badge comes from the builtinTag
 //! walk instead, which is why installing one there would be wrong
@@ -68,6 +69,17 @@ fn tag_for_proto(idx: i64) -> Option<&'static [u8]> {
         10 => Some(b"Promise"),
         11 => Some(b"Map"),
         12 => Some(b"Set"),
+        // §25.1.6.5 — a plain data property like the eight above.
+        // Its typed-array neighbours are NOT here on purpose:
+        // §23.2.3.32 gives %TypedArray%.prototype an ACCESSOR that
+        // brand-checks its receiver, so `Int8Array.prototype[
+        // @@toStringTag]` is undefined while an instance's is
+        // "Int8Array". A data entry on each of the eleven per-kind
+        // prototypes would answer the instance right and the
+        // prototype wrong, and the abstract %TypedArray%.prototype
+        // the real accessor lives on is a recorded gap in RFC
+        // 20260823-typedarray-substrate.
+        19 => Some(b"ArrayBuffer"),
         16 => Some(b"WeakMap"),
         17 => Some(b"WeakSet"),
         18 => Some(b"WeakRef"),

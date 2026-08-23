@@ -23,7 +23,7 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 use crate::member_get::{closure_props, is_wrapper_tag, recv_cell, wrapper_props};
-use crate::member_get_own::{array_proto_props, function_proto_props, user_proto_cell};
+use crate::member_get_own::user_proto_cell;
 use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
@@ -119,19 +119,34 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
         }
         return InheritedFrom::Nothing;
     }
-    let proto_props = if t == Tag::Arr as u16 {
-        array_proto_props()
-    } else if t == Tag::Closure as u16 {
-        function_proto_props()
-    } else if crate::member_get_layout::is_wrapper_tag(t) {
-        // A wrapper receiver inherits through its primitive's
-        // prototype singleton — where `Object.defineProperty(
-        // Boolean.prototype, sym, …)` lands (test262 concat's
-        // iterable-primitive-wrapper-objects face).
-        crate::member_get_own::wrapper_proto_props(t)
-    } else {
-        core::ptr::null()
-    };
+    // Every other builtin cell inherits through the prototype
+    // singleton its family owns — where a
+    // `Object.defineProperty(Map.prototype, sym, …)` monkey-patch
+    // lands, and where the eight spec-given `@@toStringTag` entries
+    // already sit (`torajs_meta::proto_tostringtag_install`).
+    //
+    // This used to name three tags — Arr, Closure, and the wrappers
+    // — and answer `Nothing` for the rest, so `Map.prototype[
+    // Symbol.toStringTag]` said "Map" while `new Map()[
+    // Symbol.toStringTag]` said undefined: the property was
+    // installed and simply unreachable from an instance. The family
+    // map already knew every row; it was only this walk that did
+    // not ask it.
+    //
+    // The singleton reached this way can BE the receiver
+    // (`Array.prototype` is itself an Arr cell), which is why the
+    // answer is its dict rather than a recursion — the same reason
+    // the three-tag version handed back a dict.
+    let family = crate::method_value::family::recv_proto_family(crate::nanbox::box_void_ptr(ptr));
+    if family < 0 {
+        return InheritedFrom::Nothing;
+    }
+    let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(family) };
+    if proto.is_null() || core::ptr::eq(proto, ptr) {
+        return InheritedFrom::Nothing;
+    }
+    let proto_tag = unsafe { (proto.cast::<u8>().add(4) as *const u16).read() };
+    let proto_props = unsafe { own_dict(proto, proto_tag) };
     if proto_props.is_null() {
         InheritedFrom::Nothing
     } else {
