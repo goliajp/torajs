@@ -23,7 +23,7 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 use crate::member_get::{closure_props, is_wrapper_tag, recv_cell, wrapper_props};
-use crate::member_get_own::user_proto_cell;
+use crate::member_get_own::{user_proto_cell, wrapper_proto_props};
 use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
@@ -118,6 +118,20 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
             return InheritedFrom::Receiver(root);
         }
         return InheritedFrom::Nothing;
+    }
+    // A wrapper keeps its own arm: the family map has no
+    // SymbolWrapper row (its method reads intern family-less), while
+    // `Object(Symbol())` does inherit through %Symbol.prototype% —
+    // asking the family map here answered "nothing inherited" and
+    // took `Object.defineProperty(Symbol.prototype, @@iterator, …)`
+    // out with it.
+    if crate::member_get_layout::is_wrapper_tag(t) {
+        let proto = wrapper_proto_props(t);
+        return if proto.is_null() {
+            InheritedFrom::Nothing
+        } else {
+            InheritedFrom::Dict(proto)
+        };
     }
     // Every other builtin cell inherits through the prototype
     // singleton its family owns — where a
