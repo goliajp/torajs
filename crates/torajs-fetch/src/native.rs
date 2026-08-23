@@ -5,14 +5,26 @@
 //! `__torajs_value_drop_heap`) resolve at `tr build` link time
 //! against the other staticlibs + the remaining runtime_str.c block.
 //!
-//! libcurl ABI surface (resolved via `#[link(name = "curl")]`):
+//! libcurl ABI surface (resolved lazily via `dlopen`/`dlsym` on the
+//! first `fetch` call — S2 startup knife, 2026-08-24):
 //! - `curl_easy_init / cleanup / perform / setopt / getinfo`
 //! - 6 `CURLOPT_*` enum values for the options we set
 //! - `CURLINFO_RESPONSE_CODE` for the status retrieval
 //!
-//! `curl_easy_setopt` is declared with C variadic so we can call
-//! it with the per-option value type (str / i64 / fn-ptr / data-
-//! ptr) — same single-arg dispatch the C side does.
+//! Pre-knife this block carried `#[link(name = "curl")]`, which put
+//! an `LC_LOAD_DYLIB /usr/lib/libcurl.4.dylib` into EVERY AOT
+//! binary (the fetch staticlib is always baked): a C-hello A/B
+//! measured that eager load at **+0.76 ms wall / +0.53 ms user** —
+//! the bulk of the tr-vs-rust startup gap (2.3 vs 1.3 ms). With the
+//! lazy table nothing references libcurl at link time, the linker's
+//! ordinal-2 accounting emits no LC (`archive_emit_lc_meta.rs`
+//! `has_libcurl_lc`), and a program that does call `fetch` pays one
+//! `dlopen` (~0.5 ms) folded into its first multi-ms network RTT.
+//! `dlopen`/`dlsym` are libSystem exports, SD-1 resolved.
+//!
+//! `curl_easy_setopt` keeps its C-variadic type through the fn
+//! pointer — on aarch64-darwin variadic args travel on the stack,
+//! so a fixed-arity pointer cast would mis-place every argument.
 
 use core::ffi::{c_char, c_long, c_void};
 
@@ -40,13 +52,88 @@ struct CURL {
     _opaque: [u8; 0],
 }
 
-#[link(name = "curl")]
+// ---- lazy libcurl table (S2 startup knife — see module doc) ----
+
 unsafe extern "C" {
-    fn curl_easy_init() -> *mut CURL;
-    fn curl_easy_cleanup(handle: *mut CURL);
-    fn curl_easy_perform(handle: *mut CURL) -> i32;
-    fn curl_easy_setopt(handle: *mut CURL, option: i32, ...) -> i32;
-    fn curl_easy_getinfo(handle: *mut CURL, info: i32, ...) -> i32;
+    fn dlopen(path: *const c_char, mode: i32) -> *mut c_void;
+    fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
+}
+
+/// `RTLD_LAZY` on darwin.
+const RTLD_LAZY: i32 = 0x1;
+
+type CurlInit = unsafe extern "C" fn() -> *mut CURL;
+type CurlCleanup = unsafe extern "C" fn(*mut CURL);
+type CurlPerform = unsafe extern "C" fn(*mut CURL) -> i32;
+type CurlSetopt = unsafe extern "C" fn(*mut CURL, i32, ...) -> i32;
+type CurlGetinfo = unsafe extern "C" fn(*mut CURL, i32, ...) -> i32;
+
+struct CurlApi {
+    init: CurlInit,
+    cleanup: CurlCleanup,
+    perform: CurlPerform,
+    setopt: CurlSetopt,
+    getinfo: CurlGetinfo,
+}
+
+/// Resolved-once libcurl entry points. AtomicPtr keeps the shape
+/// multi-thread-ready (§6.2): a racing second resolver would build
+/// an identical table and drop it on the CAS loss.
+static CURL_API: core::sync::atomic::AtomicPtr<CurlApi> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
+/// dlopen + dlsym the five `curl_easy_*` entry points on first use.
+/// `None` = libcurl unavailable (or a symbol missing) — the caller
+/// answers the same status-0 Response as a failed
+/// `curl_easy_init`.
+fn curl_api() -> Option<&'static CurlApi> {
+    use core::sync::atomic::Ordering;
+    let cached = CURL_API.load(Ordering::Acquire);
+    if !cached.is_null() {
+        return Some(unsafe { &*cached });
+    }
+    let handle = unsafe { dlopen(c"/usr/lib/libcurl.4.dylib".as_ptr(), RTLD_LAZY) };
+    if handle.is_null() {
+        return None;
+    }
+    let init = unsafe { dlsym(handle, c"curl_easy_init".as_ptr()) };
+    let cleanup = unsafe { dlsym(handle, c"curl_easy_cleanup".as_ptr()) };
+    let perform = unsafe { dlsym(handle, c"curl_easy_perform".as_ptr()) };
+    let setopt = unsafe { dlsym(handle, c"curl_easy_setopt".as_ptr()) };
+    let getinfo = unsafe { dlsym(handle, c"curl_easy_getinfo".as_ptr()) };
+    if init.is_null()
+        || cleanup.is_null()
+        || perform.is_null()
+        || setopt.is_null()
+        || getinfo.is_null()
+    {
+        return None;
+    }
+    // SAFETY: the five pointers are non-null exports of libcurl's
+    // stable 7.x ABI; the transmutes re-type them to the matching
+    // C signatures.
+    let table = Box::new(unsafe {
+        CurlApi {
+            init: core::mem::transmute::<*mut c_void, CurlInit>(init),
+            cleanup: core::mem::transmute::<*mut c_void, CurlCleanup>(cleanup),
+            perform: core::mem::transmute::<*mut c_void, CurlPerform>(perform),
+            setopt: core::mem::transmute::<*mut c_void, CurlSetopt>(setopt),
+            getinfo: core::mem::transmute::<*mut c_void, CurlGetinfo>(getinfo),
+        }
+    });
+    let raw = Box::into_raw(table);
+    match CURL_API.compare_exchange(
+        core::ptr::null_mut(),
+        raw,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => Some(unsafe { &*raw }),
+        Err(winner) => {
+            drop(unsafe { Box::from_raw(raw) });
+            Some(unsafe { &*winner })
+        }
+    }
 }
 
 // ---- Cross-tier extern (runtime_str.c + torajs-str + torajs-rc) ----
@@ -175,44 +262,49 @@ unsafe fn empty_body_response(status: i64) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fetch_sync(url_str_ptr: *mut c_void) -> *mut c_void {
     let url_c = unsafe { str_to_cstring(url_str_ptr) };
-    let handle = unsafe { curl_easy_init() };
+    // Lazy-resolve libcurl; unavailable ≙ failed curl_easy_init
+    // (status-0 transport-error Response, no separate throw path).
+    let Some(curl) = curl_api() else {
+        return unsafe { empty_body_response(0) };
+    };
+    let handle = unsafe { (curl.init)() };
     if handle.is_null() {
         return unsafe { empty_body_response(0) };
     }
     let mut buf = FetchBuf { data: Vec::new() };
     unsafe {
-        curl_easy_setopt(handle, CURLOPT_URL, url_c.as_ptr() as *const c_char);
+        (curl.setopt)(handle, CURLOPT_URL, url_c.as_ptr() as *const c_char);
         let cb_ptr: unsafe extern "C" fn(*mut c_void, usize, usize, *mut c_void) -> usize =
             fetch_write_cb;
-        curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, cb_ptr);
-        curl_easy_setopt(
+        (curl.setopt)(handle, CURLOPT_WRITEFUNCTION, cb_ptr);
+        (curl.setopt)(
             handle,
             CURLOPT_WRITEDATA,
             &mut buf as *mut FetchBuf as *mut c_void,
         );
-        curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 1 as c_long);
+        (curl.setopt)(handle, CURLOPT_FOLLOWLOCATION, 1 as c_long);
         // Bun-parity timeouts. 30s total + 10s connect.
-        curl_easy_setopt(handle, CURLOPT_TIMEOUT, 30 as c_long);
-        curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT, 10 as c_long);
+        (curl.setopt)(handle, CURLOPT_TIMEOUT, 30 as c_long);
+        (curl.setopt)(handle, CURLOPT_CONNECTTIMEOUT, 10 as c_long);
         // User-Agent matches `bun` to avoid origins gating on torajs.
-        curl_easy_setopt(
+        (curl.setopt)(
             handle,
             CURLOPT_USERAGENT,
             b"torajs/0.6 (libcurl)\0".as_ptr() as *const c_char,
         );
     }
-    let rc = unsafe { curl_easy_perform(handle) };
+    let rc = unsafe { (curl.perform)(handle) };
     let mut http_status: c_long = 0;
     if rc == CURLE_OK {
         unsafe {
-            curl_easy_getinfo(
+            (curl.getinfo)(
                 handle,
                 CURLINFO_RESPONSE_CODE,
                 &mut http_status as *mut c_long,
             );
         }
     }
-    unsafe { curl_easy_cleanup(handle) };
+    unsafe { (curl.cleanup)(handle) };
 
     // Build the body Str regardless of rc — on transport error
     // buf.data is empty, yielding an empty Str.
