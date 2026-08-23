@@ -491,7 +491,21 @@ fn run_case(
     // the harness segments this case references (dep-closed), not
     // the full ~700-line harness: the tr front-end otherwise spends
     // ~90% of its per-case time re-compiling identical helpers.
-    let harness_min = harness.minimal_for(&transformed);
+    // Names defined BY an includable harness file: selectable only
+    // when the case's frontmatter declared that include (see
+    // `minimal_for`'s gate; today's one entry is the
+    // detachArrayBuffer.js port).
+    // `$262` is part of the same port — and its lead comment spells
+    // `$DETACHBUFFER`, so leaving it selectable would drag the gated
+    // segment back in through the dep closure.
+    const INCLUDE_DEFINES: &[(&str, &[&str])] =
+        &[("detachArrayBuffer.js", &["$DETACHBUFFER", "$262"])];
+    let gated: Vec<&str> = INCLUDE_DEFINES
+        .iter()
+        .filter(|(inc, _)| !fm.includes.iter().any(|i| i == inc))
+        .flat_map(|(_, names)| names.iter().copied())
+        .collect();
+    let harness_min = harness.minimal_for(&transformed, &gated);
     let full = format!("{harness_min}\n{transformed}");
 
     // RFC 20260810-sloppy-goal-arguments S1 — noStrict cases run

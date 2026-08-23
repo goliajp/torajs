@@ -91,10 +91,22 @@ impl HarnessIndex {
     /// The minimal harness prefix for one (already transformed) case
     /// source: every segment whose name the case references, closed
     /// over segment→segment references, in original harness order.
-    pub fn minimal_for(&self, case_src: &str) -> String {
+    pub fn minimal_for(&self, case_src: &str, gated_out: &[&str]) -> String {
         let mut selected = vec![false; self.segments.len()];
         let mut stack: Vec<usize> = Vec::new();
         for (i, seg) in self.segments.iter().enumerate() {
+            // A segment that PORTS a harness include may only be
+            // lexically selected by a case that DECLARED the
+            // include: the shake matches names in comments and
+            // strings too, and a case asserting that a helper does
+            // NOT exist (`$DETACHBUFFER` throws a ReferenceError
+            // when detachArrayBuffer.js was not included) spells
+            // the very name it needs absent. Dep-closure below is
+            // untouched — a harness-internal reference still pulls
+            // the segment in.
+            if gated_out.contains(&seg.name.as_str()) {
+                continue;
+            }
             if contains_word(case_src, &seg.name) {
                 selected[i] = true;
                 stack.push(i);
@@ -201,7 +213,7 @@ function build(args: Args): number {
         let idx = HarnessIndex::build(harness);
         let names: Vec<&str> = idx.segments.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["unrelated", "Args", "build"]);
-        let min = idx.minimal_for("build({ a: 1 });");
+        let min = idx.minimal_for("build({ a: 1 });", &[]);
         assert!(min.contains("type Args"), "param type closes in");
         assert!(!min.contains("unrelated"));
     }
@@ -219,7 +231,7 @@ function build(args: Args): number {
     #[test]
     fn minimal_closes_over_deps() {
         let idx = HarnessIndex::build(HARNESS);
-        let min = idx.minimal_for("__t262_sameValue(1, 1);");
+        let min = idx.minimal_for("__t262_sameValue(1, 1);", &[]);
         // sameValue pulls assert pulls the error class; NaNs stays out.
         assert!(min.contains("__t262_sameValue"));
         assert!(min.contains("__t262_assert"));
@@ -230,7 +242,7 @@ function build(args: Args): number {
     #[test]
     fn unreferenced_case_gets_empty_prefix() {
         let idx = HarnessIndex::build(HARNESS);
-        assert_eq!(idx.minimal_for("console.log(1);"), "");
+        assert_eq!(idx.minimal_for("console.log(1);", &[]), "");
     }
 
     #[test]
@@ -242,7 +254,7 @@ function build(args: Args): number {
     #[test]
     fn segments_keep_original_order() {
         let idx = HarnessIndex::build(HARNESS);
-        let min = idx.minimal_for("__t262_sameValue(1, 1); NaNs;");
+        let min = idx.minimal_for("__t262_sameValue(1, 1); NaNs;", &[]);
         let a = min.find("class T262Err").unwrap();
         let b = min.find("function __t262_assert").unwrap();
         let c = min.find("function __t262_sameValue").unwrap();
