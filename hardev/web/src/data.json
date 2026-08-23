@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-22T21:41:29.580Z",
+  "generatedAt": "2026-08-23T00:49:10.887Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-22T21:31:10Z",
-    "headSha": "8cebe9bc8",
-    "elapsedSec": 349.58,
+    "ranAt": "2026-08-23T00:36:22Z",
+    "headSha": "f59f95cf3",
+    "elapsedSec": 1382.02,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 27555,
-    "passNoOracle": 908,
+    "pass": 28139,
+    "passNoOracle": 923,
     "passNegative": 4147,
-    "passTotal": 32610,
-    "bug": 12649,
-    "incompatible": 7915,
-    "bunSkip": 2966,
+    "passTotal": 33209,
+    "bug": 13804,
+    "incompatible": 6161,
+    "bunSkip": 3026,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 45259,
-    "passRateInScope": 61.33,
-    "passRateTrAccepted": 72.05
+    "trAccepted": 47013,
+    "passRateInScope": 62.45,
+    "passRateTrAccepted": 70.64
   },
   "torajs": {
-    "commit": "bc4e719a5",
-    "commitSubject": "docs: record what the proxy substrate shipped and what is still out",
+    "commit": "f59f95cf3",
+    "commitSubject": "fix: naming a harness segment in an always-present comment costs 205 passes",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
+      "hash": "f59f95cf3",
+      "subject": "fix: naming a harness segment in an always-present comment costs 205 passes"
+    },
+    {
+      "hash": "f0bae3d18",
+      "subject": "feat: the typed-array harness, and the two compiler bugs it found"
+    },
+    {
+      "hash": "1ecd07f0a",
+      "subject": "fix: three global functions that answer a Number had no width"
+    },
+    {
+      "hash": "e5d6a338b",
+      "subject": "fix: the argument list after `new` is the same production as after a call"
+    },
+    {
+      "hash": "9db580366",
+      "subject": "feat: eleven bits of significand, and the halves round to even"
+    },
+    {
+      "hash": "644fa834a",
+      "subject": "feat: a constructor you can put in an array"
+    },
+    {
+      "hash": "bd97b8471",
+      "subject": "feat: three sources, three operations, and a string is not one of them"
+    },
+    {
+      "hash": "c3bd6e035",
+      "subject": "feat: a view has no length of its own, it asks the buffer every time"
+    },
+    {
+      "hash": "b7648a6ea",
+      "subject": "feat: a byte store, and the two states the spec names outright"
+    },
+    {
+      "hash": "af7fbf73a",
+      "subject": "chore: rotation 477 close — proxy substrate sweep ingest, plan-state, debt table, dashboard"
+    },
+    {
       "hash": "bc4e719a5",
       "subject": "docs: record what the proxy substrate shipped and what is still out"
     },
     {
       "hash": "8cebe9bc8",
       "subject": "fix: a handler can revoke the proxy while its trap is being looked up"
-    },
-    {
-      "hash": "080625c1a",
-      "subject": "refactor: what a define writes moves out of what decides it"
-    },
-    {
-      "hash": "8154ca5b1",
-      "subject": "fix: a set through a proxy receiver ends in define, not in set again"
-    },
-    {
-      "hash": "e7a4180a3",
-      "subject": "refactor: the descriptor chooser's regexp arm answers on its own"
-    },
-    {
-      "hash": "b1ed72c23",
-      "subject": "feat: the proxy traps helper says which trap must not be reached"
-    },
-    {
-      "hash": "0ca1d1a8b",
-      "subject": "feat: a proxy is callable exactly when its target is"
-    },
-    {
-      "hash": "897e25a2a",
-      "subject": "feat: a proxy answers what it is, not only what it holds"
-    },
-    {
-      "hash": "36b0ef75b",
-      "subject": "feat: a proxy names its own keys and describes them"
-    },
-    {
-      "hash": "a63d9949a",
-      "subject": "fix: an array returned into the any world says what its slots hold"
-    },
-    {
-      "hash": "ac2eba403",
-      "subject": "feat: a revoked proxy is one whose handler is null"
-    },
-    {
-      "hash": "6b0dc7583",
-      "subject": "feat: a proxy answers writes, membership and deletes the same way"
     }
   ],
-  "headSha": "bc4e719a5",
+  "headSha": "f59f95cf3",
   "autorun": {
-    "total": 780,
+    "total": 781,
     "baselineTarget": 10,
-    "bySelf": 775,
+    "bySelf": 776,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787423372-2253",
-      "at": "2026-08-22T18:29:32Z",
-      "ts": 1787423372,
+      "rotationId": "r-1787435010-3f6c",
+      "at": "2026-08-22T21:43:30Z",
+      "ts": 1787435010,
       "trigger": "self",
-      "prevHead": "dd7999c61",
-      "handoffSha": "sha256:6f618219277a4fc3aa88776f472720e11bf182a12ed1e8117bae65ac37fec336",
-      "handoffAgeSec": 31,
+      "prevHead": "af7fbf73a",
+      "handoffSha": "sha256:9d4b697383399b3a15e21c38de7e9b76a0342e2a3c840652bdcade857f5b0202",
+      "handoffAgeSec": 70,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787435010-3f6c",
+        "at": "2026-08-22T21:43:30Z",
+        "ts": 1787435010,
+        "trigger": "self",
+        "prevHead": "af7fbf73a",
+        "handoffSha": "sha256:9d4b697383399b3a15e21c38de7e9b76a0342e2a3c840652bdcade857f5b0202",
+        "handoffAgeSec": 70,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787423372-2253",
         "at": "2026-08-22T18:29:32Z",
@@ -876,17 +887,6 @@
         "prevHead": "770916f96",
         "handoffSha": "sha256:812edaa0bf7ae2e5ee8fca4d96501c20971c2b1007200a5bb658582bad35d0b4",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787329747-414a",
-        "at": "2026-08-21T16:29:07Z",
-        "ts": 1787329747,
-        "trigger": "self",
-        "prevHead": "4c2d133fb",
-        "handoffSha": "sha256:03fcf9bf77cec5a051fdde919e10ce347b296e2cbce502e9854f700a8ecd8d59",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
