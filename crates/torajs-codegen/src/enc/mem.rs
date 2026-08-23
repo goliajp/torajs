@@ -32,6 +32,19 @@ pub fn str_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0xF820_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDR Xt, [Xn, Xm, LSL #3] — load 64-bit, register-indexed with
+/// the scale folded into the AGU (S = 1). clang: `ldr x0, [x1, x2,
+/// lsl #3]` = 0xF862_7820.
+pub fn ldr_x_reg_lsl3(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xF860_7800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STR Xt, [Xn, Xm, LSL #3] — store 64-bit, register-indexed scaled.
+/// clang: `str x0, [x1, x2, lsl #3]` = 0xF822_7820.
+pub fn str_x_reg_lsl3(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xF820_7800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDUR Xt, [Xn, #imm9] — load 64-bit, **unscaled** signed 9-bit
 /// offset (range -256..=255). Use when the offset is not a multiple
 /// of 8 — the scaled LDR form requires 8-byte alignment. ARM ARM

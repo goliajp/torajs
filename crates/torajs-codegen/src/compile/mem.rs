@@ -15,8 +15,9 @@ use super::{
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, ldr_d_imm12, ldr_d_reg, ldr_x_imm12, ldr_x_reg, ldur_x_imm9, str_d_imm12, str_d_reg,
-    str_x_imm12, str_x_reg, stur_x_imm9,
+    add_imm, ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3,
+    ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3, str_x_imm12, str_x_reg, str_x_reg_lsl3,
+    stur_x_imm9,
 };
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
@@ -148,6 +149,54 @@ pub fn emit_load_dyn(
         let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
         write_u32(bytes, ldr_x_reg(dst, rn, rm));
         write_def_spill_gpr(bytes, spill_off, dst);
+    }
+}
+
+/// Emit `LDR Xd/Dd, [Xn, Xm, LSL #3]` — scaled register-indexed
+/// load: the operand is a slot INDEX, the AGU does the ×8 (S7 knife
+/// c2 — the standalone shift the e-graph folded away sat on the
+/// address dependency chain every iteration).
+pub fn emit_load_dyn_scaled8(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    ty: &Type,
+    base: &Operand,
+    idx: &Operand,
+    alloc: &Assignment,
+) {
+    let result_vid = inst.result.expect("LoadDynScaled8 must have result");
+    let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_LHS, alloc);
+    let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc);
+    if *ty == Type::F64 {
+        let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
+        write_u32(bytes, ldr_d_reg_lsl3(dst, rn, rm));
+        write_def_spill_fpr(bytes, spill_off, dst);
+    } else {
+        let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+        write_u32(bytes, ldr_x_reg_lsl3(dst, rn, rm));
+        write_def_spill_gpr(bytes, spill_off, dst);
+    }
+}
+
+/// Emit `STR Xs/Ds, [Xn, Xm, LSL #3]` — scaled register-indexed
+/// store, symmetric to [`emit_load_dyn_scaled8`].
+pub fn emit_store_dyn_scaled8(
+    bytes: &mut Vec<u8>,
+    val: &Operand,
+    base: &Operand,
+    idx: &Operand,
+    alloc: &Assignment,
+) {
+    if operand_is_f64(val, alloc) {
+        let rs = materialize_operand_fpr(bytes, val, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+        let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
+        let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_TMP, alloc);
+        write_u32(bytes, str_d_reg_lsl3(rs, rn, rm));
+    } else {
+        let rs = materialize_operand_gpr(bytes, val, OP_SCRATCH_LHS, alloc);
+        let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_RHS, alloc);
+        let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_TMP, alloc);
+        write_u32(bytes, str_x_reg_lsl3(rs, rn, rm));
     }
 }
 

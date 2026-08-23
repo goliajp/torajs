@@ -245,6 +245,20 @@ impl Function {
                 write!(w, " +")?;
                 self.write_operand(w, offset)?;
             }
+            InstKind::LoadDynScaled8(t, ptr, idx) => {
+                write!(w, "load_dyn_s8 {}, ", t.as_str())?;
+                self.write_operand(w, ptr)?;
+                write!(w, " + 8*")?;
+                self.write_operand(w, idx)?;
+            }
+            InstKind::StoreDynScaled8(val, ptr, idx) => {
+                write!(w, "store_dyn_s8 ")?;
+                self.write_operand(w, val)?;
+                write!(w, ", ")?;
+                self.write_operand(w, ptr)?;
+                write!(w, " + 8*")?;
+                self.write_operand(w, idx)?;
+            }
             InstKind::SiToFp(op) => {
                 write!(w, "sitofp ")?;
                 self.write_operand(w, op)?;

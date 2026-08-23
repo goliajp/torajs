@@ -37,6 +37,7 @@ pub mod optimize;
 pub mod phi_promote;
 pub mod rc_peephole;
 pub mod rewrite;
+pub mod scaled_addr;
 pub mod scope_map;
 pub mod select_form;
 pub mod self_tail_call;
@@ -330,6 +331,18 @@ pub fn transform_module(mut module: Module) -> Module {
     // adjacent; before rc_peephole, whose window a call closes anyway.
     // `TORAJS_STR_APPEND_OFF=1` skips (bisect gate).
     gated_pass("STR_APPEND", &mut module, str_append::rewrite_str_appends);
+    // Scaled-addressing fold — `LoadDyn(_, base, Shl(idx, 3))` with a
+    // single-use shift becomes `LoadDynScaled8` and the shift dies
+    // (S7 knife c2): the AGU does the ×8, taking the shift off the
+    // address dependency chain of every array-index loop iteration.
+    // After the inst-level rewrites above so spliced/inlined shapes
+    // are final; before regalloc by construction (SSA→SSA).
+    // `TORAJS_SCALED_ADDR_OFF=1` skips (bisect gate).
+    gated_pass(
+        "SCALED_ADDR",
+        &mut module,
+        scaled_addr::fold_scaled_addresses,
+    );
     // RC elide peephole — after the egraph pass so pure-inst dedup /
     // identity collapse has already tightened the windows between
     // retain/release pairs. `TORAJS_RC_PEEPHOLE_OFF=1` skips (bisect

@@ -177,6 +177,17 @@ pub enum InstKind {
     /// `store_dyn <value>, <ptr>+<dyn_byte_offset>` — symmetric for the
     /// load. Used for `xs[i] = v`.
     StoreDyn(Operand, Operand, Operand),
+    /// `%v = load_dyn_s8 <ty>, <base> + <idx>*8` — scaled register-
+    /// offset load. The e-graph folds `LoadDyn(ty, base, Shl(idx, 3))`
+    /// into this when the shift has no other use: aarch64's
+    /// `LDR Xd, [Xn, Xm, LSL #3]` does the scale inside the AGU, so
+    /// the standalone shift on the address dependency chain disappears
+    /// (S7 knife c2). Only the 8-byte stride exists — the scaled
+    /// register form requires shift == log2(access width).
+    LoadDynScaled8(Type, Operand, Operand),
+    /// `store_dyn_s8 <value>, <base> + <idx>*8` — symmetric scaled
+    /// store.
+    StoreDynScaled8(Operand, Operand, Operand),
     /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
     /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
     SiToFp(Operand),

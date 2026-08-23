@@ -319,6 +319,14 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
             map_operand(addr, egraph),
             map_operand(off, egraph),
         ),
+        InstKind::LoadDynScaled8(ty, addr, idx) => {
+            InstKind::LoadDynScaled8(*ty, map_operand(addr, egraph), map_operand(idx, egraph))
+        }
+        InstKind::StoreDynScaled8(val, addr, idx) => InstKind::StoreDynScaled8(
+            map_operand(val, egraph),
+            map_operand(addr, egraph),
+            map_operand(idx, egraph),
+        ),
         InstKind::SiToFp(v) => InstKind::SiToFp(map_operand(v, egraph)),
         InstKind::FpToSi(v) => InstKind::FpToSi(map_operand(v, egraph)),
         InstKind::ZExtBoolToI64(v) => InstKind::ZExtBoolToI64(map_operand(v, egraph)),

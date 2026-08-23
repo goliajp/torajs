@@ -45,6 +45,10 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
         InstKind::Store(val, ptr, off) => InstKind::Store(r(val), r(ptr), *off),
         InstKind::LoadDyn(ty, ptr, off) => InstKind::LoadDyn(ty.clone(), r(ptr), r(off)),
         InstKind::StoreDyn(val, ptr, off) => InstKind::StoreDyn(r(val), r(ptr), r(off)),
+        InstKind::LoadDynScaled8(ty, ptr, idx) => InstKind::LoadDynScaled8(*ty, r(ptr), r(idx)),
+        InstKind::StoreDynScaled8(val, ptr, idx) => {
+            InstKind::StoreDynScaled8(r(val), r(ptr), r(idx))
+        }
         InstKind::SiToFp(o) => InstKind::SiToFp(r(o)),
         InstKind::FpToSi(o) => InstKind::FpToSi(r(o)),
         InstKind::ZExtBoolToI64(o) => InstKind::ZExtBoolToI64(r(o)),

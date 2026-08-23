@@ -184,6 +184,15 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
             r(p);
             r(o);
         }
+        InstKind::LoadDynScaled8(_, p, i) => {
+            r(p);
+            r(i);
+        }
+        InstKind::StoreDynScaled8(v, p, i) => {
+            r(v);
+            r(p);
+            r(i);
+        }
         InstKind::Select(_, c, t, e) => {
             r(c);
             r(t);

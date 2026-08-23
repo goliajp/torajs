@@ -36,6 +36,15 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             v(ptr);
             v(off);
         }
+        InstKind::LoadDynScaled8(_, ptr, idx) => {
+            v(ptr);
+            v(idx);
+        }
+        InstKind::StoreDynScaled8(val, ptr, idx) => {
+            v(val);
+            v(ptr);
+            v(idx);
+        }
         InstKind::Select(_, cond, t, e) => {
             v(cond);
             v(t);

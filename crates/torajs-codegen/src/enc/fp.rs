@@ -185,6 +185,19 @@ pub fn str_d_reg(rt: Fpr, rn: Gpr, rm: Gpr) -> u32 {
     0xFC20_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDR Dt, [Xn, Xm, LSL #3] — FP 64-bit register-indexed load with
+/// the scale folded into the AGU (S = 1). clang: `ldr d0, [x1, x2,
+/// lsl #3]` = 0xFC62_7820.
+pub fn ldr_d_reg_lsl3(rt: Fpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xFC60_7800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STR Dt, [Xn, Xm, LSL #3] — FP 64-bit register-indexed scaled
+/// store. clang: `str d0, [x1, x2, lsl #3]` = 0xFC22_7820.
+pub fn str_d_reg_lsl3(rt: Fpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xFC20_7800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,6 +375,17 @@ mod tests {
         // = 0xFC60_6800 | 0x000A_0000 | 0x0000_0180
         // = 0xFC6A_6980
         assert_eq!(ldr_d_reg(Fpr::V0, Gpr::X12, Gpr::X10), 0xFC6A_6980);
+    }
+
+    /// The four scaled (LSL #3) register-offset forms vs clang
+    /// (`ldr/str x0/d0, [x1, x2, lsl #3]` assembled + objdump'd).
+    #[test]
+    fn scaled_reg_forms_match_clang() {
+        use crate::enc::mem::{ldr_x_reg_lsl3, str_x_reg_lsl3};
+        assert_eq!(ldr_x_reg_lsl3(Gpr::X0, Gpr::X1, Gpr::X2), 0xF862_7820);
+        assert_eq!(str_x_reg_lsl3(Gpr::X0, Gpr::X1, Gpr::X2), 0xF822_7820);
+        assert_eq!(ldr_d_reg_lsl3(Fpr::V0, Gpr::X1, Gpr::X2), 0xFC62_7820);
+        assert_eq!(str_d_reg_lsl3(Fpr::V0, Gpr::X1, Gpr::X2), 0xFC22_7820);
     }
 
     #[test]

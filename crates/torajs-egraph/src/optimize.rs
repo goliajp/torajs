@@ -467,9 +467,14 @@ fn is_pure(kind: &InstKind) -> bool {
         // there silently substitutes the stale pre-store value and
         // returns wrong results. Phase 1 alias module enables Load
         // dedup safely. Phase 0 keeps Load as skeleton.
-        InstKind::Load(_, _, _) | InstKind::LoadDyn(_, _, _) => false,
+        InstKind::Load(_, _, _)
+        | InstKind::LoadDyn(_, _, _)
+        | InstKind::LoadDynScaled8(_, _, _) => false,
         // Skeleton: writes and calls.
-        InstKind::Store(_, _, _) | InstKind::StoreDyn(_, _, _) | InstKind::Call(_, _) => false,
+        InstKind::Store(_, _, _)
+        | InstKind::StoreDyn(_, _, _)
+        | InstKind::StoreDynScaled8(_, _, _)
+        | InstKind::Call(_, _) => false,
         // Alloca returns a unique pointer per invocation — two
         // syntactically identical Alloca ops produce DIFFERENT
         // pointers, so they must NOT be GVN-deduplicated. Treated as

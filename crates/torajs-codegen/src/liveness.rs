@@ -385,6 +385,15 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             visit(base);
             visit(off);
         }
+        InstKind::LoadDynScaled8(_, base, idx) => {
+            visit(base);
+            visit(idx);
+        }
+        InstKind::StoreDynScaled8(val, base, idx) => {
+            visit(val);
+            visit(base);
+            visit(idx);
+        }
         InstKind::Call(_, args) => {
             for a in args {
                 visit(a);

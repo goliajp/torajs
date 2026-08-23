@@ -131,8 +131,12 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => ALLOCA_COST,
 
         // Memory ops.
-        InstKind::Load(_, _, _) | InstKind::LoadDyn(_, _, _) => LOAD_COST,
-        InstKind::Store(_, _, _) | InstKind::StoreDyn(_, _, _) => STORE_COST,
+        InstKind::Load(_, _, _)
+        | InstKind::LoadDyn(_, _, _)
+        | InstKind::LoadDynScaled8(_, _, _) => LOAD_COST,
+        InstKind::Store(_, _, _)
+        | InstKind::StoreDyn(_, _, _)
+        | InstKind::StoreDynScaled8(_, _, _) => STORE_COST,
 
         // Cross-pipeline numeric casts.
         InstKind::SiToFp(_) | InstKind::FpToSi(_) => CAST_COST,
