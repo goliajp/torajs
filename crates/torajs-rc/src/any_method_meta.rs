@@ -207,11 +207,21 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_STR_ITERATOR => ("[Symbol.iterator]", 0),
         // Annex B §B.2.4.1 — RegExp.prototype.compile(pattern, flags).
         ANY_METHOD_COMPILE => ("compile", 2),
+        // The buffer family's rows live in [`buffer_method_meta`]
+        // and the `any_method_iter` block's in [`iter_method_meta`]
+        // — the r405 watch says the next mid added here extracts a
+        // family first, and `subarray` was that mid.
+        _ => return buffer_method_meta(mid),
+    })
+}
+
+/// §25.1.6 / §23.2.3 rows — the ArrayBuffer and TypedArray
+/// prototypes' own names. Extracted family; a miss falls through to
+/// [`iter_method_meta`], so the parent's `None` is unchanged.
+fn buffer_method_meta(mid: i64) -> Option<(&'static str, u32)> {
+    Some(match mid {
         ANY_METHOD_RESIZE => ("resize", 1),
-        // The `any_method_iter` id block (iterator protocol + weak
-        // deref) rows live in [`iter_method_meta`] — the r405 watch
-        // said the next mid added here must extract a family first,
-        // and rotation 434's drop/toArray rows were that mid.
+        ANY_METHOD_SUBARRAY => ("subarray", 2),
         _ => return iter_method_meta(mid),
     })
 }

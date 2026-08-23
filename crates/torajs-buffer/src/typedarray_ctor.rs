@@ -104,6 +104,36 @@ pub unsafe extern "C" fn __torajs_typedarray_create(
     unsafe { from_length(kind, a0) }
 }
 
+/// §23.2.4.2 TypedArrayCreateSameType — a fresh view of `kind` over
+/// a fresh buffer of `len` elements, zero-filled. Answers
+/// `undefined` with a pending RangeError when the byte count does
+/// not fit or the allocation fails.
+///
+/// This is what the prototype methods that build a new array reach
+/// for. It deliberately does NOT consult `@@species`: species is
+/// still out (see the RFC's "what is still out"), and a half-built
+/// species lookup would be a silently different constructor rather
+/// than a missing feature.
+pub(crate) unsafe fn create_same_type(kind: Kind, len: i64) -> AnyValue {
+    unsafe {
+        let Some(bytes) = len.checked_mul(kind.element_size()) else {
+            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+            return VALUE_UNDEFINED;
+        };
+        let buf_cell = allocate(bytes, NOT_RESIZABLE);
+        if buf_cell.is_null() {
+            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
+            return VALUE_UNDEFINED;
+        }
+        let buffer = __torajs_anyv_box_pointer(buf_cell);
+        let view = mint(kind, buffer, 0, len);
+        // `mint` took its own reference; the local box held the
+        // allocation's only other one.
+        __torajs_anyv_rc_dec(buffer);
+        view
+    }
+}
+
 /// §23.2.5.1 step 4 — `new T(len)` allocates its own buffer.
 ///
 /// # Safety
@@ -123,21 +153,7 @@ unsafe fn from_length(kind: Kind, a0: AnyValue) -> AnyValue {
             }
             l
         };
-        let Some(bytes) = len.checked_mul(kind.element_size()) else {
-            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
-            return VALUE_UNDEFINED;
-        };
-        let buf_cell = allocate(bytes, NOT_RESIZABLE);
-        if buf_cell.is_null() {
-            __torajs_throw_range_error(b"Invalid typed array length\0".as_ptr());
-            return VALUE_UNDEFINED;
-        }
-        let buffer = __torajs_anyv_box_pointer(buf_cell);
-        let view = mint(kind, buffer, 0, len);
-        // `mint` took its own reference; the local box is the
-        // allocation's only other one.
-        __torajs_anyv_rc_dec(buffer);
-        view
+        create_same_type(kind, len)
     }
 }
 

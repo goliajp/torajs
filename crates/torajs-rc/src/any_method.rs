@@ -389,6 +389,12 @@ pub const ANY_METHOD_COMPILE: i64 = 177;
 /// picks the body. Same append-only ABI contract as the ids above.
 pub const ANY_METHOD_RESIZE: i64 = 178;
 
+/// §23.2.3.28 `%TypedArray%.prototype.subarray`
+/// (RFC 20260823-typedarray-substrate 刀 5). The only slab-A name
+/// that is not already shared with `Array.prototype`, so it is the
+/// only one that needed an id. Same append-only ABI contract.
+pub const ANY_METHOD_SUBARRAY: i64 = 179;
+
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
 /// receiver. ssa-lower interns the member NAME into one of these at
