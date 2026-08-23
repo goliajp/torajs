@@ -97,6 +97,7 @@ mod arr_member_value;
 mod arr_proto_probe;
 mod array_from;
 mod array_from_async_finish;
+mod buffer_species;
 mod call_spread;
 pub(crate) mod closure_proto;
 mod coerce;
@@ -1642,8 +1643,6 @@ mod tests {
         __torajs_arraybuffer_resize,
         // 刀 8 — §25.1.6.7-8 transfer / transferToFixedLength.
         __torajs_arraybuffer_transfer,
-        // @@species knife — the §7.3.20 constructor-face guard.
-        __torajs_buffer_species_guard,
         __torajs_arraybuffer_print,
         __torajs_arraybuffer_create,
         __torajs_typedarray_length,

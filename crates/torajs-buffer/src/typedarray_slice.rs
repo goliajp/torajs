@@ -27,6 +27,9 @@ use crate::typedarray_elem;
 use crate::typedarray_span::{clamp_relative, revalidate, to_integer_or_infinity, validate};
 
 unsafe extern "C" {
+    /// torajs-anyvalue — §7.3.20 species constructor-face guard
+    /// (1 = a throw is pending; `buffer_species.rs`).
+    fn __torajs_buffer_species_guard(recv: AnyValue) -> i64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_range_error(msg: *const u8);
     fn __torajs_throw_check() -> i64;
@@ -82,7 +85,7 @@ pub unsafe extern "C" fn __torajs_typedarray_subarray(
         };
         // Step 15 TypedArraySpeciesCreate — constructor-face read
         // (`species.rs`), ahead of the mint.
-        if crate::species::__torajs_buffer_species_guard(recv) != 0 {
+        if __torajs_buffer_species_guard(recv) != 0 {
             return VALUE_UNDEFINED;
         }
         mint(kind, buffer, begin, new_len)
@@ -121,7 +124,7 @@ pub unsafe extern "C" fn __torajs_typedarray_slice(
         // Step 9 TypedArraySpeciesCreate begins with the
         // constructor-face read (`species.rs`) — an instance-
         // installed throwing getter surfaces here.
-        if crate::species::__torajs_buffer_species_guard(recv) != 0 {
+        if __torajs_buffer_species_guard(recv) != 0 {
             return VALUE_UNDEFINED;
         }
         let out = create_same_type(kind, count);

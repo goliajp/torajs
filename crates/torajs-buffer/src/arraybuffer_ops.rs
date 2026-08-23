@@ -16,6 +16,9 @@ use crate::arraybuffer::{
 };
 
 unsafe extern "C" {
+    /// torajs-anyvalue — §7.3.20 species constructor-face guard
+    /// (`buffer_species.rs`).
+    fn __torajs_buffer_species_guard(recv: AnyValue) -> i64;
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_throw_range_error(msg: *const u8);
     fn __torajs_throw_check() -> i64;
@@ -155,7 +158,7 @@ pub unsafe extern "C" fn __torajs_arraybuffer_slice(
         // §25.1.6.16 step 14 — the species constructor-face read
         // (`species.rs`); a poisoned instance `constructor` throws
         // before any allocation.
-        if crate::species::__torajs_buffer_species_guard(av) != 0 {
+        if __torajs_buffer_species_guard(av) != 0 {
             return VALUE_UNDEFINED;
         }
         // The coercions above can run user code, so the source may

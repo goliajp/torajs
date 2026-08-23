@@ -86,6 +86,11 @@ pub(crate) unsafe fn own_dict(ptr: *mut c_void, t: u16) -> *const c_void {
     if is_wrapper_tag(t) {
         return unsafe { wrapper_props(ptr) };
     }
+    // RFC 20260823 @@species knife — a buffer-family cell's expando
+    // bag holds its symbol-keyed own entries like any other key.
+    if crate::member_get_buffer::is_buffer_family(t) {
+        return unsafe { crate::member_get_layout::buffer_props(ptr, t) };
+    }
     core::ptr::null()
 }
 
