@@ -8,9 +8,9 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_reg, add_reg_lsl, addv_b_v8b, and_reg, asrv_reg, bl_imm26, cnt_v8b, eor_reg,
-    fadd_d, fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, lslv_reg, lsrv_reg,
-    msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
+    add_imm, add_reg, add_reg_lsl, addv_b_v8b, and_reg, asr_imm, asrv_reg, bl_imm26, cnt_v8b,
+    eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, lsl_imm,
+    lslv_reg, lsr_imm, lsrv_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
 };
 use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
@@ -86,6 +86,18 @@ pub fn emit_binop(
                 write_def_spill_gpr(bytes, spill_off, dst);
                 return;
             }
+            // mul by a power of two → one LSL #k (S7 knife c1): the
+            // array-index scale `i * 8` otherwise pays a MOVZ + a
+            // 3-cycle MUL every loop iteration. Two's-complement
+            // wrap of MUL and LSL agree, so the rewrite is exact.
+            if matches!(op, BinOp::Mul)
+                && let Some((x, sh)) = mul_pow2_operand(lhs, rhs)
+            {
+                let rx = materialize_operand_gpr(bytes, x, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, lsl_imm(dst, rx, sh));
+                write_def_spill_gpr(bytes, spill_off, dst);
+                return;
+            }
             let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
             // Round 5 popcount branch/const attack — ADD/SUB with a
             // small constant RHS use the imm12 form, skipping the
@@ -97,6 +109,23 @@ pub fn emit_binop(
                 match op {
                     BinOp::Add => write_u32(bytes, add_imm(dst, rn, *c as u16)),
                     BinOp::Sub => write_u32(bytes, sub_imm(dst, rn, *c as u16)),
+                    _ => unreachable!(),
+                }
+                write_def_spill_gpr(bytes, spill_off, dst);
+                return;
+            }
+            // The shift trio with a const count in [0, 64) takes the
+            // UBFM/SBFM immediate alias (S7 knife c1) — the count is
+            // never materialized. Counts outside the range keep the
+            // register form for its mod-64 semantics.
+            if let (BinOp::Shl | BinOp::LShr | BinOp::AShr, Operand::ConstI64(c)) = (op, rhs)
+                && (0..64).contains(c)
+            {
+                let sh = *c as u32;
+                match op {
+                    BinOp::Shl => write_u32(bytes, lsl_imm(dst, rn, sh)),
+                    BinOp::LShr => write_u32(bytes, lsr_imm(dst, rn, sh)),
+                    BinOp::AShr => write_u32(bytes, asr_imm(dst, rn, sh)),
                     _ => unreachable!(),
                 }
                 write_def_spill_gpr(bytes, spill_off, dst);
@@ -204,6 +233,17 @@ fn mul_add_shift_operand<'a>(lhs: &'a Operand, rhs: &'a Operand) -> Option<(&'a 
     }
 }
 
+/// `x * 2^k` (either side const) → `(x, k)` for the LSL #k form.
+/// Mirrors [`mul_add_shift_operand`]'s side handling; a both-const
+/// pair binds the lhs (upstream const-folding owns that shape).
+fn mul_pow2_operand<'a>(lhs: &'a Operand, rhs: &'a Operand) -> Option<(&'a Operand, u32)> {
+    let (c, x) = match (lhs, rhs) {
+        (Operand::ConstI64(c), x) | (x, Operand::ConstI64(c)) => (*c, x),
+        _ => return None,
+    };
+    (c > 0 && (c as u64).is_power_of_two()).then(|| (x, (c as u64).trailing_zeros()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::compile_function;
@@ -261,13 +301,30 @@ mod tests {
         );
     }
 
+    /// MUL with a power-of-two side takes the LSL #k form (S7
+    /// knife c1): `2 * 3` binds c = 2 (lhs), so the other side is
+    /// materialized and shifted by one.
     #[test]
-    fn two_times_three() {
+    fn two_times_three_uses_lsl_form() {
+        let func = build_binop_const("mul", BinOp::Mul, 2, 3);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 3, 0),
+            enc::lsl_imm(Gpr::X0, Gpr::X9, 1),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(compiled.bytes, expected);
+    }
+
+    /// MUL by a non-power-of-two (and non-3/5/9) keeps the register
+    /// form.
+    #[test]
+    fn seven_times_six_keeps_reg_form() {
         assert_binop_4word(
             "mul",
             BinOp::Mul,
-            2,
-            3,
+            7,
+            6,
             enc::mul_reg(Gpr::X0, Gpr::X9, Gpr::X10),
         );
     }
@@ -316,36 +373,54 @@ mod tests {
         );
     }
 
+    /// Shifts with a const count take the immediate alias (S7 knife
+    /// c1); the count is never materialized.
     #[test]
-    fn one_shl_three() {
+    fn one_shl_three_uses_imm_form() {
+        let func = build_binop_const("shl", BinOp::Shl, 1, 3);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 1, 0),
+            enc::lsl_imm(Gpr::X0, Gpr::X9, 3),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(compiled.bytes, expected);
+    }
+
+    #[test]
+    fn sixteen_ashr_two_uses_imm_form() {
+        let func = build_binop_const("ashr", BinOp::AShr, 16, 2);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 16, 0),
+            enc::asr_imm(Gpr::X0, Gpr::X9, 2),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(compiled.bytes, expected);
+    }
+
+    #[test]
+    fn sixteen_lshr_two_uses_imm_form() {
+        let func = build_binop_const("lshr", BinOp::LShr, 16, 2);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 16, 0),
+            enc::lsr_imm(Gpr::X0, Gpr::X9, 2),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(compiled.bytes, expected);
+    }
+
+    /// A shift count outside [0, 64) keeps the register form for its
+    /// mod-64 semantics.
+    #[test]
+    fn shl_count_64_keeps_reg_form() {
         assert_binop_4word(
             "shl",
             BinOp::Shl,
             1,
-            3,
+            64,
             enc::lslv_reg(Gpr::X0, Gpr::X9, Gpr::X10),
-        );
-    }
-
-    #[test]
-    fn sixteen_ashr_two() {
-        assert_binop_4word(
-            "ashr",
-            BinOp::AShr,
-            16,
-            2,
-            enc::asrv_reg(Gpr::X0, Gpr::X9, Gpr::X10),
-        );
-    }
-
-    #[test]
-    fn sixteen_lshr_two() {
-        assert_binop_4word(
-            "lshr",
-            BinOp::LShr,
-            16,
-            2,
-            enc::lsrv_reg(Gpr::X0, Gpr::X9, Gpr::X10),
         );
     }
 

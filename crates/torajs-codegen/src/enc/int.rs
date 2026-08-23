@@ -126,6 +126,29 @@ pub fn lsrv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0x9AC0_2400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
 }
 
+/// LSL Xd, Xn, #sh — alias of UBFM Xd, Xn, #((64-sh)%64), #(63-sh).
+/// ARM ARM C6.2.155. clang: `lsl x0, x1, #3` = 0xD37D_F020.
+pub fn lsl_imm(rd: Gpr, rn: Gpr, sh: u32) -> u32 {
+    debug_assert!(sh < 64);
+    let immr = (64 - sh) % 64;
+    let imms = 63 - sh;
+    0xD340_0000 | (immr << 16) | (imms << 10) | (rn.idx() << 5) | rd.idx()
+}
+
+/// LSR Xd, Xn, #sh — alias of UBFM Xd, Xn, #sh, #63. ARM ARM
+/// C6.2.160. clang: `lsr x0, x1, #3` = 0xD343_FC20.
+pub fn lsr_imm(rd: Gpr, rn: Gpr, sh: u32) -> u32 {
+    debug_assert!(sh < 64);
+    0xD340_FC00 | (sh << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// ASR Xd, Xn, #sh — alias of SBFM Xd, Xn, #sh, #63. ARM ARM
+/// C6.2.19. clang: `asr x0, x1, #3` = 0x9343_FC20.
+pub fn asr_imm(rd: Gpr, rn: Gpr, sh: u32) -> u32 {
+    debug_assert!(sh < 64);
+    0x9340_FC00 | (sh << 16) | (rn.idx() << 5) | rd.idx()
+}
+
 /// CMP Xn, Xm — alias for SUBS XZR, Xn, Xm. Sets NZCV based on
 /// `Xn - Xm`; result discarded. ARM ARM C6.2.49 / C6.2.377.
 pub fn cmp_reg(rn: Gpr, rm: Gpr) -> u32 {
@@ -266,6 +289,18 @@ mod tests {
     #[test]
     fn eor_x0_x1_x2_matches_arm_arm() {
         assert_eq!(eor_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0xCA02_0020);
+    }
+
+    /// Immediate-shift alias trio vs clang (`lsl/lsr/asr x0, x1, #3`
+    /// and `lsl x5, x9, #1` assembled + objdump'd on this machine).
+    #[test]
+    fn imm_shift_aliases_match_clang() {
+        assert_eq!(lsl_imm(Gpr::X0, Gpr::X1, 3), 0xD37D_F020);
+        assert_eq!(lsr_imm(Gpr::X0, Gpr::X1, 3), 0xD343_FC20);
+        assert_eq!(asr_imm(Gpr::X0, Gpr::X1, 3), 0x9343_FC20);
+        assert_eq!(lsl_imm(Gpr::X5, Gpr::X9, 1), 0xD37F_F925);
+        // sh = 0 degenerates to the UBFM #0,#63 move alias.
+        assert_eq!(lsl_imm(Gpr::X0, Gpr::X1, 0), 0xD340_FC20);
     }
 
     #[test]
