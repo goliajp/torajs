@@ -89,6 +89,17 @@ pub(crate) fn try_dispatch(
     {
         return Some(v);
     }
+    // S7-r1 — `charCodeAt` (0/1-arg) emits an inline Latin-1 read
+    // instead of the f64-ABI kernel call; the wedge falls back to
+    // that call itself for UTF-16 parents, and declines (`None`)
+    // for 2+-arg shapes so the pre-existing path below keeps them.
+    if method == "charCodeAt" && args.len() <= 1 {
+        if let Some(v) =
+            crate::ssa_lower_str_charat_wedges::try_inline_substr_char_code_at(ctx, args, &recv_op)
+        {
+            return Some(v);
+        }
+    }
     // View-aware fast paths — read bytes from
     // parent + offset directly, no per-call malloc.
     let view_aware = match method {

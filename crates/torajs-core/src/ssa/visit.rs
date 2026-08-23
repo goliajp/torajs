@@ -40,6 +40,10 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             v(ptr);
             v(idx);
         }
+        InstKind::LoadU8Dyn(ptr, idx) => {
+            v(ptr);
+            v(idx);
+        }
         InstKind::StoreDynScaled8(val, ptr, idx) => {
             v(val);
             v(ptr);

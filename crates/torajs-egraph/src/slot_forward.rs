@@ -188,6 +188,10 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
             r(p);
             r(i);
         }
+        InstKind::LoadU8Dyn(p, i) => {
+            r(p);
+            r(i);
+        }
         InstKind::StoreDynScaled8(v, p, i) => {
             r(v);
             r(p);

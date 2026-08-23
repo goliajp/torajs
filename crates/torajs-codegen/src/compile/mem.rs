@@ -16,8 +16,8 @@ use super::{
 };
 use crate::enc::{
     add_imm, ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3,
-    ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3, str_x_imm12, str_x_reg, str_x_reg_lsl3,
-    stur_x_imm9,
+    ldrb_w_reg, ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3, str_x_imm12, str_x_reg,
+    str_x_reg_lsl3, stur_x_imm9,
 };
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
@@ -202,6 +202,24 @@ pub fn emit_load_dyn_scaled8(
         write_u32(bytes, ldr_x_reg_lsl3(dst, rn, rm));
         write_def_spill_gpr(bytes, spill_off, dst);
     }
+}
+
+/// Emit `LDRB Wd, [Xn, Xm]` — byte load, zero-extended to the full
+/// Xd (Wd write zeroes bits 32..64; LDRB itself zeroes bits 8..32).
+/// One instruction per byte probe — the S7-r2 SplitIter inline scan.
+pub fn emit_load_u8_dyn(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    base: &Operand,
+    idx: &Operand,
+    alloc: &Assignment,
+) {
+    let result_vid = inst.result.expect("LoadU8Dyn must have result");
+    let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_LHS, alloc);
+    let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc);
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    write_u32(bytes, ldrb_w_reg(dst, rn, rm));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// Emit `STR Xs/Ds, [Xn, Xm, LSL #3]` — scaled register-indexed

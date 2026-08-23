@@ -66,8 +66,8 @@ pub use cast::{
 pub use cmp::{emit_fcmp, emit_icmp, emit_select};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
 pub use mem::{
-    emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_store, emit_store_dyn,
-    emit_store_dyn_scaled8,
+    emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn, emit_store,
+    emit_store_dyn, emit_store_dyn_scaled8,
 };
 pub use operand::{
     emit_copy, materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr,
@@ -281,6 +281,7 @@ fn emit_inst(
         InstKind::LoadDynScaled8(ty, base, idx) => {
             emit_load_dyn_scaled8(bytes, inst, ty, base, idx, alloc)
         }
+        InstKind::LoadU8Dyn(base, idx) => emit_load_u8_dyn(bytes, inst, base, idx, alloc),
         InstKind::StoreDynScaled8(val, base, idx) => {
             emit_store_dyn_scaled8(bytes, val, base, idx, alloc)
         }

@@ -188,6 +188,17 @@ pub enum InstKind {
     /// `store_dyn_s8 <value>, <base> + <idx>*8` — symmetric scaled
     /// store.
     StoreDynScaled8(Operand, Operand, Operand),
+    /// `%v = load_u8_dyn <base> + <idx>` — load ONE byte at
+    /// `base + idx` and zero-extend to i64. aarch64 has this as a
+    /// single instruction (`LDRB Wd, [Xn, Xm]` — writing Wd zeroes
+    /// the upper 32 bits, and LDRB itself zeroes bits 8..32), so a
+    /// byte scan costs exactly one load per probe. Introduced for
+    /// the S7-r2 SplitIter fast path: the per-token
+    /// `__torajs_split_iter_next` cross-archive call is replaced by
+    /// an inline Latin-1 byte scan, which needs byte-granularity
+    /// reads the 8/4-byte `LoadDyn` family can't express. Result
+    /// type is always I64.
+    LoadU8Dyn(Operand, Operand),
     /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
     /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
     SiToFp(Operand),

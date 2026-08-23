@@ -18,7 +18,7 @@
 //! caller can fall through to the generic Str-path dispatch.
 
 use crate::ast::ExprId;
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Try to lower `<Str | Substr>.charAt(...)` /
@@ -165,4 +165,213 @@ pub(crate) fn try_dispatch(
         return Some(Operand::Value(v));
     }
     None
+}
+
+/// S7-r1 — inline `Substr.charCodeAt(i)` for a Latin-1 parent.
+///
+/// The kernel call (`__torajs_substr_char_code_at`, f64 ABI) priced
+/// at 19% of the whole rpn probe after the S7-r2 SplitIter inline
+/// scan landed — for a split token the per-call work is four field
+/// loads plus one byte load, so the cross-archive BL (uninlinable,
+/// S7 立项事实 4-①) dominates. This wedge emits the read inline,
+/// versioned on the parent's encoding flag:
+///
+/// - out-of-range `i` → NaN (ES §22.1.3.2 step 5), bounds checked
+///   BEFORE any parent-field read (strictly safer than the kernel,
+///   which resolves the parent header even for OOB indices);
+/// - Latin-1 parent → `LDRB` at `parent_data + offset + i`,
+///   `SiToFp` to the same f64 the kernel answers;
+/// - UTF-16 parent → the pre-existing kernel call (no u16 load
+///   instruction exists, and the mixed-encoding shape is off every
+///   measured hot path).
+///
+/// The old pre-P11.1-S2 inline was dropped as "encoding branch is
+/// no cheaper than the call" — that held for a per-call header
+/// probe against an INLINE kernel; against today's cross-archive
+/// BL + f64 return the branch is one perfectly-predicted test.
+///
+/// Mirrors `substr_code_unit_at` (torajs-str/substr_methods.rs):
+/// len u64 @8, parent ptr @16, code-unit offset u64 @24; Latin-1
+/// stride 1 with payload at parent+16.
+pub(crate) fn try_inline_substr_char_code_at(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    recv_op: &Operand,
+) -> Option<Operand> {
+    if args.len() > 1 {
+        return None;
+    }
+    // ES §22.1.3.2 step 2-3: missing / undefined pos → 0; anything
+    // else runs ToIntegerOrInfinity (the charAt S332 coercion pair).
+    let idx = if args.is_empty()
+        || matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        ) {
+        Operand::ConstI64(0)
+    } else {
+        let n = ctx.lower_to_number_operand(args[0]);
+        ctx.coerce_to_i64(n)
+    };
+    let cur = ctx.cur_block;
+    let result_slot = ctx
+        .f
+        .append_inst(cur, InstKind::Alloca(Type::F64), Type::Ptr, None);
+    let len = ctx.f.append_inst(
+        cur,
+        InstKind::Load(Type::I64, recv_op.clone(), 8),
+        Type::I64,
+        None,
+    );
+    let ge_zero = ctx.f.append_inst(
+        cur,
+        InstKind::ICmp(IPred::Sge, idx.clone(), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let lt_len = ctx.f.append_inst(
+        cur,
+        InstKind::ICmp(IPred::Slt, idx.clone(), Operand::Value(len)),
+        Type::Bool,
+        None,
+    );
+    let in_bounds = ctx.f.append_inst(
+        cur,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(ge_zero),
+            Operand::Value(lt_len),
+        ),
+        Type::Bool,
+        None,
+    );
+    let inb_blk = ctx.f.add_block();
+    let oob_blk = ctx.f.add_block();
+    let lat_blk = ctx.f.add_block();
+    let slow_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: Operand::Value(in_bounds),
+            then_blk: inb_blk,
+            else_blk: oob_blk,
+        },
+    );
+    ctx.f.append_void(
+        oob_blk,
+        InstKind::Store(Operand::ConstF64(f64::NAN), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(oob_blk, Terminator::Br(join_blk));
+
+    let parent = ctx.f.append_inst(
+        inb_blk,
+        InstKind::Load(Type::Ptr, recv_op.clone(), 16),
+        Type::Ptr,
+        None,
+    );
+    let hdr = ctx.f.append_inst(
+        inb_blk,
+        InstKind::Load(Type::I64, Operand::Value(parent), 0),
+        Type::I64,
+        None,
+    );
+    // STR_FLAG_IS_LATIN1 (0x0002) lives in the header's flags u16
+    // at bits 48..64 of the packed u64.
+    let flag = ctx.f.append_inst(
+        inb_blk,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(hdr),
+            Operand::ConstI64(0x0002i64 << 48),
+        ),
+        Type::I64,
+        None,
+    );
+    let is_lat = ctx.f.append_inst(
+        inb_blk,
+        InstKind::ICmp(IPred::Ne, Operand::Value(flag), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        inb_blk,
+        Terminator::CondBr {
+            cond: Operand::Value(is_lat),
+            then_blk: lat_blk,
+            else_blk: slow_blk,
+        },
+    );
+
+    let off = ctx.f.append_inst(
+        lat_blk,
+        InstKind::Load(Type::I64, recv_op.clone(), 24),
+        Type::I64,
+        None,
+    );
+    let p_int = ctx.f.append_inst(
+        lat_blk,
+        InstKind::PtrToInt(Operand::Value(parent)),
+        Type::I64,
+        None,
+    );
+    let base_i = ctx.f.append_inst(
+        lat_blk,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(p_int), Operand::ConstI64(16)),
+        Type::I64,
+        None,
+    );
+    let base = ctx.f.append_inst(
+        lat_blk,
+        InstKind::IntToPtr(Operand::Value(base_i)),
+        Type::Ptr,
+        None,
+    );
+    let j = ctx.f.append_inst(
+        lat_blk,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(off), idx.clone()),
+        Type::I64,
+        None,
+    );
+    let b = ctx.f.append_inst(
+        lat_blk,
+        InstKind::LoadU8Dyn(Operand::Value(base), Operand::Value(j)),
+        Type::I64,
+        None,
+    );
+    let f = ctx.f.append_inst(
+        lat_blk,
+        InstKind::SiToFp(Operand::Value(b)),
+        Type::F64,
+        None,
+    );
+    ctx.f.append_void(
+        lat_blk,
+        InstKind::Store(Operand::Value(f), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(lat_blk, Terminator::Br(join_blk));
+
+    let v = ctx.f.append_inst(
+        slow_blk,
+        InstKind::Call(
+            ctx.intrinsics.substr_char_code_at,
+            vec![recv_op.clone(), idx],
+        ),
+        Type::F64,
+        None,
+    );
+    ctx.f.append_void(
+        slow_blk,
+        InstKind::Store(Operand::Value(v), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(slow_blk, Terminator::Br(join_blk));
+
+    ctx.cur_block = join_blk;
+    let out = ctx.f.append_inst(
+        join_blk,
+        InstKind::Load(Type::F64, Operand::Value(result_slot), 0),
+        Type::F64,
+        None,
+    );
+    Some(Operand::Value(out))
 }

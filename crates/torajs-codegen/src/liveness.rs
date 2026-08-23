@@ -389,6 +389,10 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             visit(base);
             visit(idx);
         }
+        InstKind::LoadU8Dyn(base, idx) => {
+            visit(base);
+            visit(idx);
+        }
         InstKind::StoreDynScaled8(val, base, idx) => {
             visit(val);
             visit(base);

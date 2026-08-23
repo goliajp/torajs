@@ -469,7 +469,8 @@ fn is_pure(kind: &InstKind) -> bool {
         // dedup safely. Phase 0 keeps Load as skeleton.
         InstKind::Load(_, _, _)
         | InstKind::LoadDyn(_, _, _)
-        | InstKind::LoadDynScaled8(_, _, _) => false,
+        | InstKind::LoadDynScaled8(_, _, _)
+        | InstKind::LoadU8Dyn(_, _) => false,
         // Skeleton: writes and calls.
         InstKind::Store(_, _, _)
         | InstKind::StoreDyn(_, _, _)
