@@ -107,6 +107,15 @@ impl HarnessIndex {
             if gated_out.contains(&seg.name.as_str()) {
                 continue;
             }
+            // A case that DECLARES the same top-level name provides
+            // its own (the staging/sm suites carry their own `var
+            // ctors = …`); prepending the harness twin is a
+            // redeclaration type error, not a convenience. Only a
+            // column-0 declaration counts — a reference is exactly
+            // what selection is for.
+            if case_declares(case_src, &seg.name) {
+                continue;
+            }
             if contains_word(case_src, &seg.name) {
                 selected[i] = true;
                 stack.push(i);
@@ -129,6 +138,14 @@ impl HarnessIndex {
         }
         out
     }
+}
+
+/// Does the case source itself declare `name` at top level (any of
+/// the `decl_name` keyword forms at column 0)?
+fn case_declares(case_src: &str, name: &str) -> bool {
+    case_src
+        .lines()
+        .any(|l| decl_name(l).as_deref() == Some(name))
 }
 
 /// `function NAME(` / `class NAME` / `const NAME` / `let NAME` /
