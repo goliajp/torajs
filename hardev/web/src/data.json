@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T14:58:40.238Z",
+  "generatedAt": "2026-08-24T16:49:13.957Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-24T14:49:19Z",
-    "headSha": "b6e4fbfe4",
-    "elapsedSec": 364.55,
+    "ranAt": "2026-08-24T16:39:47Z",
+    "headSha": "421855be2",
+    "elapsedSec": 365.59,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.19
   },
   "torajs": {
-    "commit": "b6e4fbfe4",
-    "commitSubject": "feat: dead-strip why-live query records liveness pred chains",
+    "commit": "421855be2",
+    "commitSubject": "feat: ns-static identity probes read a header flag instead of the dispatch fn address",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "421855be2",
+      "subject": "feat: ns-static identity probes read a header flag instead of the dispatch fn address"
+    },
+    {
+      "hash": "59461c6b5",
+      "subject": "feat: any-method dispatch behind a link seam in its own archive member"
+    },
+    {
+      "hash": "a17161aa0",
+      "subject": "style: fmt-drift fix — dead_strip_who mod declaration order"
+    },
+    {
+      "hash": "0289e3dce",
+      "subject": "feat: dead-strip who-census lists all live in-edges, cut-in prices absent definitions"
+    },
+    {
+      "hash": "c9bd46c3d",
+      "subject": "feat: dead-strip cut what-if prices attack closures without stubbing code"
+    },
+    {
+      "hash": "76f1cde9a",
+      "subject": "chore: rotation 489 close — s2-3 data strip + undef neuter shipped, s2-5 rfc phase a opened, sweep ingest (zero movement), dashboard"
+    },
+    {
       "hash": "b6e4fbfe4",
       "subject": "feat: dead-strip why-live query records liveness pred chains"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "a816584a4",
       "subject": "chore: rotation 488 close — s2 dead-strip blades shipped, sweep ingest (zero movement), bench a/b (run_ms -1.1% median, artifact -28.6%), dashboard"
-    },
-    {
-      "hash": "6b6df79c7",
-      "subject": "feat: dead-strip on by default for tr build artifacts"
-    },
-    {
-      "hash": "8a8c1d256",
-      "subject": "feat: opt-in dead-strip of unreachable text atoms via member rewrite"
-    },
-    {
-      "hash": "718c49a5b",
-      "subject": "refactor: extract dead-strip reachability closure into reusable pass"
-    },
-    {
-      "hash": "b20041530",
-      "subject": "feat: symbol-granularity reachability accounting for dead-strip (diag only)"
-    },
-    {
-      "hash": "44cb6f3ed",
-      "subject": "chore: rotation 487 close — sweep ingest (+96 forward, zero regressions), roadmap p-surf stamp, dashboard"
-    },
-    {
-      "hash": "80e2f265a",
-      "subject": "feat: function values as generic array-like receivers"
     }
   ],
-  "headSha": "b6e4fbfe4",
+  "headSha": "421855be2",
   "autorun": {
-    "total": 792,
+    "total": 793,
     "baselineTarget": 10,
-    "bySelf": 787,
+    "bySelf": 788,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787576391-0f0e",
-      "at": "2026-08-24T12:59:51Z",
-      "ts": 1787576391,
+      "rotationId": "r-1787583546-59b2",
+      "at": "2026-08-24T14:59:06Z",
+      "ts": 1787583546,
       "trigger": "self",
-      "prevHead": "a816584a4",
-      "handoffSha": "sha256:f542fb0ac9c6cdbdbdf733318a100e180bfaacb50eb91d27c393ce006d0c9856",
-      "handoffAgeSec": 37,
+      "prevHead": "76f1cde9a",
+      "handoffSha": "sha256:0f7421efb637fd8138ddf4cec0d5c9a8683b0c2b2fc7abef29fae95349335da8",
+      "handoffAgeSec": 35,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787583546-59b2",
+        "at": "2026-08-24T14:59:06Z",
+        "ts": 1787583546,
+        "trigger": "self",
+        "prevHead": "76f1cde9a",
+        "handoffSha": "sha256:0f7421efb637fd8138ddf4cec0d5c9a8683b0c2b2fc7abef29fae95349335da8",
+        "handoffAgeSec": 35,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787576391-0f0e",
         "at": "2026-08-24T12:59:51Z",
@@ -876,17 +887,6 @@
         "prevHead": "2edbe9535",
         "handoffSha": "sha256:f75a3b448d5421ac6aea98b751d2d32721597e674345e352f0eeae5a00c4eded",
         "handoffAgeSec": 18,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787453541-10af",
-        "at": "2026-08-23T02:52:21Z",
-        "ts": 1787453541,
-        "trigger": "self",
-        "prevHead": "e183da233",
-        "handoffSha": "sha256:de43afbf27f2699064e8f59e662afe49e3c56cb656ad54ed39977cd30bdf3306",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }
