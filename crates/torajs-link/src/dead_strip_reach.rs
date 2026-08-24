@@ -27,9 +27,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use torajs_obj::{
-    N_NO_DEAD_STRIP, N_SECT, N_TYPE, N_UNDF, S_ATTR_LIVE_SUPPORT,
-    S_ATTR_NO_DEAD_STRIP, S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES,
-    SECTION_TYPE,
+    N_NO_DEAD_STRIP, N_SECT, N_TYPE, N_UNDF, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
+    S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES, SECTION_TYPE,
 };
 
 use crate::archive::ArMember;
@@ -84,7 +83,7 @@ pub(crate) struct MemberReach<'a> {
 
 /// Worklist node.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Node {
+pub(crate) enum Node {
     Atom {
         key: (usize, usize),
         sect: u8,
@@ -96,11 +95,25 @@ enum Node {
     },
 }
 
+/// Why a node went live — recorded (first edge wins) only when the
+/// why-live diag asks for it. First-wins makes every chain terminate:
+/// a node's pred was visited strictly before the node itself.
+pub(crate) enum Pred {
+    /// Seeded by a user-function reloc naming this symbol.
+    UserFn(String),
+    /// Seeded by a section flag root (no-dead-strip / mod-init / TLV).
+    FlagRoot,
+    Node(Node),
+}
+
 /// Closure output: per-member atom liveness plus the names that
 /// never resolved (should be empty on a healthy link).
 pub(crate) struct ReachResult<'a> {
     pub(crate) members: BTreeMap<(usize, usize), MemberReach<'a>>,
     pub(crate) unresolved: BTreeSet<String>,
+    /// First-recorded liveness edge per node; empty unless
+    /// `record_preds` was set (the strip path never pays for it).
+    pub(crate) preds: BTreeMap<Node, Pred>,
 }
 
 /// Run the atom-granularity reachability closure over the required
@@ -110,6 +123,7 @@ pub(crate) fn compute_reachability<'a>(
     merged: &MergedArchives<'a>,
     required: &RequiredMembers,
     extra_defined_syms: &BTreeSet<String>,
+    record_preds: bool,
 ) -> Result<ReachResult<'a>, String> {
     let mut reach: BTreeMap<(usize, usize), MemberReach<'a>> = BTreeMap::new();
     for &(a, m) in &required.members {
@@ -126,6 +140,7 @@ pub(crate) fn compute_reachability<'a>(
         .collect();
     let mut worklist: Vec<Node> = Vec::new();
     let mut unresolved: BTreeSet<String> = BTreeSet::new();
+    let mut preds: BTreeMap<Node, Pred> = BTreeMap::new();
     for f in &cfg.funcs {
         for r in &f.relocs {
             if let Some(name) = reloc_target_name(&r.kind)
@@ -133,6 +148,9 @@ pub(crate) fn compute_reachability<'a>(
                 && !required.dyld_imports.contains_key(name)
                 && let Some(node) = node_for_global_name(name, merged, &reach)
             {
+                if record_preds {
+                    preds.entry(node).or_insert(Pred::UserFn(name.to_string()));
+                }
                 worklist.push(node);
             }
         }
@@ -152,15 +170,23 @@ pub(crate) fn compute_reachability<'a>(
                 || ty == S_TERM_FUNC_POINTERS
                 || ty == S_THREAD_LOCAL_VARIABLES
             {
-                worklist.push(Node::AllSect {
+                let node = Node::AllSect {
                     key,
                     sect: (i + 1) as u8,
-                });
+                };
+                if record_preds {
+                    preds.entry(node).or_insert(Pred::FlagRoot);
+                }
+                worklist.push(node);
             }
         }
         for e in &r.nlist {
             if e.n_type & N_TYPE == N_SECT && e.n_desc & N_NO_DEAD_STRIP != 0 {
-                worklist.push(node_for_addr(key, r, e.n_sect, e.n_value));
+                let node = node_for_addr(key, r, e.n_sect, e.n_value);
+                if record_preds {
+                    preds.entry(node).or_insert(Pred::FlagRoot);
+                }
+                worklist.push(node);
             }
         }
     }
@@ -179,12 +205,14 @@ pub(crate) fn compute_reachability<'a>(
             required,
             &mut worklist,
             &mut unresolved,
+            record_preds.then_some(&mut preds),
         )?;
     }
 
     Ok(ReachResult {
         members: reach,
         unresolved,
+        preds,
     })
 }
 
@@ -235,6 +263,7 @@ fn covering_atom(atoms: &[(u64, u64)], addr: u64) -> Option<usize> {
 }
 
 /// Mark a node live and enqueue everything it references.
+#[allow(clippy::too_many_arguments)]
 fn expand_node(
     node: Node,
     merged: &MergedArchives<'_>,
@@ -243,6 +272,7 @@ fn expand_node(
     required: &RequiredMembers,
     worklist: &mut Vec<Node>,
     unresolved: &mut BTreeSet<String>,
+    mut preds: Option<&mut BTreeMap<Node, Pred>>,
 ) -> Result<(), String> {
     let (key, sect_ord, range) = match node {
         Node::Atom { key, sect, atom } => {
@@ -301,6 +331,9 @@ fn expand_node(
             required,
             unresolved,
         ) {
+            if let Some(p) = preds.as_deref_mut() {
+                p.entry(next).or_insert(Pred::Node(node));
+            }
             worklist.push(next);
         }
     }

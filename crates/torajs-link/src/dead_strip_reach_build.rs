@@ -102,7 +102,6 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
     })
 }
 
-
 /// Trim trailing NUL/space padding off a raw 16-byte name slot.
 pub(crate) fn trim16(raw: &[u8; 16]) -> &[u8] {
     let end = raw
@@ -111,4 +110,3 @@ pub(crate) fn trim16(raw: &[u8; 16]) -> &[u8] {
         .unwrap_or(raw.len());
     &raw[..end]
 }
-
