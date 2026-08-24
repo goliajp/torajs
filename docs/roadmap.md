@@ -1557,7 +1557,27 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `41a66d4ee`** (2026-08-24, rotation 484 — a perf rotation:
+**Latest @ `80e2f265a`** (2026-08-24, rotation 487 — the generic
+array-like receiver sweep: HOF thisArg over a single-write `var arr`
+receiver (the knife-4 arraylit census admits mutable-never-rewritten
+bindings; struct_data_field_set gains the I64←integer-F64 arm),
+ToObject end to end for string/bool/number primitives and wrapper
+cells (the callback's O answers `instanceof`, wrapper own-miss reads
+walk wrapper-prototype → %Object.prototype%), arraylike_len reads
+the struct +24 expando on a layout miss (Error receivers), and
+function values join the generic receiver set (checker + lowering +
+Closure scan arm). One gate-caught regression (bool/number mint
+shadowing the prototype lane) reverted in-rotation. Gate predicate:
+**159** clusters of ≥ 4 holding **1225** cases, register 2 · 251,
+residue 652 · 810 (35.4%), core **2286** (was 2310). Sweep passTotal
+34699 → **34795 (+96)**, bug **12746 (−72)**, incompatible **5633
+(−24)**, trAccepted +24, conservation exact (+24 = +96 − 72), zero
+pass regressions — the 96 forward moves are the Array HOF applied-to
+family (13 each every/filter/forEach/map/some, 12+11 reduce family,
+3+3 indexOf/lastIndexOf) plus two census-widening rides (fromAsync,
+gOPD).
+
+**Prior @ `41a66d4ee`** (2026-08-24, rotation 484 — a perf rotation:
 takagi set the v1 target at 3-4x vs bun, the S7 abstraction-gap track
 opened with a Phase-A decomposition, and four codegen knives landed
 (immediate-form shifts / scaled addressing / select-form blade 3

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T08:59:45.756Z",
+  "generatedAt": "2026-08-24T10:28:08.775Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-24T08:51:27Z",
-    "headSha": "e9a115d91",
-    "elapsedSec": 377.72,
+    "ranAt": "2026-08-24T10:20:36Z",
+    "headSha": "80e2f265a",
+    "elapsedSec": 389.21,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29628,
+    "pass": 29724,
     "passNoOracle": 924,
     "passNegative": 4147,
-    "passTotal": 34699,
-    "bug": 12818,
-    "incompatible": 5657,
+    "passTotal": 34795,
+    "bug": 12746,
+    "incompatible": 5633,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47517,
-    "passRateInScope": 65.26,
-    "passRateTrAccepted": 73.02
+    "trAccepted": 47541,
+    "passRateInScope": 65.44,
+    "passRateTrAccepted": 73.19
   },
   "torajs": {
-    "commit": "e9a115d91",
-    "commitSubject": "feat: generic array methods over a string receiver",
+    "commit": "80e2f265a",
+    "commitSubject": "feat: function values as generic array-like receivers",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "80e2f265a",
+      "subject": "feat: function values as generic array-like receivers"
+    },
+    {
+      "hash": "bd296044f",
+      "subject": "feat: primitive-wrapper receivers read length and indices through the prototype chain"
+    },
+    {
+      "hash": "2965c4e7e",
+      "subject": "fix: arraylike length reads the struct expando dict on a layout miss"
+    },
+    {
+      "hash": "2b85ca833",
+      "subject": "fix: boolean and number primitives keep the wrapper-prototype expando lane"
+    },
+    {
+      "hash": "d4e1d5e23",
+      "subject": "feat: generic array methods over wrapper and primitive receivers via ToObject"
+    },
+    {
+      "hash": "55cf644e8",
+      "subject": "feat: hof thisArg over a single-write var array receiver"
+    },
+    {
+      "hash": "179aef1e5",
+      "subject": "chore: rotation 486 close follow-up — roadmap p-perf stamp + sweep artifacts (missed from close commit)"
+    },
+    {
+      "hash": "5f2e5f74d",
+      "subject": "chore: rotation 486 close — sweep ingest (zero verdict movement), roadmap p-perf stamp, dashboard"
+    },
+    {
       "hash": "e9a115d91",
       "subject": "feat: generic array methods over a string receiver"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "bada09602",
       "subject": "perf: fuse number-to-string conversion into its consuming concat"
-    },
-    {
-      "hash": "c142f93a2",
-      "subject": "chore: rotation 485 close — sweep ingest (zero verdict movement), dashboard"
-    },
-    {
-      "hash": "a35a7bb79",
-      "subject": "docs: roadmap p-perf stamp — median 0.518, startup 1.4ms after rotation 485 knives"
-    },
-    {
-      "hash": "3440ffcba",
-      "subject": "chore: bench run @ d9a309e — S7 r1+r2+r3 + S2 dlopen knife, tr/bun-aot median 0.593 -> 0.518"
-    },
-    {
-      "hash": "d9a309ee0",
-      "subject": "perf: lift the k3b promote guard off fn-local array literals"
-    },
-    {
-      "hash": "00c0766b0",
-      "subject": "perf: fetch dlopens libcurl on first use instead of link-time loading"
-    },
-    {
-      "hash": "c06a9f299",
-      "subject": "perf: inline the splititer scan and substr charcodeat behind a latin1 version gate"
-    },
-    {
-      "hash": "3cd4ff0af",
-      "subject": "chore: rotation 484 close — sweep ingest, roadmap stamp, dashboard"
-    },
-    {
-      "hash": "41a66d4ee",
-      "subject": "perf: a stored constant zero takes STR XZR"
     }
   ],
-  "headSha": "e9a115d91",
+  "headSha": "80e2f265a",
   "autorun": {
-    "total": 789,
+    "total": 790,
     "baselineTarget": 10,
-    "bySelf": 784,
+    "bySelf": 785,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787522446-35af",
-      "at": "2026-08-23T22:00:46Z",
-      "ts": 1787522446,
+      "rotationId": "r-1787562016-5892",
+      "at": "2026-08-24T09:00:16Z",
+      "ts": 1787562016,
       "trigger": "self",
-      "prevHead": "c142f93a2",
-      "handoffSha": "sha256:7ec585eda7d66ed21b67c8f259573db9afccb3e0f51ddf3eac42ee6707b1d4d8",
-      "handoffAgeSec": 4,
+      "prevHead": "5f2e5f74d",
+      "handoffSha": "sha256:d6c0dd864ce6b32ee949936bff97ffd0d46e60b53e66b4978e0c9c02c03f9718",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787562016-5892",
+        "at": "2026-08-24T09:00:16Z",
+        "ts": 1787562016,
+        "trigger": "self",
+        "prevHead": "5f2e5f74d",
+        "handoffSha": "sha256:d6c0dd864ce6b32ee949936bff97ffd0d46e60b53e66b4978e0c9c02c03f9718",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787522446-35af",
         "at": "2026-08-23T22:00:46Z",
@@ -876,17 +887,6 @@
         "prevHead": "af7fbf73a",
         "handoffSha": "sha256:9d4b697383399b3a15e21c38de7e9b76a0342e2a3c840652bdcade857f5b0202",
         "handoffAgeSec": 70,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787423372-2253",
-        "at": "2026-08-22T18:29:32Z",
-        "ts": 1787423372,
-        "trigger": "self",
-        "prevHead": "dd7999c61",
-        "handoffSha": "sha256:6f618219277a4fc3aa88776f472720e11bf182a12ed1e8117bae65ac37fec336",
-        "handoffAgeSec": 31,
         "conformanceBefore": null,
         "commitsInSession": null
       }
