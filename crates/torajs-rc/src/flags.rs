@@ -10,7 +10,7 @@
 //! | bits  | user | scope |
 //! |-------|------|-------|
 //! | 0     | [`FLAG_SUBCLASSED`] | universal |
-//! | 1     | [`FLAG_SPLIT_BLOCK`] | Str |
+//! | 1     | [`FLAG_SPLIT_BLOCK`] (Str) / [`FLAG_ARR_ARGUMENTS`] (Arr) / [`FLAG_CLOSURE_NS_STATIC`] (Closure) | disjoint-by-tag |
 //! | 2     | [`FLAG_STATIC_LITERAL`] | universal |
 //! | 3     | [`FLAG_ARR_ANY`] (Arr) / [`FLAG_FN_GENERATOR`] (Closure) | disjoint-by-tag |
 //! | 4     | [`FLAG_FROZEN`] | universal |
@@ -45,6 +45,16 @@
 pub const FLAG_SUBCLASSED: u16 = 1 << 0;
 /// `str_split` single-malloc block carrying N inline substrs.
 pub const FLAG_SPLIT_BLOCK: u16 = 1 << 1;
+/// `Tag::Closure` cell interned by the ns-static table (the
+/// `Math.max` / `JSON.parse` … namespace-static faces). Identity
+/// probes (`ns_static_id_of` and friends) read this bit instead of
+/// comparing the boxed dual entry against the dispatch fn's ADDRESS
+/// — the address compare link-rooted the whole ns-static dispatch
+/// universe from every generic kernel that merely asked "is this an
+/// ns-static cell" (RFC 20260824-s2-5 Phase B blade 1). Bit 1 is
+/// Tag::Closure-private (disjoint-by-tag reuse of Str
+/// [`FLAG_SPLIT_BLOCK`] / Arr [`FLAG_ARR_ARGUMENTS`]).
+pub const FLAG_CLOSURE_NS_STATIC: u16 = 1 << 1;
 /// `Tag::Arr` cell is a materialized `arguments` object (the
 /// `__torajs_arguments` local both desugar lanes mint) — its
 /// `"length"` face carries §10.4.4.6 arguments-exotic attributes

@@ -325,10 +325,15 @@ pub(crate) fn ns_static_cell(id: i64) -> *mut u8 {
         let cell = std::alloc::alloc_zeroed(layout);
         *(cell as *mut u32) = 1;
         *(cell.add(4) as *mut u16) = Tag::Closure as u16;
+        // FLAG_CLOSURE_NS_STATIC is the identity bit `ns_static_id_of`
+        // reads (blade 1 decoupled the probe from the dispatch fn's
+        // address — see the flag's doc).
         *(cell.add(6) as *mut u16) = if this_aware_id(id) {
-            FLAG_STATIC_LITERAL | torajs_rc::FLAG_CLOSURE_RECV_FIRST
-        } else {
             FLAG_STATIC_LITERAL
+                | torajs_rc::FLAG_CLOSURE_NS_STATIC
+                | torajs_rc::FLAG_CLOSURE_RECV_FIRST
+        } else {
+            FLAG_STATIC_LITERAL | torajs_rc::FLAG_CLOSURE_NS_STATIC
         };
         *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = ns_native_entry as *const () as u64;
         *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
@@ -349,12 +354,22 @@ pub extern "C" fn __torajs_ns_static_cell(id: i64) -> *mut u8 {
 }
 
 /// The ns-static id a cell carries — `None` for every other closure
-/// shape (discriminated by the boxed entry's address, the same
-/// scheme `builtin_method_mid` uses).
+/// shape. Discriminated by [`torajs_rc::FLAG_CLOSURE_NS_STATIC`] in
+/// the header flags, NOT by comparing the boxed entry against
+/// `ns_dispatch_entry`'s address: an address compare makes every
+/// identity probe take the dispatch fn's address, link-rooting the
+/// whole ns-static universe from generic kernels that never call it
+/// (RFC 20260824-s2-5 Phase B blade 1). Only [`ns_static_cell`]
+/// mints the bit, and only on `Tag::Closure` cells.
 pub(crate) unsafe fn ns_static_id_of(ptr: *const c_void) -> Option<i64> {
     unsafe {
-        let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
-        if entry == ns_dispatch_entry as *const () as u64 {
+        // Bit 1 is disjoint-by-tag (Str SPLIT_BLOCK / Arr ARGUMENTS)
+        // — gate on the tag so a non-Closure cell can never answer.
+        if *(ptr.cast::<u8>().add(4) as *const u16) != Tag::Closure as u16 {
+            return None;
+        }
+        let flags = *(ptr.cast::<u8>().add(6) as *const u16);
+        if flags & torajs_rc::FLAG_CLOSURE_NS_STATIC != 0 {
             Some(*(ptr.cast::<u8>().add(CLOSURE_CAP_BASE_OFF) as *const u64) as i64)
         } else {
             None
