@@ -27,6 +27,8 @@ pub(crate) struct PrintStrIds {
     pub str_drop: FuncId,
     pub str_concat: FuncId,
     pub str_append: FuncId,
+    pub str_concat_i64: FuncId,
+    pub str_concat_f64: FuncId,
     pub rc_inc: FuncId,
 }
 
@@ -71,6 +73,24 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_append",
             &[Type::Str, Type::Str],
+            Type::Str,
+        ),
+        // Never emitted by the lowering: torajs-egraph's
+        // `concat_num_fuse` pass rewrites `to_str` + `concat` +
+        // `drop` triples onto these (S1-A2 attack B1); the
+        // declarations must already be in the module for it to.
+        str_concat_i64: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_concat_i64",
+            &[Type::Str, Type::I64],
+            Type::Str,
+        ),
+        str_concat_f64: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_concat_f64",
+            &[Type::Str, Type::F64],
             Type::Str,
         ),
         rc_inc: declare_intrinsic(

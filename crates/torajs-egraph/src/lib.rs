@@ -20,6 +20,7 @@
 
 pub mod block_layout;
 pub mod branch_fold;
+pub mod concat_num_fuse;
 pub mod cost;
 pub mod ctpop_idiom;
 pub mod ctpop_range_sum;
@@ -324,6 +325,18 @@ pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_SSA_DUMP").as_deref() == Ok("1") {
         module.print();
     }
+    // Number-to-string concat fusion — a strict `to_str` + `concat`
+    // (right operand) + `drop` triple becomes one `concat_num` call
+    // that formats the digits straight into the result allocation
+    // (S1-A2 attack B1). Before str_append: this is the more
+    // specific shape, and a number-on-the-left temp would otherwise
+    // be claimed as str_append's drop-left operand.
+    // `TORAJS_CONCAT_NUM_FUSE_OFF=1` skips (bisect gate).
+    gated_pass(
+        "CONCAT_NUM_FUSE",
+        &mut module,
+        concat_num_fuse::fuse_concat_nums,
+    );
     // String-append ownership forwarding — an adjacent `concat` +
     // `drop-left` pair becomes one `append`, which may then grow the
     // left cell in place instead of reallocating it. Last of the

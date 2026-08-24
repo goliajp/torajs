@@ -69,31 +69,51 @@ pub unsafe extern "C" fn __torajs_i64_to_str(n: i64) -> *mut u8 {
     alloc_str(&buf[start..])
 }
 
-/// `String(d)` for f64. NaN / ±Infinity → spec strings. `-0` →
-/// `"0"` (sign stripped). All other values use [`f64_shortest`].
+/// JS-spec `String(d)` digits into a caller buffer — the single
+/// source for the NaN / ±Infinity literals and the §22.1.3.6
+/// `String(-0)` → `"0"` sign strip. `__torajs_f64_to_str` below and
+/// torajs-str's fused `__torajs_str_concat_f64` (S1-A2 attack B1)
+/// both format through here so the special cases cannot drift
+/// apart. (`console.log(-0)` keeps its sign — that path runs
+/// through `__torajs_print_f64_js`, which does NOT strip.)
+///
+/// # Safety
+/// `out` must be a writable buffer of at least 32 bytes. Returns
+/// the byte count written.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_f64_to_str(d: f64) -> *mut u8 {
+pub unsafe extern "C" fn __torajs_f64_js_digits(d: f64, out: *mut u8) -> i64 {
+    let write = |bytes: &[u8]| -> i64 {
+        let dst = unsafe { core::slice::from_raw_parts_mut(out, bytes.len()) };
+        dst.copy_from_slice(bytes);
+        bytes.len() as i64
+    };
     if d.is_nan() {
-        return alloc_str(b"NaN");
+        return write(b"NaN");
     }
     if d == f64::INFINITY {
-        return alloc_str(b"Infinity");
+        return write(b"Infinity");
     }
     if d == f64::NEG_INFINITY {
-        return alloc_str(b"-Infinity");
+        return write(b"-Infinity");
     }
     let mut buf = [0u8; 32];
     let written = f64_shortest(d, &mut buf);
     let mut len = if written < 0 { 0 } else { written as usize };
     let mut off = 0;
-    // §22.1.3.6: String(-0) → "0" (no sign). console.log(-0) keeps
-    // the sign — that path runs through __torajs_print_f64_js below
-    // which does NOT strip.
     if d == 0.0 && len >= 1 && buf[0] == b'-' {
         off = 1;
         len -= 1;
     }
-    alloc_str(&buf[off..off + len])
+    write(&buf[off..off + len])
+}
+
+/// `String(d)` for f64. NaN / ±Infinity → spec strings. `-0` →
+/// `"0"` (sign stripped). Digits via [`__torajs_f64_js_digits`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_f64_to_str(d: f64) -> *mut u8 {
+    let mut buf = [0u8; 32];
+    let len = unsafe { __torajs_f64_js_digits(d, buf.as_mut_ptr()) };
+    alloc_str(&buf[..len as usize])
 }
 
 /// `String(b)` for booleans. 1 → "true", 0 → "false".

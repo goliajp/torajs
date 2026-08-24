@@ -52,6 +52,11 @@ pub(crate) struct Intrinsics {
     /// rewrites `concat` + `drop-left` pairs onto it; the lowering
     /// itself never emits a call here.
     pub(crate) str_append: FuncId,
+    /// Declared for `torajs-egraph`'s `concat_num_fuse` pass
+    /// (S1-A2 attack B1) — fused `a + String(n)`; lowering never
+    /// emits these directly.
+    pub(crate) str_concat_i64: FuncId,
+    pub(crate) str_concat_f64: FuncId,
     /// Phase B refcount — `__torajs_rc_inc(ptr)` increments the heap
     /// header's refcount (NULL passes through). Emitted at every
     /// slot-copy / shared-ownership site for non-Copy heap values.

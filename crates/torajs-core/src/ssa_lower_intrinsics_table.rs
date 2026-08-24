@@ -42,6 +42,8 @@ pub(crate) fn build(
         str_drop: init_a.print_str.str_drop,
         str_concat: init_a.print_str.str_concat,
         str_append: init_a.print_str.str_append,
+        str_concat_i64: init_a.print_str.str_concat_i64,
+        str_concat_f64: init_a.print_str.str_concat_f64,
         rc_inc: init_a.print_str.rc_inc,
         obj_alloc: init_a.obj_capture.obj_alloc,
         capture_box_alloc: init_a.obj_capture.capture_box_alloc,

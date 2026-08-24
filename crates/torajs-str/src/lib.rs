@@ -118,6 +118,7 @@ pub mod block_ffi;
 pub mod case_table;
 pub mod code_point;
 pub mod concat;
+pub mod concat_num;
 pub mod eq;
 pub mod html;
 pub mod index_any;

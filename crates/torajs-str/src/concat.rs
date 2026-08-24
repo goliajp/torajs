@@ -41,17 +41,17 @@ use torajs_rc::HeapHeader;
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u32 {
+pub(crate) unsafe fn str_len(p: *const u8) -> u32 {
     unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_payload<'a>(p: *const u8, byte_count: usize) -> &'a [u8] {
+pub(crate) unsafe fn str_payload<'a>(p: *const u8, byte_count: usize) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_count) }
 }
 
 #[inline]
-unsafe fn str_is_latin1(p: *const u8) -> bool {
+pub(crate) unsafe fn str_is_latin1(p: *const u8) -> bool {
     let header = unsafe { &*(p as *const HeapHeader) };
     (header.flags & STR_FLAG_IS_LATIN1) != 0
 }
@@ -60,7 +60,7 @@ unsafe fn str_is_latin1(p: *const u8) -> bool {
 /// `dst` widened to UTF-16 LE (two bytes per code unit, high byte
 /// zero). `dst.len()` must equal `src.len() * 2`.
 #[inline]
-fn widen_latin1_into_utf16(src: &[u8], dst: &mut [u8]) {
+pub(crate) fn widen_latin1_into_utf16(src: &[u8], dst: &mut [u8]) {
     debug_assert_eq!(dst.len(), src.len() * 2);
     for (i, &b) in src.iter().enumerate() {
         dst[i * 2] = b;
