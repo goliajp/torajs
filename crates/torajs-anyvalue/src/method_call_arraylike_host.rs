@@ -78,7 +78,23 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
                 crate::member_get_value::__torajs_any_member_get_value(recv, key as *const c_void),
             )
         } else if obj_tag == torajs_rc::Tag::Obj as u16 {
-            crate::struct_probe::struct_field_pair(obj, key as *const c_void).unwrap_or((5, 0))
+            // Layout DATA field first; a miss falls to the `+24`
+            // expando dict — `err.length = 2` on an Error instance
+            // (whose layout never spells `length`) lives there, and
+            // the old layout-only read answered ToLength 0 for it
+            // (every/some stayed accidentally right by vacuity;
+            // indexOf/join read the wrong emptiness).
+            crate::struct_probe::struct_field_pair(obj, key as *const c_void).unwrap_or_else(|| {
+                let props = crate::member_get_layout::struct_props(obj);
+                if props.is_null() {
+                    (5, 0)
+                } else {
+                    (
+                        __torajs_dynobj_get_tag(props, key as *const c_void),
+                        __torajs_dynobj_get_value(props, key as *const c_void),
+                    )
+                }
+            })
         } else if crate::member_get::is_wrapper_tag(obj_tag) {
             // 刀 9 G2c — a primitive-wrapper receiver's own `length`
             // lives in its lazy `+16` expando dynobj (`obj.length =
