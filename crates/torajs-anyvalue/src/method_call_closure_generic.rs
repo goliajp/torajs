@@ -21,6 +21,9 @@ use crate::nanbox::{
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_str_drop(s: *mut c_void);
+    /// Universal NaN-box-safe heap dropper (the minted ToObject
+    /// wrapper temp).
+    fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-arr — Array Iterator mints (fresh cell at rc=1; the
     /// cell takes its own share of the source view).
     fn __torajs_arr_iter_create_keys(src: *mut c_void) -> *mut c_void;
@@ -142,34 +145,56 @@ pub(crate) unsafe fn generic_builtin_this(
             )
         });
     }
-    // §22.1.4 String Exotic Object — a string receiver
-    // (`Array.prototype.map.call('ab', f)`) hosts the generic scan
-    // over its own indexed characters + own non-configurable
-    // `length` (= code unit count). Read family only: the indexed
-    // properties are non-writable, so the mutator family keeps its
-    // TypeError. A ShortStr immediate widens to a heap cell for the
-    // scan and is released after (the per-index Gets take their own
-    // shares of it).
+    // §22.1.4 String Exotic Object — a string-shaped receiver hosts
+    // the generic scan over its own indexed characters + own
+    // non-configurable `length` (= code unit count). Read family
+    // only: the indexed properties are non-writable, so the mutator
+    // family keeps its TypeError. §23.1.3 step 1 is ToObject(this):
+    // a PRIMITIVE receiver mints its String wrapper for the scan so
+    // the callback's O argument answers `obj instanceof String`
+    // (the applied-to-string test262 family probes exactly that);
+    // a String-wrapper receiver scans as itself — its per-index
+    // Gets view through to the [[StringData]] characters first and
+    // fall to the `+16` expando after, and `arraylike_len` answers
+    // the inner code-unit count directly. A boolean / number
+    // primitive rides the same ToObject mint (its fresh wrapper has
+    // no expando, so `length` reads undefined → ToLength 0 and the
+    // scan is vacuous — §23.1.3's answer for these receivers).
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && crate::method_call_arraylike::arraylike_supported(mid)
         && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
         && (is_short_str(this_arg)
+            || is_bool(this_arg)
+            || is_int32(this_arg)
+            || is_double(this_arg)
             || (is_cell(this_arg)
-                && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
-                    == Tag::Str as u16))
+                && matches!(
+                    unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() },
+                    t if t == Tag::Str as u16 || t == Tag::StringWrapper as u16
+                )))
     {
-        let (recv, tmp) = unsafe { crate::nanbox_ffi_materialize::materialize_if_short(this_arg) };
+        let is_wrapper = is_cell(this_arg)
+            && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
+                == Tag::StringWrapper as u16;
+        // The minted wrapper is this frame's temp — the scan and the
+        // callback's O share it, ours releases after.
+        let (recv_ptr, minted) = if is_wrapper {
+            (as_void_ptr(this_arg), None)
+        } else {
+            let w = unsafe { crate::to_object::__torajs_any_to_object(this_arg) };
+            (as_void_ptr(w), Some(w))
+        };
         let out = unsafe {
             crate::method_call_arraylike::arraylike_method(
-                as_void_ptr(recv),
+                recv_ptr,
                 mid,
                 core::ptr::null_mut(),
                 argv,
                 argc,
             )
         };
-        if let Some(t) = tmp {
-            unsafe { __torajs_str_drop(t as *mut c_void) };
+        if let Some(w) = minted {
+            unsafe { __torajs_value_drop_heap(as_void_ptr(w)) };
         }
         return Some(out);
     }

@@ -51,19 +51,21 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         // header field directly. Substr views carry code units at
         // +8 as u64.
         if obj_tag == torajs_rc::Tag::Str as u16 {
-            // FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW mirror (torajs-
-            // str substr.rs bits 0 and 10) — both Substr shapes
-            // share Tag::Str; their code-unit count is a u64 at +8,
-            // a plain Str's is a u32 at +8.
-            const FLAG_SUBSTR_ANY: u16 = (1 << 0) | (1 << 10);
-            let flags = ((obj as *const u64).read() >> 48) as u16;
             __torajs_str_drop(key as *mut c_void);
-            let len = if flags & FLAG_SUBSTR_ANY != 0 {
-                (obj.cast::<u8>().add(8) as *const u64).read() as i64
+            return Some(str_code_units(obj));
+        }
+        // §22.1.4 — a String WRAPPER's `length` is the same own
+        // non-configurable data property, read off its
+        // [[StringData]] cell; no expando key can shadow it. A NULL
+        // inner sentinel is the empty-string wrapper (len 0).
+        if obj_tag == torajs_rc::Tag::StringWrapper as u16 {
+            __torajs_str_drop(key as *mut c_void);
+            let inner = (obj.cast::<u8>().add(8) as *const *mut c_void).read();
+            return Some(if inner.is_null() {
+                0
             } else {
-                (obj.cast::<u8>().add(8) as *const u32).read() as i64
-            };
-            return Some(len);
+                str_code_units(inner)
+            });
         }
         let (dtag, dval) = if obj_tag == torajs_rc::Tag::TypedArray as u16 {
             // §23.2.3.21 — a TypedArray receiver's `length` is the
@@ -131,6 +133,26 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
             n as i64
         };
         Some(len)
+    }
+}
+
+/// Code-unit count of a `Tag::Str` cell, Substr shapes included.
+///
+/// FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW mirror (torajs-str
+/// substr.rs bits 0 and 10) — both Substr shapes share Tag::Str;
+/// their code-unit count is a u64 at +8, a plain Str's is a u32.
+///
+/// # Safety
+/// `cell` is a live Tag::Str block.
+unsafe fn str_code_units(cell: *const c_void) -> i64 {
+    const FLAG_SUBSTR_ANY: u16 = (1 << 0) | (1 << 10);
+    unsafe {
+        let flags = ((cell as *const u64).read() >> 48) as u16;
+        if flags & FLAG_SUBSTR_ANY != 0 {
+            (cell.cast::<u8>().add(8) as *const u64).read() as i64
+        } else {
+            (cell.cast::<u8>().add(8) as *const u32).read() as i64
+        }
     }
 }
 
