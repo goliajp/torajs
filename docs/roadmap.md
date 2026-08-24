@@ -7216,7 +7216,11 @@ v3 roadmap appendix).
 0.25（4×）。** 实测 @ `6abe7e8`（2026-08-24，runs=3，44 cell）：
 median **0.618** → S7 三刀（rotation 484）**0.593** → S7 r1+r2+r3 +
 S2 刀 1（rotation 485，`bench/results/2026-08-23-mini-d9a309e.json`）
-**0.518**。S2 刀 1 = fetch 改 dlopen 懒加载 libcurl（`00c0766b0`）：
+**0.518** → S1-A2 B1+A1（rotation 486，
+`bench/results/2026-08-24-mini-0f5d964.json`）：改动面 17 cell 比值
+中位 −8.1%（json 0.802→0.643 / regex-dfa ×8 −7.8~−13 / csv 族 −8），
+未改动面 27 cell +0.1%；跨轮名义 median 0.532 是对照组机器漂
+（rust/bun 绝对值同向 +4~12%，r211 判据），同轮自归一化读数为准。S2 刀 1 = fetch 改 dlopen 懒加载 libcurl（`00c0766b0`）：
 空程序 startup 2.1 → **1.4 ms**（rust-hello 1.3 / C-hello 0.94 同法
 同机；≤1.0 残余通路 = 产物瘦身 dead-strip，架构件）。通路量化（分解
 见 `bench/results/2026-08-23-mini-6abe7e8.json`，startup 旧基线
