@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T10:28:08.775Z",
+  "generatedAt": "2026-08-24T12:59:18.907Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-24T10:20:36Z",
-    "headSha": "80e2f265a",
-    "elapsedSec": 389.21,
+    "ranAt": "2026-08-24T12:50:03Z",
+    "headSha": "6b6df79c7",
+    "elapsedSec": 364.69,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.19
   },
   "torajs": {
-    "commit": "80e2f265a",
-    "commitSubject": "feat: function values as generic array-like receivers",
+    "commit": "6b6df79c7",
+    "commitSubject": "feat: dead-strip on by default for tr build artifacts",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "6b6df79c7",
+      "subject": "feat: dead-strip on by default for tr build artifacts"
+    },
+    {
+      "hash": "8a8c1d256",
+      "subject": "feat: opt-in dead-strip of unreachable text atoms via member rewrite"
+    },
+    {
+      "hash": "718c49a5b",
+      "subject": "refactor: extract dead-strip reachability closure into reusable pass"
+    },
+    {
+      "hash": "b20041530",
+      "subject": "feat: symbol-granularity reachability accounting for dead-strip (diag only)"
+    },
+    {
+      "hash": "44cb6f3ed",
+      "subject": "chore: rotation 487 close — sweep ingest (+96 forward, zero regressions), roadmap p-surf stamp, dashboard"
+    },
+    {
       "hash": "80e2f265a",
       "subject": "feat: function values as generic array-like receivers"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "179aef1e5",
       "subject": "chore: rotation 486 close follow-up — roadmap p-perf stamp + sweep artifacts (missed from close commit)"
-    },
-    {
-      "hash": "5f2e5f74d",
-      "subject": "chore: rotation 486 close — sweep ingest (zero verdict movement), roadmap p-perf stamp, dashboard"
-    },
-    {
-      "hash": "e9a115d91",
-      "subject": "feat: generic array methods over a string receiver"
-    },
-    {
-      "hash": "9f39e87dd",
-      "subject": "chore: bench run @ 0f5d964 — B1 concat_num_fuse + A1 jsb_stringify_shape"
-    },
-    {
-      "hash": "0f5d96437",
-      "subject": "perf: one-call descriptor-driven json.stringify for static layouts"
-    },
-    {
-      "hash": "bada09602",
-      "subject": "perf: fuse number-to-string conversion into its consuming concat"
     }
   ],
-  "headSha": "80e2f265a",
+  "headSha": "6b6df79c7",
   "autorun": {
-    "total": 790,
+    "total": 791,
     "baselineTarget": 10,
-    "bySelf": 785,
+    "bySelf": 786,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787562016-5892",
-      "at": "2026-08-24T09:00:16Z",
-      "ts": 1787562016,
+      "rotationId": "r-1787567426-6d21",
+      "at": "2026-08-24T10:30:26Z",
+      "ts": 1787567426,
       "trigger": "self",
-      "prevHead": "5f2e5f74d",
-      "handoffSha": "sha256:d6c0dd864ce6b32ee949936bff97ffd0d46e60b53e66b4978e0c9c02c03f9718",
-      "handoffAgeSec": 12,
+      "prevHead": "44cb6f3ed",
+      "handoffSha": "sha256:7e2bc99b71976a16a30793eaba63f65e364b6ced2b237b64aaa319a7631c625c",
+      "handoffAgeSec": 94,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787567426-6d21",
+        "at": "2026-08-24T10:30:26Z",
+        "ts": 1787567426,
+        "trigger": "self",
+        "prevHead": "44cb6f3ed",
+        "handoffSha": "sha256:7e2bc99b71976a16a30793eaba63f65e364b6ced2b237b64aaa319a7631c625c",
+        "handoffAgeSec": 94,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787562016-5892",
         "at": "2026-08-24T09:00:16Z",
@@ -876,17 +887,6 @@
         "prevHead": "f6718fdcf",
         "handoffSha": "sha256:67b824f22f7d6da4350587d245e6942deb1a8324aa5a9dd79b3efa81e8f824ef",
         "handoffAgeSec": 57,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787435010-3f6c",
-        "at": "2026-08-22T21:43:30Z",
-        "ts": 1787435010,
-        "trigger": "self",
-        "prevHead": "af7fbf73a",
-        "handoffSha": "sha256:9d4b697383399b3a15e21c38de7e9b76a0342e2a3c840652bdcade857f5b0202",
-        "handoffAgeSec": 70,
         "conformanceBefore": null,
         "commitsInSession": null
       }
