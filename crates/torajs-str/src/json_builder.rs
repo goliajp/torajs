@@ -72,16 +72,16 @@ pub struct JsonBuilder {
     /// (the overwhelmingly common case) keep it byte == codepoint;
     /// a UTF-16 Str argument decodes into multi-byte UTF-8 here and
     /// flips `saw_non_ascii` so `finalize` re-classifies.
-    buf: Vec<u8>,
+    pub(crate) buf: Vec<u8>,
     /// True once any pushed content decoded to a codepoint > 0x7F —
     /// `finalize` then routes through the canonical-encoding
     /// classifier instead of the ASCII/Latin-1 verbatim copy.
-    saw_non_ascii: bool,
+    pub(crate) saw_non_ascii: bool,
     /// Runtime comma protocol (chunk 658 — §25.5.2.4 step 8.b key
     /// skip): true once a field has been emitted, so the next
     /// `begin_field` writes the `,` separator. An undefined Str
     /// field skips its key without touching this flag.
-    pending_sep: bool,
+    pub(crate) pending_sep: bool,
 }
 
 /// Read the `IS_LATIN1` bit out of a Str heap header (same shape as
@@ -154,7 +154,7 @@ fn write_escaped_into(dst: &mut Vec<u8>, s: &[u8]) -> bool {
 /// width, no fill, no sign option to honour, just digits appended
 /// to a byte buffer.
 #[inline]
-fn write_i64_into(dst: &mut Vec<u8>, n: i64) {
+pub(crate) fn write_i64_into(dst: &mut Vec<u8>, n: i64) {
     use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
     let mut buf = [0u8; ITOA_BUF_LEN];
     let start = itoa_into(n, &mut buf);

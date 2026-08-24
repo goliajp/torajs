@@ -55,6 +55,7 @@ pub(crate) struct JsonMiscIds {
     pub jsb_finalize: FuncId,
     pub jsb_begin_field: FuncId,
     pub jsb_push_field_str: FuncId,
+    pub jsb_stringify_shape: FuncId,
     pub json_obj_sep: FuncId,
     pub json_indent: FuncId,
     pub json_colon: FuncId,
@@ -160,6 +161,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_jsb_push_field_str",
             &[Type::Ptr, Type::Str, Type::Str],
             Type::Void,
+        ),
+        jsb_stringify_shape: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_jsb_stringify_shape",
+            &[Type::Str, Type::Ptr],
+            Type::Str,
         ),
         json_obj_sep: declare_intrinsic(
             module,

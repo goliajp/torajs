@@ -125,6 +125,7 @@ pub mod index_any;
 pub mod json;
 pub mod json_builder;
 pub mod json_parse;
+pub mod json_shape;
 pub mod layout;
 pub mod literals;
 pub mod locale_id;

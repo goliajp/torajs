@@ -834,6 +834,7 @@ pub(crate) fn build(
         jsb_finalize: init_d.json_misc.jsb_finalize,
         jsb_begin_field: init_d.json_misc.jsb_begin_field,
         jsb_push_field_str: init_d.json_misc.jsb_push_field_str,
+        jsb_stringify_shape: init_d.json_misc.jsb_stringify_shape,
         json_obj_sep: init_d.json_misc.json_obj_sep,
         json_indent: init_d.json_misc.json_indent,
         json_colon: init_d.json_misc.json_colon,

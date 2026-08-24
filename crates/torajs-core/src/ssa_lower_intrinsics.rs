@@ -1007,6 +1007,7 @@ pub(crate) struct Intrinsics {
     pub(crate) jsb_finalize: FuncId,
     pub(crate) jsb_begin_field: FuncId,
     pub(crate) jsb_push_field_str: FuncId,
+    pub(crate) jsb_stringify_shape: FuncId,
     pub(crate) json_obj_sep: FuncId,
     /// M6.3 — JSON.parse runtime helpers. See `runtime_str.c` for the
     /// per-helper contract. Cursor is `int64_t *`, threaded by the
