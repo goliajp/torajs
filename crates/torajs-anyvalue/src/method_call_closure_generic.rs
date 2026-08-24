@@ -156,17 +156,16 @@ pub(crate) unsafe fn generic_builtin_this(
     // a String-wrapper receiver scans as itself — its per-index
     // Gets view through to the [[StringData]] characters first and
     // fall to the `+16` expando after, and `arraylike_len` answers
-    // the inner code-unit count directly. A boolean / number
-    // primitive rides the same ToObject mint (its fresh wrapper has
-    // no expando, so `length` reads undefined → ToLength 0 and the
-    // scan is vacuous — §23.1.3's answer for these receivers).
+    // the inner code-unit count directly. Boolean / number
+    // primitives do NOT enter here: their generic reads already ride
+    // the wrapper-PROTOTYPE expando face (RFC 20260721 刀 4b —
+    // `Boolean.prototype[1] = v; Boolean.prototype.length = 2`
+    // reaches `indexOf.call(true, v)`), which a fresh ToObject mint
+    // (no expando, length 0) would shadow into a vacuous scan.
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && crate::method_call_arraylike::arraylike_supported(mid)
         && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
         && (is_short_str(this_arg)
-            || is_bool(this_arg)
-            || is_int32(this_arg)
-            || is_double(this_arg)
             || (is_cell(this_arg)
                 && matches!(
                     unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() },
