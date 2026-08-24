@@ -124,6 +124,7 @@ pub(crate) fn compute_reachability<'a>(
     required: &RequiredMembers,
     extra_defined_syms: &BTreeSet<String>,
     record_preds: bool,
+    cuts: Option<&[String]>,
 ) -> Result<ReachResult<'a>, String> {
     let mut reach: BTreeMap<(usize, usize), MemberReach<'a>> = BTreeMap::new();
     for &(a, m) in &required.members {
@@ -197,6 +198,21 @@ pub(crate) fn compute_reachability<'a>(
         if !visited.insert(node) {
             continue;
         }
+        // S2-5 pricing probe: a cut atom stays live but does not
+        // propagate — modeling "this fn is specialized/stubbed, its
+        // outgoing edges gone". Diag-only (the strip path passes
+        // None), so the closure it prices is a what-if, never bytes.
+        if let Some(cs) = cuts
+            && node_is_cut(&reach, node, cs)
+        {
+            if let Node::Atom { key, sect, atom } = node
+                && let Some(r) = reach.get_mut(&key)
+                && let Some(sa) = r.sects.get_mut(sect as usize - 1)
+            {
+                sa.live[atom] = true;
+            }
+            continue;
+        }
         expand_node(
             node,
             merged,
@@ -213,6 +229,34 @@ pub(crate) fn compute_reachability<'a>(
         members: reach,
         unresolved,
         preds,
+    })
+}
+
+/// Does any defined symbol inside this atom's range match a cut
+/// pattern (substring, same convention as the why-live query)?
+/// Only `Node::Atom` can be cut — section-flag roots keep full
+/// propagation so the what-if never under-counts real roots.
+fn node_is_cut(
+    reach: &BTreeMap<(usize, usize), MemberReach<'_>>,
+    node: Node,
+    cuts: &[String],
+) -> bool {
+    let Node::Atom { key, sect, atom } = node else {
+        return false;
+    };
+    let Some(r) = reach.get(&key) else {
+        return false;
+    };
+    let Some(sa) = r.sects.get(sect as usize - 1) else {
+        return false;
+    };
+    let (s, e) = sa.atoms[atom];
+    r.nlist.iter().any(|en| {
+        en.n_type & N_TYPE == N_SECT
+            && en.n_sect == sect
+            && en.n_value >= s
+            && en.n_value < e
+            && cuts.iter().any(|c| en.name.contains(c.as_str()))
     })
 }
 

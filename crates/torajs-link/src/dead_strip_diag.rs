@@ -20,8 +20,27 @@ pub(crate) fn report(
     extra_defined_syms: &BTreeSet<String>,
 ) {
     let why = std::env::var("TORAJS_LINK_DEADSTRIP_WHY").ok();
-    match compute_reachability(cfg, merged, required, extra_defined_syms, why.is_some()) {
+    // S2-5 pricing: comma-separated symbol substrings whose atoms
+    // stay live but stop propagating (see dead_strip_reach). The
+    // report then shows the what-if closure for costing an attack.
+    let cuts: Option<Vec<String>> = std::env::var("TORAJS_LINK_DEADSTRIP_CUT").ok().map(|s| {
+        s.split(',')
+            .filter(|p| !p.is_empty())
+            .map(String::from)
+            .collect()
+    });
+    match compute_reachability(
+        cfg,
+        merged,
+        required,
+        extra_defined_syms,
+        why.is_some(),
+        cuts.as_deref(),
+    ) {
         Ok(r) => {
+            if let Some(cs) = &cuts {
+                eprintln!("[deadstrip-diag] CUT what-if active: {}", cs.join(","));
+            }
             eprint!("{}", render_report(&r.members, &r.unresolved));
             if let Some(pats) = why {
                 eprint!("{}", render_why(&r, &pats));
