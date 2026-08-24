@@ -97,6 +97,36 @@ const COERCION_PREFIXES: [&str; 9] = [
 /// What a coercion hit keeps — see [`COERCION_PREFIXES`].
 const COERCION_KEEP: u16 = fam::FAM_DYNOBJ | fam::FAM_STRUCT | fam::FAM_CLOSURE | fam::FAM_ARR;
 
+/// The prologue-synthesized native-error constructors
+/// (`inject_builtin_classes` — Error plus the §20.5.5/.7/.8
+/// family). Their bodies carry the spec ToString(message) coercion
+/// in EVERY program, so scanning them would tax the empty program
+/// with the obj-world keep. They only run when something CALLS
+/// them: a runtime throw passes a constant str message (no arm
+/// entry), and a user-code call site is a visible `Call` to one of
+/// these names — which re-applies the coercion keep. A user class
+/// SHADOWING one of these names makes the ctor user-authored; its
+/// call sites still hit the Call rule, so the exemption stays
+/// sound (only its internal coercion observation is skipped).
+const SYNTH_ERROR_FNS: [&str; 16] = [
+    "__cm_Error__ctor",
+    "__cm_TypeError__ctor",
+    "__cm_RangeError__ctor",
+    "__cm_ReferenceError__ctor",
+    "__cm_SyntaxError__ctor",
+    "__cm_EvalError__ctor",
+    "__cm_URIError__ctor",
+    "__cm_AggregateError__ctor",
+    "__new_Error",
+    "__new_TypeError",
+    "__new_RangeError",
+    "__new_ReferenceError",
+    "__new_SyntaxError",
+    "__new_EvalError",
+    "__new_URIError",
+    "__new_AggregateError",
+];
+
 /// Family-usage prefixes: an emitted `__torajs_<prefix>*` call is
 /// direct evidence the program works with that family, keeping its
 /// arm (and its printers) alive. This is what covers the census's
@@ -161,6 +191,18 @@ const PRINT_WORLD: [&str; 6] = [
     "__torajs_anyv_struct_print",
 ];
 
+/// A prologue-synthesized error-world fn: one of the base names or
+/// a synthesized wrapper of one (`__boxed___cm_Error__ctor` — the
+/// boxed-entry adapters end with the wrapped name). A user class
+/// whose NAME ends in a base spelling (`class Foo__cm_Error`) would
+/// be mis-exempted here; the cost is a loud stub TypeError caught
+/// by the gate, never a silent wrong answer.
+fn is_synth_error_fn(name: &str) -> bool {
+    SYNTH_ERROR_FNS
+        .iter()
+        .any(|b| name == *b || (b.starts_with("__cm_") && name.ends_with(b)))
+}
+
 pub(crate) struct DispatchJudgment {
     /// Families whose arm seam gets a loud-reject stub (bit order =
     /// the arm roster).
@@ -182,12 +224,23 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut printer_ref = false;
 
     for f in &module.funcs {
+        let synth_error_fn = is_synth_error_fn(&f.name);
         for b in &f.blocks {
             for inst in &b.insts {
                 let InstKind::Call(fid, args) = &inst.kind else {
                     continue;
                 };
                 let name = module.funcs[fid.0 as usize].name.as_str();
+                if !synth_error_fn && is_synth_error_fn(name) {
+                    // constructing a native error from user-visible
+                    // code: its message coercion can reach user
+                    // objects. (Synth-internal edges — the factory
+                    // calling its own ctor — don't count.)
+                    if diag && keep_bits & COERCION_KEEP != COERCION_KEEP {
+                        eprintln!("[judge] error-ctor call keep: {} calls {name}", f.name);
+                    }
+                    keep_bits |= COERCION_KEEP;
+                }
                 if let Some((_, pos)) = MID_CARRIERS.iter().find(|(n, _)| *n == name) {
                     match args.get(*pos) {
                         Some(Operand::ConstI64(mid)) => observed.push(*mid),
@@ -202,7 +255,10 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                     }
                     fallback = true;
                 }
-                if COERCION_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                if !synth_error_fn && COERCION_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                    if diag && keep_bits & COERCION_KEEP != COERCION_KEEP {
+                        eprintln!("[judge] coercion keep: {} calls {name}", f.name);
+                    }
                     keep_bits |= COERCION_KEEP;
                 }
                 for (p, bits) in PREFIX_FAMILIES {
