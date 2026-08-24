@@ -108,6 +108,8 @@ mod compare;
 mod construct;
 mod ctor_return;
 mod date_from_value;
+pub mod dispatch_arms;
+pub(crate) mod dispatch_seam;
 mod error_cause;
 mod function_subclass;
 pub(crate) mod index_any;
@@ -155,6 +157,7 @@ mod member_set_symbol;
 mod member_set_wrapper;
 mod method_bind;
 mod method_call;
+pub(crate) mod method_call_bool;
 pub use method_call::any_method_dispatch_impl;
 mod method_call_arr;
 mod method_call_arr_copy;
@@ -580,6 +583,48 @@ mod tests {
                 skip_wrapper_expando,
             )
         }
+    }
+    // The arm-seam族 (RFC 20260824-s2-5 blade 2a): shipped binaries
+    // resolve these to the torajs-dispatch member (or user-.o
+    // stubs); the test binary bridges each straight to its impl so
+    // unit-test semantics are byte-for-byte unchanged.
+    macro_rules! test_arm_bridge {
+        ($($sym:ident => $impl_fn:ident;)+) => {
+            $(
+                #[unsafe(no_mangle)]
+                pub unsafe extern "C" fn $sym(
+                    recv: u64,
+                    mid: i64,
+                    name_str: *const u8,
+                    recv_slot: *mut u64,
+                    argv: *const u64,
+                    argc: i64,
+                ) -> u64 {
+                    unsafe {
+                        crate::dispatch_arms::$impl_fn(
+                            recv, mid, name_str, recv_slot, argv, argc,
+                        )
+                    }
+                }
+            )+
+        };
+    }
+    test_arm_bridge! {
+        __torajs_dispatch_str_arm => str_arm_impl;
+        __torajs_dispatch_arr_arm => arr_arm_impl;
+        __torajs_dispatch_dynobj_arm => dynobj_arm_impl;
+        __torajs_dispatch_struct_arm => struct_arm_impl;
+        __torajs_dispatch_mapset_arm => mapset_arm_impl;
+        __torajs_dispatch_iter_arm => iter_arm_impl;
+        __torajs_dispatch_buffer_arm => buffer_arm_impl;
+        __torajs_dispatch_date_arm => date_arm_impl;
+        __torajs_dispatch_promise_arm => promise_arm_impl;
+        __torajs_dispatch_regexp_arm => regexp_arm_impl;
+        __torajs_dispatch_bigint_arm => bigint_arm_impl;
+        __torajs_dispatch_symbol_arm => symbol_arm_impl;
+        __torajs_dispatch_closure_arm => closure_arm_impl;
+        __torajs_dispatch_weak_arm => weak_arm_impl;
+        __torajs_dispatch_num_arm => num_arm_impl;
     }
     // torajs-meta's §22.1.2.4 walk, reached through the ns-static
     // DISPATCH table's `String.raw` arm. Unit tests never call it;

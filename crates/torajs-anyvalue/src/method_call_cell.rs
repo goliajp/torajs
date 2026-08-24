@@ -55,7 +55,7 @@ pub(crate) unsafe fn symbol_proto_method(recv: AnyValue, mid: i64) -> AnyValue {
 ///
 /// # Safety
 /// `ptr` must be a valid Symbol heap cell.
-unsafe fn symbol_string_method(ptr: *mut c_void, mid: i64) -> AnyValue {
+pub(crate) unsafe fn symbol_string_method(ptr: *mut c_void, mid: i64) -> AnyValue {
     unsafe {
         if mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING {
             let s = __torajs_symbol_to_str(ptr);
@@ -284,7 +284,9 @@ pub(crate) unsafe fn cell_method(
             return Some(recv);
         }
         return Some(unsafe {
-            crate::method_call_str::str_method(ptr as *mut u8, mid, argv, argc)
+            crate::dispatch_seam::__torajs_dispatch_str_arm(
+                recv, mid, name_str, recv_slot, argv, argc,
+            )
         });
     }
     if tag == Tag::Arr as u16 {
@@ -327,12 +329,16 @@ pub(crate) unsafe fn cell_method(
             return Some(recv);
         }
         return Some(unsafe {
-            crate::method_call_arr::arr_method(ptr, mid, recv_slot, argv, argc)
+            crate::dispatch_seam::__torajs_dispatch_arr_arm(
+                recv, mid, name_str, recv_slot, argv, argc,
+            )
         });
     }
     if tag == Tag::DynObj as u16 {
         return Some(unsafe {
-            crate::method_call_dynobj::dynobj_method(ptr, mid, name_str, recv_slot, argv, argc)
+            crate::dispatch_seam::__torajs_dispatch_dynobj_arm(
+                recv, mid, name_str, recv_slot, argv, argc,
+            )
         });
     }
     // L3b #9 (chunk 524) — static-layout struct receivers probe
@@ -350,106 +356,60 @@ pub(crate) unsafe fn cell_method(
             });
         }
         return Some(unsafe {
-            crate::method_call_dynobj::struct_method(ptr, mid, name_str, argv, argc)
+            crate::dispatch_seam::__torajs_dispatch_struct_arm(
+                recv, mid, name_str, recv_slot, argv, argc,
+            )
         });
     }
-    if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
-        return Some(unsafe {
-            crate::method_call_mapset::map_set_method(ptr, tag == Tag::Set as u16, mid, argv, argc)
-        });
-    }
-    if tag == Tag::MapIter as u16 {
-        // Lazy-helper chaining first (RFC 20260730-iterator-global
-        // 刀 2): `m.entries().map(f)` mints a helper over this cell.
-        if let Some(v) = unsafe { crate::iter_helper::try_helper_chain(ptr, mid, argv, argc) } {
-            return Some(v);
-        }
-        return Some(unsafe { crate::method_call_mapset::map_iter_method(ptr, mid) });
-    }
-    if tag == Tag::ArrIter as u16 {
-        if let Some(v) = unsafe { crate::iter_helper::try_helper_chain(ptr, mid, argv, argc) } {
-            return Some(v);
-        }
-        return Some(unsafe { crate::method_call_mapset::arr_iter_method(ptr, mid) });
-    }
-    if tag == Tag::IterHelper as u16 {
-        return Some(unsafe { crate::iter_helper::iter_helper_method(ptr, mid, argv, argc) });
-    }
-    // §25.1.6 — `slice` / `resize`. A mid the arm does not own is a
-    // miss like every other tag's, so the caller raises its usual
-    // no-such-method TypeError.
-    if tag == Tag::ArrayBuffer as u16 {
-        return Some(
-            unsafe { crate::method_call_buffer::arraybuffer_method(recv, mid, argv, argc) }
-                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
-        );
-    }
-    // §23.2.3 slab A — `at` / `fill` / `copyWithin` / `reverse`. A
-    // mid this prototype does not own is a miss like every other
-    // tag's, so the caller raises its usual no-such-method TypeError.
-    if tag == Tag::TypedArray as u16 {
-        // §23.2.4.1 — the species construct channel owns filter /
-        // map / slice / subarray when a constructor face is present.
-        if let Some(v) =
-            unsafe { crate::method_call_buffer_species::ta_species_route(recv, mid, argv, argc) }
-        {
-            return Some(v);
-        }
-        return Some(
-            unsafe { crate::method_call_buffer::typedarray_method(recv, mid, argv, argc) }
-                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
-        );
-    }
-    // §25.3.4 — the twenty-two get*/set* accessors. Same miss
-    // posture as its buffer-family siblings.
-    if tag == Tag::DataView as u16 {
-        return Some(
-            unsafe { crate::method_call_buffer_dataview::dataview_method(recv, mid, argv, argc) }
-                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
-        );
-    }
-    if tag == Tag::Date as u16 {
-        return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
-    }
-    // RFC 20260720-anylane-promise-methods knife 2 — `.then` /
-    // `.catch` bridge; a mid the arm doesn't own is a miss like
-    // every other tag's (see `cell_method_inheriting`).
-    if tag == Tag::Promise as u16 {
-        return Some(
-            unsafe { crate::method_call_promise::promise_method(ptr, mid, argv, argc) }
-                .unwrap_or(crate::method_call::ANY_METHOD_NO_SUCH),
-        );
-    }
-    if tag == Tag::RegExp as u16 {
-        return Some(unsafe { crate::method_call_regexp::regexp_method(ptr, mid, argv, argc) });
-    }
-    // §21.2.3 BigInt.prototype — toString / toLocaleString (valueOf is
-    // the cell-wide identity above).
-    if tag == Tag::BigInt as u16 {
-        return Some(unsafe { crate::method_call_bigint::bigint_method(ptr, mid, argv, argc) });
-    }
-    if tag == Tag::Symbol as u16 {
-        return Some(unsafe { symbol_string_method(ptr, mid) });
-    }
-    // chunk 710 — Function.prototype.call / apply on closure
-    // values (expando shadowing included).
-    if tag == Tag::Closure as u16 {
-        return Some(unsafe {
-            crate::method_call_closure::closure_method(ptr, mid, name_str, argv, argc)
-        });
-    }
-    // RC-2b (RFC 20260706-test262-bug-corpus) — WeakMap / WeakSet.
-    if tag == Tag::WeakMap as u16 || tag == Tag::WeakSet as u16 {
-        return Some(unsafe {
-            crate::method_call_weak::weak_method(ptr, tag == Tag::WeakSet as u16, mid, argv, argc)
-        });
-    }
-    // The third weak family (rotation 314) — its typed receiver had
-    // a lowering all along, so only the any lane was missing.
-    if tag == Tag::WeakRef as u16 {
-        return Some(unsafe { crate::method_call_weak::weakref_method(ptr, mid) });
+    // Every remaining tag routes straight through its family's
+    // seam arm with no pre-arm gate — one shared table keeps the
+    // ladder flat. Per-family notes: iterator family = MapIter /
+    // ArrIter (lazy-helper chaining first, RFC
+    // 20260730-iterator-global 刀 2) + IterHelper, chain-first
+    // posture in the arm impl; buffer family = ArrayBuffer §25.1.6 /
+    // TypedArray §23.2.3 (species channel §23.2.4.1 first) /
+    // DataView §25.3.4, mid-misses float ANY_METHOD_NO_SUCH;
+    // Promise = the `.then`/`.catch` bridge (RFC
+    // 20260720-anylane-promise-methods 刀 2); BigInt §21.2.3
+    // (valueOf is the cell-wide identity above); Closure =
+    // Function.prototype.call / apply (chunk 710); weak family =
+    // WeakMap / WeakSet (RC-2b) + WeakRef (rotation 314).
+    if let Some(arm) = seam_arm_for_tag(tag) {
+        return Some(unsafe { arm(recv, mid, name_str, recv_slot, argv, argc) });
     }
     None
+}
+
+/// C-ABI shape shared by every dispatch arm seam.
+type SeamArm =
+    unsafe extern "C" fn(AnyValue, i64, *const u8, *mut u64, *const u64, i64) -> AnyValue;
+
+/// The gate-free half of the tag ladder — tags whose whole arm IS
+/// the family seam call. Tags with pre-arm gates (Str identity, Arr
+/// expando/subclass, DynObj, struct array-like) stay as explicit
+/// ladder arms in [`cell_method`].
+fn seam_arm_for_tag(tag: u16) -> Option<SeamArm> {
+    use crate::dispatch_seam as seam;
+    let t = |x: Tag| x as u16;
+    Some(match tag {
+        x if x == t(Tag::Map) || x == t(Tag::Set) => seam::__torajs_dispatch_mapset_arm,
+        x if x == t(Tag::MapIter) || x == t(Tag::ArrIter) || x == t(Tag::IterHelper) => {
+            seam::__torajs_dispatch_iter_arm
+        }
+        x if x == t(Tag::ArrayBuffer) || x == t(Tag::TypedArray) || x == t(Tag::DataView) => {
+            seam::__torajs_dispatch_buffer_arm
+        }
+        x if x == t(Tag::Date) => seam::__torajs_dispatch_date_arm,
+        x if x == t(Tag::Promise) => seam::__torajs_dispatch_promise_arm,
+        x if x == t(Tag::RegExp) => seam::__torajs_dispatch_regexp_arm,
+        x if x == t(Tag::BigInt) => seam::__torajs_dispatch_bigint_arm,
+        x if x == t(Tag::Symbol) => seam::__torajs_dispatch_symbol_arm,
+        x if x == t(Tag::Closure) => seam::__torajs_dispatch_closure_arm,
+        x if x == t(Tag::WeakMap) || x == t(Tag::WeakSet) || x == t(Tag::WeakRef) => {
+            seam::__torajs_dispatch_weak_arm
+        }
+        _ => return None,
+    })
 }
 
 /// 刀 9 G2c — a reified-cell re-dispatch (NULL name) of a non-mutating

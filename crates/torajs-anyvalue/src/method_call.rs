@@ -72,7 +72,7 @@ use torajs_rc::{
 
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, is_bool, is_cell, is_double, is_int32, is_null, is_short_str,
-    is_true, is_undefined,
+    is_undefined,
 };
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 use crate::nanbox_ffi::__torajs_anyv_to_number;
@@ -394,16 +394,23 @@ pub unsafe fn any_method_dispatch_impl(
         // (results copy out of the temp's bytes, never alias it).
         unsafe {
             let tmp = materialize_short_str(recv);
-            let out = crate::method_call_str::str_method(tmp, mid, argv, argc);
+            let boxed = crate::nanbox_encode::__torajs_anyv_box_pointer(tmp as *mut c_void);
+            let out = crate::dispatch_seam::__torajs_dispatch_str_arm(
+                boxed, mid, name_str, recv_slot, argv, argc,
+            );
             __torajs_str_drop(tmp as *mut c_void);
             return out;
         }
     }
     if is_bool(recv) {
-        return unsafe { bool_method(recv, mid, argv, argc) };
+        return unsafe { crate::method_call_bool::bool_method(recv, mid, argv, argc) };
     }
     if is_int32(recv) || is_double(recv) {
-        return unsafe { crate::method_call_num::number_method(recv, mid, argv, argc) };
+        return unsafe {
+            crate::dispatch_seam::__torajs_dispatch_num_arm(
+                recv, mid, name_str, recv_slot, argv, argc,
+            )
+        };
     }
     if is_cell(recv)
         && let Some(out) = unsafe {
@@ -436,48 +443,6 @@ pub unsafe fn any_method_dispatch_impl(
         __torajs_throw_type_error(c"value is not a function on this any receiver".as_ptr());
     }
     VALUE_UNDEFINED
-}
-
-/// bool-immediate arm — `toString` / the inherited
-/// `Object.prototype.toLocaleString` answer a fresh "true"/"false"
-/// Str (ES §20.3.3.3), `valueOf` (§20.3.3.4) is the immediate
-/// itself; 刀 2 (RFC 20260714-t262-top-clusters) — a generic
-/// array-family mid reached through
-/// `Array.prototype.every.call(true, …)` runs the empty-receiver
-/// semantics (ToObject(bool) has no own `length` → every loop is
-/// vacuous). Every other id is a TypeError.
-unsafe fn bool_method(recv: AnyValue, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
-    if mid == ANY_METHOD_VALUE_OF {
-        return recv;
-    }
-    if mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING {
-        let bytes: &[u8] = if is_true(recv) { b"true" } else { b"false" };
-        unsafe {
-            let p = __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64);
-            return __torajs_anyv_box_pointer(p as *mut c_void);
-        }
-    }
-    if crate::method_call_arraylike::arraylike_supported(mid)
-        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
-    {
-        // §23.1.3 step 1 — ToObject(bool) mints the wrapper, whose
-        // own-miss reads walk to the Boolean.prototype expando face
-        // (`Boolean.prototype[1] = v; .length = 2`, RFC 20260721
-        // G2d) — and the callback's O argument answers
-        // `obj instanceof Boolean`. The wrapper is this frame's
-        // temp, released after the scan.
-        return unsafe {
-            crate::method_call_arraylike::arraylike_on_minted_wrapper(recv, mid, argv, argc)
-        };
-    }
-    if crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
-        && let Some(out) = unsafe {
-            crate::method_call_arraylike_mut_prim::prim_mut_method(4, recv, mid, argv, argc)
-        }
-    {
-        return out;
-    }
-    unsafe { method_no_such() }
 }
 
 /// No-such-method sentinel — an impossible AnyValue bit pattern

@@ -46,3 +46,75 @@ pub unsafe extern "C" fn __torajs_any_method_dispatch(
         )
     }
 }
+
+// ---- The arm-seam族 (blade 2a) ----
+//
+// One default definition per dispatch family, each a thin forward
+// to `torajs_anyvalue::dispatch_arms`. The skeleton's tag ladder
+// calls these through `extern "C"` declarations, so a
+// compiler-emitted loud-reject stub in the user `.o` shadows the
+// family it never uses and the anyvalue kernel dead-strips.
+//
+// Shared safety contract (same as the seam declarations): `recv`
+// boxes a live value whose shape matches the family; `argv` holds
+// `argc` live AnyValue slots; `recv_slot` is NULL or the receiver
+// variable's live slot.
+
+macro_rules! default_arm {
+    ($(#[doc = $doc:literal] $sym:ident => $impl_fn:ident;)+) => {
+        $(
+            #[doc = $doc]
+            ///
+            /// # Safety
+            /// See the module-level arm-seam contract.
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn $sym(
+                recv: u64,
+                mid: i64,
+                name_str: *const u8,
+                recv_slot: *mut u64,
+                argv: *const u64,
+                argc: i64,
+            ) -> u64 {
+                unsafe {
+                    torajs_anyvalue::dispatch_arms::$impl_fn(
+                        recv, mid, name_str, recv_slot, argv, argc,
+                    )
+                }
+            }
+        )+
+    };
+}
+
+default_arm! {
+    #[doc = "Str-cell arm (also the materialized short-str path) — default (monolithic) definition."]
+    __torajs_dispatch_str_arm => str_arm_impl;
+    #[doc = "Arr-cell builtin surface — default (monolithic) definition."]
+    __torajs_dispatch_arr_arm => arr_arm_impl;
+    #[doc = "DynObj arm — default (monolithic) definition."]
+    __torajs_dispatch_dynobj_arm => dynobj_arm_impl;
+    #[doc = "Static-layout struct (Tag::Obj) arm — default (monolithic) definition."]
+    __torajs_dispatch_struct_arm => struct_arm_impl;
+    #[doc = "Map / Set arm — default (monolithic) definition."]
+    __torajs_dispatch_mapset_arm => mapset_arm_impl;
+    #[doc = "MapIter / ArrIter / IterHelper arm — default (monolithic) definition."]
+    __torajs_dispatch_iter_arm => iter_arm_impl;
+    #[doc = "ArrayBuffer / TypedArray / DataView arm — default (monolithic) definition."]
+    __torajs_dispatch_buffer_arm => buffer_arm_impl;
+    #[doc = "Date arm — default (monolithic) definition."]
+    __torajs_dispatch_date_arm => date_arm_impl;
+    #[doc = "Promise arm — default (monolithic) definition."]
+    __torajs_dispatch_promise_arm => promise_arm_impl;
+    #[doc = "RegExp arm — default (monolithic) definition."]
+    __torajs_dispatch_regexp_arm => regexp_arm_impl;
+    #[doc = "BigInt arm — default (monolithic) definition."]
+    __torajs_dispatch_bigint_arm => bigint_arm_impl;
+    #[doc = "Symbol-cell arm — default (monolithic) definition."]
+    __torajs_dispatch_symbol_arm => symbol_arm_impl;
+    #[doc = "Closure arm — default (monolithic) definition."]
+    __torajs_dispatch_closure_arm => closure_arm_impl;
+    #[doc = "WeakMap / WeakSet / WeakRef arm — default (monolithic) definition."]
+    __torajs_dispatch_weak_arm => weak_arm_impl;
+    #[doc = "Number-immediate arm — default (monolithic) definition."]
+    __torajs_dispatch_num_arm => num_arm_impl;
+}
