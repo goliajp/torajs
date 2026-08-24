@@ -104,7 +104,7 @@ const COERCION_KEEP: u16 = fam::FAM_DYNOBJ | fam::FAM_STRUCT | fam::FAM_CLOSURE 
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-const PREFIX_FAMILIES: [(&str, u16); 25] = [
+const PREFIX_FAMILIES: [(&str, u16); 27] = [
     ("__torajs_map_", fam::FAM_MAPSET | fam::FAM_ITER),
     ("__torajs_set_", fam::FAM_MAPSET | fam::FAM_ITER),
     ("__torajs_arr_iter_", fam::FAM_ITER),
@@ -134,6 +134,12 @@ const PREFIX_FAMILIES: [(&str, u16); 25] = [
     // program — only the mint/read faces mean the family is used.
     ("__torajs_weakref_create", fam::FAM_WEAK),
     ("__torajs_weakref_deref", fam::FAM_WEAK),
+    // primitive wrapper objects (`new Number(x)`) view-through to
+    // their primitive's family arm on method / to-primitive
+    // dispatch (BooleanWrapper reads [[BooleanData]] directly and
+    // needs no arm — its gate fixtures pass fully stubbed).
+    ("__torajs_number_wrapper", fam::FAM_NUM),
+    ("__torajs_string_wrapper", fam::FAM_STR),
     ("__torajs_genfn_", fam::FAM_CLOSURE | fam::FAM_ITER),
     (
         "__torajs_closure_install_gen_proto",
