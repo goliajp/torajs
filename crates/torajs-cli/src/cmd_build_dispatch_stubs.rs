@@ -71,13 +71,40 @@ const FAMILY_PRINTERS: [&str; 19] = [
     "___torajs_obj_print_any_at",
 ];
 
-/// One loud-reject stub per family in `arms`, appended to the user
-/// fn list. `0x14000000` is the bare `b` opcode; the link pass
-/// patches its imm26 like any BRANCH26 site (the opcode bits are
-/// preserved), so the stub tail-branches into
+/// True when `ssa_name` (no Mach-O underscore) is one of the arm
+/// seams — the judgment scan refuses to stub a family whose seam
+/// the user `.o` somehow references directly.
+pub(crate) fn is_arm_sym(ssa_name: &str) -> bool {
+    FAMILY_ARMS.iter().any(|a| &a[1..] == ssa_name)
+}
+
+/// True when `ssa_name` is one of the printer kernels — a direct
+/// typed-lane reference (e.g. `console.log(d)` emitting
+/// `__torajs_date_to_iso_string`) keeps the whole print world.
+pub(crate) fn is_printer_sym(ssa_name: &str) -> bool {
+    FAMILY_PRINTERS.iter().any(|a| &a[1..] == ssa_name)
+}
+
+/// One loud-reject stub per selected family arm (bit i of
+/// `arm_bits` = `FAMILY_ARMS[i]`, lockstep with
+/// `torajs_rc::any_method_family`'s bit order) plus, when
+/// `printers` is set, every per-family printer kernel — appended to
+/// the user fn list. `0x14000000` is the bare `b` opcode; the link
+/// pass patches its imm26 like any BRANCH26 site (the opcode bits
+/// are preserved), so the stub tail-branches into
 /// `__torajs_dispatch_stub_reject` with x0-x5 untouched.
-pub(crate) fn append_dispatch_stubs(funcs: &mut Vec<CompiledFunction>) {
-    for name in FAMILY_ARMS.into_iter().chain(FAMILY_PRINTERS) {
+pub(crate) fn append_dispatch_stubs(
+    funcs: &mut Vec<CompiledFunction>,
+    arm_bits: u16,
+    printers: bool,
+) {
+    let arms = FAMILY_ARMS
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| arm_bits & (1 << i) != 0)
+        .map(|(_, n)| n);
+    let printer_syms = if printers { &FAMILY_PRINTERS[..] } else { &[] };
+    for name in arms.chain(printer_syms.iter().copied()) {
         funcs.push(CompiledFunction {
             name: name.into(),
             bytes: vec![0x00, 0x00, 0x00, 0x14],
@@ -92,7 +119,14 @@ pub(crate) fn append_dispatch_stubs(funcs: &mut Vec<CompiledFunction>) {
     }
 }
 
-/// Pricing/diagnosis gate — see the module doc.
+/// Pricing/diagnosis override — forces every family stubbed
+/// regardless of the judgment (see the module doc).
 pub(crate) fn stub_all_enabled() -> bool {
     std::env::var_os("TORAJS_DISPATCH_STUB_ALL").is_some_and(|v| v != "0")
+}
+
+/// Kill switch — disables the blade-2b automatic judgment (emits no
+/// stubs), for isolating a suspected wrong judgment in the field.
+pub(crate) fn stub_off() -> bool {
+    std::env::var_os("TORAJS_DISPATCH_STUB_OFF").is_some_and(|v| v != "0")
 }

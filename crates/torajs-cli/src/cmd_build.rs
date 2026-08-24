@@ -369,10 +369,20 @@ fn build_baked_regex_entries(ssa_module: &Module) -> Vec<torajs_link::exec::User
 
 pub(crate) fn build_link_config(ssa_module: &Module, dead_strip: bool) -> LinkConfig {
     let mut funcs = compile_module_funcs(ssa_module);
-    // S2-5 blade 2b pre-stage: all-family loud-reject stubs behind a
-    // pricing-only env gate (module doc in cmd_build_dispatch_stubs).
+    // S2-5 blade 2b: judge which dispatch families the program can
+    // never enter and stub their arm seams (module docs in
+    // cmd_build_dispatch_judge / cmd_build_dispatch_stubs).
+    // TORAJS_DISPATCH_STUB_ALL forces every family (pricing);
+    // TORAJS_DISPATCH_STUB_OFF disables the judgment entirely.
     if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
-        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs);
+        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true);
+    } else if !crate::cmd_build_dispatch_stubs::stub_off() {
+        let j = crate::cmd_build_dispatch_judge::judge(ssa_module);
+        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
+            &mut funcs,
+            j.stub_arm_bits,
+            j.stub_printers,
+        );
     }
 
     let mut strings = build_user_strings(ssa_module);

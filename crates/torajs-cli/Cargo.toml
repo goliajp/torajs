@@ -13,6 +13,10 @@ path = "src/main.rs"
 
 [dependencies]
 torajs-core = { path = "../torajs-core" }
+# host-side consumer of the mid/family tables for the blade-2b
+# dispatch stub judgment (cmd_build_dispatch_judge) — same in-house
+# crate torajs-core already links for compile-time mid interning.
+torajs-rc = { path = "../torajs-rc" }
 
 # Self-hosted AOT toolchain: `tr build` routes through codegen + link
 # (SSA → aarch64 emit → Mach-O link, no LLVM). The only pipeline since
