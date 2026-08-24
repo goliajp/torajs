@@ -1,0 +1,28 @@
+[package]
+name = "torajs-dispatch"
+description = "Any-lane builtin-method dispatch seam for the torajs AOT TypeScript runtime. A thin archive member owning the __torajs_any_method_dispatch C symbol so a compiler-emitted specialized dispatcher in the user object file can shadow the monolithic impl at link time (RFC 20260824-s2-5 selective registration, Phase B blade 0)."
+keywords = ["torajs", "dispatch", "dead-strip"]
+categories = ["compilers", "memory-management"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-dispatch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit like every runtime crate: `rlib` for workspace builds,
+# `staticlib` for the in-house link pipeline. Being a SEPARATE
+# archive member is load-bearing: callers in libtorajs_anyvalue.a
+# reference the seam as a true undef reloc, so a user-.o definition
+# wins the member closure and this member (plus the monolithic impl
+# it forwards to) strips.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+torajs-anyvalue = { path = "../torajs-anyvalue" }

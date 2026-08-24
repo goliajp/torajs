@@ -196,9 +196,10 @@ const STATICLIBS: &[&str] = &[
     "torajs_mmalloc", // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
     "torajs_rc",  // Layer-1: refcount + heap-header
     "torajs_anyvalue", // Layer-1: AnyBox (boxed Type::Any)
-    "torajs_throw", // Layer-1: native-error registry + throw helpers
-    "torajs_str", // Layer-2: Str layout + small-Str pool + alloc/free
-    "torajs_num", // Layer-2: Number primitives + Math namespace intrinsics
+    "torajs_dispatch", // Layer-1: any-method dispatch link seam — thin forwarder member a specialized user-.o dispatcher shadows (RFC 20260824-s2-5 blade 0)
+    "torajs_throw",    // Layer-1: native-error registry + throw helpers
+    "torajs_str",      // Layer-2: Str layout + small-Str pool + alloc/free
+    "torajs_num",      // Layer-2: Number primitives + Math namespace intrinsics
     "torajs_math", // Layer-0: 0-libc IEEE-754 libm (fmod / pow / sin / cos / ...) — drops libSystem libm import (v0.7-A5 Step ⑦)
     "torajs_bigint", // Layer-2: BigInt arbitrary-precision integer (P3.3)
     "torajs_arr",  // Layer-3: Array<T> + Array<Any> substrate (P4.1)

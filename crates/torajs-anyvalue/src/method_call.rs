@@ -183,6 +183,24 @@ pub unsafe extern "C" fn __torajs_any_method_call_opt(
     r
 }
 
+// The dispatch SEAM (RFC 20260824-s2-5 Phase B blade 0): the body
+// lives behind a C-ABI symbol resolved at LINK time — normally the
+// thin `torajs-dispatch` archive member forwarding to
+// [`any_method_dispatch_impl`], but a compiler-emitted specialized
+// dispatcher in the user `.o` shadows it (user definitions win in
+// the member closure), and the monolithic impl then strips.
+unsafe extern "C" {
+    fn __torajs_any_method_dispatch(
+        recv: AnyValue,
+        mid: i64,
+        name_str: *const u8,
+        recv_slot: *mut u64,
+        argv: *const u64,
+        argc: i64,
+        skip_wrapper_expando: bool,
+    ) -> AnyValue;
+}
+
 /// Shared dispatch body — a mid-miss floats [`ANY_METHOD_NO_SUCH`]
 /// to the two extern exits above. pub(crate): the reified-method
 /// `call` / `apply` short-circuit re-enters here with the thisArg
@@ -195,7 +213,7 @@ pub(crate) unsafe fn any_method_call_inner(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
-    unsafe { any_method_call_dispatch(recv, mid, name_str, recv_slot, argv, argc, false) }
+    unsafe { __torajs_any_method_dispatch(recv, mid, name_str, recv_slot, argv, argc, false) }
 }
 
 /// Re-dispatch entry for an invoked reified-builtin cell — the
@@ -211,7 +229,7 @@ pub(crate) unsafe fn any_method_redispatch(
     argc: i64,
 ) -> AnyValue {
     unsafe {
-        any_method_call_dispatch(
+        __torajs_any_method_dispatch(
             recv,
             mid,
             core::ptr::null(),
@@ -223,10 +241,15 @@ pub(crate) unsafe fn any_method_redispatch(
     }
 }
 
-/// The dispatch body behind the two entries above —
+/// The dispatch body behind the two entries above (reached through
+/// the `__torajs_any_method_dispatch` link seam) —
 /// `skip_wrapper_expando` marks a reified-builtin re-dispatch
 /// (method body execution; own-property probing is over).
-unsafe fn any_method_call_dispatch(
+///
+/// # Safety
+/// Same contract as [`__torajs_any_method_call`]; `argv` holds
+/// `argc` live AnyValue slots.
+pub unsafe fn any_method_dispatch_impl(
     recv: AnyValue,
     mid: i64,
     name_str: *const u8,

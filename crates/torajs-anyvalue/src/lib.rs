@@ -155,6 +155,7 @@ mod member_set_symbol;
 mod member_set_wrapper;
 mod method_bind;
 mod method_call;
+pub use method_call::any_method_dispatch_impl;
 mod method_call_arr;
 mod method_call_arr_copy;
 mod method_call_arr_species;
@@ -553,6 +554,32 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(_v: u64) -> u64 {
         0
+    }
+    // The method-dispatch link seam (RFC 20260824-s2-5 blade 0):
+    // shipped binaries resolve it to the torajs-dispatch member (or
+    // a specialized user .o); the test binary bridges straight to
+    // the impl so unit-test semantics are byte-for-byte unchanged.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_any_method_dispatch(
+        recv: u64,
+        mid: i64,
+        name_str: *const u8,
+        recv_slot: *mut u64,
+        argv: *const u64,
+        argc: i64,
+        skip_wrapper_expando: bool,
+    ) -> u64 {
+        unsafe {
+            crate::method_call::any_method_dispatch_impl(
+                recv,
+                mid,
+                name_str,
+                recv_slot,
+                argv,
+                argc,
+                skip_wrapper_expando,
+            )
+        }
     }
     // torajs-meta's §22.1.2.4 walk, reached through the ns-static
     // DISPATCH table's `String.raw` arm. Unit tests never call it;

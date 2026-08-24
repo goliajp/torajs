@@ -1504,6 +1504,7 @@ dependencies = [
  "torajs-collections",
  "torajs-cycle",
  "torajs-date",
+ "torajs-dispatch",
  "torajs-dynobj",
  "torajs-fetch",
  "torajs-fmt",
@@ -1544,6 +1545,13 @@ version = "0.1.0"
 dependencies = [
  "torajs-bench",
  "torajs-syscall",
+]
+
+[[package]]
+name = "torajs-dispatch"
+version = "0.1.0"
+dependencies = [
+ "torajs-anyvalue",
 ]
 
 [[package]]
