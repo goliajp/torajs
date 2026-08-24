@@ -46,6 +46,25 @@ pub(crate) fn is_wrapper_tag(t: u16) -> bool {
         || t == Tag::SymbolWrapper as u16
 }
 
+/// The builtin-prototype registry tag a wrapper cell's [[Prototype]]
+/// resolves to (`torajs_rc::builtin_proto` index space) — the chain
+/// parent for own-miss reads on a wrapper receiver. `None` for a
+/// non-wrapper tag (and for SymbolWrapper, whose prototype carries
+/// no user-installable expando face the chain reads yet).
+#[inline]
+pub(crate) fn wrapper_proto_tag(t: u16) -> Option<i64> {
+    use torajs_rc::builtin_proto::{BOOLEAN_PROTO_TAG, NUMBER_PROTO_TAG, STRING_PROTO_TAG};
+    if t == Tag::NumberWrapper as u16 {
+        Some(NUMBER_PROTO_TAG as i64)
+    } else if t == Tag::BooleanWrapper as u16 {
+        Some(BOOLEAN_PROTO_TAG as i64)
+    } else if t == Tag::StringWrapper as u16 {
+        Some(STRING_PROTO_TAG as i64)
+    } else {
+        None
+    }
+}
+
 pub(crate) const STR_LEN_OFF: usize = 8;
 pub(crate) const STR_DATA_OFF: usize = 16;
 

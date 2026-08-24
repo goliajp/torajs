@@ -437,10 +437,14 @@ unsafe fn bool_method(recv: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
     if crate::method_call_arraylike::arraylike_supported(mid)
         && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
     {
-        // Boolean.prototype expando `length` + digit keys are the
-        // inherited surface ToObject(bool) sees (RFC 20260721 G2d).
+        // §23.1.3 step 1 — ToObject(bool) mints the wrapper, whose
+        // own-miss reads walk to the Boolean.prototype expando face
+        // (`Boolean.prototype[1] = v; .length = 2`, RFC 20260721
+        // G2d) — and the callback's O argument answers
+        // `obj instanceof Boolean`. The wrapper is this frame's
+        // temp, released after the scan.
         return unsafe {
-            crate::method_call_arraylike::arraylike_on_wrapper_proto(4, mid, argv, argc)
+            crate::method_call_arraylike::arraylike_on_minted_wrapper(recv, mid, argv, argc)
         };
     }
     if crate::method_call_arraylike_mut::arraylike_mut_supported(mid)

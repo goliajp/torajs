@@ -25,6 +25,8 @@ unsafe extern "C" {
     /// torajs-dynobj — property probe by Str key.
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — live-entry probe (1 = present).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — run an accessor entry's getter.
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     /// torajs-throw — pending-throw flag.
@@ -98,17 +100,31 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         } else if crate::member_get::is_wrapper_tag(obj_tag) {
             // 刀 9 G2c — a primitive-wrapper receiver's own `length`
             // lives in its lazy `+16` expando dynobj (`obj.length =
-            // 2` on `new Boolean(false)`); NULL expando / absent key
-            // answers the undefined pair (→ ToLength 0).
-            let props = crate::member_get::wrapper_props(obj);
-            if props.is_null() {
-                (5, 0)
-            } else {
-                (
-                    __torajs_dynobj_get_tag(props, key as *const c_void),
-                    __torajs_dynobj_get_value(props, key as *const c_void),
-                )
+            // 2` on `new Boolean(false)`); an own miss continues to
+            // the wrapper-PROTOTYPE singleton's expando face
+            // (`Boolean.prototype.length = 2`, §10.1.8.1 step 3) and
+            // the %Object.prototype% root behind it. A miss on the
+            // whole chain answers the undefined pair (→ ToLength 0).
+            let mut pair = (5u64, 0u64);
+            let mut hosts: [*const c_void; 3] = [core::ptr::null(); 3];
+            hosts[0] = crate::member_get::wrapper_props(obj);
+            if let Some(ptag) = crate::member_get_layout::wrapper_proto_tag(obj_tag) {
+                hosts[1] =
+                    torajs_rc::builtin_proto::__torajs_get_builtin_prototype(ptag) as *const c_void;
             }
+            hosts[2] = torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
+                torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64,
+            ) as *const c_void;
+            for host in hosts {
+                if !host.is_null() && __torajs_dynobj_has(host, key as *const c_void) != 0 {
+                    pair = (
+                        __torajs_dynobj_get_tag(host, key as *const c_void),
+                        __torajs_dynobj_get_value(host, key as *const c_void),
+                    );
+                    break;
+                }
+            }
+            pair
         } else {
             (
                 __torajs_dynobj_get_tag(obj, key as *const c_void),

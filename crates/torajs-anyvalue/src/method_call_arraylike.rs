@@ -33,8 +33,6 @@
 
 use core::ffi::c_void;
 
-mod empty;
-
 use torajs_rc::{
     ANY_METHOD_AT, ANY_METHOD_EVERY, ANY_METHOD_FILTER, ANY_METHOD_FIND, ANY_METHOD_FIND_INDEX,
     ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FLAT, ANY_METHOD_FLAT_MAP,
@@ -119,32 +117,34 @@ pub(crate) fn arraylike_supported(mid: i64) -> bool {
     )
 }
 
-/// A primitive receiver's array-like face (RFC 20260721 G2b/G2d
-/// bool half) — ToObject(prim) owns no indexed surface, but its
-/// wrapper prototype singleton may carry a user-installed `length`
-/// plus digit keys (`Boolean.prototype[1] = x; Boolean.prototype
-/// .length = 2`). When the singleton owns a `length`, the generic
-/// scan runs over IT as the host (its own face is exactly the
-/// inherited surface ToObject(prim) sees); otherwise the
-/// empty-receiver semantics. Callers exclude the mutator family, so
-/// the null recv_slot is never dereferenced.
-pub(crate) unsafe fn arraylike_on_wrapper_proto(
-    proto_tag: i64,
+/// A primitive receiver's array-like face (RFC 20260721 G2b/G2d) —
+/// §23.1.3 step 1 ToObject(prim) mints the wrapper and the scan
+/// runs over IT: the wrapper's own-miss length/index reads walk to
+/// its prototype singleton's expando face (`Boolean.prototype[1] =
+/// x; Boolean.prototype.length = 2`) and the %Object.prototype%
+/// root, and the callback's O argument is the wrapper (`obj
+/// instanceof Boolean`), which the old proto-as-host shape got
+/// wrong. No installed `length` anywhere on the chain reads
+/// ToLength 0 — the empty-receiver semantics by construction.
+/// Callers exclude the mutator family, so the null recv_slot is
+/// never dereferenced.
+pub(crate) unsafe fn arraylike_on_minted_wrapper(
+    recv: AnyValue,
     mid: i64,
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
     unsafe {
-        let proto = torajs_rc::builtin_proto::__torajs_get_builtin_prototype(proto_tag);
-        if !proto.is_null() {
-            let key = __torajs_str_alloc(b"length".as_ptr(), 6);
-            let has_len = __torajs_dynobj_has(proto, key as *const c_void) != 0;
-            __torajs_str_drop(key as *mut c_void);
-            if has_len {
-                return arraylike_method(proto, mid, core::ptr::null_mut(), argv, argc);
-            }
-        }
-        empty::arraylike_empty(mid, argv, argc)
+        let w = crate::to_object::__torajs_any_to_object(recv);
+        let out = arraylike_method(
+            crate::nanbox::as_void_ptr(w),
+            mid,
+            core::ptr::null_mut(),
+            argv,
+            argc,
+        );
+        __torajs_value_drop_heap(crate::nanbox::as_void_ptr(w));
+        out
     }
 }
 

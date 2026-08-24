@@ -126,10 +126,11 @@ pub(crate) unsafe fn number_method(
             m if crate::method_call_arraylike::arraylike_supported(m)
                 && !crate::method_call_arraylike_mut::arraylike_mut_supported(m) =>
             {
-                // Number.prototype expando `length` + digit keys are
-                // the inherited surface ToObject(num) sees — the bool
-                // arm's gate, wrapper proto tag 0 (RFC 20260721 G2b).
-                crate::method_call_arraylike::arraylike_on_wrapper_proto(0, m, argv, argc)
+                // §23.1.3 step 1 — ToObject(num) mints the wrapper;
+                // its own-miss reads walk to the Number.prototype
+                // expando face (RFC 20260721 G2b) and the callback's
+                // O answers `obj instanceof Number`.
+                crate::method_call_arraylike::arraylike_on_minted_wrapper(recv, m, argv, argc)
             }
             m if crate::method_call_arraylike_mut::arraylike_mut_supported(m) => {
                 match crate::method_call_arraylike_mut_prim::prim_mut_method(0, recv, m, argv, argc)

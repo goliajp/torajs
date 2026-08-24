@@ -133,8 +133,23 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         }
         let props =
             unsafe { (ptr.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() } as *mut u8;
-        if !props.is_null() {
-            return unsafe { dynobj_index_get(props as *mut c_void, idx) };
+        if !props.is_null()
+            && let Some(own) = unsafe { dynobj_index_own(props as *mut c_void, idx) }
+        {
+            return own;
+        }
+        // Own miss — the chain half: the wrapper-PROTOTYPE
+        // singleton's expando face (`Boolean.prototype[1] = v`,
+        // §10.1.8.1 step 3), which walks on to the
+        // %Object.prototype% root itself. Ordering matters: the old
+        // shape sent the expando dict straight into the chain-walking
+        // read, reaching the root while skipping the wrapper
+        // prototype between.
+        if let Some(ptag) = crate::member_get_layout::wrapper_proto_tag(tag) {
+            let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(ptag) };
+            if !proto.is_null() {
+                return unsafe { dynobj_index_get(proto as *mut c_void, idx) };
+            }
         }
         return VALUE_UNDEFINED;
     }
@@ -334,6 +349,22 @@ unsafe fn dynobj_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
                 }
             }
         };
+        __torajs_str_drop(key as *mut c_void);
+        r
+    }
+}
+
+/// Own-only digit-key probe over one dynobj host (key minted here) —
+/// the wrapper expando read, which must NOT walk a chain of its own:
+/// the dict is storage, not a spec object, and the receiver's real
+/// chain (wrapper prototype → %Object.prototype%) is the caller's
+/// next step.
+unsafe fn dynobj_index_own(obj: *mut c_void, idx: i64) -> Option<AnyValue> {
+    let mut buf = [0u8; 20];
+    let (start, len) = i64_dec(&mut buf, idx);
+    unsafe {
+        let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
+        let r = dynobj_index_entry(obj as *const c_void, key as *const c_void, obj);
         __torajs_str_drop(key as *mut c_void);
         r
     }

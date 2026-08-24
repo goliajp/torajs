@@ -200,6 +200,23 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
             && unsafe { __torajs_dynobj_has(proto as *const c_void, key) } != 0)
             as i64;
     }
+    // §7.3.11 step 2 on a primitive-wrapper receiver — the own half
+    // (inherent §22.1.4 face + expando) already answered above; the
+    // chain half is the wrapper-prototype singleton's expando face
+    // (`Boolean.prototype[1] = v`) and the %Object.prototype% root
+    // behind it, which the singleton — a DynObj cell — walks itself.
+    if let Some(ptag) = crate::member_get_layout::wrapper_proto_tag(tag) {
+        let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(ptag) };
+        if proto.is_null() {
+            return 0;
+        }
+        return unsafe {
+            __torajs_any_has_property(
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, proto as i64),
+                key,
+            )
+        };
+    }
     if tag != Tag::DynObj as u16 {
         return 0;
     }
