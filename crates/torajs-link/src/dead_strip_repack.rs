@@ -17,15 +17,15 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use torajs_obj::{
-    S_4BYTE_LITERALS, S_8BYTE_LITERALS, S_16BYTE_LITERALS, S_CSTRING_LITERALS, S_REGULAR,
-    SECTION_TYPE,
+    N_EXT, N_TYPE, N_UNDF, NLIST_64_SIZE, RELOCATION_INFO_SIZE, S_4BYTE_LITERALS, S_8BYTE_LITERALS,
+    S_16BYTE_LITERALS, S_CSTRING_LITERALS, S_REGULAR, SECTION_TYPE,
 };
 
 use crate::archive::ArMember;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
-use crate::dead_strip_rewrite::strip_member_section;
+use crate::dead_strip_rewrite::{scan_load_commands, strip_member_section};
 use crate::exec::LinkConfig;
 
 /// Run the dead-strip pre-pass over `cfg.archives`. Returns the
@@ -96,7 +96,60 @@ fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<Vec<u8>>
             cur = Some(next);
         }
     }
-    Ok(cur)
+    // S2 blade 3 dead-undef cleanup: with the dead reloc sites gone,
+    // clear N_EXT on undef nlist rows nothing references any more.
+    let stripped = cur.is_some();
+    let mut out = match cur {
+        Some(v) => v,
+        None => bytes.to_vec(),
+    };
+    let neutered = neuter_dead_undefs(&mut out)?;
+    if !stripped && neutered == 0 {
+        return Ok(None);
+    }
+    Ok(Some(out))
+}
+
+/// Clear `N_EXT` on undefined nlist rows that no surviving reloc
+/// references. `parse_member_undef_externs` then stops reporting
+/// them, so the downstream member closure over the stripped
+/// archives pulls fewer members and derives fewer dyld binds.
+/// Physical row layout is untouched — extern reloc indices stay
+/// valid. Returns the number of rows neutered.
+fn neuter_dead_undefs(bytes: &mut [u8]) -> Result<u32, String> {
+    let (_, symtab_pos, _, sects) = scan_load_commands(bytes)?;
+    let Some(sp) = symtab_pos else {
+        return Ok(0);
+    };
+    let symoff = u32::from_le_bytes(bytes[sp + 8..sp + 12].try_into().unwrap()) as usize;
+    let nsyms = u32::from_le_bytes(bytes[sp + 12..sp + 16].try_into().unwrap()) as usize;
+    let mut referenced = vec![false; nsyms];
+    let esz = RELOCATION_INFO_SIZE as usize;
+    for s in &sects {
+        if s.reloff == 0 {
+            continue;
+        }
+        for i in 0..s.nreloc as usize {
+            let e = s.reloff as usize + i * esz;
+            let info = u32::from_le_bytes(bytes[e + 4..e + 8].try_into().unwrap());
+            if (info >> 27) & 1 == 1 {
+                let idx = (info & 0x00FF_FFFF) as usize;
+                if idx < nsyms {
+                    referenced[idx] = true;
+                }
+            }
+        }
+    }
+    let mut n = 0;
+    for (i, r) in referenced.iter().enumerate() {
+        let p = symoff + i * NLIST_64_SIZE as usize;
+        let t = bytes[p + 4];
+        if t & N_TYPE == N_UNDF && t & N_EXT != 0 && !r {
+            bytes[p + 4] = t & !N_EXT;
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 /// Serialize an archive: every member in order, swapping in the

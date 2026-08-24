@@ -53,7 +53,7 @@ struct Run {
     new_start: u64,
 }
 
-struct SectHdr {
+pub(crate) struct SectHdr {
     /// File position of this `section_64` header inside the `.o`.
     hdr_pos: usize,
     ord: u8,
@@ -61,8 +61,8 @@ struct SectHdr {
     size: u64,
     offset: u32,
     align: u8,
-    reloff: u32,
-    nreloc: u32,
+    pub(crate) reloff: u32,
+    pub(crate) nreloc: u32,
 }
 
 /// Rewrite `bytes` (one member `.o`) keeping only the live atoms
@@ -376,7 +376,7 @@ fn patch_unsigned_addends(
 
 /// Walk load commands once, returning every patch position.
 #[allow(clippy::type_complexity)]
-fn scan_load_commands(
+pub(crate) fn scan_load_commands(
     bytes: &[u8],
 ) -> Result<(Vec<usize>, Option<usize>, Option<usize>, Vec<SectHdr>), String> {
     if bytes.len() < 32 {
