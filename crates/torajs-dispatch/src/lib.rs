@@ -138,11 +138,33 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
     _recv_slot: *mut u64,
     _argv: *const u64,
     _argc: i64,
+    _pad: u64,
+    fam_id: u64,
 ) -> u64 {
+    // fam_id rides x7 (stamped by the stub's movz): 0..14 = the arm
+    // roster order, 16+ = printer kernels. The name makes a wrong
+    // judgment attributable from the failure line alone.
+    let msg: &core::ffi::CStr = match fam_id {
+        0 => c"str method family stripped from this program (dispatch specialization bug)",
+        1 => c"arr method family stripped from this program (dispatch specialization bug)",
+        2 => c"dynobj method family stripped from this program (dispatch specialization bug)",
+        3 => c"struct method family stripped from this program (dispatch specialization bug)",
+        4 => c"mapset method family stripped from this program (dispatch specialization bug)",
+        5 => c"iter method family stripped from this program (dispatch specialization bug)",
+        6 => c"buffer method family stripped from this program (dispatch specialization bug)",
+        7 => c"date method family stripped from this program (dispatch specialization bug)",
+        8 => c"promise method family stripped from this program (dispatch specialization bug)",
+        9 => c"regexp method family stripped from this program (dispatch specialization bug)",
+        10 => c"bigint method family stripped from this program (dispatch specialization bug)",
+        11 => c"symbol method family stripped from this program (dispatch specialization bug)",
+        12 => c"closure method family stripped from this program (dispatch specialization bug)",
+        13 => c"weak method family stripped from this program (dispatch specialization bug)",
+        14 => c"num method family stripped from this program (dispatch specialization bug)",
+        n if n >= 16 => c"printer kernel stripped from this program (dispatch specialization bug)",
+        _ => c"method family stripped from this program (dispatch specialization bug)",
+    };
     unsafe {
-        __torajs_throw_type_error(
-            c"method family stripped from this program (dispatch specialization bug)".as_ptr(),
-        );
+        __torajs_throw_type_error(msg.as_ptr());
     }
     torajs_anyvalue::VALUE_UNDEFINED
 }

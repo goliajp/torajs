@@ -82,9 +82,11 @@ const FALLBACK_PREFIXES: [&str; 6] = [
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-const COERCION_PREFIXES: [&str; 9] = [
+const COERCION_PREFIXES: [&str; 11] = [
     "__torajs_anyv_to_number",
+    "__torajs_anyv_number_ctor",
     "__torajs_anyv_to_str",
+    "__torajs_anyv_to_display_str",
     "__torajs_any_to_bigint",
     "__torajs_any_to_object",
     "__torajs_anyv_add_pair",
@@ -92,6 +94,22 @@ const COERCION_PREFIXES: [&str; 9] = [
     "__torajs_anyv_loose_eq",
     "__torajs_anyv_json_stringify",
     "__torajs_anyv_await",
+];
+
+/// Kernels that PROBE user objects internally — spec machinery that
+/// reads a constructor / species / descriptor off an arbitrary
+/// object and so re-enters the dispatcher with obj-world receivers
+/// (defineProperty's ToNumber(value) runs a user valueOf; the
+/// array species guard reads `.constructor` through the expando
+/// probe). Emitting one keeps the obj-world four, same as a
+/// coercion hit. (The `class_*_define` registration faces are NOT
+/// here — their descriptors are compiler-built and the prologue
+/// emits them in every program.)
+const KERNEL_PROBE_PREFIXES: [&str; 4] = [
+    "__torajs_arr_species_guard",
+    "__torajs_dynobj_define",
+    "__torajs_arr_define",
+    "__torajs_anyv_define_props_source_gate",
 ];
 
 /// What a coercion hit keeps — see [`COERCION_PREFIXES`].
@@ -216,7 +234,11 @@ pub(crate) struct DispatchJudgment {
 /// Scan the lowered module and judge the stub set. Returns the
 /// no-stub judgment (bits 0) on any conservative-fallback trigger.
 pub(crate) fn judge(module: &Module) -> DispatchJudgment {
-    let diag = std::env::var_os("TORAJS_DISPATCH_JUDGE_DIAG").is_some_and(|v| v != "0");
+    let diag_env = std::env::var_os("TORAJS_DISPATCH_JUDGE_DIAG");
+    let diag = diag_env.as_deref().is_some_and(|v| v != "0");
+    // level 2: dump every distinct runtime symbol the module calls.
+    let diag_syms = diag_env.as_deref().is_some_and(|v| v == "2");
+    let mut seen_syms: Vec<String> = Vec::new();
     let mut observed: Vec<i64> = Vec::new();
     let mut keep_bits: u16 = 0;
     let mut fallback = false;
@@ -231,6 +253,11 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                     continue;
                 };
                 let name = module.funcs[fid.0 as usize].name.as_str();
+                if diag_syms && name.starts_with("__torajs") && !seen_syms.iter().any(|x| x == name)
+                {
+                    eprintln!("[judge] sym: {} calls {name}", f.name);
+                    seen_syms.push(name.to_string());
+                }
                 if !synth_error_fn && is_synth_error_fn(name) {
                     // constructing a native error from user-visible
                     // code: its message coercion can reach user
@@ -254,6 +281,12 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                         eprintln!("[judge] fallback trigger: {name}");
                     }
                     fallback = true;
+                }
+                if KERNEL_PROBE_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                    if diag && keep_bits & COERCION_KEEP != COERCION_KEEP {
+                        eprintln!("[judge] kernel-probe keep: {} calls {name}", f.name);
+                    }
+                    keep_bits |= COERCION_KEEP;
                 }
                 if !synth_error_fn && COERCION_PREFIXES.iter().any(|p| name.starts_with(p)) {
                     if diag && keep_bits & COERCION_KEEP != COERCION_KEEP {

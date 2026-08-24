@@ -101,15 +101,21 @@ pub(crate) fn append_dispatch_stubs(
     let arms = FAMILY_ARMS
         .into_iter()
         .enumerate()
-        .filter(|(i, _)| arm_bits & (1 << i) != 0)
-        .map(|(_, n)| n);
+        .filter(|(i, _)| arm_bits & (1 << i) != 0);
     let printer_syms = if printers { &FAMILY_PRINTERS[..] } else { &[] };
-    for name in arms.chain(printer_syms.iter().copied()) {
+    let printers_tagged = printer_syms.iter().enumerate().map(|(i, n)| (16 + i, *n));
+    for (fam_id, name) in arms.chain(printers_tagged) {
+        // movz x7, #fam_id — rides the unused 8th C-ABI arg slot so
+        // the landing pad can NAME the stripped family in its
+        // TypeError (x0-x5 pass through untouched).
+        let movz: u32 = 0xD280_0000 | ((fam_id as u32) << 5) | 7;
+        let mut bytes = movz.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
         funcs.push(CompiledFunction {
             name: name.into(),
-            bytes: vec![0x00, 0x00, 0x00, 0x14],
+            bytes,
             relocs: vec![Reloc {
-                byte_offset: 0,
+                byte_offset: 4,
                 kind: RelocKind::CallSite {
                     target: CallTarget::Extern("___torajs_dispatch_stub_reject".into()),
                 },
