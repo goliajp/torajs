@@ -377,10 +377,12 @@ pub const ANY_METHOD_ITER_RETURN: i64 = 170;
 
 /// `RegExp.prototype.compile` (Annex B §B.2.4.1) — in-place
 /// recompile of the receiver. 177: 171-176 are taken — the
-/// `any_method_iter` sibling grows the same id space (and 171 is
-/// double-booked there already, `ANY_METHOD_TAKE` vs
-/// `ANY_METHOD_GET_OR_INSERT_COMPUTED`, kept apart only by the
-/// receiver-tag dispatch — recorded, not extended).
+/// `any_method_iter` sibling grows the same id space. (171 was
+/// double-booked there, `ANY_METHOD_TAKE` vs
+/// `ANY_METHOD_GET_OR_INSERT_COMPUTED`; "kept apart by the
+/// receiver-tag dispatch" proved false — a wrong-family receiver
+/// lands in the OTHER meaning's arm, not in no-such. `take` moved
+/// to 205.)
 pub const ANY_METHOD_COMPILE: i64 = 177;
 
 /// §25.1.6.6 `ArrayBuffer.prototype.resize`

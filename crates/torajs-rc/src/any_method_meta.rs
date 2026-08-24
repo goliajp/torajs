@@ -250,6 +250,10 @@ fn iter_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // toArray (rotation 434: the tag-15 ownership row made the
         // reflection faces reach them; the name-table guard caught
         // the missing rows).
+        // §27.1.4.9 — take(limit). Absent while the id was
+        // double-booked with getOrInsertComputed (whose row shadowed
+        // this one, so a take cell's `.name` answered wrong).
+        m if m == it::ANY_METHOD_TAKE => ("take", 1),
         m if m == it::ANY_METHOD_DROP => ("drop", 1),
         m if m == it::ANY_METHOD_TO_ARRAY => ("toArray", 0),
         _ => return None,

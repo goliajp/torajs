@@ -3,8 +3,14 @@
 //! cap; the iterator family grows here, same append-only lockstep
 //! with `any_method_intern.rs`).
 
-/// `take` — §27.1.4.9 lazy limit helper.
-pub const ANY_METHOD_TAKE: i64 = 171;
+/// `take` — §27.1.4.9 lazy limit helper. 205 (not the next slot
+/// after 170): this id shipped as 171, double-booking
+/// `ANY_METHOD_GET_OR_INSERT_COMPUTED` — the shared id made a Map
+/// receiver's `.getOrInsertComputed` reachable as `take` on
+/// iterator cells (observed: `it.getOrInsertComputed(1, cb)` ran
+/// `take(1)` silently where the spec answer is a TypeError).
+/// Re-homed past the buffer block's tail (204) to the next free id.
+pub const ANY_METHOD_TAKE: i64 = 205;
 
 /// `drop` — §27.1.4.3 lazy skip helper.
 pub const ANY_METHOD_DROP: i64 = 172;
