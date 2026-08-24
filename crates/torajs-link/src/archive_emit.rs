@@ -57,8 +57,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // input-normalization pre-pass: rewrite the archives with dead
     // __text atoms dropped, then link the stripped inputs through
     // the unchanged pipeline below.
+    let enabled = match std::env::var_os("TORAJS_LINK_DEADSTRIP") {
+        Some(v) if v == "0" => false,
+        Some(_) => true,
+        None => cfg.dead_strip,
+    };
     let stripped_cfg;
-    let cfg = if std::env::var_os("TORAJS_LINK_DEADSTRIP").is_some()
+    let cfg = if enabled
         && let Some(archives) =
             crate::dead_strip_repack::strip_archives(cfg).map_err(ArchiveLayoutError::DeadStrip)?
     {
@@ -479,6 +484,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -526,6 +532,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -599,6 +606,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: vec![archive_a.into(), archive_b.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -670,6 +678,7 @@ mod tests {
             entry: "_main".into(),
             sym_table,
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -779,6 +788,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -868,6 +878,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -910,6 +921,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),

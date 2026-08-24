@@ -108,6 +108,7 @@ fn main() {
         entry: "_main".into(),
         sym_table: SymTable::new(),
         codesign_ident: "tora".into(),
+        dead_strip: false,
         archives: Vec::new(),
         strings: Vec::new(),
         data_globals: vec![UserDataGlobalEntry {

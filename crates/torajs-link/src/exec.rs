@@ -71,6 +71,12 @@ pub struct LinkConfig {
     pub sym_table: SymTable,
     /// Ad-hoc codesign `Identifier=…` (default `"tora"`).
     pub codesign_ident: String,
+    /// S2 dead-strip (RFC 20260824-s2-dead-strip): rewrite the
+    /// archives dropping unreachable `__text` atoms before linking.
+    /// `tr build` sets `true` (AOT artifacts ship slim); `tr run`
+    /// keeps `false` (the pre-pass costs ~tens of ms compile time).
+    /// `TORAJS_LINK_DEADSTRIP=1|0` overrides in both directions.
+    pub dead_strip: bool,
     /// Static-library `.a` archives in Apple `ld64` search order.
     /// S7-C1 only carries bytes; resolution + integration in C2..C5.
     /// Empty for self-contained binaries. `Cow` so the baked
@@ -523,6 +529,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -587,6 +594,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -612,6 +620,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -646,6 +655,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -678,6 +688,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -807,6 +818,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            dead_strip: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),

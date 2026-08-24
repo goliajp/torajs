@@ -81,7 +81,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     // Phase 0 step 8b — egraph mid-end pass. Honors TORAJS_EGRAPH_OFF=1.
     let ssa_module = torajs_egraph::transform_module(ssa_module);
 
-    let cfg = build_link_config(&ssa_module);
+    let cfg = build_link_config(&ssa_module, true);
 
     let bytes = match link_to_exec_with_archives(&cfg) {
         Ok(b) => b,
@@ -367,7 +367,7 @@ fn build_baked_regex_entries(ssa_module: &Module) -> Vec<torajs_link::exec::User
         .collect()
 }
 
-pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
+pub(crate) fn build_link_config(ssa_module: &Module, dead_strip: bool) -> LinkConfig {
     let funcs = compile_module_funcs(ssa_module);
 
     let mut strings = build_user_strings(ssa_module);
@@ -389,6 +389,7 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         entry: ENTRY_SYM.to_string(),
         sym_table: SymTable::new(),
         codesign_ident: "tora".into(),
+        dead_strip,
         archives,
         strings,
         data_globals,

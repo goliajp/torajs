@@ -90,6 +90,7 @@ fn main() {
         entry: "_main".into(),
         sym_table: SymTable::new(),
         codesign_ident: "tora".into(),
+        dead_strip: false,
         archives: Vec::new(),
         strings: vec![UserStringEntry {
             sym: "__torajs_str_dyn_0".into(),
