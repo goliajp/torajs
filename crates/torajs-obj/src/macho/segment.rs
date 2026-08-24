@@ -81,6 +81,41 @@ pub const S_REGULAR: u32 = 0x0;
 /// `__DATA` vmsize.
 pub const S_ZEROFILL: u32 = 0x1;
 
+/// Section attribute — no dead stripping: a GC-style linker must
+/// keep every atom in the section even when nothing references it.
+/// Rust `#[used]` statics and hand-written registries set this.
+/// Mirrors `<mach-o/loader.h>::S_ATTR_NO_DEAD_STRIP`.
+pub const S_ATTR_NO_DEAD_STRIP: u32 = 0x1000_0000;
+
+/// Section attribute — live support: ld64 keeps these atoms alive
+/// alongside the atoms they reference (exception-frame semantics).
+/// Our conservative closure treats it as no-dead-strip. Mirrors
+/// `<mach-o/loader.h>::S_ATTR_LIVE_SUPPORT`.
+pub const S_ATTR_LIVE_SUPPORT: u32 = 0x0800_0000;
+
+/// Section type — module initializer function pointers
+/// (`__DATA,__mod_init_func`). Every slot runs before `main`, so a
+/// dead-strip pass must treat the whole section as a GC root.
+/// Mirrors `<mach-o/loader.h>::S_MOD_INIT_FUNC_POINTERS`.
+pub const S_MOD_INIT_FUNC_POINTERS: u32 = 0x9;
+
+/// Section type — module terminator function pointers
+/// (`__DATA,__term_func`). Dead-strip root for the same reason as
+/// mod-init. Mirrors `<mach-o/loader.h>::S_TERM_FUNC_POINTERS`.
+pub const S_TERM_FUNC_POINTERS: u32 = 0xA;
+
+/// Section type — 4-byte literal pool (`__TEXT,__literal4`).
+/// Mirrors `<mach-o/loader.h>::S_4BYTE_LITERALS`.
+pub const S_4BYTE_LITERALS: u32 = 0x3;
+
+/// Section type — 8-byte literal pool (`__TEXT,__literal8`).
+/// Mirrors `<mach-o/loader.h>::S_8BYTE_LITERALS`.
+pub const S_8BYTE_LITERALS: u32 = 0x4;
+
+/// Section type — 16-byte literal pool (`__TEXT,__literal16`).
+/// Mirrors `<mach-o/loader.h>::S_16BYTE_LITERALS`.
+pub const S_16BYTE_LITERALS: u32 = 0xE;
+
 /// Section type — C string literals (`__TEXT,__cstring`).
 /// `<mach-o/loader.h>::S_CSTRING_LITERALS`. Regular file storage,
 /// flagged separately so ld64 can deduplicate identical strings;

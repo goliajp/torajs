@@ -59,6 +59,12 @@ pub const N_UNDF: u8 = 0x00;
 /// visible to the linker.
 pub const N_EXT: u8 = 0x01;
 
+/// `n_desc` bit — no dead stripping for this symbol's atom.
+/// rustc sets it for `#[used]` statics; a dead-strip closure must
+/// root the covering atom. Mirrors
+/// `<mach-o/loader.h>::N_NO_DEAD_STRIP`.
+pub const N_NO_DEAD_STRIP: u16 = 0x0020;
+
 /// `NO_SECT` — sentinel `n_sect` for undefined / absolute symbols.
 pub const NO_SECT: u8 = 0x00;
 

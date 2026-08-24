@@ -26,7 +26,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use torajs_obj::{N_SECT, N_TYPE, N_UNDF, NLIST_64_SIZE};
+use torajs_obj::{
+    N_NO_DEAD_STRIP, N_SECT, N_TYPE, N_UNDF, NLIST_64_SIZE, S_ATTR_LIVE_SUPPORT,
+    S_ATTR_NO_DEAD_STRIP, S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES,
+    SECTION_TYPE,
+};
 
 use crate::archive::ArMember;
 use crate::archives_merge::{MergedArchives, RequiredMembers, reloc_target_name};
@@ -41,6 +45,7 @@ pub(crate) struct NlEntry<'a> {
     pub(crate) name: &'a str,
     pub(crate) n_type: u8,
     pub(crate) n_sect: u8,
+    pub(crate) n_desc: u16,
     pub(crate) n_value: u64,
 }
 
@@ -55,6 +60,10 @@ pub(crate) struct SectAtoms {
     /// `no_file_storage`).
     pub(crate) file_off: u32,
     pub(crate) no_file_storage: bool,
+    /// Raw `section_64.flags` (type + attribute bits) — the strip
+    /// driver reads the type whitelist and no-dead-strip attributes
+    /// off it.
+    pub(crate) flags: u32,
     pub(crate) is_text: bool,
     pub(crate) atoms: Vec<(u64, u64)>,
     pub(crate) live: Vec<bool>,
@@ -127,6 +136,33 @@ pub(crate) fn compute_reachability<'a>(
         }
     }
 
+    // ld64 dead-strip GC roots beyond the extern seeds: sections
+    // flagged no-dead-strip / live-support, mod-init & term-func
+    // pointer sections, TLV descriptor tables (the pipeline emits
+    // their thunk slots unconditionally, and their entries point at
+    // `__thread_data` initial values), and `#[used]`-style symbols
+    // carrying N_NO_DEAD_STRIP in `n_desc`.
+    for (&key, r) in &reach {
+        for (i, sa) in r.sects.iter().enumerate() {
+            let ty = sa.flags & SECTION_TYPE;
+            if sa.flags & (S_ATTR_NO_DEAD_STRIP | S_ATTR_LIVE_SUPPORT) != 0
+                || ty == S_MOD_INIT_FUNC_POINTERS
+                || ty == S_TERM_FUNC_POINTERS
+                || ty == S_THREAD_LOCAL_VARIABLES
+            {
+                worklist.push(Node::AllSect {
+                    key,
+                    sect: (i + 1) as u8,
+                });
+            }
+        }
+        for e in &r.nlist {
+            if e.n_type & N_TYPE == N_SECT && e.n_desc & N_NO_DEAD_STRIP != 0 {
+                worklist.push(node_for_addr(key, r, e.n_sect, e.n_value));
+            }
+        }
+    }
+
     // Fixpoint.
     let mut visited: BTreeSet<Node> = BTreeSet::new();
     while let Some(node) = worklist.pop() {
@@ -170,6 +206,7 @@ fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReach<'a>, Stri
             let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
             let n_type = bytes[off + 4];
             let n_sect = bytes[off + 5];
+            let n_desc = u16::from_le_bytes(bytes[off + 6..off + 8].try_into().unwrap());
             let n_value = u64::from_le_bytes(bytes[off + 8..off + 16].try_into().unwrap());
             let name = if n_strx == 0 {
                 ""
@@ -189,6 +226,7 @@ fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReach<'a>, Stri
                 name,
                 n_type,
                 n_sect,
+                n_desc,
                 n_value,
             });
         }
@@ -220,6 +258,7 @@ fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReach<'a>, Stri
             size: u64::from(s.size),
             file_off: s.member_internal_offset,
             no_file_storage: is_no_file_storage(s.flags),
+            flags: s.flags,
             is_text: trim16(&s.sectname) == b"__text" && trim16(&s.segname) == b"__TEXT",
             live: vec![false; atoms.len()],
             atoms,

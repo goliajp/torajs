@@ -16,11 +16,16 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+use torajs_obj::{
+    S_4BYTE_LITERALS, S_8BYTE_LITERALS, S_16BYTE_LITERALS, S_CSTRING_LITERALS, S_REGULAR,
+    SECTION_TYPE,
+};
+
 use crate::archive::ArMember;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
-use crate::dead_strip_reach::compute_reachability;
-use crate::dead_strip_rewrite::strip_member_text;
+use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
+use crate::dead_strip_rewrite::strip_member_section;
 use crate::exec::LinkConfig;
 
 /// Run the dead-strip pre-pass over `cfg.archives`. Returns the
@@ -39,7 +44,7 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<Option<Vec<Cow<'static,
         let mut replaced: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
         for (m_idx, m) in members.iter().enumerate() {
             if let Some(r) = reach.members.get(&(a_idx, m_idx))
-                && let Some(new_bytes) = strip_member_text(m.data, r)?
+                && let Some(new_bytes) = strip_member(m.data, r)?
             {
                 replaced.insert(m_idx, new_bytes);
             }
@@ -52,6 +57,46 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<Option<Vec<Cow<'static,
         }
     }
     Ok(any.then_some(out))
+}
+
+/// Which sections the rewriter may subset (S2 blade 3): regular
+/// file-storage payloads plus the cstring / literal pools. Zerofill
+/// has no bytes to drop; the TLV family flows through dedicated
+/// descriptor / thunk layout passes (and is rooted by the closure
+/// anyway); flag-rooted sections come back `all_live`.
+fn strippable(sa: &SectAtoms) -> bool {
+    if sa.no_file_storage || sa.all_live || sa.size == 0 {
+        return false;
+    }
+    matches!(
+        sa.flags & SECTION_TYPE,
+        S_REGULAR | S_CSTRING_LITERALS | S_4BYTE_LITERALS | S_8BYTE_LITERALS | S_16BYTE_LITERALS
+    ) && sa.live.iter().any(|&l| !l)
+}
+
+/// Apply the per-section rewriter once for every eligible section
+/// of one member, threading each pass's output into the next (the
+/// rewriter re-scans load commands, so it always sees the previous
+/// pass's shifted headers). Atom ranges are handed over
+/// section-relative — relative offsets survive earlier passes;
+/// absolute reach addresses do not.
+fn strip_member(bytes: &[u8], reach: &MemberReach<'_>) -> Result<Option<Vec<u8>>, String> {
+    let mut cur: Option<Vec<u8>> = None;
+    for (i, sa) in reach.sects.iter().enumerate() {
+        if !strippable(sa) {
+            continue;
+        }
+        let atoms_rel: Vec<(u64, u64)> = sa
+            .atoms
+            .iter()
+            .map(|&(s, e)| (s - sa.addr, e - sa.addr))
+            .collect();
+        let b = cur.as_deref().unwrap_or(bytes);
+        if let Some(next) = strip_member_section(b, (i + 1) as u8, &atoms_rel, &sa.live)? {
+            cur = Some(next);
+        }
+    }
+    Ok(cur)
 }
 
 /// Serialize an archive: every member in order, swapping in the
