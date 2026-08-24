@@ -1,5 +1,6 @@
 mod ast_pipeline;
 mod cmd_build;
+mod cmd_build_dispatch_stubs;
 mod cmd_build_extern_relocs;
 mod cmd_build_ssa_string_registries;
 mod cmd_build_synthesize;

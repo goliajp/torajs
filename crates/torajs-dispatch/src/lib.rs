@@ -118,3 +118,36 @@ default_arm! {
     #[doc = "Number-immediate arm — default (monolithic) definition."]
     __torajs_dispatch_num_arm => num_arm_impl;
 }
+
+/// The loud-reject landing pad for compiler-emitted family stubs
+/// (RFC 20260824-s2-5 blade 2b). A specialized program's user `.o`
+/// defines `__torajs_dispatch_<family>_arm` as a single
+/// `b __torajs_dispatch_stub_reject` for every family whose
+/// mid-domain the program provably never enters; reaching it at
+/// runtime means the compiler's emitted-mid analysis was WRONG —
+/// the throw is a guard against compiler bugs, never a semantics
+/// device.
+///
+/// # Safety
+/// C-ABI entry; no pointer params are dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
+    _recv: u64,
+    _mid: i64,
+    _name_str: *const u8,
+    _recv_slot: *mut u64,
+    _argv: *const u64,
+    _argc: i64,
+) -> u64 {
+    unsafe {
+        __torajs_throw_type_error(
+            c"method family stripped from this program (dispatch specialization bug)".as_ptr(),
+        );
+    }
+    torajs_anyvalue::VALUE_UNDEFINED
+}
+
+unsafe extern "C" {
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}

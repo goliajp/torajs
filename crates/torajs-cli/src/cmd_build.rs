@@ -368,7 +368,12 @@ fn build_baked_regex_entries(ssa_module: &Module) -> Vec<torajs_link::exec::User
 }
 
 pub(crate) fn build_link_config(ssa_module: &Module, dead_strip: bool) -> LinkConfig {
-    let funcs = compile_module_funcs(ssa_module);
+    let mut funcs = compile_module_funcs(ssa_module);
+    // S2-5 blade 2b pre-stage: all-family loud-reject stubs behind a
+    // pricing-only env gate (module doc in cmd_build_dispatch_stubs).
+    if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
+        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs);
+    }
 
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
