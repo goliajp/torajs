@@ -41,13 +41,43 @@ const FAMILY_ARMS: [&str; 15] = [
     "___torajs_dispatch_num_arm",
 ];
 
+/// Per-family printer / inspect kernels (defined in their family's
+/// provider crate, referenced by anyvalue's inspect dispatch as
+/// undef relocs). Stubbing one shadows the provider definition the
+/// same way an arm stub shadows the torajs-dispatch default — the
+/// provider atom loses its in-edges and the family's print world
+/// strips. Reaching a stub at runtime is impossible in a correctly
+/// judged program: a family that is stubbed has no values of that
+/// tag to print.
+const FAMILY_PRINTERS: [&str; 19] = [
+    "___torajs_regex_print_inline",
+    "___torajs_map_print",
+    "___torajs_set_print",
+    "___torajs_map_print_at",
+    "___torajs_set_print_at",
+    "___torajs_promise_print",
+    "___torajs_date_to_iso_string",
+    "___torajs_arraybuffer_print",
+    "___torajs_typedarray_print",
+    "___torajs_dataview_print",
+    "___torajs_bigint_print_inline",
+    "___torajs_symbol_print_inline",
+    "___torajs_fn_print_inline",
+    "___torajs_anyv_struct_print_inline",
+    "___torajs_anyv_struct_print_inline_at",
+    "___torajs_arr_print_any",
+    "___torajs_arr_print_any_at",
+    "___torajs_obj_print_any",
+    "___torajs_obj_print_any_at",
+];
+
 /// One loud-reject stub per family in `arms`, appended to the user
 /// fn list. `0x14000000` is the bare `b` opcode; the link pass
 /// patches its imm26 like any BRANCH26 site (the opcode bits are
 /// preserved), so the stub tail-branches into
 /// `__torajs_dispatch_stub_reject` with x0-x5 untouched.
 pub(crate) fn append_dispatch_stubs(funcs: &mut Vec<CompiledFunction>) {
-    for name in FAMILY_ARMS {
+    for name in FAMILY_ARMS.into_iter().chain(FAMILY_PRINTERS) {
         funcs.push(CompiledFunction {
             name: name.into(),
             bytes: vec![0x00, 0x00, 0x00, 0x14],
