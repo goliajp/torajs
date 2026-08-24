@@ -15,7 +15,7 @@ use crate::data_section_layout::DataSectionLayout;
 use crate::defined_extern_resolve::section_vaddr_for_sym;
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
-use crate::fn_addr_syms::register_fn_addr_syms;
+use crate::fn_addr_syms::{register_fn_addr_syms, register_user_fn_syms};
 use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
 use crate::member_apply::apply_member_relocs;
 use crate::member_data_apply::collect_member_data_payloads;
@@ -117,6 +117,13 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
             }
         }
     }
+    // S2-5 blade 2 prereq — user-fn names shadow member
+    // defined-externs (user-first, matching the required-members walk
+    // and dead-strip reachability, which both skip member pulls for
+    // names in `defined_in_user`). Runs after the member sweep so a
+    // same-named archive definition kept alive by an unrelated export
+    // cannot win the vaddr table.
+    register_user_fn_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
     for (name, stub_vaddr) in &layout.stub_vaddrs {
         effective_sym_table.insert(name.clone(), *stub_vaddr);
     }
