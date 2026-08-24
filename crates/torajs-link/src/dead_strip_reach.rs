@@ -116,6 +116,17 @@ pub(crate) struct ReachResult<'a> {
     pub(crate) preds: BTreeMap<Node, Pred>,
 }
 
+/// S2-5 diag-only what-if probes (never set on the strip path):
+/// `cuts` keeps matching atoms live without propagating ("this fn
+/// is specialized/stubbed"); `cut_ins` drops matching atoms from
+/// the graph entirely ("this definition does not exist" — prices a
+/// decoupling that removes every in-edge at once).
+#[derive(Default)]
+pub(crate) struct ReachProbes {
+    pub(crate) cuts: Vec<String>,
+    pub(crate) cut_ins: Vec<String>,
+}
+
 /// Run the atom-granularity reachability closure over the required
 /// members. Pure analysis — touches nothing the emit path reads.
 pub(crate) fn compute_reachability<'a>(
@@ -124,7 +135,7 @@ pub(crate) fn compute_reachability<'a>(
     required: &RequiredMembers,
     extra_defined_syms: &BTreeSet<String>,
     record_preds: bool,
-    cuts: Option<&[String]>,
+    probes: Option<&ReachProbes>,
 ) -> Result<ReachResult<'a>, String> {
     let mut reach: BTreeMap<(usize, usize), MemberReach<'a>> = BTreeMap::new();
     for &(a, m) in &required.members {
@@ -198,20 +209,24 @@ pub(crate) fn compute_reachability<'a>(
         if !visited.insert(node) {
             continue;
         }
-        // S2-5 pricing probe: a cut atom stays live but does not
-        // propagate — modeling "this fn is specialized/stubbed, its
-        // outgoing edges gone". Diag-only (the strip path passes
-        // None), so the closure it prices is a what-if, never bytes.
-        if let Some(cs) = cuts
-            && node_is_cut(&reach, node, cs)
-        {
-            if let Node::Atom { key, sect, atom } = node
-                && let Some(r) = reach.get_mut(&key)
-                && let Some(sa) = r.sects.get_mut(sect as usize - 1)
-            {
-                sa.live[atom] = true;
+        // S2-5 pricing probes (diag-only; the strip path passes
+        // None, so the what-if closures never shape bytes).
+        if let Some(p) = probes {
+            // cut_in: the definition is treated as absent — not
+            // live, no propagation.
+            if !p.cut_ins.is_empty() && node_is_cut(&reach, node, &p.cut_ins) {
+                continue;
             }
-            continue;
+            // cut: live but stubbed — outgoing edges gone.
+            if !p.cuts.is_empty() && node_is_cut(&reach, node, &p.cuts) {
+                if let Node::Atom { key, sect, atom } = node
+                    && let Some(r) = reach.get_mut(&key)
+                    && let Some(sa) = r.sects.get_mut(sect as usize - 1)
+                {
+                    sa.live[atom] = true;
+                }
+                continue;
+            }
         }
         expand_node(
             node,
@@ -232,11 +247,12 @@ pub(crate) fn compute_reachability<'a>(
     })
 }
 
-/// Does any defined symbol inside this atom's range match a cut
+/// Does any defined symbol inside this atom's range match a
 /// pattern (substring, same convention as the why-live query)?
-/// Only `Node::Atom` can be cut — section-flag roots keep full
-/// propagation so the what-if never under-counts real roots.
-fn node_is_cut(
+/// Only `Node::Atom` can match — section-flag roots keep full
+/// propagation so a what-if never under-counts real roots. Shared
+/// with the who-census query (`dead_strip_who`).
+pub(crate) fn node_is_cut(
     reach: &BTreeMap<(usize, usize), MemberReach<'_>>,
     node: Node,
     cuts: &[String],
@@ -386,7 +402,7 @@ fn expand_node(
 
 /// One reloc entry → the node it makes live, if any.
 #[allow(clippy::too_many_arguments)]
-fn resolve_reloc_target(
+pub(crate) fn resolve_reloc_target(
     key: (usize, usize),
     site_sect: u8,
     e: &MemberRelocEntry,

@@ -68,6 +68,7 @@ pub mod data_section_layout;
 mod dead_strip_diag;
 mod dead_strip_reach;
 mod dead_strip_reach_build;
+mod dead_strip_who;
 mod dead_strip_repack;
 mod dead_strip_rewrite;
 pub(crate) mod defined_extern_resolve;

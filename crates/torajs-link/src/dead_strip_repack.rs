@@ -36,8 +36,8 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<Option<Vec<Cow<'static,
     let extra = collect_extra_defined_syms(cfg);
     let required = compute_required_members(&cfg.funcs, &merged, &extra)
         .map_err(|e| format!("member closure: {e:?}"))?;
-    // cuts=None always: the CUT what-if is a diag-only pricing
-    // probe and must never shape emitted bytes.
+    // probes=None always: the CUT/CUT_IN what-ifs are diag-only
+    // pricing probes and must never shape emitted bytes.
     let reach = compute_reachability(cfg, &merged, &required, &extra, false, None)?;
 
     let mut out: Vec<Cow<'static, [u8]>> = Vec::with_capacity(cfg.archives.len());

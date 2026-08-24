@@ -6,7 +6,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::archives_merge::{MergedArchives, RequiredMembers};
-use crate::dead_strip_reach::{MemberReach, Node, Pred, ReachResult, compute_reachability, trim16};
+use crate::dead_strip_reach::{
+    MemberReach, Node, Pred, ReachProbes, ReachResult, compute_reachability, trim16,
+};
 use crate::exec::LinkConfig;
 
 /// Entry point — called (env-gated) by
@@ -20,30 +22,63 @@ pub(crate) fn report(
     extra_defined_syms: &BTreeSet<String>,
 ) {
     let why = std::env::var("TORAJS_LINK_DEADSTRIP_WHY").ok();
-    // S2-5 pricing: comma-separated symbol substrings whose atoms
-    // stay live but stop propagating (see dead_strip_reach). The
-    // report then shows the what-if closure for costing an attack.
-    let cuts: Option<Vec<String>> = std::env::var("TORAJS_LINK_DEADSTRIP_CUT").ok().map(|s| {
-        s.split(',')
-            .filter(|p| !p.is_empty())
-            .map(String::from)
-            .collect()
-    });
+    // S2-5 pricing probes (see dead_strip_reach::ReachProbes): CUT
+    // = live-but-stubbed what-if, CUT_IN = definition-absent
+    // what-if. The report then shows the priced closure.
+    let pats = |v: &str| -> Vec<String> {
+        std::env::var(v)
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .filter(|p| !p.is_empty())
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let probes = ReachProbes {
+        cuts: pats("TORAJS_LINK_DEADSTRIP_CUT"),
+        cut_ins: pats("TORAJS_LINK_DEADSTRIP_CUT_IN"),
+    };
+    let who = pats("TORAJS_LINK_DEADSTRIP_WHO");
+    let active = !probes.cuts.is_empty() || !probes.cut_ins.is_empty();
     match compute_reachability(
         cfg,
         merged,
         required,
         extra_defined_syms,
         why.is_some(),
-        cuts.as_deref(),
+        active.then_some(&probes),
     ) {
         Ok(r) => {
-            if let Some(cs) = &cuts {
-                eprintln!("[deadstrip-diag] CUT what-if active: {}", cs.join(","));
+            if active {
+                eprintln!(
+                    "[deadstrip-diag] what-if active: cut=[{}] cut_in=[{}]",
+                    probes.cuts.join(","),
+                    probes.cut_ins.join(","),
+                );
             }
             eprint!("{}", render_report(&r.members, &r.unresolved));
             if let Some(pats) = why {
                 eprint!("{}", render_why(&r, &pats));
+            }
+            if !who.is_empty() {
+                let edges = crate::dead_strip_who::who_census(
+                    cfg,
+                    merged,
+                    required,
+                    extra_defined_syms,
+                    &r,
+                    &who,
+                );
+                eprintln!("[deadstrip-who] {} live in-edges:", edges.len());
+                for (src, tgt) in &edges {
+                    eprintln!(
+                        "[deadstrip-who]   {}  ->  {}",
+                        node_label(&r, *src),
+                        node_label(&r, *tgt)
+                    );
+                }
             }
         }
         Err(e) => eprintln!("[deadstrip-diag] FAILED: {e}"),
