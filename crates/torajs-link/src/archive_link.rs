@@ -48,6 +48,12 @@ pub fn compute_archive_layout_with_merged(
     let required =
         compute_required_members(&cfg.funcs, merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
+    // S2 dead-strip blade 1 — accounting only, env-gated, no effect
+    // on the emitted binary (RFC 20260824-s2-dead-strip).
+    if std::env::var_os("TORAJS_LINK_DEADSTRIP_DIAG").is_some() {
+        crate::dead_strip_diag::report(cfg, merged, &required, &extra);
+    }
+
     // Sort member keys for reproducible layout.
     let mut member_keys: Vec<(usize, usize)> = required.members.iter().copied().collect();
     member_keys.sort();

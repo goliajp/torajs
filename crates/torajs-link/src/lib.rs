@@ -65,6 +65,7 @@ pub mod class_name_table_layout;
 pub mod data_const_layout;
 pub mod data_section_emit;
 pub mod data_section_layout;
+mod dead_strip_diag;
 pub(crate) mod defined_extern_resolve;
 pub mod dyld_emit;
 pub mod dyld_syms;

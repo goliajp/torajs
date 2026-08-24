@@ -262,7 +262,7 @@ pub fn compute_required_members(
 
 /// Name of the external symbol a `RelocKind` references, or
 /// `None` for `CallSite::Func` (SSA-local, resolved by layout).
-fn reloc_target_name(kind: &RelocKind) -> Option<&str> {
+pub(crate) fn reloc_target_name(kind: &RelocKind) -> Option<&str> {
     match kind {
         RelocKind::CallSite {
             target: CallTarget::Func(_),
