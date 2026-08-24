@@ -142,6 +142,37 @@ pub(crate) unsafe fn generic_builtin_this(
             )
         });
     }
+    // §22.1.4 String Exotic Object — a string receiver
+    // (`Array.prototype.map.call('ab', f)`) hosts the generic scan
+    // over its own indexed characters + own non-configurable
+    // `length` (= code unit count). Read family only: the indexed
+    // properties are non-writable, so the mutator family keeps its
+    // TypeError. A ShortStr immediate widens to a heap cell for the
+    // scan and is released after (the per-index Gets take their own
+    // shares of it).
+    if fam == crate::method_value::family::ARR_PROTO_FAMILY
+        && crate::method_call_arraylike::arraylike_supported(mid)
+        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+        && (is_short_str(this_arg)
+            || (is_cell(this_arg)
+                && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
+                    == Tag::Str as u16))
+    {
+        let (recv, tmp) = unsafe { crate::nanbox_ffi_materialize::materialize_if_short(this_arg) };
+        let out = unsafe {
+            crate::method_call_arraylike::arraylike_method(
+                as_void_ptr(recv),
+                mid,
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            )
+        };
+        if let Some(t) = tmp {
+            unsafe { __torajs_str_drop(t as *mut c_void) };
+        }
+        return Some(out);
+    }
     // §24.1.3 / §24.2.3 / §24.3.3 / §24.4.3 — every own method of the
     // Map / Set / WeakMap / WeakSet prototypes brand-checks its
     // receiver's internal slot ([[MapData]] and kin). The ordinary
