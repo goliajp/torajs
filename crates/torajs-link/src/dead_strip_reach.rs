@@ -64,6 +64,9 @@ pub(crate) struct SectAtoms {
     /// driver reads the type whitelist and no-dead-strip attributes
     /// off it.
     pub(crate) flags: u32,
+    /// Raw 16-byte `sectname` slot — the diag aggregates live mass
+    /// per section name for the S2-5 registration-reach accounting.
+    pub(crate) sectname: [u8; 16],
     pub(crate) is_text: bool,
     pub(crate) atoms: Vec<(u64, u64)>,
     pub(crate) live: Vec<bool>,
@@ -259,6 +262,7 @@ fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReach<'a>, Stri
             file_off: s.member_internal_offset,
             no_file_storage: is_no_file_storage(s.flags),
             flags: s.flags,
+            sectname: s.sectname,
             is_text: trim16(&s.sectname) == b"__text" && trim16(&s.segname) == b"__TEXT",
             live: vec![false; atoms.len()],
             atoms,
@@ -446,7 +450,7 @@ fn resolve_reloc_target(
 }
 
 /// Trim trailing NUL/space padding off a raw 16-byte name slot.
-fn trim16(raw: &[u8; 16]) -> &[u8] {
+pub(crate) fn trim16(raw: &[u8; 16]) -> &[u8] {
     let end = raw
         .iter()
         .position(|&b| b == 0 || b == b' ')
