@@ -194,6 +194,11 @@ pub(crate) fn check(
         // See the Map/Set/RegExp/namespace notes on the reject above —
         // property reads over the prototype surface answer Any.
         Type::Map | Type::Set | Type::RegExp | Type::Object(_) => Ok(Type::Any),
+        // A FUNCTION receiver's numeric read is the §7.1.19
+        // stringified expando probe on the closure cell (the write
+        // half's admit in `check_assign_target`) — heterogeneous, so
+        // Any (miss → undefined).
+        Type::Function(..) => Ok(Type::Any),
         // RC-4 F1a — un-narrowed Nullable<Array<T>> (exec/match
         // result) decays for indexing; null is a runtime
         // TypeError at the lowering-side guard.

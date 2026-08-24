@@ -113,7 +113,14 @@ pub(crate) fn lower_from_value(
     // keyed kernels' ToPropertyKey spelling. A REGEXP receiver rides
     // the same box (r289): `re[Symbol.match]` is a prototype-surface
     // property read, and the checker only admits its non-number keys.
-    let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_) | Type::RegExp) {
+    // A FUNCTION receiver boxes too — its numeric read is the
+    // stringified expando probe on the closure cell (checker admit
+    // in check_type_of_index; write mirror in the assign lowering).
+    let obj_is_fn = matches!(
+        ctx.expr_types.get(&obj),
+        Some(crate::check::Type::Function(..))
+    );
+    let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_) | Type::RegExp) || obj_is_fn {
         (ctx.box_to_any(arr_val), Type::Any)
     } else {
         (arr_val, arr_ty)

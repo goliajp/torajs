@@ -162,6 +162,29 @@ pub(crate) unsafe fn generic_builtin_this(
     // `Boolean.prototype[1] = v; Boolean.prototype.length = 2`
     // reaches `indexOf.call(true, v)`), which a fresh ToObject mint
     // (no expando, length 0) would shadow into a vacuous scan.
+    // A CLOSURE receiver hosts the generic read scan over its own
+    // face directly (§20.2.4.1 — `length` is the fn's parameter
+    // count, indices are expando keys): `Array.prototype.every
+    // .call(fn, cb)` with `fn[0] = v` installed. Read family only —
+    // `fn.length` is non-writable, so the mutator family keeps its
+    // TypeError.
+    if fam == crate::method_value::family::ARR_PROTO_FAMILY
+        && crate::method_call_arraylike::arraylike_supported(mid)
+        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+        && is_cell(this_arg)
+        && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
+            == Tag::Closure as u16
+    {
+        return Some(unsafe {
+            crate::method_call_arraylike::arraylike_method(
+                as_void_ptr(this_arg),
+                mid,
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            )
+        });
+    }
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && crate::method_call_arraylike::arraylike_supported(mid)
         && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)

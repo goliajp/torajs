@@ -115,12 +115,22 @@ impl<'a> LowerCtx<'a> {
                     | crate::check::Type::Symbol
             )
         );
-        let (arr_val, arr_ty) =
-            if matches!(arr_ty, Type::Obj(_)) || (matches!(arr_ty, Type::Arr(_)) && key_is_any) {
-                (self.box_to_any(arr_val), Type::Any)
-            } else {
-                (arr_val, arr_ty)
-            };
+        // A FUNCTION receiver boxes too — the closure cell's numeric
+        // write is the §7.1.19 stringified expando write the any
+        // index-set kernel's closure arm owns (checker admit in
+        // check_assign_target; runtime closed in rotation 408).
+        let obj_is_fn = matches!(
+            self.expr_types.get(&obj),
+            Some(crate::check::Type::Function(..))
+        );
+        let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_))
+            || obj_is_fn
+            || (matches!(arr_ty, Type::Arr(_)) && key_is_any)
+        {
+            (self.box_to_any(arr_val), Type::Any)
+        } else {
+            (arr_val, arr_ty)
+        };
         // Any-dynamic-access RFC (20260704) S3-set — `recv[i] = v`
         // where recv is an `any` value: runtime kind-aware dispatch;
         // OOB → catchable RangeError, elem-kind mismatch → catchable

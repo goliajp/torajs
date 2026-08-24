@@ -417,6 +417,20 @@ pub(crate) fn check_index(
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }
+    // A FUNCTION receiver — `h[0] = 11` on a fn value is the §7.1.19
+    // stringified expando write member_set's closure arm owns (the
+    // 405-01 residue closed the runtime in rotation 408; this admits
+    // the TYPED spelling the any lane already reaches). The lowering
+    // boxes the receiver and rides the any index-set kernel.
+    if matches!(obj_ty, Type::Function(..))
+        && matches!(
+            idx_ty,
+            Type::Number | Type::Any | Type::String | Type::Undefined
+        )
+    {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
     let Type::Array(elem) = &obj_ty else {
         // The singleton-backed namespaces again (member arm above)
         // — `Math[0] = 1` is a keyed expando write on the dynobj.

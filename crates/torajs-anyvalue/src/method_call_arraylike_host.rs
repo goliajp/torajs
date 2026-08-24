@@ -69,11 +69,17 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
                 str_code_units(inner)
             });
         }
-        let (dtag, dval) = if obj_tag == torajs_rc::Tag::TypedArray as u16 {
+        let (dtag, dval) = if obj_tag == torajs_rc::Tag::TypedArray as u16
+            || obj_tag == torajs_rc::Tag::Closure as u16
+        {
             // §23.2.3.21 — a TypedArray receiver's `length` is the
             // prototype getter (0 for a detached / out-of-bounds
             // view, never a throw); the any member-get face carries
-            // exactly that, own-expando shadow included.
+            // exactly that, own-expando shadow included. A CLOSURE
+            // receiver rides the same face: its `length` is the
+            // fn's parameter count (§20.2.4.1), expando shadow
+            // included — `Array.prototype.every.call(fn, cb)` scans
+            // exactly the fn's arity worth of expando indices.
             let recv = __torajs_anyv_box_pointer(obj);
             (
                 crate::member_get::__torajs_any_member_get_tag(recv, key as *const c_void),
