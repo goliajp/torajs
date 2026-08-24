@@ -233,6 +233,8 @@ pub struct ArchiveLayout {
 /// Failures `compute_archive_layout` can report.
 #[derive(Debug)]
 pub enum ArchiveLayoutError {
+    /// The opt-in dead-strip pre-pass failed (`TORAJS_LINK_DEADSTRIP`).
+    DeadStrip(String),
     /// Top-level archive bytes were malformed.
     Merge(ArchiveMergeError),
     /// User code references externs that no archive defines.

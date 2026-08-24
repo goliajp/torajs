@@ -53,6 +53,24 @@ fn is_allocator_shim_sym(name: &str) -> bool {
 /// relocs both resolve against one effective sym table (caller
 /// externs + every member defined-external + dyld stub vaddrs).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
+    // S2 dead-strip blade 2b (RFC 20260824-s2-dead-strip) — opt-in
+    // input-normalization pre-pass: rewrite the archives with dead
+    // __text atoms dropped, then link the stripped inputs through
+    // the unchanged pipeline below.
+    let stripped_cfg;
+    let cfg = if std::env::var_os("TORAJS_LINK_DEADSTRIP").is_some()
+        && let Some(archives) =
+            crate::dead_strip_repack::strip_archives(cfg).map_err(ArchiveLayoutError::DeadStrip)?
+    {
+        stripped_cfg = LinkConfig {
+            archives,
+            ..cfg.clone()
+        };
+        &stripped_cfg
+    } else {
+        cfg
+    };
+
     // Merge once and share between layout and emit — each merge
     // re-parses every archive member's symtab (~23ms/case).
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
