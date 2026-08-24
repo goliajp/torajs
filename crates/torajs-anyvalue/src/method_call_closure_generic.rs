@@ -391,7 +391,20 @@ pub(crate) unsafe fn generic_str_this(
     }
     unsafe {
         let s = crate::nanbox_ffi::__torajs_anyv_to_str(this_arg);
-        let out = crate::method_call_str::str_method(s as *mut u8, mid, argv, argc);
+        // Through the str arm SEAM, not the kernel directly — this
+        // minted-cell lane was the last non-ladder edge rooting
+        // `str_method` (and through it the regex/normalize worlds)
+        // in a program whose str family is stubbed out (r491 CUT:
+        // −170 KB hangs here).
+        let boxed = crate::nanbox_encode::__torajs_anyv_box_pointer(s);
+        let out = crate::dispatch_seam::__torajs_dispatch_str_arm(
+            boxed,
+            mid,
+            core::ptr::null(),
+            core::ptr::null_mut(),
+            argv,
+            argc,
+        );
         __torajs_str_drop(s);
         Some(out)
     }
