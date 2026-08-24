@@ -154,6 +154,7 @@ pub struct HeapHeader {
 
 pub mod any_method;
 pub mod any_method_date;
+pub mod any_method_family;
 pub mod any_method_intern;
 pub mod any_method_iter;
 pub mod any_method_meta;

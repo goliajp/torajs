@@ -88,3 +88,18 @@ pub const ANY_METHOD_SET_UTC_SECONDS: i64 = 113;
 pub const ANY_METHOD_SET_UTC_MILLISECONDS: i64 = 114;
 /// `Date.prototype.toTimeString` (§21.4.4.42 — RFC 20260721 刀 5).
 pub const ANY_METHOD_TO_TIME_STRING: i64 = 160;
+
+/// True when `mid` is one of the 42 ids this sibling owns — the
+/// Date.prototype surface. The blade-2b family table
+/// (`any_method_family.rs`) uses this as the date family's domain
+/// core; the file's ids sit in four runs plus three strays, and the
+/// range endpoints below are the constants themselves so an append
+/// here stays in lockstep.
+pub fn date_owned_mid(mid: i64) -> bool {
+    matches!(
+        mid,
+        ANY_METHOD_GET_TIME | ANY_METHOD_TO_ISO_STRING | ANY_METHOD_TO_TIME_STRING
+    ) || (ANY_METHOD_GET_FULL_YEAR..=ANY_METHOD_TO_DATE_STRING).contains(&mid)
+        || (ANY_METHOD_TO_LOCALE_DATE_STRING..=ANY_METHOD_SET_MILLISECONDS).contains(&mid)
+        || (ANY_METHOD_SET_UTC_FULL_YEAR..=ANY_METHOD_SET_UTC_MILLISECONDS).contains(&mid)
+}
