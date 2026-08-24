@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T18:40:59.539Z",
+  "generatedAt": "2026-08-24T23:12:46.143Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-24T18:26:00Z",
-    "headSha": "69df3b78e",
-    "elapsedSec": 364.73,
+    "ranAt": "2026-08-24T23:03:40Z",
+    "headSha": "685e70587",
+    "elapsedSec": 378.73,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29724,
+    "pass": 29728,
     "passNoOracle": 924,
     "passNegative": 4147,
-    "passTotal": 34795,
-    "bug": 12746,
+    "passTotal": 34799,
+    "bug": 12742,
     "incompatible": 5633,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47541,
     "passRateInScope": 65.44,
-    "passRateTrAccepted": 73.19
+    "passRateTrAccepted": 73.2
   },
   "torajs": {
-    "commit": "69df3b78e",
-    "commitSubject": "feat: family printer kernels join the stub-all pricing set",
+    "commit": "685e70587",
+    "commitSubject": "fix: close the coercion-surface misses the prologue keep had masked",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "685e70587",
+      "subject": "fix: close the coercion-surface misses the prologue keep had masked"
+    },
+    {
+      "hash": "bf4375824",
+      "subject": "feat: exempt the synthesized error world from the coercion keep"
+    },
+    {
+      "hash": "cd8c726ad",
+      "subject": "fix: wrapper objects keep their primitive's family arm in the stub judgment"
+    },
+    {
+      "hash": "56c8ba21b",
+      "subject": "feat: automatic dispatch-family stub judgment from the lowered module"
+    },
+    {
+      "hash": "6ff377004",
+      "subject": "feat: mid-to-family membership table for the blade 2b stub judgment"
+    },
+    {
+      "hash": "36a609aed",
+      "subject": "fix: re-home iterator take mid off the getOrInsertComputed id"
+    },
+    {
+      "hash": "58c7a06ca",
+      "subject": "chore: dashboard data.json snapshot for rotation 491"
+    },
+    {
+      "hash": "6f8d5dfca",
+      "subject": "chore: rotation 491 close — s2-5 phase b blades 2a/2b-pre/2c shipped, all-stub priced at 842kb, sweep ingest (zero movement), dashboard"
+    },
+    {
       "hash": "69df3b78e",
       "subject": "feat: family printer kernels join the stub-all pricing set"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "5aeec13ac",
       "subject": "feat: per-family dispatch arms behind the link arm-seam family"
-    },
-    {
-      "hash": "c158f0fbe",
-      "subject": "feat: user-fn names shadow archive member defined-externs in the link vaddr table"
-    },
-    {
-      "hash": "1d8849deb",
-      "subject": "chore: rotation 490 close — s2-5 phase a priced and closed, phase b blades 0-1 shipped, sweep ingest (zero movement), dashboard"
-    },
-    {
-      "hash": "421855be2",
-      "subject": "feat: ns-static identity probes read a header flag instead of the dispatch fn address"
-    },
-    {
-      "hash": "59461c6b5",
-      "subject": "feat: any-method dispatch behind a link seam in its own archive member"
-    },
-    {
-      "hash": "a17161aa0",
-      "subject": "style: fmt-drift fix — dead_strip_who mod declaration order"
-    },
-    {
-      "hash": "0289e3dce",
-      "subject": "feat: dead-strip who-census lists all live in-edges, cut-in prices absent definitions"
-    },
-    {
-      "hash": "c9bd46c3d",
-      "subject": "feat: dead-strip cut what-if prices attack closures without stubbing code"
-    },
-    {
-      "hash": "76f1cde9a",
-      "subject": "chore: rotation 489 close — s2-3 data strip + undef neuter shipped, s2-5 rfc phase a opened, sweep ingest (zero movement), dashboard"
     }
   ],
-  "headSha": "69df3b78e",
+  "headSha": "685e70587",
   "autorun": {
-    "total": 794,
+    "total": 795,
     "baselineTarget": 10,
-    "bySelf": 789,
+    "bySelf": 790,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787590180-72e7",
-      "at": "2026-08-24T16:49:40Z",
-      "ts": 1787590180,
+      "rotationId": "r-1787596899-68c1",
+      "at": "2026-08-24T18:41:39Z",
+      "ts": 1787596899,
       "trigger": "self",
-      "prevHead": "1d8849deb",
-      "handoffSha": "sha256:18178472d9e5d9fa715bfd67b4bacc188f4938e1ed802c5fbf8f0e4e8aa06528",
-      "handoffAgeSec": 27,
+      "prevHead": "58c7a06ca",
+      "handoffSha": "sha256:215b0295dd7043833934c5919f379165c6cb5dff3c5ade72b05c2458d27edffa",
+      "handoffAgeSec": 47,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787596899-68c1",
+        "at": "2026-08-24T18:41:39Z",
+        "ts": 1787596899,
+        "trigger": "self",
+        "prevHead": "58c7a06ca",
+        "handoffSha": "sha256:215b0295dd7043833934c5919f379165c6cb5dff3c5ade72b05c2458d27edffa",
+        "handoffAgeSec": 47,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787590180-72e7",
         "at": "2026-08-24T16:49:40Z",
@@ -876,17 +887,6 @@
         "prevHead": "f7207464d",
         "handoffSha": "sha256:fd311c19f2e4ef18c1d6ad14095c941655e684568b9766669f5a46ebb1dd20dc",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787481744-013d",
-        "at": "2026-08-23T10:42:24Z",
-        "ts": 1787481744,
-        "trigger": "self",
-        "prevHead": "5101cce6e",
-        "handoffSha": "sha256:930718db3860ea1c6bad435cf9735cc4287687ef57ad15d5451c0ab220a92860",
-        "handoffAgeSec": 19,
         "conformanceBefore": null,
         "commitsInSession": null
       }
