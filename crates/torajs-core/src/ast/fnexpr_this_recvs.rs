@@ -68,17 +68,40 @@ fn collect_binding_names_inner(
     }
 }
 
-/// Immutable bindings whose init is a literal array (and whose name
-/// is never re-declared) — the syntactically-certain typed-Arr
-/// receivers for the knife-4 typed HOF trio. Same over-removal
-/// posture as [`collect_any_binding_names`].
+/// Bindings whose cell is certainly the literal array the program
+/// wrote — the syntactically-certain typed-Arr receivers for the
+/// knife-4 typed HOF trio. Same over-removal posture as
+/// [`collect_any_binding_names`].
+///
+/// Two proofs admit a name, and they prove the same thing (the
+/// `fnexpr_this_default` census carries the argument in full). A
+/// `const … = […]` cannot be re-pointed. A MUTABLE `var arr = […]`
+/// is just as settled when the whole program never writes the name
+/// again after that initializer — test262 spells its receivers
+/// `var arr = [1]` far more often than `const`, and the knife-4
+/// consumers run BEFORE `desugar_var_hoist`, so the declaration
+/// still carries its real initializer here. The write census is a
+/// flat arena scan (every nested body's exprs live in the one
+/// arena; detached nodes can only over-refuse, which costs a loud
+/// reject, never a mis-promote).
 pub(super) fn collect_arraylit_binding_names(
     stmts: &[Stmt],
     exprs: &[Expr],
 ) -> std::collections::HashSet<String> {
     let mut names = std::collections::HashSet::new();
+    let mut mut_once = std::collections::HashSet::new();
     let mut other = std::collections::HashSet::new();
-    collect_arraylit_names_inner(stmts, exprs, &mut names, &mut other);
+    collect_arraylit_names_inner(stmts, exprs, &mut names, &mut mut_once, &mut other);
+    // `Assign` and `PostIncr` are the only two expression forms that
+    // write a bare name (pre-increment desugars to Assign).
+    for e in exprs {
+        if let Expr::Assign { target, .. } | Expr::PostIncr { target, .. } = e
+            && let Expr::Ident(n) = &exprs[target.0 as usize]
+        {
+            mut_once.remove(n);
+        }
+    }
+    names.extend(mut_once);
     names.retain(|n| !other.contains(n));
     names
 }
@@ -153,18 +176,27 @@ fn collect_arraylit_names_inner(
     stmts: &[Stmt],
     exprs: &[Expr],
     names: &mut std::collections::HashSet<String>,
+    mut_once: &mut std::collections::HashSet<String>,
     other: &mut std::collections::HashSet<String>,
 ) {
     for s in stmts {
         match s {
             Stmt::LetDecl {
-                mutable: false,
+                mutable,
                 name,
                 type_ann: None,
                 init,
                 ..
             } if matches!(&exprs[init.0 as usize], Expr::Array(_)) => {
-                names.insert(name.clone());
+                // A second declaration of the name — whatever its
+                // shape — drops it: certainty is one binding, once.
+                if names.contains(name) || mut_once.contains(name) {
+                    other.insert(name.clone());
+                } else if *mutable {
+                    mut_once.insert(name.clone());
+                } else {
+                    names.insert(name.clone());
+                }
             }
             Stmt::LetDecl { name, .. } => {
                 other.insert(name.clone());
@@ -172,7 +204,7 @@ fn collect_arraylit_names_inner(
             _ => {}
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_arraylit_names_inner(inner, exprs, names, other)
+            collect_arraylit_names_inner(inner, exprs, names, mut_once, other)
         });
     }
 }

@@ -424,6 +424,23 @@ pub(crate) unsafe fn struct_data_field_set(
             slot.write(value);
             true
         },
+        // I64 slot ← an integer-valued F64 payload, converted — the
+        // mirror of the F64 arm's I64 conversion below. The typed
+        // lanes box a number[] element as F64 whatever its value, so
+        // a callback's `this.count = v` met this slot with F64 bits
+        // for a plain integer. A fractional value keeps the loud
+        // reject: it cannot live in this slot without breaking the
+        // layout's invariant.
+        1 if tag == AnySlotTag::F64 as u64 => {
+            let f = f64::from_bits(value);
+            if f.fract() != 0.0 || f < i64::MIN as f64 || f >= i64::MAX as f64 {
+                return false;
+            }
+            unsafe {
+                slot.write(f as i64 as u64);
+            }
+            true
+        }
         // F64 slot ← F64 bits, or an I64 payload converted.
         2 if tag == AnySlotTag::F64 as u64 => unsafe {
             slot.write(value);
