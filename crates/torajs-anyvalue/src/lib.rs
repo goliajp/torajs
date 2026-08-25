@@ -159,6 +159,7 @@ mod method_bind;
 mod method_call;
 pub(crate) mod method_call_bool;
 pub use method_call::any_method_dispatch_impl;
+pub use method_value::ctor_date_call_impl;
 pub use method_value::ns_static_cell_impl;
 mod method_call_arr;
 mod method_call_arr_copy;
@@ -590,6 +591,11 @@ mod tests {
     #[unsafe(no_mangle)]
     pub extern "C" fn __torajs_ns_static_cell(id: i64) -> *mut u8 {
         crate::method_value::ns_static_cell_impl(id)
+    }
+    // The ctor-date seam: same bridge shape.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_ctor_date_call() -> u64 {
+        unsafe { crate::method_value::ctor_date_call_impl() }
     }
     // The arm-seam族 (RFC 20260824-s2-5 blade 2a): shipped binaries
     // resolve these to the torajs-dispatch member (or user-.o

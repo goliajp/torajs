@@ -48,6 +48,18 @@ unsafe extern "C" {
     pub(crate) fn __torajs_ns_static_cell(id: i64) -> *mut u8;
 }
 
+unsafe extern "C" {
+    /// The Date-as-a-function arm of the builtin-ctor call entry
+    /// (§21.4.2 — arguments ignored, answers the current time as a
+    /// string). Split behind its own seam because it is the only
+    /// ctor-call arm whose kernel world (torajs-date + the timezone
+    /// tables) is not already kept by the coercion keep — stubbed
+    /// together with the date family arm, since a Date ctor cell
+    /// cannot be read off any receiver in a program with no date
+    /// values.
+    pub(crate) fn __torajs_ctor_date_call() -> u64;
+}
+
 declare_arms!(
     __torajs_dispatch_str_arm,
     __torajs_dispatch_arr_arm,

@@ -132,6 +132,17 @@ pub extern "C" fn __torajs_ns_static_cell(id: i64) -> *mut u8 {
     torajs_anyvalue::ns_static_cell_impl(id)
 }
 
+/// Default (monolithic) resolution of the ctor-date seam — §21.4.2
+/// Date called as a function through a first-class ctor value.
+/// Stubbed together with the date family arm.
+///
+/// # Safety
+/// No inputs; forwards to the anyvalue kernel sequence.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_ctor_date_call() -> u64 {
+    unsafe { torajs_anyvalue::ctor_date_call_impl() }
+}
+
 /// The loud-reject landing pad for compiler-emitted family stubs
 /// (RFC 20260824-s2-5 blade 2b). A specialized program's user `.o`
 /// defines `__torajs_dispatch_<family>_arm` as a single

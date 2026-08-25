@@ -113,9 +113,20 @@ pub(crate) fn append_dispatch_stubs(
         .enumerate()
         .filter(|(i, _)| arm_bits & (1 << i) != 0);
     let ns_tagged = ns_static.then_some((15, NS_STATIC_SEAM)).into_iter();
+    // the ctor-call entry's Date arm strips with the date family
+    // (bit 7): a Date ctor cell cannot be read off any receiver in
+    // a program with no date values, so the arm shares the family's
+    // judgment (and its landing-pad attribution).
+    let ctor_date = (arm_bits & (1 << 7) != 0)
+        .then_some((7, "___torajs_ctor_date_call"))
+        .into_iter();
     let printer_syms = if printers { &FAMILY_PRINTERS[..] } else { &[] };
     let printers_tagged = printer_syms.iter().enumerate().map(|(i, n)| (16 + i, *n));
-    for (fam_id, name) in arms.chain(ns_tagged).chain(printers_tagged) {
+    for (fam_id, name) in arms
+        .chain(ns_tagged)
+        .chain(ctor_date)
+        .chain(printers_tagged)
+    {
         // movz x7, #fam_id — rides the unused 8th C-ABI arg slot so
         // the landing pad can NAME the stripped family in its
         // TypeError (x0-x5 pass through untouched).

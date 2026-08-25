@@ -110,6 +110,20 @@ unsafe extern "C" {
     fn __torajs_set_create() -> *mut c_void;
 }
 
+/// Monolithic resolution of the ctor-date seam — §21.4.2 Date as a
+/// function (see the seam doc in [`crate::dispatch_seam`]).
+///
+/// # Safety
+/// C-ABI kernel calls only; no inputs.
+pub unsafe fn ctor_date_call_impl() -> u64 {
+    unsafe {
+        let d = __torajs_date_now();
+        let s = __torajs_date_to_string(d);
+        __torajs_value_drop_heap(d);
+        crate::nanbox::box_void_ptr(s as *mut c_void)
+    }
+}
+
 /// [[Call]] of a builtin-constructor value — `const N = Number; N(42)`,
 /// `Number.call(null, x)`, and calls through a `.bind` mint all land
 /// here (the boxed entry of every interned ctor cell). Families whose
@@ -191,12 +205,8 @@ unsafe extern "C" fn ctor_call_entry(env: *mut c_void, argv: *const u64, argc: i
             }
             // Date as a function — §21.4.2: arguments ignored, the
             // answer is the current time rendered as a string.
-            8 => {
-                let d = __torajs_date_now();
-                let s = __torajs_date_to_string(d);
-                __torajs_value_drop_heap(d);
-                box_void_ptr(s as *mut c_void)
-            }
+            // Through the ctor-date seam: see `dispatch_seam`.
+            8 => crate::dispatch_seam::__torajs_ctor_date_call(),
             _ => {
                 __torajs_throw_type_error(
                     c"this constructor cannot be called as a function through a first-class value"
