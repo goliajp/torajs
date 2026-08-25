@@ -678,12 +678,34 @@ mod tests {
         // user `_main` does `stp; bl _malloc; ldp; ret`.
         let main_cf = fn_calls_extern_then_returns("_main", "_malloc");
         let mut sym_table = SymTable::new();
-        // _main lands at TEXT_VMADDR_BASE + text_file_offset =
-        // 0x100000000 + 0x4000 = 0x100004000. Point `_malloc` at
-        // the same fn's epilogue so patch_branch26's debug-assert
-        // is happy; the runtime never executes this binary in
-        // this test.
-        let fake_malloc_vaddr = 0x1_0000_4000u64 + (main_cf.bytes.len() as u64 - 4);
+        // _main lands at TEXT_VMADDR_BASE + text_file_offset (the
+        // layout ignores sym_table, so probe it first). Point
+        // `_malloc` at the same fn's epilogue so patch_branch26's
+        // debug-assert is happy; the runtime never executes this
+        // binary in this test.
+        let probe_cfg = LinkConfig {
+            funcs: vec![main_cf.clone()],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            dead_strip: false,
+            strip_member_symbols: false,
+            archives: Vec::new(),
+            strings: Vec::new(),
+            data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
+        };
+        let probe_layout = compute_archive_layout(&probe_cfg).expect("probe layout");
+        let fake_malloc_vaddr = crate::lc::TEXT_VMADDR_BASE
+            + u64::from(probe_layout.text_file_offset)
+            + (main_cf.bytes.len() as u64 - 4);
         sym_table.insert("_malloc".into(), fake_malloc_vaddr);
 
         let cfg = LinkConfig {

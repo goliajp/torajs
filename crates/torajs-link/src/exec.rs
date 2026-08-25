@@ -162,9 +162,9 @@ pub struct LinkConfig {
 /// Layout decisions the link driver makes before any bytes are emitted.
 #[derive(Debug, Clone)]
 pub struct ExecLayout {
-    /// File offset where the `__text` payload begins. Lands on
-    /// the first page boundary (`APPLE_SILICON_PAGE_SIZE`) after
-    /// the header + load commands.
+    /// File offset where the `__text` payload begins — packed
+    /// right after the header + load commands, 16-aligned (ld64
+    /// layout; the whole `__TEXT` segment maps r-x anyway).
     pub text_file_offset: u32,
     /// `__text` payload size in bytes (sum of all
     /// `ResolvedFunction.bytes.len()`).
@@ -231,10 +231,11 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
         + LINKEDIT_DATA_CMDSIZE; // LC_CODE_SIGNATURE
     let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
 
-    // `__text` lands on the first page boundary so the kernel can
-    // map __TEXT as RX without the header bleeding into other
-    // protection settings.
-    let text_file_offset = round_up_to(u64::from(header_plus_lc), APPLE_SILICON_PAGE_SIZE) as u32;
+    // `__text` packs right after the load commands, 16-aligned —
+    // the whole `__TEXT` segment maps r-x, header included, so a
+    // page boundary here only wasted file bytes (r498; mirrors the
+    // archive path in `archive_layout_text.rs`).
+    let text_file_offset = round_up_to(u64::from(header_plus_lc), 16) as u32;
 
     // Concatenate function bytes; remember each fn's section-
     // relative offset for the vaddr table.
@@ -554,8 +555,8 @@ mod tests {
         // header (32) + 3 LC_SEGMENT_64 (72*3 = 216) + 1 section (80) +
         // LC_LOAD_DYLINKER (32) + LC_BUILD_VERSION (24) + LC_MAIN (24) +
         // LC_SYMTAB (24) + LC_DYSYMTAB (80) + LC_CODE_SIGNATURE (16) = 528.
-        // Rounded up to 0x4000 page = 16384.
-        assert_eq!(layout.text_file_offset, 0x4000);
+        // `__text` packs right after (16-aligned; 528 already is).
+        assert_eq!(layout.text_file_offset, 528);
 
         // __text payload = the compiled `_main` body. Pinning a byte
         // count here couples this layout test to codegen instruction
@@ -563,13 +564,13 @@ mod tests {
         // from 16 to 12 bytes) — pin the layout invariant instead.
         assert_eq!(layout.text_size, cfg.funcs[0].bytes.len() as u32);
 
-        // __TEXT vmsize = round_up(0x4000 + text_size, 0x4000) = 0x8000
+        // __TEXT vmsize = round_up(528 + text_size, 0x4000) = 0x4000
         // (payload is a handful of instructions, far below one page).
-        assert_eq!(layout.text_vmsize, 0x8000);
+        assert_eq!(layout.text_vmsize, 0x4000);
 
-        // __LINKEDIT lands at the second page boundary.
-        assert_eq!(layout.linkedit_file_offset, 0x8000);
-        assert_eq!(layout.linkedit_vmaddr, TEXT_VMADDR_BASE + 0x8000);
+        // __LINKEDIT lands at the first page boundary.
+        assert_eq!(layout.linkedit_file_offset, 0x4000);
+        assert_eq!(layout.linkedit_vmaddr, TEXT_VMADDR_BASE + 0x4000);
 
         // 1 sym × 16 byte + strtab ("\0" + "_main\0" = 7 byte) = 23 byte
         // → __LINKEDIT vmsize page-rounded = 0x4000.
@@ -577,20 +578,20 @@ mod tests {
         assert_eq!(layout.strsize, 7);
         assert_eq!(layout.linkedit_vmsize, 0x4000);
 
-        // _main vaddr = TEXT_VMADDR_BASE + 0x4000 (text starts on
-        // the second page).
+        // _main vaddr = TEXT_VMADDR_BASE + 528 (text packs right
+        // after the load commands).
         assert_eq!(layout.fn_vaddrs.len(), 1);
-        assert_eq!(layout.fn_vaddrs[0], TEXT_VMADDR_BASE + 0x4000);
-        assert_eq!(layout.entry_file_offset, 0x4000);
+        assert_eq!(layout.fn_vaddrs[0], TEXT_VMADDR_BASE + 528);
+        assert_eq!(layout.entry_file_offset, 528);
 
         // Total file size = linkedit_file_offset + nlist + strtab +
         // codesign blob. Codesign blob = SB(12) + index(8) + CD
         // header(48) + ident "tora\0"(5) + ceil(code_limit/4096)
-        // *32. code_limit = stroff + strsize = 0x8010 + 7 = 0x8017
-        // = 32791 → 9 code slots → blob 73 + 288 = 361.
-        assert_eq!(layout.codesign_dataoff, 0x8000 + 16 + 7);
-        assert_eq!(layout.codesign_datasize, 361);
-        assert_eq!(layout.total_size, 0x8000 + 16 + 7 + 361);
+        // *32. code_limit = stroff + strsize = 0x4010 + 7 = 0x4017
+        // = 16407 → 5 code slots → blob 73 + 160 = 233.
+        assert_eq!(layout.codesign_dataoff, 0x4000 + 16 + 7);
+        assert_eq!(layout.codesign_datasize, 233);
+        assert_eq!(layout.total_size, 0x4000 + 16 + 7 + 233);
     }
 
     #[test]
@@ -657,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn link_to_exec_text_payload_lands_at_page_boundary() {
+    fn link_to_exec_text_payload_lands_at_text_file_offset() {
         let main = compile_function(&build_main_returns_42());
         let cfg = LinkConfig {
             funcs: vec![main.clone()],
@@ -679,9 +680,11 @@ mod tests {
             baked_regex_entries: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
-        // The bytes right after the page boundary should match the
-        // compiled `_main` body (length follows codegen output).
-        assert_eq!(&bytes[0x4000..0x4000 + main.bytes.len()], &main.bytes[..]);
+        let layout = compute_layout(&cfg);
+        // The bytes at text_file_offset should match the compiled
+        // `_main` body (length follows codegen output).
+        let off = layout.text_file_offset as usize;
+        assert_eq!(&bytes[off..off + main.bytes.len()], &main.bytes[..]);
     }
 
     /// Host `otool -hlv` must accept the emitted binary and

@@ -160,7 +160,14 @@ pub(crate) fn compute_text_region_plan(
         + chained_fixups_lc_size
         + LINKEDIT_DATA_CMDSIZE;
     let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
-    let text_file_offset = round_up_to(u64::from(header_plus_lc), APPLE_SILICON_PAGE_SIZE) as u32;
+    // `__text` packs right after the load commands (16-aligned) the
+    // way ld64 lays out a hello-world (`__text` at 0x3f84, same page
+    // as the header) — the whole `__TEXT` segment maps r-x, header
+    // included, so a page boundary here bought nothing and cost one
+    // 16 KB page per artifact (r498). An LC-sizing undercount now
+    // shifts `__text` immediately instead of hiding until the region
+    // outgrows its page; `emit_binary`'s overrun gate catches it.
+    let text_file_offset = round_up_to(u64::from(header_plus_lc), 16) as u32;
 
     let user_text_size: u32 = cfg.funcs.iter().map(|f| f.bytes.len() as u32).sum();
     let members_text_total: u32 = member_text_sizes.iter().copied().sum();
