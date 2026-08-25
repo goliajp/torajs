@@ -147,6 +147,7 @@ mod inject_builtin_classes;
 mod inject_builtin_classes_cause;
 mod inject_builtin_classes_data;
 mod inject_builtin_classes_message;
+mod inject_builtin_classes_reach;
 mod inject_disposable_stack;
 mod let_owned_elems;
 mod lift_arrow_fns;

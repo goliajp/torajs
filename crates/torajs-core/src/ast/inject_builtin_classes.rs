@@ -28,6 +28,7 @@
 
 use super::inject_builtin_classes_cause::{build_install_cause, build_options_param};
 use super::inject_builtin_classes_message::build_message_install;
+use super::inject_builtin_classes_reach::instance_shape_observable;
 use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 /// Synthetic root `class Error { message: string; name: string;
@@ -360,6 +361,16 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     .iter()
     .any(|n| referenced(n));
 
+    // RFC 20260825-injection-reachability 刀 B — the runtime-thrown
+    // force-inject applies only when the program can OBSERVE a
+    // native raise's instance shape (catch face / rejection face;
+    // the name face is the per-class `referenced` gate below). With
+    // every door closed the raise rides the named bare-string
+    // fallback (刀 A), whose uncaught rendering is
+    // instance-identical, so the whole hierarchy stays out and the
+    // dispatch-cluster worlds it roots dead-strip.
+    let observable = instance_shape_observable(ast);
+
     // Subclasses to inject: (referenced OR implied OR runtime-thrown)
     // AND not user-shadowed.
     //
@@ -388,10 +399,11 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
                 .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
             let implied =
                 (*n == "RangeError" && uses_bigint) || (*n == "URIError" && uses_uri_global);
-            let runtime_thrown = matches!(
-                *n,
-                "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
-            );
+            let runtime_thrown = observable
+                && matches!(
+                    *n,
+                    "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+                );
             !shadowed && (runtime_thrown || referenced(n) || implied)
         })
         .collect();
