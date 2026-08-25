@@ -85,6 +85,22 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
     // Merge once and share between layout and emit — each merge
     // re-parses every archive member's symtab (~23ms/case).
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    // r499 — with the archives stripped, a forced table global whose
+    // readers all died drops, and an empty `__DATA_CONST` with it
+    // (module doc in force_emit_derive).
+    let derived_cfg;
+    let cfg = match stripped_cfg
+        .as_ref()
+        .map(|c| crate::force_emit_derive::derive_force_emit(c, &merged))
+        .transpose()?
+        .flatten()
+    {
+        Some(c) => {
+            derived_cfg = c;
+            &derived_cfg
+        }
+        None => cfg,
+    };
     let mut layout = crate::archive_link::compute_archive_layout_with_merged(cfg, &merged)?;
 
     // Effective sym table = caller externs + member defined-externs

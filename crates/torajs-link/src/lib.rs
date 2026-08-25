@@ -80,6 +80,7 @@ pub mod exec;
 pub mod exec_user_entries;
 pub mod fn_addr_syms;
 pub mod fn_name_table_layout;
+pub(crate) mod force_emit_derive;
 pub mod layout_types;
 pub mod lc;
 pub mod member_apply;
