@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T14:13:10.129Z",
+  "generatedAt": "2026-08-25T17:10:53.092Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-25T13:47:13Z",
-    "headSha": "16047224e",
-    "elapsedSec": 363.71,
+    "ranAt": "2026-08-25T17:01:16Z",
+    "headSha": "2e25039c4",
+    "elapsedSec": 366.71,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29728,
-    "passNoOracle": 923,
+    "pass": 29747,
+    "passNoOracle": 924,
     "passNegative": 4147,
-    "passTotal": 34798,
-    "bug": 12742,
-    "incompatible": 5634,
+    "passTotal": 34818,
+    "bug": 12723,
+    "incompatible": 5633,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47540,
-    "passRateInScope": 65.44,
-    "passRateTrAccepted": 73.2
+    "trAccepted": 47541,
+    "passRateInScope": 65.48,
+    "passRateTrAccepted": 73.24
   },
   "torajs": {
-    "commit": "813e93170",
-    "commitSubject": "refactor: class-tag read-point hygiene from the rotation 497 audit",
+    "commit": "2e25039c4",
+    "commitSubject": "refactor: move the SSA-to-link builder family out of cmd_build.rs",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "2e25039c4",
+      "subject": "refactor: move the SSA-to-link builder family out of cmd_build.rs"
+    },
+    {
+      "hash": "1d2ce1977",
+      "subject": "fix: user-gc roots come from the materialized LinkConfig tables"
+    },
+    {
+      "hash": "a0a7dac8a",
+      "subject": "perf: user-fn dead-strip — stop dead user fns from seeding the member closure"
+    },
+    {
+      "hash": "885692cbe",
+      "subject": "perf: skip the main wrapper's argv-init call when no reloc can observe it"
+    },
+    {
+      "hash": "bdd311abd",
+      "subject": "perf: pack __text right after the load commands (ld64 layout)"
+    },
+    {
+      "hash": "314d47041",
+      "subject": "perf: strip runtime member symbols from tr build artifacts (ld64 -x class policy)"
+    },
+    {
+      "hash": "7ab98a37c",
+      "subject": "chore: rotation 497 close — injection-reachability dependency list to zero and gate released (struct-intern finalized-only match, escape census exhaustive, empty-program main, class-tag audit + hygiene), gate-open sweep byte-flat after the 18-case main_user attribution, dashboard"
+    },
+    {
       "hash": "813e93170",
       "subject": "refactor: class-tag read-point hygiene from the rotation 497 audit"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "2bb7d32c1",
       "subject": "fix: struct-layout interning matches only finalized layouts"
-    },
-    {
-      "hash": "03564d82f",
-      "subject": "chore: rotation 496 close — s2 blade-4 root census + injection-reachability rfc (implement, three latent bug fixes, gate held open), narrow proto-chain wire, named bare-string throw, import-free data-segment link fix, sweep byte-flat (one timeout flake), dashboard"
-    },
-    {
-      "hash": "18759996c",
-      "subject": "fix: gate the iterator-result struct probe by heap tag; hold the injection gate open"
-    },
-    {
-      "hash": "78b6924dc",
-      "subject": "fix: reachability gate sees nested try/throw; class desugar drops its stale zero-class bail"
-    },
-    {
-      "hash": "69e460a3c",
-      "subject": "perf: error-family injection rides the reachability gate (injection-reachability blades b+c)"
-    },
-    {
-      "hash": "a68c888be",
-      "subject": "fix: import-free closures with member data sections keep the data segment"
-    },
-    {
-      "hash": "89060db70",
-      "subject": "fix: bare-string throw fallback carries the class name (injection-reachability blade a)"
-    },
-    {
-      "hash": "0469e1a37",
-      "subject": "perf: prologue proto-chain wire rides a narrow kernel (inject-narrow-define blade 4a)"
     }
   ],
-  "headSha": "813e93170",
+  "headSha": "2e25039c4",
   "autorun": {
-    "total": 800,
+    "total": 801,
     "baselineTarget": 10,
-    "bySelf": 795,
+    "bySelf": 796,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787659755-4d92",
-      "at": "2026-08-25T12:09:15Z",
-      "ts": 1787659755,
+      "rotationId": "r-1787667206-5f3c",
+      "at": "2026-08-25T14:13:26Z",
+      "ts": 1787667206,
       "trigger": "self",
-      "prevHead": "03564d82f",
-      "handoffSha": "sha256:d2b2a715d867d9468e06a1a039b0a8a6353dca0f78f0716526a27d658c9e25fb",
-      "handoffAgeSec": 1,
+      "prevHead": "7ab98a37c",
+      "handoffSha": "sha256:dce4be680fbaf1874da98b5bd7a7d3029a0a251fc273a8238ea1304dfceedbef",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787667206-5f3c",
+        "at": "2026-08-25T14:13:26Z",
+        "ts": 1787667206,
+        "trigger": "self",
+        "prevHead": "7ab98a37c",
+        "handoffSha": "sha256:dce4be680fbaf1874da98b5bd7a7d3029a0a251fc273a8238ea1304dfceedbef",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787659755-4d92",
         "at": "2026-08-25T12:09:15Z",
@@ -876,17 +887,6 @@
         "prevHead": "a816584a4",
         "handoffSha": "sha256:f542fb0ac9c6cdbdbdf733318a100e180bfaacb50eb91d27c393ce006d0c9856",
         "handoffAgeSec": 37,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787567426-6d21",
-        "at": "2026-08-24T10:30:26Z",
-        "ts": 1787567426,
-        "trigger": "self",
-        "prevHead": "44cb6f3ed",
-        "handoffSha": "sha256:7e2bc99b71976a16a30793eaba63f65e364b6ced2b237b64aaa319a7631c625c",
-        "handoffAgeSec": 94,
         "conformanceBefore": null,
         "commitsInSession": null
       }

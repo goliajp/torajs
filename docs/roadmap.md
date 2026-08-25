@@ -1557,7 +1557,28 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `80e2f265a`** (2026-08-24, rotation 487 — the generic
+**Latest @ `2e25039c4`** (2026-08-26, rotation 498 — an artifact-mass
+rotation on the S2 line: the empty-program census showed LC_SYMTAB +
+strtab at 63% of the 273,665-byte release artifact, so `tr build` now
+strips the runtime members' symbols by default (ld64 `-x` class;
+`--no-strip` keeps them, `tr run` keeps them), `__text` packs right
+after the load commands, the `_main` wrapper's argv-init call is
+emitted only when a `__torajs_process_*` reloc can observe it, and
+user fns get an ld64-style dead-strip whose address-taken roots are
+collected from the materialized LinkConfig tables (one gate-caught
+regression — the class-method table's boxed adapters — fixed
+in-rotation). Empty program 273,665 → **84,481 (−69%)**; roadmap S3's
+"hello-world in the hundred-KB range" is met). Gate predicate:
+**159** clusters of ≥ 4 holding **1225** cases, register 2 · 251,
+residue 652 · 810 (35.4%), core **2286** (was 2287). Sweep passTotal
+34798 → **34818 (+20)**, bug **12723 (−19)**, incompatible **5633
+(−1)**, trAccepted +1, conservation exact (+1 = +20 − 19), zero pass
+regressions — the 20 forward moves are rotation 497's 18
+`_main_user` cases returning (empty-statement programs now
+synthesize main), one RegExp timeout → pass, and
+param-duplicated-non-strict back to pass-no-oracle.
+
+**Prior @ `80e2f265a`** (2026-08-24, rotation 487 — the generic
 array-like receiver sweep: HOF thisArg over a single-write `var arr`
 receiver (the knife-4 arraylit census admits mutable-never-rewritten
 bindings; struct_data_field_set gains the I64←integer-F64 arm),
