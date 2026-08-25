@@ -50,7 +50,7 @@ unsafe extern "C" {
     /// torajs-str — pooled Str allocation (header + len prefix).
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     /// torajs-dynobj — define kernel (§10.1.6.3 apply core).
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *const u8,
         tag: u64,
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn __torajs_proto_tostringtag_install(proto: *mut c_void, 
             | DEFINE_PRESENT_CONFIGURABLE
             | DEFINE_PRESENT_VALUE;
         let mut slot = proto;
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             key as *const u8,
             ANY_HEAP as u64,

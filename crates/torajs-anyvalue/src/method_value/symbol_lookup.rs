@@ -117,7 +117,7 @@ unsafe extern "C" {
     /// torajs-dynobj — §10.1.6.3 define with explicit W/E/C flags
     /// (`flags_byte` low 3 = values, bits 3-5 = present, bit 6 =
     /// value present). Consumes one rc of a heap `value`.
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -307,7 +307,7 @@ pub unsafe extern "C" fn __torajs_proto_symbol_keys_install(proto: *mut c_void, 
     }
     let mut slot = proto;
     unsafe {
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             key as *mut c_void,
             ANY_HEAP,

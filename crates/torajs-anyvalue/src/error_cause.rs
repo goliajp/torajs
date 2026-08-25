@@ -21,7 +21,7 @@ use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn __torajs_error_install_cause(recv: AnyValue, value: Any
         let key = __torajs_str_alloc(b"cause".as_ptr(), 5);
         let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(value) as u64;
         let val = crate::nanbox_encode::__torajs_anyv_unbox_value_owned(value) as u64;
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             key as *mut c_void,
             tag,

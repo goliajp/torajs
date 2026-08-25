@@ -39,7 +39,7 @@ unsafe extern "C" {
     /// Cross-tier — §10.1.6.3 define with explicit W/E/C flags
     /// (`flags_byte` low 3 = values, bits 3-5 = present, bit 6 =
     /// value present). Consumes one rc of a heap `value`.
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         dynobj_ptr: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -151,7 +151,7 @@ pub unsafe extern "C" fn __torajs_arrprops_define(
         if (*slot).is_null() {
             *slot = __torajs_dynobj_alloc();
         }
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             slot,
             key as *mut c_void,
             tag as u64,

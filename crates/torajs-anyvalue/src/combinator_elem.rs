@@ -77,7 +77,7 @@ unsafe extern "C" {
     /// torajs-throw — the injected `__new_AggregateError` factory, or
     /// NULL when the program has no such class.
     fn __torajs_make_aggregate_error(errors: i64) -> *mut c_void;
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -330,7 +330,7 @@ unsafe fn seed_reflection(cell: *mut u8) {
         *props_slot = __torajs_dynobj_alloc();
         let name_key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
         let empty = __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             name_key as *mut c_void,
             ANY_HEAP,
@@ -339,7 +339,7 @@ unsafe fn seed_reflection(cell: *mut u8) {
         );
         __torajs_str_drop(name_key as *mut c_void);
         let len_key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             len_key as *mut c_void,
             ANY_I64,

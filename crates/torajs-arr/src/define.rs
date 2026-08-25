@@ -39,7 +39,7 @@ pub(crate) use crate::define_index_flags::{__torajs_arr_index_flags, index_flags
 unsafe extern "C" {
     /// torajs-dynobj — ordinary define on the expando dynobj
     /// (validate + apply; lazily allocated via the slot).
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -49,7 +49,7 @@ unsafe extern "C" {
     /// torajs-dynobj — ordinary define, boolean-answer flavor
     /// (rotation 267 刀 R5a): a §10.1.6.3 refusal answers 0 with no
     /// pending throw.
-    fn __torajs_dynobj_define_soft(
+    fn __torajs_dynobj_define_plain_soft(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -293,10 +293,10 @@ unsafe fn arr_define_impl(
         unsafe { *slot = __torajs_dynobj_alloc() };
     }
     if throw_on_refusal {
-        unsafe { __torajs_dynobj_define(slot, key, tag, value, flags_byte) };
+        unsafe { __torajs_dynobj_define_plain(slot, key, tag, value, flags_byte) };
         1
     } else {
-        unsafe { __torajs_dynobj_define_soft(slot, key, tag, value, flags_byte) }
+        unsafe { __torajs_dynobj_define_plain_soft(slot, key, tag, value, flags_byte) }
     }
 }
 

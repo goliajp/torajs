@@ -15,7 +15,7 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::{
-    __torajs_anyv_get_proto_of_any, __torajs_dynobj_alloc, __torajs_dynobj_define,
+    __torajs_anyv_get_proto_of_any, __torajs_dynobj_alloc, __torajs_dynobj_define_plain,
     __torajs_promise_alloc_rejected_heap, __torajs_promise_stamp_repr, __torajs_throw_set,
     __torajs_throw_take, __torajs_throw_take_tag, __torajs_throw_type_error, ANY_HEAP,
     interned_key,
@@ -291,14 +291,14 @@ pub unsafe extern "C" fn __torajs_gen_step_method_cell(kind: i64, which: i64) ->
         let props_slot = cell.add(24) as *mut *mut c_void;
         *props_slot = __torajs_dynobj_alloc();
         let name_cell = mint_immortal_str(GEN_STEP_NAMES[w]);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             interned_key(&NAME_KEY_CELL, b"name"),
             ANY_HEAP,
             name_cell as u64,
             REFLECT_ENTRY_FLAGS,
         );
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             interned_key(&LENGTH_KEY_CELL, b"length"),
             ANY_I64,

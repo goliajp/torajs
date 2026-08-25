@@ -50,7 +50,7 @@ unsafe extern "C" {
     /// the immortal cells' rc traffic no-ops on the static flag).
     fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
     /// torajs-dynobj — define kernel (§10.1.6.3 apply core).
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *const u8,
         tag: u64,
@@ -117,7 +117,7 @@ unsafe fn install_accessor_entry(
             | DEFINE_FLAG_CONFIGURABLE;
         let key = alloc_str_key(key_bytes);
         let mut slot = proto;
-        __torajs_dynobj_define(&mut slot, key, ANY_HEAP as u64, pair as u64, flags);
+        __torajs_dynobj_define_plain(&mut slot, key, ANY_HEAP as u64, pair as u64, flags);
         __torajs_str_drop(key);
     }
 }

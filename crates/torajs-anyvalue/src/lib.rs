@@ -1004,6 +1004,17 @@ mod tests {
         _flags_byte: u64,
     ) {
     }
+    // RFC 20260825-inject-narrow-define — the assembly-path narrow
+    // kernel the install/mint sites switched to.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_define_plain(
+        _obj_slot: *mut *mut c_void,
+        _key: *mut c_void,
+        _tag: u64,
+        _value: u64,
+        _flags_byte: u64,
+    ) {
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_arr_index_flags(_arr: *const c_void, _idx: u64) -> u64 {
         0

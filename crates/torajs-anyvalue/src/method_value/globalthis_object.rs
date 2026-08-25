@@ -51,7 +51,7 @@ use crate::dispatch_seam::__torajs_ns_static_cell as ns_static_cell;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -148,7 +148,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
         let mut obj = __torajs_dynobj_alloc();
         for (name, tag) in CTOR_PROPS {
             let key = mint_immortal_str(name);
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut obj,
                 key as *mut c_void,
                 AnySlotTag::Heap as u64,
@@ -178,7 +178,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
                 torajs_rc::__torajs_rc_inc(v as *mut c_void);
             }
             let key = mint_immortal_str(fam.as_bytes());
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut obj,
                 key as *mut c_void,
                 AnySlotTag::Heap as u64,
@@ -187,7 +187,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             );
         }
         let key = mint_immortal_str(b"Math");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::Heap as u64,
@@ -195,7 +195,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             REF_PROP_FLAGS,
         );
         let key = mint_immortal_str(b"JSON");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::Heap as u64,
@@ -203,7 +203,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             REF_PROP_FLAGS,
         );
         let key = mint_immortal_str(b"Reflect");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::Heap as u64,
@@ -214,7 +214,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
         // the same interned singleton the bare `console` value read
         // answers, so `globalThis.console === console` holds.
         let key = mint_immortal_str(b"console");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::Heap as u64,
@@ -225,7 +225,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
         // answers, so identity holds through the dynamic lane too.
         let key = mint_immortal_str(b"eval");
         let eval_cell = ns_static_cell(torajs_rc::ns_static::ns_static_id("globalThis", "eval"));
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::Heap as u64,
@@ -255,7 +255,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
                 ns,
                 core::str::from_utf8(name).expect("ascii name"),
             ));
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut obj,
                 key as *mut c_void,
                 AnySlotTag::Heap as u64,
@@ -264,7 +264,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             );
         }
         let key = mint_immortal_str(b"Infinity");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::F64 as u64,
@@ -272,7 +272,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             VALUE_PROP_FLAGS,
         );
         let key = mint_immortal_str(b"NaN");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::F64 as u64,
@@ -280,7 +280,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             VALUE_PROP_FLAGS,
         );
         let key = mint_immortal_str(b"undefined");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::Undef as u64,
@@ -289,7 +289,7 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
         );
         let key = mint_immortal_str(b"globalThis");
         let self_ptr = obj;
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
             AnySlotTag::Heap as u64,

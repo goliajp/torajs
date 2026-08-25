@@ -190,10 +190,39 @@ pub unsafe extern "C" fn __torajs_dynobj_define_plain(
     value: u64,
     flags_byte: u64,
 ) {
+    unsafe { define_plain_apply(obj_slot, key, tag, value, flags_byte, true) };
+}
+
+/// Boolean flavor of [`__torajs_dynobj_define_plain`] — same narrow
+/// contract, refusal answers 0 with no pending throw (the
+/// `__torajs_dynobj_define_soft` twin; torajs-arr's expando defines
+/// carry both flavors through the same bag).
+///
+/// # Safety
+/// Same as [`__torajs_dynobj_define_plain`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_define_plain_soft(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+) -> i64 {
+    unsafe { define_plain_apply(obj_slot, key, tag, value, flags_byte, false) }
+}
+
+unsafe fn define_plain_apply(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         let obj = *obj_slot;
         if obj.is_null() {
-            return;
+            return 1;
         }
         debug_assert_eq!(
             (obj.cast::<u8>().add(4) as *const u16).read(),
@@ -217,10 +246,10 @@ pub unsafe extern "C" fn __torajs_dynobj_define_plain(
                 tag,
                 value,
                 flags_byte,
-                true,
-            );
+                throw_on_refusal,
+            )
         } else {
-            define_fresh_entry(obj, key, pr.slot, tag, value, flags_byte, true);
+            define_fresh_entry(obj, key, pr.slot, tag, value, flags_byte, throw_on_refusal)
         }
     }
 }

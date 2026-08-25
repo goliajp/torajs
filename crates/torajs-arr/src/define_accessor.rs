@@ -29,7 +29,7 @@ use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -38,7 +38,7 @@ unsafe extern "C" {
     );
     /// torajs-dynobj — boolean-answer flavor (rotation 267 刀 R5b):
     /// refusal answers 0 with no pending throw.
-    fn __torajs_dynobj_define_soft(
+    fn __torajs_dynobj_define_plain_soft(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -248,10 +248,10 @@ unsafe fn define_shadow_accessor(
         unsafe { *slot = __torajs_dynobj_alloc() };
     }
     let ok = if throw_on_refusal {
-        unsafe { __torajs_dynobj_define(slot, key, tag, value, flags_byte) };
+        unsafe { __torajs_dynobj_define_plain(slot, key, tag, value, flags_byte) };
         1
     } else {
-        unsafe { __torajs_dynobj_define_soft(slot, key, tag, value, flags_byte) }
+        unsafe { __torajs_dynobj_define_plain_soft(slot, key, tag, value, flags_byte) }
     };
     let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
     unsafe { p.write(p.read() | FLAG_ARR_EXOTIC_INDEX) };

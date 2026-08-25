@@ -42,7 +42,7 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *const u8,
         tag: u64,
@@ -121,7 +121,7 @@ unsafe fn define_heap(obj: *mut c_void, key: &[u8], value: *mut c_void, flags: u
     // are immortal, so the extra inc keeps the circular graph alive
     // by design (mirrors builtin_proto's leaked singletons).
     unsafe { __torajs_rc_inc(value) };
-    unsafe { __torajs_dynobj_define(&mut slot, k, ANY_HEAP, heap_anyv(value), flags) };
+    unsafe { __torajs_dynobj_define_plain(&mut slot, k, ANY_HEAP, heap_anyv(value), flags) };
     unsafe { __torajs_str_drop(k) };
 }
 
@@ -149,7 +149,7 @@ unsafe fn mint_kind(kind: usize) {
         let mut slot = ctor;
         let k = unsafe { alloc_str_key(b"name") };
         unsafe {
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut slot,
                 k,
                 ANY_HEAP,
@@ -162,7 +162,7 @@ unsafe fn mint_kind(kind: usize) {
     {
         let mut slot = ctor;
         let k = unsafe { alloc_str_key(b"length") };
-        unsafe { __torajs_dynobj_define(&mut slot, k, ANY_I64, 1, ATTRS_WEC_001) };
+        unsafe { __torajs_dynobj_define_plain(&mut slot, k, ANY_I64, 1, ATTRS_WEC_001) };
         unsafe { __torajs_str_drop(k) };
     }
     unsafe { define_heap(ctor, b"prototype", fn_proto, ATTRS_WEC_000) };
@@ -194,7 +194,7 @@ unsafe fn mint_kind(kind: usize) {
             unsafe { __torajs_rc_inc(cell) };
             let mut slot = gen_proto;
             unsafe {
-                __torajs_dynobj_define(
+                __torajs_dynobj_define_plain(
                     &mut slot,
                     sym as *const u8,
                     ANY_HEAP,
@@ -221,7 +221,7 @@ unsafe fn mint_kind(kind: usize) {
             let value = unsafe { alloc_str_key(tag) };
             let mut slot = gen_proto;
             unsafe {
-                __torajs_dynobj_define(
+                __torajs_dynobj_define_plain(
                     &mut slot,
                     sym as *const u8,
                     ANY_HEAP,
@@ -288,7 +288,7 @@ pub unsafe extern "C" fn __torajs_genfn_chain(proto_anyv: u64, kind: i64) -> u64
     let gen_proto_anyv = unsafe { cell(kind, 2) };
     let mut slot = obj;
     let k = unsafe { alloc_str_key(PROTO_SLOT_KEY) };
-    unsafe { __torajs_dynobj_define(&mut slot, k, ANY_HEAP, gen_proto_anyv, PROTO_SLOT_ATTRS) };
+    unsafe { __torajs_dynobj_define_plain(&mut slot, k, ANY_HEAP, gen_proto_anyv, PROTO_SLOT_ATTRS) };
     unsafe { __torajs_str_drop(k) };
     0
 }

@@ -43,7 +43,7 @@ unsafe extern "C" {
     /// torajs-dynobj — §10.1.6.3 define with explicit W/E/C flags
     /// (`flags_byte` low 3 = values, bits 3-5 = present, bit 6 =
     /// value present). Consumes one rc of a heap `value`.
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -155,7 +155,7 @@ pub(crate) unsafe fn fn_prototype_pair(ptr: *mut c_void) -> Option<(u64, u64)> {
         // its heap value; the resulting cycle is collector-walked.
         let mut proto = __torajs_dynobj_alloc();
         torajs_rc::__torajs_rc_inc(ptr);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut proto,
             interned_key(&CTOR_KEY_CELL, b"constructor"),
             ANY_HEAP,
@@ -169,7 +169,7 @@ pub(crate) unsafe fn fn_prototype_pair(ptr: *mut c_void) -> Option<(u64, u64)> {
         if (*props_slot).is_null() {
             *props_slot = __torajs_dynobj_alloc();
         }
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             interned_key(&PROTO_KEY_CELL, b"prototype"),
             ANY_HEAP,
@@ -241,7 +241,7 @@ pub unsafe extern "C" fn __torajs_closure_install_gen_proto(env: *mut c_void, pr
         if (*props_slot).is_null() {
             *props_slot = __torajs_dynobj_alloc();
         }
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             interned_key(&PROTO_KEY_CELL, b"prototype"),
             ANY_HEAP,

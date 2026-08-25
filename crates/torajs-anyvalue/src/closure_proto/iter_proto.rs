@@ -23,7 +23,7 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use super::{__torajs_dynobj_alloc, __torajs_dynobj_define, ANY_HEAP, interned_key};
+use super::{__torajs_dynobj_alloc, __torajs_dynobj_define_plain, ANY_HEAP, interned_key};
 use crate::method_value::{mint_immortal_str, mint_reject_closure_cell, symbol_static};
 use crate::nanbox::VALUE_UNDEFINED;
 
@@ -125,14 +125,14 @@ unsafe fn mint_symbol_method_cell(
         let props_slot = cell.add(24) as *mut *mut c_void;
         *props_slot = __torajs_dynobj_alloc();
         let name_cell = mint_immortal_str(name);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             interned_key(&NAME_KEY_CELL, b"name"),
             ANY_HEAP,
             name_cell as u64,
             REFLECT_ENTRY_FLAGS,
         );
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             interned_key(&LENGTH_KEY_CELL, b"length"),
             ANY_I64,
@@ -172,7 +172,7 @@ pub unsafe extern "C" fn __torajs_iterator_proto_install(proto: *mut c_void) {
         let key = symbol_static::well_known_singleton(idx) as *mut c_void;
         let mut slot = proto;
         unsafe {
-            __torajs_dynobj_define(&mut slot, key, ANY_HEAP, cell as u64, METHOD_ENTRY_FLAGS)
+            __torajs_dynobj_define_plain(&mut slot, key, ANY_HEAP, cell as u64, METHOD_ENTRY_FLAGS)
         };
     }
 }

@@ -33,7 +33,7 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_rc_dec(p: *mut c_void);
     fn __torajs_str_drop(s: *mut u8);
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *const u8,
         tag: u64,
@@ -90,7 +90,7 @@ pub unsafe extern "C" fn __torajs_proto_chain_builtin(proto_anyv: u64, proto_tag
     let mut slot = proto_anyv as *mut c_void;
     let k = unsafe { alloc_str_key(PROTO_SLOT_KEY) };
     unsafe {
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             k,
             ANY_HEAP as u64,

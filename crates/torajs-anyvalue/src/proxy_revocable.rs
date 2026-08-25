@@ -44,7 +44,7 @@ const REFLECT_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -116,7 +116,7 @@ unsafe fn mint_revoker(proxy_cell: *mut c_void) -> *mut u8 {
         *props_slot = __torajs_dynobj_alloc();
         let name_key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
         let empty = __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             name_key as *mut c_void,
             ANY_HEAP,
@@ -125,7 +125,7 @@ unsafe fn mint_revoker(proxy_cell: *mut c_void) -> *mut u8 {
         );
         __torajs_str_drop(name_key as *mut c_void);
         let len_key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             len_key as *mut c_void,
             ANY_I64,

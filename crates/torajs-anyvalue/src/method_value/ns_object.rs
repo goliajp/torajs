@@ -48,7 +48,7 @@ unsafe extern "C" {
     /// namespace fills through this rather than `__torajs_dynobj_set`
     /// because a built-in's own properties are not ordinary writes:
     /// see the flag mirrors below.
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -118,7 +118,7 @@ unsafe fn define_ns_tag(obj: &mut *mut c_void, tag: &[u8]) {
             return;
         }
         let value = mint_immortal_str(tag);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             obj,
             key,
             AnySlotTag::Heap as u64,
@@ -157,7 +157,7 @@ unsafe fn fill_ns_methods(obj: &mut *mut c_void, ns: &str) {
             }
             let cell = ns_static_cell(id as i64);
             let key = mint_immortal_str(row.name.as_bytes());
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 obj,
                 key as *mut c_void,
                 AnySlotTag::Heap as u64,
@@ -197,7 +197,7 @@ pub(crate) fn math_object_ptr() -> *mut c_void {
         fill_ns_methods(&mut obj, "Math");
         for (name, v) in MATH_CONSTS {
             let key = mint_immortal_str(name);
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut obj,
                 key as *mut c_void,
                 AnySlotTag::F64 as u64,

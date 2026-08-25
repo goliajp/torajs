@@ -98,7 +98,7 @@ unsafe extern "C" {
     );
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -179,7 +179,7 @@ pub(crate) unsafe fn mint_resolver(
         *props_slot = __torajs_dynobj_alloc();
         let name_key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
         let empty = __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             name_key as *mut c_void,
             ANY_HEAP,
@@ -188,7 +188,7 @@ pub(crate) unsafe fn mint_resolver(
         );
         __torajs_str_drop(name_key as *mut c_void);
         let len_key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             props_slot,
             len_key as *mut c_void,
             ANY_I64,
