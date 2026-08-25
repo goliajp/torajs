@@ -138,27 +138,13 @@ pub(super) fn emit_terminator(
             // path and the trailing B disappears.
             let then_falls = !else_falls && Some(resolve(*then_blk)) == next_resolved;
             if let Some(fc) = fused {
-                let (fc, br_target) = if then_falls {
-                    (
-                        brfuse::FusedCmp {
-                            pred: brfuse::invert_ipred(fc.pred),
-                            lhs: fc.lhs,
-                            rhs: fc.rhs,
-                        },
-                        *else_blk,
-                    )
+                let (invert, br_target) = if then_falls {
+                    (true, *else_blk)
                 } else {
-                    (
-                        brfuse::FusedCmp {
-                            pred: fc.pred,
-                            lhs: fc.lhs,
-                            rhs: fc.rhs,
-                        },
-                        *then_blk,
-                    )
+                    (false, *then_blk)
                 };
                 let trailing = (!then_falls && !else_falls).then_some(*else_blk);
-                brfuse::emit_fused_condbr(bytes, fixups, &fc, br_target, trailing, alloc);
+                brfuse::emit_fused_condbr(bytes, fixups, fc, invert, br_target, trailing, alloc);
                 return;
             }
             // Materialize the Bool cond into a GPR scratch. If the

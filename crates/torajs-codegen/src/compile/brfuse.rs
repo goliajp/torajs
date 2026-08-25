@@ -25,15 +25,21 @@ use torajs_core::ssa::{
 
 use crate::reg::Reg;
 
-use super::cmp::{emit_compare_nzcv, ipred_to_cond};
-use super::operand::materialize_operand_gpr;
-use super::{BranchFixup, BranchKind, OP_SCRATCH_LHS, write_u32};
-use crate::enc::{b_cond_imm19, b_imm26, cbnz_x, cbz_x};
+use super::cmp::{emit_compare_nzcv, fpred_to_cond, ipred_to_cond};
+use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
+use super::{
+    BranchFixup, BranchKind, FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS,
+    write_u32,
+};
+use crate::enc::{b_cond_imm19, b_imm26, cbnz_x, cbz_x, fcmp_d};
 use crate::regalloc::Assignment;
 
-/// One compare picked to emit inside its block's CondBr.
+/// One compare picked to emit inside its block's CondBr — integer or
+/// float (the mandelbrot decomposition D3: an `FCmp; CondBr` loop
+/// exit paid cset+cbnz because only ICmp fused here while the Select
+/// path below already took floats).
 pub(crate) struct FusedCmp {
-    pub pred: IPred,
+    pub pred: FusedSelPred,
     pub lhs: Operand,
     pub rhs: Operand,
 }
@@ -78,23 +84,33 @@ pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
         if tail.result != Some(*v) || uses.get(v) != Some(&1) {
             continue;
         }
-        if let InstKind::ICmp(pred, lhs, rhs) = &tail.kind {
-            fused.insert(
-                block.id.0,
-                FusedCmp {
-                    pred: *pred,
-                    lhs: *lhs,
-                    rhs: *rhs,
-                },
-            );
-        }
+        let pred = match &tail.kind {
+            InstKind::ICmp(pred, _, _) => FusedSelPred::Int(*pred),
+            // `FPred::One` never fuses: ordered != has no single cond
+            // code (`fpred_to_cond` rejects it) — it keeps the 3-inst
+            // CSET MI / CSET GT / ORR path in emit_fcmp.
+            InstKind::FCmp(pred, _, _) if *pred != FPred::One => FusedSelPred::Float(*pred),
+            _ => continue,
+        };
+        let (InstKind::ICmp(_, lhs, rhs) | InstKind::FCmp(_, lhs, rhs)) = &tail.kind else {
+            unreachable!("arm above admits only compares");
+        };
+        fused.insert(
+            block.id.0,
+            FusedCmp {
+                pred,
+                lhs: *lhs,
+                rhs: *rhs,
+            },
+        );
     }
     fused
 }
 
-/// The compare a Select absorbs — integer or float. Kept separate
-/// from `FusedCmp` (CondBr / CSINC fuses, integer-only surfaces) so
-/// the float arm exists exactly where floats can appear.
+/// A fused compare's predicate — integer or float. Shared by the
+/// CondBr fuse (`FusedCmp`) and the Select fuse (`FusedSelCmp`); the
+/// CSINC fuse only ever constructs the Int arm.
+#[derive(Clone, Copy)]
 pub(crate) enum FusedSelPred {
     Int(IPred),
     Float(FPred),
@@ -187,12 +203,23 @@ pub(crate) fn invert_ipred(pred: IPred) -> IPred {
     }
 }
 
-/// Emit the fused form of `CondBr { cond: <tail icmp>, .. }`.
+/// Emit the fused form of `CondBr { cond: <tail icmp/fcmp>, .. }`.
 ///
-/// `cbz`/`cbnz` fold applies only to an eq/ne against `ConstI64(0)`
-/// with a Value on the other side — a ConstI32 zero keeps the CMP
-/// path (its W-form compare masks the high half that an X-reg CBZ
-/// would read, see `emit_compare_nzcv`).
+/// `invert` branches on the compare's logical negation (the layout-
+/// driven flip: then-target falls through, so the taken edge is the
+/// else-target). Integer predicates invert in the predicate domain
+/// (`invert_ipred`, exact — no NaN cases). Float predicates invert in
+/// the condition-code domain: AArch64 defines cond bit 0 as the
+/// logical negation of the tested condition (b.<cc^1> takes exactly
+/// when b.<cc> would not), and that holds for every NZCV state FCMP
+/// can produce *including unordered* — so `!(a > b)` lands on b.LE,
+/// which does take on NaN, matching the SSA CondBr semantics of a
+/// false compare.
+///
+/// `cbz`/`cbnz` fold applies only to an integer eq/ne against
+/// `ConstI64(0)` with a Value on the other side — a ConstI32 zero
+/// keeps the CMP path (its W-form compare masks the high half that an
+/// X-reg CBZ would read, see `emit_compare_nzcv`).
 ///
 /// `else_blk: None` = the else-target is the fall-through block; the
 /// trailing unconditional B is skipped.
@@ -200,13 +227,18 @@ pub(crate) fn emit_fused_condbr(
     bytes: &mut Vec<u8>,
     fixups: &mut Vec<BranchFixup>,
     fc: &FusedCmp,
+    invert: bool,
     then_blk: BlockId,
     else_blk: Option<BlockId>,
     alloc: &Assignment,
 ) {
-    let zero_test = match (fc.pred, &fc.lhs, &fc.rhs) {
-        (IPred::Eq | IPred::Ne, Operand::Value(_), Operand::ConstI64(0)) => Some(fc.lhs),
-        (IPred::Eq | IPred::Ne, Operand::ConstI64(0), Operand::Value(_)) => Some(fc.rhs),
+    let int_pred = match fc.pred {
+        FusedSelPred::Int(p) => Some(if invert { invert_ipred(p) } else { p }),
+        FusedSelPred::Float(_) => None,
+    };
+    let zero_test = match (int_pred, &fc.lhs, &fc.rhs) {
+        (Some(IPred::Eq | IPred::Ne), Operand::Value(_), Operand::ConstI64(0)) => Some(fc.lhs),
+        (Some(IPred::Eq | IPred::Ne), Operand::ConstI64(0), Operand::Value(_)) => Some(fc.rhs),
         _ => None,
     };
     if let Some(val) = zero_test {
@@ -220,21 +252,39 @@ pub(crate) fn emit_fused_condbr(
         // branch to then_blk when the cond holds: eq → value == 0 → CBZ
         write_u32(
             bytes,
-            match fc.pred {
-                IPred::Eq => cbz_x(rt, 0),
-                IPred::Ne => cbnz_x(rt, 0),
+            match int_pred {
+                Some(IPred::Eq) => cbz_x(rt, 0),
+                Some(IPred::Ne) => cbnz_x(rt, 0),
                 _ => unreachable!("zero_test admits eq/ne only"),
             },
         );
     } else {
-        emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
+        let cond = match (int_pred, fc.pred) {
+            (Some(p), _) => {
+                emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
+                ipred_to_cond(p)
+            }
+            (None, FusedSelPred::Float(p)) => {
+                // The terminator owns both FP scratches here — unlike
+                // the Select fuse there are no value arms to clobber,
+                // so a ConstF64 operand may ride its GPR carrier into
+                // V16/V17 freely.
+                let rn =
+                    materialize_operand_fpr(bytes, &fc.lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                let rm =
+                    materialize_operand_fpr(bytes, &fc.rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
+                write_u32(bytes, fcmp_d(rn, rm));
+                fpred_to_cond(p) ^ (invert as u8)
+            }
+            (None, FusedSelPred::Int(_)) => unreachable!("int_pred is Some for Int"),
+        };
         let site = bytes.len() as u32;
         fixups.push(BranchFixup {
             site_byte_offset: site,
             target_block: then_blk,
             kind: BranchKind::Imm19,
         });
-        write_u32(bytes, b_cond_imm19(ipred_to_cond(fc.pred), 0));
+        write_u32(bytes, b_cond_imm19(cond, 0));
     }
     if let Some(else_blk) = else_blk {
         let b_site = bytes.len() as u32;
@@ -350,6 +400,83 @@ mod tests {
             1,
             "one b.cond"
         );
+    }
+
+    /// b0: %0 = sitofp(3); %1 = fcmp(pred, %0, 4.0); CondBr(%1, b1, b2).
+    fn fcmp_condbr_func(pred: torajs_core::ssa::FPred) -> Function {
+        let mk = |result: u32, kind: InstKind| Inst {
+            result: Some(ValueId(result)),
+            kind,
+            origin: None,
+        };
+        let vi = |ty: Type, n: &str| ValueInfo {
+            ty,
+            name: Some(n.into()),
+        };
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::I64,
+            values: vec![
+                vi(Type::F64, "v0"),
+                vi(Type::Bool, "v1"),
+                vi(Type::I64, "v2"),
+                vi(Type::I64, "v3"),
+            ],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![
+                        mk(0, InstKind::SiToFp(Operand::ConstI64(3))),
+                        mk(
+                            1,
+                            InstKind::FCmp(
+                                pred,
+                                Operand::Value(ValueId(0)),
+                                Operand::ConstF64(4.0),
+                            ),
+                        ),
+                    ],
+                    term: Terminator::CondBr {
+                        cond: Operand::Value(ValueId(1)),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![mk(2, InstKind::ZExtBoolToI64(Operand::ConstBool(true)))],
+                    term: Terminator::Ret(Some(Operand::Value(ValueId(2)))),
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: vec![mk(3, InstKind::ZExtBoolToI64(Operand::ConstBool(false)))],
+                    term: Terminator::Ret(Some(Operand::Value(ValueId(3)))),
+                },
+            ],
+            current_origin: None,
+        }
+    }
+
+    #[test]
+    fn tail_single_use_fcmp_fuses() {
+        let func = fcmp_condbr_func(torajs_core::ssa::FPred::Ogt);
+        let fused = fusible_cmps(&func);
+        assert_eq!(fused.len(), 1, "FCmp CondBr must fuse (mandelbrot D3)");
+        let words = words_of(&compile_function(&func).bytes);
+        assert!(!words.iter().any(|w| is_cset(*w)), "cset must be gone");
+        assert_eq!(
+            words.iter().filter(|w| (*w >> 24) == 0x54).count(),
+            1,
+            "one b.cond"
+        );
+    }
+
+    #[test]
+    fn fcmp_one_keeps_the_cset_form() {
+        // Ordered != has no single cond code — never fuses.
+        let func = fcmp_condbr_func(torajs_core::ssa::FPred::One);
+        assert!(fusible_cmps(&func).is_empty());
     }
 
     #[test]

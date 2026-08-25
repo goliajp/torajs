@@ -166,7 +166,7 @@ fn fused_predicate(
     }
     Some((
         FusedCmp {
-            pred: *pred,
+            pred: super::brfuse::FusedSelPred::Int(*pred),
             lhs: *lhs,
             rhs: *rhs,
         },
