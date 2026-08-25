@@ -161,8 +161,11 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         member_idx: 0,
         err,
     })?;
-    let data_rebase_link_values =
-        recompute_chained_fixups_with_data_rebase(&mut layout, &data_rebase_targets);
+    let data_rebase_link_values = recompute_chained_fixups_with_data_rebase(
+        &mut layout,
+        &data_rebase_targets,
+        &cfg.codesign_ident,
+    );
 
     // e7b-4/e8-2b + Step 3b.4-5 + W-J A3c + C-5c.2c: 5-way split
     // text_rebase_link_values = vtable | class_layouts |

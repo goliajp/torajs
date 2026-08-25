@@ -95,6 +95,7 @@ pub fn compute_chained_fixups_outputs(
 pub fn recompute_chained_fixups_with_data_rebase(
     layout: &mut ArchiveLayout,
     data_rebase_targets: &[RebaseTarget],
+    codesign_ident: &str,
 ) -> Vec<u64> {
     if data_rebase_targets.is_empty() {
         return Vec::new();
@@ -162,11 +163,33 @@ pub fn recompute_chained_fixups_with_data_rebase(
             vtable_rebase_targets: &combined_text_rebase,
             data_seg_rebase_targets: data_rebase_targets,
         });
-    debug_assert_eq!(
-        blob.len(),
-        layout.chained_fixups_blob.len(),
-        "chained_fixups blob size must be invariant in data_rebase_targets.len()",
-    );
+    // The recompute can GROW the blob: an import-free closure whose
+    // only fixups are member data rebases (the injection-reachability
+    // empty shape, RFC 20260825) reaches here with a ZERO-byte first-
+    // pass blob — the plan encoded nothing, this pass encodes the
+    // header + page buckets. Every downstream size the blob length
+    // feeds must follow, or the emitted header disagrees with the
+    // payload: the codesign blob lands 80 bytes past the LC's
+    // dataoff and the kernel SIGKILLs the unsigned-looking binary.
+    // The LC writer runs after this call and reads these fields, so
+    // re-deriving here keeps header and payload consistent.
+    if blob.len() != layout.chained_fixups_blob.len() {
+        layout.chained_fixups_datasize = blob.len() as u32;
+        let codesign_dataoff = crate::archive_link::round_up_to(
+            u64::from(layout.chained_fixups_dataoff + layout.chained_fixups_datasize),
+            8,
+        ) as u32;
+        layout.codesign_dataoff = codesign_dataoff;
+        layout.codesign_datasize =
+            crate::sign::adhoc_codesign_blob_size(codesign_dataoff, codesign_ident);
+        let linkedit_data_size = (codesign_dataoff + layout.codesign_datasize)
+            .saturating_sub(layout.linkedit_file_offset);
+        layout.linkedit_vmsize = crate::archive_link::round_up_to(
+            u64::from(linkedit_data_size),
+            crate::lc::APPLE_SILICON_PAGE_SIZE,
+        );
+        layout.total_size = layout.linkedit_file_offset + linkedit_data_size;
+    }
     layout.chained_fixups_blob = blob;
     layout.la_ptr_slot_values = la_ptr;
     layout.tlv_thunk_link_values = tlv_thunk;

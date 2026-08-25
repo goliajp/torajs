@@ -50,7 +50,32 @@ pub(crate) fn compute_text_region_plan(
     // + class_layouts; chain LC also turns on for __DATA_CONST rebases.
     // Zero-import programs with data globals keep the dyld shape —
     // see `ArchiveLayout::has_dyld` for the platform-contract note.
-    let has_dyld = !required.dyld_imports.is_empty() || !cfg.data_globals.is_empty();
+    // A required member's `__text` may reference its OWN `__DATA,*`
+    // locals (rustc's alloc rcgu points at `l_anon.*` handler tables
+    // in `__DATA,__const`), so the presence of any member data
+    // section forces the full data-segment shape regardless of the
+    // import / user-global face. Latent until a program's closure
+    // carried alloc without any dyld import (the injection-
+    // reachability empty shape, RFC 20260825): has_dyld=false
+    // skipped the data layout entirely and the member's local reloc
+    // resolved against an empty table (UnresolvedSymbol l_anon.*).
+    let member_data_section_count =
+        crate::data_section_layout::count_data_section_64s(merged, member_keys).map_err(
+            |crate::non_text_layout::NonTextLayoutError {
+                 archive_idx,
+                 member_idx,
+                 err,
+             }| {
+                ArchiveLayoutError::MemberSections {
+                    archive_idx,
+                    member_idx,
+                    err,
+                }
+            },
+        )?;
+    let has_dyld = !required.dyld_imports.is_empty()
+        || !cfg.data_globals.is_empty()
+        || member_data_section_count > 0;
     let has_data_const_seg = !cfg.vtable_globals.is_empty()
         || !cfg.class_layouts.is_empty()
         || cfg.force_emit_class_layouts_globals
@@ -106,23 +131,15 @@ pub(crate) fn compute_text_region_plan(
     // sizing here and the emit cannot drift apart again; the emit-side
     // hard gate in `emit_binary` backstops both.
     let data_section_count = if has_dyld {
-        crate::data_section_layout::count_data_section_64s(merged, member_keys).map_err(
-            |crate::non_text_layout::NonTextLayoutError {
-                 archive_idx,
-                 member_idx,
-                 err,
-             }| {
-                ArchiveLayoutError::MemberSections {
-                    archive_idx,
-                    member_idx,
-                    err,
-                }
-            },
-        )? + u32::from(
-            crate::user_data_globals_layout::compute_user_data_globals_layout(&cfg.data_globals, 0)
+        member_data_section_count
+            + u32::from(
+                crate::user_data_globals_layout::compute_user_data_globals_layout(
+                    &cfg.data_globals,
+                    0,
+                )
                 .total_vmsize
-                > 0,
-        )
+                    > 0,
+            )
     } else {
         0
     };
