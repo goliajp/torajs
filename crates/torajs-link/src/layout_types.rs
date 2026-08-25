@@ -78,6 +78,17 @@ pub struct ArchiveLayout {
     /// SD-1 / SD-4b — `name → lib_ordinal` map classified by
     /// `dyld_syms::dyld_lib_for` during the worklist closure.
     pub dyld_imports: BTreeMap<String, u8>,
+    /// The dyld/`__DATA` layout exists. True whenever imports are
+    /// non-empty OR the program carries user data globals: a macOS
+    /// userland executable links libSystem by platform contract
+    /// (ld64 enforces the same), so a fully-specialized program
+    /// whose member closure needs zero libc keeps the LC_LOAD_DYLIB
+    /// + `__DATA` scaffolding with an empty bind set rather than
+    /// degrading to the probe-only no-dyld shape. Emit-side
+    /// consumers read THIS field instead of re-deriving from
+    /// `dyld_imports` (the re-derivations disagreed once the
+    /// zero-import shape became reachable).
+    pub has_dyld: bool,
     pub stubs_section_vaddr: u64,
     pub stubs_section_size: u64,
     pub stubs_file_offset: u32,

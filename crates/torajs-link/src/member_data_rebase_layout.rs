@@ -393,6 +393,7 @@ mod tests {
             codesign_dataoff: 0,
             codesign_datasize: 0,
             dyld_imports: std::collections::BTreeMap::new(),
+            has_dyld: false,
             stubs_section_vaddr: 0,
             stubs_section_size: 0,
             stubs_file_offset: 0,

@@ -47,7 +47,7 @@ use crate::nanbox::box_void_ptr;
 use super::ctor::builtin_ctor_cell;
 use super::mint_immortal_str;
 use super::ns_object::{console_object_ptr, json_object_ptr, math_object_ptr, reflect_object_ptr};
-use super::ns_static::ns_static_cell;
+use crate::dispatch_seam::__torajs_ns_static_cell as ns_static_cell;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;

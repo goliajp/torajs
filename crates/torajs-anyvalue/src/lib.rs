@@ -159,6 +159,7 @@ mod method_bind;
 mod method_call;
 pub(crate) mod method_call_bool;
 pub use method_call::any_method_dispatch_impl;
+pub use method_value::ns_static_cell_impl;
 mod method_call_arr;
 mod method_call_arr_copy;
 mod method_call_arr_species;
@@ -583,6 +584,12 @@ mod tests {
                 skip_wrapper_expando,
             )
         }
+    }
+    // The ns-static MINT seam: same bridge shape — the test binary
+    // resolves the extern straight to the impl.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn __torajs_ns_static_cell(id: i64) -> *mut u8 {
+        crate::method_value::ns_static_cell_impl(id)
     }
     // The arm-seam族 (RFC 20260824-s2-5 blade 2a): shipped binaries
     // resolve these to the torajs-dispatch member (or user-.o

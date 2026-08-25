@@ -40,7 +40,7 @@ use crate::AnyValue;
 use crate::nanbox::box_void_ptr;
 
 use super::mint_immortal_str;
-use super::ns_static::ns_static_cell;
+use crate::dispatch_seam::__torajs_ns_static_cell as ns_static_cell;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -286,5 +286,5 @@ pub extern "C" fn __torajs_ns_object_console() -> AnyValue {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_global_eval_value() -> AnyValue {
     let id = torajs_rc::ns_static::ns_static_id("globalThis", "eval");
-    box_void_ptr(ns_static_cell(id).cast())
+    box_void_ptr(unsafe { ns_static_cell(id) }.cast())
 }

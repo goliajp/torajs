@@ -71,6 +71,15 @@ const FAMILY_PRINTERS: [&str; 19] = [
     "___torajs_obj_print_any_at",
 ];
 
+/// The ns-static MINT seam (`torajs-anyvalue`'s minting sites call
+/// it; `torajs-dispatch` owns the default). Stubbed for programs
+/// that provably never put a namespace / ctor / globalThis object
+/// into the any world — the whole ns-static dispatch universe
+/// (boxed entry + DISPATCH table + every static's kernel)
+/// dead-strips. fam_id 15 (the free slot between the arm roster
+/// and the printers).
+const NS_STATIC_SEAM: &str = "___torajs_ns_static_cell";
+
 /// True when `ssa_name` (no Mach-O underscore) is one of the arm
 /// seams — the judgment scan refuses to stub a family whose seam
 /// the user `.o` somehow references directly.
@@ -96,15 +105,17 @@ pub(crate) fn is_printer_sym(ssa_name: &str) -> bool {
 pub(crate) fn append_dispatch_stubs(
     funcs: &mut Vec<CompiledFunction>,
     arm_bits: u16,
+    ns_static: bool,
     printers: bool,
 ) {
     let arms = FAMILY_ARMS
         .into_iter()
         .enumerate()
         .filter(|(i, _)| arm_bits & (1 << i) != 0);
+    let ns_tagged = ns_static.then_some((15, NS_STATIC_SEAM)).into_iter();
     let printer_syms = if printers { &FAMILY_PRINTERS[..] } else { &[] };
     let printers_tagged = printer_syms.iter().enumerate().map(|(i, n)| (16 + i, *n));
-    for (fam_id, name) in arms.chain(printers_tagged) {
+    for (fam_id, name) in arms.chain(ns_tagged).chain(printers_tagged) {
         // movz x7, #fam_id — rides the unused 8th C-ABI arg slot so
         // the landing pad can NAME the stripped family in its
         // TypeError (x0-x5 pass through untouched).

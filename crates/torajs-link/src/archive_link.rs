@@ -160,6 +160,7 @@ pub fn compute_archive_layout_with_merged(
         codesign_dataoff: lp.codesign_dataoff,
         codesign_datasize: lp.codesign_datasize,
         dyld_imports: required.dyld_imports,
+        has_dyld: tp.has_dyld,
         stubs_section_vaddr: dp.stubs_section_vaddr,
         stubs_section_size: tp.stubs_section_size,
         stubs_file_offset: tp.stubs_file_offset,

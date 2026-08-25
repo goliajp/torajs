@@ -119,6 +119,19 @@ default_arm! {
     __torajs_dispatch_num_arm => num_arm_impl;
 }
 
+/// Default (monolithic) resolution of the ns-static MINT seam —
+/// the interned cell for a baked namespace-static id.
+/// `torajs-anyvalue`'s minting sites (namespace-object fill,
+/// globalThis fill, ctor own-static reads, the reify face) call
+/// the `extern "C"` declaration; a compiler-emitted loud-reject
+/// stub in the user `.o` shadows this member and the whole
+/// ns-static dispatch universe (the boxed dispatch entry, the
+/// per-id DISPATCH table, every static's kernel) dead-strips.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_ns_static_cell(id: i64) -> *mut u8 {
+    torajs_anyvalue::ns_static_cell_impl(id)
+}
+
 /// The loud-reject landing pad for compiler-emitted family stubs
 /// (RFC 20260824-s2-5 blade 2b). A specialized program's user `.o`
 /// defines `__torajs_dispatch_<family>_arm` as a single
@@ -160,6 +173,7 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
         12 => c"closure method family stripped from this program (dispatch specialization bug)",
         13 => c"weak method family stripped from this program (dispatch specialization bug)",
         14 => c"num method family stripped from this program (dispatch specialization bug)",
+        15 => c"namespace-static world stripped from this program (dispatch specialization bug)",
         n if n >= 16 => c"printer kernel stripped from this program (dispatch specialization bug)",
         _ => c"method family stripped from this program (dispatch specialization bug)",
     };

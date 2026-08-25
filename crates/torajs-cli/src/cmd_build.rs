@@ -375,12 +375,13 @@ pub(crate) fn build_link_config(ssa_module: &Module, dead_strip: bool) -> LinkCo
     // TORAJS_DISPATCH_STUB_ALL forces every family (pricing);
     // TORAJS_DISPATCH_STUB_OFF disables the judgment entirely.
     if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
-        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true);
+        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true, true);
     } else if !crate::cmd_build_dispatch_stubs::stub_off() {
         let j = crate::cmd_build_dispatch_judge::judge(ssa_module);
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
             &mut funcs,
             j.stub_arm_bits,
+            j.stub_ns_static,
             j.stub_printers,
         );
     }

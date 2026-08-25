@@ -254,6 +254,17 @@ pub fn compute_required_members(
         });
     }
 
+    if std::env::var_os("TORAJS_LINK_CLOSURE_DIAG").is_some() {
+        let names: Vec<&str> = required
+            .iter()
+            .map(|&(a, m)| merged.per_archive_members[a][m].name)
+            .collect();
+        eprintln!(
+            "[closure-diag] members={} dyld={} names={names:?}",
+            required.len(),
+            dyld_imports.len(),
+        );
+    }
     Ok(RequiredMembers {
         members: required,
         dyld_imports,

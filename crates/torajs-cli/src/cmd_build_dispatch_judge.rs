@@ -115,6 +115,22 @@ const KERNEL_PROBE_PREFIXES: [&str; 4] = [
 /// truth with the per-static table (`torajs_rc::ns_static_judge`).
 const COERCION_KEEP: u16 = fam::FAM_OBJ_WORLD;
 
+/// Emitted symbols that put a namespace / globalThis object (or a
+/// reified static cell) into the any world — the only compiler-
+/// emitted entrances to the ns-static mint face. A program with
+/// none of these provably never mints a namespace-static cell, so
+/// the mint seam (`__torajs_ns_static_cell`) gets a loud-reject
+/// stub and the whole ns-static dispatch universe dead-strips.
+/// (Builtin ctor values and proxies can also reach ctor own-static
+/// reads, but both are FALLBACK triggers — nothing is stubbed
+/// there at all.)
+const NS_WORLD_PREFIXES: [&str; 4] = [
+    "__torajs_ns_static_cell",
+    "__torajs_ns_object_",
+    "__torajs_globalthis_object",
+    "__torajs_global_eval_value",
+];
+
 /// The prologue-synthesized native-error constructors
 /// (`inject_builtin_classes` — Error plus the §20.5.5/.7/.8
 /// family). Their bodies carry the spec ToString(message) coercion
@@ -225,6 +241,10 @@ pub(crate) struct DispatchJudgment {
     /// Families whose arm seam gets a loud-reject stub (bit order =
     /// the arm roster).
     pub stub_arm_bits: u16,
+    /// Stub the ns-static mint seam — the program provably never
+    /// puts a namespace / ctor / globalThis object into the any
+    /// world (see [`NS_WORLD_PREFIXES`]).
+    pub stub_ns_static: bool,
     /// Stub the per-family printer kernels too — only for programs
     /// proven print-quiet (no path from user code into the per-tag
     /// inspect dispatch).
@@ -242,6 +262,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut observed: Vec<i64> = Vec::new();
     let mut keep_bits: u16 = 0;
     let mut fallback = false;
+    let mut ns_world = false;
     let mut print_world = false;
     let mut printer_ref = false;
 
@@ -304,6 +325,9 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                         // shape under us — unknowable, punt.
                         _ => fallback = true,
                     }
+                }
+                if NS_WORLD_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                    ns_world = true;
                 }
                 if FALLBACK_PREFIXES.iter().any(|p| name.starts_with(p)) {
                     if diag {
@@ -369,17 +393,19 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         observed.dedup();
         eprintln!(
             "[judge] observed={observed:?} keep={keep_bits:#017b} fallback={fallback} \
-             printer_ref={printer_ref} print_world={print_world}"
+             printer_ref={printer_ref} print_world={print_world} ns_world={ns_world}"
         );
     }
     if fallback || printer_ref {
         return DispatchJudgment {
             stub_arm_bits: 0,
+            stub_ns_static: false,
             stub_printers: false,
         };
     }
     DispatchJudgment {
         stub_arm_bits: fam::FAM_ALL & !keep_bits,
+        stub_ns_static: !ns_world,
         // blade-2d granularity (per-family printer domains) comes
         // later; today printers stub only for the fully quiet shape
         // (nothing observed, no family usage, no print world).

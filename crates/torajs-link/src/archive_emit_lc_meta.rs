@@ -27,7 +27,7 @@ pub(crate) struct EmitLcMeta {
 /// dyld imports → LC_LOAD_DYLIB + __stubs/__la_symbol_ptr;
 /// e8 text rebase → LC_DYLD_CHAINED_FIXUPS even without la-ptr.
 pub(crate) fn compute_emit_lc_meta(layout: &ArchiveLayout) -> EmitLcMeta {
-    let has_dyld = !layout.dyld_imports.is_empty();
+    let has_dyld = layout.has_dyld;
     let has_data_const = layout.data_const_layout.has_data_const;
     let has_text_rebase = !layout.text_rebase_link_values.is_empty();
     let has_chained_fixups = has_dyld || has_text_rebase;

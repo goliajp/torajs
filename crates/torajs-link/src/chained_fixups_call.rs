@@ -100,7 +100,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
         return Vec::new();
     }
     let has_data_const = layout.data_const_layout.has_data_const;
-    let has_dyld = !layout.dyld_imports.is_empty();
+    let has_dyld = layout.has_dyld;
     // Mirrors `archive_link.rs` segment_count: PAGEZERO + __TEXT +
     // (__DATA_CONST?) + (__DATA?) + __LINKEDIT.
     let segment_count = 3 + u32::from(has_dyld) + u32::from(has_data_const);

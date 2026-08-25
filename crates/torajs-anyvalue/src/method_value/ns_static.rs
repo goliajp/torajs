@@ -313,7 +313,15 @@ fn this_aware_id(id: i64) -> bool {
 
 /// The interned cell for an ns-static id — lazily allocated,
 /// immortal, same closure layout as `builtin_method_cell`.
-pub(crate) fn ns_static_cell(id: i64) -> *mut u8 {
+///
+/// This is the monolithic resolution of the ns-static MINT seam:
+/// every in-crate minting site calls the `__torajs_ns_static_cell`
+/// extern declaration ([`crate::dispatch_seam`]), whose default
+/// definition (`torajs-dispatch`) forwards here — so a
+/// compiler-emitted loud-reject stub in the user `.o` can shadow
+/// the mint face and this fn, `ns_dispatch_entry`, the DISPATCH
+/// table and every static's kernel dead-strip together.
+pub fn ns_static_cell_impl(id: i64) -> *mut u8 {
     let slot = &NS_CELLS[id as usize];
     let p = slot.load(Ordering::Relaxed);
     if p != 0 {
@@ -345,21 +353,13 @@ pub(crate) fn ns_static_cell(id: i64) -> *mut u8 {
     }
 }
 
-/// Compiler face — the interned cell for a baked table id. The
-/// result is a Closure-repr borrow of an immortal cell (rc traffic
-/// no-ops on the static flag).
-#[unsafe(no_mangle)]
-pub extern "C" fn __torajs_ns_static_cell(id: i64) -> *mut u8 {
-    ns_static_cell(id)
-}
-
 /// The ns-static id a cell carries — `None` for every other closure
 /// shape. Discriminated by [`torajs_rc::FLAG_CLOSURE_NS_STATIC`] in
 /// the header flags, NOT by comparing the boxed entry against
 /// `ns_dispatch_entry`'s address: an address compare makes every
 /// identity probe take the dispatch fn's address, link-rooting the
 /// whole ns-static universe from generic kernels that never call it
-/// (RFC 20260824-s2-5 Phase B blade 1). Only [`ns_static_cell`]
+/// (RFC 20260824-s2-5 Phase B blade 1). Only [`ns_static_cell_impl`]
 /// mints the bit, and only on `Tag::Closure` cells.
 pub(crate) unsafe fn ns_static_id_of(ptr: *const c_void) -> Option<i64> {
     unsafe {
@@ -431,8 +431,8 @@ mod tests {
     #[test]
     fn cell_shape_and_probes() {
         let id = torajs_rc::ns_static::ns_static_id("Math", "max");
-        let cell = ns_static_cell(id);
-        assert_eq!(cell, ns_static_cell(id), "interned identity");
+        let cell = ns_static_cell_impl(id);
+        assert_eq!(cell, ns_static_cell_impl(id), "interned identity");
         unsafe {
             assert_eq!(ns_static_id_of(cell as *const c_void), Some(id));
             assert_eq!(ns_static_name(cell as *const c_void), Some("max"));

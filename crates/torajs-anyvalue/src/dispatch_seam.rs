@@ -34,6 +34,20 @@ macro_rules! declare_arms {
     };
 }
 
+unsafe extern "C" {
+    /// The ns-static MINT seam (S2-5 ns-world narrowing): every
+    /// in-crate site that mints a namespace-static cell calls this
+    /// declaration; `torajs-dispatch` owns the default definition
+    /// (forwarding to
+    /// [`crate::method_value::ns_static_cell_impl`]), so a
+    /// compiler-emitted loud-reject stub in the user `.o` can
+    /// shadow it and the whole ns-static dispatch universe
+    /// (`ns_dispatch_entry` + the DISPATCH table + every static's
+    /// kernel) dead-strips for programs that provably never put a
+    /// namespace / ctor / globalThis object into the any world.
+    pub(crate) fn __torajs_ns_static_cell(id: i64) -> *mut u8;
+}
+
 declare_arms!(
     __torajs_dispatch_str_arm,
     __torajs_dispatch_arr_arm,

@@ -48,7 +48,9 @@ pub(crate) fn compute_text_region_plan(
     // Phase 3: layout. has_dyld → __stubs/__la_symbol_ptr/chain LC
     // (libSystem ord 1, libcurl ord 2). e8: __DATA_CONST hosts vtable
     // + class_layouts; chain LC also turns on for __DATA_CONST rebases.
-    let has_dyld = !required.dyld_imports.is_empty();
+    // Zero-import programs with data globals keep the dyld shape —
+    // see `ArchiveLayout::has_dyld` for the platform-contract note.
+    let has_dyld = !required.dyld_imports.is_empty() || !cfg.data_globals.is_empty();
     let has_data_const_seg = !cfg.vtable_globals.is_empty()
         || !cfg.class_layouts.is_empty()
         || cfg.force_emit_class_layouts_globals
