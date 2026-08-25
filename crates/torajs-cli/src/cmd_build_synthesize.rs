@@ -39,7 +39,15 @@ pub(crate) const USER_MAIN_SYM: &str = "_main_user";
 
 /// SD-4c gap2 — wrapper that occupies `_main` and forwards the
 /// kernel-supplied `(argc=x0, argv=x1, envp=x2)` triple to
-/// `__torajs_argv_init` before invoking the user main body. Mirrors
+/// `__torajs_argv_init` before invoking the user main body.
+///
+/// r498: `init_argv = false` (no user reloc touches the
+/// `__torajs_process_*` family — the only readers of the captured
+/// argc/argv/envp globals, and `process` is a compiler-resolved
+/// namespace with no runtime object to reach them dynamically)
+/// emits the wrapper without the init call, so the whole
+/// torajs-process member (argv registry + its Mutex machinery)
+/// drops out of the artifact. Mirrors
 /// `ssa_inkwell::lower.rs`'s entry-block call insertion, but at the
 /// raw ARM64 level since the NEW pipeline has no LLVM IR backend.
 ///
@@ -61,7 +69,10 @@ pub(crate) const USER_MAIN_SYM: &str = "_main_user";
 ///   bl   __main_user             ; user main(), returns i32 in x0
 ///   ldp  x29, x30, [sp], #48     ; restore fp/lr + free frame
 ///   ret
-pub(crate) fn synthesize_main_argv_wrapper() -> CompiledFunction {
+pub(crate) fn synthesize_main_argv_wrapper(init_argv: bool) -> CompiledFunction {
+    if !init_argv {
+        return synthesize_main_plain_wrapper();
+    }
     let mut bytes = Vec::with_capacity(48);
     // stp x29, x30, [sp, #-48]!  — pre-index frame allocation
     //   encoding: 0xA9BD7BFD = stp x29, x30, [sp, #-48]!
@@ -112,6 +123,40 @@ pub(crate) fn synthesize_main_argv_wrapper() -> CompiledFunction {
         // a hand-built stp/ldp pair, not the standard leaf prologue.
         // Mark as `leaf_no_spill` so codegen's epilogue emit doesn't
         // try to wrap this fn — it's already complete.
+        frame: FrameLayout::leaf_no_spill(),
+    }
+}
+
+/// The `init_argv = false` shape of the `_main` wrapper: no
+/// argc/argv/envp preservation, no init call — just the AAPCS64
+/// frame around the user-main BL (5 inst × 4 = 20 bytes):
+///   stp  x29, x30, [sp, #-16]!
+///   mov  x29, sp
+///   bl   __main_user
+///   ldp  x29, x30, [sp], #16
+///   ret
+fn synthesize_main_plain_wrapper() -> CompiledFunction {
+    let mut bytes = Vec::with_capacity(20);
+    bytes.extend_from_slice(
+        &torajs_codegen::enc::stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16).to_le_bytes(),
+    );
+    bytes.extend_from_slice(&add_imm(Gpr::X29, Gpr::SP, 0).to_le_bytes());
+    let user_main_bl_off = bytes.len() as u32;
+    bytes.extend_from_slice(&bl_imm26(0).to_le_bytes());
+    bytes.extend_from_slice(
+        &torajs_codegen::enc::ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16).to_le_bytes(),
+    );
+    bytes.extend_from_slice(&enc_ret(Gpr::X30).to_le_bytes());
+    CompiledFunction {
+        name: ENTRY_SYM.to_string(),
+        bytes,
+        relocs: vec![Reloc {
+            byte_offset: user_main_bl_off,
+            kind: RelocKind::CallSite {
+                target: CallTarget::Extern(USER_MAIN_SYM.into()),
+            },
+        }],
+        // Same hand-built frame rationale as the argv shape above.
         frame: FrameLayout::leaf_no_spill(),
     }
 }

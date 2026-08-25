@@ -20,6 +20,7 @@ use crate::cmd_build_synthesize::{
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::compile_function_with_sigs;
 use torajs_codegen::frame::FrameLayout;
+use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_core::ssa::{FuncId, Module, Type};
 use torajs_core::{TORAJS_STATICLIBS, check, lexer, modules, parser, ssa_lower};
 use torajs_link::archive_emit::link_to_exec_with_archives;
@@ -263,7 +264,22 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
             cf.name = USER_MAIN_SYM.to_string();
         }
     }
-    funcs.push(synthesize_main_argv_wrapper());
+    // r498 — argv-init on demand: the captured argc/argv/envp
+    // globals are only readable through the `__torajs_process_*`
+    // intrinsic family (`process` / `Bun` are compiler-resolved
+    // namespaces; there is no runtime object that could reach the
+    // registry dynamically), so a program whose compiled fns carry
+    // no such reloc can never observe whether init ran. Skipping
+    // the call lets dead-strip drop the whole torajs-process member.
+    let needs_argv = funcs.iter().any(|f| {
+        f.relocs.iter().any(|r| match &r.kind {
+            RelocKind::CallSite {
+                target: CallTarget::Extern(name),
+            } => name.trim_start_matches('_').starts_with("torajs_process_"),
+            _ => false,
+        })
+    });
+    funcs.push(synthesize_main_argv_wrapper(needs_argv));
     funcs
 }
 
