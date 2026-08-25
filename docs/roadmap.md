@@ -1557,7 +1557,25 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `2e25039c4`** (2026-08-26, rotation 498 — an artifact-mass
+**Latest @ `d6735a63e`** (2026-08-26, rotation 499 — an artifact-mass
+rotation on the S2 line, link-judged conditional shapes: the synthesized
+`main`'s three end-of-program drains become `ElidableCall` sites and the
+rc-hit-zero weak-observer hook a `GuardedStub`, each decided by a
+fix-point over member-text liveness with the shape assumed; the forced
+table globals derive from what the stripped archives still reference
+so an empty `__DATA_CONST` no longer ships. Empty program 84,449 →
+**34,961 (−59%)**: `__TEXT` 3 pages → 1 (text 43,110 → 13,653),
+`__DATA` 180,224 → 16,384, `__DATA_CONST` gone. One gate-caught
+regression — the load-command sizing tested five tables for
+`__DATA_CONST`, the layout seven, invisible while every table was
+forced on — fixed in-rotation by a single shared predicate.) Gate
+predicate: **159** clusters of ≥ 4 holding **1225** cases, register
+2 · 251, residue 652 · 810 (35.4%), core **2286** — all identical to
+rotation 498. Sweep passTotal **34818 (0)**, bug **12723 (0)**,
+incompatible **5633 (0)**, trAccepted 47541 (0); verdict diff empty —
+every knife touched dead runtime text and artifact layout only.
+
+**Prior @ `2e25039c4`** (2026-08-26, rotation 498 — an artifact-mass
 rotation on the S2 line: the empty-program census showed LC_SYMTAB +
 strtab at 63% of the 273,665-byte release artifact, so `tr build` now
 strips the runtime members' symbols by default (ld64 `-x` class;
