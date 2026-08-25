@@ -177,6 +177,17 @@ pub(crate) fn compute_reachability<'a>(
     for (&key, r) in &reach {
         for (i, sa) in r.sects.iter().enumerate() {
             let ty = sa.flags & SECTION_TYPE;
+            // `__LD,__compact_unwind` is link-only input: ld64 folds
+            // it into `__TEXT,__unwind_info` and it never reaches a
+            // final binary; this pipeline builds no unwind_info at
+            // all (panic=abort substrate), so its LIVE_SUPPORT flag
+            // must not root the per-fn unwind rows — treating it as
+            // a hard root kept every unwind-covered fn (whole
+            // members: date, arr, str…) alive with no consumer.
+            // Equivalent to ld64's `-no_compact_unwind`.
+            if trim16(&sa.sectname) == b"__compact_unwind" {
+                continue;
+            }
             if sa.flags & (S_ATTR_NO_DEAD_STRIP | S_ATTR_LIVE_SUPPORT) != 0
                 || ty == S_MOD_INIT_FUNC_POINTERS
                 || ty == S_TERM_FUNC_POINTERS
@@ -432,6 +443,16 @@ pub(crate) fn resolve_reloc_target(
             None
         }
     } else {
+        // ARM64_RELOC_ADDEND is a MODIFIER row: it precedes its
+        // mate (BRANCH26 / PAGE21 / PAGEOFF12) and its r_symbolnum
+        // carries the ADDEND VALUE, not a section ordinal. Treating
+        // it as a section-keyed reloc turned common addends (4, 8,
+        // 16…) into AllSect fallbacks over arbitrary sections —
+        // whole live-section sweeps with no real edge (the mate row
+        // itself resolves the target). Skip it.
+        if e.r_type == torajs_obj::ARM64_RELOC_ADDEND {
+            return None;
+        }
         let sect = e.r_symbolnum as u8;
         // UNSIGNED (8-byte, non-pcrel) section-keyed reloc: the
         // addend stored at the site IS the target object-file
@@ -447,6 +468,12 @@ pub(crate) fn resolve_reloc_target(
                 let addr = u64::from_le_bytes(member.data[off..off + 8].try_into().unwrap());
                 return Some(node_for_addr(key, r, sect, addr));
             }
+        }
+        if std::env::var_os("TORAJS_LINK_REACH_FALLBACK_DIAG").is_some() {
+            eprintln!(
+                "[reach-fallback] member={} site_sect={site_sect} r_type={} r_len={} pcrel={} -> AllSect sect={sect}",
+                member.name, e.r_type, e.r_length, e.r_pcrel
+            );
         }
         Some(Node::AllSect { key, sect })
     }
