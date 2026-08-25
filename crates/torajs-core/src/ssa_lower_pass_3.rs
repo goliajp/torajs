@@ -45,14 +45,20 @@ pub(crate) fn run(
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
+    // No early return on an empty body: the link entry calls
+    // `_main_user` unconditionally, so a comment-only / declaration-
+    // only program still needs its (empty) main. The old
+    // `top_level.is_empty()` bail was masked by the injected Error
+    // hierarchy — every program used to carry its registration
+    // statements — and surfaced as `UnresolvedExterns ["_main_user"]`
+    // on 18 test262 cases the moment the injection-reachability gate
+    // opened (rotation 497; same family as the zero-class desugar
+    // bail of rotation 496).
     let top_level: Vec<&Stmt> = ast
         .stmts
         .iter()
         .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
         .collect();
-    if top_level.is_empty() {
-        return;
-    }
     let string_id_base = module.strings.len();
     let (main_fn, new_strings) = synthesize_main(
         &top_level,
