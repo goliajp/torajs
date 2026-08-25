@@ -43,7 +43,12 @@ unsafe extern "C" {
 
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
-    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    );
     fn __torajs_dynobj_freeze_entries(obj: *mut c_void);
 }
 

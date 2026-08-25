@@ -73,7 +73,12 @@ pub(crate) enum ElemKind {
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    );
     /// torajs-throw — the injected `__new_AggregateError` factory, or
     /// NULL when the program has no such class.
     fn __torajs_make_aggregate_error(errors: i64) -> *mut c_void;

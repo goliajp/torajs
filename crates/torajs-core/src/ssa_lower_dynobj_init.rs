@@ -228,7 +228,14 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
             _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
         };
-        self.emit_dynobj_set_for(slot, fname, runtime_key, Operand::ConstI64(tag), val_op, fresh);
+        self.emit_dynobj_set_for(
+            slot,
+            fname,
+            runtime_key,
+            Operand::ConstI64(tag),
+            val_op,
+            fresh,
+        );
         if transfers && v_ty.is_refcounted() {
             self.emit_drop_value(v_keep, v_ty);
         }
@@ -379,7 +386,13 @@ impl<'a> LowerCtx<'a> {
             if matches!(self.ast.get_expr(fval_eid), Expr::Ident(n) if n == "undefined")
                 && !self.locals.contains_key("undefined")
             {
-                self.emit_dynobj_set(slot, &fname, Operand::ConstI64(5), Operand::ConstI64(0), fresh);
+                self.emit_dynobj_set(
+                    slot,
+                    &fname,
+                    Operand::ConstI64(5),
+                    Operand::ConstI64(0),
+                    fresh,
+                );
                 continue;
             }
             // `as` casts are value-layer pass-throughs — strip them so

@@ -51,7 +51,12 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
 
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    );
 
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     /// May reallocate — always continue with the returned pointer.

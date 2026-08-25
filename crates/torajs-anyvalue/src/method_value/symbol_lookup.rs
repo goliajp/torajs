@@ -138,7 +138,12 @@ unsafe extern "C" {
     /// plus the null-[[Prototype]] mark that clause requires.
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
-    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    );
     /// torajs-str — mint / release a Str cell for one of those keys
     /// (the entry takes its own share on insert).
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
