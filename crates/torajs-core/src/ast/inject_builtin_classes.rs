@@ -276,6 +276,11 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
 ///   wanted subclass (subclasses extend it). Nothing is injected for
 ///   programs that never mention the error hierarchy (compile-time
 ///   neutral).
+/// Injection-reachability gate override — `true` keeps every program
+/// on today's full injection (see the 刀 B comment at the use site).
+/// Flip to `false` only through the RFC's dependency-list closure.
+const GATE_HELD_OPEN: bool = true;
+
 pub fn inject_builtin_classes(ast: &mut Ast) {
     let user_has_error = ast
         .stmts
@@ -362,14 +367,18 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     .any(|n| referenced(n));
 
     // RFC 20260825-injection-reachability 刀 B — the runtime-thrown
-    // force-inject applies only when the program can OBSERVE a
-    // native raise's instance shape (catch face / rejection face;
-    // the name face is the per-class `referenced` gate below). With
-    // every door closed the raise rides the named bare-string
-    // fallback (刀 A), whose uncaught rendering is
-    // instance-identical, so the whole hierarchy stays out and the
-    // dispatch-cluster worlds it roots dead-strip.
-    let observable = instance_shape_observable(ast);
+    // force-inject would apply only when the program can OBSERVE a
+    // native raise's instance shape (`instance_shape_observable`,
+    // the `_reach` sibling). GATE HELD OPEN for now: the first
+    // gated build surfaced that "the injected hierarchy exists" is
+    // a LOAD-BEARING invariant far beyond the throw path — the
+    // zero-class desugar bail, the iter-result struct-probe's
+    // unprotected class-tag read (both fixed), a replace-callback
+    // crash and an inspect drift (both still standing) all leaned
+    // on it. The RFC re-opens the gate once its dependency list is
+    // driven to zero; until then every program keeps today's full
+    // injection and the reachability census stays a diagnostic.
+    let observable = instance_shape_observable(ast) | GATE_HELD_OPEN;
 
     // Subclasses to inject: (referenced OR implied OR runtime-thrown)
     // AND not user-shadowed.

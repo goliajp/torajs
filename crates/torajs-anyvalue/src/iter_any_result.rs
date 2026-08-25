@@ -11,6 +11,10 @@ use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::payload_rc_inc;
 use crate::struct_probe::struct_field_pair_bytes;
 
+/// `torajs_rc::Tag::Obj` mirror — the struct fast lane's receiver
+/// contract (see the gate below).
+const TAG_OBJ_MIRROR: u16 = torajs_rc::Tag::Obj as u16;
+
 unsafe extern "C" {
     /// torajs-str — mint a Str cell for the general-dispatcher lane
     /// (the member kernels key by Str cell).
@@ -65,7 +69,22 @@ pub(crate) unsafe fn iter_result_get(
     name: &[u8],
 ) -> Option<AnyValue> {
     unsafe {
-        if let Some((tag, payload)) = struct_field_pair_bytes(step_ptr, name) {
+        // The fast lane's `struct_field_raw` contract is a live
+        // `Tag::Obj` pointer — its class-tag read sits at +8, which
+        // on a DynObj step (the `iter_result_obj` mint every builtin
+        // iterator answers) is a different header field entirely.
+        // Ungated, that field's value was looked up as a CLASS TAG:
+        // for years tags 1-4 always belonged to the injected Error
+        // hierarchy (no `done`/`value` fields — miss, fall through,
+        // correct), but the first program whose tag-1 class carries a
+        // matching layout entry read a garbage `done` off itself and
+        // every builtin-iterator spread answered [] (rotation-496
+        // reachability-gated injection surfaced it; latent since the
+        // fast lane landed).
+        let step_heap_tag = (step_ptr.cast::<u8>().add(4) as *const u16).read();
+        if step_heap_tag == TAG_OBJ_MIRROR
+            && let Some((tag, payload)) = struct_field_pair_bytes(step_ptr, name)
+        {
             payload_rc_inc(tag as i64, payload as i64);
             return Some(__torajs_anyv_box_from_pair(tag as i64, payload as i64));
         }
