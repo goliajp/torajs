@@ -48,17 +48,16 @@ const MID_CARRIERS: [(&str, usize); 7] = [
 /// Emitted symbols that make the observed-mid set unknowable —
 /// runtime paths that re-dispatch arbitrary or runtime-interned
 /// mids. Prefix match; any hit = conservative fallback (no stubs).
-const FALLBACK_PREFIXES: [&str; 6] = [
+/// (`__torajs_ns_static_cell` left this list when the per-static
+/// table landed — its constant id resolves through
+/// [`torajs_rc::ns_static_judge`] instead.)
+const FALLBACK_PREFIXES: [&str; 5] = [
     // `recv[key](args…)` — the key is a runtime value, the mid
     // interns at runtime (ToPropertyKey dispatch).
     "__torajs_any_index_method_call",
     // the proxy world re-enters the dispatcher with pass-through
     // mids of its own once traps get involved.
     "__torajs_proxy",
-    // namespace statics (Array.from, Object.groupBy, …): the cell's
-    // kernel can iterate, mint and re-dispatch on its own — the
-    // per-static mid surface is not modelled yet.
-    "__torajs_ns_static_cell",
     // builtin constructors handled as VALUES (bind/call surfaces)
     // and dynamic `new (anyCtor)()` — arbitrary family entry.
     "__torajs_builtin_ctor_value",
@@ -112,8 +111,9 @@ const KERNEL_PROBE_PREFIXES: [&str; 4] = [
     "__torajs_anyv_define_props_source_gate",
 ];
 
-/// What a coercion hit keeps — see [`COERCION_PREFIXES`].
-const COERCION_KEEP: u16 = fam::FAM_DYNOBJ | fam::FAM_STRUCT | fam::FAM_CLOSURE | fam::FAM_ARR;
+/// What a coercion hit keeps — see [`COERCION_PREFIXES`]. Shared
+/// truth with the per-static table (`torajs_rc::ns_static_judge`).
+const COERCION_KEEP: u16 = fam::FAM_OBJ_WORLD;
 
 /// The prologue-synthesized native-error constructors
 /// (`inject_builtin_classes` — Error plus the §20.5.5/.7/.8
@@ -273,6 +273,35 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                         Some(Operand::ConstI64(mid)) => observed.push(*mid),
                         // a non-constant mid slot means a lowering
                         // changed shape under us — unknowable, punt.
+                        _ => fallback = true,
+                    }
+                }
+                if name == "__torajs_ns_static_cell" {
+                    // a reified namespace static: the constant id
+                    // resolves the cell kernel's modelled
+                    // re-dispatch surface (per-static table).
+                    match args.first() {
+                        Some(Operand::ConstI64(id)) => {
+                            match torajs_rc::ns_static_judge::ns_static_judge(*id) {
+                                torajs_rc::ns_static_judge::NsStaticJudge::Keep(bits) => {
+                                    if diag && keep_bits & bits != bits {
+                                        eprintln!("[judge] ns-static keep: id {id} -> {bits:#b}");
+                                    }
+                                    keep_bits |= bits;
+                                }
+                                torajs_rc::ns_static_judge::NsStaticJudge::Print => {
+                                    print_world = true;
+                                }
+                                torajs_rc::ns_static_judge::NsStaticJudge::Fallback => {
+                                    if diag {
+                                        eprintln!("[judge] ns-static fallback: id {id}");
+                                    }
+                                    fallback = true;
+                                }
+                            }
+                        }
+                        // a non-constant id slot: a lowering changed
+                        // shape under us — unknowable, punt.
                         _ => fallback = true,
                     }
                 }

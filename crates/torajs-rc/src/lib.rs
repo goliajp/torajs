@@ -163,6 +163,7 @@ pub mod collection_kind;
 pub mod color;
 pub mod flags;
 pub mod ns_static;
+pub mod ns_static_judge;
 pub mod null_guard;
 pub mod undef_cell;
 pub use any_method::{

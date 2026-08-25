@@ -44,6 +44,15 @@ pub const FAM_NUM: u16 = 1 << 14;
 /// All fifteen families — the conservative answer for universal /
 /// skeleton mids and anything whose owner set is not worth pinning.
 pub const FAM_ALL: u16 = (1 << 15) - 1;
+/// The obj-world four: the families an OrdinaryToPrimitive run (a
+/// user object's own valueOf / toString, Array.prototype.toString
+/// = join) or a user-property probe can enter. Shared truth for the
+/// compiler judgment's coercion keep and the per-static table in
+/// [`crate::ns_static_judge`] — the per-family exotic coercions
+/// (Date / RegExp / TypedArray / Symbol / BigInt faces) are NOT
+/// here; a value of those families cannot exist without its
+/// construction symbols (or a minting static's own family bits).
+pub const FAM_OBJ_WORLD: u16 = FAM_DYNOBJ | FAM_STRUCT | FAM_CLOSURE | FAM_ARR;
 /// Number of families — must stay equal to the arm-seam roster len.
 pub const FAM_COUNT: usize = 15;
 
