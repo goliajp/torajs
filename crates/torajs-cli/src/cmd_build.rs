@@ -419,6 +419,23 @@ pub(crate) fn build_link_config(
     let data_globals = build_data_globals(ssa_module);
     let class_layouts = build_class_layout_entries(ssa_module);
     let vtable_globals = build_vtable_globals(ssa_module);
+    let fn_name_globals = build_fn_name_globals(ssa_module);
+
+    // r498 knife 4 — user-fn dead-strip (module doc in
+    // cmd_build_user_gc). Table roots = every FuncId whose address a
+    // link-emitted table bakes in (`__torajs_fn_<fid>` aliases).
+    let table_root_fids: Vec<usize> = ssa_module
+        .vtable_globals
+        .iter()
+        .flat_map(|vt| vt.fn_ids.iter().filter_map(|o| o.map(|fid| fid.0 as usize)))
+        .chain(
+            ssa_module
+                .fn_name_globals
+                .iter()
+                .map(|e| e.fn_id.0 as usize),
+        )
+        .collect();
+    crate::cmd_build_user_gc::strip_dead_user_fns(&mut funcs, ENTRY_SYM, &table_root_fids);
 
     // Borrowed straight off the baked `include_bytes` statics — the
     // per-case `to_vec()` deep copy here was ~36% of `tr run` compile
@@ -466,7 +483,7 @@ pub(crate) fn build_link_config(
         // `apply_user_string_overrides` registers both flavours
         // downstream. Empty when no top-level fn declarations landed
         // an entry (every decl filtered as mangled / closure-lifted).
-        fn_name_globals: build_fn_name_globals(ssa_module),
+        fn_name_globals,
         // W-J Phase A3c — class-name registry built upstream from
         // `ssa_module.class_layouts`. Empty when no named class
         // entries land in the layout array (probes / anonymous-only
