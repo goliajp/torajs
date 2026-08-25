@@ -107,6 +107,23 @@ pub struct DataConstLayout {
 /// vtable layout. Callers must skip every `__DATA_CONST` emit path
 /// in that case so the pre-e8 byte-identical guarantee for every
 /// vtable-less probe survives.
+/// Does this config put anything into `__DATA_CONST`? The one
+/// predicate both the load-command sizing (`archive_layout_text`) and
+/// this layout consult — r499: the sizing used to test a shorter list
+/// (no class-name table, no baked-regex region) and the mismatch was
+/// invisible only while `tr build` forced every table on; the first
+/// derived-off flag exposed it as a one-LC overrun on regex programs.
+pub fn data_const_present(cfg: &crate::exec::LinkConfig) -> bool {
+    !cfg.vtable_globals.is_empty()
+        || !cfg.class_layouts.is_empty()
+        || cfg.force_emit_class_layouts_globals
+        || !cfg.fn_name_globals.is_empty()
+        || cfg.force_emit_fn_name_globals
+        || !cfg.class_names.is_empty()
+        || cfg.force_emit_class_names_globals
+        || !cfg.baked_regex_entries.is_empty()
+}
+
 pub fn compute_data_const_layout(
     vtable_globals: &[crate::exec::UserVtableEntry],
     class_layouts: &[crate::exec::UserClassLayoutEntry],
@@ -475,6 +492,64 @@ mod tests {
         assert!(layout.fn_name_table_layout.entries.is_empty());
         // segment unchanged vs vtable-only case.
         assert_eq!(layout.segment_vmsize, 0x4000);
+    }
+
+    /// r499 — the sizing predicate and the layout's own emptiness
+    /// test must agree on every table, or the load-command region
+    /// overruns `text_file_offset` by one segment command.
+    #[test]
+    fn presence_predicate_matches_layout_for_every_table() {
+        let base = crate::exec::LinkConfig {
+            funcs: Vec::new(),
+            entry: "_main".into(),
+            sym_table: crate::resolve::SymTable::new(),
+            codesign_ident: "tora".into(),
+            dead_strip: false,
+            strip_member_symbols: false,
+            elidable_calls: Vec::new(),
+            guarded_stubs: Vec::new(),
+            archives: Vec::new(),
+            strings: Vec::new(),
+            data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
+        };
+        let layout_of = |c: &crate::exec::LinkConfig| {
+            compute_data_const_layout(
+                &c.vtable_globals,
+                &c.class_layouts,
+                c.force_emit_class_layouts_globals,
+                &c.fn_name_globals,
+                c.force_emit_fn_name_globals,
+                &c.class_names,
+                c.force_emit_class_names_globals,
+                &c.baked_regex_entries,
+                0x4000,
+                0x1_0000_4000,
+            )
+            .has_data_const
+        };
+        assert!(!data_const_present(&base));
+        assert_eq!(layout_of(&base), data_const_present(&base));
+        let mut only_class_names = base.clone();
+        only_class_names.force_emit_class_names_globals = true;
+        assert!(data_const_present(&only_class_names));
+        assert_eq!(
+            layout_of(&only_class_names),
+            data_const_present(&only_class_names)
+        );
+        let mut only_fn_names = base.clone();
+        only_fn_names.force_emit_fn_name_globals = true;
+        assert_eq!(
+            layout_of(&only_fn_names),
+            data_const_present(&only_fn_names)
+        );
     }
 
     #[test]

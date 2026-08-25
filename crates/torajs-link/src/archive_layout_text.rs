@@ -76,11 +76,7 @@ pub(crate) fn compute_text_region_plan(
     let has_dyld = !required.dyld_imports.is_empty()
         || !cfg.data_globals.is_empty()
         || member_data_section_count > 0;
-    let has_data_const_seg = !cfg.vtable_globals.is_empty()
-        || !cfg.class_layouts.is_empty()
-        || cfg.force_emit_class_layouts_globals
-        || !cfg.fn_name_globals.is_empty()
-        || cfg.force_emit_fn_name_globals;
+    let has_data_const_seg = crate::data_const_layout::data_const_present(cfg);
     let has_vtable_rebase = cfg
         .vtable_globals
         .iter()
