@@ -14,8 +14,11 @@
 //!   `UserFnNameEntry` Vec keyed on existing `__torajs_str_dyn_<sid>`
 //!   alias from the strings table.
 
-use torajs_core::ssa::Module;
-use torajs_link::exec::{UserClassNameEntry, UserFnNameEntry, UserStringEntry, UserStringKind};
+use torajs_core::ssa::{FuncId, Module, Type};
+use torajs_link::exec::{
+    UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry, UserFnNameEntry,
+    UserStringEntry, UserStringKind, UserVtableEntry,
+};
 
 pub fn build_user_strings(ssa_module: &Module) -> Vec<UserStringEntry> {
     let mut strings: Vec<UserStringEntry> = Vec::with_capacity(ssa_module.strings.len() * 2);
@@ -99,4 +102,102 @@ pub fn build_fn_name_globals(ssa_module: &Module) -> Vec<UserFnNameEntry> {
             src_len: e.src_len,
         })
         .collect()
+}
+
+/// One `UserDataGlobalEntry` per SSA data global (sym + slot size /
+/// alignment from the SSA type).
+pub(crate) fn build_data_globals(ssa_module: &Module) -> Vec<UserDataGlobalEntry> {
+    ssa_module
+        .data_globals
+        .iter()
+        .map(|dg| {
+            let (size, align_log2) = type_slot_size_align(dg.ty);
+            UserDataGlobalEntry {
+                sym: dg.name.clone(),
+                size,
+                align_log2,
+            }
+        })
+        .collect()
+}
+
+/// SD-4c-prereq+e8 — materialize ssa::Module.class_layouts (T-26.C
+/// cycle collector metadata) into the proper in-house rodata path
+/// (`__torajs_class_layouts` outer table + per-class inner
+/// `.__class_offsets_<i>` globals + `__torajs_n_class_layouts`
+/// count). Pre-e8 reserved two zerofill slots in `data_globals`
+/// (now removed): the outer-ptr was NULL so the cycle collector
+/// short-circuited on class-bearing programs. e8 lands real bytes
+/// + dyld rebase via the e7b chained-fixups TextRebaseScope.
+pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLayoutEntry> {
+    ssa_module
+        .class_layouts
+        .iter()
+        .map(|cl| UserClassLayoutEntry {
+            child_offsets: cl.child_offsets.clone(),
+            is_named: cl.is_named,
+            is_generic: cl.is_generic,
+            // W-J A3b — plumb FieldMetaSpec through to the link layer so
+            // it can emit the per-class `.__class_fields_<i>` inner
+            // global + per-field name strings + wire the outer entry's
+            // field_metadata_ptr slot to the inner global's vaddr.
+            fields: cl
+                .field_metadata
+                .iter()
+                .map(|fm| torajs_link::exec::UserFieldMetaEntry {
+                    name: fm.name.clone(),
+                    offset: fm.offset,
+                    type_tag: fm.type_tag,
+                })
+                .collect(),
+            // 刀 4 (RFC 20260714-t262-top-clusters) — runtime class-
+            // method dispatch rows; adapter fids resolve through
+            // fn_vaddrs at rebase-assembly time.
+            methods: cl
+                .methods
+                .iter()
+                .map(|mm| torajs_link::exec::UserMethodMetaEntry {
+                    name: mm.name.clone(),
+                    adapter_fn_id: mm.adapter_fid.0,
+                    // Bit 0 = this-free (S2.38); bit 1 = twin-primary
+                    // (404-01 — the adapter is recv-first-shaped).
+                    flags: u32::from(mm.this_free) | (u32::from(mm.twin_primary) << 1),
+                    twin_fn_id: mm.twin_adapter_fid.map(|f| f.0),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// vtable slots resolve via `register_fn_addr_syms`'s
+/// `__torajs_fn_<i>` override (codegen's `FnAddr` convention) — see
+/// `archive_emit::link_to_exec_with_archives` and the
+/// `probe_vtable_link` reference.
+pub(crate) fn build_vtable_globals(ssa_module: &Module) -> Vec<UserVtableEntry> {
+    ssa_module
+        .vtable_globals
+        .iter()
+        .map(|vt| UserVtableEntry {
+            sym: format!("__vtable_{}", vt.class_name),
+            slot_syms: vt
+                .fn_ids
+                .iter()
+                .map(|opt| opt.map(|fid: FuncId| format!("__torajs_fn_{}", fid.0)))
+                .collect(),
+        })
+        .collect()
+}
+
+/// SSA `Type` → `(slot size in bytes, log2 alignment)` for
+/// `__DATA,__bss` placement. Heap-shaped reference types lower to a
+/// single pointer at codegen, so they share the I64 8/3 slot. `Void`
+/// is not allocable and panics at this layer (the SSA layer should
+/// never declare a `let x: void`).
+pub(crate) fn type_slot_size_align(ty: Type) -> (u32, u8) {
+    match ty {
+        Type::Void => panic!("DataGlobal of type Void is not allocable"),
+        Type::I32 => (4, 2),
+        Type::Bool => (1, 0),
+        _ => (8, 3),
+    }
 }
