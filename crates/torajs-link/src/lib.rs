@@ -68,6 +68,7 @@ pub mod data_section_layout;
 mod dead_strip_diag;
 mod dead_strip_reach;
 mod dead_strip_reach_build;
+mod dead_strip_reach_resolve;
 mod dead_strip_repack;
 mod dead_strip_rewrite;
 mod dead_strip_who;
