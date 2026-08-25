@@ -44,6 +44,21 @@ pub const SLOT_AGGREGATE_ERROR: usize = 5;
 pub const SLOT_URI_ERROR: usize = 6;
 pub(crate) const SLOT_COUNT: usize = 7;
 
+/// Class name per slot — the bare-string fallback bakes
+/// `"<Name>: "` into the thrown Str so the uncaught reporter (which
+/// prints a Str payload verbatim) shows the same first line the
+/// instance path renders (RFC 20260825-injection-reachability 刀 A).
+/// Index-lockstep with the `SLOT_*` constants above.
+pub(crate) const SLOT_NAMES: [&[u8]; SLOT_COUNT] = [
+    b"Error",
+    b"TypeError",
+    b"RangeError",
+    b"ReferenceError",
+    b"SyntaxError",
+    b"AggregateError",
+    b"URIError",
+];
+
 /// `undefined` in AnyValue NaN-box form (`torajs_anyvalue::nanbox::
 /// VALUE_UNDEFINED` = `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED`).
 /// Mirrored rather than imported — torajs-throw is Layer-1 and keeps

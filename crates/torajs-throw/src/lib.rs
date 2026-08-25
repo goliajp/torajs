@@ -286,8 +286,37 @@ unsafe fn throw_native_str(slot: i64, err: *mut u8) {
             return;
         }
     }
-    // Unregistered slot or out-of-range — bare-string fallback.
-    unsafe { __torajs_throw_set(ANY_TAG_HEAP, err as i64) };
+    // Unregistered slot or out-of-range — bare-string fallback. The
+    // uncaught reporter prints a Str payload verbatim, so the class
+    // name the instance path would have rendered is baked into the
+    // text: `<Name>: <msg>` (RFC 20260825-injection-reachability
+    // 刀 A). This is the shape bun's report shows for the same raise,
+    // and the only programs on this path are ones with no registered
+    // factory (user-shadowed `class Error`, or a future
+    // reachability-gated build that proved no one can observe the
+    // instance shape).
+    let named = if slot >= 0 && (slot as usize) < SLOT_COUNT {
+        let name = registry::SLOT_NAMES[slot as usize];
+        let msg_len = unsafe { (err.add(STR_LEN_OFF) as *const u32).read() } as usize;
+        let total = name.len() + 2 + msg_len;
+        // SAFETY: fresh Str of `total` bytes; header + len set by the
+        // allocator, payload filled below.
+        unsafe {
+            let s = __torajs_str_alloc_pooled(total as u64);
+            ptr::copy_nonoverlapping(name.as_ptr(), s.add(STR_HDR_SIZE), name.len());
+            ptr::copy_nonoverlapping(b": ".as_ptr(), s.add(STR_HDR_SIZE + name.len()), 2);
+            ptr::copy_nonoverlapping(
+                err.add(STR_HDR_SIZE),
+                s.add(STR_HDR_SIZE + name.len() + 2),
+                msg_len,
+            );
+            __torajs_str_drop(err);
+            s
+        }
+    } else {
+        err
+    };
+    unsafe { __torajs_throw_set(ANY_TAG_HEAP, named as i64) };
 }
 
 /// Cross-TU wrapper: torajs-bigint / torajs-regex / etc. call
