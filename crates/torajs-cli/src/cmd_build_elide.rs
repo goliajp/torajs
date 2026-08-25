@@ -132,7 +132,10 @@ mod tests {
             ]
         );
         assert!(sites.iter().all(|s| s.func == USER_MAIN_SYM));
-        assert_eq!(sites[1].guard_ignore, ["___torajs_promise_drop", "___torajs_promise_print"]);
+        assert_eq!(
+            sites[1].guard_ignore,
+            ["___torajs_promise_drop", "___torajs_promise_print"]
+        );
         assert!(sites[0].guard_ignore.is_empty());
     }
 
