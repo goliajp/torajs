@@ -29,15 +29,19 @@ pub(super) fn emit_proto_chain_and_register(
         let Some(pname) = parent else { continue };
         let proto_sub = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
         let proto_super = ast.add_expr(Expr::Ident(format!("__proto_{pname}")));
-        let member = ast.add_expr(Expr::Member {
-            obj: proto_sub,
-            name: "__proto__".to_string(),
+        // RFC 20260825-inject-narrow-define 刀 4a — a Call to the
+        // narrow proto-link kernel instead of a `.__proto__ = …`
+        // member assign: both operands are the prologue's freshly
+        // minted plain dynobjs and the link is the compile-time
+        // class tree, so the generic member-set route (whose one
+        // reloc kept the whole member-set world alive in every
+        // program) has nothing to decide here.
+        let callee = ast.add_expr(Expr::Ident("__torajs_proto_link_fresh".to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![proto_sub, proto_super],
         });
-        let assign = ast.add_expr(Expr::Assign {
-            target: member,
-            value: proto_super,
-        });
-        out.push(Stmt::Expr(assign));
+        out.push(Stmt::Expr(call));
     }
 
     // P4.2 Phase B+C — register each `__proto_<C>` into the runtime

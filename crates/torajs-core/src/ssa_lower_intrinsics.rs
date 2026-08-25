@@ -456,6 +456,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_payload_rc_inc: FuncId,
     pub(crate) anyv_retain: FuncId,
     pub(crate) proto_register: FuncId,
+    pub(crate) proto_link_fresh: FuncId,
     pub(crate) register_native_error: FuncId,
     pub(crate) proto_get: FuncId,
     pub(crate) closure_install_gen_proto: FuncId,

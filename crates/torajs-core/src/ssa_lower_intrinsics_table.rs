@@ -397,6 +397,7 @@ pub(crate) fn build(
         any_payload_rc_inc: init_c.any_substrate.any_payload_rc_inc,
         anyv_retain: init_c.any_substrate.anyv_retain,
         proto_register: init_c.any_substrate.proto_register,
+        proto_link_fresh: init_c.any_substrate.proto_link_fresh,
         register_native_error: init_c.any_substrate.register_native_error,
         proto_get: init_c.any_substrate.proto_get,
         closure_install_gen_proto: init_c.any_substrate.closure_install_gen_proto,

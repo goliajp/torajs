@@ -312,6 +312,7 @@ pub(crate) mod ssa_lower_call_class_synth;
 pub(crate) mod ssa_lower_call_class_synth_ctorret;
 pub(crate) mod ssa_lower_call_class_synth_dstr;
 pub(crate) mod ssa_lower_call_class_synth_error;
+pub(crate) mod ssa_lower_call_class_synth_proto;
 pub(crate) mod ssa_lower_call_class_synth_reify;
 pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;

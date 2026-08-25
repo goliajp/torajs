@@ -30,6 +30,17 @@ use crate::reflect::{
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
+    /// torajs-dynobj — the narrow entry-table define (RFC
+    /// 20260825-inject-narrow-define 刀 1). Takes its own key stake;
+    /// the VALUE stake is the caller's to provide. (Signature mirrors
+    /// the classmeta declaration — the lint insists they agree.)
+    fn __torajs_dynobj_define_plain(
+        obj_slot: *mut *mut c_void,
+        key: *const u8,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
     /// torajs-anyvalue — §10.5.2 [[SetPrototypeOf]] on a Proxy.
     fn __torajs_proxy_set_prototype_of(obj: u64, proto: u64) -> i64;
     /// torajs-throw — non-zero iff a throw is in flight.
@@ -347,5 +358,44 @@ pub unsafe extern "C" fn __torajs_anyv_proto_member_set(obj: u64, proto: u64) {
         if !ordinary_set_prototype_of(cell, proto) {
             __torajs_throw_type_error(c"Cannot set prototype of this object".as_ptr());
         }
+    }
+}
+
+/// The prologue's proto-chain wire (RFC 20260825-inject-narrow-define
+/// 刀 4a) — `__proto_<Sub>.__proto__ = __proto_<Super>`, emitted by
+/// `class_globals_register` as a Call to this kernel instead of a
+/// generic member assign. The generic `__torajs_any_member_set` route
+/// dispatches on receiver shape and consults the Annex B setter
+/// machinery (same-value probe, extensibility, the chain cycle walk),
+/// and that one statically-rooted reloc kept the whole member-set
+/// world alive in every program (empty-program census: −5,780 text).
+///
+/// Caller contract (compile-time facts at the ONLY mint site): both
+/// operands are the injection/desugar prologue's freshly minted plain
+/// dynobjs — extensible, no existing `__proto__` entry — and the link
+/// follows the compile-time class tree (acyclic, the parser refuses a
+/// heritage cycle), so every step the general route probes is
+/// statically settled.
+///
+/// # Safety
+/// `sub` / `superp` box live `TAG_DYNOBJ` cells per the contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_proto_link_fresh(sub: u64, superp: u64) {
+    unsafe {
+        let obj = sub as *mut c_void;
+        let parent = superp as *mut c_void;
+        // The entry holds one stake on the parent (define_plain incs
+        // the key itself; the value stake is the caller's to put up).
+        __torajs_rc_inc(parent);
+        let key = alloc_str_key(PROTO_SLOT_KEY);
+        let mut slot = obj;
+        __torajs_dynobj_define_plain(
+            &mut slot,
+            key,
+            ANY_HEAP as u64,
+            parent as u64,
+            PROTO_SLOT_ATTRS,
+        );
+        __torajs_str_drop(key);
     }
 }

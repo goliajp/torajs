@@ -41,6 +41,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_call_class_synth_proto as proto;
 use crate::ssa_lower_call_class_synth_reify as reify;
 
 mod class_ref;
@@ -55,7 +56,8 @@ pub(crate) fn try_lower(
     };
     let name = name.clone();
     match name.as_str() {
-        "__torajs_proto_register" => try_lower_proto_register(ctx, args),
+        "__torajs_proto_register" => proto::try_lower_proto_register(ctx, args),
+        "__torajs_proto_link_fresh" => proto::try_lower_proto_link_fresh(ctx, args),
         "__torajs_class_register" => try_lower_class_register(ctx, args),
         "__torajs_error_proto_install" => {
             crate::ssa_lower_call_class_synth_error::try_lower_error_proto_install(ctx, args)
@@ -236,34 +238,6 @@ fn try_lower_arguments_mark(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         cur_block,
         InstKind::Call(ctx.intrinsics.arr_mark_arguments, vec![arr]),
     );
-    Some(Operand::ConstI64(0))
-}
-
-fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 2 {
-        return None;
-    }
-    let Expr::String(cname) = ctx.ast.get_expr(args[1]) else {
-        return None;
-    };
-    let cname = cname.clone();
-    let proto_op = ctx.lower_expr(args[0]);
-    let cur_block = ctx.cur_block;
-    if let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() {
-        let proto_register = ctx.intrinsics.proto_register;
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Call(
-                proto_register,
-                vec![Operand::ConstI64(tag as i64), proto_op],
-            ),
-        );
-    } else {
-        // Drop the lowered proto operand if no tag — keeps the path
-        // well-typed if it ever fires.
-        let proto_ty = ctx.operand_ty(&proto_op);
-        ctx.emit_drop_value(proto_op, proto_ty);
-    }
     Some(Operand::ConstI64(0))
 }
 

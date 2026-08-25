@@ -101,6 +101,7 @@ pub(crate) struct AnySubstrateIds {
     /// retain (`__torajs_anyv_retain`); immediates no-op.
     pub anyv_retain: FuncId,
     pub proto_register: FuncId,
+    pub proto_link_fresh: FuncId,
     pub register_native_error: FuncId,
     pub proto_get: FuncId,
     /// G2 (rotation 178) — generator-factory fncell mint installs
@@ -292,6 +293,7 @@ pub(crate) fn declare(
         any_payload_rc_inc: decl!("__torajs_anyv_payload_rc_inc_pair", [I64, I64], Void),
         anyv_retain: decl!("__torajs_anyv_retain", [Any], Any),
         proto_register: decl!("__torajs_anyv_proto_register", [I64, Any], Void),
+        proto_link_fresh: decl!("__torajs_proto_link_fresh", [Any, Any], Void),
         register_native_error: decl!("__torajs_register_native_error", [I64, Ptr], Void),
         proto_get: decl!("__torajs_anyv_proto_get", [I64], Any),
         closure_install_gen_proto: decl!("__torajs_closure_install_gen_proto", [Ptr, Any], Void),

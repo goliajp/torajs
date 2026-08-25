@@ -135,6 +135,12 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any, Type::String],
             Box::new(Type::Void),
         )),
+        // RFC 20260825-inject-narrow-define 刀 4a — the prologue's
+        // proto-chain wire (`__proto_<Sub>` → `__proto_<Super>`).
+        "__torajs_proto_link_fresh" => Ok(Type::Function(
+            vec![Type::Any, Type::Any],
+            Box::new(Type::Void),
+        )),
         "__torajs_class_register" => Ok(Type::Function(
             vec![Type::Any, Type::String, Type::Number],
             Box::new(Type::Void),
