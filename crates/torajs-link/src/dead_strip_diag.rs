@@ -59,6 +59,10 @@ pub(crate) fn report(
                 );
             }
             eprint!("{}", render_report(&r.members, &r.unresolved));
+            let live_dump = pats("TORAJS_LINK_DEADSTRIP_LIVEDUMP");
+            if !live_dump.is_empty() {
+                eprint!("{}", render_live_dump(&r, &live_dump));
+            }
             if let Some(pats) = why {
                 eprint!("{}", render_why(&r, &pats));
             }
@@ -83,6 +87,49 @@ pub(crate) fn report(
         }
         Err(e) => eprintln!("[deadstrip-diag] FAILED: {e}"),
     }
+}
+
+/// Live-atom dump: for each member whose name contains one of
+/// `pats`, print every LIVE atom as `size sect symbol` — the raw
+/// input a per-function census groups into families. The report
+/// above stops at member granularity; a WHO census needs a target
+/// pattern in hand. This is the middle view: what exactly is alive
+/// inside one member, symbol by symbol.
+fn render_live_dump(r: &ReachResult<'_>, pats: &[String]) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    for m in r.members.values() {
+        if !pats.iter().any(|p| m.member_name.contains(p.as_str())) {
+            continue;
+        }
+        for (si, sa) in m.sects.iter().enumerate() {
+            let sname = String::from_utf8_lossy(trim16(&sa.sectname)).into_owned();
+            let snum = si + 1;
+            for (&(s, e), &live) in sa.atoms.iter().zip(&sa.live) {
+                if !live {
+                    continue;
+                }
+                let sym = m
+                    .nlist
+                    .iter()
+                    .filter(|n| {
+                        n.n_type & 0x0e == 0x0e && n.n_sect as usize == snum && n.n_value <= s
+                    })
+                    .max_by_key(|n| n.n_value)
+                    .map(|n| n.name)
+                    .unwrap_or("+gap");
+                let _ = writeln!(
+                    out,
+                    "[deadstrip-live] {} {} {} {}",
+                    m.member_name,
+                    e - s,
+                    sname,
+                    sym
+                );
+            }
+        }
+    }
+    out
 }
 
 /// Why-live query: for each comma-separated substring in `pats`,
