@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T04:28:04.259Z",
+  "generatedAt": "2026-08-25T06:24:09.534Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-25T04:00:08Z",
-    "headSha": "066c9f84d",
-    "elapsedSec": 365.92,
+    "ranAt": "2026-08-25T06:14:31Z",
+    "headSha": "5db12601e",
+    "elapsedSec": 379.37,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.2
   },
   "torajs": {
-    "commit": "eadae784d",
-    "commitSubject": "refactor: split the reach node-resolver family to its own file",
+    "commit": "5db12601e",
+    "commitSubject": "style: rustfmt the knife-3 extern declarations (mini-side fmt not pulled back before commit)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "5db12601e",
+      "subject": "style: rustfmt the knife-3 extern declarations (mini-side fmt not pulled back before commit)"
+    },
+    {
+      "hash": "698442042",
+      "subject": "feat: the fresh-receiver narrow set kernel + object-literal and runtime-bag switch"
+    },
+    {
+      "hash": "1a038c839",
+      "subject": "feat: switch the install/mint define sites to the narrow kernel"
+    },
+    {
+      "hash": "07c9ee3e6",
+      "subject": "feat: the assembly-path narrow define kernel + classmeta family switch"
+    },
+    {
+      "hash": "181a8fa9d",
+      "subject": "refactor: discriminate bound cells by the drop-fn brand, not the boxed entry address"
+    },
+    {
+      "hash": "1c60c7113",
+      "subject": "feat: env-gated live-atom dump for the dead-strip diag — the per-symbol census view"
+    },
+    {
+      "hash": "906c0cd8a",
+      "subject": "chore: rotation 493 close — ns-world narrowing shipped (per-static judgment, mint seam, zero-import artifact shape, reach phantom-root fixes, ctor-date seam), empty program -64.3%, sweep byte-flat zero regression, dashboard"
+    },
+    {
       "hash": "eadae784d",
       "subject": "refactor: split the reach node-resolver family to its own file"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "e4dbfd106",
       "subject": "feat: per-static judgment table narrows the ns-static-cell fallback"
-    },
-    {
-      "hash": "2d5b352f5",
-      "subject": "chore: rotation 492 close — blade 2b proper shipped (auto stub judgment, empty program at the stub-all floor), mid-171 collision fixed, sweep +4 forward zero regression, dashboard"
-    },
-    {
-      "hash": "685e70587",
-      "subject": "fix: close the coercion-surface misses the prologue keep had masked"
-    },
-    {
-      "hash": "bf4375824",
-      "subject": "feat: exempt the synthesized error world from the coercion keep"
-    },
-    {
-      "hash": "cd8c726ad",
-      "subject": "fix: wrapper objects keep their primitive's family arm in the stub judgment"
-    },
-    {
-      "hash": "56c8ba21b",
-      "subject": "feat: automatic dispatch-family stub judgment from the lowered module"
-    },
-    {
-      "hash": "6ff377004",
-      "subject": "feat: mid-to-family membership table for the blade 2b stub judgment"
-    },
-    {
-      "hash": "36a609aed",
-      "subject": "fix: re-home iterator take mid off the getOrInsertComputed id"
     }
   ],
-  "headSha": "eadae784d",
+  "headSha": "5db12601e",
   "autorun": {
-    "total": 796,
+    "total": 797,
     "baselineTarget": 10,
-    "bySelf": 791,
+    "bySelf": 792,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787613186-76a9",
-      "at": "2026-08-24T23:13:06Z",
-      "ts": 1787613186,
+      "rotationId": "r-1787632109-6e3f",
+      "at": "2026-08-25T04:28:29Z",
+      "ts": 1787632109,
       "trigger": "self",
-      "prevHead": "2d5b352f5",
-      "handoffSha": "sha256:d070674fe2c7ad5a478e9f434b0fb96cd87bbf9a8005786b6f6c32aae8f26408",
-      "handoffAgeSec": 21,
+      "prevHead": "906c0cd8a",
+      "handoffSha": "sha256:6bfb64a4647a72b163206f369f91747f1e85c11df20d6df97ac74016a5d58d2b",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787632109-6e3f",
+        "at": "2026-08-25T04:28:29Z",
+        "ts": 1787632109,
+        "trigger": "self",
+        "prevHead": "906c0cd8a",
+        "handoffSha": "sha256:6bfb64a4647a72b163206f369f91747f1e85c11df20d6df97ac74016a5d58d2b",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787613186-76a9",
         "at": "2026-08-24T23:13:06Z",
@@ -876,17 +887,6 @@
         "prevHead": "3cd4ff0af",
         "handoffSha": "sha256:ceeb90eefc2ef02b1465f2b1c72c426a72e33eafb41d3a955aee6bc6f1ae3f86",
         "handoffAgeSec": 50,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787498385-3bb5",
-        "at": "2026-08-23T15:19:45Z",
-        "ts": 1787498385,
-        "trigger": "self",
-        "prevHead": "6abe7e8d6",
-        "handoffSha": "sha256:638fd50d837414c6029add5331afd021c1db45c0d188f7baf92252ea50fd64ff",
-        "handoffAgeSec": 68,
         "conformanceBefore": null,
         "commitsInSession": null
       }
