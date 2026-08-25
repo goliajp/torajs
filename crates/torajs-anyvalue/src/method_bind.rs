@@ -136,17 +136,30 @@ pub(crate) fn unpack_builtin_target(target: u64) -> (i64, i64) {
 }
 
 /// Bound-cell metadata `(kind, target, bound_argc)` — `None` for
-/// every other closure shape (discriminated by the boxed entry's
-/// address, the `builtin_method_mid` pattern). Chunk 719 — the
-/// `.name` / `.length` reflection reads key off this.
+/// every other closure shape. Chunk 719 — the `.name` / `.length`
+/// reflection reads key off this.
+///
+/// Discriminated by the DROP fn's address — the destructor is the
+/// cell-type brand (mint and drop are minted as a pair, nothing
+/// else ever writes [`bound_drop`] into a drop slot). It used to
+/// compare the boxed dual entry against [`bound_entry`], but that
+/// address compare link-rooted the whole method-dispatch universe
+/// from every generic kernel that merely asked "is this bound"
+/// (bound_entry -> closure dispatch -> ns_static_cell -> the
+/// dispatch clique; anyvalue WHO census, rotation 494). Same cure
+/// as the `FLAG_CLOSURE_NS_STATIC` precedent, except the Closure
+/// flag byte is full and bits 13-14 are the collector's color
+/// field — so the brand rides the drop slot instead. `bound_drop`
+/// only reaches the universal drop machinery, which is live in
+/// every program anyway.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
 pub(crate) unsafe fn bound_cell_meta(ptr: *mut c_void) -> Option<(u64, u64, usize)> {
     unsafe {
         let cell = ptr.cast::<u8>();
-        let entry = *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
-        if entry != bound_entry as *const () as u64 {
+        let dropf = *(cell.add(CLOSURE_DROP_FN_OFF) as *const u64);
+        if dropf != bound_drop as *const () as u64 {
             return None;
         }
         Some((
