@@ -98,6 +98,7 @@ fn main() {
         dead_strip: false,
         strip_member_symbols: false,
         elidable_calls: Vec::new(),
+        guarded_stubs: Vec::new(),
         archives: Vec::new(),
         strings: Vec::new(),
         data_globals: Vec::new(),

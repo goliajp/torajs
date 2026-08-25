@@ -334,6 +334,7 @@ pub(crate) fn build_link_config(
     // r499 — main's three end-of-program drains become conditional
     // on their feeder members' liveness (policy in cmd_build_elide).
     let elidable_calls = crate::cmd_build_elide::collect_elidable_calls(&funcs);
+    let guarded_stubs = crate::cmd_build_elide::guarded_stubs();
 
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
@@ -358,6 +359,7 @@ pub(crate) fn build_link_config(
         dead_strip,
         strip_member_symbols,
         elidable_calls,
+        guarded_stubs,
         archives,
         strings,
         data_globals,

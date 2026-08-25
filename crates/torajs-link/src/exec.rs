@@ -26,7 +26,7 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
-pub use crate::dead_strip_elide::ElidableCall;
+pub use crate::dead_strip_elide::{ElidableCall, GuardedStub, MemberGuard};
 pub use crate::exec_user_entries::{
     UserBakedRegexEntry, UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry,
     UserFieldMetaEntry, UserFnNameEntry, UserMethodMetaEntry, UserStringEntry, UserStringKind,
@@ -65,6 +65,10 @@ pub struct LinkConfig {
     /// live text once the site's own edge is set aside (module doc in
     /// `dead_strip_elide`). Empty = no site is conditional.
     pub elidable_calls: Vec<ElidableCall>,
+    /// r499 — definitions the pre-pass adds to shadow a runtime
+    /// member's when that member's guard text is dead with the stub
+    /// assumed (same module). Empty = nothing conditional.
+    pub guarded_stubs: Vec<GuardedStub>,
     /// Static-library `.a` archives in Apple `ld64` search order.
     /// S7-C1 only carries bytes; resolution + integration in C2..C5.
     /// Empty for self-contained binaries. `Cow` so the baked
@@ -521,6 +525,7 @@ mod tests {
             dead_strip: false,
             strip_member_symbols: false,
             elidable_calls: Vec::new(),
+            guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -588,6 +593,7 @@ mod tests {
             dead_strip: false,
             strip_member_symbols: false,
             elidable_calls: Vec::new(),
+            guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -616,6 +622,7 @@ mod tests {
             dead_strip: false,
             strip_member_symbols: false,
             elidable_calls: Vec::new(),
+            guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -653,6 +660,7 @@ mod tests {
             dead_strip: false,
             strip_member_symbols: false,
             elidable_calls: Vec::new(),
+            guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -690,6 +698,7 @@ mod tests {
             dead_strip: false,
             strip_member_symbols: false,
             elidable_calls: Vec::new(),
+            guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -822,6 +831,7 @@ mod tests {
             dead_strip: false,
             strip_member_symbols: false,
             elidable_calls: Vec::new(),
+            guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
