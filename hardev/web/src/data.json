@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T12:08:54.431Z",
+  "generatedAt": "2026-08-25T14:13:10.129Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,15 +9,15 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-25T11:58:13Z",
-    "headSha": "18759996c",
-    "elapsedSec": 378,
+    "ranAt": "2026-08-25T13:47:13Z",
+    "headSha": "16047224e",
+    "elapsedSec": 363.71,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29727,
-    "passNoOracle": 924,
+    "pass": 29728,
+    "passNoOracle": 923,
     "passNegative": 4147,
     "passTotal": 34798,
     "bug": 12742,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.2
   },
   "torajs": {
-    "commit": "18759996c",
-    "commitSubject": "fix: gate the iterator-result struct probe by heap tag; hold the injection gate open",
+    "commit": "813e93170",
+    "commitSubject": "refactor: class-tag read-point hygiene from the rotation 497 audit",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "813e93170",
+      "subject": "refactor: class-tag read-point hygiene from the rotation 497 audit"
+    },
+    {
+      "hash": "0b2d4cd84",
+      "subject": "fix: synthesize main for a program with no executable top-level statement"
+    },
+    {
+      "hash": "16047224e",
+      "subject": "perf: release the injection-reachability gate"
+    },
+    {
+      "hash": "71def960d",
+      "subject": "fix: escape-capture census walks As / Sequence / Delete / NewDynamic"
+    },
+    {
+      "hash": "2bb7d32c1",
+      "subject": "fix: struct-layout interning matches only finalized layouts"
+    },
+    {
+      "hash": "03564d82f",
+      "subject": "chore: rotation 496 close — s2 blade-4 root census + injection-reachability rfc (implement, three latent bug fixes, gate held open), narrow proto-chain wire, named bare-string throw, import-free data-segment link fix, sweep byte-flat (one timeout flake), dashboard"
+    },
+    {
       "hash": "18759996c",
       "subject": "fix: gate the iterator-result struct probe by heap tag; hold the injection gate open"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "0469e1a37",
       "subject": "perf: prologue proto-chain wire rides a narrow kernel (inject-narrow-define blade 4a)"
-    },
-    {
-      "hash": "a1326203a",
-      "subject": "chore: rotation 495 close — mandelbrot five-knife attack (fcmp fuse / rewrite-engine landing + fmul2 / fconst hoist / orr mov-elimination / post-phi gvn), 44-cell losing cells cleared, bench-suite-pro rfc drafted, sweep byte-flat zero regression, dashboard"
-    },
-    {
-      "hash": "514bac2f1",
-      "subject": "perf: post-phi dominator gvn (late_gvn pass)"
-    },
-    {
-      "hash": "ec6c35766",
-      "subject": "perf: f64 register moves ride the orr vector-mov alias (move elimination)"
-    },
-    {
-      "hash": "cf32b9090",
-      "subject": "perf: hoist in-loop f64 constants to the dominator (fconst_hoist pass)"
-    },
-    {
-      "hash": "e7997eba3",
-      "subject": "perf: land non-identity rewrite outputs in the ir (fmul-by-2 strength reduction)"
-    },
-    {
-      "hash": "e61fd80b5",
-      "subject": "perf: fuse float compares into the condbr branch (fcmp + b.cond)"
     }
   ],
-  "headSha": "18759996c",
+  "headSha": "813e93170",
   "autorun": {
-    "total": 799,
+    "total": 800,
     "baselineTarget": 10,
-    "bySelf": 794,
+    "bySelf": 795,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787646905-18c8",
-      "at": "2026-08-25T08:35:05Z",
-      "ts": 1787646905,
+      "rotationId": "r-1787659755-4d92",
+      "at": "2026-08-25T12:09:15Z",
+      "ts": 1787659755,
       "trigger": "self",
-      "prevHead": "a1326203a",
-      "handoffSha": "sha256:27432b5cc80f110bafaa9e309134a5b2042b7f724d55e8d25ce1a0b7dc5d3db5",
-      "handoffAgeSec": 8,
+      "prevHead": "03564d82f",
+      "handoffSha": "sha256:d2b2a715d867d9468e06a1a039b0a8a6353dca0f78f0716526a27d658c9e25fb",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787659755-4d92",
+        "at": "2026-08-25T12:09:15Z",
+        "ts": 1787659755,
+        "trigger": "self",
+        "prevHead": "03564d82f",
+        "handoffSha": "sha256:d2b2a715d867d9468e06a1a039b0a8a6353dca0f78f0716526a27d658c9e25fb",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787646905-18c8",
         "at": "2026-08-25T08:35:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "44cb6f3ed",
         "handoffSha": "sha256:7e2bc99b71976a16a30793eaba63f65e364b6ced2b237b64aaa319a7631c625c",
         "handoffAgeSec": 94,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787562016-5892",
-        "at": "2026-08-24T09:00:16Z",
-        "ts": 1787562016,
-        "trigger": "self",
-        "prevHead": "5f2e5f74d",
-        "handoffSha": "sha256:d6c0dd864ce6b32ee949936bff97ffd0d46e60b53e66b4978e0c9c02c03f9718",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }
