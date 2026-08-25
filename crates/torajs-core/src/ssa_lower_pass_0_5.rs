@@ -93,6 +93,10 @@ pub(crate) fn run(
             aliases.insert(name.clone(), Type::Obj(sid));
         }
     }
+    // Reserved sids whose layout has not been written yet — excluded
+    // from the intern candidates below (an aliased class's slot stays
+    // pending forever: it is empty and nothing references it).
+    let mut pending_reserved: HashSet<u32> = class_sids.values().map(|s| s.0).collect();
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl {
             name,
@@ -167,25 +171,14 @@ pub(crate) fn run(
                 }
                 layout.push((fname.clone(), ty));
             }
-            let reserved_sid = class_sids[name];
-            // Try to intern: if another non-reserved layout already
-            // matches, alias `name` to that sid and leave the
-            // reserved slot empty (harmless — nothing references it).
-            let mut found: Option<ssa::StructId> = None;
-            for (i, ex) in struct_layouts.iter().enumerate() {
-                if i as u32 == reserved_sid.0 {
-                    continue;
-                }
-                if *ex == layout {
-                    found = Some(ssa::StructId(i as u32));
-                    break;
-                }
-            }
-            if let Some(canonical) = found {
-                aliases.insert(name.clone(), Type::Obj(canonical));
-            } else {
-                struct_layouts[reserved_sid.0 as usize] = layout;
-            }
+            intern_or_finalize(
+                name,
+                layout,
+                class_sids[name],
+                &mut struct_layouts,
+                &mut aliases,
+                &mut pending_reserved,
+            );
         }
     }
 
@@ -216,5 +209,44 @@ pub(crate) fn run(
         struct_layouts,
         inst_memo,
         class_name_to_tag,
+    }
+}
+
+/// Settle a declared class's freshly parsed layout: intern onto an
+/// existing FINALIZED layout that matches (alias `name` to that sid and
+/// leave the reserved slot empty — harmless, nothing references it), or
+/// write it into the reserved slot.
+///
+/// A reserved slot that has not been finalized yet is an empty `Vec`
+/// indistinguishable from a genuinely empty layout, so a zero-field
+/// class declared ahead of any other class used to intern onto its
+/// NEIGHBOUR's still-empty slot — which the neighbour then filled with
+/// its own fields. `class A {}` + `class B { v = 7 }` gave `A`
+/// instances B's layout: `new A()` printed `v: 0`, and the runtime drop
+/// walked B's child offsets over A's smaller block (rotation 497 — the
+/// iterator-helpers SIGBUS and the inspect `v: 0` drift behind the
+/// injection-reachability gate were both this; the injected Error
+/// family had merely kept user classes off the last-declared position
+/// where the collision cannot happen). `pending_reserved` is the set
+/// of reserved sids not yet written; an aliased class's slot stays in
+/// it forever (empty, unreferenced) and never becomes a candidate.
+fn intern_or_finalize(
+    name: &str,
+    layout: Vec<(String, Type)>,
+    reserved_sid: ssa::StructId,
+    struct_layouts: &mut [Vec<(String, Type)>],
+    aliases: &mut HashMap<String, Type>,
+    pending_reserved: &mut HashSet<u32>,
+) {
+    let found = struct_layouts.iter().enumerate().find_map(|(i, ex)| {
+        let i = i as u32;
+        (i != reserved_sid.0 && !pending_reserved.contains(&i) && *ex == layout)
+            .then_some(ssa::StructId(i))
+    });
+    if let Some(canonical) = found {
+        aliases.insert(name.to_string(), Type::Obj(canonical));
+    } else {
+        struct_layouts[reserved_sid.0 as usize] = layout;
+        pending_reserved.remove(&reserved_sid.0);
     }
 }
