@@ -266,6 +266,41 @@ fn collect_closure_captures_in_expr(ast: &Ast, eid: ExprId, out: &mut ClosureSca
         Expr::PostIncr { target, .. } => {
             collect_closure_captures_in_expr(ast, *target, out);
         }
-        _ => {}
+        // Wrappers that carry a closure through unchanged. `As` was
+        // missing here (rotation 497): `f(x) as T` hid the callback
+        // from this census, so the `let` it captured never got its
+        // capture box — the env then treated the raw alloca as a box
+        // (`capture_box_inc` / `_drop` on stack memory; the drop
+        // landed on the env-drop callee's saved lr once the gate-open
+        // frame layout put the slot at main's sp base). The catch-all
+        // is gone: a new variant must be placed explicitly.
+        Expr::As { expr, .. } | Expr::Delete { expr } => {
+            collect_closure_captures_in_expr(ast, *expr, out);
+        }
+        Expr::Sequence { left, right } => {
+            collect_closure_captures_in_expr(ast, *left, out);
+            collect_closure_captures_in_expr(ast, *right, out);
+        }
+        Expr::NewDynamic { callee, args } => {
+            collect_closure_captures_in_expr(ast, *callee, out);
+            for a in args {
+                collect_closure_captures_in_expr(ast, *a, out);
+            }
+        }
+        // Leaves — and an un-lifted `ArrowFn`, whose body constructs
+        // its closures in its OWN frame (every arrow this body
+        // constructs has been lifted to `Closure` by lowering time).
+        Expr::Ident(_)
+        | Expr::String(_)
+        | Expr::Number(_)
+        | Expr::Bool(_)
+        | Expr::BigInt { .. }
+        | Expr::Regex { .. }
+        | Expr::Null
+        | Expr::This
+        | Expr::NewTarget
+        | Expr::Elision
+        | Expr::Uninit
+        | Expr::ArrowFn { .. } => {}
     }
 }
