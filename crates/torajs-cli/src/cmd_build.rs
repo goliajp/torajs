@@ -35,15 +35,23 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     ) {
         println!("tr build — AOT via codegen + obj + link");
         println!();
-        println!("USAGE: tr build <input.ts> -o <output>");
+        println!("USAGE: tr build <input.ts> -o <output> [--no-strip]");
+        println!();
+        println!("  --no-strip   keep the runtime's symbols in the artifact's symbol table");
+        println!("               (default strips them; user functions always stay)");
         return ExitCode::SUCCESS;
     }
 
     let mut input: Option<&str> = None;
     let mut output: Option<&str> = None;
+    let mut no_strip = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--no-strip" => {
+                no_strip = true;
+                i += 1;
+            }
             "-o" => {
                 i += 1;
                 let Some(path) = args.get(i) else {
@@ -81,7 +89,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     // Phase 0 step 8b — egraph mid-end pass. Honors TORAJS_EGRAPH_OFF=1.
     let ssa_module = torajs_egraph::transform_module(ssa_module);
 
-    let cfg = build_link_config(&ssa_module, true);
+    let cfg = build_link_config(&ssa_module, true, !no_strip);
 
     let bytes = match link_to_exec_with_archives(&cfg) {
         Ok(b) => b,
@@ -367,7 +375,11 @@ fn build_baked_regex_entries(ssa_module: &Module) -> Vec<torajs_link::exec::User
         .collect()
 }
 
-pub(crate) fn build_link_config(ssa_module: &Module, dead_strip: bool) -> LinkConfig {
+pub(crate) fn build_link_config(
+    ssa_module: &Module,
+    dead_strip: bool,
+    strip_member_symbols: bool,
+) -> LinkConfig {
     let mut funcs = compile_module_funcs(ssa_module);
     // S2-5 blade 2b: judge which dispatch families the program can
     // never enter and stub their arm seams (module docs in
@@ -406,6 +418,7 @@ pub(crate) fn build_link_config(ssa_module: &Module, dead_strip: bool) -> LinkCo
         sym_table: SymTable::new(),
         codesign_ident: "tora".into(),
         dead_strip,
+        strip_member_symbols,
         archives,
         strings,
         data_globals,

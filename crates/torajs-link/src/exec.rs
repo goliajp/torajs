@@ -77,6 +77,12 @@ pub struct LinkConfig {
     /// keeps `false` (the pre-pass costs ~tens of ms compile time).
     /// `TORAJS_LINK_DEADSTRIP=1|0` overrides in both directions.
     pub dead_strip: bool,
+    /// ld64 `-x`-class symtab policy at the runtime boundary: `true`
+    /// writes only the user program's functions to `LC_SYMTAB`, dropping
+    /// every member's defined extern (dyld never reads them — 173 KB of
+    /// a 273 KB empty program, r498). `tr build` default; `--no-strip`
+    /// / `tr run` keep `false` so runtime frames still symbolicate.
+    pub strip_member_symbols: bool,
     /// Static-library `.a` archives in Apple `ld64` search order.
     /// S7-C1 only carries bytes; resolution + integration in C2..C5.
     /// Empty for self-contained binaries. `Cow` so the baked
@@ -530,6 +536,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -595,6 +602,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -621,6 +629,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -656,6 +665,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -689,6 +699,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -819,6 +830,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),

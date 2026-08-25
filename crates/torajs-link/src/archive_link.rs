@@ -28,6 +28,20 @@ pub(crate) fn round_up_to(value: u64, align: u64) -> u64 {
     (value + align - 1) & !(align - 1)
 }
 
+/// The `cfg.funcs` slots that own a symbol-table row: every user
+/// function with a body. Extern-declaration slots (empty bytes —
+/// `compile_module_funcs` keeps them so `FuncId`s stay stable) define
+/// nothing; a row for them would claim the runtime symbol lives at
+/// the text start and mis-attribute crash frames there.
+pub(crate) fn symtab_rows(
+    cfg: &LinkConfig,
+) -> impl Iterator<Item = (usize, &torajs_codegen::CompiledFunction)> {
+    cfg.funcs
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.bytes.is_empty())
+}
+
 /// File + virtual layout for an `archives`-populated `LinkConfig`.
 /// `cfg.archives.is_empty()` mirrors `exec.rs::compute_layout` with
 /// an empty `member_layouts`.
@@ -116,12 +130,18 @@ pub fn compute_archive_layout_with_merged(
         member_layouts[i].non_text_sections = layouts;
     }
 
-    // nsyms = user fn count + sum(member defined syms).
-    let user_nsyms = cfg.funcs.len() as u32;
-    let member_nsyms: u32 = member_layouts
-        .iter()
-        .map(|m| m.defined_syms.len() as u32)
-        .sum();
+    // nsyms = user fn count + sum(member defined syms); the member
+    // half is dropped under `strip_member_symbols` (the rows are
+    // artifact mass only — dyld never reads them).
+    let user_nsyms = symtab_rows(cfg).count() as u32;
+    let member_nsyms: u32 = if cfg.strip_member_symbols {
+        0
+    } else {
+        member_layouts
+            .iter()
+            .map(|m| m.defined_syms.len() as u32)
+            .sum()
+    };
     let nsyms = user_nsyms + member_nsyms;
 
     let nlist_size = nsyms * NLIST_64_SIZE;
@@ -130,12 +150,14 @@ pub fn compute_archive_layout_with_merged(
 
     // strtab: "\0" + user fn names + member defined-sym names.
     let mut strsize: u32 = 1;
-    for f in &cfg.funcs {
+    for (_, f) in symtab_rows(cfg) {
         strsize += f.name.len() as u32 + 1;
     }
-    for m in &member_layouts {
-        for (name, _, _) in &m.defined_syms {
-            strsize += name.len() as u32 + 1;
+    if !cfg.strip_member_symbols {
+        for m in &member_layouts {
+            for (name, _, _) in &m.defined_syms {
+                strsize += name.len() as u32 + 1;
+            }
         }
     }
 
@@ -289,6 +311,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -339,6 +362,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -404,6 +428,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -450,6 +475,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -499,6 +525,88 @@ mod tests {
         assert_eq!(m.defined_syms[0].1, 0);
     }
 
+    /// Same link under `strip_member_symbols`: the member still
+    /// integrates (text unchanged) but contributes no symtab row —
+    /// nsyms / strsize budget only the user fn.
+    #[test]
+    fn layout_strips_member_symbols() {
+        let foo = fn_leaf("_foo");
+        let archive =
+            build_short_name_archive("a.o", &torajs_obj::write_object(std::slice::from_ref(&foo)));
+        let main = fn_with_extern_calls("_main", &["_foo"]);
+        let mut cfg = LinkConfig {
+            funcs: vec![main.clone()],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            dead_strip: false,
+            strip_member_symbols: false,
+            archives: vec![archive.into()],
+            strings: Vec::new(),
+            data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
+        };
+        let full = compute_archive_layout(&cfg).unwrap();
+        cfg.strip_member_symbols = true;
+        let stripped = compute_archive_layout(&cfg).unwrap();
+
+        assert_eq!(stripped.text_size, full.text_size);
+        assert_eq!(stripped.member_layouts.len(), 1);
+        assert_eq!(stripped.nsyms, 1);
+        assert_eq!(stripped.strsize, 1 + (main.name.len() as u32 + 1));
+        assert_eq!(full.nsyms - stripped.nsyms, 1);
+        assert_eq!(full.strsize - stripped.strsize, 5);
+        // The saving lands in __LINKEDIT: one nlist row + "_foo\0"
+        // (codesign / alignment pads may move with it).
+        assert!(full.total_size - stripped.total_size >= NLIST_64_SIZE + 5);
+    }
+
+    /// An extern-declaration slot (empty bytes, reserved so FuncIds
+    /// stay stable) owns no symtab row in either policy.
+    #[test]
+    fn declaration_slots_get_no_symtab_row() {
+        let decl = CompiledFunction {
+            name: "__torajs_decl".into(),
+            bytes: Vec::new(),
+            relocs: Vec::new(),
+            frame: FrameLayout::leaf_no_spill(),
+        };
+        let main = fn_leaf("_main");
+        let mut cfg = LinkConfig {
+            funcs: vec![main.clone(), decl],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            dead_strip: false,
+            strip_member_symbols: false,
+            archives: Vec::new(),
+            strings: Vec::new(),
+            data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
+        };
+        for strip in [false, true] {
+            cfg.strip_member_symbols = strip;
+            let layout = compute_archive_layout(&cfg).unwrap();
+            assert_eq!(layout.nsyms, 1);
+            assert_eq!(layout.strsize, 1 + (main.name.len() as u32 + 1));
+            assert_eq!(layout.fn_vaddrs.len(), 2);
+        }
+    }
+
     /// Transitive integration: `_main → _foo → _bar`, each in
     /// its own archive member. Layout must list both members in
     /// `member_layouts`, in sorted (archive_idx, member_idx)
@@ -518,6 +626,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: vec![archive_a.into(), archive_b.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -561,6 +670,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -597,6 +707,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),

@@ -217,6 +217,7 @@ mod tests {
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: false,
+            strip_member_symbols: false,
             archives: archives.into_iter().map(Into::into).collect(),
             strings: Vec::new(),
             data_globals: Vec::new(),

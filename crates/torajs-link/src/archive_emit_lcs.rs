@@ -12,7 +12,7 @@ use torajs_obj::{
 
 use crate::archive_emit::member_data_layouts;
 use crate::archive_emit_lc_meta::{EmitLcMeta, compute_emit_lc_meta};
-use crate::archive_link::ArchiveLayout;
+use crate::archive_link::{ArchiveLayout, symtab_rows};
 use crate::data_section_emit::build_data_non_text_section_64_entries;
 use crate::defined_extern_resolve::section_vaddr_for_sym;
 use crate::dyld_emit::{build_data_segment, build_stubs_section};
@@ -176,16 +176,23 @@ pub(crate) fn write_header_and_load_commands(buf: &mut Vec<u8>, layout: &Archive
     );
 }
 
-/// nlist + strtab: user fns first, then every member's defined
-/// externs in member_layouts order (strings added in the same order
-/// the nlist entries are written).
+/// nlist + strtab: user fns first (bodies only — see
+/// [`symtab_rows`]), then every member's defined externs in
+/// member_layouts order (strings added in the same order the nlist
+/// entries are written). Under `cfg.strip_member_symbols`
+/// the member half is absent — the layout budgeted `nsyms` /
+/// `strsize` the same way, so the two halves stay in lockstep.
 pub(crate) fn write_symtab_and_strtab(buf: &mut Vec<u8>, cfg: &LinkConfig, layout: &ArchiveLayout) {
     // nlist + strtab: user fns first, then every member's
     // defined externs in member_layouts order.
+    if cfg.strip_member_symbols {
+        write_user_symtab_only(buf, cfg, layout);
+        return;
+    }
     let mut strtab = StringTable::new();
-    let mut user_strx: Vec<u32> = Vec::with_capacity(cfg.funcs.len());
-    for f in &cfg.funcs {
-        user_strx.push(strtab.add(&f.name));
+    let mut user_strx: Vec<(usize, u32)> = Vec::with_capacity(cfg.funcs.len());
+    for (i, f) in symtab_rows(cfg) {
+        user_strx.push((i, strtab.add(&f.name)));
     }
     let mut member_strx: Vec<Vec<u32>> = Vec::with_capacity(layout.member_layouts.len());
     for m in &layout.member_layouts {
@@ -196,8 +203,8 @@ pub(crate) fn write_symtab_and_strtab(buf: &mut Vec<u8>, cfg: &LinkConfig, layou
         member_strx.push(row);
     }
     // Emit nlist entries in the same order strings were added.
-    for (i, _f) in cfg.funcs.iter().enumerate() {
-        let nlist = Nlist64::defined_extern(user_strx[i], 1, layout.fn_vaddrs[i]);
+    for (i, strx) in &user_strx {
+        let nlist = Nlist64::defined_extern(*strx, 1, layout.fn_vaddrs[*i]);
         nlist.write_to(buf);
     }
     for (mi, m) in layout.member_layouts.iter().enumerate() {
@@ -213,6 +220,19 @@ pub(crate) fn write_symtab_and_strtab(buf: &mut Vec<u8>, cfg: &LinkConfig, layou
             let nlist = Nlist64::defined_extern(member_strx[mi][si], 1, vaddr);
             nlist.write_to(buf);
         }
+    }
+    buf.extend_from_slice(strtab.as_bytes());
+}
+
+/// `strip_member_symbols` half of [`write_symtab_and_strtab`]: the
+/// user program's functions are the whole symbol table.
+fn write_user_symtab_only(buf: &mut Vec<u8>, cfg: &LinkConfig, layout: &ArchiveLayout) {
+    let mut strtab = StringTable::new();
+    let rows: Vec<(usize, u32)> = symtab_rows(cfg)
+        .map(|(i, f)| (i, strtab.add(&f.name)))
+        .collect();
+    for (i, strx) in rows {
+        Nlist64::defined_extern(strx, 1, layout.fn_vaddrs[i]).write_to(buf);
     }
     buf.extend_from_slice(strtab.as_bytes());
 }
