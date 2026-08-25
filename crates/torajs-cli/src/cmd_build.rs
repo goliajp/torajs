@@ -421,22 +421,6 @@ pub(crate) fn build_link_config(
     let vtable_globals = build_vtable_globals(ssa_module);
     let fn_name_globals = build_fn_name_globals(ssa_module);
 
-    // r498 knife 4 — user-fn dead-strip (module doc in
-    // cmd_build_user_gc). Table roots = every FuncId whose address a
-    // link-emitted table bakes in (`__torajs_fn_<fid>` aliases).
-    let table_root_fids: Vec<usize> = ssa_module
-        .vtable_globals
-        .iter()
-        .flat_map(|vt| vt.fn_ids.iter().filter_map(|o| o.map(|fid| fid.0 as usize)))
-        .chain(
-            ssa_module
-                .fn_name_globals
-                .iter()
-                .map(|e| e.fn_id.0 as usize),
-        )
-        .collect();
-    crate::cmd_build_user_gc::strip_dead_user_fns(&mut funcs, ENTRY_SYM, &table_root_fids);
-
     // Borrowed straight off the baked `include_bytes` statics — the
     // per-case `to_vec()` deep copy here was ~36% of `tr run` compile
     // wall (~50MB memcpy; see rfcs/20260724 phase-timing.md A1).
@@ -445,7 +429,7 @@ pub(crate) fn build_link_config(
         .map(|(_, bytes)| std::borrow::Cow::Borrowed(*bytes))
         .collect();
 
-    LinkConfig {
+    let mut cfg = LinkConfig {
         funcs,
         entry: ENTRY_SYM.to_string(),
         sym_table: SymTable::new(),
@@ -496,7 +480,12 @@ pub(crate) fn build_link_config(
         // zero-count global on class-name-free programs.
         force_emit_class_names_globals: true,
         baked_regex_entries: build_baked_regex_entries(ssa_module),
-    }
+    };
+    // r498 knife 4 — user-fn dead-strip; roots come from the
+    // materialized tables in `cfg` itself (module doc in
+    // cmd_build_user_gc).
+    crate::cmd_build_user_gc::strip_dead_user_fns(&mut cfg);
+    cfg
 }
 
 /// SSA `Type` → `(slot size in bytes, log2 alignment)` for

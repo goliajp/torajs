@@ -12,11 +12,16 @@
 //! slots as definitionless (no layout bytes, no symtab row, no
 //! seeds; `compile_module_funcs`' declaration-slot convention).
 //!
-//! Roots:
+//! Roots (collected from the materialized `LinkConfig` itself, so a
+//! table the link layer bakes can never be missed by a caller-side
+//! enumeration — the r498 gate caught exactly that: class-method
+//! rows' boxed adapters lived only in `class_layouts[].methods` and
+//! the first cut stripped every dispatchable method body):
 //! - the entry wrapper (`_main`),
-//! - every `FuncId` a link-emitted table takes the address of
-//!   (vtable `slot_syms` + fn-name registry `fn_addr_sym`, both
-//!   `__torajs_fn_<fid>`-shaped),
+//! - every `FuncId` a link-emitted table takes the address of:
+//!   vtable `slot_syms` + fn-name registry `fn_addr_sym` (both
+//!   `__torajs_fn_<fid>`-shaped) + class-method rows'
+//!   `adapter_fn_id` / `twin_fn_id`,
 //! - every fn whose name is `___torajs_*`-shaped: those are
 //!   runtime-facing definitions (dispatch-arm stubs, obj_alloc /
 //!   obj_drop_sized) that live archive members may call by name —
@@ -33,6 +38,7 @@
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
+use torajs_link::exec::LinkConfig;
 
 /// The symbol names a reloc can carry (mirrors the link layer's
 /// `reloc_target_name`, plus the `Func(fid)` edge it skips).
@@ -55,14 +61,36 @@ fn reloc_edge(kind: &RelocKind) -> Edge<'_> {
     }
 }
 
-/// Compute reachability over the user fns and empty every dead one.
-/// `entry` is the wrapper symbol (`_main`); `table_root_fids` are
-/// the FuncIds link-emitted tables reference by address.
-pub(crate) fn strip_dead_user_fns(
-    funcs: &mut [CompiledFunction],
-    entry: &str,
-    table_root_fids: &[usize],
-) {
+/// Entry point — collect the address-taken roots from every
+/// fn-referencing table the config carries, then run the walk.
+pub(crate) fn strip_dead_user_fns(cfg: &mut LinkConfig) {
+    let parse_alias = |s: &str| {
+        s.strip_prefix("__torajs_fn_")
+            .and_then(|t| t.parse::<usize>().ok())
+    };
+    let table_root_fids: Vec<usize> = cfg
+        .vtable_globals
+        .iter()
+        .flat_map(|vt| vt.slot_syms.iter().flatten())
+        .filter_map(|s| parse_alias(s))
+        .chain(
+            cfg.fn_name_globals
+                .iter()
+                .filter_map(|e| parse_alias(&e.fn_addr_sym)),
+        )
+        .chain(cfg.class_layouts.iter().flat_map(|cl| {
+            cl.methods.iter().flat_map(|m| {
+                std::iter::once(m.adapter_fn_id as usize).chain(m.twin_fn_id.map(|t| t as usize))
+            })
+        }))
+        .collect();
+    let entry = cfg.entry.clone();
+    strip_with_roots(&mut cfg.funcs, &entry, &table_root_fids);
+}
+
+/// Reachability walk + strip, separated from the root collection so
+/// the tests can drive it with hand-built root sets.
+fn strip_with_roots(funcs: &mut [CompiledFunction], entry: &str, table_root_fids: &[usize]) {
     if std::env::var_os("TORAJS_USER_GC_OFF").is_some() {
         return;
     }
@@ -175,7 +203,7 @@ mod tests {
             ),
             f("helper", Vec::new()),
         ];
-        strip_dead_user_fns(&mut funcs, "_main", &[]);
+        strip_with_roots(&mut funcs, "_main", &[]);
         assert!(!funcs[0].bytes.is_empty());
         assert!(!funcs[1].bytes.is_empty());
         assert!(funcs[2].bytes.is_empty(), "unreferenced helper stripped");
@@ -192,8 +220,49 @@ mod tests {
             f("addr_taken", Vec::new()),
         ];
         // fn_name table references __torajs_fn_3; vtable references 1.
-        strip_dead_user_fns(&mut funcs, "_main", &[1, 3]);
+        strip_with_roots(&mut funcs, "_main", &[1, 3]);
         assert!(funcs.iter().all(|f| !f.bytes.is_empty()));
+    }
+
+    #[test]
+    fn class_method_table_roots_survive() {
+        use torajs_link::exec::{UserClassLayoutEntry, UserMethodMetaEntry};
+        use torajs_link::resolve::SymTable;
+        let mut cfg = LinkConfig {
+            funcs: vec![f("_main", Vec::new()), f("__boxed___cm_P__m", Vec::new())],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            dead_strip: false,
+            strip_member_symbols: false,
+            archives: Vec::new(),
+            strings: Vec::new(),
+            data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
+            class_layouts: vec![UserClassLayoutEntry {
+                child_offsets: Vec::new(),
+                fields: Vec::new(),
+                is_named: true,
+                is_generic: false,
+                methods: vec![UserMethodMetaEntry {
+                    name: "m".into(),
+                    adapter_fn_id: 1,
+                    flags: 0,
+                    twin_fn_id: None,
+                }],
+            }],
+            force_emit_class_layouts_globals: false,
+            fn_name_globals: Vec::new(),
+            force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
+        };
+        strip_dead_user_fns(&mut cfg);
+        assert!(
+            !cfg.funcs[1].bytes.is_empty(),
+            "method-table adapter row roots its fn"
+        );
     }
 
     #[test]
@@ -203,7 +272,7 @@ mod tests {
             f("taken", Vec::new()),
             f("dead", Vec::new()),
         ];
-        strip_dead_user_fns(&mut funcs, "_main", &[]);
+        strip_with_roots(&mut funcs, "_main", &[]);
         assert!(!funcs[1].bytes.is_empty());
         assert!(funcs[2].bytes.is_empty());
     }
