@@ -28,6 +28,7 @@ pub mod devirt;
 pub mod dominator;
 pub mod egraph;
 pub mod elaborate;
+pub mod fconst_hoist;
 pub mod float_demote;
 pub mod frem_narrow;
 pub mod inliner;
@@ -280,6 +281,14 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
+    // FP-constant loop hoisting — each distinct in-loop ConstF64
+    // operand mints one preheader Copy and body uses read the value,
+    // killing the per-iteration 3-inst rematerialization + GPR→FPR
+    // crossing (mandelbrot decomposition D1). After branch_fold (its
+    // folds shrink loop bodies), before select_form / cmp_sink (their
+    // formed shapes read the already-hoisted operands).
+    // `TORAJS_FCONST_HOIST_OFF=1` skips (bisect gate).
+    gated_pass("FCONST_HOIST", &mut module, fconst_hoist::hoist_fp_consts);
     // Ctpop-range-sum reduction recognition — collapse a counted
     // `acc += ctpop(i)` loop into one `CtpopRangeSum` super-inst that
     // codegen expands to an 8-wide SIMD reduction (RFC
