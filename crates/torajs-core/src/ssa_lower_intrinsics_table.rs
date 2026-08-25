@@ -331,6 +331,7 @@ pub(crate) fn build(
         dynobj_get_tag: init_b.object.dynobj_get_tag,
         dynobj_get_value: init_b.object.dynobj_get_value,
         dynobj_set: init_b.object.dynobj_set,
+        dynobj_set_fresh: init_b.object.dynobj_set_fresh,
         dynobj_define: init_b.object.dynobj_define,
         dynobj_define_from_desc: init_b.object.dynobj_define_from_desc,
         dynobj_define_from_desc_soft: init_b.object.dynobj_define_from_desc_soft,

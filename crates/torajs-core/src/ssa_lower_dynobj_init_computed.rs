@@ -29,14 +29,51 @@ impl LowerCtx<'_> {
         key: Operand,
         tag: Operand,
         val: Operand,
+        fresh: bool,
     ) {
+        // RFC 20260825-inject-narrow-define 刀 3 — an accessor-free
+        // literal stores through the fresh-receiver narrow kernel;
+        // a literal with getter/setter members keeps the general
+        // set (a later duplicate data key must dispatch the
+        // accessor entry it lands on).
+        let kernel = if fresh {
+            self.intrinsics.dynobj_set_fresh
+        } else {
+            self.intrinsics.dynobj_set
+        };
         self.f.append_void(
             self.cur_block,
-            InstKind::Call(
-                self.intrinsics.dynobj_set,
-                vec![Operand::Value(slot), key, tag, val],
-            ),
+            InstKind::Call(kernel, vec![Operand::Value(slot), key, tag, val]),
         );
+    }
+
+    /// 刀 3's per-literal judgment — true when no member of the
+    /// literal installs an AccessorPair entry (shorthand
+    /// `get`/`set` members or computed accessor faces), so no
+    /// duplicate-key store can ever land on an accessor.
+    pub(crate) fn objlit_accessor_free(&self, fields: &[(String, ExprId)]) -> bool {
+        fields.iter().all(|(fname, fval_eid)| {
+            !self.ast.objlit_computed_accessors.contains_key(fval_eid)
+                && !fname.starts_with("__getter_")
+                && !fname.starts_with("__setter_")
+        })
+    }
+
+    /// Emit the shared `dynobj_set` shape: intern the field name and
+    /// call the set kernel `(slot, key, tag, val)`. Every field
+    /// path (undefined, nested object, plain box, Any/Str runtime
+    /// tag) ends here — chunk 819 consolidated the 5 repeated call
+    /// sites; 刀 3 moved it next to its key-parameterized core.
+    pub(crate) fn emit_dynobj_set(
+        &mut self,
+        slot: ValueId,
+        fname: &str,
+        tag: Operand,
+        val: Operand,
+        fresh: bool,
+    ) {
+        let key_str = self.intern_string_literal(fname);
+        self.emit_dynobj_set_key(slot, Operand::Value(key_str), tag, val, fresh);
     }
 
     /// Route one field store to the interned-name or runtime-key set.
@@ -47,10 +84,11 @@ impl LowerCtx<'_> {
         runtime_key: Option<ValueId>,
         tag: Operand,
         val: Operand,
+        fresh: bool,
     ) {
         match runtime_key {
-            Some(k) => self.emit_dynobj_set_key(slot, Operand::Value(k), tag, val),
-            None => self.emit_dynobj_set(slot, fname, tag, val),
+            Some(k) => self.emit_dynobj_set_key(slot, Operand::Value(k), tag, val, fresh),
+            None => self.emit_dynobj_set(slot, fname, tag, val, fresh),
         }
     }
 
@@ -63,6 +101,7 @@ impl LowerCtx<'_> {
         slot: ValueId,
         key_eid: ExprId,
         fval_eid: ExprId,
+        fresh: bool,
     ) {
         // §7.1.19 step 2 — ToPropertyKey has two faces, and a Symbol
         // takes the one that does not coerce.
@@ -70,7 +109,7 @@ impl LowerCtx<'_> {
             self.expr_types.get(&key_eid),
             Some(crate::check::Type::Symbol)
         ) {
-            return self.emit_dynobj_computed_symbol_field(slot, key_eid, fval_eid);
+            return self.emit_dynobj_computed_symbol_field(slot, key_eid, fval_eid, fresh);
         }
         let k_raw = self.lower_expr(key_eid);
         let k_ty = self.operand_ty(&k_raw);
@@ -87,7 +126,7 @@ impl LowerCtx<'_> {
         );
         self.release_owned_temp(key_eid, &k_raw);
         self.emit_throw_check(None);
-        self.emit_dynobj_field_value(slot, "", fval_eid, Some(key_str));
+        self.emit_dynobj_field_value(slot, "", fval_eid, Some(key_str), fresh);
         self.emit_drop_value(Operand::Value(key_str), Type::Str);
     }
 
@@ -104,6 +143,7 @@ impl LowerCtx<'_> {
         slot: ValueId,
         key_eid: ExprId,
         fval_eid: ExprId,
+        fresh: bool,
     ) {
         let k_raw = self.lower_expr(key_eid);
         let k_ty = self.operand_ty(&k_raw);
@@ -112,7 +152,7 @@ impl LowerCtx<'_> {
         let Operand::Value(key_v) = k_raw else {
             panic!("ssa-lower: computed symbol key lowered to a non-value operand");
         };
-        self.emit_dynobj_field_value(slot, "", fval_eid, Some(key_v));
+        self.emit_dynobj_field_value(slot, "", fval_eid, Some(key_v), fresh);
         if key_transfers {
             self.emit_drop_value(key_keep, k_ty);
         }

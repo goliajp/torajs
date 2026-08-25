@@ -384,6 +384,9 @@ pub(crate) struct Intrinsics {
     pub(crate) dynobj_get_tag: FuncId,
     pub(crate) dynobj_get_value: FuncId,
     pub(crate) dynobj_set: FuncId,
+    /// RFC 20260825-inject-narrow-define 刀 3 — the accessor-free
+    /// object-literal init set (fresh-receiver narrow kernel).
+    pub(crate) dynobj_set_fresh: FuncId,
     pub(crate) dynobj_define: FuncId,
     pub(crate) dynobj_define_from_desc: FuncId,
     pub(crate) dynobj_define_from_desc_soft: FuncId,

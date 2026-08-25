@@ -1901,6 +1901,7 @@ mod tests {
         __torajs_dynobj_get_tag,
         __torajs_dynobj_get_value,
         __torajs_dynobj_set,
+        __torajs_dynobj_set_fresh,
         __torajs_dynobj_set_soft,
         __torajs_error_proto_to_string,
         __torajs_error_to_string,

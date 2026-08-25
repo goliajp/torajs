@@ -51,7 +51,7 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
 
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
 
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     /// May reallocate — always continue with the returned pointer.
@@ -317,7 +317,7 @@ unsafe fn parse_object(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValu
             );
             // Duplicate keys: last one wins (§25.5.1 — the entry
             // overwrite drops the earlier value inside dynobj_set).
-            __torajs_dynobj_set(&mut obj, key.cast(), t as u64, p as u64);
+            __torajs_dynobj_set_fresh(&mut obj, key.cast(), t as u64, p as u64);
             __torajs_str_drop(key.cast());
             let data = str_units(str_ptr);
             skip_ws(&data, pos);

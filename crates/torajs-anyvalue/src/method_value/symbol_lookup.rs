@@ -138,7 +138,7 @@ unsafe extern "C" {
     /// plus the null-[[Prototype]] mark that clause requires.
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     /// torajs-str — mint / release a Str cell for one of those keys
     /// (the entry takes its own share on insert).
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
@@ -238,7 +238,7 @@ unsafe fn install_unscopables(proto: *mut c_void) {
         // Tag 1 = AnySlotTag::Bool, value 1 = `true`. The entry takes
         // its own share of the key, so the mint's stake is ours to
         // give back.
-        unsafe { __torajs_dynobj_set(&mut slot, k as *mut c_void, 1, 1) };
+        unsafe { __torajs_dynobj_set_fresh(&mut slot, k as *mut c_void, 1, 1) };
         unsafe { __torajs_str_drop(k as *mut c_void) };
     }
     // The define consumes the fresh object's only stake, and the key

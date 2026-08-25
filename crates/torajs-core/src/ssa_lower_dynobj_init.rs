@@ -23,31 +23,6 @@ use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
-    /// Emit the shared `dynobj_set` shape: intern the field name and
-    /// call `__torajs_dynobj_set(slot, key, tag, val)`. Every field
-    /// path (undefined, nested object, plain box, Any/Str runtime tag)
-    /// ends here — chunk 819 consolidated the 5 repeated call sites.
-    ///
-    /// `slot` is the
-    /// single relocation slot `lower_dynobj_init` owns — the kernel's
-    /// resize (fresh block + FREE of the old one, CPython dictresize
-    /// shape) writes the live pointer back through it, so every
-    /// subsequent set and the literal's result see the relocated
-    /// block. A per-set throwaway slot here made every field from
-    /// the 8th on (entries_cap_for(DYNOBJ_INITIAL_CAP) = 7) land in
-    /// a freed orphan while the result kept the dangling pre-resize
-    /// pointer (rotation 174 chunk 3, probe /tmp/p8b-21.ts).
-    pub(crate) fn emit_dynobj_set(
-        &mut self,
-        slot: ValueId,
-        fname: &str,
-        tag: Operand,
-        val: Operand,
-    ) {
-        let key_str = self.intern_string_literal(fname);
-        self.emit_dynobj_set_key(slot, Operand::Value(key_str), tag, val);
-    }
-
     /// The live dynobj pointer — a fresh Load off the shared init
     /// slot (never cache a pre-set pointer across a set: resize
     /// frees the old block).
@@ -134,6 +109,7 @@ impl<'a> LowerCtx<'a> {
         fname: &str,
         fval_eid: ExprId,
         runtime_key: Option<ValueId>,
+        fresh: bool,
     ) {
         let v_raw = self.lower_expr(fval_eid);
         // Chunk 570 — SHARE: the bucket takes its own +1 (the
@@ -199,6 +175,7 @@ impl<'a> LowerCtx<'a> {
                     runtime_key,
                     Operand::Value(tag_v),
                     Operand::Value(val_v),
+                    fresh,
                 );
                 if transfers {
                     self.emit_drop_value(v_keep, Type::Any);
@@ -229,6 +206,7 @@ impl<'a> LowerCtx<'a> {
                     runtime_key,
                     Operand::Value(tag_v),
                     Operand::Value(val_v),
+                    fresh,
                 );
                 if transfers {
                     self.emit_drop_value(v_keep, Type::Str);
@@ -250,7 +228,7 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
             _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
         };
-        self.emit_dynobj_set_for(slot, fname, runtime_key, Operand::ConstI64(tag), val_op);
+        self.emit_dynobj_set_for(slot, fname, runtime_key, Operand::ConstI64(tag), val_op, fresh);
         if transfers && v_ty.is_refcounted() {
             self.emit_drop_value(v_keep, v_ty);
         }
@@ -269,6 +247,7 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr,
             None,
         );
+        let fresh = self.objlit_accessor_free(&fields);
         let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
         self.f.append_void(
             self.cur_block,
@@ -304,7 +283,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     continue;
                 }
-                self.emit_dynobj_computed_field(slot, key_eid, fval_eid);
+                self.emit_dynobj_computed_field(slot, key_eid, fval_eid, fresh);
                 continue;
             }
             // §13.2.5.5 — the literal `__proto__: v` member sets
@@ -400,7 +379,7 @@ impl<'a> LowerCtx<'a> {
             if matches!(self.ast.get_expr(fval_eid), Expr::Ident(n) if n == "undefined")
                 && !self.locals.contains_key("undefined")
             {
-                self.emit_dynobj_set(slot, &fname, Operand::ConstI64(5), Operand::ConstI64(0));
+                self.emit_dynobj_set(slot, &fname, Operand::ConstI64(5), Operand::ConstI64(0), fresh);
                 continue;
             }
             // `as` casts are value-layer pass-throughs — strip them so
@@ -412,10 +391,10 @@ impl<'a> LowerCtx<'a> {
             if fname != "__spread__" && matches!(self.ast.get_expr(lit_eid), Expr::ObjectLit { .. })
             {
                 let nested = self.lower_dynobj_init(lit_eid);
-                self.emit_dynobj_set(slot, &fname, Operand::ConstI64(4), nested);
+                self.emit_dynobj_set(slot, &fname, Operand::ConstI64(4), nested, fresh);
                 continue;
             }
-            self.emit_dynobj_field_value(slot, &fname, fval_eid, None);
+            self.emit_dynobj_field_value(slot, &fname, fval_eid, None, fresh);
         }
         // The live pointer — a set may have relocated the block.
         let out = self.load_dynobj(slot);

@@ -288,7 +288,9 @@ pub unsafe extern "C" fn __torajs_genfn_chain(proto_anyv: u64, kind: i64) -> u64
     let gen_proto_anyv = unsafe { cell(kind, 2) };
     let mut slot = obj;
     let k = unsafe { alloc_str_key(PROTO_SLOT_KEY) };
-    unsafe { __torajs_dynobj_define_plain(&mut slot, k, ANY_HEAP, gen_proto_anyv, PROTO_SLOT_ATTRS) };
+    unsafe {
+        __torajs_dynobj_define_plain(&mut slot, k, ANY_HEAP, gen_proto_anyv, PROTO_SLOT_ATTRS)
+    };
     unsafe { __torajs_str_drop(k) };
     0
 }

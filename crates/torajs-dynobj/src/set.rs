@@ -247,6 +247,70 @@ unsafe fn dynobj_set_impl(
     }
 }
 
+/// Object-literal-init set — the narrow kernel the lowering emits
+/// for a literal with no accessor members (RFC
+/// 20260825-inject-narrow-define 刀 3). The receiver is the fresh
+/// dynobj the literal just allocated, so every slow arm of
+/// [`dynobj_set_impl`] is compile-time unreachable: it cannot be a
+/// builtin `<Ctor>.prototype` singleton (no note, no synthetic-own
+/// attrs), cannot be non-extensible or frozen, and — because the
+/// lowering only selects this kernel when the literal has no
+/// getter/setter members — no probed entry can hold an
+/// AccessorPair. A duplicate data key (`{a: 1, a: 2}`) is the one
+/// found-path this keeps: drop the old value, keep the flags.
+///
+/// Those arms are exactly what link-rooted the accessor-invoke and
+/// dispatch worlds from every program with an object literal.
+///
+/// # Safety
+/// `obj_slot` points at the literal's live init slot (fresh
+/// `TAG_DYNOBJ`, never NULL); `key` is a live Str cell; on
+/// `tag == ANY_HEAP` the entry takes the caller's transferred
+/// reference to `value`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_fresh(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) {
+    unsafe {
+        let obj = *obj_slot;
+        debug_assert_eq!(
+            (obj.cast::<u8>().add(4) as *const u16).read(),
+            crate::layout::TAG_DYNOBJ,
+            "set_fresh contract: receiver is the literal's fresh dynobj"
+        );
+        if entries_len(obj) == entries_cap(obj) {
+            resize(obj);
+        }
+        let pr = probe(obj, key as *const c_void);
+        let ent = entries(obj);
+        if pr.found {
+            // Duplicate literal key — last write wins (§13.2.5.5
+            // evaluation order); flags stay the data defaults the
+            // first write stamped.
+            let e = ent.add(pr.entry as usize);
+            let cur = (*e).value_anyv;
+            if __torajs_anyv_unbox_tag(cur) as u64 == ANY_HEAP {
+                __torajs_value_drop_heap(cur as *mut c_void);
+            }
+            (*e).value_anyv =
+                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
+            return;
+        }
+        let e_idx = entries_len(obj);
+        __torajs_rc_inc(key);
+        *ent.add(e_idx as usize) = Entry {
+            key_ptr_tagged: bucket_make_key_tagged(key, BUCKET_FLAGS_DEFAULT),
+            value_anyv: __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64),
+        };
+        *index_ptr(obj).add(pr.slot as usize) = e_idx;
+        set_entries_len(obj, e_idx + 1);
+        set_count(obj, count(obj) + 1);
+    }
+}
+
 /// Raw attribute-flags upsert — RFC 20260712-arr-exotic-define
 /// chunk B. The Array DefineOwnProperty kernel (torajs-arr) stores
 /// per-index attribute flags as shadow entries in the array's expando

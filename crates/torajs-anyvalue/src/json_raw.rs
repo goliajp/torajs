@@ -43,7 +43,7 @@ unsafe extern "C" {
 
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     fn __torajs_dynobj_freeze_entries(obj: *mut c_void);
 }
 
@@ -80,7 +80,7 @@ pub unsafe extern "C" fn __torajs_json_raw_json(v: AnyValue) -> AnyValue {
         let mut obj = __torajs_dynobj_alloc();
         __torajs_dynobj_mark_null_proto(obj);
         let key = __torajs_str_alloc(c"rawJSON".as_ptr() as *const u8, 7);
-        __torajs_dynobj_set(&mut obj, key as *mut c_void, ANY_HEAP, s as u64);
+        __torajs_dynobj_set_fresh(&mut obj, key as *mut c_void, ANY_HEAP, s as u64);
         __torajs_dynobj_freeze_entries(obj);
         let flags = obj.cast::<u8>().add(6) as *mut u16;
         *flags |= FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE | FLAG_DYNOBJ_RAW_JSON;

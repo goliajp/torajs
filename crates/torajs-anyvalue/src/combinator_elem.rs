@@ -73,7 +73,7 @@ pub(crate) enum ElemKind {
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     /// torajs-throw — the injected `__new_AggregateError` factory, or
     /// NULL when the program has no such class.
     fn __torajs_make_aggregate_error(errors: i64) -> *mut c_void;
@@ -263,14 +263,14 @@ unsafe fn settled_record(status: &[u8], value_key: &[u8], x: u64) -> u64 {
         // The entry takes ownership of the VALUE; only the key is
         // copied, so only the key is dropped here (the capability
         // executor's own `name` seed reads the same way).
-        __torajs_dynobj_set(slot, status_key.cast(), ANY_HEAP, status_val as u64);
+        __torajs_dynobj_set_fresh(slot, status_key.cast(), ANY_HEAP, status_val as u64);
         __torajs_str_drop(status_key.cast());
         let vkey = __torajs_str_alloc(value_key.as_ptr(), value_key.len() as i64);
         let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(x);
         let value = crate::nanbox_encode::__torajs_anyv_unbox_value(x);
         // The entry takes ownership of a heap payload.
         crate::nanbox_ffi::__torajs_anyv_rc_inc(x);
-        __torajs_dynobj_set(slot, vkey.cast(), tag as u64, value as u64);
+        __torajs_dynobj_set_fresh(slot, vkey.cast(), tag as u64, value as u64);
         __torajs_str_drop(vkey.cast());
         crate::nanbox_encode::__torajs_anyv_box_pointer(obj)
     }
