@@ -5,7 +5,7 @@
 //!
 //! All three resolve a class tag to its `__class_<C>` dynobj through
 //! the parent's `CLASSES_BY_TAG_IMM` slot, mint the reified cell the
-//! prototype entries already use, and hand it to `__torajs_dynobj_define`
+//! prototype entries already use, and hand it to `__torajs_dynobj_define_plain` (the assembly-path narrow kernel — every receiver here is a gated plain dynobj, RFC 20260825-inject-narrow-define 刀 1)
 //! with the §10.2.10 attribute set for that entry kind.
 
 use core::ffi::c_void;
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
         // compare has nothing to compare against).
         let cell = __torajs_class_method_cell_new(adapter, this_free, 0, twin);
         let mut slot = class_anyv as *mut c_void;
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             name_str,
             ANY_HEAP as u64,
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn __torajs_class_static_field_define(
     }
     unsafe {
         let mut slot = class_anyv as *mut c_void;
-        __torajs_dynobj_define(&mut slot, name_str, vtag, vvalue, DEFINE_FIELD_FLAGS);
+        __torajs_dynobj_define_plain(&mut slot, name_str, vtag, vvalue, DEFINE_FIELD_FLAGS);
         CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
         let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
         let flags = DEFINE_ACCESSOR_FLAGS;
         let mut slot = proto_anyv as *mut c_void;
-        __torajs_dynobj_define(&mut slot, name_str, ANY_HEAP as u64, pair as u64, flags);
+        __torajs_dynobj_define_plain(&mut slot, name_str, ANY_HEAP as u64, pair as u64, flags);
         PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
@@ -173,7 +173,7 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
 /// RFC 20260802-class-computed-member 刀 2 — one METHOD own entry
 /// under a RUNTIME property key. `key` is the ToPropertyKey product
 /// ssa_lower's `lower_key` resolved (a Str cell, or a Symbol cell
-/// passed through per §7.1.19 step 2 — `__torajs_dynobj_define`'s
+/// passed through per §7.1.19 step 2 — the define kernel's
 /// key slot is polymorphic over both). The minted cell is the same
 /// reified-method shape the prototype entries use; §10.2.10 method
 /// attribute set. `is_static != 0` lands the entry on the class
@@ -221,7 +221,7 @@ pub unsafe extern "C" fn __torajs_class_computed_method_define(
         // class-tag context; the blade-3 guard stays disarmed.
         let cell = __torajs_class_method_cell_new(adapter, this_free, 0, 0);
         let mut slot = target_anyv as *mut c_void;
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             key,
             ANY_HEAP as u64,
@@ -305,7 +305,7 @@ pub unsafe extern "C" fn __torajs_class_computed_accessor_define(
             flags |= 1 << 8;
         }
         let mut slot = target_anyv as *mut c_void;
-        __torajs_dynobj_define(&mut slot, key, ANY_HEAP as u64, pair as u64, flags);
+        __torajs_dynobj_define_plain(&mut slot, key, ANY_HEAP as u64, pair as u64, flags);
         if is_static != 0 {
             CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
         } else {
@@ -354,7 +354,7 @@ pub unsafe extern "C" fn __torajs_class_static_accessor_define(
         let set_cell = mint_face(set_adapter, b"set ", 1);
         let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
         let mut slot = class_anyv as *mut c_void;
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             name_str,
             ANY_HEAP as u64,

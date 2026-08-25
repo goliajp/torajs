@@ -27,6 +27,10 @@ use crate::probe::{
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    /// torajs-rc — builtin-prototype-singleton own-write note (same
+    /// hook the front door's dynobj tail records; see
+    /// [`__torajs_dynobj_define_plain`]).
+    fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
 }
 
 /// Lazily materialize a function's virtual own `length` / `name`
@@ -153,4 +157,70 @@ pub(crate) unsafe fn define_fresh_entry(
         set_count(obj, count(obj) + 1);
     }
     1
+}
+
+/// Assembly-path define — the narrow kernel the INSTALL world calls
+/// (RFC 20260825-inject-narrow-define 刀 1). The general
+/// `__torajs_dynobj_define` front door dispatches on receiver shape
+/// (Proxy / Array / wrapper / closure / promise / buffer / struct)
+/// before reaching the dynobj entry table, and each of those arms
+/// statically roots a whole runtime universe the reachability
+/// closure cannot sever — an empty program paid for the proxy,
+/// accessor-invoke and to_primitive worlds because the builtin-class
+/// injection sequence installed its methods through the front door.
+/// The injection mint sites know every arm's premise is false at
+/// compile time: the receiver is a plain dynobj they just minted (or
+/// the class/proto singleton the register sequence filled), so this
+/// kernel goes straight to the entry table.
+///
+/// Caller contract (NOT validated beyond the debug assert): the
+/// receiver is a live `TAG_DYNOBJ` cell; `key` is a live Str cell;
+/// `(tag, value)` is an entry payload under the same flags contract
+/// as the front door (an accessor-pair CELL as `value` is fine —
+/// it is entry data here, never invoked). Throwing flavor.
+///
+/// # Safety
+/// Same as `__torajs_dynobj_define`, plus the receiver-shape
+/// contract above.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_define_plain(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+) {
+    unsafe {
+        let obj = *obj_slot;
+        if obj.is_null() {
+            return;
+        }
+        debug_assert_eq!(
+            (obj.cast::<u8>().add(4) as *const u16).read(),
+            crate::layout::TAG_DYNOBJ,
+            "define_plain contract: receiver must be a plain dynobj"
+        );
+        // Same monkey-patch note the front door records — a define
+        // landing on a builtin `<Ctor>.prototype` singleton flips
+        // the fast-arm pre-gate bit (no-op for every other dynobj).
+        if let Some((data, len)) = key_str_bytes(key) {
+            __torajs_builtin_proto_note_own_write(obj, data, len as i64);
+        }
+        if entries_len(obj) == crate::probe::entries_cap(obj) {
+            crate::resize::resize(obj);
+        }
+        let pr = probe(obj, key as *const c_void);
+        if pr.found {
+            let ent = entries(obj);
+            crate::define_redefine::redefine_entry(
+                ent.add(pr.entry as usize),
+                tag,
+                value,
+                flags_byte,
+                true,
+            );
+        } else {
+            define_fresh_entry(obj, key, pr.slot, tag, value, flags_byte, true);
+        }
+    }
 }

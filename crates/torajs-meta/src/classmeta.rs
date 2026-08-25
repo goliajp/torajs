@@ -44,7 +44,7 @@ unsafe extern "C" {
     /// torajs-anyvalue — the interned builtin-ctor cell for a
     /// builtin-proto tag, as a cell AnyValue (immortal singleton).
     fn __torajs_builtin_ctor_value(proto_tag: i64) -> u64;
-    fn __torajs_dynobj_define(
+    fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *const u8,
         tag: u64,
@@ -86,7 +86,7 @@ pub(crate) const MAX_CLASSES: usize = 256;
 /// `torajs-rc::builtin_proto`'s tag table; same value genfn.rs uses).
 const FUNCTION_PROTO_TAG: i64 = 13;
 
-/// `flags_byte` for `__torajs_dynobj_define` encoding the §10.2.3
+/// `flags_byte` for `__torajs_dynobj_define_plain` encoding the §10.2.3
 /// MakeConstructor "constructor" descriptor `{[[Value]], writable:
 /// true, enumerable: false, configurable: true}` — DEFINE_PRESENT_
 /// {VALUE, WRITABLE, ENUMERABLE, CONFIGURABLE} + DEFINE_FLAG_
@@ -283,7 +283,7 @@ unsafe fn wire_first_class_links(
             let key = alloc_str_key(b"constructor");
             __torajs_rc_inc(class_cell);
             let mut slot = proto as *mut c_void;
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut slot,
                 key,
                 ANY_HEAP as u64,
@@ -332,7 +332,7 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
         let mut slot = proto as *mut c_void;
         let name_key = alloc_str_key(b"name");
         __torajs_rc_inc(name as *mut c_void);
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             name_key,
             ANY_HEAP as u64,
@@ -342,7 +342,7 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
         __torajs_str_drop(name_key);
         let msg_key = alloc_str_key(b"message");
         let empty = alloc_str_key(b"");
-        __torajs_dynobj_define(
+        __torajs_dynobj_define_plain(
             &mut slot,
             msg_key,
             ANY_HEAP as u64,
@@ -364,7 +364,7 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
         if str_is(name, b"Error") {
             let cell = __torajs_builtin_method_cell(ANY_METHOD_ERROR_TO_STRING_MID);
             let ts_key = alloc_str_key(b"toString");
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut slot,
                 ts_key,
                 ANY_HEAP as u64,

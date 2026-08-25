@@ -81,7 +81,7 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             let key = alloc_str_key(name);
             // The minted cell is FLAG_STATIC_LITERAL (rc no-op) — the
             // define's transferred stake is the entry's sole handle.
-            __torajs_dynobj_define(
+            __torajs_dynobj_define_plain(
                 &mut slot,
                 key,
                 ANY_HEAP as u64,

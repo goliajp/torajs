@@ -152,6 +152,20 @@ pub unsafe extern "C" fn __torajs_accessor_pair_new(
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_define_plain(
+    _dst: *mut *mut core::ffi::c_void,
+    _key: *const u8,
+    _tag: u64,
+    _value: u64,
+    _flags_byte: u64,
+) {
+    panic!(
+        "torajs-meta test stub: __torajs_dynobj_define_plain should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_define(
     _dst: *mut *mut core::ffi::c_void,
     _key: *const u8,
