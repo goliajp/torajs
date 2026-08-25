@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T08:34:32.441Z",
+  "generatedAt": "2026-08-25T12:08:54.431Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-25T08:25:01Z",
-    "headSha": "514bac2f1",
-    "elapsedSec": 368.45,
+    "ranAt": "2026-08-25T11:58:13Z",
+    "headSha": "18759996c",
+    "elapsedSec": 378,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29728,
+    "pass": 29727,
     "passNoOracle": 924,
     "passNegative": 4147,
-    "passTotal": 34799,
+    "passTotal": 34798,
     "bug": 12742,
-    "incompatible": 5633,
+    "incompatible": 5634,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47541,
+    "trAccepted": 47540,
     "passRateInScope": 65.44,
     "passRateTrAccepted": 73.2
   },
   "torajs": {
-    "commit": "514bac2f1",
-    "commitSubject": "perf: post-phi dominator gvn (late_gvn pass)",
+    "commit": "18759996c",
+    "commitSubject": "fix: gate the iterator-result struct probe by heap tag; hold the injection gate open",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "18759996c",
+      "subject": "fix: gate the iterator-result struct probe by heap tag; hold the injection gate open"
+    },
+    {
+      "hash": "78b6924dc",
+      "subject": "fix: reachability gate sees nested try/throw; class desugar drops its stale zero-class bail"
+    },
+    {
+      "hash": "69e460a3c",
+      "subject": "perf: error-family injection rides the reachability gate (injection-reachability blades b+c)"
+    },
+    {
+      "hash": "a68c888be",
+      "subject": "fix: import-free closures with member data sections keep the data segment"
+    },
+    {
+      "hash": "89060db70",
+      "subject": "fix: bare-string throw fallback carries the class name (injection-reachability blade a)"
+    },
+    {
+      "hash": "0469e1a37",
+      "subject": "perf: prologue proto-chain wire rides a narrow kernel (inject-narrow-define blade 4a)"
+    },
+    {
+      "hash": "a1326203a",
+      "subject": "chore: rotation 495 close — mandelbrot five-knife attack (fcmp fuse / rewrite-engine landing + fmul2 / fconst hoist / orr mov-elimination / post-phi gvn), 44-cell losing cells cleared, bench-suite-pro rfc drafted, sweep byte-flat zero regression, dashboard"
+    },
+    {
       "hash": "514bac2f1",
       "subject": "perf: post-phi dominator gvn (late_gvn pass)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "e61fd80b5",
       "subject": "perf: fuse float compares into the condbr branch (fcmp + b.cond)"
-    },
-    {
-      "hash": "a7856a974",
-      "subject": "chore: rotation 494 close — anyvalue WHO census (dispatch-clique discovery, -85K ceiling priced), inject-narrow-define knives 1-3 shipped (define_plain / set_fresh / bound drop-fn brand), anyvalue live -10.5K, sweep byte-flat zero regression, dashboard"
-    },
-    {
-      "hash": "5db12601e",
-      "subject": "style: rustfmt the knife-3 extern declarations (mini-side fmt not pulled back before commit)"
-    },
-    {
-      "hash": "698442042",
-      "subject": "feat: the fresh-receiver narrow set kernel + object-literal and runtime-bag switch"
-    },
-    {
-      "hash": "1a038c839",
-      "subject": "feat: switch the install/mint define sites to the narrow kernel"
-    },
-    {
-      "hash": "07c9ee3e6",
-      "subject": "feat: the assembly-path narrow define kernel + classmeta family switch"
-    },
-    {
-      "hash": "181a8fa9d",
-      "subject": "refactor: discriminate bound cells by the drop-fn brand, not the boxed entry address"
-    },
-    {
-      "hash": "1c60c7113",
-      "subject": "feat: env-gated live-atom dump for the dead-strip diag — the per-symbol census view"
     }
   ],
-  "headSha": "514bac2f1",
+  "headSha": "18759996c",
   "autorun": {
-    "total": 798,
+    "total": 799,
     "baselineTarget": 10,
-    "bySelf": 793,
+    "bySelf": 794,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787639065-42b1",
-      "at": "2026-08-25T06:24:25Z",
-      "ts": 1787639065,
+      "rotationId": "r-1787646905-18c8",
+      "at": "2026-08-25T08:35:05Z",
+      "ts": 1787646905,
       "trigger": "self",
-      "prevHead": "a7856a974",
-      "handoffSha": "sha256:d93d7d8ed7223fb5f216e3d6a83a583a861a173cab235bcb728e8850308defed",
-      "handoffAgeSec": 16,
+      "prevHead": "a1326203a",
+      "handoffSha": "sha256:27432b5cc80f110bafaa9e309134a5b2042b7f724d55e8d25ce1a0b7dc5d3db5",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787646905-18c8",
+        "at": "2026-08-25T08:35:05Z",
+        "ts": 1787646905,
+        "trigger": "self",
+        "prevHead": "a1326203a",
+        "handoffSha": "sha256:27432b5cc80f110bafaa9e309134a5b2042b7f724d55e8d25ce1a0b7dc5d3db5",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787639065-42b1",
         "at": "2026-08-25T06:24:25Z",
@@ -876,17 +887,6 @@
         "prevHead": "5f2e5f74d",
         "handoffSha": "sha256:d6c0dd864ce6b32ee949936bff97ffd0d46e60b53e66b4978e0c9c02c03f9718",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787522446-35af",
-        "at": "2026-08-23T22:00:46Z",
-        "ts": 1787522446,
-        "trigger": "self",
-        "prevHead": "c142f93a2",
-        "handoffSha": "sha256:7ec585eda7d66ed21b67c8f259573db9afccb3e0f51ddf3eac42ee6707b1d4d8",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
