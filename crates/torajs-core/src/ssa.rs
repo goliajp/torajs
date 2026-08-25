@@ -48,7 +48,7 @@ pub use module_methods::{
     BakedRegexEntry, DataGlobal, FnNameEntry, Module, StringLiteral, VtableGlobal,
 };
 pub use type_def::Type;
-pub use visit::visit_value_operands;
+pub use visit::{rewrite_value_operands, visit_value_operands};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ValueId(pub u32);

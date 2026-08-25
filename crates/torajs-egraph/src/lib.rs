@@ -33,6 +33,7 @@ pub mod float_demote;
 pub mod frem_narrow;
 pub mod inliner;
 pub mod interval;
+pub mod late_gvn;
 pub mod loop_analysis;
 pub mod mem2reg;
 pub mod optimize;
@@ -206,6 +207,14 @@ pub fn transform_module(mut module: Module) -> Module {
     // rc_peephole (which treats Copy as rc-transparent).
     // `TORAJS_MEM2REG_PHI_OFF=1` skips (bisect gate).
     gated_pass("MEM2REG_PHI", &mut module, phi_promote::promote_phi_slots);
+    // Post-φ dominator GVN — the main egraph GVN ran before φ
+    // promotion (it must not see multi-def Copies), so loop-carried
+    // reads were opaque Loads to it and cross-block CSE of shapes
+    // like mandelbrot's duplicated `zr * zr` never fired. This pass
+    // re-runs a scoped GVN on the promoted form; entries touching
+    // φ-web multi-def values ride a restricted EBB-chain scope (see
+    // late_gvn.rs module doc). `TORAJS_LATE_GVN_OFF=1` skips.
+    gated_pass("LATE_GVN", &mut module, late_gvn::dedup_pure_ops);
     // frem truncation recovery (W3 C2, ann-width RFC §5.3) — narrows
     // the -0-insensitive float `%` shapes C1 minted (single-use frem
     // into an integral fcmp or an fptosi sink) back to srem, so the
