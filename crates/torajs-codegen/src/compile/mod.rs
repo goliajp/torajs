@@ -49,7 +49,7 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Type};
 
-use crate::enc::{fmov_d_to_d, ldr_d_imm12, ldr_x_imm12, mov_x_reg, str_d_imm12, str_x_imm12};
+use crate::enc::{ldr_d_imm12, ldr_x_imm12, mov_d_reg, mov_x_reg, str_d_imm12, str_x_imm12};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -377,7 +377,7 @@ fn emit_param_entry_moves(bytes: &mut Vec<u8>, alloc: &Assignment) {
     for &(src, dst) in &alloc.param_entry_moves {
         match (src, dst) {
             (Reg::Gpr(s), Reg::Gpr(d)) => write_u32(bytes, mov_x_reg(d, s)),
-            (Reg::Fpr(s), Reg::Fpr(d)) => write_u32(bytes, fmov_d_to_d(d, s)),
+            (Reg::Fpr(s), Reg::Fpr(d)) => write_u32(bytes, mov_d_reg(d, s)),
             (Reg::Gpr(s), Reg::SpillGpr(off)) => write_u32(bytes, str_x_imm12(s, Gpr::SP, off)),
             (Reg::Fpr(s), Reg::SpillFpr(off)) => write_u32(bytes, str_d_imm12(s, Gpr::SP, off)),
             other => unreachable!("param entry move with mismatched reg classes: {other:?}"),

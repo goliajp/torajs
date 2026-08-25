@@ -21,7 +21,7 @@ use torajs_core::ssa::{FuncId, Inst, Operand, SigId, Type};
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr, operand_is_f64};
 use super::{FP_SCRATCH_LHS, OP_SCRATCH_LHS, write_u32};
 use crate::enc::{
-    bl_imm26, blr_reg, fcvtzs_x_d, fmov_d_to_d, mov_x_reg, scvtf_d_x, str_d_imm12, str_x_imm12,
+    bl_imm26, blr_reg, fcvtzs_x_d, mov_d_reg, mov_x_reg, scvtf_d_x, str_d_imm12, str_x_imm12,
 };
 use crate::linear_scan_lanes::{ArgLane, classify_lanes};
 use crate::reg::{Fpr, Gpr, Reg};
@@ -176,7 +176,7 @@ fn pass_args(
                     let src =
                         materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
                     if src != *arg_reg {
-                        write_u32(bytes, fmov_d_to_d(*arg_reg, src));
+                        write_u32(bytes, mov_d_reg(*arg_reg, src));
                     }
                 } else {
                     // i64-shaped operand into an f64 param: SCVTF the int
@@ -225,7 +225,7 @@ fn route_call_ret(bytes: &mut Vec<u8>, alloc: &Assignment, result_vid: torajs_co
         Reg::Gpr(dst) => write_u32(bytes, mov_x_reg(dst, Gpr::X0)),
         Reg::SpillGpr(off) => write_u32(bytes, str_x_imm12(Gpr::X0, Gpr::SP, off)),
         Reg::Fpr(Fpr::V0) => {}
-        Reg::Fpr(dst) => write_u32(bytes, fmov_d_to_d(dst, Fpr::V0)),
+        Reg::Fpr(dst) => write_u32(bytes, mov_d_reg(dst, Fpr::V0)),
         Reg::SpillFpr(off) => write_u32(bytes, str_d_imm12(Fpr::V0, Gpr::SP, off)),
     }
 }

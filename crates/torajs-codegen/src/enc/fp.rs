@@ -35,10 +35,20 @@ pub fn fmov_x_from_d(rd: Gpr, rn: Fpr) -> u32 {
     0x9E66_0000 | (rn.idx() << 5) | rd.idx()
 }
 
-/// FMOV Dd, Dn — register-to-register f64 move (same FPR class).
-/// ARM ARM C6.2.118 (FMOV register, scalar). Base = 0x1E60_4000.
-pub fn fmov_d_to_d(rd: Fpr, rn: Fpr) -> u32 {
-    0x1E60_4000 | (rn.idx() << 5) | rd.idx()
+/// MOV Vd.8B, Vn.8B — register-to-register f64 move via
+/// `ORR Vd.8B, Vn.8B, Vn.8B` (ARM ARM C7.2.207 MOV vector alias),
+/// the FPR twin of `mov_x_reg`'s ORR-based integer move.
+///
+/// Deliberately NOT the scalar `FMOV Dd, Dn` (0x1E60_4000): Apple
+/// M-series move-elimination handles the ORR vector-mov alias at
+/// rename (zero latency, no execution port) but executes scalar FMOV
+/// on an FP pipe (~2 cycles). A loop-carried phi copy chain built
+/// from FMOVs puts those cycles on the critical path — mandelbrot's
+/// inner loop measured 50→43 ms from this encoding swap alone
+/// (perf-mandelbrot-decomposition.md knife A5). Semantics match the
+/// scalar form for every f64: low 64 bits copied, high 64 zeroed.
+pub fn mov_d_reg(rd: Fpr, rn: Fpr) -> u32 {
+    0x0EA0_1C00 | (rn.idx() << 16) | (rn.idx() << 5) | rd.idx()
 }
 
 /// FCMP Dn, Dm — set NZCV from `Dn vs Dm`. NaN sets the "unordered"
@@ -269,13 +279,13 @@ mod tests {
     fn fmov_d0_to_d0_is_base_word() {
         // Self-move = base encoding; same bit pattern as clang -O0
         // emits for `double f(double a){return a;}` when not elided.
-        assert_eq!(fmov_d_to_d(Fpr::V0, Fpr::V0), 0x1E60_4000);
+        assert_eq!(mov_d_reg(Fpr::V0, Fpr::V0), 0x0EA0_1C00);
     }
 
     #[test]
     fn fmov_d1_from_d2_matches_arm_arm() {
         // rn=2 → 2<<5=0x40, rd=1 → 1. Base | 0x40 | 1.
-        assert_eq!(fmov_d_to_d(Fpr::V1, Fpr::V2), 0x1E60_4041);
+        assert_eq!(mov_d_reg(Fpr::V1, Fpr::V2), 0x0EA2_1C41);
     }
 
     #[test]

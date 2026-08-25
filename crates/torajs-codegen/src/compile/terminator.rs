@@ -17,7 +17,7 @@ use torajs_core::ssa::{BlockId, Terminator};
 
 use super::operand::{self, materialize_operand_fpr, materialize_operand_gpr};
 use super::{OP_SCRATCH_LHS, brfuse, write_u32};
-use crate::enc::{b_imm26, brk_imm16, cbnz_x, cbz_x, fmov_d_to_d, mov_x_reg, ret};
+use crate::enc::{b_imm26, brk_imm16, cbnz_x, cbz_x, mov_d_reg, mov_x_reg, ret};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
 use crate::regalloc::Assignment;
@@ -96,7 +96,7 @@ pub(super) fn emit_terminator(
                 if operand::operand_is_f64(op, alloc) {
                     let src = materialize_operand_fpr(bytes, op, Fpr::V0, OP_SCRATCH_LHS, alloc);
                     if src != Fpr::V0 {
-                        write_u32(bytes, fmov_d_to_d(Fpr::V0, src));
+                        write_u32(bytes, mov_d_reg(Fpr::V0, src));
                     }
                 } else {
                     let src = materialize_operand_gpr(bytes, op, Gpr::X0, alloc);

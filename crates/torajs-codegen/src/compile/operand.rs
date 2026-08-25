@@ -157,14 +157,14 @@ pub fn emit_copy(
         FP_SCRATCH_LHS, FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
         write_def_spill_fpr, write_def_spill_gpr,
     };
-    use crate::enc::fmov_d_to_d;
+    use crate::enc::mov_d_reg;
     use crate::enc::mov_x_reg;
     let result_vid = inst.result.expect("Copy must have a result ValueId");
     if matches!(ty, torajs_core::ssa::Type::F64) {
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
         let src = materialize_operand_fpr(bytes, op, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
         if src != dst {
-            write_u32(bytes, fmov_d_to_d(dst, src));
+            write_u32(bytes, mov_d_reg(dst, src));
         }
         write_def_spill_fpr(bytes, spill_off, dst);
     } else {
@@ -231,7 +231,7 @@ mod tests {
             enc::movz_imm(Gpr::X9, 0, 0),
             enc::movk_imm(Gpr::X9, 0x3FF8, 3),
             enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
-            enc::fmov_d_to_d(Fpr::V0, Fpr::V16),
+            enc::mov_d_reg(Fpr::V0, Fpr::V16),
             enc::ret(Gpr::X30),
         ]
         .iter()

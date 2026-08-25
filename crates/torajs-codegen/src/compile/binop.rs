@@ -9,8 +9,8 @@ use super::{
 };
 use crate::enc::{
     add_imm, add_reg, add_reg_lsl, addv_b_v8b, and_reg, asr_imm, asrv_reg, bl_imm26, cnt_v8b,
-    eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, lsl_imm,
-    lslv_reg, lsr_imm, lsrv_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
+    eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_x_from_d, fmul_d, fsub_d, lsl_imm, lslv_reg,
+    lsr_imm, lsrv_reg, mov_d_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
 };
 use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
@@ -195,10 +195,10 @@ pub fn emit_binop(
             let d0 = aapcs64::FP_ARG_RET[0];
             let d1 = aapcs64::FP_ARG_RET[1];
             if lhs_reg != d0 {
-                write_u32(bytes, fmov_d_to_d(d0, lhs_reg));
+                write_u32(bytes, mov_d_reg(d0, lhs_reg));
             }
             if rhs_reg != d1 {
-                write_u32(bytes, fmov_d_to_d(d1, rhs_reg));
+                write_u32(bytes, mov_d_reg(d1, rhs_reg));
             }
 
             let bl_byte_offset = bytes.len() as u32;
@@ -211,7 +211,7 @@ pub fn emit_binop(
             write_u32(bytes, bl_imm26(0));
 
             if dst != d0 {
-                write_u32(bytes, fmov_d_to_d(dst, d0));
+                write_u32(bytes, mov_d_reg(dst, d0));
             }
             write_def_spill_fpr(bytes, spill_off, dst);
         }
@@ -469,8 +469,8 @@ mod tests {
             enc::movk_imm(Gpr::X10, 0x4008, 3),
             enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
             // arg setup: V16/V17 → D0/D1 (AAPCS64 §5.1.2 FP args).
-            enc::fmov_d_to_d(Fpr::V0, Fpr::V16),
-            enc::fmov_d_to_d(Fpr::V1, Fpr::V17),
+            enc::mov_d_reg(Fpr::V0, Fpr::V16),
+            enc::mov_d_reg(Fpr::V1, Fpr::V17),
             // BL _fmod (CallSite reloc patched by torajs-link).
             enc::bl_imm26(0),
             // dst is ret → V0/D0, no post-call FMOV.
