@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T23:12:46.143Z",
+  "generatedAt": "2026-08-25T04:28:04.259Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-24T23:03:40Z",
-    "headSha": "685e70587",
-    "elapsedSec": 378.73,
+    "ranAt": "2026-08-25T04:00:08Z",
+    "headSha": "066c9f84d",
+    "elapsedSec": 365.92,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.2
   },
   "torajs": {
-    "commit": "685e70587",
-    "commitSubject": "fix: close the coercion-surface misses the prologue keep had masked",
+    "commit": "eadae784d",
+    "commitSubject": "refactor: split the reach node-resolver family to its own file",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "eadae784d",
+      "subject": "refactor: split the reach node-resolver family to its own file"
+    },
+    {
+      "hash": "066c9f84d",
+      "subject": "feat: the ctor-date seam — Date-as-a-function strips with the date family"
+    },
+    {
+      "hash": "3fc158fc8",
+      "subject": "fix: two phantom roots in the dead-strip reach graph"
+    },
+    {
+      "hash": "609ff449e",
+      "subject": "feat: ns-static mint seam + the zero-import artifact shape"
+    },
+    {
+      "hash": "e4dbfd106",
+      "subject": "feat: per-static judgment table narrows the ns-static-cell fallback"
+    },
+    {
+      "hash": "2d5b352f5",
+      "subject": "chore: rotation 492 close — blade 2b proper shipped (auto stub judgment, empty program at the stub-all floor), mid-171 collision fixed, sweep +4 forward zero regression, dashboard"
+    },
+    {
       "hash": "685e70587",
       "subject": "fix: close the coercion-surface misses the prologue keep had masked"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "36a609aed",
       "subject": "fix: re-home iterator take mid off the getOrInsertComputed id"
-    },
-    {
-      "hash": "58c7a06ca",
-      "subject": "chore: dashboard data.json snapshot for rotation 491"
-    },
-    {
-      "hash": "6f8d5dfca",
-      "subject": "chore: rotation 491 close — s2-5 phase b blades 2a/2b-pre/2c shipped, all-stub priced at 842kb, sweep ingest (zero movement), dashboard"
-    },
-    {
-      "hash": "69df3b78e",
-      "subject": "feat: family printer kernels join the stub-all pricing set"
-    },
-    {
-      "hash": "113f01512",
-      "subject": "feat: minted-cell generic str lane rides the str arm seam"
-    },
-    {
-      "hash": "6553f9d14",
-      "subject": "feat: all-family dispatch stubs behind a pricing env gate"
-    },
-    {
-      "hash": "5aeec13ac",
-      "subject": "feat: per-family dispatch arms behind the link arm-seam family"
     }
   ],
-  "headSha": "685e70587",
+  "headSha": "eadae784d",
   "autorun": {
-    "total": 795,
+    "total": 796,
     "baselineTarget": 10,
-    "bySelf": 790,
+    "bySelf": 791,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787596899-68c1",
-      "at": "2026-08-24T18:41:39Z",
-      "ts": 1787596899,
+      "rotationId": "r-1787613186-76a9",
+      "at": "2026-08-24T23:13:06Z",
+      "ts": 1787613186,
       "trigger": "self",
-      "prevHead": "58c7a06ca",
-      "handoffSha": "sha256:215b0295dd7043833934c5919f379165c6cb5dff3c5ade72b05c2458d27edffa",
-      "handoffAgeSec": 47,
+      "prevHead": "2d5b352f5",
+      "handoffSha": "sha256:d070674fe2c7ad5a478e9f434b0fb96cd87bbf9a8005786b6f6c32aae8f26408",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787613186-76a9",
+        "at": "2026-08-24T23:13:06Z",
+        "ts": 1787613186,
+        "trigger": "self",
+        "prevHead": "2d5b352f5",
+        "handoffSha": "sha256:d070674fe2c7ad5a478e9f434b0fb96cd87bbf9a8005786b6f6c32aae8f26408",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787596899-68c1",
         "at": "2026-08-24T18:41:39Z",
@@ -876,17 +887,6 @@
         "prevHead": "6abe7e8d6",
         "handoffSha": "sha256:638fd50d837414c6029add5331afd021c1db45c0d188f7baf92252ea50fd64ff",
         "handoffAgeSec": 68,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787490139-02ad",
-        "at": "2026-08-23T13:02:19Z",
-        "ts": 1787490139,
-        "trigger": "self",
-        "prevHead": "f7207464d",
-        "handoffSha": "sha256:fd311c19f2e4ef18c1d6ad14095c941655e684568b9766669f5a46ebb1dd20dc",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }
