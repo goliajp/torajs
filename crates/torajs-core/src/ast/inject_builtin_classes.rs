@@ -278,8 +278,10 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
 ///   neutral).
 /// Injection-reachability gate override — `true` keeps every program
 /// on today's full injection (see the 刀 B comment at the use site).
-/// Flip to `false` only through the RFC's dependency-list closure.
-const GATE_HELD_OPEN: bool = true;
+/// Held open through rotation 496 while the RFC's dependency list
+/// (seven latent bugs the injected hierarchy had been masking, plus a
+/// gate-open sweep) was driven to zero; released in rotation 497.
+const GATE_HELD_OPEN: bool = false;
 
 pub fn inject_builtin_classes(ast: &mut Ast) {
     let user_has_error = ast
@@ -367,17 +369,18 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     .any(|n| referenced(n));
 
     // RFC 20260825-injection-reachability 刀 B — the runtime-thrown
-    // force-inject would apply only when the program can OBSERVE a
+    // force-inject applies only when the program can OBSERVE a
     // native raise's instance shape (`instance_shape_observable`,
-    // the `_reach` sibling). GATE HELD OPEN for now: the first
-    // gated build surfaced that "the injected hierarchy exists" is
-    // a LOAD-BEARING invariant far beyond the throw path — the
-    // zero-class desugar bail, the iter-result struct-probe's
-    // unprotected class-tag read (both fixed), a replace-callback
-    // crash and an inspect drift (both still standing) all leaned
-    // on it. The RFC re-opens the gate once its dependency list is
-    // driven to zero; until then every program keeps today's full
-    // injection and the reachability census stays a diagnostic.
+    // the `_reach` sibling). The first gated build surfaced that
+    // "the injected hierarchy exists" had been a LOAD-BEARING
+    // invariant far beyond the throw path: the zero-class desugar
+    // bail, the iter-result struct-probe's unprotected class-tag
+    // read, the struct-intern false match on a not-yet-finalized
+    // slot, and the escape-capture census walking past `As` all
+    // leaned on it (each fixed on its own merits — they were latent
+    // in every program the injection merely reshaped). The gate
+    // constant stays as the documented override should a further
+    // dependency surface.
     let observable = instance_shape_observable(ast) | GATE_HELD_OPEN;
 
     // Subclasses to inject: (referenced OR implied OR runtime-thrown)
