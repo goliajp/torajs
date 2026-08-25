@@ -147,9 +147,11 @@ impl<'a> Parser<'a> {
             return self.parse_return();
         }
         if matches!(self.peek(), Token::Throw) {
+            self.ast.has_try_or_throw = true;
             return self.parse_throw();
         }
         if matches!(self.peek(), Token::Try) {
+            self.ast.has_try_or_throw = true;
             return self.parse_try();
         }
         // Outside a generator the token is an identifier candidate

@@ -903,6 +903,14 @@ pub struct Ast {
     /// walk for every program; `with` is sloppy-goal-only and rare, so
     /// the flag buys the common case out of it entirely.
     pub has_with_stmt: bool,
+    /// RFC 20260825-injection-reachability — the parser met at least
+    /// one `try` or `throw` statement, at ANY nesting depth. The
+    /// injection reachability gate's catch-face door reads this flag:
+    /// `ast.stmts` holds only the top level (statement bodies are
+    /// inline Vecs, not arena ids), so an `.iter()` scan misses a
+    /// try/catch inside a function body — the parser is the one
+    /// place every statement passes through exactly once.
+    pub has_try_or_throw: bool,
     /// RFC 20260814 — the `Ident` occurrences `desugar_with` minted as
     /// the FALL-THROUGH arm of a guarded read (`has ? w.n : n`). That
     /// arm runs only when the object does not carry the name, and then

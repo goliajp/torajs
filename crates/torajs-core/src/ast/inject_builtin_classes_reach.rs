@@ -31,19 +31,20 @@
 //! named Error the program constructed itself).
 
 use super::ast_def::Ast;
-use crate::ast::{Expr, Stmt};
+use crate::ast::Expr;
 
 /// True when any of the observation doors is open — the caller
 /// keeps today's force-inject. False ⇔ a native raise in this
 /// program can only ever surface through the uncaught reporter,
 /// whose bare-string rendering 刀 A made instance-identical.
 pub(crate) fn instance_shape_observable(ast: &Ast) -> bool {
-    // Door 1 — catch face.
-    if ast
-        .stmts
-        .iter()
-        .any(|s| matches!(s, Stmt::Try { .. } | Stmt::Throw(_)))
-    {
+    // Door 1 — catch face. The parser-recorded flag, NOT an
+    // `ast.stmts` scan: that vec holds only the top level (statement
+    // bodies are inline, not arena-flat), so a scan misses a
+    // try/catch inside a function body — which is where almost every
+    // real one lives (the first gate build failed 181 conformance
+    // cases exactly this way).
+    if ast.has_try_or_throw {
         return true;
     }
     // Door 2 — rejection face. `await` itself leaves no AST node

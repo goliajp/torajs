@@ -58,10 +58,17 @@ pub fn desugar_classes(ast: &mut Ast) {
     // uninitialized slots when the user-visible call comes first
     // in source order.
 
+    // NO empty-index early return: for years every program carried at
+    // least the injected Error hierarchy, so a zero-class AST never
+    // reached this line and a `class_index.is_empty()` bail looked
+    // free. The pipeline has since grown sub-passes that rewrite
+    // NON-class code too (pass2 walks the whole expr arena; the
+    // fnexpr-this promotion downstream depends on those rewrites),
+    // and the first genuinely class-free programs (RFC
+    // 20260825-injection-reachability skip shape) lost them — every
+    // this-reading fn died with "bare `this` reached check.rs". Each
+    // sub-pass already no-ops its class-keyed half on an empty index.
     let mut class_index = snapshot_class_index(ast);
-    if class_index.is_empty() {
-        return;
-    }
     // M5.N — a builtin parent (`extends Object`) strips to base-class
     // shape before any pass keyed on `parent` runs (see the sibling's
     // module doc for the two seams it handles).
