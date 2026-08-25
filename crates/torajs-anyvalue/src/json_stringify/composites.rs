@@ -8,6 +8,11 @@ use core::ffi::c_void;
 
 use super::*;
 
+/// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF` mirror (the u32 class tag
+/// after the heap header of a `Tag::Obj` cell) — named so a class-tag
+/// read-point sweep finds this walk.
+const OBJ_CLASS_TAG_OFF: usize = 8;
+
 /// `{...}` — own enumerable entries in §10.1.11.1 order (the print
 /// walker's `iter_order` contract); a key whose value serializes to
 /// nothing is omitted entirely.
@@ -161,7 +166,7 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             return replacer::write_object_list(sb, box_void_ptr(ptr), depth, st);
         }
         __torajs_jsb_push_byte(sb, b'{');
-        let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
+        let class_tag = (ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read();
         let layout = __torajs_struct_layout_lookup(class_tag);
         let mut emitted = false;
         // §25.5.2 SerializeJSONObject walks EnumerableOwnProperties,

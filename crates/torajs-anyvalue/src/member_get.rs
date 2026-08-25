@@ -64,12 +64,6 @@ unsafe extern "C" {
     /// torajs-arr — expando probe through the props slot.
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
-    /// torajs-structmeta — read side over `__torajs_class_layouts`
-    /// (mirror of `method_call_dynobj`'s declares). The field/accessor
-    /// PROBE over a struct cell lives in `struct_probe.rs`; the method
-    /// existence test below is the only direct walk left here.
-    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
-    fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-regex — boxed-form lastIndex peek (BORROW; 0 = numeric

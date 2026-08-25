@@ -35,6 +35,11 @@ use crate::layout::{
     DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE, DEFINE_PRESENT_VALUE,
     DEFINE_PRESENT_WRITABLE,
 };
+
+/// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF` mirror — the u32 class
+/// tag right after the universal heap header of a `Tag::Obj` cell.
+/// Named so a sweep for class-tag read points finds this one.
+const OBJ_CLASS_TAG_OFF: usize = 8;
 use crate::probe::{bucket_flags, entries, key_str_bytes, probe};
 
 /// `torajs_rc::FLAG_NON_EXTENSIBLE` mirror — the universal heap
@@ -113,7 +118,7 @@ pub(crate) unsafe fn struct_declares(obj: *const c_void, key: *const c_void) -> 
         // A symbol key names no declared field by construction.
         return Declared::No;
     };
-    let class_tag = unsafe { (obj.cast::<u8>().add(8) as *const u32).read() };
+    let class_tag = unsafe { (obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {
         return Declared::No;

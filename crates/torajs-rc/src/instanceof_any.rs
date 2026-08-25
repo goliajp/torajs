@@ -170,8 +170,10 @@ pub unsafe extern "C" fn __torajs_instanceof_class_any_tag(v: i64, expected_tag:
         }
         return false;
     }
-    let class_tag = unsafe { *((ptr as *const u8).add(OBJ_CLASS_TAG_OFF) as *const i64) };
-    class_tag == expected_tag
+    // The slot is a u32 (every other read point agrees); reading 8
+    // bytes would fold the pad after it into the comparison.
+    let class_tag = unsafe { *((ptr as *const u8).add(OBJ_CLASS_TAG_OFF) as *const u32) };
+    i64::from(class_tag) == expected_tag
 }
 
 #[cfg(not(test))]
