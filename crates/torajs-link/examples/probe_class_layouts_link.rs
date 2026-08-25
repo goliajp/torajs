@@ -82,6 +82,7 @@ fn main() {
         codesign_ident: "tora".into(),
         dead_strip: false,
         strip_member_symbols: false,
+        elidable_calls: Vec::new(),
         archives: Vec::new(),
         strings: Vec::new(),
         data_globals: Vec::new(),

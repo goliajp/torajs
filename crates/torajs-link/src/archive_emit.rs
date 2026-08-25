@@ -48,33 +48,39 @@ fn is_allocator_shim_sym(name: &str) -> bool {
     SHIMS.iter().any(|s| name.ends_with(s))
 }
 
-/// Link an `archives`-populated `LinkConfig` into a complete
-/// ad-hoc-codesigned `MH_EXECUTE` byte stream. User-fn + member
-/// relocs both resolve against one effective sym table (caller
-/// externs + every member defined-external + dyld stub vaddrs).
-pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
-    // S2 dead-strip blade 2b (RFC 20260824-s2-dead-strip) — opt-in
-    // input-normalization pre-pass: rewrite the archives with dead
-    // __text atoms dropped, then link the stripped inputs through
-    // the unchanged pipeline below.
+/// S2 dead-strip blade 2b (RFC 20260824-s2-dead-strip) — opt-in
+/// input-normalization pre-pass: rewrite the archives with dead
+/// `__text` atoms dropped (and, r499, the user fns with elided drain
+/// sites patched), then link the rewritten inputs through the
+/// unchanged pipeline. `None` = link the caller's config as is.
+fn dead_strip_prepass(cfg: &LinkConfig) -> Result<Option<LinkConfig>, ArchiveLayoutError> {
     let enabled = match std::env::var_os("TORAJS_LINK_DEADSTRIP") {
         Some(v) if v == "0" => false,
         Some(_) => true,
         None => cfg.dead_strip,
     };
-    let stripped_cfg;
-    let cfg = if enabled
-        && let Some(archives) =
-            crate::dead_strip_repack::strip_archives(cfg).map_err(ArchiveLayoutError::DeadStrip)?
-    {
-        stripped_cfg = LinkConfig {
-            archives,
-            ..cfg.clone()
-        };
-        &stripped_cfg
-    } else {
-        cfg
-    };
+    if !enabled {
+        return Ok(None);
+    }
+    let out =
+        crate::dead_strip_repack::strip_archives(cfg).map_err(ArchiveLayoutError::DeadStrip)?;
+    if out.archives.is_none() && out.funcs.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(LinkConfig {
+        archives: out.archives.unwrap_or_else(|| cfg.archives.clone()),
+        funcs: out.funcs.unwrap_or_else(|| cfg.funcs.clone()),
+        ..cfg.clone()
+    }))
+}
+
+/// Link an `archives`-populated `LinkConfig` into a complete
+/// ad-hoc-codesigned `MH_EXECUTE` byte stream. User-fn + member
+/// relocs both resolve against one effective sym table (caller
+/// externs + every member defined-external + dyld stub vaddrs).
+pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
+    let stripped_cfg = dead_strip_prepass(cfg)?;
+    let cfg = stripped_cfg.as_ref().unwrap_or(cfg);
 
     // Merge once and share between layout and emit — each merge
     // re-parses every archive member's symtab (~23ms/case).
@@ -496,6 +502,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -545,6 +552,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -620,6 +628,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: vec![archive_a.into(), archive_b.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -690,6 +699,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -715,6 +725,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -826,6 +837,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -917,6 +929,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -961,6 +974,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: vec![archive.into()],
             strings: Vec::new(),
             data_globals: Vec::new(),

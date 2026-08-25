@@ -21,6 +21,8 @@ use torajs_obj::{
     S_16BYTE_LITERALS, S_CSTRING_LITERALS, S_REGULAR, SECTION_TYPE,
 };
 
+use torajs_codegen::CompiledFunction;
+
 use crate::archive::ArMember;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
@@ -28,12 +30,33 @@ use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
 use crate::dead_strip_rewrite::{scan_load_commands, strip_member_section};
 use crate::exec::LinkConfig;
 
-/// Run the dead-strip pre-pass over `cfg.archives`. Returns the
-/// replacement archive list, or `None` when nothing was stripped
-/// (the caller then links the originals untouched).
-pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<Option<Vec<Cow<'static, [u8]>>>, String> {
+/// What the pre-pass rewrote: each side is `None` when that input
+/// is unchanged (the caller then links the original).
+pub(crate) struct StripOutput {
+    pub(crate) archives: Option<Vec<Cow<'static, [u8]>>>,
+    /// r499 — user fns with elided drain sites patched
+    /// (`dead_strip_elide`); the archives above were stripped
+    /// against these.
+    pub(crate) funcs: Option<Vec<CompiledFunction>>,
+}
+
+/// Run the dead-strip pre-pass over `cfg.archives`: judge the
+/// conditional call sites first, then strip against the patched fns.
+pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<StripOutput, String> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(|e| format!("merge: {e:?}"))?;
     let extra = collect_extra_defined_syms(cfg);
+    let patched_funcs = crate::dead_strip_elide::judge_and_patch(cfg, &merged, &extra)?;
+    let patched_cfg;
+    let cfg = match &patched_funcs {
+        Some(funcs) => {
+            patched_cfg = LinkConfig {
+                funcs: funcs.clone(),
+                ..cfg.clone()
+            };
+            &patched_cfg
+        }
+        None => cfg,
+    };
     let required = compute_required_members(&cfg.funcs, &merged, &extra)
         .map_err(|e| format!("member closure: {e:?}"))?;
     // probes=None always: the CUT/CUT_IN what-ifs are diag-only
@@ -58,7 +81,10 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<Option<Vec<Cow<'static,
             out.push(Cow::Owned(write_archive(members, &replaced)));
         }
     }
-    Ok(any.then_some(out))
+    Ok(StripOutput {
+        archives: any.then_some(out),
+        funcs: patched_funcs,
+    })
 }
 
 /// Which sections the rewriter may subset (S2 blade 3): regular

@@ -66,6 +66,7 @@ pub mod data_const_layout;
 pub mod data_section_emit;
 pub mod data_section_layout;
 mod dead_strip_diag;
+mod dead_strip_elide;
 mod dead_strip_reach;
 mod dead_strip_reach_build;
 mod dead_strip_reach_resolve;

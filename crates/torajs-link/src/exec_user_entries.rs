@@ -6,6 +6,31 @@
 //! so every existing `crate::exec::User*Entry` call site keeps
 //! working.
 
+/// Two link-emitted user-string flavours (LLVM-era `ssa_inkwell::globals` ABI):
+/// `StaticStr` = full rodata Str header+payload, `RawBytes` = payload-only
+/// (runtime `__torajs_str_alloc` consumes it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserStringKind {
+    StaticStr,
+    RawBytes,
+}
+
+/// SD-4c-prereq+e0/e1/e2 — user-binary string literal payload. `sym`
+/// is the codegen ADRP+ADD target (`__torajs_str_lit_*` /
+/// `__torajs_str_dyn_*`); `kind` picks the emit ABI per
+/// [`UserStringKind`].
+#[derive(Debug, Clone)]
+pub struct UserStringEntry {
+    pub sym: String,
+    /// Latin-1: 1 B / code unit; UTF-16: 2 B / unit LE.
+    pub bytes: Vec<u8>,
+    /// Drives `STR_FLAG_IS_LATIN1` (ignored when `kind = RawBytes`).
+    pub is_latin1: bool,
+    /// ES `String.length` code unit count.
+    pub length: u32,
+    pub kind: UserStringKind,
+}
+
 /// SD-4c-prereq+e7 — one `[N x ptr]` vtable. `sym` is what codegen's
 /// `GlobalRef("__vtable_<C>")` ADRP+ADD targets; slots resolve at
 /// emit time (Some(name) → name's final vaddr; None → 0).

@@ -26,34 +26,11 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
-/// Two link-emitted user-string flavours (LLVM-era `ssa_inkwell::globals` ABI):
-/// `StaticStr` = full rodata Str header+payload, `RawBytes` = payload-only
-/// (runtime `__torajs_str_alloc` consumes it).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UserStringKind {
-    StaticStr,
-    RawBytes,
-}
-
-/// SD-4c-prereq+e0/e1/e2 — user-binary string literal payload. `sym`
-/// is the codegen ADRP+ADD target (`__torajs_str_lit_*` /
-/// `__torajs_str_dyn_*`); `kind` picks the emit ABI per
-/// [`UserStringKind`].
-#[derive(Debug, Clone)]
-pub struct UserStringEntry {
-    pub sym: String,
-    /// Latin-1: 1 B / code unit; UTF-16: 2 B / unit LE.
-    pub bytes: Vec<u8>,
-    /// Drives `STR_FLAG_IS_LATIN1` (ignored when `kind = RawBytes`).
-    pub is_latin1: bool,
-    /// ES `String.length` code unit count.
-    pub length: u32,
-    pub kind: UserStringKind,
-}
-
+pub use crate::dead_strip_elide::ElidableCall;
 pub use crate::exec_user_entries::{
     UserBakedRegexEntry, UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry,
-    UserFieldMetaEntry, UserFnNameEntry, UserMethodMetaEntry, UserVtableEntry,
+    UserFieldMetaEntry, UserFnNameEntry, UserMethodMetaEntry, UserStringEntry, UserStringKind,
+    UserVtableEntry,
 };
 
 /// Configuration for `link_to_exec` — caller supplies the per-fn
@@ -83,6 +60,11 @@ pub struct LinkConfig {
     /// a 273 KB empty program, r498). `tr build` default; `--no-strip`
     /// / `tr run` keep `false` so runtime frames still symbolicate.
     pub strip_member_symbols: bool,
+    /// r499 — `bl` sites in the user fns the dead-strip pre-pass may
+    /// replace with a fixed instruction when the guard member holds no
+    /// live text once the site's own edge is set aside (module doc in
+    /// `dead_strip_elide`). Empty = no site is conditional.
+    pub elidable_calls: Vec<ElidableCall>,
     /// Static-library `.a` archives in Apple `ld64` search order.
     /// S7-C1 only carries bytes; resolution + integration in C2..C5.
     /// Empty for self-contained binaries. `Cow` so the baked
@@ -538,6 +520,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -604,6 +587,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -631,6 +615,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -667,6 +652,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -703,6 +689,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
@@ -834,6 +821,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
+            elidable_calls: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
             data_globals: Vec::new(),
