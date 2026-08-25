@@ -59,6 +59,10 @@ pub struct OptimizeStats {
     /// form and aliased the result via `set_opt_value` (chunk 9a-2:
     /// AddZero, MulOne).
     pub identity_rewrites_fired: u32,
+    /// Number of rewrite rules that fired into a full replacement
+    /// kind (MulPow2ToShl, FMulTwoToAdd) recorded for elaboration to
+    /// emit in place of the source kind.
+    pub kind_rewrites_fired: u32,
     /// Number of pure instructions that LICM marked for hoisting out
     /// of a containing loop — `set_available_block(canon, idom(header))`
     /// overrode the source block's GVN entry. Elaboration consumes the
@@ -201,6 +205,13 @@ fn process_inst(
         }
         stats.identity_rewrites_fired += 1;
         return;
+    }
+    if rewritten_kind != canon_kind {
+        // A rule replaced the whole kind (not an Identity alias) —
+        // hand it to elaboration, which until this map existed never
+        // saw non-Identity rewrites (they only keyed the GVN table).
+        egraph.set_rewritten_kind(result, rewritten_kind.clone());
+        stats.kind_rewrites_fired += 1;
     }
     let key: GvnKey = (result_ty, rewritten_kind);
     if let Some(&existing) = egraph.gvn().get(&key) {

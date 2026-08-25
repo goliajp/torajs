@@ -90,6 +90,16 @@ pub struct Egraph {
     /// variant + cross-crate codegen cascade. Indexed by UF root —
     /// reads go through `find` first.
     value_to_const: HashMap<ValueId, Operand>,
+    /// Non-Identity rewrite-rule output for an instruction's result
+    /// (mandelbrot decomposition D4 engine gap): the optimize phase
+    /// computed a cheaper equivalent kind (MulPow2ToShl's Shl,
+    /// FMulTwoToAdd's FAdd) but until this map existed only the GVN
+    /// key saw it — elaboration re-emitted the original kind and the
+    /// strength reduction never reached the IR. Elaborate now prefers
+    /// this kind (re-canonicalising its operands at emission time).
+    /// Indexed by the defining inst's result ValueId, not the UF root
+    /// — it describes that one instruction's emission, not the class.
+    rewritten_kind: HashMap<ValueId, InstKind>,
 }
 
 impl Egraph {
@@ -106,7 +116,21 @@ impl Egraph {
             eclass_size: HashMap::new(),
             gvn_map: ScopedHashMap::new(),
             value_to_const: HashMap::new(),
+            rewritten_kind: HashMap::new(),
         }
+    }
+
+    /// Record the cheaper kind a non-Identity rewrite produced for
+    /// this instruction; elaboration emits it in place of the source
+    /// kind. See the `rewritten_kind` field doc.
+    pub fn set_rewritten_kind(&mut self, v: ValueId, kind: InstKind) {
+        self.rewritten_kind.insert(v, kind);
+    }
+
+    /// The rewrite-rule replacement kind for the inst defining `v`,
+    /// if a rule fired. By defining ValueId (not UF root).
+    pub fn rewritten_kind_of(&self, v: ValueId) -> Option<&InstKind> {
+        self.rewritten_kind.get(&v)
     }
 
     /// Number of distinct SSA ValueIds tracked. Equals

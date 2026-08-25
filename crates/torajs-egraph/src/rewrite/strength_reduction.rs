@@ -37,6 +37,42 @@ impl Rewrite for MulPow2ToShl {
 
 pub(crate) static MUL_POW2: MulPow2ToShl = MulPow2ToShl;
 
+/// `(fmul 2.0 x)` / `(fmul x 2.0)` → `(fadd x x)` — float doubling
+/// strength reduction (mandelbrot decomposition D4).
+///
+/// Exact for every f64 input: multiplication by 2.0 only bumps the
+/// exponent (no rounding, denormals included), and `x + x` computes
+/// the identical value — signed zeros ((-0)+(-0) = -0 = (-0)*2.0),
+/// infinities, and NaN (both sides yield NaN) all agree. Both operand
+/// orders match here because FAdd/FMul are excluded from
+/// `CommutativeCanon` (canon.rs keeps FP operand order), so a source
+/// `2 * zr` keeps its constant on the left.
+///
+/// The profit is not the multiply itself (fadd and fmul cost the
+/// same) but the 2.0 operand: codegen materializes an FP constant at
+/// every use (3-inst mov/movk/fmov + a GPR→FPR domain crossing —
+/// decomposition D1), and rewriting to `x + x` deletes the operand.
+pub struct FMulTwoToAdd;
+
+impl Rewrite for FMulTwoToAdd {
+    fn name(&self) -> &'static str {
+        "fmul_two_to_add"
+    }
+    fn try_apply(&self, lhs: &InstKind) -> Option<InstKind> {
+        match lhs {
+            InstKind::BinOp(BinOp::FMul, x, Operand::ConstF64(c))
+            | InstKind::BinOp(BinOp::FMul, Operand::ConstF64(c), x)
+                if *c == 2.0 =>
+            {
+                Some(InstKind::BinOp(BinOp::FAdd, *x, *x))
+            }
+            _ => None,
+        }
+    }
+}
+
+pub(crate) static FMUL_TWO: FMulTwoToAdd = FMulTwoToAdd;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,6 +80,30 @@ mod tests {
 
     fn val(n: u32) -> Operand {
         Operand::Value(ValueId(n))
+    }
+
+    #[test]
+    fn fmul_two_strength_reduces() {
+        // 2.0 * %v → %v + %v (constant on the left — no FP canon).
+        let lhs = InstKind::BinOp(BinOp::FMul, Operand::ConstF64(2.0), val(4));
+        assert_eq!(
+            FMulTwoToAdd.try_apply(&lhs),
+            Some(InstKind::BinOp(BinOp::FAdd, val(4), val(4)))
+        );
+        // %v * 2.0 → %v + %v (constant on the right).
+        let rhs_side = InstKind::BinOp(BinOp::FMul, val(4), Operand::ConstF64(2.0));
+        assert_eq!(
+            FMulTwoToAdd.try_apply(&rhs_side),
+            Some(InstKind::BinOp(BinOp::FAdd, val(4), val(4)))
+        );
+        // Other constants / negated doubling don't fire.
+        for c in [4.0, -2.0, 0.5, f64::NAN] {
+            let l = InstKind::BinOp(BinOp::FMul, val(4), Operand::ConstF64(c));
+            assert!(FMulTwoToAdd.try_apply(&l).is_none());
+        }
+        // Integer Mul doesn't match the float rule.
+        let int_mul = InstKind::BinOp(BinOp::Mul, val(4), Operand::ConstI64(2));
+        assert!(FMulTwoToAdd.try_apply(&int_mul).is_none());
     }
 
     #[test]

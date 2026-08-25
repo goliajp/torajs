@@ -44,14 +44,14 @@ pub use bitwise_identity::{AndAllOnes, AndZero, OrAllOnes, OrZero, XorZero};
 pub use canon::CommutativeCanon;
 pub use const_fold::BinOpConstFold;
 pub use self_fold::{SubSelf, XorSelf};
-pub use strength_reduction::MulPow2ToShl;
+pub use strength_reduction::{FMulTwoToAdd, MulPow2ToShl};
 
 use arith_identity::{ADD_ZERO, MUL_ONE, MUL_ZERO, SUB_NEGATE, SUB_ZERO};
 use bitwise_identity::{AND_ALL_ONES, AND_ZERO, OR_ALL_ONES, OR_ZERO, XOR_ZERO};
 use canon::COMMUTATIVE_CANON;
 use const_fold::BIN_OP_CONST_FOLD;
 use self_fold::{SUB_SELF, XOR_SELF};
-use strength_reduction::MUL_POW2;
+use strength_reduction::{FMUL_TWO, MUL_POW2};
 
 /// One directed simplification rule. `try_apply` returns `Some(rhs)`
 /// when the rule matches `lhs` and produces a strictly better (per
@@ -189,6 +189,7 @@ pub static BUILTIN_RULES: &[&'static dyn Rewrite] = &[
     &XOR_SELF,
     &BIN_OP_CONST_FOLD,
     &MUL_POW2,
+    &FMUL_TWO,
 ];
 
 #[cfg(test)]

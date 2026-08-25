@@ -161,7 +161,16 @@ pub fn elaborate(
                 let src = &func.blocks[bi];
                 let mut new_insts: Vec<Inst> = Vec::with_capacity(src.insts.len());
                 for inst in &src.insts {
-                    let new_kind = canonicalize_operands(&inst.kind, egraph);
+                    // A non-Identity rewrite rule replaced this
+                    // inst's kind during optimize (Shl for mul-pow2,
+                    // FAdd for fmul-by-2) — emit the cheaper form.
+                    // Operands re-canonicalise here because unions
+                    // may have grown since the rule fired.
+                    let base_kind = inst
+                        .result
+                        .and_then(|r| egraph.rewritten_kind_of(r).cloned())
+                        .unwrap_or_else(|| inst.kind.clone());
+                    let new_kind = canonicalize_operands(&base_kind, egraph);
 
                     // P-OPT Phase 1 — rewrite-rule `Identity(op)`
                     // placeholders are dropped here: alias the result
