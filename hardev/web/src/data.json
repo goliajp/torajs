@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T03:30:30.725Z",
+  "generatedAt": "2026-08-26T05:50:09.355Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-26T03:19:46Z",
-    "headSha": "3da78bcf7",
-    "elapsedSec": 365.71,
+    "ranAt": "2026-08-26T05:40:17Z",
+    "headSha": "492d4f0f5",
+    "elapsedSec": 366.79,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.24
   },
   "torajs": {
-    "commit": "3da78bcf7",
-    "commitSubject": "perf: scalar-array drop kernel with link-judged props / subclass legs — an array-only program links 84,537 -> 51,569",
+    "commit": "492d4f0f5",
+    "commitSubject": "perf: a populated fn-name / class-name / class-layout table with no live reader is not emitted — a closure-only program links 67,233 -> 50,697",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "492d4f0f5",
+      "subject": "perf: a populated fn-name / class-name / class-layout table with no live reader is not emitted — a closure-only program links 67,233 -> 50,697"
+    },
+    {
+      "hash": "f814537ae",
+      "subject": "perf: closure env-drop legs and the uncaught reporter's Error rendering behind link seams — a closure-only program links 83,545 -> 67,233"
+    },
+    {
+      "hash": "f06969ede",
+      "subject": "fix: collect the elidable adapter mints after the user-fn strip — a mint in a stripped fn has no reloc left to patch (gate 6fce92dc0 red on class / bind fns)"
+    },
+    {
+      "hash": "6fce92dc0",
+      "subject": "perf: link-judged closure adapter mints — a program that never invokes a closure through the any world links no __boxed_ adapter; p1 397,313 -> 83,545, s4 -> 83,729"
+    },
+    {
+      "hash": "58c24cc16",
+      "subject": "chore: rotation 500 close — S2-5 刀 4 Phase A (three typed->any roots) + link-judged exotic seams and scalar-array drop take join-only 348,649 -> 84,537 and array-only 84,537 -> 51,569, sweep identical / 0 regressions, dashboard"
+    },
+    {
       "hash": "3da78bcf7",
       "subject": "perf: scalar-array drop kernel with link-judged props / subclass legs — an array-only program links 84,537 -> 51,569"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "1f1e871ca",
       "subject": "perf: derive the forced table globals from the stripped archives — an empty __DATA_CONST no longer ships"
-    },
-    {
-      "hash": "3a2ae8fe1",
-      "subject": "perf: guarded stubs — shadow the rc-hit-zero weak-observer hook when no observer can exist"
-    },
-    {
-      "hash": "1ac1703bd",
-      "subject": "style: rustfmt drift in cmd_build_elide test (fmt ran on mini before the file was tracked)"
-    },
-    {
-      "hash": "c7a505f9f",
-      "subject": "perf: main's end-of-program drains on demand — link-judged conditional call sites"
-    },
-    {
-      "hash": "d8dd425c7",
-      "subject": "chore: rotation 498 close — artifact-mass census drives the S2 line (symtab strip by default, __text packed after the load commands, argv-init on demand, user-fn dead-strip with table-derived roots), empty program 273,665 -> 84,481, sweep +20 forward / 0 regressions, dashboard"
-    },
-    {
-      "hash": "2e25039c4",
-      "subject": "refactor: move the SSA-to-link builder family out of cmd_build.rs"
     }
   ],
-  "headSha": "3da78bcf7",
+  "headSha": "492d4f0f5",
   "autorun": {
-    "total": 803,
+    "total": 804,
     "baselineTarget": 10,
-    "bySelf": 798,
+    "bySelf": 799,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787683944-1a14",
-      "at": "2026-08-25T18:52:24Z",
-      "ts": 1787683944,
+      "rotationId": "r-1787715041-4564",
+      "at": "2026-08-26T03:30:41Z",
+      "ts": 1787715041,
       "trigger": "self",
-      "prevHead": "d801004a4",
-      "handoffSha": "sha256:69e830bf199abd14f5edb97dbd78cc2a61195acf82920498715ae0be4b7b3afc",
-      "handoffAgeSec": 31,
+      "prevHead": "58c24cc16",
+      "handoffSha": "sha256:2ce4ca95d795b5087e6cb3dae33f65ffc06704a02c2d210d2a0f4a4a1d0ed8fc",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787715041-4564",
+        "at": "2026-08-26T03:30:41Z",
+        "ts": 1787715041,
+        "trigger": "self",
+        "prevHead": "58c24cc16",
+        "handoffSha": "sha256:2ce4ca95d795b5087e6cb3dae33f65ffc06704a02c2d210d2a0f4a4a1d0ed8fc",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787683944-1a14",
         "at": "2026-08-25T18:52:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "58c7a06ca",
         "handoffSha": "sha256:215b0295dd7043833934c5919f379165c6cb5dff3c5ade72b05c2458d27edffa",
         "handoffAgeSec": 47,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787590180-72e7",
-        "at": "2026-08-24T16:49:40Z",
-        "ts": 1787590180,
-        "trigger": "self",
-        "prevHead": "1d8849deb",
-        "handoffSha": "sha256:18178472d9e5d9fa715bfd67b4bacc188f4938e1ed802c5fbf8f0e4e8aa06528",
-        "handoffAgeSec": 27,
         "conformanceBefore": null,
         "commitsInSession": null
       }
