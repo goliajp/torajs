@@ -123,13 +123,23 @@ pub(crate) unsafe fn symbol_member_set(
         };
         let props_slot = ptr.cast::<u8>().add(off) as *mut u64;
         let mut props = *props_slot as *mut c_void;
-        if props.is_null() {
+        let first = props.is_null();
+        if first {
             props = __torajs_dynobj_alloc();
         }
         let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
         // First-write alloc and resize relocation both land the fresh
         // table back in the slot; the host cell itself never moves.
-        *props_slot = props as u64;
+        // r502 — a struct's / closure's FIRST attach goes through the
+        // rc entry its drop seams are guarded on (a resize is not an
+        // attach).
+        if first && cell_tag == Tag::Obj as u16 {
+            torajs_rc::obj_entry::__torajs_obj_props_attach(ptr.cast::<u8>(), props);
+        } else if first && cell_tag == Tag::Closure as u16 {
+            torajs_rc::closure_entry::__torajs_closure_props_attach(ptr.cast::<u8>(), props);
+        } else {
+            *props_slot = props as u64;
+        }
         wrote
     }
 }

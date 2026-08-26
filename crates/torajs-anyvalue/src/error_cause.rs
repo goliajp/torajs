@@ -57,7 +57,12 @@ pub unsafe extern "C" fn __torajs_error_install_cause(recv: AnyValue, value: Any
     unsafe {
         let props_slot = ptr.cast::<u8>().add(OBJ_PROPS_OFF) as *mut *mut c_void;
         if (*props_slot).is_null() {
-            *props_slot = __torajs_dynobj_alloc();
+            // r502 — first attach through the rc entry the instance's
+            // drop seams are guarded on.
+            torajs_rc::obj_entry::__torajs_obj_props_attach(
+                ptr.cast::<u8>(),
+                __torajs_dynobj_alloc(),
+            );
         }
         let key = __torajs_str_alloc(b"cause".as_ptr(), 5);
         let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(value) as u64;

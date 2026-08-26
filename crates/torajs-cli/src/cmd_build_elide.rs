@@ -54,6 +54,13 @@
 //! (nothing registers through `__torajs_register_native_error`) can
 //! hold no FLAG_ERROR cell (fam 46).
 //!
+//! **Struct instance drop legs** (r502) — the typed drop of a class
+//! instance / anonymous struct shape releases its expando bag, and a
+//! fields-all-scalar instance buffers itself as a cycle root while it
+//! carries one; both behind seams guarded on the bag's one attach
+//! entry `__torajs_obj_props_attach` (torajs-rc), the scrub on
+//! `__torajs_cycle_buffer` (fam 47/48/49).
+//!
 //! **Closure env-drop legs** (r501, 刀 4 A5) — every `__env_drop_*`
 //! opens with a cycle-buffer scrub and a props-bag release; both are
 //! seams (`torajs_core::ssa_lower_env_drop_and_ret_ty::emit_env_drop_
@@ -114,7 +121,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 7] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 10] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -169,6 +176,26 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 7] = [
         "___torajs_uncaught_error_render_slow",
         &["___torajs_register_native_error"],
         46,
+    ),
+    // a struct instance's expando legs (r502, the A5 shape on
+    // `Tag::Obj`): a bag to release and — for a fields-all-scalar
+    // instance — a bag to buffer a cycle through; only
+    // `__torajs_obj_props_attach` gives an instance a bag. The
+    // scrub leg: only `__torajs_cycle_buffer` sets FLAG_BUFFERED.
+    (
+        "___torajs_obj_props_drop_slow",
+        &["___torajs_obj_props_attach"],
+        47,
+    ),
+    (
+        "___torajs_obj_buffer_slow",
+        &["___torajs_obj_props_attach"],
+        48,
+    ),
+    (
+        "___torajs_obj_unbuffer_slow",
+        &["___torajs_cycle_buffer"],
+        49,
     ),
 ];
 
@@ -409,7 +436,7 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 8);
+        assert_eq!(stubs.len(), 11);
         let join = &stubs[1];
         assert_eq!(join.sym, "___torajs_arr_join_exotic");
         assert_eq!(join.guard.to_string(), "syms:___torajs_arr_flag_exotic");

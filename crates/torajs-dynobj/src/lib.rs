@@ -32,6 +32,7 @@ pub mod define_entry;
 mod define_from_desc;
 pub mod define_redefine;
 pub mod define_struct;
+mod define_struct_attrs;
 mod define_typedarray;
 pub mod define_wrapper;
 pub mod delete;

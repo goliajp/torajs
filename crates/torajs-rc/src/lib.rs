@@ -234,6 +234,7 @@ pub mod tag;
 pub use tag::Tag;
 
 pub mod closure_entry;
+pub mod obj_entry;
 
 // ============================================================
 // Any-slot tag (16-byte Array<Any> slot)

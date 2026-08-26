@@ -164,6 +164,7 @@ unsafe extern "C" {
     fn __torajs_subclass_drop_entry(p: *mut core::ffi::c_void);
     fn __torajs_value_drop_heap(p: *mut core::ffi::c_void);
     fn __torajs_cycle_unbuffer(p: *mut core::ffi::c_void);
+    fn __torajs_cycle_buffer(p: *mut core::ffi::c_void);
     fn __torajs_uncaught_error_render_impl(p: *const u8);
 }
 
@@ -235,6 +236,42 @@ pub unsafe extern "C" fn __torajs_closure_unbuffer_slow(cell: *mut core::ffi::c_
     unsafe { __torajs_cycle_unbuffer(cell) }
 }
 
+/// Default resolution of a struct instance's expando-bag release
+/// (r502, the A5 shape on `Tag::Obj`): the bag at +24 is a dynobj,
+/// released through the universal drop.
+///
+/// # Safety
+/// `cell` is a live struct cell reaching rc=0 whose props slot is
+/// non-NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_props_drop_slow(cell: *mut core::ffi::c_void) {
+    unsafe {
+        let props = *(cell.cast::<u8>().add(24) as *const *mut core::ffi::c_void);
+        __torajs_value_drop_heap(props)
+    }
+}
+
+/// Default resolution of a fields-all-scalar struct instance's
+/// cycle-root buffering (r502): its rc went nonzero while it carries
+/// a bag, the only place a cycle through it can run.
+///
+/// # Safety
+/// `cell` is a live struct cell whose props slot is non-NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_buffer_slow(cell: *mut core::ffi::c_void) {
+    unsafe { __torajs_cycle_buffer(cell) }
+}
+
+/// Default resolution of a struct instance's cycle-buffer scrub
+/// (r502): the cell carries `FLAG_BUFFERED`.
+///
+/// # Safety
+/// `cell` is a live struct cell reaching rc=0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_unbuffer_slow(cell: *mut core::ffi::c_void) {
+    unsafe { __torajs_cycle_unbuffer(cell) }
+}
+
 /// Default resolution of the uncaught reporter's Error-instance
 /// rendering (A6): `name: message` through the prototype-chain name
 /// resolver in torajs-throw / torajs-anyvalue.
@@ -298,6 +335,9 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
         44 => c"closure props drop stripped (link judgment bug)",
         45 => c"closure unbuffer stripped (link judgment bug)",
         46 => c"uncaught error render stripped (link judgment bug)",
+        47 => c"struct props drop stripped (link judgment bug)",
+        48 => c"struct cycle buffering stripped (link judgment bug)",
+        49 => c"struct unbuffer stripped (link judgment bug)",
         n if (16..40).contains(&n) => c"printer kernel stripped (dispatch judgment bug)",
         _ => c"method family stripped (dispatch judgment bug)",
     };

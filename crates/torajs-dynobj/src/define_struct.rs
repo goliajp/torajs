@@ -29,11 +29,9 @@
 use core::ffi::c_void;
 
 use crate::define::{define_apply, refuse};
+use crate::define_struct_attrs::{merge_field_attrs, sidecar_flags_byte, validate_field_redefine};
 use crate::layout::{
-    BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
-    DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE,
-    DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE, DEFINE_PRESENT_VALUE,
-    DEFINE_PRESENT_WRITABLE,
+    BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, DEFINE_PRESENT_VALUE,
 };
 
 /// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF` mirror — the u32 class
@@ -63,6 +61,9 @@ const OBJ_HDR_FLAG_EXOTIC_FIELD: u16 = 1 << 15;
 const OBJ_HDR_FLAG_EXPANDO: u16 = 1 << 12;
 
 unsafe extern "C" {
+    /// torajs-rc — a struct cell's first expando attach (r502): the
+    /// instance's drop seams are guarded on this entry's liveness.
+    fn __torajs_obj_props_attach(cell: *mut u8, props: *mut c_void);
     // torajs-structmeta (W-J Phase A4) — the read side over the
     // link-emitted `__torajs_class_layouts` table.
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
@@ -259,93 +260,6 @@ pub unsafe extern "C" fn __torajs_obj_declared_field_attrs(
     }
 }
 
-/// §10.1.6.3 ValidateAndApplyPropertyDescriptor, attribute half, over
-/// a (current attributes, descriptor) pair rather than a dict `Entry`
-/// — a declared field has no entry to point at.
-///
-/// A configurable property accepts every change, so only the
-/// non-configurable branch has rules: no `configurable` upgrade, no
-/// `enumerable` change, and under non-writable no `writable` upgrade
-/// and no value change other than SameValue.
-fn validate_field_redefine(cur: u64, flags_byte: u64, value_same: bool) -> bool {
-    if cur & BUCKET_FLAG_CONFIGURABLE != 0 {
-        return true;
-    }
-    // "asks for X" = the descriptor spells X present AND sets it.
-    let asks = |present: u64, flag: u64| flags_byte & present != 0 && flags_byte & flag != 0;
-    if asks(DEFINE_PRESENT_CONFIGURABLE, DEFINE_FLAG_CONFIGURABLE) {
-        return false;
-    }
-    if flags_byte & DEFINE_PRESENT_ENUMERABLE != 0
-        && (flags_byte & DEFINE_FLAG_ENUMERABLE != 0) != (cur & BUCKET_FLAG_ENUMERABLE != 0)
-    {
-        return false;
-    }
-    if cur & BUCKET_FLAG_WRITABLE == 0 {
-        if asks(DEFINE_PRESENT_WRITABLE, DEFINE_FLAG_WRITABLE) {
-            return false;
-        }
-        if flags_byte & DEFINE_PRESENT_VALUE != 0 && !value_same {
-            return false;
-        }
-    }
-    true
-}
-
-/// Re-spell merged bucket attributes as a `flags_byte` for the sidecar
-/// write: every attribute PRESENT (so a fresh entry lands on the
-/// merged set rather than on the fresh-define default of false), no
-/// `[[Value]]`.
-fn sidecar_flags_byte(merged: u64) -> u64 {
-    let mut out = DEFINE_PRESENT_WRITABLE | DEFINE_PRESENT_ENUMERABLE | DEFINE_PRESENT_CONFIGURABLE;
-    if merged & BUCKET_FLAG_WRITABLE != 0 {
-        out |= DEFINE_FLAG_WRITABLE;
-    }
-    if merged & BUCKET_FLAG_ENUMERABLE != 0 {
-        out |= DEFINE_FLAG_ENUMERABLE;
-    }
-    if merged & BUCKET_FLAG_CONFIGURABLE != 0 {
-        out |= DEFINE_FLAG_CONFIGURABLE;
-    }
-    out
-}
-
-/// Fold the descriptor's PRESENT attributes over the current ones —
-/// §10.1.6.3's "absent fields keep the current value". This is the
-/// reason the sidecar cannot simply be written by recursing into
-/// `define_apply` with the caller's `flags_byte`: a FRESH dict entry
-/// defaults absent attributes to false, whereas a declared field's
-/// absent attributes default to its live state.
-fn merge_field_attrs(cur: u64, flags_byte: u64) -> u64 {
-    let mut out = cur;
-    for (present, desc_flag, bucket_flag) in [
-        (
-            DEFINE_PRESENT_WRITABLE,
-            DEFINE_FLAG_WRITABLE,
-            BUCKET_FLAG_WRITABLE,
-        ),
-        (
-            DEFINE_PRESENT_ENUMERABLE,
-            DEFINE_FLAG_ENUMERABLE,
-            BUCKET_FLAG_ENUMERABLE,
-        ),
-        (
-            DEFINE_PRESENT_CONFIGURABLE,
-            DEFINE_FLAG_CONFIGURABLE,
-            BUCKET_FLAG_CONFIGURABLE,
-        ),
-    ] {
-        if flags_byte & present != 0 {
-            if flags_byte & desc_flag != 0 {
-                out |= bucket_flag;
-            } else {
-                out &= !bucket_flag;
-            }
-        }
-    }
-    out
-}
-
 /// `Object.defineProperty(instance, declaredField, desc)` — the arm
 /// this module's doc describes.
 ///
@@ -406,7 +320,7 @@ pub(crate) unsafe fn redefine_declared_field(
         unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
     let ok = unsafe {
         if (*props_slot).is_null() {
-            *props_slot = crate::alloc::__torajs_dynobj_alloc();
+            __torajs_obj_props_attach(obj.cast::<u8>(), crate::alloc::__torajs_dynobj_alloc());
         }
         define_apply(
             props_slot,
@@ -472,7 +386,7 @@ pub(crate) unsafe fn struct_define(
             );
         }
         if (*props_slot).is_null() {
-            *props_slot = crate::alloc::__torajs_dynobj_alloc();
+            __torajs_obj_props_attach(obj.cast::<u8>(), crate::alloc::__torajs_dynobj_alloc());
         }
         let ok = define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal);
         // An own key the layout never mentions moves this instance's

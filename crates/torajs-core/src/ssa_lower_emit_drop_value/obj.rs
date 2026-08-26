@@ -79,7 +79,10 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
                 Type::Ptr,
                 None,
             );
-            emit_if_nonnull_call_arg(ctx, props_val, ctx.intrinsics.cycle_buffer, val);
+            // r502 — a link seam (`__torajs_obj_buffer_slow`, default =
+            // `__torajs_cycle_buffer`) guarded on the bag's one attach
+            // entry: no attach live, no bag, no cycle to buffer.
+            emit_if_nonnull_call_arg(ctx, props_val, ctx.intrinsics.obj_buffer_slow, val);
         } else {
             ctx.f.append_void(
                 ctx.cur_block,
@@ -157,13 +160,19 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
         Type::Ptr,
         None,
     );
-    emit_if_nonnull_call(ctx, props_val, ctx.intrinsics.value_drop_heap);
+    // r502 — the bag release is a link seam (`__torajs_obj_props_
+    // drop_slow`, default = the generic value drop of the bag) guarded
+    // on the bag's one attach entry.
+    emit_if_nonnull_call_arg(ctx, props_val, ctx.intrinsics.obj_props_drop_slow, val);
     if is_class_sid {
+        // r502 — `__torajs_obj_unbuffer_slow` (default = `cycle_
+        // unbuffer`) guarded on `__torajs_cycle_buffer`: only it sets
+        // FLAG_BUFFERED.
         emit_if_flag_call(
             ctx,
             val,
             torajs_rc::FLAG_BUFFERED,
-            ctx.intrinsics.cycle_unbuffer,
+            ctx.intrinsics.obj_unbuffer_slow,
         );
     }
     let obj_block_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
@@ -180,10 +189,6 @@ pub(super) fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::S
 }
 
 /// `if (ptr != NULL) fid(ptr)` — leaves `cur_block` on the join.
-fn emit_if_nonnull_call(ctx: &mut LowerCtx, ptr: ValueId, fid: FuncId) {
-    emit_if_nonnull_call_arg(ctx, ptr, fid, Operand::Value(ptr));
-}
-
 /// `if (ptr != NULL) fid(arg)` — leaves `cur_block` on the join.
 fn emit_if_nonnull_call_arg(ctx: &mut LowerCtx, ptr: ValueId, fid: FuncId, arg: Operand) {
     let nonnull = ctx.f.append_inst(

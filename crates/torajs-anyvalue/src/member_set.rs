@@ -188,7 +188,12 @@ unsafe fn set_obj_member(
                 }
             }
             if (*props_slot).is_null() {
-                *props_slot = __torajs_dynobj_alloc();
+                // r502 — the first attach goes through the rc entry
+                // the instance's drop seams are guarded on.
+                torajs_rc::obj_entry::__torajs_obj_props_attach(
+                    ptr.cast::<u8>(),
+                    __torajs_dynobj_alloc(),
+                );
             }
             __torajs_dynobj_set(props_slot, key, tag, value);
             // The instance now owns a key its layout never
