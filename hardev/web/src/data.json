@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T15:05:01.560Z",
+  "generatedAt": "2026-08-26T18:02:44.140Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-26T14:38:56Z",
-    "headSha": "052876884",
-    "elapsedSec": 468.02,
+    "ranAt": "2026-08-26T17:49:52Z",
+    "headSha": "9768d49f0",
+    "elapsedSec": 465.02,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29759,
+    "pass": 29765,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34834,
-    "bug": 12722,
-    "incompatible": 5618,
+    "passTotal": 34840,
+    "bug": 12717,
+    "incompatible": 5617,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47556,
-    "passRateInScope": 65.51,
-    "passRateTrAccepted": 73.25
+    "trAccepted": 47557,
+    "passRateInScope": 65.52,
+    "passRateTrAccepted": 73.26
   },
   "torajs": {
-    "commit": "052876884",
-    "commitSubject": "fix: class instance methods print in declaration order, not name-sorted",
+    "commit": "9768d49f0",
+    "commitSubject": "perf: torajs-fmt's float formatter carries no bounds-check panic path",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "9768d49f0",
+      "subject": "perf: torajs-fmt's float formatter carries no bounds-check panic path"
+    },
+    {
+      "hash": "fdaf65596",
+      "subject": "perf: multi-arg console.log prints scalars and strings through typed inline printers"
+    },
+    {
+      "hash": "804295c6b",
+      "subject": "perf: every program's __DATA page — line buffers to bss, name tables to rodata"
+    },
+    {
+      "hash": "4fa4c2701",
+      "subject": "fix: a fn-as-object member read walks the [[Prototype]] chain (any-member lane)"
+    },
+    {
+      "hash": "de156ad34",
+      "subject": "perf: class prologue lives in its own fn and is link-judged whole (A12)"
+    },
+    {
+      "hash": "c04e18117",
+      "subject": "chore: rotation 504 close — s3 page win (str_alloc cold-tail 2028→356 B → 50,713→34,201) + broad __text cuts (print_i64 1584→788, dispatch-reject composer, str-literal dedup) + class-method print order (declaration, not name-sorted)"
+    },
+    {
       "hash": "052876884",
       "subject": "fix: class instance methods print in declaration order, not name-sorted"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "dd9191b1a",
       "subject": "perf: print_i64 delegates to torajs-fmt's shared itoa kernel, sized to stay rolled"
-    },
-    {
-      "hash": "b8b27a355",
-      "subject": "chore: rotation 503 close — S2-5 A10 (class cell exit release seam + rc_dec_immediate pass + insert-only fresh literal store) / A11 field-write guard seam / io + str + dynobj pool get-forms take core::fmt out of e and s3 / linker merges same-named __DATA sections / JSON.parse dup-key regression fix; s3 83,617 -> 50,713, e text 11,184 -> 7,756, sweep +17 forward 0 regressions, dashboard"
-    },
-    {
-      "hash": "868ccafd7",
-      "subject": "fix: JSON.parse stores object members through the duplicate-capable fresh kernel — JSON text repeats keys, and the insert-only set_fresh is the compiler's lane for keys it proved fresh"
-    },
-    {
-      "hash": "379665a14",
-      "subject": "perf: the linker merges same-named __DATA sections across members — one section_64 per name, the way ld lays out input sections"
-    },
-    {
-      "hash": "96ae77c84",
-      "subject": "perf: the io buffer, the str allocator and the dynobj pool index with `get` and copy raw — the panic renderer's last three edges in a class program close and core::fmt leaves s3"
-    },
-    {
-      "hash": "6cd1ef9c9",
-      "subject": "perf: the typed field-write guard behind a link seam — stubbed when neither header bit it tests has a live writer"
-    },
-    {
-      "hash": "76dddfea8",
-      "subject": "perf: a class program's last edges into the generic any-drop — the prologue cells' exit release behind the register guard, immediate-box releases elided in the mid-end, and an insert-only fresh literal store for keys the lowering proves fresh"
     }
   ],
-  "headSha": "052876884",
+  "headSha": "9768d49f0",
   "autorun": {
-    "total": 807,
+    "total": 808,
     "baselineTarget": 10,
-    "bySelf": 802,
+    "bySelf": 803,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787745722-0736",
-      "at": "2026-08-26T12:02:02Z",
-      "ts": 1787745722,
+      "rotationId": "r-1787756802-2fad",
+      "at": "2026-08-26T15:06:42Z",
+      "ts": 1787756802,
       "trigger": "self",
-      "prevHead": "b8b27a355",
-      "handoffSha": "sha256:346781512300339cf4ef117708db53ef2353a1a657bd9f50cfc7d7b1f8c8cf49",
-      "handoffAgeSec": 22,
+      "prevHead": "c04e18117",
+      "handoffSha": "sha256:1ca3f6d07deeea869ef7c6dfe400ac338d26ec8265bfcd21c32261e68db04f33",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787756802-2fad",
+        "at": "2026-08-26T15:06:42Z",
+        "ts": 1787756802,
+        "trigger": "self",
+        "prevHead": "c04e18117",
+        "handoffSha": "sha256:1ca3f6d07deeea869ef7c6dfe400ac338d26ec8265bfcd21c32261e68db04f33",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787745722-0736",
         "at": "2026-08-26T12:02:02Z",
@@ -876,17 +887,6 @@
         "prevHead": "a1326203a",
         "handoffSha": "sha256:27432b5cc80f110bafaa9e309134a5b2042b7f724d55e8d25ce1a0b7dc5d3db5",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787639065-42b1",
-        "at": "2026-08-25T06:24:25Z",
-        "ts": 1787639065,
-        "trigger": "self",
-        "prevHead": "a7856a974",
-        "handoffSha": "sha256:d93d7d8ed7223fb5f216e3d6a83a583a861a173cab235bcb728e8850308defed",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }
