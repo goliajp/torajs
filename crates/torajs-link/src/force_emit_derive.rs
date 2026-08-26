@@ -12,8 +12,10 @@
 //! empty program, r499).
 //!
 //! Once the dead-strip pre-pass has run, the question has an exact
-//! answer: a member's dead atoms had their undef rows neutered
-//! (`N_EXT` cleared), so "does any required member still carry an
+//! answer — and the same answer retires a POPULATED table whose only
+//! readers died (r501: the rows are runtime-read, never user-read):
+//! a member's dead atoms had their undef rows neutered (`N_EXT`
+//! cleared), so "does any required member still carry an
 //! `N_EXT` undef for the table's symbols" is "does live runtime code
 //! read the table". A flag whose symbols nobody references drops;
 //! the layout's existing `has_data_const` gate then omits the segment
@@ -33,17 +35,20 @@ const CLASS_LAYOUTS_SYMS: [&str; 2] = ["___torajs_class_layouts", "___torajs_n_c
 const FN_NAME_SYMS: [&str; 2] = ["___torajs_fn_name_table", "___torajs_fn_name_table_count"];
 const CLASS_NAMES_SYMS: [&str; 2] = ["___torajs_class_name_table", "___torajs_n_class_names"];
 
-/// Drop every forced flag whose symbols no required member
-/// references. `None` when nothing changes (no flag set, or every
-/// set flag is still referenced).
+/// Drop every table whose symbols no required member references —
+/// a forced flag turns off, and (r501, RFC 20260824-s2-5 刀 4 A7) a
+/// populated registry empties: a fn-name / class-name / class-layout
+/// table is read only by runtime text (`__torajs_fn_print_inline`,
+/// structmeta, the cycle collector), so with every reader stripped
+/// the rows are a `__DATA_CONST` page nobody will open (a program with
+/// one named closure carried a one-row fn-name table and, through it,
+/// a 16 KiB segment). `None` when nothing changes.
 pub(crate) fn derive_force_emit(
     cfg: &LinkConfig,
     merged: &MergedArchives<'_>,
 ) -> Result<Option<LinkConfig>, ArchiveLayoutError> {
-    if !(cfg.force_emit_class_layouts_globals
-        || cfg.force_emit_fn_name_globals
-        || cfg.force_emit_class_names_globals)
-    {
+    let set = table_state(cfg);
+    if set == (false, false, false) {
         return Ok(None);
     }
     let extra = collect_extra_defined_syms(cfg);
@@ -60,33 +65,38 @@ pub(crate) fn derive_force_emit(
             })?;
         undefs.extend(names);
     }
-    let flags = derive_flags(
-        (
-            cfg.force_emit_class_layouts_globals,
-            cfg.force_emit_fn_name_globals,
-            cfg.force_emit_class_names_globals,
-        ),
-        &undefs,
-    );
-    if flags
-        == (
-            cfg.force_emit_class_layouts_globals,
-            cfg.force_emit_fn_name_globals,
-            cfg.force_emit_class_names_globals,
-        )
-    {
+    let keep = derive_flags(set, &undefs);
+    if keep == set {
         return Ok(None);
     }
-    Ok(Some(LinkConfig {
-        force_emit_class_layouts_globals: flags.0,
-        force_emit_fn_name_globals: flags.1,
-        force_emit_class_names_globals: flags.2,
-        ..cfg.clone()
-    }))
+    let mut out = cfg.clone();
+    if !keep.0 {
+        out.force_emit_class_layouts_globals = false;
+        out.class_layouts.clear();
+    }
+    if !keep.1 {
+        out.force_emit_fn_name_globals = false;
+        out.fn_name_globals.clear();
+    }
+    if !keep.2 {
+        out.force_emit_class_names_globals = false;
+        out.class_names.clear();
+    }
+    Ok(Some(out))
 }
 
-/// A set flag survives iff one of its table's symbols is among the
-/// undefs the required members still carry.
+/// Which of the three tables the config would emit at all (forced or
+/// populated) — the set the derivation may narrow.
+fn table_state(cfg: &LinkConfig) -> (bool, bool, bool) {
+    (
+        cfg.force_emit_class_layouts_globals || !cfg.class_layouts.is_empty(),
+        cfg.force_emit_fn_name_globals || !cfg.fn_name_globals.is_empty(),
+        cfg.force_emit_class_names_globals || !cfg.class_names.is_empty(),
+    )
+}
+
+/// A table survives iff one of its symbols is among the undefs the
+/// required members still carry.
 fn derive_flags(set: (bool, bool, bool), undefs: &BTreeSet<String>) -> (bool, bool, bool) {
     let referenced = |syms: &[&str]| syms.iter().any(|s| undefs.contains(*s));
     (
