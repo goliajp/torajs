@@ -338,12 +338,26 @@ pub(crate) unsafe fn redefine_declared_field(
     // reason to pay for a finer question, and the instances that trip
     // it are exactly the ones that were redefined.
     if ok != 0 {
-        unsafe {
-            let flags = obj.cast::<u8>().add(6) as *mut u16;
-            *flags |= OBJ_HDR_FLAG_EXOTIC_FIELD;
-        }
+        unsafe { __torajs_obj_flag_exotic_field(obj) };
     }
     ok
+}
+
+/// Raise `FLAG_OBJ_EXOTIC_FIELD` on a struct cell — the one writer of
+/// that bit, and so (r503) a link-guard anchor: the typed field-write
+/// guard is stubbed when this atom and `__torajs_obj_freeze` are both
+/// dead. `inline(never)` keeps the atom whole under its in-crate
+/// caller.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` cell.
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_flag_exotic_field(obj: *mut c_void) {
+    unsafe {
+        let flags = obj.cast::<u8>().add(6) as *mut u16;
+        *flags |= OBJ_HDR_FLAG_EXOTIC_FIELD;
+    }
 }
 
 /// The EXPANDO half of the class-instance arm — a key the layout does

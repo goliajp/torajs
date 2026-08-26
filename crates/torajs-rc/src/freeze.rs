@@ -59,6 +59,13 @@ unsafe fn header(p: *const c_void) -> &'static HeapHeader {
 /// NULL passes through unchanged (no-op + return NULL). Static-
 /// literal blocks pass through without bit-flip (writing to
 /// `.rodata` would SIGBUS).
+///
+/// r503 — the one writer of FLAG_FROZEN on a `Tag::Obj` cell, and
+/// so a link-guard anchor: the typed field-write guard
+/// (`__torajs_obj_check_field_writable`) is stubbed when this atom
+/// and the exotic-field writer are both dead. `inline(never)` keeps
+/// the atom (and its symbol) whole under the in-crate callers.
+#[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void {
     if p.is_null() {

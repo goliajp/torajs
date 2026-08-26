@@ -150,11 +150,20 @@ const OBJ_HDR_FLAG_EXOTIC_FIELD: u16 = 1 << 15;
 /// that was never frozen and never redefined leaves here without
 /// touching the expando dict.
 ///
+/// r503 — reached through the `__torajs_obj_check_field_writable`
+/// seam in torajs-dispatch; the link judgment stubs the seam when no
+/// writer of either header bit (`__torajs_obj_freeze` /
+/// `__torajs_obj_flag_exotic_field`) is live, and this impl — with
+/// the readonly-assign throw it roots — dead-strips.
+///
 /// # Safety
 /// `p` is NULL or a live heap pointer; `name` is a live `Str` cell
 /// naming the field being stored (a compile-time literal).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_check_field_writable(p: *const c_void, name: *const c_void) {
+pub unsafe extern "C" fn __torajs_obj_check_field_writable_impl(
+    p: *const c_void,
+    name: *const c_void,
+) {
     if p.is_null() {
         return;
     }

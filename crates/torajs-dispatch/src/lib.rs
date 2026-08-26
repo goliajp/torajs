@@ -167,6 +167,21 @@ unsafe extern "C" {
     fn __torajs_cycle_buffer(p: *mut core::ffi::c_void);
     fn __torajs_uncaught_error_render_impl(p: *const u8);
     fn __torajs_anyv_rc_dec(v: u64);
+    fn __torajs_obj_check_field_writable_impl(p: *const u8, name: *const u8);
+}
+
+/// Default resolution of the typed field-write guard (r503): the
+/// frozen / redefined-field refusal behind every `instance.field =
+/// v` store, called only when the header bits hit. The link judgment
+/// stubs it (fam 50) when neither bit has a live writer
+/// (`__torajs_obj_freeze` / `__torajs_obj_flag_exotic_field`), and
+/// the refusal's throw world leaves with it.
+///
+/// # Safety
+/// `p` is NULL or a live heap pointer; `name` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_check_field_writable(p: *const u8, name: *const u8) {
+    unsafe { __torajs_obj_check_field_writable_impl(p, name) }
 }
 
 /// Default resolution of a class prologue cell's exit release (r503):
@@ -353,6 +368,7 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
         47 => c"struct props drop stripped (link judgment bug)",
         48 => c"struct cycle buffering stripped (link judgment bug)",
         49 => c"struct unbuffer stripped (link judgment bug)",
+        50 => c"struct field-write guard stripped (link judgment bug)",
         n if (16..40).contains(&n) => c"printer kernel stripped (dispatch judgment bug)",
         _ => c"method family stripped (dispatch judgment bug)",
     };
