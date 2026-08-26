@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T09:27:50.173Z",
+  "generatedAt": "2026-08-26T12:01:40.684Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-26T09:17:19Z",
-    "headSha": "6f63e4aef",
-    "elapsedSec": 375.78,
+    "ranAt": "2026-08-26T11:49:41Z",
+    "headSha": "868ccafd7",
+    "elapsedSec": 389.15,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29747,
-    "passNoOracle": 924,
+    "pass": 29760,
+    "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34818,
-    "bug": 12723,
-    "incompatible": 5633,
+    "passTotal": 34835,
+    "bug": 12722,
+    "incompatible": 5617,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47541,
-    "passRateInScope": 65.48,
-    "passRateTrAccepted": 73.24
+    "trAccepted": 47557,
+    "passRateInScope": 65.51,
+    "passRateTrAccepted": 73.25
   },
   "torajs": {
-    "commit": "6f63e4aef",
-    "commitSubject": "perf: a struct instance's expando legs behind link seams — the bag release, the scalar-instance cycle buffering and the FLAG_BUFFERED scrub are stubbed when no attach entry is live",
+    "commit": "868ccafd7",
+    "commitSubject": "fix: JSON.parse stores object members through the duplicate-capable fresh kernel — JSON text repeats keys, and the insert-only set_fresh is the compiler's lane for keys it proved fresh",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "868ccafd7",
+      "subject": "fix: JSON.parse stores object members through the duplicate-capable fresh kernel — JSON text repeats keys, and the insert-only set_fresh is the compiler's lane for keys it proved fresh"
+    },
+    {
+      "hash": "379665a14",
+      "subject": "perf: the linker merges same-named __DATA sections across members — one section_64 per name, the way ld lays out input sections"
+    },
+    {
+      "hash": "96ae77c84",
+      "subject": "perf: the io buffer, the str allocator and the dynobj pool index with `get` and copy raw — the panic renderer's last three edges in a class program close and core::fmt leaves s3"
+    },
+    {
+      "hash": "6cd1ef9c9",
+      "subject": "perf: the typed field-write guard behind a link seam — stubbed when neither header bit it tests has a live writer"
+    },
+    {
+      "hash": "76dddfea8",
+      "subject": "perf: a class program's last edges into the generic any-drop — the prologue cells' exit release behind the register guard, immediate-box releases elided in the mid-end, and an insert-only fresh literal store for keys the lowering proves fresh"
+    },
+    {
+      "hash": "7b5d8b5d0",
+      "subject": "chore: rotation 502 close — S2-5 刀 4 A8 (link-judged class register + method-row columns) / class-method return inference off the receiver's fields / prologue link + class-source sites / struct-instance drop seams take s3 446,913 -> 83,617 and the Point/Point3 fixture 1,404,289 -> 149,001, sweep identical / 0 regressions, dashboard"
+    },
+    {
       "hash": "6f63e4aef",
       "subject": "perf: a struct instance's expando legs behind link seams — the bag release, the scalar-instance cycle buffering and the FLAG_BUFFERED scrub are stubbed when no attach entry is live"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "492d4f0f5",
       "subject": "perf: a populated fn-name / class-name / class-layout table with no live reader is not emitted — a closure-only program links 67,233 -> 50,697"
-    },
-    {
-      "hash": "f814537ae",
-      "subject": "perf: closure env-drop legs and the uncaught reporter's Error rendering behind link seams — a closure-only program links 83,545 -> 67,233"
-    },
-    {
-      "hash": "f06969ede",
-      "subject": "fix: collect the elidable adapter mints after the user-fn strip — a mint in a stripped fn has no reloc left to patch (gate 6fce92dc0 red on class / bind fns)"
-    },
-    {
-      "hash": "6fce92dc0",
-      "subject": "perf: link-judged closure adapter mints — a program that never invokes a closure through the any world links no __boxed_ adapter; p1 397,313 -> 83,545, s4 -> 83,729"
-    },
-    {
-      "hash": "58c24cc16",
-      "subject": "chore: rotation 500 close — S2-5 刀 4 Phase A (three typed->any roots) + link-judged exotic seams and scalar-array drop take join-only 348,649 -> 84,537 and array-only 84,537 -> 51,569, sweep identical / 0 regressions, dashboard"
-    },
-    {
-      "hash": "3da78bcf7",
-      "subject": "perf: scalar-array drop kernel with link-judged props / subclass legs — an array-only program links 84,537 -> 51,569"
-    },
-    {
-      "hash": "601e8c89f",
-      "subject": "Revert \"perf: closure any-world escape judgment — a program whose closures never cross into any links no __boxed_ adapter; s4 397,313 -> 83,633\""
     }
   ],
-  "headSha": "6f63e4aef",
+  "headSha": "868ccafd7",
   "autorun": {
-    "total": 805,
+    "total": 806,
     "baselineTarget": 10,
-    "bySelf": 800,
+    "bySelf": 801,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787723527-172d",
-      "at": "2026-08-26T05:52:07Z",
-      "ts": 1787723527,
+      "rotationId": "r-1787736511-6d7e",
+      "at": "2026-08-26T09:28:31Z",
+      "ts": 1787736511,
       "trigger": "self",
-      "prevHead": "26ded3f7c",
-      "handoffSha": "sha256:197cb66ad88c0431d6111a0386bdd6ab309090328c53bb4999e0da9e63f6fc50",
-      "handoffAgeSec": 12,
+      "prevHead": "7b5d8b5d0",
+      "handoffSha": "sha256:eed31795c8f1b736088abd374f3bbc4a6cccbe29cf9e88c682e681f25fb9b908",
+      "handoffAgeSec": 42,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787736511-6d7e",
+        "at": "2026-08-26T09:28:31Z",
+        "ts": 1787736511,
+        "trigger": "self",
+        "prevHead": "7b5d8b5d0",
+        "handoffSha": "sha256:eed31795c8f1b736088abd374f3bbc4a6cccbe29cf9e88c682e681f25fb9b908",
+        "handoffAgeSec": 42,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787723527-172d",
         "at": "2026-08-26T05:52:07Z",
@@ -876,17 +887,6 @@
         "prevHead": "906c0cd8a",
         "handoffSha": "sha256:6bfb64a4647a72b163206f369f91747f1e85c11df20d6df97ac74016a5d58d2b",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787613186-76a9",
-        "at": "2026-08-24T23:13:06Z",
-        "ts": 1787613186,
-        "trigger": "self",
-        "prevHead": "2d5b352f5",
-        "handoffSha": "sha256:d070674fe2c7ad5a478e9f434b0fb96cd87bbf9a8005786b6f6c32aae8f26408",
-        "handoffAgeSec": 21,
         "conformanceBefore": null,
         "commitsInSession": null
       }
