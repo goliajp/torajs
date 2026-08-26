@@ -331,11 +331,6 @@ pub(crate) fn build_link_config(
         );
     }
 
-    // r499 — main's three end-of-program drains become conditional
-    // on their feeder members' liveness (policy in cmd_build_elide).
-    let elidable_sites = crate::cmd_build_elide::collect_elidable_sites(&funcs);
-    let guarded_stubs = crate::cmd_build_elide::guarded_stubs();
-
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
     let data_globals = build_data_globals(ssa_module);
@@ -358,8 +353,8 @@ pub(crate) fn build_link_config(
         codesign_ident: "tora".into(),
         dead_strip,
         strip_member_symbols,
-        elidable_sites,
-        guarded_stubs,
+        elidable_sites: Vec::new(),
+        guarded_stubs: crate::cmd_build_elide::guarded_stubs(),
         archives,
         strings,
         data_globals,
@@ -409,5 +404,10 @@ pub(crate) fn build_link_config(
     // materialized tables in `cfg` itself (module doc in
     // torajs_link::user_gc).
     torajs_link::user_gc::strip_dead_user_fns(&mut cfg);
+    // r499/r501 — the drains and the adapter mints become conditional
+    // on their guards' liveness (policy in cmd_build_elide). Collected
+    // AFTER the strip: a mint in a fn the artifact will not carry has
+    // no reloc left to patch.
+    cfg.elidable_sites = crate::cmd_build_elide::collect_elidable_sites(&cfg.funcs);
     cfg
 }

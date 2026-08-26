@@ -184,6 +184,7 @@ fn adapter_mint_sites(funcs: &[CompiledFunction]) -> Vec<ElidableSite> {
     let guard = Guard::Symbols(vec![BOXED_ENTRY_READER.to_string()]);
     funcs
         .iter()
+        .filter(|f| !f.bytes.is_empty())
         .flat_map(|f| {
             f.relocs.iter().filter_map(|r| {
                 let RelocKind::Page21 { target_sym } = &r.kind else {
@@ -330,8 +331,15 @@ mod tests {
             .into_iter()
             .chain(pair(8, "__torajs_fn_3"))
             .collect();
-        let sites = collect_elidable_sites(&[f(USER_MAIN_SYM, &[]), helper]);
-        assert_eq!(sites.len(), 1, "the plain fn_addr alias is never a site");
+        let mut stripped = helper.clone();
+        stripped.name = "stripped".into();
+        stripped.bytes.clear();
+        let sites = collect_elidable_sites(&[f(USER_MAIN_SYM, &[]), helper, stripped]);
+        assert_eq!(
+            sites.len(),
+            1,
+            "the plain fn_addr alias is never a site; a stripped fn has none"
+        );
         assert_eq!(sites[0].func, "helper");
         assert_eq!(
             sites[0].guard.to_string(),
