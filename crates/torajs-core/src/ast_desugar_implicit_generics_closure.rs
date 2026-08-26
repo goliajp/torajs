@@ -27,7 +27,8 @@ pub(crate) fn desugar_closure_shape_fn(
     ast_exprs_view: AstExprsView,
     outer_binds: &std::collections::HashMap<String, String>,
     cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
-    fn_sigs: &std::collections::HashMap<String, String>,
+    receiver_fields: &std::collections::HashMap<String, Vec<(String, String)>>,
+    fn_sigs: &mut std::collections::HashMap<String, String>,
 ) {
     if (first_kind == Some("__env") && is_synth_closure_name(name)) || first_kind == Some("__this")
     {
@@ -56,10 +57,33 @@ pub(crate) fn desugar_closure_shape_fn(
         }
     }
     if first_kind == Some("__this") && return_type.is_none() && body_has_value_return(body) {
-        let seeded = seeded_binds_for(name, outer_binds, cap_anns);
+        let mut seeded = seeded_binds_for(name, outer_binds, cap_anns);
+        // r502 — the receiver's declared fields, so `return this.v`
+        // types as `v` does (TS infers a method's return from its
+        // body; the class row is the environment the shape grammar
+        // lacked). Only for a body that cannot fall off its end: a
+        // reachable fall-through answers `undefined`, which a scalar
+        // slot cannot spell (the fn-decl arm's SIGTRAP lesson) — that
+        // shape keeps taking the `any` floor below. A generic
+        // receiver's field anns name its type params, meaningless
+        // as a return ann; an exotic-parent receiver is `any`.
+        if crate::ast::body_always_terminates(body)
+            && let Some(fields) = receiver_fields_of(params, receiver_fields)
+        {
+            for (field, ann) in fields {
+                seeded.insert(format!("this.{field}"), ann.clone());
+            }
+        }
         if let Some(inferred) =
             infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, fn_sigs)
         {
+            // r502 — publish it the way the fn-decl arm does, so a
+            // method emitted later in source order (a subclass's
+            // `total() { return this.sum() + this.w }` — the call is
+            // already spelled `__cm_<Owner>__sum`) can sniff the call.
+            if !inferred.starts_with("__T") {
+                fn_sigs.insert(name.to_string(), inferred.clone());
+            }
             *return_type = Some(inferred);
         } else {
             // The same fallback the other two arms take, for the same
@@ -80,6 +104,34 @@ pub(crate) fn desugar_closure_shape_fn(
             *return_type = Some("any".to_string());
         }
     }
+}
+
+/// r502 — every class the class desugar flattened into a struct
+/// decl, by name: a `__this`-shaped method's return sniff resolves
+/// `this.<field>` against its receiver's row.
+pub(crate) fn receiver_field_rows(
+    stmts: &[Stmt],
+) -> std::collections::HashMap<String, Vec<(String, String)>> {
+    stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::TypeDecl { name, fields, .. } => Some((name.clone(), fields.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The receiver's field rows for a `__this`-first fn whose receiver
+/// ann is a plain class name (`C`, not `C<T>` / `any`).
+fn receiver_fields_of<'a>(
+    params: &[Param],
+    receiver_fields: &'a std::collections::HashMap<String, Vec<(String, String)>>,
+) -> Option<&'a Vec<(String, String)>> {
+    let ann = params.first()?.type_ann.as_deref()?;
+    if ann.contains('<') {
+        return None;
+    }
+    receiver_fields.get(ann)
 }
 
 /// Main-loop lifted-closure arm (`__closure_*` name without the

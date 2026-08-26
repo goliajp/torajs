@@ -348,78 +348,9 @@ pub(crate) fn infer_expr_ann_with(
         Expr::Closure { fn_name, .. } => fn_sigs.get(fn_name).cloned(),
         // Call: bare Ident → fn_sigs; Member+string/`T[]` receiver → method whitelist.
         // Omitted methods SIGSEGV/silent-wrong even with explicit annotation (L3b).
-        Expr::Call { callee, args } => {
-            let c = exprs.get(callee.0 as usize)?;
-            if let Expr::Ident(n) = c {
-                // The parser's synthetic relational calls answer Bool
-                // (`in` / the §13.10 `#x in o` brand check) — they
-                // are not user fns, so fn_sigs can't know them, and a
-                // bare `return #x in o` would bail the sniff to Void
-                // (the mono body then hands unboxed garbage back
-                // through an any ret).
-                if n == "__torajs_in_op" || n == "__torajs_priv_in_op" {
-                    return Some("boolean".to_string());
-                }
-                return fn_sigs.get(n).cloned();
-            }
-            if let Expr::Member { obj, name } = c {
-                let r = recur(*obj)?;
-                let elem = r.strip_suffix("[]");
-                let ret: &str = match (r.as_str(), elem, name.as_str()) {
-                    (
-                        "string",
-                        _,
-                        "toUpperCase" | "toLowerCase" | "trim" | "trimStart" | "trimEnd" | "slice"
-                        | "substring" | "repeat" | "concat" | "replace" | "replaceAll" | "padStart"
-                        | "padEnd" | "at" | "charAt",
-                    ) => "string",
-                    ("string", _, "startsWith" | "endsWith" | "includes") => "boolean",
-                    ("string", _, "indexOf" | "lastIndexOf" | "charCodeAt") => "number",
-                    // RFC 20260705 chunk 557 — conversion methods on known
-                    // primitive/array receivers (`j.toString()` inside a
-                    // string-concat chain bailed the whole sniff → Void).
-                    // Receivers whose ann we can't resolve still bail —
-                    // user classes may override toString with another shape.
-                    ("number" | "boolean" | "string", _, "toString" | "toLocaleString") => "string",
-                    ("number", _, "toFixed" | "toPrecision" | "toExponential") => "string",
-                    (_, Some(_), "toString" | "toLocaleString") => "string",
-                    (_, Some(e), "pop" | "shift" | "at" | "find" | "findLast") => e,
-                    // 403-01 — a map/flatMap result element is the
-                    // CALLBACK's return (doc on the sibling); an
-                    // opaque callback keeps the historical same-`T`
-                    // approximation.
-                    (_, Some(_), "map" | "flatMap") => {
-                        match super::implicit_generics_cb_ret::hof_result_ann(
-                            name, exprs, args, params, binds, fn_sigs,
-                        ) {
-                            Some(u) => return Some(u),
-                            None => &r,
-                        }
-                    }
-                    (
-                        _,
-                        Some(_),
-                        "slice" | "reverse" | "sort" | "concat" | "fill" | "filter" | "flat",
-                    ) => &r,
-                    (_, Some(_), "every" | "some" | "includes") => "boolean",
-                    (_, Some(_), "indexOf" | "lastIndexOf" | "findIndex" | "findLastIndex") => {
-                        "number"
-                    }
-                    (_, Some(_), "join") => "string",
-                    // `reduce` / `reduceRight` return type is the callback's
-                    // accumulator type — for the common case where the
-                    // accumulator is the same shape as elements (e.g.
-                    // `xs.reduce((a, b) => a + b, 0)` on Number[]), it
-                    // matches the element type. Mixed-type accumulators
-                    // (cb returns a different shape than elem) still need
-                    // explicit ret annotation (substrate follow-up).
-                    (_, Some(e), "reduce" | "reduceRight") => e,
-                    _ => return None,
-                };
-                return Some(ret.to_string());
-            }
-            None
-        }
+        Expr::Call { callee, args } => super::implicit_generics_infer_call::infer_call_ann(
+            exprs, *callee, args, params, binds, fn_sigs,
+        ),
         Expr::Ternary {
             then_branch,
             else_branch,
@@ -442,6 +373,11 @@ pub(crate) fn infer_expr_ann_with(
                 .skip(1)
                 .all(|e| recur(*e).as_deref() == Some(first.as_str()));
             Some(format!("{}[]", if uniform { first } else { "any".into() }))
+        }
+        // r502 — a field read off the receiver of a class method: the
+        // closure arm seeds `this.<field>` from the class row.
+        Expr::Member { obj, name } if exprs.get(obj.0 as usize).is_some_and(is_receiver_ident) => {
+            binds.get(&format!("this.{name}")).cloned()
         }
         Expr::Member { obj, name } if name == "length" => recur(*obj)
             .filter(|r| r == "string" || r.ends_with("[]"))
@@ -481,4 +417,11 @@ pub(crate) fn infer_expr_ann_with(
         }
         _ => None,
     }
+}
+
+/// The desugared receiver of a class method (`__this` after
+/// `desugar_classes` Pass 2; the raw spellings survive ordering
+/// shifts, as the getter inferrer allows).
+fn is_receiver_ident(e: &Expr) -> bool {
+    matches!(e, Expr::This) || matches!(e, Expr::Ident(s) if s == "__this" || s == "this")
 }

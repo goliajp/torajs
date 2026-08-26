@@ -41,7 +41,7 @@ use crate::ast::{
     infer_expr_ann_with, infer_return_ann, infer_return_ann_seeded,
 };
 use crate::ast_desugar_implicit_generics_closure::{
-    desugar_closure_shape_fn, desugar_lifted_closure_fn, seeded_binds_for,
+    desugar_closure_shape_fn, desugar_lifted_closure_fn, receiver_field_rows, seeded_binds_for,
 };
 
 pub(crate) fn run(ast: &mut Ast) {
@@ -184,6 +184,8 @@ pub(crate) fn run(ast: &mut Ast) {
         }
     }
 
+    let receiver_fields = receiver_field_rows(stmts);
+
     for stmt in stmts.iter_mut() {
         let Stmt::FnDecl {
             name,
@@ -208,7 +210,8 @@ pub(crate) fn run(ast: &mut Ast) {
                 ast_exprs_view,
                 &outer_binds,
                 cap_anns,
-                &fn_sigs,
+                &receiver_fields,
+                &mut fn_sigs,
             );
             continue;
         }
