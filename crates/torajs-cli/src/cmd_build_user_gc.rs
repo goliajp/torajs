@@ -63,7 +63,12 @@ fn reloc_edge(kind: &RelocKind) -> Edge<'_> {
 
 /// Entry point — collect the address-taken roots from every
 /// fn-referencing table the config carries, then run the walk.
-pub(crate) fn strip_dead_user_fns(cfg: &mut LinkConfig) {
+/// Answers the live bit per fn index (FuncId space for the compiled
+/// module fns, then the synthesized tail) so the dispatch judgment
+/// can skip fns the artifact will not carry (r500 A0: a stripped
+/// `__boxed_` adapter's ToNumber unbox is not evidence the program
+/// coerces anything).
+pub(crate) fn strip_dead_user_fns(cfg: &mut LinkConfig) -> Vec<bool> {
     let parse_alias = |s: &str| {
         s.strip_prefix("__torajs_fn_")
             .and_then(|t| t.parse::<usize>().ok())
@@ -85,14 +90,19 @@ pub(crate) fn strip_dead_user_fns(cfg: &mut LinkConfig) {
         }))
         .collect();
     let entry = cfg.entry.clone();
-    strip_with_roots(&mut cfg.funcs, &entry, &table_root_fids);
+    strip_with_roots(&mut cfg.funcs, &entry, &table_root_fids)
 }
 
 /// Reachability walk + strip, separated from the root collection so
-/// the tests can drive it with hand-built root sets.
-fn strip_with_roots(funcs: &mut [CompiledFunction], entry: &str, table_root_fids: &[usize]) {
+/// the tests can drive it with hand-built root sets. Answers the
+/// live bit per index (all true when the pass is disabled).
+fn strip_with_roots(
+    funcs: &mut [CompiledFunction],
+    entry: &str,
+    table_root_fids: &[usize],
+) -> Vec<bool> {
     if std::env::var_os("TORAJS_USER_GC_OFF").is_some() {
-        return;
+        return vec![true; funcs.len()];
     }
     let n = funcs.len();
     let idx_by_name: std::collections::HashMap<&str, usize> = funcs
@@ -158,6 +168,7 @@ fn strip_with_roots(funcs: &mut [CompiledFunction], entry: &str, table_root_fids
     if diag {
         eprintln!("[user-gc] {dead_fns} fns / {dead_bytes} bytes stripped");
     }
+    live
 }
 
 #[cfg(test)]
