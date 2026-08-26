@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T12:01:40.684Z",
+  "generatedAt": "2026-08-26T15:05:01.560Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-26T11:49:41Z",
-    "headSha": "868ccafd7",
-    "elapsedSec": 389.15,
+    "ranAt": "2026-08-26T14:38:56Z",
+    "headSha": "052876884",
+    "elapsedSec": 468.02,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29760,
+    "pass": 29759,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34835,
+    "passTotal": 34834,
     "bug": 12722,
-    "incompatible": 5617,
+    "incompatible": 5618,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47557,
+    "trAccepted": 47556,
     "passRateInScope": 65.51,
     "passRateTrAccepted": 73.25
   },
   "torajs": {
-    "commit": "868ccafd7",
-    "commitSubject": "fix: JSON.parse stores object members through the duplicate-capable fresh kernel — JSON text repeats keys, and the insert-only set_fresh is the compiler's lane for keys it proved fresh",
+    "commit": "052876884",
+    "commitSubject": "fix: class instance methods print in declaration order, not name-sorted",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "052876884",
+      "subject": "fix: class instance methods print in declaration order, not name-sorted"
+    },
+    {
+      "hash": "9b6dece59",
+      "subject": "chore: record torajs-print → torajs-fmt in Cargo.lock"
+    },
+    {
+      "hash": "508e8dd38",
+      "subject": "perf: __torajs_str_alloc's non-ASCII re-encode moves out-of-line and cold"
+    },
+    {
+      "hash": "e864a4554",
+      "subject": "perf: a string literal's raw-byte alias points into its Str payload, not a copy"
+    },
+    {
+      "hash": "23b24ce11",
+      "subject": "perf: the stub-reject landing pad composes its message from a subject table"
+    },
+    {
+      "hash": "dd9191b1a",
+      "subject": "perf: print_i64 delegates to torajs-fmt's shared itoa kernel, sized to stay rolled"
+    },
+    {
+      "hash": "b8b27a355",
+      "subject": "chore: rotation 503 close — S2-5 A10 (class cell exit release seam + rc_dec_immediate pass + insert-only fresh literal store) / A11 field-write guard seam / io + str + dynobj pool get-forms take core::fmt out of e and s3 / linker merges same-named __DATA sections / JSON.parse dup-key regression fix; s3 83,617 -> 50,713, e text 11,184 -> 7,756, sweep +17 forward 0 regressions, dashboard"
+    },
+    {
       "hash": "868ccafd7",
       "subject": "fix: JSON.parse stores object members through the duplicate-capable fresh kernel — JSON text repeats keys, and the insert-only set_fresh is the compiler's lane for keys it proved fresh"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "76dddfea8",
       "subject": "perf: a class program's last edges into the generic any-drop — the prologue cells' exit release behind the register guard, immediate-box releases elided in the mid-end, and an insert-only fresh literal store for keys the lowering proves fresh"
-    },
-    {
-      "hash": "7b5d8b5d0",
-      "subject": "chore: rotation 502 close — S2-5 刀 4 A8 (link-judged class register + method-row columns) / class-method return inference off the receiver's fields / prologue link + class-source sites / struct-instance drop seams take s3 446,913 -> 83,617 and the Point/Point3 fixture 1,404,289 -> 149,001, sweep identical / 0 regressions, dashboard"
-    },
-    {
-      "hash": "6f63e4aef",
-      "subject": "perf: a struct instance's expando legs behind link seams — the bag release, the scalar-instance cycle buffering and the FLAG_BUFFERED scrub are stubbed when no attach entry is live"
-    },
-    {
-      "hash": "2fc78b83c",
-      "subject": "perf: the subclass prototype link and the class-source register ride the register call's guard; str pool and mmalloc index with `get` so a bounds check that cannot fail stops linking the panic renderer"
-    },
-    {
-      "hash": "7bd56267c",
-      "subject": "feat: a class method with no return annotation infers its return type from the body — `this.<field>` resolves against the class row, inferred rets publish for later methods"
-    },
-    {
-      "hash": "d086cebfa",
-      "subject": "perf: link-judged class register call and class-method row columns — a class program that never lets an instance or its class cell into the any world links 446,913 -> 149,577"
-    },
-    {
-      "hash": "26ded3f7c",
-      "subject": "chore: rotation 501 close — S2-5 刀 4 second batch all link-judged (closure adapter mints / env-drop legs / uncaught error render / unread registries) take closure-only 397,313 -> 50,697 and s4 -> 50,881, sweep identical / 0 regressions, dashboard"
-    },
-    {
-      "hash": "492d4f0f5",
-      "subject": "perf: a populated fn-name / class-name / class-layout table with no live reader is not emitted — a closure-only program links 67,233 -> 50,697"
     }
   ],
-  "headSha": "868ccafd7",
+  "headSha": "052876884",
   "autorun": {
-    "total": 806,
+    "total": 807,
     "baselineTarget": 10,
-    "bySelf": 801,
+    "bySelf": 802,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787736511-6d7e",
-      "at": "2026-08-26T09:28:31Z",
-      "ts": 1787736511,
+      "rotationId": "r-1787745722-0736",
+      "at": "2026-08-26T12:02:02Z",
+      "ts": 1787745722,
       "trigger": "self",
-      "prevHead": "7b5d8b5d0",
-      "handoffSha": "sha256:eed31795c8f1b736088abd374f3bbc4a6cccbe29cf9e88c682e681f25fb9b908",
-      "handoffAgeSec": 42,
+      "prevHead": "b8b27a355",
+      "handoffSha": "sha256:346781512300339cf4ef117708db53ef2353a1a657bd9f50cfc7d7b1f8c8cf49",
+      "handoffAgeSec": 22,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787745722-0736",
+        "at": "2026-08-26T12:02:02Z",
+        "ts": 1787745722,
+        "trigger": "self",
+        "prevHead": "b8b27a355",
+        "handoffSha": "sha256:346781512300339cf4ef117708db53ef2353a1a657bd9f50cfc7d7b1f8c8cf49",
+        "handoffAgeSec": 22,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787736511-6d7e",
         "at": "2026-08-26T09:28:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "a7856a974",
         "handoffSha": "sha256:d93d7d8ed7223fb5f216e3d6a83a583a861a173cab235bcb728e8850308defed",
         "handoffAgeSec": 16,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787632109-6e3f",
-        "at": "2026-08-25T04:28:29Z",
-        "ts": 1787632109,
-        "trigger": "self",
-        "prevHead": "906c0cd8a",
-        "handoffSha": "sha256:6bfb64a4647a72b163206f369f91747f1e85c11df20d6df97ac74016a5d58d2b",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
