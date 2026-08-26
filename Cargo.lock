@@ -1704,6 +1704,9 @@ dependencies = [
 [[package]]
 name = "torajs-print"
 version = "0.1.0"
+dependencies = [
+ "torajs-fmt",
+]
 
 [[package]]
 name = "torajs-process"
