@@ -262,10 +262,7 @@ pub(crate) struct DispatchJudgment {
 
 /// Scan the lowered module and judge the stub set. Returns the
 /// no-stub judgment (bits 0) on any conservative-fallback trigger.
-/// `live[i]` (FuncId index; a short slice reads as all-live) marks
-/// the fns the artifact carries after user-gc — a stripped fn's
-/// calls are not evidence of anything (r500 A0).
-pub(crate) fn judge(module: &Module, live: &[bool]) -> DispatchJudgment {
+pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let diag_env = std::env::var_os("TORAJS_DISPATCH_JUDGE_DIAG");
     let diag = diag_env.as_deref().is_some_and(|v| v != "0");
     // level 2: dump every distinct runtime symbol the module calls.
@@ -278,10 +275,7 @@ pub(crate) fn judge(module: &Module, live: &[bool]) -> DispatchJudgment {
     let mut print_world = false;
     let mut printer_ref = false;
 
-    for (i, f) in module.funcs.iter().enumerate() {
-        if live.get(i).is_some_and(|&l| !l) {
-            continue;
-        }
+    for f in &module.funcs {
         let synth_error_fn = is_synth_error_fn(&f.name);
         for b in &f.blocks {
             for inst in &b.insts {

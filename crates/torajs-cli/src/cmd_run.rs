@@ -29,11 +29,7 @@ pub(crate) fn run(file_arg: Option<&String>) -> ExitCode {
     };
 
     // Phase 0 step 8b — egraph mid-end pass. Honors TORAJS_EGRAPH_OFF=1.
-    let mut ssa_module = torajs_egraph::transform_module(ssa_module);
-    // RFC 20260824-s2-5 刀 4 A1 — a program no closure of which reaches
-    // the any world links no `__boxed_` adapter (module doc in
-    // torajs_core::ssa_pass_closure_escape).
-    torajs_core::ssa_pass_closure_escape::strip_boxed_entries_if_closed(&mut ssa_module);
+    let ssa_module = torajs_egraph::transform_module(ssa_module);
 
     let cfg = build_link_config(&ssa_module, false, false);
 

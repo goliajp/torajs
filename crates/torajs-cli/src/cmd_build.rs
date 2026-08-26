@@ -89,11 +89,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     };
 
     // Phase 0 step 8b — egraph mid-end pass. Honors TORAJS_EGRAPH_OFF=1.
-    let mut ssa_module = torajs_egraph::transform_module(ssa_module);
-    // RFC 20260824-s2-5 刀 4 A1 — a program no closure of which reaches
-    // the any world links no `__boxed_` adapter (module doc in
-    // torajs_core::ssa_pass_closure_escape).
-    torajs_core::ssa_pass_closure_escape::strip_boxed_entries_if_closed(&mut ssa_module);
+    let ssa_module = torajs_egraph::transform_module(ssa_module);
 
     let cfg = build_link_config(&ssa_module, true, !no_strip);
 
@@ -317,7 +313,28 @@ pub(crate) fn build_link_config(
     dead_strip: bool,
     strip_member_symbols: bool,
 ) -> LinkConfig {
-    let funcs = compile_module_funcs(ssa_module);
+    let mut funcs = compile_module_funcs(ssa_module);
+    // S2-5 blade 2b: judge which dispatch families the program can
+    // never enter and stub their arm seams (module docs in
+    // cmd_build_dispatch_judge / cmd_build_dispatch_stubs).
+    // TORAJS_DISPATCH_STUB_ALL forces every family (pricing);
+    // TORAJS_DISPATCH_STUB_OFF disables the judgment entirely.
+    if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
+        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true, true);
+    } else if !crate::cmd_build_dispatch_stubs::stub_off() {
+        let j = crate::cmd_build_dispatch_judge::judge(ssa_module);
+        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
+            &mut funcs,
+            j.stub_arm_bits,
+            j.stub_ns_static,
+            j.stub_printers,
+        );
+    }
+
+    // r499 — main's three end-of-program drains become conditional
+    // on their feeder members' liveness (policy in cmd_build_elide).
+    let elidable_calls = crate::cmd_build_elide::collect_elidable_calls(&funcs);
+    let guarded_stubs = crate::cmd_build_elide::guarded_stubs();
 
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
@@ -341,8 +358,8 @@ pub(crate) fn build_link_config(
         codesign_ident: "tora".into(),
         dead_strip,
         strip_member_symbols,
-        elidable_calls: Vec::new(),
-        guarded_stubs: Vec::new(),
+        elidable_calls,
+        guarded_stubs,
         archives,
         strings,
         data_globals,
@@ -390,36 +407,7 @@ pub(crate) fn build_link_config(
     };
     // r498 knife 4 — user-fn dead-strip; roots come from the
     // materialized tables in `cfg` itself (module doc in
-    // cmd_build_user_gc). Runs BEFORE the dispatch judgment so a fn
-    // the artifact will not carry contributes no evidence (r500 A0).
-    let live = crate::cmd_build_user_gc::strip_dead_user_fns(&mut cfg);
-    // S2-5 blade 2b: judge which dispatch families the program can
-    // never enter and stub their arm seams (module docs in
-    // cmd_build_dispatch_judge / cmd_build_dispatch_stubs). The stubs
-    // are `___torajs_*`-named leaves — user-gc roots by name, and
-    // they reference no other user fn — so appending them after the
-    // strip needs no second walk. TORAJS_DISPATCH_STUB_ALL forces
-    // every family (pricing); TORAJS_DISPATCH_STUB_OFF disables the
-    // judgment entirely.
-    if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
-        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
-            &mut cfg.funcs,
-            u16::MAX,
-            true,
-            true,
-        );
-    } else if !crate::cmd_build_dispatch_stubs::stub_off() {
-        let j = crate::cmd_build_dispatch_judge::judge(ssa_module, &live);
-        crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
-            &mut cfg.funcs,
-            j.stub_arm_bits,
-            j.stub_ns_static,
-            j.stub_printers,
-        );
-    }
-    // r499 — main's three end-of-program drains become conditional
-    // on their feeder members' liveness (policy in cmd_build_elide).
-    cfg.elidable_calls = crate::cmd_build_elide::collect_elidable_calls(&cfg.funcs);
-    cfg.guarded_stubs = crate::cmd_build_elide::guarded_stubs();
+    // cmd_build_user_gc).
+    crate::cmd_build_user_gc::strip_dead_user_fns(&mut cfg);
     cfg
 }

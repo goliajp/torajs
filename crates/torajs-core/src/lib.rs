@@ -615,5 +615,4 @@ pub(crate) mod ssa_lower_typeof_ns;
 pub(crate) mod ssa_lower_typeof_runtime;
 pub(crate) mod ssa_lower_unary;
 pub mod ssa_lower_while_push_fast;
-pub mod ssa_pass_closure_escape;
 pub mod staticlibs;
