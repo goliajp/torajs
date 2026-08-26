@@ -47,6 +47,7 @@ use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
 unsafe extern "C" {
     fn __torajs_io_write_out(buf: *const u8, len: u64);
     fn __torajs_print_f64_js(d: f64);
+    fn __torajs_print_f64_js_inline(d: f64);
 }
 
 /// Hand the composed bytes to the print family's shared
@@ -62,6 +63,18 @@ fn write_all(buf: &[u8]) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn print_bool(b: bool) {
     let bytes: &[u8] = if b { b"true\n" } else { b"false\n" };
+    write_all(bytes);
+}
+
+/// r505 — `print_bool` without the newline: one argument of a
+/// multi-arg `console.log`, whose lowering writes the separators and
+/// the line end itself. The `_inline` family (i64 / f64 / bool / str
+/// / substr) is what keeps a typed multi-arg log off the any-value
+/// printer — that printer roots every inspectable world (98 KB on
+/// `console.log(1, 2)`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn print_bool_inline(b: bool) {
+    let bytes: &[u8] = if b { b"true" } else { b"false" };
     write_all(bytes);
 }
 
@@ -87,6 +100,18 @@ pub unsafe extern "C" fn print_i64(n: i64) {
     let mut out = [0u8; I64_LINE_LEN];
     let len = render_i64_line(n, &mut out);
     write_all(&out[..len]);
+}
+
+/// `print_i64` without the newline (see [`print_bool_inline`]): the
+/// same rendered line, minus its last byte.
+#[unsafe(no_mangle)]
+#[optimize(size)]
+pub unsafe extern "C" fn print_i64_inline(n: i64) {
+    let mut out = [0u8; I64_LINE_LEN];
+    let len = render_i64_line(n, &mut out);
+    if let Some(digits) = out.get(..len.saturating_sub(1)) {
+        write_all(digits);
+    }
 }
 
 /// `"-9223372036854775808\n"` — the longest line `print_i64` writes.
@@ -118,6 +143,12 @@ fn render_i64_line(n: i64, out: &mut [u8; I64_LINE_LEN]) -> usize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn print_f64(d: f64) {
     unsafe { __torajs_print_f64_js(d) }
+}
+
+/// `print_f64` without the newline (see [`print_bool_inline`]).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn print_f64_inline(d: f64) {
+    unsafe { __torajs_print_f64_js_inline(d) }
 }
 
 #[cfg(test)]

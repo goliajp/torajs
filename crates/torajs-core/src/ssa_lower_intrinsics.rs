@@ -44,6 +44,12 @@ pub(crate) struct Intrinsics {
     pub(crate) print_i64: FuncId,
     pub(crate) print_f64: FuncId,
     pub(crate) print_bool: FuncId,
+    /// r505 — newline-less twins for multi-arg `console.log`.
+    pub(crate) print_i64_inline: FuncId,
+    pub(crate) print_f64_inline: FuncId,
+    pub(crate) print_bool_inline: FuncId,
+    pub(crate) str_print_inline: FuncId,
+    pub(crate) substr_print_inline: FuncId,
     pub(crate) str_alloc: FuncId,
     pub(crate) str_print: FuncId,
     pub(crate) str_drop: FuncId,

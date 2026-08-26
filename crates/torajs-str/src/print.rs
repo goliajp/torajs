@@ -243,8 +243,18 @@ fn putc(b: u8) {
 /// `s` must be either NULL or a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
+    unsafe { __torajs_str_print_inline(s) };
+    putc(b'\n');
+}
+
+/// [`__torajs_str_print`] without the newline — one argument of a
+/// multi-arg `console.log` (r505; the lowering writes the separators
+/// and the line end). A null cell prints `null`, as the line form
+/// always did.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_print_inline(s: *const u8) {
     if s.is_null() {
-        for &b in b"null\n" {
+        for &b in b"null" {
             putc(b);
         }
         return;
@@ -269,7 +279,6 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
             });
         }
     }
-    putc(b'\n');
 }
 
 /// `console.log(substr)` — write a Substr's view (parent bytes +
@@ -294,8 +303,16 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
 /// `v` must be NULL or a valid Substr heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
+    unsafe { __torajs_substr_print_inline(v) };
+    putc(b'\n');
+}
+
+/// [`__torajs_substr_print`] without the newline (see
+/// [`__torajs_str_print_inline`]).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_substr_print_inline(v: *const u8) {
     if v.is_null() {
-        for &b in b"null\n" {
+        for &b in b"null" {
             putc(b);
         }
         return;
@@ -322,7 +339,6 @@ pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
             });
         }
     }
-    putc(b'\n');
 }
 
 /// Write `s`'s payload (UTF-8 transcoded from the Str's native

@@ -54,6 +54,10 @@ struct LoweredArg {
     /// after printing. Fresh non-Any temps carry their own stake
     /// that the box transfer consumes, so they are NOT staked here.
     staked: bool,
+    /// r505 — a refcounted arg the expression minted (not a borrow):
+    /// the typed-inline arm releases it after the print, as the
+    /// any-box arm's drop of the box always did.
+    owned: bool,
 }
 
 /// Try to lower `s` as a multi-arg `console.log` Stmt::Expr. Returns
@@ -91,6 +95,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
                 op: None,
                 ty: Type::Void,
                 staked: false,
+                owned: false,
             });
             continue;
         }
@@ -139,6 +144,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             op: Some(arg),
             ty: arg_ty,
             staked,
+            owned: arg_ty != Type::Any && arg_ty.is_refcounted() && !is_borrow,
         });
     }
 
@@ -173,6 +179,7 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
         op,
         ty,
         staked,
+        owned,
     } = la;
     let Some(arg) = op else {
         // S139 static-undefined shape — box a literal "undefined"
@@ -224,6 +231,31 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
     // the fnname runtime (null → "null", the undefined sentinel
     // → "undefined", a real address → "[Function: name]") and
     // print the owned Str via the Str-slot box.
+    // r505 — a scalar / string argument prints through its own
+    // newline-less printer, exactly the bytes the single-arg lane
+    // would write for it. Boxing it into the any printer (the arm
+    // below) rooted every inspectable world — 98 KB on
+    // `console.log(1, 2)`. An F64 that may carry the undefined
+    // sentinel keeps the two-state any box.
+    let typed_inline = match ty {
+        Type::I64 => Some(ctx.intrinsics.print_i64_inline),
+        Type::Bool => Some(ctx.intrinsics.print_bool_inline),
+        Type::F64 if !crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, aid) => {
+            Some(ctx.intrinsics.print_f64_inline)
+        }
+        Type::Str => Some(ctx.intrinsics.str_print_inline),
+        Type::Substr => Some(ctx.intrinsics.substr_print_inline),
+        _ => None,
+    };
+    if let Some(target) = typed_inline {
+        ctx.f
+            .append_void(ctx.cur_block, InstKind::Call(target, vec![arg.clone()]));
+        if staked || owned {
+            ctx.emit_drop_value(arg, ty);
+        }
+        crate::ssa_lower_call_console::close_console_sentinel_branch(ctx, sentinel_join);
+        return;
+    }
     if matches!(ty, Type::FnSig(_)) {
         let s = ctx.f.append_inst(
             ctx.cur_block,

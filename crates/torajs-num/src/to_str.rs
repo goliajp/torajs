@@ -133,20 +133,28 @@ pub unsafe extern "C" fn __torajs_bool_to_str(b: i32) -> *mut u8 {
 /// family). NaN / ±Infinity special-cased.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
-    if d.is_nan() {
-        for &b in b"NaN\n" {
-            unsafe { __torajs_io_putc_out(b as i32) };
-        }
-        return;
+    unsafe {
+        __torajs_print_f64_js_inline(d);
+        __torajs_io_putc_out(b'\n' as i32);
     }
-    if d == f64::INFINITY {
-        for &b in b"Infinity\n" {
-            unsafe { __torajs_io_putc_out(b as i32) };
-        }
-        return;
-    }
-    if d == f64::NEG_INFINITY {
-        for &b in b"-Infinity\n" {
+}
+
+/// [`__torajs_print_f64_js`] without the newline — one argument of a
+/// multi-arg `console.log` (r505; the lowering writes the separators
+/// and the line end).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_f64_js_inline(d: f64) {
+    let special: Option<&[u8]> = if d.is_nan() {
+        Some(b"NaN")
+    } else if d == f64::INFINITY {
+        Some(b"Infinity")
+    } else if d == f64::NEG_INFINITY {
+        Some(b"-Infinity")
+    } else {
+        None
+    };
+    if let Some(text) = special {
+        for &b in text {
             unsafe { __torajs_io_putc_out(b as i32) };
         }
         return;
@@ -154,10 +162,11 @@ pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
     let mut buf = [0u8; 32];
     let n = f64_shortest(d, &mut buf);
     let n = if n < 0 { 0 } else { n as usize };
-    if n > 0 {
-        for &b in &buf[..n] {
+    // `get`, not `[..n]`: `n <= 32` by the formatter's contract, and
+    // the range form's panic path is a `core::fmt` edge (r503).
+    if let Some(bytes) = buf.get(..n) {
+        for &b in bytes {
             unsafe { __torajs_io_putc_out(b as i32) };
         }
     }
-    unsafe { __torajs_io_putc_out(b'\n' as i32) };
 }

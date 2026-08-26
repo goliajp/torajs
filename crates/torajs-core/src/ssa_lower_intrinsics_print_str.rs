@@ -22,6 +22,12 @@ pub(crate) struct PrintStrIds {
     pub print_i64: FuncId,
     pub print_f64: FuncId,
     pub print_bool: FuncId,
+    /// r505 — the newline-less twins, one argument of a multi-arg
+    /// `console.log` each (the lowering writes separators + line end).
+    pub print_i64_inline: FuncId,
+    pub print_f64_inline: FuncId,
+    pub print_bool_inline: FuncId,
+    pub str_print_inline: FuncId,
     pub str_alloc: FuncId,
     pub str_print: FuncId,
     pub str_drop: FuncId,
@@ -37,6 +43,34 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         print_i64: declare_intrinsic(module, fn_table, "print_i64", &[Type::I64], Type::Void),
         print_f64: declare_intrinsic(module, fn_table, "print_f64", &[Type::F64], Type::Void),
         print_bool: declare_intrinsic(module, fn_table, "print_bool", &[Type::Bool], Type::Void),
+        print_i64_inline: declare_intrinsic(
+            module,
+            fn_table,
+            "print_i64_inline",
+            &[Type::I64],
+            Type::Void,
+        ),
+        print_f64_inline: declare_intrinsic(
+            module,
+            fn_table,
+            "print_f64_inline",
+            &[Type::F64],
+            Type::Void,
+        ),
+        print_bool_inline: declare_intrinsic(
+            module,
+            fn_table,
+            "print_bool_inline",
+            &[Type::Bool],
+            Type::Void,
+        ),
+        str_print_inline: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_print_inline",
+            &[Type::Str],
+            Type::Void,
+        ),
         str_alloc: declare_intrinsic(
             module,
             fn_table,
