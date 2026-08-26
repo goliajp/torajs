@@ -339,46 +339,129 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
     // roster order, 16..40 = printer kernels, 40+ = link-judged
     // exotic slow paths. The name makes a wrong
     // judgment attributable from the failure line alone.
-    let msg: &core::ffi::CStr = match fam_id {
-        0 => c"str method family stripped (dispatch judgment bug)",
-        1 => c"arr method family stripped (dispatch judgment bug)",
-        2 => c"dynobj method family stripped (dispatch judgment bug)",
-        3 => c"struct method family stripped (dispatch judgment bug)",
-        4 => c"mapset method family stripped (dispatch judgment bug)",
-        5 => c"iter method family stripped (dispatch judgment bug)",
-        6 => c"buffer method family stripped (dispatch judgment bug)",
-        7 => c"date method family stripped (dispatch judgment bug)",
-        8 => c"promise method family stripped (dispatch judgment bug)",
-        9 => c"regexp method family stripped (dispatch judgment bug)",
-        10 => c"bigint method family stripped (dispatch judgment bug)",
-        11 => c"symbol method family stripped (dispatch judgment bug)",
-        12 => c"closure method family stripped (dispatch judgment bug)",
-        13 => c"weak method family stripped (dispatch judgment bug)",
-        14 => c"num method family stripped (dispatch judgment bug)",
-        15 => c"namespace-static world stripped (dispatch judgment bug)",
-        // 40+: the typed kernels' exotic slow paths (link-judged on
-        // the arr crate's writer entries, r500).
-        40 => c"exotic-array join stripped (link judgment bug)",
-        41 => c"array species probe stripped (link judgment bug)",
-        42 => c"scalar-array props drop stripped (link judgment bug)",
-        43 => c"scalar-array subclass drop stripped (link judgment bug)",
-        44 => c"closure props drop stripped (link judgment bug)",
-        45 => c"closure unbuffer stripped (link judgment bug)",
-        46 => c"uncaught error render stripped (link judgment bug)",
-        47 => c"struct props drop stripped (link judgment bug)",
-        48 => c"struct cycle buffering stripped (link judgment bug)",
-        49 => c"struct unbuffer stripped (link judgment bug)",
-        50 => c"struct field-write guard stripped (link judgment bug)",
-        n if (16..40).contains(&n) => c"printer kernel stripped (dispatch judgment bug)",
-        _ => c"method family stripped (dispatch judgment bug)",
-    };
+    let mut msg = [0u8; REJECT_MSG_CAP];
+    reject_message(fam_id, &mut msg);
     unsafe {
-        __torajs_throw_type_error(msg.as_ptr());
+        __torajs_throw_type_error(msg.as_ptr().cast());
     }
     torajs_anyvalue::VALUE_UNDEFINED
+}
+
+/// Arm-roster family names, indexed by fam_id 0..14 — the same order
+/// `torajs_rc::any_method_family` numbers its bits.
+const ARM_FAMILY_NAMES: [&str; 15] = [
+    "str", "arr", "dynobj", "struct", "mapset", "iter", "buffer", "date", "promise", "regexp",
+    "bigint", "symbol", "closure", "weak", "num",
+];
+
+const REJECT_METHOD_FAMILY: &str = " method family";
+const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
+const REJECT_LINK_TAIL: &str = " stripped (link judgment bug)";
+
+/// Longest composed reject line + NUL: `"scalar-array subclass drop"`
+/// (26) + the link tail (29) is the widest, with room to spare.
+const REJECT_MSG_CAP: usize = 96;
+
+/// Compose the reject line for `fam_id` into `buf`, NUL-terminated;
+/// returns the byte length before the NUL.
+///
+/// Every line is `<subject><tail>`, and the fifteen arm families
+/// share ` method family` between the two — so the table holds one
+/// short subject per id and the shared pieces once. Spelled out per
+/// id, the 29 lines cost 1.6 KB of `__text` in a class program whose
+/// every family was stubbed (s3 rotation 504 census); the subjects
+/// alone are a quarter of that. The bytes each id produces are the
+/// ones the per-id literals produced — the unit tests pin them.
+fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
+    let (subject, mid, tail) = match fam_id {
+        n if (n as usize) < ARM_FAMILY_NAMES.len() => (
+            ARM_FAMILY_NAMES[n as usize],
+            REJECT_METHOD_FAMILY,
+            REJECT_DISPATCH_TAIL,
+        ),
+        15 => ("namespace-static world", "", REJECT_DISPATCH_TAIL),
+        16..40 => ("printer kernel", "", REJECT_DISPATCH_TAIL),
+        40 => ("exotic-array join", "", REJECT_LINK_TAIL),
+        41 => ("array species probe", "", REJECT_LINK_TAIL),
+        42 => ("scalar-array props drop", "", REJECT_LINK_TAIL),
+        43 => ("scalar-array subclass drop", "", REJECT_LINK_TAIL),
+        44 => ("closure props drop", "", REJECT_LINK_TAIL),
+        45 => ("closure unbuffer", "", REJECT_LINK_TAIL),
+        46 => ("uncaught error render", "", REJECT_LINK_TAIL),
+        47 => ("struct props drop", "", REJECT_LINK_TAIL),
+        48 => ("struct cycle buffering", "", REJECT_LINK_TAIL),
+        49 => ("struct unbuffer", "", REJECT_LINK_TAIL),
+        50 => ("struct field-write guard", "", REJECT_LINK_TAIL),
+        _ => ("method family", "", REJECT_DISPATCH_TAIL),
+    };
+    // Filled through the iterator forms rather than range indexing:
+    // the indexed forms carry a formatted panic path, and a runtime
+    // kernel that owns one drags `core::fmt` into every program that
+    // links it (the r503 census).
+    let mut len = 0;
+    for part in [subject, mid, tail] {
+        for (dst, &b) in buf.iter_mut().skip(len).zip(part.as_bytes()) {
+            *dst = b;
+        }
+        len += part.len();
+    }
+    if let Some(nul) = buf.get_mut(len) {
+        *nul = 0;
+    }
+    len
 }
 
 unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(id: u64) -> ([u8; REJECT_MSG_CAP], usize) {
+        let mut buf = [0u8; REJECT_MSG_CAP];
+        let len = reject_message(id, &mut buf);
+        assert_eq!(buf[len], 0, "NUL-terminated");
+        (buf, len)
+    }
+
+    #[track_caller]
+    fn assert_line(id: u64, expected: &str) {
+        let (buf, len) = line(id);
+        assert_eq!(&buf[..len], expected.as_bytes(), "fam {id}");
+    }
+
+    /// The composed lines are byte-for-byte the per-id literals they
+    /// replaced — a failure line still names the family it came from.
+    #[test]
+    fn composed_lines_match_the_former_literals() {
+        assert_line(0, "str method family stripped (dispatch judgment bug)");
+        assert_line(2, "dynobj method family stripped (dispatch judgment bug)");
+        assert_line(14, "num method family stripped (dispatch judgment bug)");
+        assert_line(
+            15,
+            "namespace-static world stripped (dispatch judgment bug)",
+        );
+        assert_line(16, "printer kernel stripped (dispatch judgment bug)");
+        assert_line(39, "printer kernel stripped (dispatch judgment bug)");
+        assert_line(40, "exotic-array join stripped (link judgment bug)");
+        assert_line(
+            43,
+            "scalar-array subclass drop stripped (link judgment bug)",
+        );
+        assert_line(50, "struct field-write guard stripped (link judgment bug)");
+        assert_line(51, "method family stripped (dispatch judgment bug)");
+        assert_line(u64::MAX, "method family stripped (dispatch judgment bug)");
+    }
+
+    /// No id composes past the buffer — the cap is sized off the
+    /// widest subject plus the widest tail plus the NUL.
+    #[test]
+    fn every_line_fits_the_buffer() {
+        for id in 0..64u64 {
+            assert!(line(id).1 + 1 <= REJECT_MSG_CAP, "id {id}");
+        }
+    }
 }
