@@ -163,12 +163,13 @@ pub(crate) fn judge_and_patch(
             funcs: probe,
             ..cfg.clone()
         };
+        // preds only under diag — `explain_live` walks them.
         let reach = compute_reachability(
             &probe_cfg,
             merged,
             &required,
             extra_defined_syms,
-            false,
+            diag,
             None,
         )?;
         let mut changed = false;
@@ -176,17 +177,30 @@ pub(crate) fn judge_and_patch(
             if elided[i] && guard_live(&reach, &site.guard) {
                 elided[i] = false;
                 changed = true;
+                if diag {
+                    eprint!("{}", explain_live(&reach, &site.guard));
+                }
             }
         }
         for (i, stub) in cfg.guarded_stubs.iter().enumerate() {
             if applied[i] && guard_live(&reach, &stub.guard) {
                 applied[i] = false;
                 changed = true;
+                if diag {
+                    eprint!("{}", explain_live(&reach, &stub.guard));
+                }
             }
         }
         if !changed {
+            // A seam is imported either by a live member atom
+            // (`user_refs`) or by a user fn's own reloc — the closure
+            // env-drop legs (A5) are called from synthesized user fns
+            // and never appear in a member's undef table.
+            let fn_named = user_fn_reloc_names(&probe_cfg.funcs);
             for (i, stub) in cfg.guarded_stubs.iter().enumerate() {
-                referenced[i] = !applied[i] || reach.user_refs.contains(&stub.sym);
+                referenced[i] = !applied[i]
+                    || reach.user_refs.contains(&stub.sym)
+                    || fn_named.contains(stub.sym.as_str());
             }
             break;
         }
@@ -258,6 +272,39 @@ fn assume(
         }
     }
     Ok(funcs)
+}
+
+/// Diag — why the guard came back live in THIS probe (the final
+/// world no longer shows it: the un-assumed shape has changed what
+/// is live). `Symbols`: the why-chain of each; `Member`: the member's
+/// live atoms, the reader picks one and re-runs with
+/// `TORAJS_LINK_DEADSTRIP_WHY`.
+fn explain_live(reach: &ReachResult<'_>, guard: &Guard) -> String {
+    match guard {
+        Guard::Symbols(syms) => crate::dead_strip_diag::render_why(reach, &syms.join(",")),
+        Guard::Member { prefix, .. } => {
+            crate::dead_strip_diag::render_live_dump(reach, std::slice::from_ref(prefix))
+        }
+    }
+}
+
+/// Every symbol name a non-empty user fn's relocs carry.
+fn user_fn_reloc_names(funcs: &[CompiledFunction]) -> BTreeSet<&str> {
+    use torajs_codegen::reloc::{CallTarget, RelocKind};
+    funcs
+        .iter()
+        .filter(|f| !f.bytes.is_empty())
+        .flat_map(|f| f.relocs.iter())
+        .filter_map(|r| match &r.kind {
+            RelocKind::CallSite {
+                target: CallTarget::Extern(name),
+            } => Some(name.as_str()),
+            RelocKind::CallSite { .. } => None,
+            RelocKind::Page21 { target_sym }
+            | RelocKind::PageOff12 { target_sym }
+            | RelocKind::AbsPtr64 { target_sym } => Some(target_sym.as_str()),
+        })
+        .collect()
 }
 
 /// Is the guard's evidence live? `Member`: any text atom of a

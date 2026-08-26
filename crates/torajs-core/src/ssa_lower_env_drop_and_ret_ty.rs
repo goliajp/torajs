@@ -14,7 +14,7 @@
 //!   actual body (used from `ssa_lower_pass_1` and `ssa_lower_fn`).
 
 use crate::ast::{Ast, Expr, Param, Stmt};
-use crate::ssa::{self, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{self, BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, CLOSURE_PROPS_OFF, Intrinsics};
 use crate::ssa_lower_body_returns_closure::body_returns_closure;
 
@@ -47,48 +47,13 @@ pub(crate) fn synthesize_env_drop(
     let env_pid = f.add_param(Type::Ptr, "env");
     let entry = f.add_block();
     let env_op = Operand::Value(env_pid);
-    // RFC 20260717 knife 3 — scrub the cycle root buffer before the
-    // env goes away (a buffered candidate that then normal-drops
-    // would leave a dangling entry; cheap no-op when FLAG_BUFFERED
-    // is clear). Same position as the class-Obj drop scrub.
-    f.append_void(
+    let entry = emit_env_drop_prologue(
+        &mut f,
         entry,
-        InstKind::Call(intrinsics.cycle_unbuffer, vec![env_op]),
+        env_pid,
+        intrinsics.closure_unbuffer_slow,
+        intrinsics.closure_drop_props_slow,
     );
-    // T-27 — drop the props dynobj if non-NULL. SSA-side NULL check
-    // skips the value_drop_heap call entirely for closures that
-    // never had a property write (the common case). Without this,
-    // every closure construction pays an extra cross-TU call on
-    // drop even when props_dynobj is NULL — measured 5-12% regression
-    // on closure-heavy benches (promise-chain-1k, throw-catch-100k).
-    let props_v = f.append_inst(
-        entry,
-        InstKind::Load(Type::Ptr, env_op, CLOSURE_PROPS_OFF),
-        Type::Ptr,
-        None,
-    );
-    let props_nonnull = f.append_inst(
-        entry,
-        InstKind::ICmp(IPred::Ne, Operand::Value(props_v), Operand::ConstPtrNull),
-        Type::Bool,
-        None,
-    );
-    let drop_blk = f.add_block();
-    let after_props = f.add_block();
-    f.set_term(
-        entry,
-        Terminator::CondBr {
-            cond: Operand::Value(props_nonnull),
-            then_blk: drop_blk,
-            else_blk: after_props,
-        },
-    );
-    f.append_void(
-        drop_blk,
-        InstKind::Call(intrinsics.value_drop_heap, vec![Operand::Value(props_v)]),
-    );
-    f.set_term(drop_blk, Terminator::Br(after_props));
-    let entry = after_props;
     for (i, (cap_ty, is_byref)) in cap_meta.iter().enumerate() {
         let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
         if *is_byref {
@@ -148,6 +113,102 @@ pub(crate) fn synthesize_env_drop(
     );
     f.set_term(entry, Terminator::Ret(None));
     f
+}
+
+/// The two speculative legs every closure env-drop opens with, each
+/// behind a link seam (A5, RFC 20260824-s2-5 刀 4; defaults in
+/// torajs-dispatch, guards in `cmd_build_elide::SYMBOL_STUBS`):
+///
+/// 1. RFC 20260717 knife 3 — scrub the cycle root buffer before the
+///    env goes away (a buffered candidate that then normal-drops
+///    would leave a dangling entry). The `FLAG_BUFFERED` test is
+///    inline so an unbuffered cell — every cell in a program nothing
+///    ever buffers — pays one load and no call; the seam is reached
+///    only when set, and its guard is `__torajs_cycle_buffer`'s own
+///    text (the only way a cell gets the flag).
+/// 2. T-27 — release the props dynobj if non-NULL. The NULL test is
+///    inline for the same reason (measured 5-12% on closure-heavy
+///    benches when every drop paid the call); the seam's guard is
+///    `__torajs_closure_props_attach`, the one first-attach entry.
+///
+/// Answers the block the caller continues in.
+pub(crate) fn emit_env_drop_prologue(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    env: ssa::ValueId,
+    unbuffer_slow: ssa::FuncId,
+    drop_props_slow: ssa::FuncId,
+) -> ssa::BlockId {
+    let env_op = Operand::Value(env);
+    // header +4 packs tag:u16 | flags:u16 (same read as the inline
+    // closure drop's static-literal gate).
+    let tag_flags = f.append_inst(
+        entry,
+        InstKind::Load(Type::I32, env_op.clone(), 4),
+        Type::I32,
+        None,
+    );
+    let buffered_bit = f.append_inst(
+        entry,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(tag_flags),
+            Operand::ConstI32((torajs_rc::FLAG_BUFFERED as i32) << 16),
+        ),
+        Type::I32,
+        None,
+    );
+    let is_buffered = f.append_inst(
+        entry,
+        InstKind::ICmp(
+            IPred::Ne,
+            Operand::Value(buffered_bit),
+            Operand::ConstI32(0),
+        ),
+        Type::Bool,
+        None,
+    );
+    let unbuf_blk = f.add_block();
+    let after_unbuf = f.add_block();
+    f.set_term(
+        entry,
+        Terminator::CondBr {
+            cond: Operand::Value(is_buffered),
+            then_blk: unbuf_blk,
+            else_blk: after_unbuf,
+        },
+    );
+    f.append_void(
+        unbuf_blk,
+        InstKind::Call(unbuffer_slow, vec![env_op.clone()]),
+    );
+    f.set_term(unbuf_blk, Terminator::Br(after_unbuf));
+
+    let props_v = f.append_inst(
+        after_unbuf,
+        InstKind::Load(Type::Ptr, env_op.clone(), CLOSURE_PROPS_OFF),
+        Type::Ptr,
+        None,
+    );
+    let props_nonnull = f.append_inst(
+        after_unbuf,
+        InstKind::ICmp(IPred::Ne, Operand::Value(props_v), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    let drop_blk = f.add_block();
+    let after_props = f.add_block();
+    f.set_term(
+        after_unbuf,
+        Terminator::CondBr {
+            cond: Operand::Value(props_nonnull),
+            then_blk: drop_blk,
+            else_blk: after_props,
+        },
+    );
+    f.append_void(drop_blk, InstKind::Call(drop_props_slow, vec![env_op]));
+    f.set_term(drop_blk, Terminator::Br(after_props));
+    after_props
 }
 
 /// If the parsed return type is `Type::FnSig(sig)` and the function's

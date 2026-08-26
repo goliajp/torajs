@@ -48,6 +48,19 @@
 //! silent answer: a writer added later without routing through the
 //! entries would surface as a named TypeError under the gate.
 //!
+//! **Uncaught reporter's Error rendering** (r501, 刀 4 A6) — the
+//! name / prototype-chain resolver is the reporter's only edge into
+//! the generic value world; a program that injected no error class
+//! (nothing registers through `__torajs_register_native_error`) can
+//! hold no FLAG_ERROR cell (fam 46).
+//!
+//! **Closure env-drop legs** (r501, 刀 4 A5) — every `__env_drop_*`
+//! opens with a cycle-buffer scrub and a props-bag release; both are
+//! seams (`torajs_core::ssa_lower_env_drop_and_ret_ty::emit_env_drop_
+//! prologue`, defaults in torajs-dispatch) guarded on their sole
+//! enablers, `__torajs_cycle_buffer` and `__torajs_closure_props_
+//! attach` (fam 44/45).
+//!
 //! **Adapter mints** (r501, 刀 4 A1) — every closure mint stores its
 //! `__boxed_` any-ABI adapter's address into the cell, and the
 //! adapter's per-parameter unbox roots the whole any world (one
@@ -101,7 +114,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 4] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 7] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -131,6 +144,31 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 4] = [
         "___torajs_arr_drop_subclass_slow",
         &["___torajs_arr_subclass_alloc"],
         43,
+    ),
+    // the closure env-drop's two legs (A5): a props bag to release
+    // — only `__torajs_closure_props_attach` gives a user closure
+    // one — and a buffered cell to scrub — only `__torajs_cycle_
+    // buffer` sets FLAG_BUFFERED.
+    (
+        "___torajs_closure_drop_props_slow",
+        &["___torajs_closure_props_attach"],
+        44,
+    ),
+    (
+        "___torajs_closure_unbuffer_slow",
+        &["___torajs_cycle_buffer"],
+        45,
+    ),
+    // the uncaught reporter's Error-instance rendering (A6): FLAG_
+    // ERROR is set only by Error-derived `__new_<C>` factories, and
+    // every such class registers itself through
+    // `__torajs_register_native_error` in the program prologue — the
+    // runtime's own raisers go through those registered factories
+    // and fall back to a bare Str when none is registered.
+    (
+        "___torajs_uncaught_error_render_slow",
+        &["___torajs_register_native_error"],
+        46,
     ),
 ];
 
@@ -371,7 +409,7 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 5);
+        assert_eq!(stubs.len(), 8);
         let join = &stubs[1];
         assert_eq!(join.sym, "___torajs_arr_join_exotic");
         assert_eq!(join.guard.to_string(), "syms:___torajs_arr_flag_exotic");
@@ -403,6 +441,22 @@ mod tests {
         assert_eq!(
             &stubs[4].bytes[..4],
             &(0xD280_0000u32 | (43 << 5) | 7).to_le_bytes()
+        );
+        assert_eq!(stubs[5].sym, "___torajs_closure_drop_props_slow");
+        assert_eq!(
+            stubs[5].guard.to_string(),
+            "syms:___torajs_closure_props_attach"
+        );
+        assert_eq!(stubs[6].sym, "___torajs_closure_unbuffer_slow");
+        assert_eq!(stubs[6].guard.to_string(), "syms:___torajs_cycle_buffer");
+        assert_eq!(
+            &stubs[6].bytes[..4],
+            &(0xD280_0000u32 | (45 << 5) | 7).to_le_bytes()
+        );
+        assert_eq!(stubs[7].sym, "___torajs_uncaught_error_render_slow");
+        assert_eq!(
+            stubs[7].guard.to_string(),
+            "syms:___torajs_register_native_error"
         );
     }
 }

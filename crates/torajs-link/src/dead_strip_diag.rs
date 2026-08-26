@@ -95,7 +95,7 @@ pub(crate) fn report(
 /// above stops at member granularity; a WHO census needs a target
 /// pattern in hand. This is the middle view: what exactly is alive
 /// inside one member, symbol by symbol.
-fn render_live_dump(r: &ReachResult<'_>, pats: &[String]) -> String {
+pub(crate) fn render_live_dump(r: &ReachResult<'_>, pats: &[String]) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     for m in r.members.values() {
@@ -135,7 +135,7 @@ fn render_live_dump(r: &ReachResult<'_>, pats: &[String]) -> String {
 /// Why-live query: for each comma-separated substring in `pats`,
 /// find up to 3 live defined symbols whose name contains it and
 /// print the recorded liveness chain back to a root.
-fn render_why(r: &ReachResult<'_>, pats: &str) -> String {
+pub(crate) fn render_why(r: &ReachResult<'_>, pats: &str) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     for pat in pats.split(',').filter(|p| !p.is_empty()) {

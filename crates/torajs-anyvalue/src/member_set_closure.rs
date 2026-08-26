@@ -13,6 +13,9 @@ use crate::member_set::{
 };
 
 unsafe extern "C" {
+    /// torajs-rc — the one first-attach of a user closure's props bag
+    /// (link-judged; see `torajs_rc::closure_entry`).
+    fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void);
     /// torajs-dynobj — own-entry presence probe (prop_has's kernel).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-buffer — §10.4.5.5 TypedArraySetElement (coerce first,
@@ -230,14 +233,20 @@ pub(crate) unsafe fn set_closure_member(
             }
             return 0;
         }
-        if props.is_null() {
+        let first_attach = props.is_null();
+        if first_attach {
             props = __torajs_dynobj_alloc();
         }
         let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
         // First-write alloc and resize relocation both land the
         // fresh table back in the +24 slot; the closure cell
-        // itself never moves.
-        *props_slot = props as u64;
+        // itself never moves. The first attach is the link-judged
+        // entry (A5 seam evidence).
+        if first_attach {
+            __torajs_closure_props_attach(ptr.cast::<u8>(), props);
+        } else {
+            *props_slot = props as u64;
+        }
         wrote
     }
 }

@@ -29,6 +29,9 @@ use crate::reflect::{
 };
 
 unsafe extern "C" {
+    /// torajs-rc — the one first-attach of a user closure's props bag
+    /// (link-judged; see `torajs_rc::closure_entry`).
+    fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     /// torajs-dynobj — the narrow entry-table define (RFC
     /// 20260825-inject-narrow-define 刀 1). Takes its own key stake;
@@ -87,11 +90,11 @@ const CLOSURE_PROPS_OFF: usize = 24;
 /// no later writeback is needed).
 unsafe fn closure_proto_carrier(cell: *mut c_void) -> *mut c_void {
     unsafe {
-        let slot = cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *mut u64;
-        let mut props = *slot as *mut c_void;
+        let mut props = *(cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *mut c_void;
         if props.is_null() {
             props = __torajs_dynobj_alloc();
-            *slot = props as u64;
+            // first attach — the link-judged entry (A5 seam evidence)
+            __torajs_closure_props_attach(cell.cast::<u8>(), props);
         }
         props
     }

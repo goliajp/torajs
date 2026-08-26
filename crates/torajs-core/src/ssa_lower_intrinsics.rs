@@ -70,6 +70,8 @@ pub(crate) struct Intrinsics {
     pub(crate) obj_drop_sized: FuncId,
     pub(crate) value_drop_heap: FuncId,
     pub(crate) cycle_unbuffer: FuncId,
+    pub(crate) closure_drop_props_slow: FuncId,
+    pub(crate) closure_unbuffer_slow: FuncId,
     pub(crate) arr_alloc: FuncId,
     pub(crate) arr_mark_kind: FuncId,
     pub(crate) arr_push: FuncId,

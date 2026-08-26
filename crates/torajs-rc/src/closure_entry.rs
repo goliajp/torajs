@@ -1,5 +1,6 @@
-//! The one place the runtime reads a closure cell's boxed dual entry
-//! (RFC 20260824-s2-5 刀 4 A1, link-judged form).
+//! The closure cell's link-judged seams (RFC 20260824-s2-5 刀 4 A1 /
+//! A5): the one place the runtime reads the boxed dual entry, and the
+//! one place a user closure's props bag is first attached.
 //!
 //! Every lifted closure gets a synthesized any-ABI adapter
 //! (`__boxed_<name>(env, argv, argc) -> AnyValue`) whose address the
@@ -32,6 +33,8 @@
 //! the same whether the adapter was linked or not, and their liveness
 //! must not root the adapters.
 
+use core::ffi::c_void;
+
 /// Closure-cell boxed dual-entry slot — mirror of torajs-core
 /// `ssa_lower.rs::CLOSURE_BOXED_ENTRY_OFF`.
 pub const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
@@ -44,4 +47,32 @@ pub const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_boxed_entry(cell: *const u8) -> u64 {
     unsafe { *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) }
+}
+
+/// Closure-cell props-bag slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
+pub const CLOSURE_PROPS_OFF: usize = 24;
+
+/// Attach `props` (a fresh dynobj) as `cell`'s props bag — the slot
+/// was NULL until now. Every first attach to a closure the user
+/// program minted goes through here (`f.x = v`'s first write,
+/// `Object.setPrototypeOf(f, …)`, the fnprops bag migrating onto its
+/// canonical cell); a grown bag written back through the slot by
+/// `dynobj_set` is not an attach. The synthesized `__env_drop_*`
+/// releases the bag through `__torajs_closure_drop_props_slow`, a
+/// seam the link shadows with a loud-reject stub when this entry's
+/// text is dead — so a writer added later that bypasses it would
+/// surface as a named TypeError on the closure's drop, never as a
+/// leak. Runtime-minted spec function cells (revokers, capability
+/// executors, iterator helpers …) seed their bag at mint and drop
+/// through their own drop fns; they never reach the seam and need
+/// not come here.
+///
+/// # Safety
+/// `cell` is a live `Tag::Closure` heap cell whose props slot is
+/// NULL; `props` is a live dynobj the cell takes ownership of.
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void) {
+    unsafe { *(cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void) = props }
 }

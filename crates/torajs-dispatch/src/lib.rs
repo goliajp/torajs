@@ -162,6 +162,9 @@ unsafe extern "C" {
     fn __torajs_arr_species_guard_props(arr: *const u8) -> i64;
     fn __torajs_arrprops_drop_entry(arr: *mut core::ffi::c_void);
     fn __torajs_subclass_drop_entry(p: *mut core::ffi::c_void);
+    fn __torajs_value_drop_heap(p: *mut core::ffi::c_void);
+    fn __torajs_cycle_unbuffer(p: *mut core::ffi::c_void);
+    fn __torajs_uncaught_error_render_impl(p: *const u8);
 }
 
 /// Default resolution of the exotic-join seam — the any-world join
@@ -206,6 +209,41 @@ pub unsafe extern "C" fn __torajs_arr_drop_props_slow(arr: *mut core::ffi::c_voi
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_drop_subclass_slow(arr: *mut core::ffi::c_void) {
     unsafe { __torajs_subclass_drop_entry(arr) }
+}
+
+/// Default resolution of the closure env-drop's props leg (A5): the
+/// bag at +24 is a dynobj, released through the universal drop.
+///
+/// # Safety
+/// `cell` is a live closure cell reaching rc=0 whose props slot is
+/// non-NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_drop_props_slow(cell: *mut core::ffi::c_void) {
+    unsafe {
+        let props = *(cell.cast::<u8>().add(24) as *const *mut core::ffi::c_void);
+        __torajs_value_drop_heap(props)
+    }
+}
+
+/// Default resolution of the closure env-drop's cycle-buffer scrub
+/// (A5): the cell carries `FLAG_BUFFERED`.
+///
+/// # Safety
+/// `cell` is a live closure cell reaching rc=0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_unbuffer_slow(cell: *mut core::ffi::c_void) {
+    unsafe { __torajs_cycle_unbuffer(cell) }
+}
+
+/// Default resolution of the uncaught reporter's Error-instance
+/// rendering (A6): `name: message` through the prototype-chain name
+/// resolver in torajs-throw / torajs-anyvalue.
+///
+/// # Safety
+/// `p` is a live `Tag::Obj` cell carrying FLAG_ERROR.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_uncaught_error_render_slow(p: *const u8) {
+    unsafe { __torajs_uncaught_error_render_impl(p) }
 }
 
 /// The loud-reject landing pad for compiler-emitted family stubs
@@ -257,6 +295,9 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
         41 => c"array species probe stripped (link judgment bug)",
         42 => c"scalar-array props drop stripped (link judgment bug)",
         43 => c"scalar-array subclass drop stripped (link judgment bug)",
+        44 => c"closure props drop stripped (link judgment bug)",
+        45 => c"closure unbuffer stripped (link judgment bug)",
+        46 => c"uncaught error render stripped (link judgment bug)",
         n if (16..40).contains(&n) => c"printer kernel stripped (dispatch judgment bug)",
         _ => c"method family stripped (dispatch judgment bug)",
     };

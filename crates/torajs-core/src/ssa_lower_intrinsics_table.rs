@@ -54,6 +54,8 @@ pub(crate) fn build(
         obj_drop_sized: init_a.obj_capture.obj_drop_sized,
         value_drop_heap: init_a.obj_capture.value_drop_heap,
         cycle_unbuffer: init_a.obj_capture.cycle_unbuffer,
+        closure_drop_props_slow: init_a.obj_capture.closure_drop_props_slow,
+        closure_unbuffer_slow: init_a.obj_capture.closure_unbuffer_slow,
         arr_alloc: init_a.arr.arr_alloc,
         arr_mark_kind: init_a.arr.arr_mark_kind,
         arr_push: init_a.arr.arr_push,

@@ -37,6 +37,8 @@ pub(crate) struct ObjCaptureIds {
     pub obj_drop_sized: FuncId,
     pub value_drop_heap: FuncId,
     pub cycle_unbuffer: FuncId,
+    pub closure_drop_props_slow: FuncId,
+    pub closure_unbuffer_slow: FuncId,
     pub capture_box_alloc: FuncId,
     pub capture_box_inc: FuncId,
     pub capture_box_drop: FuncId,
@@ -74,6 +76,24 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_cycle_unbuffer",
+            &[Type::Ptr],
+            Type::Void,
+        ),
+        // A5 (RFC 20260824-s2-5 刀 4) — the closure env-drop's two
+        // speculative legs behind link seams (defaults in
+        // torajs-dispatch): the props-bag release and the cycle
+        // buffer scrub of a FLAG_BUFFERED cell.
+        closure_drop_props_slow: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_closure_drop_props_slow",
+            &[Type::Ptr],
+            Type::Void,
+        ),
+        closure_unbuffer_slow: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_closure_unbuffer_slow",
             &[Type::Ptr],
             Type::Void,
         ),

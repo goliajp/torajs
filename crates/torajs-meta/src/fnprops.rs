@@ -39,6 +39,9 @@ use core::ptr;
 use torajs_mutex::Mutex;
 
 unsafe extern "C" {
+    /// torajs-rc — the one first-attach of a user closure's props bag
+    /// (link-judged; see `torajs_rc::closure_entry`).
+    fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
     fn __torajs_dynobj_get_tag(dynobj: *const c_void, key: *const u8) -> u64;
@@ -175,7 +178,9 @@ pub unsafe extern "C" fn __torajs_fnprops_bind_cell(fn_ptr: *mut c_void, cell: *
             return;
         }
         if (*node).dynobj != 0 {
-            *cell_props_slot(cell as usize) = (*node).dynobj as *mut c_void;
+            // the bag migrates onto the cell — a first attach, the
+            // link-judged entry (A5 seam evidence)
+            __torajs_closure_props_attach(cell as *mut u8, (*node).dynobj as *mut c_void);
             (*node).dynobj = 0;
         }
         (*node).cell = cell as usize;

@@ -32,6 +32,26 @@ unsafe extern "C" {
     fn __torajs_str_is_undef(p: *const u8) -> i64;
 }
 
+// The Error-instance rendering seam (RFC 20260824-s2-5 刀 4 A6).
+// Its default definition lives in `torajs-dispatch`; the link shadows
+// it with a loud-reject stub when `__torajs_register_native_error`'s
+// text is dead — no error class was injected, so no cell in the
+// artifact can carry FLAG_ERROR (the flag is set only by the
+// codegen'd `__new_<C>` factories of Error-derived classes, and the
+// runtime raises natives through those same registered factories,
+// falling back to a bare Str when none is registered). The name /
+// prototype-chain resolver behind the branch is the reporter's only
+// edge into the generic value world. Unit-test binaries of this crate
+// carry no dispatch member, so they bridge to the impl directly.
+#[cfg(not(test))]
+unsafe extern "C" {
+    fn __torajs_uncaught_error_render_slow(p: *const u8);
+}
+#[cfg(test)]
+unsafe fn __torajs_uncaught_error_render_slow(p: *const u8) {
+    unsafe { __torajs_uncaught_error_render_impl(p) }
+}
+
 /// Heap type_tag discriminant for Str blocks (`torajs_rc::Tag::Str`).
 /// torajs-throw is Layer-1 (no upstream crate deps) so the value is
 /// mirrored, not imported — same convention as [`ANY_TAG_HEAP`].
@@ -87,6 +107,34 @@ unsafe fn write_str_to_stderr(str_ptr: *const u8) {
 ///
 /// `extern "C"` ABI. When the pending tag says Heap the value slot
 /// must hold a live heap pointer (the throw machinery's invariant).
+/// The Error-instance branch of the report: `name: message` from the
+/// Error layout prefix (message=field0, name=field1, both Str
+/// pointers). The `: message` suffix is omitted when the message is
+/// empty — matching the Error.prototype.stack / bun first-line shape
+/// ("Error", not "Error: "). §20.5.3.2 — the instance's `name` slot
+/// normally holds the own-absence sentinel (the class name lives on
+/// `<C>.prototype`), so a raw read printed the sentinel's own text,
+/// "undefined"; the resolver answers an assigned own name or the
+/// prototype's.
+///
+/// # Safety
+/// `p` is a live `Tag::Obj` cell carrying FLAG_ERROR.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_uncaught_error_render_impl(p: *const u8) {
+    let name_ptr = unsafe { __torajs_error_name_get(p) };
+    let msg_ptr = unsafe { (p.add(OBJ_MESSAGE_OFF) as *const usize).read() } as *const u8;
+    unsafe { write_str_to_stderr(name_ptr) };
+    let msg_len = if msg_ptr.is_null() || unsafe { __torajs_str_is_undef(msg_ptr) } != 0 {
+        0usize
+    } else {
+        unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u32).read() as usize }
+    };
+    if msg_len > 0 {
+        unsafe { __torajs_syscall_write(2, b": ".as_ptr(), 2) };
+        unsafe { write_str_to_stderr(msg_ptr) };
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
     if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {
@@ -113,25 +161,7 @@ pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
             // bun first-line shape ("Error", not "Error: ").
             let flags = unsafe { (p.add(HDR_FLAGS_OFF) as *const u16).read() };
             if flags & FLAG_ERROR != 0 {
-                // §20.5.3.2 — the instance's `name` slot normally
-                // holds the own-absence sentinel (the class name lives
-                // on `<C>.prototype`), so a raw read here printed the
-                // sentinel's own text, "undefined". The resolver
-                // answers an assigned own name or the prototype's.
-                let name_ptr = unsafe { __torajs_error_name_get(p) };
-                let msg_ptr =
-                    unsafe { (p.add(OBJ_MESSAGE_OFF) as *const usize).read() } as *const u8;
-                unsafe { write_str_to_stderr(name_ptr) };
-                let msg_len = if msg_ptr.is_null() || unsafe { __torajs_str_is_undef(msg_ptr) } != 0
-                {
-                    0usize
-                } else {
-                    unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u32).read() as usize }
-                };
-                if msg_len > 0 {
-                    unsafe { __torajs_syscall_write(2, b": ".as_ptr(), 2) };
-                    unsafe { write_str_to_stderr(msg_ptr) };
-                }
+                unsafe { __torajs_uncaught_error_render_slow(p) };
                 printed = true;
             }
         }

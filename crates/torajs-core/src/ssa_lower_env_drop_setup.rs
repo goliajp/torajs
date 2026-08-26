@@ -87,58 +87,16 @@ pub(crate) fn run(
         // Trivial env wrapper: no captures, env block size = closure
         // header only (`fn_addr@8 + drop_fn@16 + props@24 +
         // boxed_entry@32 + trace_fn@40` = `CLOSURE_CAP_BASE_OFF`).
-        // Cycle-buffer scrub first (RFC 20260717 knife 3) — same
-        // dangling-entry protection as the synthesized drop bodies.
-        f.append_void(
+        // Same two seamed legs as the synthesized drop bodies — a
+        // trivial env still shares the +24 expando slot (accessor
+        // named-fn mints take `f.x = v` writes like any closure).
+        let after_props = crate::ssa_lower_env_drop_and_ret_ty::emit_env_drop_prologue(
+            &mut f,
             entry,
-            InstKind::Call(
-                init_a.obj_capture.cycle_unbuffer,
-                vec![Operand::Value(env_pid)],
-            ),
+            env_pid,
+            init_a.obj_capture.closure_unbuffer_slow,
+            init_a.obj_capture.closure_drop_props_slow,
         );
-        // T-27 props leg (RFC 20260717 residual ②) — a trivial env
-        // still shares the +24 expando slot (accessor named-fn mints
-        // take `f.x = v` writes like any closure); release the dynobj
-        // when set, mirroring `synthesize_env_drop`'s NULL-skip shape
-        // so untouched envs pay no cross-TU call.
-        let props_v = f.append_inst(
-            entry,
-            InstKind::Load(
-                Type::Ptr,
-                Operand::Value(env_pid),
-                crate::ssa_lower::CLOSURE_PROPS_OFF,
-            ),
-            Type::Ptr,
-            None,
-        );
-        let props_nonnull = f.append_inst(
-            entry,
-            InstKind::ICmp(
-                ssa::IPred::Ne,
-                Operand::Value(props_v),
-                Operand::ConstPtrNull,
-            ),
-            Type::Bool,
-            None,
-        );
-        let drop_blk = f.add_block();
-        let after_props = f.add_block();
-        f.set_term(
-            entry,
-            Terminator::CondBr {
-                cond: Operand::Value(props_nonnull),
-                then_blk: drop_blk,
-                else_blk: after_props,
-            },
-        );
-        f.append_void(
-            drop_blk,
-            InstKind::Call(
-                init_a.obj_capture.value_drop_heap,
-                vec![Operand::Value(props_v)],
-            ),
-        );
-        f.set_term(drop_blk, Terminator::Br(after_props));
         f.append_void(
             after_props,
             InstKind::Call(
