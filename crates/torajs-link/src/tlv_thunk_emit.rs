@@ -109,6 +109,7 @@ mod tests {
             data_non_text_file_offset: 0,
             data_non_text_file_size: 0,
             data_non_text_zerofill_vmsize: 0,
+            data_merged_sections: Vec::new(),
             tlv_descriptors,
             tlv_thunk_link_values,
             user_strings_layout: Default::default(),

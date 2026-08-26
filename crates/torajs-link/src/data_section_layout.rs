@@ -27,9 +27,7 @@
 
 use crate::archives_merge::MergedArchives;
 use crate::lc::TEXT_VMADDR_BASE;
-use crate::member_sections::{
-    MemberSectionInfo, collect_member_sections, is_no_file_storage, is_tlv_descriptor,
-};
+use crate::member_sections::{MemberSectionInfo, collect_member_sections, is_no_file_storage};
 use crate::non_text_layout::NonTextLayoutError;
 
 const DATA_SEGNAME: &[u8] = b"__DATA";
@@ -108,11 +106,58 @@ pub struct DataSectionLayout {
 /// the additional vmsize the zerofill half needs (no file storage).
 /// Total `__DATA` vmsize fix-c3 needs to budget =
 /// `pre_existing_data_size + file_region_size + zerofill_vmsize`.
+/// One emitted `section_64` of the `__DATA` segment (r503): every
+/// member's `(segname, sectname)`-named section laid out back to
+/// back, the way ld merges same-named input sections. The per-member
+/// [`DataSectionLayout`] entries keep their own placements inside
+/// the span; this is only what the load command says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergedDataSection {
+    pub sectname: [u8; 16],
+    pub segname: [u8; 16],
+    /// The OR of the members' flags — one section type by
+    /// construction (same name, same kind), attribute bits pooled.
+    pub flags: u32,
+    /// The largest member alignment in the group.
+    pub align: u8,
+    pub vaddr: u64,
+    /// Span from the first member's start to the last member's end,
+    /// intra-group alignment padding included.
+    pub size: u64,
+    /// File offset of the first member's bytes; 0 for zerofill.
+    pub file_offset: u32,
+    pub has_file_storage: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct DataSectionLayoutResult {
     pub per_member: Vec<Vec<DataSectionLayout>>,
+    /// The `section_64` entries, file-storage groups first, then
+    /// zerofill — one per distinct name in first-seen order.
+    pub merged: Vec<MergedDataSection>,
     pub file_region_size: u32,
     pub zerofill_vmsize: u32,
+}
+
+/// The distinct `(segname, sectname)` names among `raw`'s `__DATA`
+/// sections of one storage kind, in first-seen order.
+fn section_name_groups(
+    per_member_raw: &[Vec<MemberSectionInfo>],
+    file_storage: bool,
+) -> Vec<([u8; 16], [u8; 16])> {
+    let mut groups: Vec<([u8; 16], [u8; 16])> = Vec::new();
+    for raw in per_member_raw {
+        for sec in raw {
+            if !is_data_segment(sec) || is_no_file_storage(sec.flags) == file_storage {
+                continue;
+            }
+            let key = (sec.segname, sec.sectname);
+            if !groups.contains(&key) {
+                groups.push(key);
+            }
+        }
+    }
+    groups
 }
 
 /// Padding bytes needed to round `addr` up to the next `1 << align`
@@ -173,7 +218,7 @@ pub fn count_data_section_64s(
     member_keys: &[(usize, usize)],
 ) -> Result<u32, NonTextLayoutError> {
     let res = compute_data_section_layouts(merged, member_keys, 0, 0)?;
-    Ok(res.per_member.iter().map(|v| v.len() as u32).sum())
+    Ok(res.merged.len() as u32)
 }
 
 pub fn compute_data_section_layouts(
@@ -194,94 +239,116 @@ pub fn compute_data_section_layouts(
         per_member_raw.push(all);
     }
 
-    let mut per_member: Vec<Vec<DataSectionLayout>> = Vec::with_capacity(member_keys.len());
-    // Pass 1 — file-storage __DATA,* sections, in member order then
-    // walk order inside each member. Both cursors are absolute (vaddr
-    // / file-offset) and stay congruent mod page: each section's
-    // alignment pad is applied identically to both, and the inputs
-    // satisfy `vaddr_start ≡ file_region_start_offset (mod page)` (the
-    // __DATA segment is mmapped, so its vaddr and fileoff are
-    // page-congruent; la_ptr is pointer-sized). Honoring per-section
-    // alignment is mandatory — an `ldapr` against an unaligned mmalloc
-    // atomic global SIGBUSes (swap-2i).
+    // r503 — same-named sections across members lay out back to
+    // back (the way ld merges input sections), so one `section_64`
+    // covers each name instead of one per member: 23 headers on a
+    // class program became 5. The per-member entries keep their
+    // own placements; only the walk order changed, and every
+    // consumer walks these tables in the same order. TLV descriptor
+    // tables are regular file storage here; prereq+c hooks the
+    // per-entry thunk dyld-bind separately.
+    let mut per_member: Vec<Vec<DataSectionLayout>> = vec![Vec::new(); member_keys.len()];
+    let mut merged: Vec<MergedDataSection> = Vec::new();
     let mut vaddr_cursor: u64 = vaddr_start;
     let mut file_cursor: u64 = u64::from(file_region_start_offset);
-    for raw in &per_member_raw {
-        let mut layouts: Vec<DataSectionLayout> = Vec::new();
-        for sec in raw {
-            if !is_data_segment(sec) {
-                continue;
+    for (segname, sectname) in section_name_groups(&per_member_raw, true) {
+        let mut group: Option<MergedDataSection> = None;
+        for (i, raw) in per_member_raw.iter().enumerate() {
+            for sec in raw {
+                if !is_data_segment(sec)
+                    || is_no_file_storage(sec.flags)
+                    || (sec.segname, sec.sectname) != (segname, sectname)
+                {
+                    continue;
+                }
+                let pad = round_up_pad(vaddr_cursor, sec.align);
+                vaddr_cursor += pad;
+                file_cursor += pad;
+                per_member[i].push(DataSectionLayout {
+                    section_index: sec.section_index,
+                    sectname: sec.sectname,
+                    segname: sec.segname,
+                    member_internal_offset: sec.member_internal_offset,
+                    size: sec.size,
+                    flags: sec.flags,
+                    has_file_storage: true,
+                    final_file_offset: file_cursor as u32,
+                    final_vaddr: vaddr_cursor,
+                    member_addr: sec.member_addr,
+                    align: sec.align,
+                });
+                let g = group.get_or_insert(MergedDataSection {
+                    sectname,
+                    segname,
+                    flags: 0,
+                    align: 0,
+                    vaddr: vaddr_cursor,
+                    size: 0,
+                    file_offset: file_cursor as u32,
+                    has_file_storage: true,
+                });
+                g.flags |= sec.flags;
+                g.align = g.align.max(sec.align);
+                vaddr_cursor += u64::from(sec.size);
+                file_cursor += u64::from(sec.size);
+                g.size = vaddr_cursor - g.vaddr;
             }
-            if is_no_file_storage(sec.flags) {
-                continue;
-            }
-            // is_tlv_descriptor included here intentionally — TLV
-            // descriptor tables are regular file storage; prereq+c
-            // hooks the per-entry thunk dyld-bind separately.
-            let _is_tlv = is_tlv_descriptor(sec.flags);
-            let pad = round_up_pad(vaddr_cursor, sec.align);
-            vaddr_cursor += pad;
-            file_cursor += pad;
-            layouts.push(DataSectionLayout {
-                section_index: sec.section_index,
-                sectname: sec.sectname,
-                segname: sec.segname,
-                member_internal_offset: sec.member_internal_offset,
-                size: sec.size,
-                flags: sec.flags,
-                has_file_storage: true,
-                final_file_offset: file_cursor as u32,
-                final_vaddr: vaddr_cursor,
-                member_addr: sec.member_addr,
-                align: sec.align,
-            });
-            vaddr_cursor += u64::from(sec.size);
-            file_cursor += u64::from(sec.size);
         }
-        per_member.push(layouts);
+        merged.extend(group);
     }
     let file_region_size = (file_cursor - u64::from(file_region_start_offset)) as u32;
 
-    // Pass 2 — zerofill __DATA,* sections, appended *after* the file
-    // region in vmaddr space. No file payload; final_file_offset stays
-    // at 0 sentinel. vmsize is measured from the zerofill base so the
-    // leading/inter-section alignment pads are budgeted into
-    // `zerofill_vmsize` (which downstream sizes the __DATA segment and
-    // anchors the user-bss base).
     let zerofill_base = vaddr_start + u64::from(file_region_size);
     let mut zf_vaddr: u64 = zerofill_base;
-    for (i, raw) in per_member_raw.iter().enumerate() {
-        for sec in raw {
-            if !is_data_segment(sec) {
-                continue;
+    for (segname, sectname) in section_name_groups(&per_member_raw, false) {
+        let mut group: Option<MergedDataSection> = None;
+        for (i, raw) in per_member_raw.iter().enumerate() {
+            for sec in raw {
+                if !is_data_segment(sec)
+                    || !is_no_file_storage(sec.flags)
+                    || (sec.segname, sec.sectname) != (segname, sectname)
+                {
+                    continue;
+                }
+                zf_vaddr += round_up_pad(zf_vaddr, sec.align);
+                per_member[i].push(DataSectionLayout {
+                    section_index: sec.section_index,
+                    sectname: sec.sectname,
+                    segname: sec.segname,
+                    member_internal_offset: 0, // S_ZEROFILL sets offset=0
+                    size: sec.size,
+                    flags: sec.flags,
+                    has_file_storage: false,
+                    final_file_offset: 0,
+                    final_vaddr: zf_vaddr,
+                    member_addr: sec.member_addr,
+                    align: sec.align,
+                });
+                let g = group.get_or_insert(MergedDataSection {
+                    sectname,
+                    segname,
+                    flags: 0,
+                    align: 0,
+                    vaddr: zf_vaddr,
+                    size: 0,
+                    file_offset: 0,
+                    has_file_storage: false,
+                });
+                g.flags |= sec.flags;
+                g.align = g.align.max(sec.align);
+                zf_vaddr += u64::from(sec.size);
+                g.size = zf_vaddr - g.vaddr;
             }
-            if !is_no_file_storage(sec.flags) {
-                continue;
-            }
-            zf_vaddr += round_up_pad(zf_vaddr, sec.align);
-            per_member[i].push(DataSectionLayout {
-                section_index: sec.section_index,
-                sectname: sec.sectname,
-                segname: sec.segname,
-                member_internal_offset: 0, // S_ZEROFILL sets offset=0
-                size: sec.size,
-                flags: sec.flags,
-                has_file_storage: false,
-                final_file_offset: 0,
-                final_vaddr: zf_vaddr,
-                member_addr: sec.member_addr,
-                align: sec.align,
-            });
-            zf_vaddr += u64::from(sec.size);
         }
+        merged.extend(group);
     }
     let zerofill_vmsize = (zf_vaddr - zerofill_base) as u32;
 
-    // Suppress unused-base warning when there are no __DATA sections.
     let _ = TEXT_VMADDR_BASE;
 
     Ok(DataSectionLayoutResult {
         per_member,
+        merged,
         file_region_size,
         zerofill_vmsize,
     })

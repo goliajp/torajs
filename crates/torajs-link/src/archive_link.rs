@@ -200,6 +200,7 @@ pub fn compute_archive_layout_with_merged(
         non_text_region_file_offset: tp.non_text_region_file_offset,
         non_text_region_size: tp.non_text_region_size,
         data_non_text_layouts: dp.data_non_text_layouts,
+        data_merged_sections: dp.data_merged_sections,
         data_non_text_file_offset: dp.data_non_text_file_offset,
         data_non_text_file_size: dp.data_non_text_file_size,
         data_non_text_zerofill_vmsize: dp.data_non_text_zerofill_vmsize,

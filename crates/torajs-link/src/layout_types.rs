@@ -126,6 +126,10 @@ pub struct ArchiveLayout {
     /// segment exists). fix-c4 walks this to emit section_64
     /// entries + file payload.
     pub data_non_text_layouts: Vec<Vec<DataSectionLayout>>,
+    /// r503 — the `__DATA` segment's `section_64` entries, one per
+    /// distinct member section name (file-storage first, then
+    /// zerofill); the per-member table above places the bytes.
+    pub data_merged_sections: Vec<crate::data_section_layout::MergedDataSection>,
     /// SD-4c-prereq-c-fix-c3 shadow number — start file offset of
     /// the `__DATA` non-text file region (immediately after
     /// `__la_symbol_ptr`). fix-c4 wires this into the emit pass +

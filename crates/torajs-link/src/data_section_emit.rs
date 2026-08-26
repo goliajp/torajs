@@ -46,31 +46,25 @@ use crate::archive_link::ArchiveLayout;
 /// atomic-free-list globals declare `align 2^3` and would SIGBUS on an
 /// `ldapr` if placed unaligned.
 pub(crate) fn build_data_non_text_section_64_entries(layout: &ArchiveLayout) -> Vec<Section64> {
-    let mut entries: Vec<Section64> = Vec::new();
-    for per_member in &layout.data_non_text_layouts {
-        for s in per_member {
-            let offset = if s.has_file_storage {
-                s.final_file_offset
-            } else {
-                0
-            };
-            entries.push(Section64 {
-                sectname: trimmed_string(&s.sectname),
-                segname: trimmed_string(&s.segname),
-                addr: s.final_vaddr,
-                size: u64::from(s.size),
-                offset,
-                align_log2: u32::from(s.align),
-                reloff: 0,
-                nreloc: 0,
-                flags: s.flags,
-                reserved1: 0,
-                reserved2: 0,
-                reserved3: 0,
-            });
-        }
-    }
-    entries
+    // r503 — one entry per merged name group, not per member section.
+    layout
+        .data_merged_sections
+        .iter()
+        .map(|s| Section64 {
+            sectname: trimmed_string(&s.sectname),
+            segname: trimmed_string(&s.segname),
+            addr: s.vaddr,
+            size: s.size,
+            offset: if s.has_file_storage { s.file_offset } else { 0 },
+            align_log2: u32::from(s.align),
+            reloff: 0,
+            nreloc: 0,
+            flags: s.flags,
+            reserved1: 0,
+            reserved2: 0,
+            reserved3: 0,
+        })
+        .collect()
 }
 
 /// Write the file-storage payload bytes for every member's
@@ -106,10 +100,16 @@ pub(crate) fn write_data_non_text_file_payloads(
             }
             // pad to the alignment-rounded file offset; pads are tiny
             // (< 1 << align) so a push loop is cheap.
-            while (buf.len() as u32) < s.final_file_offset {
-                buf.push(0);
+            // r503 — write at the placed offset: the per-member walk
+            // is no longer monotone in file offset (same-named
+            // sections group across members), so pad-and-append
+            // would land a payload past its slot.
+            let start = s.final_file_offset as usize;
+            let end = start + member_payloads[pi].len();
+            if buf.len() < end {
+                buf.resize(end, 0);
             }
-            buf.extend_from_slice(&member_payloads[pi]);
+            buf[start..end].copy_from_slice(&member_payloads[pi]);
             pi += 1;
         }
     }
@@ -131,7 +131,7 @@ fn trimmed_string(slot: &[u8; 16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_section_layout::DataSectionLayout;
+    use crate::data_section_layout::{DataSectionLayout, MergedDataSection};
     use crate::layout_types::ArchiveLayout;
     use std::collections::BTreeMap;
 
@@ -176,6 +176,7 @@ mod tests {
             data_non_text_file_offset: 0,
             data_non_text_file_size: 0,
             data_non_text_zerofill_vmsize: 0,
+            data_merged_sections: Vec::new(),
             tlv_descriptors: Vec::new(),
             tlv_thunk_link_values: Vec::new(),
             user_strings_layout: Default::default(),
@@ -237,6 +238,28 @@ mod tests {
                 align: 3,
             },
         ]];
+        layout.data_merged_sections = vec![
+            MergedDataSection {
+                sectname: padded_name(b"__data"),
+                segname: padded_name(b"__DATA"),
+                flags: torajs_obj::S_REGULAR,
+                align: 3,
+                vaddr: 0xDA00_0000,
+                size: 16,
+                file_offset: 0x6000,
+                has_file_storage: true,
+            },
+            MergedDataSection {
+                sectname: padded_name(b"__common"),
+                segname: padded_name(b"__DATA"),
+                flags: torajs_obj::S_ZEROFILL,
+                align: 3,
+                vaddr: 0xDA00_0010,
+                size: 2048,
+                file_offset: 0,
+                has_file_storage: false,
+            },
+        ];
         let entries = build_data_non_text_section_64_entries(&layout);
         assert_eq!(entries.len(), 2);
         // File-storage entry: offset = final_file_offset, size = 16.

@@ -29,6 +29,7 @@ pub(crate) struct DataRegionPlan {
     pub(crate) stubs_section_vaddr: u64,
     pub(crate) la_ptr_section_vaddr: u64,
     pub(crate) data_non_text_layouts: Vec<Vec<DataSectionLayout>>,
+    pub(crate) data_merged_sections: Vec<crate::data_section_layout::MergedDataSection>,
     pub(crate) data_non_text_file_offset: u32,
     pub(crate) data_non_text_file_size: u32,
     pub(crate) data_non_text_zerofill_vmsize: u32,
@@ -86,6 +87,7 @@ pub(crate) fn compute_data_region_plan(
     // c-fix-c3/c4 — `__DATA,*` past `__la_symbol_ptr` (chain seg_off=0).
     let (
         data_non_text_layouts,
+        data_merged_sections,
         data_non_text_file_offset,
         data_non_text_file_size,
         data_non_text_zerofill_vmsize,
@@ -108,12 +110,13 @@ pub(crate) fn compute_data_region_plan(
             )?;
         (
             res.per_member,
+            res.merged,
             file_start,
             res.file_region_size,
             res.zerofill_vmsize,
         )
     } else {
-        (Vec::new(), 0u32, 0u32, 0u32)
+        (Vec::new(), Vec::new(), 0u32, 0u32, 0u32)
     };
 
     // b1/c — member __DATA,__thread_vars TLV descriptors for chain
@@ -179,6 +182,7 @@ pub(crate) fn compute_data_region_plan(
         stubs_section_vaddr,
         la_ptr_section_vaddr,
         data_non_text_layouts,
+        data_merged_sections,
         data_non_text_file_offset,
         data_non_text_file_size,
         data_non_text_zerofill_vmsize,

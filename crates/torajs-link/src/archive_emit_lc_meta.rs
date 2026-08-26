@@ -53,11 +53,7 @@ pub(crate) fn compute_emit_lc_meta(layout: &ArchiveLayout) -> EmitLcMeta {
         + u32::from(has_data_const)
         + u32::from(has_chained_fixups);
     // c-fix-c4 — each member `__DATA,*` section + 1 section_64 entry.
-    let data_non_text_section_count: u32 = layout
-        .data_non_text_layouts
-        .iter()
-        .map(|v| v.len() as u32)
-        .sum::<u32>()
+    let data_non_text_section_count: u32 = layout.data_merged_sections.len() as u32
         + u32::from(layout.user_data_globals_layout.total_vmsize > 0);
     let extra_lc_size = (if has_dyld {
         // load_dylibs + __TEXT __stubs section + __DATA seg + its
