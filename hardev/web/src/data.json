@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T05:50:09.355Z",
+  "generatedAt": "2026-08-26T09:27:50.173Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-26T05:40:17Z",
-    "headSha": "492d4f0f5",
-    "elapsedSec": 366.79,
+    "ranAt": "2026-08-26T09:17:19Z",
+    "headSha": "6f63e4aef",
+    "elapsedSec": 375.78,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.24
   },
   "torajs": {
-    "commit": "492d4f0f5",
-    "commitSubject": "perf: a populated fn-name / class-name / class-layout table with no live reader is not emitted — a closure-only program links 67,233 -> 50,697",
+    "commit": "6f63e4aef",
+    "commitSubject": "perf: a struct instance's expando legs behind link seams — the bag release, the scalar-instance cycle buffering and the FLAG_BUFFERED scrub are stubbed when no attach entry is live",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "6f63e4aef",
+      "subject": "perf: a struct instance's expando legs behind link seams — the bag release, the scalar-instance cycle buffering and the FLAG_BUFFERED scrub are stubbed when no attach entry is live"
+    },
+    {
+      "hash": "2fc78b83c",
+      "subject": "perf: the subclass prototype link and the class-source register ride the register call's guard; str pool and mmalloc index with `get` so a bounds check that cannot fail stops linking the panic renderer"
+    },
+    {
+      "hash": "7bd56267c",
+      "subject": "feat: a class method with no return annotation infers its return type from the body — `this.<field>` resolves against the class row, inferred rets publish for later methods"
+    },
+    {
+      "hash": "d086cebfa",
+      "subject": "perf: link-judged class register call and class-method row columns — a class program that never lets an instance or its class cell into the any world links 446,913 -> 149,577"
+    },
+    {
+      "hash": "26ded3f7c",
+      "subject": "chore: rotation 501 close — S2-5 刀 4 second batch all link-judged (closure adapter mints / env-drop legs / uncaught error render / unread registries) take closure-only 397,313 -> 50,697 and s4 -> 50,881, sweep identical / 0 regressions, dashboard"
+    },
+    {
       "hash": "492d4f0f5",
       "subject": "perf: a populated fn-name / class-name / class-layout table with no live reader is not emitted — a closure-only program links 67,233 -> 50,697"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "601e8c89f",
       "subject": "Revert \"perf: closure any-world escape judgment — a program whose closures never cross into any links no __boxed_ adapter; s4 397,313 -> 83,633\""
-    },
-    {
-      "hash": "fd1dd66c6",
-      "subject": "perf: closure any-world escape judgment — a program whose closures never cross into any links no __boxed_ adapter; s4 397,313 -> 83,633"
-    },
-    {
-      "hash": "efcfa66a5",
-      "subject": "perf: link-judged seams for the typed array kernels' exotic slow paths — a join-only program links 348,649 -> 84,537"
-    },
-    {
-      "hash": "d801004a4",
-      "subject": "chore: rotation 499 close — link-judged conditional shapes (main drains elided, weak hook stubbed, forced table globals derived) take the empty program 84,449 -> 34,961, sweep identical / 0 regressions, dashboard"
-    },
-    {
-      "hash": "d6735a63e",
-      "subject": "fix: one predicate decides __DATA_CONST presence for sizing and layout"
-    },
-    {
-      "hash": "1f1e871ca",
-      "subject": "perf: derive the forced table globals from the stripped archives — an empty __DATA_CONST no longer ships"
     }
   ],
-  "headSha": "492d4f0f5",
+  "headSha": "6f63e4aef",
   "autorun": {
-    "total": 804,
+    "total": 805,
     "baselineTarget": 10,
-    "bySelf": 799,
+    "bySelf": 800,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787715041-4564",
-      "at": "2026-08-26T03:30:41Z",
-      "ts": 1787715041,
+      "rotationId": "r-1787723527-172d",
+      "at": "2026-08-26T05:52:07Z",
+      "ts": 1787723527,
       "trigger": "self",
-      "prevHead": "58c24cc16",
-      "handoffSha": "sha256:2ce4ca95d795b5087e6cb3dae33f65ffc06704a02c2d210d2a0f4a4a1d0ed8fc",
-      "handoffAgeSec": 11,
+      "prevHead": "26ded3f7c",
+      "handoffSha": "sha256:197cb66ad88c0431d6111a0386bdd6ab309090328c53bb4999e0da9e63f6fc50",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787723527-172d",
+        "at": "2026-08-26T05:52:07Z",
+        "ts": 1787723527,
+        "trigger": "self",
+        "prevHead": "26ded3f7c",
+        "handoffSha": "sha256:197cb66ad88c0431d6111a0386bdd6ab309090328c53bb4999e0da9e63f6fc50",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787715041-4564",
         "at": "2026-08-26T03:30:41Z",
@@ -876,17 +887,6 @@
         "prevHead": "2d5b352f5",
         "handoffSha": "sha256:d070674fe2c7ad5a478e9f434b0fb96cd87bbf9a8005786b6f6c32aae8f26408",
         "handoffAgeSec": 21,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787596899-68c1",
-        "at": "2026-08-24T18:41:39Z",
-        "ts": 1787596899,
-        "trigger": "self",
-        "prevHead": "58c7a06ca",
-        "handoffSha": "sha256:215b0295dd7043833934c5919f379165c6cb5dff3c5ade72b05c2458d27edffa",
-        "handoffAgeSec": 47,
         "conformanceBefore": null,
         "commitsInSession": null
       }
