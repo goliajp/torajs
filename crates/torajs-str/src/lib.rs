@@ -82,6 +82,7 @@
 //! active panic-runtime's. Both rustc objections dissolve.
 
 #![no_std]
+#![feature(optimize_attribute)]
 
 extern crate alloc;
 

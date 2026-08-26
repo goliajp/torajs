@@ -136,9 +136,32 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
         unsafe { core::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), dst.len()) };
         return block.into_raw();
     }
-    // Something above ASCII is in there, so the widest codepoint now
-    // has to be found to choose between the one-byte Latin-1 layout
-    // and UTF-16, and that does mean decoding.
+    // Something above ASCII means the widest codepoint has to be
+    // found and the payload re-encoded — the Latin-1 or UTF-16 path.
+    // That work, and the UTF-8 decoder it walks four times over, lives
+    // out-of-line: this entry is on the string-creation hot path, and
+    // nearly every caller hands ASCII and has already returned above.
+    // Sizing the cold half keeps that decoder off the `__text` budget
+    // every string-materializing program carries (s3 rotation 504
+    // census).
+    unsafe { str_alloc_wide(src_slice, utf8) }
+}
+
+/// The non-ASCII tail of [`__torajs_str_alloc`]: find the widest
+/// codepoint and re-encode into the one-byte Latin-1 layout or UTF-16
+/// LE. `#[cold]` + `#[inline(never)]` keep it out of the ASCII hot
+/// path's body; `#[optimize(size)]` compiles its four `chars()` walks
+/// — the UTF-8 decoder — once, for size.
+///
+/// # Safety
+///
+/// `src_slice` / `utf8` are the same non-empty, non-ASCII, well-formed
+/// UTF-8 buffer `__torajs_str_alloc` validated; the returned pointer
+/// is a fresh refcount=1 Str block owned by the caller.
+#[cold]
+#[inline(never)]
+#[optimize(size)]
+unsafe fn str_alloc_wide(src_slice: &[u8], utf8: &str) -> *mut u8 {
     let mut max_cp: u32 = 0;
     for c in utf8.chars() {
         let cp = c as u32;
