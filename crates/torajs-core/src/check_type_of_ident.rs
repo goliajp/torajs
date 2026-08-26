@@ -163,6 +163,21 @@ pub(crate) fn check(
         // on a name that later resolves self-heals at the resolution
         // sites above.
         other => {
+            // r505 (A12) — the class object / prototype cells are
+            // fn-locals of the synthesized prologue (`__cprologue`),
+            // so a read from main or a method body no longer resolves
+            // lexically; it is the registry read the lowering already
+            // routes every non-local read through (`class_get` /
+            // `proto_get`), and its type is the cell's: any. Only for
+            // a class the program declares — a user ident that merely
+            // starts with the prefix still fails loud below.
+            if let Some(c) = other
+                .strip_prefix("__class_")
+                .or_else(|| other.strip_prefix("__proto_"))
+                && checker.class_names.contains(c)
+            {
+                return Ok(Type::Any);
+            }
             if other.starts_with("__") || crate::check::is_known_builtin_global(other) {
                 return Err(format!("unknown identifier `{other}`"));
             }

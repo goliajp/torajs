@@ -187,6 +187,9 @@ pub(crate) fn synthesize_main(
             let exit_code = crate::ssa_lower_main_exit::emit_exit_code(&mut ctx);
             ctx.emit_drops_for_owned_locals();
             ctx.emit_drops_for_globals();
+            // r505 (A12) — the class cells the prologue fn handed to
+            // the registry.
+            crate::ssa_lower_main_exit::emit_class_cell_registry_release(&mut ctx);
             // V3-10.b — drain the cycle collector buffer one last
             // time before returning from main. Cheap when the
             // buffer is empty; sweeps any orphaned cycles

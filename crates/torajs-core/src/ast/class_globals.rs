@@ -10,6 +10,31 @@ use super::class_globals_register;
 use super::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
+/// r505 (A12) — the synthesized fn that holds every class's prologue
+/// (the `__proto_<C>` / `__class_<C>` mints, the chain links, the
+/// registers, the reifies). One fn for the whole program, called once
+/// at the top of main.
+///
+/// Why a fn and not the top of main: the prologue's calls all
+/// PRODUCE values (`dynobj_alloc`, the boxes, `str_alloc` for the
+/// name), so no single call site can be assumed away by the linker
+/// without a garbage register flowing into the next kernel; but the
+/// `bl` to a void fn can (`cmd_build_elide_class` offers it under the
+/// registry-reader guard next to the register sites), and a fn
+/// nothing calls any more is what the user-fn dead-strip removes
+/// whole — dynobj / anyvalue / str_alloc worlds and all. The cells
+/// the fn mints are owned by the by-tag registry from the moment it
+/// returns (its class-cell locals are marked moved, not dropped);
+/// main releases them at exit through `class_cell_raw` /
+/// `proto_cell_raw`, guarded on 0 so an elided prologue releases
+/// nothing. Every other read of a cell already goes through the
+/// registry (`class_get` / `proto_get` — the guard's readers), in
+/// main now too.
+///
+/// The name is deliberately NOT `__torajs_`-shaped: user-gc keeps
+/// every `___torajs_*` user fn rooted as a runtime-facing definition.
+pub const CLASS_PROLOGUE_FN: &str = "__cprologue";
+
 /// Class-index derived from `desugar_classes`' output — shared by all
 /// three emit helpers so the walk over `ast.stmts` only happens once.
 pub(super) struct ClassMetadata {
@@ -68,10 +93,26 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // the walk leaves them untouched.
     super::class_globals_shadow::rewrite_class_value_refs(ast, &meta.class_set);
 
-    // Prepend the new LetDecls so they're initialized before any
-    // user code references them. Insert at the very top so static
-    // field inits + main body all see them.
-    let mut combined = prepended;
+    // r505 — the prologue becomes `function __cprologue(): void {…}`
+    // plus one call at the very top of main, so static field inits +
+    // main body all run after it (see `CLASS_PROLOGUE_FN`).
+    let callee = ast.add_expr(Expr::Ident(CLASS_PROLOGUE_FN.to_string()));
+    let call = ast.add_expr(Expr::Call {
+        callee,
+        args: Vec::new(),
+    });
+    let mut combined = vec![
+        Stmt::FnDecl {
+            name: CLASS_PROLOGUE_FN.to_string(),
+            type_params: Vec::new(),
+            params: Vec::new(),
+            return_type: Some("void".to_string()),
+            body: prepended,
+            is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
+        },
+        Stmt::Expr(call),
+    ];
     combined.extend(std::mem::take(&mut ast.stmts));
     ast.stmts = combined;
 }

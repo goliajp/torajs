@@ -208,6 +208,7 @@ impl Checker {
             scopes: vec![HashMap::new()],
             aliases: HashMap::new(),
             class_structs: HashMap::new(),
+            class_names: std::collections::HashSet::new(),
             errors: Vec::new(),
             expected_return: None,
             current_class: None,
@@ -293,6 +294,14 @@ pub(crate) struct Checker {
     /// nominal identity) while structural operations — field reads,
     /// assignability — still reach the shape via `resolve_class_ref`.
     pub(crate) class_structs: HashMap<String, Type>,
+    /// r505 (A12) — every declared class name (`ast.class_parents`'
+    /// key set), the oracle for the `__class_<C>` / `__proto_<C>`
+    /// reads that resolve through the class registry rather than a
+    /// lexical binding (the cells live in the synthesized prologue
+    /// fn). `class_structs` is the subset whose field struct
+    /// resolved; a generic class or a class expression is a class
+    /// all the same.
+    pub(crate) class_names: std::collections::HashSet<String>,
     /// T-04 — was `Vec<String>`; now carries severity + span. The
     /// public APIs (`check`, `collect_errors`) stringify back to the
     /// caller's expected shape; LSP consumes via `collect_diagnostics`.

@@ -114,29 +114,56 @@ pub(super) fn try_lower_dynamic_target(
         return None;
     }
     let target_name = dynamic_target_name(ctx, class_name)?;
-    let (slot, ty) = resolve_value_binding(ctx, &target_name)?;
-    if !has_any_encoding(ty) {
-        return None;
-    }
-    if matches!(ty, Type::Closure(_) | Type::FnSig(_)) {
-        return None;
-    }
-    let cur_block = ctx.cur_block;
-    let target = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(ty, Operand::Value(slot), 0),
-        ty,
-        None,
-    );
-    let target_any = ctx.box_to_any(Operand::Value(target));
+    // r505 (A12) — a declared class's object is no binding in scope
+    // any more (the prologue fn minted it and the registry owns it):
+    // the registry answers, as a +1 the operator only borrows, so the
+    // stake comes back off right after the call.
+    let registry_tag = (!ctx.locals.contains_key(&target_name)
+        && crate::ssa_lower_closure::class_sentinel_name(ctx, &target_name))
+    .then(|| ctx.class_name_to_tag[class_name]);
+    let (target_any, owned) = if let Some(tag) = registry_tag {
+        let cur_block = ctx.cur_block;
+        let cell = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.class_get,
+                vec![Operand::ConstI64(tag as i64)],
+            ),
+            Type::Any,
+            None,
+        );
+        (Operand::Value(cell), true)
+    } else {
+        let (slot, ty) = resolve_value_binding(ctx, &target_name)?;
+        if !has_any_encoding(ty) {
+            return None;
+        }
+        if matches!(ty, Type::Closure(_) | Type::FnSig(_)) {
+            return None;
+        }
+        let cur_block = ctx.cur_block;
+        let target = ctx.f.append_inst(
+            cur_block,
+            InstKind::Load(ty, Operand::Value(slot), 0),
+            ty,
+            None,
+        );
+        (ctx.box_to_any(Operand::Value(target)), false)
+    };
     let v_any = ctx.box_to_any(v);
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.instanceof_dynamic, vec![v_any, target_any]),
+        InstKind::Call(
+            ctx.intrinsics.instanceof_dynamic,
+            vec![v_any, target_any.clone()],
+        ),
         Type::Bool,
         None,
     );
+    if owned {
+        ctx.emit_drop_value(target_any, Type::Any);
+    }
     // Steps 1 and 4 throw, and so can the handler body.
     ctx.emit_throw_check(None);
     Some(Operand::Value(r))

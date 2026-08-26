@@ -154,6 +154,16 @@ pub(crate) fn check_closure(
             // list (`crate::check_hoist_closure_lets`) — a real capture,
             // typed from the FnDecl its own declaration will bind.
             cap_tys.push((cap.clone(), ty.clone()));
+        } else if cap
+            .strip_prefix("__class_")
+            .or_else(|| cap.strip_prefix("__proto_"))
+            .is_some_and(|c| checker.class_names.contains(c))
+        {
+            // r505 (A12) — a class object / prototype cell is not a
+            // capture: the body's read resolves through the class
+            // registry (`class_get` / `proto_get`), the same way a
+            // named-fn body reads it, and the lowering's capture
+            // filter (`class_sentinel_name`) skips the env slot.
         } else if cap.starts_with("__") || crate::check::is_known_builtin_global(cap) {
             // Same carve-outs as the undeclared-read lane: synthetic
             // names and name-keyed builtin globals stay hard errors.

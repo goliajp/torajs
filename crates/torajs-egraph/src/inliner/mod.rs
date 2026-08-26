@@ -136,6 +136,13 @@ pub enum SkipReason {
     /// Phase 0 scope is direct calls only; indirect inlining requires
     /// devirtualization / call-graph analysis (Phase 2+).
     Indirect,
+    /// r505 (A12) — the callee is the synthesized class prologue
+    /// (`torajs_core::ast::CLASS_PROLOGUE_FN`): its `bl` in main is a
+    /// link-judged site (assumed away with the fn when no class cell
+    /// is observable), which only exists while the body stays its
+    /// own fn. Inlining it would put the whole dynobj / anyvalue
+    /// world back into main on every class program.
+    LinkJudgedUnit,
 }
 
 /// Aggregate diagnostic counters across one `inline_module` run.
@@ -178,6 +185,8 @@ pub struct InlinerStats {
     pub skipped_declaration: u32,
     /// Sites rejected by `SkipReason::Recursion`.
     pub skipped_recursion: u32,
+    /// Sites rejected by `SkipReason::LinkJudgedUnit`.
+    pub skipped_link_judged_unit: u32,
     /// Indirect call sites observed. Tracked separately from
     /// `candidates` because at Phase 0 they are categorically out of
     /// scope rather than a per-site cost-benefit miss.
@@ -237,6 +246,14 @@ fn classify_caller_sites(
                             blk_idx,
                             site_idx,
                             InlineDecision::Skip(SkipReason::CalleeIsDeclaration),
+                        ));
+                        continue;
+                    }
+                    if callee.name == torajs_core::ast::CLASS_PROLOGUE_FN {
+                        decisions.push((
+                            blk_idx,
+                            site_idx,
+                            InlineDecision::Skip(SkipReason::LinkJudgedUnit),
                         ));
                         continue;
                     }
@@ -350,6 +367,10 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
                     }
                     SkipReason::Indirect => {
                         stats.skipped_indirect += 1;
+                    }
+                    SkipReason::LinkJudgedUnit => {
+                        stats.candidates += 1;
+                        stats.skipped_link_judged_unit += 1;
                     }
                 },
             }
@@ -563,6 +584,20 @@ mod tests {
         assert_eq!(stats.candidates, 1);
         assert_eq!(stats.would_inline, 1);
         assert_eq!(stats.skipped_callee_too_large, 0);
+    }
+
+    #[test]
+    fn class_prologue_callee_is_never_inlined() {
+        // r505 (A12) — small enough to inline, refused by name: the
+        // call is a link-judged site only while the body is a fn.
+        let leaf = alu_body(torajs_core::ast::CLASS_PROLOGUE_FN, 3);
+        let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
+        assert_eq!(stats.candidates, 1);
+        assert_eq!(stats.would_inline, 0);
+        assert_eq!(stats.inlined, 0);
+        assert_eq!(stats.skipped_link_judged_unit, 1);
     }
 
     #[test]

@@ -198,7 +198,7 @@ pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
 pub use arrow_arguments_alias::alias_arrow_arguments;
 pub(crate) use build_factory::build_factory_body;
-pub use class_globals::synthesize_class_globals;
+pub use class_globals::{CLASS_PROLOGUE_FN, synthesize_class_globals};
 pub(crate) use clone_body::clone_toplevel_stmt;
 pub(crate) use closure_capture_anns::{SiteAnns, collect_closure_capture_anns};
 pub(crate) use closure_capture_anns_outer::collect_outer_binds;

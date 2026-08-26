@@ -475,7 +475,16 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
 /// `true` for it would drop a genuinely-unresolvable capture silently
 /// instead of failing loud.
 pub(crate) fn class_sentinel_name(ctx: &LowerCtx<'_>, name: &str) -> bool {
+    class_sentinel_name_tag(ctx.class_name_to_tag, name)
+}
+
+/// The table-only form of [`class_sentinel_name`], for callers that
+/// hold a mutable borrow on another part of the ctx.
+pub(crate) fn class_sentinel_name_tag(
+    class_name_to_tag: &std::collections::HashMap<String, u32>,
+    name: &str,
+) -> bool {
     name.strip_prefix("__class_")
         .or_else(|| name.strip_prefix("__proto_"))
-        .is_some_and(|c| ctx.class_name_to_tag.contains_key(c))
+        .is_some_and(|c| class_name_to_tag.contains_key(c))
 }

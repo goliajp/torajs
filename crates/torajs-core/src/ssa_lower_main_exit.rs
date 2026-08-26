@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 
-use crate::ssa::{FuncId, InstKind, Module, Operand, Terminator, Type};
+use crate::ssa::{FuncId, IPred, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
 const MAIN_EXIT_CODE_SYM: &str = "__torajs_main_exit_code";
@@ -67,4 +67,65 @@ pub(crate) fn emit_ret(ctx: &mut LowerCtx, exit_code: crate::ssa::ValueId) {
     let cb = ctx.cur_block;
     ctx.f
         .set_term(cb, Terminator::Ret(Some(Operand::Value(exit_code))));
+}
+
+/// r505 (A12) — release the class object / prototype cells at exit
+/// through the by-tag registry. The synthesized prologue
+/// (`crate::ast::CLASS_PROLOGUE_FN`) mints the cells and hands its
+/// +1 to the registry rather than dropping them at its own return,
+/// so main owns the release: for every class tag, read the raw
+/// registry bits (`class_cell_raw` / `proto_cell_raw` — a borrow, no
+/// rc traffic, and NOT a guard reader, exactly like the prologue's
+/// writeback reads) and release only when the slot is non-zero. Zero
+/// is the kernel's own "never registered" — a class without a
+/// register call, a generic specialization tag aliasing its main
+/// slot, or the prologue assumed away by the link judgment — and
+/// then there is nothing to release. Class cell first, prototype
+/// cell second: the reverse of the prologue's mint order, the order
+/// main's scope drop used when the cells were its locals.
+pub(crate) fn emit_class_cell_registry_release(ctx: &mut LowerCtx) {
+    let mut tags: Vec<u32> = ctx.class_name_to_tag.values().copied().collect();
+    tags.sort_unstable();
+    tags.dedup();
+    for tag in tags {
+        for raw_fid in [ctx.intrinsics.class_cell_raw, ctx.intrinsics.proto_cell_raw] {
+            let raw = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(raw_fid, vec![Operand::ConstI64(tag as i64)]),
+                Type::I64,
+                None,
+            );
+            let registered = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Ne, Operand::Value(raw), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            let release_blk = ctx.f.add_block();
+            let after = ctx.f.add_block();
+            ctx.f.set_term(
+                ctx.cur_block,
+                Terminator::CondBr {
+                    cond: Operand::Value(registered),
+                    then_blk: release_blk,
+                    else_blk: after,
+                },
+            );
+            let cell = ctx.f.append_inst(
+                release_blk,
+                InstKind::IntToPtr(Operand::Value(raw)),
+                Type::Any,
+                None,
+            );
+            ctx.f.append_void(
+                release_blk,
+                InstKind::Call(
+                    ctx.intrinsics.class_cell_release,
+                    vec![Operand::Value(cell)],
+                ),
+            );
+            ctx.f.set_term(release_blk, Terminator::Br(after));
+            ctx.cur_block = after;
+        }
+    }
 }

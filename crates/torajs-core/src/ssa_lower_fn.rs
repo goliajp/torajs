@@ -225,12 +225,31 @@ pub(crate) fn lower_fn(
         prev = Some(s);
     }
     if ctx.cur_open() {
+        if name == crate::ast::CLASS_PROLOGUE_FN {
+            hand_class_cells_to_registry(&mut ctx);
+        }
         ctx.emit_drops_for_owned_locals();
         let cb = ctx.cur_block;
         close_fallthrough_path(&mut ctx, cb);
     }
 
     (f, new_strings)
+}
+
+/// r505 (A12) — at the class prologue's fall-through exit, its class
+/// object / prototype cells belong to the by-tag registry: the fn
+/// hands its +1 over (the locals are marked moved) instead of
+/// releasing it, and main's exit releases through the registry
+/// (`emit_class_cell_registry_release`). Only the fall-through exit
+/// — a throw out of the prologue still runs the ordinary scope drops.
+fn hand_class_cells_to_registry(ctx: &mut LowerCtx<'_>) {
+    for (lname, info) in ctx.locals.iter_mut() {
+        if info.ty == Type::Any
+            && crate::ssa_lower_closure::class_sentinel_name_tag(ctx.class_name_to_tag, lname)
+        {
+            info.moved = true;
+        }
+    }
 }
 
 /// Param materialize prelude of [`lower_fn`] (chunk 775 extraction):

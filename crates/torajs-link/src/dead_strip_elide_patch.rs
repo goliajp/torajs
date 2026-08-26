@@ -35,6 +35,28 @@ pub(crate) fn patch_site(
     }
 }
 
+/// Does assuming `site` drop a reference to a user fn — a fn-address
+/// mint, or a call whose reloc targets a `CallTarget::Func` (r505)?
+/// The caller re-runs the user-fn gc when so: the callee may have no
+/// reference left.
+pub(crate) fn site_drops_user_ref(funcs: &[CompiledFunction], site: &ElidableSite) -> bool {
+    match &site.shape {
+        SiteShape::FnAddr { .. } => true,
+        SiteShape::Call { byte_offset, .. } => funcs
+            .iter()
+            .find(|f| f.name == site.func)
+            .and_then(|f| f.relocs.iter().find(|r| r.byte_offset == *byte_offset))
+            .is_some_and(|r| {
+                matches!(
+                    r.kind,
+                    RelocKind::CallSite {
+                        target: CallTarget::Func(_)
+                    }
+                )
+            }),
+    }
+}
+
 fn word_at(f: &CompiledFunction, off: u32) -> Result<u32, String> {
     let off = off as usize;
     f.bytes
@@ -55,20 +77,14 @@ fn reloc_index(
         .ok_or_else(|| format!("elidable site: {}+{off:#x} carries no {what} reloc", f.name))
 }
 
-/// Overwrite the `bl` word with the replacement and drop its reloc.
+/// Overwrite the `bl` word with the replacement and drop its reloc —
+/// an extern kernel's or a user fn's (r505: the class prologue).
 fn patch_call(f: &mut CompiledFunction, off: u32, replacement: u32) -> Result<(), String> {
     let idx = reloc_index(
         f,
         off,
-        |k| {
-            matches!(
-                k,
-                RelocKind::CallSite {
-                    target: CallTarget::Extern(_)
-                }
-            )
-        },
-        "extern CallSite",
+        |k| matches!(k, RelocKind::CallSite { .. }),
+        "CallSite",
     )?;
     let word = word_at(f, off)?;
     // BL: 100101 imm26.
@@ -166,6 +182,24 @@ mod tests {
     fn patch_rewrites_bl_and_drops_reloc() {
         let mut funcs = vec![fn_with_bl("_main_user", "___torajs_drain")];
         patch_site(&mut funcs, &call_site("_main_user", 4)).unwrap();
+        assert_eq!(&funcs[0].bytes[4..8], &NOP.to_le_bytes());
+        assert!(funcs[0].relocs.is_empty());
+    }
+
+    #[test]
+    fn patch_takes_a_user_fn_call_site_and_says_it_drops_a_user_ref() {
+        // r505 (A12) — the class prologue's `bl` targets a user fn.
+        let mut funcs = vec![fn_with_bl("_main_user", "unused")];
+        funcs[0].relocs[0].kind = RelocKind::CallSite {
+            target: CallTarget::Func(torajs_core::ssa::FuncId(1)),
+        };
+        let site = call_site("_main_user", 4);
+        assert!(site_drops_user_ref(&funcs, &site));
+        assert!(!site_drops_user_ref(
+            &[fn_with_bl("_main_user", "___torajs_drain")],
+            &site
+        ));
+        patch_site(&mut funcs, &site).unwrap();
         assert_eq!(&funcs[0].bytes[4..8], &NOP.to_le_bytes());
         assert!(funcs[0].relocs.is_empty());
     }

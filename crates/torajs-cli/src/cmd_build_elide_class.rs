@@ -58,12 +58,22 @@
 //! while releasing them would root the generic any-drop (cycle
 //! collector, weak registry) from the user main.
 //!
+//! r505 (A12) — and the whole prologue is one more site: it lives in
+//! its own fn (`torajs_core::ast::CLASS_PROLOGUE_FN`, the mints, the
+//! links, the registers, the reifies), main calls it once, and that
+//! `bl` is offered under the same guard. Assumed away, the fn has no
+//! caller left and the link's user-gc strips it whole — the dynobj /
+//! anyvalue / str_alloc worlds the mints rooted go with it. The cells
+//! were never minted, main's exit release reads registry zeros and
+//! skips, and no reader existed (that is what the guard says).
+//!
 //! `TORAJS_CLASS_ELIDE_DIAG=1` prints the first escape to stderr.
 
 use std::collections::{HashMap, HashSet};
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
+use torajs_core::ast::CLASS_PROLOGUE_FN;
 use torajs_core::ssa::{
     Function, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
 };
@@ -139,22 +149,23 @@ pub(crate) fn class_register_sites(
         .filter(|f| !f.bytes.is_empty())
         .flat_map(|f| {
             f.relocs.iter().filter_map(|r| {
-                let RelocKind::CallSite {
-                    target: CallTarget::Extern(name),
-                } = &r.kind
-                else {
+                let RelocKind::CallSite { target } = &r.kind else {
                     return None;
                 };
-                PROLOGUE_SYMS
-                    .contains(&name.as_str())
-                    .then(|| ElidableSite {
-                        func: f.name.clone(),
-                        guard: guard.clone(),
-                        shape: SiteShape::Call {
-                            byte_offset: r.byte_offset,
-                            replacement: NOP,
-                        },
-                    })
+                let is_prologue = match target {
+                    CallTarget::Extern(name) => PROLOGUE_SYMS.contains(&name.as_str()),
+                    CallTarget::Func(fid) => funcs
+                        .get(fid.0 as usize)
+                        .is_some_and(|callee| callee.name == CLASS_PROLOGUE_FN),
+                };
+                is_prologue.then(|| ElidableSite {
+                    func: f.name.clone(),
+                    guard: guard.clone(),
+                    shape: SiteShape::Call {
+                        byte_offset: r.byte_offset,
+                        replacement: NOP,
+                    },
+                })
             })
         })
         .collect()
@@ -399,6 +410,28 @@ mod tests {
             panic!("a call site");
         };
         assert_eq!((byte_offset, replacement), (4, NOP));
+    }
+
+    #[test]
+    fn the_prologue_call_in_main_is_a_site_too() {
+        // r505 (A12) — main's `bl __cprologue` (a user fn target) is
+        // offered next to the register sites inside the prologue.
+        let m = module_with(|_, _| {});
+        let mut main = f("_main_user", &["___torajs_print_i64"]);
+        main.relocs[0].kind = RelocKind::CallSite {
+            target: CallTarget::Func(torajs_core::ssa::FuncId(1)),
+        };
+        let funcs = vec![main, f(CLASS_PROLOGUE_FN, &[REGISTER_SYM])];
+        let sites = class_register_sites(&funcs, &m);
+        assert_eq!(sites.len(), 2);
+        assert_eq!(sites[0].func, "_main_user");
+        assert_eq!(sites[1].func, CLASS_PROLOGUE_FN);
+        // A user-fn call to anything else is not.
+        let mut other = f("_main_user", &["___torajs_print_i64"]);
+        other.relocs[0].kind = RelocKind::CallSite {
+            target: CallTarget::Func(torajs_core::ssa::FuncId(1)),
+        };
+        assert!(class_register_sites(&[other, f("helper", &[])], &m).is_empty());
     }
 
     #[test]

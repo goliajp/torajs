@@ -69,7 +69,7 @@ use torajs_codegen::frame::FrameLayout;
 
 use crate::archives_merge::{MergedArchives, compute_required_members};
 use crate::dead_strip_elide_columns::{Columns, columns_present, without_columns};
-use crate::dead_strip_elide_patch::patch_site;
+use crate::dead_strip_elide_patch::{patch_site, site_drops_user_ref};
 use crate::dead_strip_reach::{MemberReach, ReachResult, compute_reachability};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 use crate::user_gc;
@@ -311,22 +311,23 @@ fn assume(
     diag: bool,
 ) -> Result<Assumed, String> {
     let mut funcs = cfg.funcs.clone();
-    let mut fn_addr_taken = false;
+    let mut user_ref_dropped = false;
     for (site, &e) in cfg.elidable_sites.iter().zip(elided) {
         if e {
+            user_ref_dropped |= site_drops_user_ref(&funcs, site);
             patch_site(&mut funcs, site)?;
-            fn_addr_taken |= matches!(site.shape, SiteShape::FnAddr { .. });
         }
     }
     let class_layouts = dropped
         .any()
         .then(|| without_columns(&cfg.class_layouts, dropped));
     let mut fn_name_globals = None;
-    if fn_addr_taken || dropped.any() {
+    if user_ref_dropped || dropped.any() {
         // The caller ran user-gc over the unpatched list; an adapter
         // whose mints are all gone (or a twin whose row no longer
-        // names it) is dead only now, and its relocs are exactly the
-        // seeds the guard must not see.
+        // names it, or the class prologue whose one call was assumed
+        // away — r505) is dead only now, and its relocs are exactly
+        // the seeds the guard must not see.
         let roots = user_gc::table_root_fids_with(
             cfg,
             class_layouts.as_deref().unwrap_or(&cfg.class_layouts),
@@ -591,6 +592,37 @@ mod tests {
         assert_eq!(&taken[0].bytes[4..], &NOP.to_le_bytes());
         assert!(taken[0].relocs.is_empty());
         assert!(taken[1].bytes.is_empty(), "no mint left → adapter stripped");
+        assert!(taken[1].relocs.is_empty());
+    }
+
+    #[test]
+    fn assumed_prologue_call_strips_the_orphaned_callee() {
+        // r505 (A12) — main's one `bl` to the class prologue (a user
+        // fn, `CallTarget::Func`) is a site; assumed away, the callee
+        // has no reference left and the user-gc re-run strips it,
+        // relocs and all.
+        let mut main = fn_with_bl("_main_user", "unused");
+        main.relocs[0].kind = RelocKind::CallSite {
+            target: CallTarget::Func(torajs_core::ssa::FuncId(1)),
+        };
+        let prologue = fn_with_bl("__cprologue", "___torajs_dynobj_alloc");
+        let cfg = cfg_with(vec![main, prologue], vec![site("_main_user", 4)]);
+        let kept = assume(&cfg, &[false], &[false], Columns::NONE, false)
+            .unwrap()
+            .funcs;
+        assert!(
+            !kept[1].bytes.is_empty(),
+            "the prologue stays while its call does"
+        );
+        let taken = assume(&cfg, &[true], &[false], Columns::NONE, false)
+            .unwrap()
+            .funcs;
+        assert_eq!(&taken[0].bytes[4..], &NOP.to_le_bytes());
+        assert!(taken[0].relocs.is_empty());
+        assert!(
+            taken[1].bytes.is_empty(),
+            "no call left → prologue stripped"
+        );
         assert!(taken[1].relocs.is_empty());
     }
 
