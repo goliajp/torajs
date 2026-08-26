@@ -26,7 +26,7 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
-pub use crate::dead_strip_elide::{ElidableCall, Guard, GuardedStub};
+pub use crate::dead_strip_elide::{ElidableSite, Guard, GuardedStub, SiteShape};
 pub use crate::exec_user_entries::{
     UserBakedRegexEntry, UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry,
     UserFieldMetaEntry, UserFnNameEntry, UserMethodMetaEntry, UserStringEntry, UserStringKind,
@@ -60,11 +60,11 @@ pub struct LinkConfig {
     /// a 273 KB empty program, r498). `tr build` default; `--no-strip`
     /// / `tr run` keep `false` so runtime frames still symbolicate.
     pub strip_member_symbols: bool,
-    /// r499 — `bl` sites in the user fns the dead-strip pre-pass may
-    /// replace with a fixed instruction when the guard member holds no
-    /// live text once the site's own edge is set aside (module doc in
-    /// `dead_strip_elide`). Empty = no site is conditional.
-    pub elidable_calls: Vec<ElidableCall>,
+    /// r499/r501 — sites in the user fns the dead-strip pre-pass may
+    /// rewrite (a drain `bl` → fixed word; a `__boxed_` mint's
+    /// `adrp/add` → `movz #0`) when the guard text is dead once the
+    /// site is assumed (module doc in `dead_strip_elide`).
+    pub elidable_sites: Vec<ElidableSite>,
     /// r499 — definitions the pre-pass adds to shadow a runtime
     /// member's when that member's guard text is dead with the stub
     /// assumed (same module). Empty = nothing conditional.
@@ -524,7 +524,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
-            elidable_calls: Vec::new(),
+            elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
@@ -592,7 +592,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
-            elidable_calls: Vec::new(),
+            elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
@@ -621,7 +621,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
-            elidable_calls: Vec::new(),
+            elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
@@ -659,7 +659,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
-            elidable_calls: Vec::new(),
+            elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
@@ -697,7 +697,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
-            elidable_calls: Vec::new(),
+            elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),
@@ -830,7 +830,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
-            elidable_calls: Vec::new(),
+            elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
             archives: Vec::new(),
             strings: Vec::new(),

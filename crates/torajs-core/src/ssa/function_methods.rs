@@ -313,6 +313,9 @@ impl Function {
             InstKind::FnAddr(fid) => {
                 write!(w, "fn_addr {}", m.func_name(*fid))?;
             }
+            InstKind::BoxedEntryAddr(fid) => {
+                write!(w, "boxed_entry_addr {}", m.func_name(*fid))?;
+            }
             InstKind::CallIndirect(sig, ptr, args) => {
                 write!(w, "call_indirect <sig{}> ", sig.0)?;
                 self.write_operand(w, ptr)?;

@@ -40,10 +40,6 @@ use torajs_rc::Tag;
 /// `AnySlotTag::Heap` in the member-pair protocol.
 const TAG_HEAP: u64 = 4;
 
-/// Closure-env boxed-entry slot — `method_value::CLOSURE_BOXED_ENTRY_OFF`
-/// mirror (the universal closure layout).
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
-
 /// §13.3.6.2 `recv[key](args…)`.
 ///
 /// # Safety
@@ -167,7 +163,8 @@ unsafe fn call_with_base(v: AnyValue, base: AnyValue, argv: *const u64, argc: i6
             && unsafe { crate::method_value::builtin_method_mid(cell) }.is_none()
         {
             // SAFETY: the closure layout carries the boxed dual entry.
-            let entry = unsafe { *(cell.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+            let entry =
+                unsafe { crate::method_call_closure_dispatch::boxed_entry_of(cell.cast::<u8>()) };
             if entry != 0 {
                 let raw = unsafe {
                     crate::method_call_closure_dispatch::invoke_with_this(
@@ -221,7 +218,7 @@ unsafe fn symbol_keyed_call(
     // semantics: this symbol-keyed store's receiver rides argv[0]
     // onto the `__this` param, user args shift up by one.
     // SAFETY: the closure layout carries the boxed dual entry.
-    let entry = unsafe { *(cell.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+    let entry = unsafe { crate::method_call_closure_dispatch::boxed_entry_of(cell.cast::<u8>()) };
     if entry == 0 {
         return unsafe { not_callable() };
     }

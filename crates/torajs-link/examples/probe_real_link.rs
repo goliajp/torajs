@@ -105,7 +105,7 @@ fn main() {
         codesign_ident: "tora".into(),
         dead_strip: false,
         strip_member_symbols: false,
-        elidable_calls: Vec::new(),
+        elidable_sites: Vec::new(),
         guarded_stubs: Vec::new(),
         archives,
         strings: Vec::new(),

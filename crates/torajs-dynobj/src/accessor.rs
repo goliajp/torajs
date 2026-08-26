@@ -158,10 +158,6 @@ pub(crate) unsafe fn closure_recv_first(face: *const c_void) -> bool {
     flags & FLAG_CLOSURE_RECV_FIRST != 0
 }
 
-/// Closure-cell boxed dual entry offset — ABI mirror of
-/// `torajs_anyvalue`'s `CLOSURE_BOXED_ENTRY_OFF`.
-pub(crate) const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
-
 /// `undefined` NaN-box sentinel (mirrors
 /// `torajs_anyvalue::nanbox::VALUE_UNDEFINED` = 0x0A). Returned when an
 /// accessor has no getter (`get` omitted).

@@ -26,6 +26,9 @@ use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
 
 unsafe extern "C" {
+    /// torajs-rc — the one boxed-entry reader (link-judged; see
+    /// `torajs_rc::closure_entry`).
+    fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
     /// torajs-anyvalue — NaN-box a (tag, value) pair.
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     /// torajs-anyvalue — the boxed value's slot tag.
@@ -42,8 +45,6 @@ unsafe extern "C" {
 /// ssa_lower synthesizes at closure+32; must move in lockstep with
 /// `torajs-str/src/transform/replace_fn.rs`'s copy.
 type BoxedEntry = unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64;
-
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
 /// Closure header flags word (cell +6) and the receiver-first bit —
 /// mirror of `torajs_rc::FLAG_CLOSURE_RECV_FIRST` (bit 12). A
@@ -256,10 +257,8 @@ unsafe fn boxed_invoke(
     input: *const c_void,
 ) -> Result<*mut c_void, ()> {
     unsafe {
-        let entry = (closure as *const u8)
-            .add(CLOSURE_BOXED_ENTRY_OFF)
-            .cast::<BoxedEntry>()
-            .read();
+        let entry: BoxedEntry =
+            core::mem::transmute(__torajs_closure_boxed_entry(closure as *const u8) as usize);
         let shift = usize::from(
             ((closure as *const u8).add(CLOSURE_FLAGS_OFF) as *const u16).read()
                 & FLAG_CLOSURE_RECV_FIRST

@@ -371,7 +371,7 @@ pub(crate) fn init_env_header(
             let cur_block = ctx.cur_block;
             Operand::Value(ctx.f.append_inst(
                 cur_block,
-                InstKind::FnAddr(bfid),
+                InstKind::BoxedEntryAddr(bfid),
                 Type::FnSig(bsig),
                 None,
             ))

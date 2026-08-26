@@ -1,5 +1,5 @@
 //! Address-of-symbol lowering — GlobalRef / StringRef / StaticStrRef
-//! / FnAddr. Each emits the canonical aarch64 `ADRP Xd, page(sym);
+//! / FnAddr / BoxedEntryAddr. Each emits the canonical aarch64 `ADRP Xd, page(sym);
 //! ADD Xd, Xd, #pageoff(sym)` pair, paired with `Page21` +
 //! `PageOff12` relocs that torajs-link patches at symbol resolution.
 //!
@@ -10,6 +10,7 @@
 //!   StringRef(StringId(n)) → "__torajs_str_dyn_{n}"
 //!   StaticStrRef(...)      → "__torajs_str_lit_{n}"
 //!   FnAddr(FuncId(n))      → "__torajs_fn_{n}"
+//!   BoxedEntryAddr(FuncId(n)) → "__torajs_boxed_{n}"
 //! ```
 //!
 //! These prefixes are a S4-B convention; torajs-obj (#7) and torajs-
@@ -104,6 +105,22 @@ pub fn emit_fn_addr(
     let result_vid = inst.result.expect("FnAddr must have result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     emit_adrp_add_pair(bytes, relocs, dst, format!("__torajs_fn_{}", func_id.0));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// Same pair as [`emit_fn_addr`] under the mint-only alias
+/// `__torajs_boxed_<n>` — torajs-link registers both aliases to the
+/// same vaddr and judges only this one (`dead_strip_elide`).
+pub fn emit_boxed_entry_addr(
+    bytes: &mut Vec<u8>,
+    relocs: &mut Vec<Reloc>,
+    inst: &Inst,
+    func_id: FuncId,
+    alloc: &Assignment,
+) {
+    let result_vid = inst.result.expect("BoxedEntryAddr must have result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    emit_adrp_add_pair(bytes, relocs, dst, format!("__torajs_boxed_{}", func_id.0));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

@@ -1,6 +1,6 @@
 //! r499 — link-judged conditional shapes in the user `.o`: a `bl`
 //! the dead-strip pre-pass may replace with a fixed instruction
-//! ([`ElidableCall`]), and a definition it may add to shadow a
+//! ([`ElidableSite`]), and a definition it may add to shadow a
 //! runtime member's ([`GuardedStub`]) — each decided by whether the
 //! runtime member it guards on has live text once the shape itself
 //! is assumed.
@@ -34,6 +34,17 @@
 //! (never)]` writer entries in its own crate is live — the member
 //! itself is live regardless).
 //!
+//! Two site shapes ([`SiteShape`]): a `bl` replaced by a fixed word
+//! (r499), and — r501, RFC 20260824-s2-5 刀 4 A1 — a closure mint's
+//! `adrp/add` pair taking its `__boxed_` adapter's address, replaced
+//! by `movz Xd, #0` (the no-adapter shape the runtime already answers
+//! with a catchable TypeError). The adapter's per-parameter unbox
+//! roots the whole any world; its only readers go through one
+//! `#[inline(never)]` rc entry, so that symbol's text liveness is the
+//! guard. When every mint of an adapter is assumed away the adapter
+//! itself has no reference left, and `assume` re-runs the user-fn
+//! dead-strip so its relocs stop seeding the member closure.
+//!
 //! Policy stays in the caller (`torajs-cli` knows which members feed
 //! which hook); this file is mechanism only. `TORAJS_LINK_ELIDE=0`
 //! disables the pass (A/B pricing); `TORAJS_LINK_ELIDE_DIAG=1`
@@ -43,12 +54,12 @@ use std::collections::BTreeSet;
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
-use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
-use torajs_obj::{N_SECT, N_TYPE};
 
 use crate::archives_merge::{MergedArchives, compute_required_members};
+use crate::dead_strip_elide_patch::patch_site;
 use crate::dead_strip_reach::{MemberReach, ReachResult, compute_reachability};
 use crate::exec::LinkConfig;
+use crate::user_gc;
 
 /// Which runtime text is the evidence.
 #[derive(Debug, Clone)]
@@ -76,16 +87,38 @@ impl core::fmt::Display for Guard {
     }
 }
 
-/// One conditional `bl` site. `func` + `byte_offset` name the reloc
-/// (a `CallSite { Extern }` at that offset must exist);
-/// `replacement` is the instruction word written over the `bl`
-/// when elided.
+/// What a conditional site looks like in the fn's bytes.
 #[derive(Debug, Clone)]
-pub struct ElidableCall {
+pub enum SiteShape {
+    /// A `bl` (a `CallSite { Extern }` reloc at `byte_offset` must
+    /// exist); `replacement` is the word written over it when elided.
+    Call { byte_offset: u32, replacement: u32 },
+    /// An `adrp Xd; add Xd, Xd, #lo12` pair at `adrp_offset` whose
+    /// `Page21` / `PageOff12` relocs name `target` (a
+    /// `__torajs_boxed_<i>` alias). Elided: `movz Xd, #0; nop`, both
+    /// relocs dropped, and the alias's fn stripped if nothing else
+    /// references it.
+    FnAddr { adrp_offset: u32, target: String },
+}
+
+impl core::fmt::Display for SiteShape {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SiteShape::Call { byte_offset, .. } => write!(f, "+{byte_offset:#x}"),
+            SiteShape::FnAddr {
+                adrp_offset,
+                target,
+            } => write!(f, "+{adrp_offset:#x} fnaddr={target}"),
+        }
+    }
+}
+
+/// One conditional site in user fn `func`.
+#[derive(Debug, Clone)]
+pub struct ElidableSite {
     pub func: String,
-    pub byte_offset: u32,
     pub guard: Guard,
-    pub replacement: u32,
+    pub shape: SiteShape,
 }
 
 /// One conditional definition: a leaf fn named `sym` with body
@@ -97,11 +130,11 @@ pub struct ElidableCall {
 pub struct GuardedStub {
     pub sym: String,
     pub bytes: Vec<u8>,
-    pub relocs: Vec<Reloc>,
+    pub relocs: Vec<torajs_codegen::reloc::Reloc>,
     pub guard: Guard,
 }
 
-/// Run the fix-point over `cfg.elidable_calls` + `cfg.guarded_stubs`;
+/// Run the fix-point over `cfg.elidable_sites` + `cfg.guarded_stubs`;
 /// answer the patched fn list (sites rewritten, surviving stubs
 /// appended) when any shape survived, `None` when nothing changes.
 pub(crate) fn judge_and_patch(
@@ -109,14 +142,14 @@ pub(crate) fn judge_and_patch(
     merged: &MergedArchives<'_>,
     extra_defined_syms: &BTreeSet<String>,
 ) -> Result<Option<Vec<CompiledFunction>>, String> {
-    if (cfg.elidable_calls.is_empty() && cfg.guarded_stubs.is_empty())
+    if (cfg.elidable_sites.is_empty() && cfg.guarded_stubs.is_empty())
         || std::env::var_os("TORAJS_LINK_ELIDE").is_some_and(|v| v == "0")
     {
         return Ok(None);
     }
     let diag = std::env::var_os("TORAJS_LINK_ELIDE_DIAG").is_some();
 
-    let mut elided: Vec<bool> = vec![true; cfg.elidable_calls.len()];
+    let mut elided: Vec<bool> = vec![true; cfg.elidable_sites.len()];
     let mut applied: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
     // An applied stub no live atom imports is dead weight (it would
     // only ride along because `___torajs_`-named user fns are always
@@ -139,7 +172,7 @@ pub(crate) fn judge_and_patch(
             None,
         )?;
         let mut changed = false;
-        for (i, site) in cfg.elidable_calls.iter().enumerate() {
+        for (i, site) in cfg.elidable_sites.iter().enumerate() {
             if elided[i] && guard_live(&reach, &site.guard) {
                 elided[i] = false;
                 changed = true;
@@ -163,11 +196,11 @@ pub(crate) fn judge_and_patch(
     }
 
     if diag {
-        for (site, &e) in cfg.elidable_calls.iter().zip(&elided) {
+        for (site, &e) in cfg.elidable_sites.iter().zip(&elided) {
             eprintln!(
-                "elide: {}+{:#x} guard={} -> {}",
+                "elide: {}{} guard={} -> {}",
                 site.func,
-                site.byte_offset,
+                site.shape,
                 site.guard,
                 if e { "ELIDED" } else { "KEPT" }
             );
@@ -192,18 +225,27 @@ pub(crate) fn judge_and_patch(
 }
 
 /// The user fn list with the chosen shapes assumed: elided sites
-/// patched (bytes + reloc removed), applied stubs appended.
+/// patched (bytes + relocs removed), fns the patched-away fn-address
+/// sites orphaned stripped, applied stubs appended.
 fn assume(
     cfg: &LinkConfig,
     elided: &[bool],
     applied: &[bool],
 ) -> Result<Vec<CompiledFunction>, String> {
     let mut funcs = cfg.funcs.clone();
-    for (site, &e) in cfg.elidable_calls.iter().zip(elided) {
+    let mut fn_addr_taken = false;
+    for (site, &e) in cfg.elidable_sites.iter().zip(elided) {
         if e {
-            let (f, idx) = locate(&mut funcs, site)?;
-            patch_site(f, idx, site)?;
+            patch_site(&mut funcs, site)?;
+            fn_addr_taken |= matches!(site.shape, SiteShape::FnAddr { .. });
         }
+    }
+    if fn_addr_taken {
+        // The caller ran user-gc over the unpatched list; an adapter
+        // whose mints are all gone is dead only now, and its relocs
+        // are exactly the seeds the guard must not see.
+        let roots = user_gc::table_root_fids(cfg);
+        user_gc::strip_with_roots(&mut funcs, &cfg.entry, &roots, false);
     }
     for (stub, &a) in cfg.guarded_stubs.iter().zip(applied) {
         if a {
@@ -255,6 +297,7 @@ fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
 /// `N_SECT` nlist row at or below it in that section) one of
 /// `names`? An unanchored atom (leading gap) never is.
 fn anchor_named(m: &MemberReach<'_>, n_sect: u8, start: u64, names: &[String]) -> bool {
+    use torajs_obj::{N_SECT, N_TYPE};
     m.nlist
         .iter()
         .filter(|n| n.n_type & N_TYPE == N_SECT && n.n_sect == n_sect && n.n_value <= start)
@@ -262,65 +305,10 @@ fn anchor_named(m: &MemberReach<'_>, n_sect: u8, start: u64, names: &[String]) -
         .is_some_and(|n| names.iter().any(|i| i == n.name))
 }
 
-/// Find the site's fn and the index of its reloc. A missing fn or
-/// reloc is a caller contract violation — loud, never skipped.
-fn locate<'f>(
-    funcs: &'f mut [CompiledFunction],
-    site: &ElidableCall,
-) -> Result<(&'f mut CompiledFunction, usize), String> {
-    let f = funcs
-        .iter_mut()
-        .find(|f| f.name == site.func)
-        .ok_or_else(|| format!("elidable call: no fn named {}", site.func))?;
-    let idx = f
-        .relocs
-        .iter()
-        .position(|r| {
-            r.byte_offset == site.byte_offset
-                && matches!(
-                    &r.kind,
-                    RelocKind::CallSite {
-                        target: CallTarget::Extern(_)
-                    }
-                )
-        })
-        .ok_or_else(|| {
-            format!(
-                "elidable call: {}+{:#x} carries no extern CallSite reloc",
-                site.func, site.byte_offset
-            )
-        })?;
-    Ok((f, idx))
-}
-
-/// Overwrite the `bl` word with the replacement and drop its reloc.
-fn patch_site(
-    f: &mut CompiledFunction,
-    reloc_idx: usize,
-    site: &ElidableCall,
-) -> Result<(), String> {
-    let off = site.byte_offset as usize;
-    let word = f
-        .bytes
-        .get(off..off + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .ok_or_else(|| format!("elidable call: {}+{:#x} past fn end", site.func, off))?;
-    // BL: 100101 imm26.
-    if word & 0xFC00_0000 != 0x9400_0000 {
-        return Err(format!(
-            "elidable call: {}+{:#x} is {word:#010x}, not a bl",
-            site.func, off
-        ));
-    }
-    f.bytes[off..off + 4].copy_from_slice(&site.replacement.to_le_bytes());
-    f.relocs.remove(reloc_idx);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_codegen::reloc::Reloc;
+    use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
 
     const NOP: u32 = 0xD503_201F;
 
@@ -341,6 +329,31 @@ mod tests {
         }
     }
 
+    /// `adrp x9; add x9, x9, #0` at 0 against `__torajs_boxed_<i>`.
+    fn fn_with_mint(name: &str, i: usize) -> CompiledFunction {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(0x9000_0000u32 | 9).to_le_bytes());
+        bytes.extend_from_slice(&(0x9100_0000u32 | (9 << 5) | 9).to_le_bytes());
+        let target = format!("__torajs_boxed_{i}");
+        CompiledFunction {
+            name: name.into(),
+            bytes,
+            relocs: vec![
+                Reloc {
+                    byte_offset: 0,
+                    kind: RelocKind::Page21 {
+                        target_sym: target.clone(),
+                    },
+                },
+                Reloc {
+                    byte_offset: 4,
+                    kind: RelocKind::PageOff12 { target_sym: target },
+                },
+            ],
+            frame: FrameLayout::leaf_no_spill(),
+        }
+    }
+
     fn guard() -> Guard {
         Guard::Member {
             prefix: "torajs_x-".into(),
@@ -348,49 +361,26 @@ mod tests {
         }
     }
 
-    fn site(func: &str, off: u32) -> ElidableCall {
-        ElidableCall {
+    fn site(func: &str, off: u32) -> ElidableSite {
+        ElidableSite {
             func: func.into(),
-            byte_offset: off,
             guard: guard(),
-            replacement: NOP,
+            shape: SiteShape::Call {
+                byte_offset: off,
+                replacement: NOP,
+            },
         }
     }
 
-    #[test]
-    fn patch_rewrites_bl_and_drops_reloc() {
-        let mut f = fn_with_bl("_main_user", "___torajs_drain");
-        patch_site(&mut f, 0, &site("_main_user", 4)).unwrap();
-        assert_eq!(&f.bytes[4..8], &NOP.to_le_bytes());
-        assert!(f.relocs.is_empty());
-    }
-
-    #[test]
-    fn patch_refuses_non_bl_word() {
-        let mut f = fn_with_bl("_main_user", "___torajs_drain");
-        f.relocs[0].byte_offset = 0;
-        let err = patch_site(&mut f, 0, &site("_main_user", 0)).unwrap_err();
-        assert!(err.contains("not a bl"), "{err}");
-    }
-
-    #[test]
-    fn locate_rejects_unknown_site() {
-        let mut funcs = vec![fn_with_bl("_main_user", "___torajs_drain")];
-        assert!(locate(&mut funcs, &site("_main_user", 8)).is_err());
-        assert!(locate(&mut funcs, &site("_other", 4)).is_err());
-        assert_eq!(locate(&mut funcs, &site("_main_user", 4)).unwrap().1, 0);
-    }
-
-    #[test]
-    fn assume_patches_chosen_sites_and_appends_applied_stubs() {
-        let cfg = LinkConfig {
-            funcs: vec![fn_with_bl("_main_user", "___torajs_drain")],
+    fn cfg_with(funcs: Vec<CompiledFunction>, sites: Vec<ElidableSite>) -> LinkConfig {
+        LinkConfig {
+            funcs,
             entry: "_main_user".into(),
             sym_table: crate::resolve::SymTable::new(),
             codesign_ident: "tora".into(),
             dead_strip: true,
             strip_member_symbols: false,
-            elidable_calls: vec![site("_main_user", 4)],
+            elidable_sites: sites,
             guarded_stubs: vec![GuardedStub {
                 sym: "___torajs_hook".into(),
                 bytes: 0xD65F_03C0u32.to_le_bytes().to_vec(),
@@ -408,7 +398,15 @@ mod tests {
             class_names: Vec::new(),
             force_emit_class_names_globals: false,
             baked_regex_entries: Vec::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn assume_patches_chosen_sites_and_appends_applied_stubs() {
+        let cfg = cfg_with(
+            vec![fn_with_bl("_main_user", "___torajs_drain")],
+            vec![site("_main_user", 4)],
+        );
         let kept = assume(&cfg, &[false], &[false]).unwrap();
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].relocs.len(), 1);
@@ -416,6 +414,37 @@ mod tests {
         assert_eq!(taken.len(), 2);
         assert!(taken[0].relocs.is_empty());
         assert_eq!(taken[1].name, "___torajs_hook");
+        assert!(taken[1].relocs.is_empty());
+    }
+
+    #[test]
+    fn assumed_mint_strips_the_orphaned_adapter() {
+        // main mints adapter 1 (which calls into the any world); a
+        // second fn takes the adapter's address the plain way and is
+        // itself dead (unreferenced), so it must not keep it.
+        let mut adapter = fn_with_bl("__boxed_f", "___torajs_anyv_unbox");
+        adapter.name = "__boxed_f".into();
+        let funcs = vec![fn_with_mint("_main_user", 1), adapter];
+        let mint = ElidableSite {
+            func: "_main_user".into(),
+            guard: guard(),
+            shape: SiteShape::FnAddr {
+                adrp_offset: 0,
+                target: "__torajs_boxed_1".into(),
+            },
+        };
+        let cfg = cfg_with(funcs, vec![mint]);
+        let kept = assume(&cfg, &[false], &[false]).unwrap();
+        assert!(
+            !kept[1].bytes.is_empty(),
+            "adapter stays while its mint does"
+        );
+        let taken = assume(&cfg, &[true], &[false]).unwrap();
+        // movz x9, #0 ; nop — relocs gone, adapter emptied.
+        assert_eq!(&taken[0].bytes[..4], &(0xD280_0000u32 | 9).to_le_bytes());
+        assert_eq!(&taken[0].bytes[4..], &NOP.to_le_bytes());
+        assert!(taken[0].relocs.is_empty());
+        assert!(taken[1].bytes.is_empty(), "no mint left → adapter stripped");
         assert!(taken[1].relocs.is_empty());
     }
 }

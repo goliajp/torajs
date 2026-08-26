@@ -6,7 +6,6 @@ mod cmd_build_elide;
 mod cmd_build_extern_relocs;
 mod cmd_build_ssa_string_registries;
 mod cmd_build_synthesize;
-mod cmd_build_user_gc;
 mod cmd_cache;
 mod cmd_debug;
 mod cmd_fmt;

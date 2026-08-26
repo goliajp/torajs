@@ -72,7 +72,9 @@ pub use mem::{
 pub use operand::{
     emit_copy, materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr,
 };
-pub use refs::{emit_fn_addr, emit_global_ref, emit_static_str_ref, emit_string_ref};
+pub use refs::{
+    emit_boxed_entry_addr, emit_fn_addr, emit_global_ref, emit_static_str_ref, emit_string_ref,
+};
 
 /// Operand scratch GPRs — sub-modules use these to materialize int
 /// constants (`materialize_const_i64`) and arrange operands.
@@ -298,6 +300,9 @@ fn emit_inst(
             emit_static_str_ref(bytes, relocs, inst, *string_id, alloc)
         }
         InstKind::FnAddr(func_id) => emit_fn_addr(bytes, relocs, inst, *func_id, alloc),
+        InstKind::BoxedEntryAddr(func_id) => {
+            emit_boxed_entry_addr(bytes, relocs, inst, *func_id, alloc)
+        }
         InstKind::Identity(_) => unreachable!(
             "InstKind::Identity reached aarch64 emit — egraph elaborate must \
              drop it via set_opt_value before this point"

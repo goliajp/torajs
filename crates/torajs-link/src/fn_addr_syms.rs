@@ -15,17 +15,36 @@ use crate::resolve::SymTable;
 use std::collections::BTreeSet;
 use torajs_codegen::CompiledFunction;
 
+/// The two alias namespaces codegen takes a user fn's address
+/// under: `FnAddr` → `__torajs_fn_<i>`; `BoxedEntryAddr` (a closure
+/// mint storing its `__boxed_` adapter) → `__torajs_boxed_<i>`. Both
+/// resolve to `fn_vaddrs[i]`; the second exists so `dead_strip_elide`
+/// can judge the mints without touching the other address-takers.
+pub const FN_ADDR_ALIAS_PREFIXES: [&str; 2] = ["__torajs_fn_", "__torajs_boxed_"];
+
+/// Parse either alias → `<i>` (`None` for any other name).
+pub fn parse_fn_addr_alias(sym: &str) -> Option<usize> {
+    FN_ADDR_ALIAS_PREFIXES
+        .iter()
+        .find_map(|p| sym.strip_prefix(p))
+        .and_then(|t| t.parse().ok())
+}
+
 /// Sym names to flag as link-defined in the worklist closure
 /// (`compute_required_members::extra_defined_syms`) so a user-fn
-/// reloc against `__torajs_fn_<i>` isn't surfaced as `UnresolvedExterns`
+/// reloc against either alias isn't surfaced as `UnresolvedExterns`
 /// before the emit pass injects the alias.
 pub fn fn_addr_extra_defined_syms(funcs: &[CompiledFunction]) -> BTreeSet<String> {
     (0..funcs.len())
-        .map(|i| format!("__torajs_fn_{i}"))
+        .flat_map(|i| {
+            FN_ADDR_ALIAS_PREFIXES
+                .iter()
+                .map(move |p| format!("{p}{i}"))
+        })
         .collect()
 }
 
-/// Register `__torajs_fn_<i>` → `fn_vaddrs[i]` for every user fn.
+/// Register both aliases → `fn_vaddrs[i]` for every user fn.
 /// `funcs.len() == fn_vaddrs.len()` (the layout pass invariant); this
 /// helper trusts that and panics in debug otherwise.
 pub fn register_fn_addr_syms(
@@ -39,7 +58,9 @@ pub fn register_fn_addr_syms(
         "funcs and fn_vaddrs must zip 1:1"
     );
     for (i, vaddr) in fn_vaddrs.iter().enumerate() {
-        sym_table.insert(format!("__torajs_fn_{i}"), *vaddr);
+        for p in FN_ADDR_ALIAS_PREFIXES {
+            sym_table.insert(format!("{p}{i}"), *vaddr);
+        }
     }
 }
 
@@ -218,7 +239,7 @@ mod tests {
             codesign_ident: "tora".into(),
             dead_strip: false,
             strip_member_symbols: false,
-            elidable_calls: Vec::new(),
+            elidable_sites: Vec::new(),
             guarded_stubs: Vec::new(),
             archives: archives.into_iter().map(Into::into).collect(),
             strings: Vec::new(),

@@ -278,6 +278,14 @@ pub enum InstKind {
     /// Result type is `Type::FnSig(sig_id)` matching the function's
     /// signature. M2 Phase B Stage 3.
     FnAddr(FuncId),
+    /// `%v = boxed_entry_addr <fid>` — the address of a closure's
+    /// synthesized any-ABI adapter (`__boxed_<name>`), taken only to
+    /// be stored into the cell's `boxed_entry` slot. Same result type
+    /// and codegen as `FnAddr`, but under its own symbol alias
+    /// (`__torajs_boxed_<n>`) so the link can tell a mint apart from
+    /// the other address-takers of the same adapter and judge it
+    /// (RFC 20260824-s2-5 刀 4 A1; `torajs_rc::closure_entry`).
+    BoxedEntryAddr(FuncId),
     /// `%v = call_indirect <sig_id>, <ptr>, <args>` — call through a
     /// function pointer. The signature is looked up via `module.signature(sig_id)`
     /// at codegen so the backend can build the right calling convention.

@@ -333,7 +333,7 @@ pub(crate) fn build_link_config(
 
     // r499 — main's three end-of-program drains become conditional
     // on their feeder members' liveness (policy in cmd_build_elide).
-    let elidable_calls = crate::cmd_build_elide::collect_elidable_calls(&funcs);
+    let elidable_sites = crate::cmd_build_elide::collect_elidable_sites(&funcs);
     let guarded_stubs = crate::cmd_build_elide::guarded_stubs();
 
     let mut strings = build_user_strings(ssa_module);
@@ -358,7 +358,7 @@ pub(crate) fn build_link_config(
         codesign_ident: "tora".into(),
         dead_strip,
         strip_member_symbols,
-        elidable_calls,
+        elidable_sites,
         guarded_stubs,
         archives,
         strings,
@@ -407,7 +407,7 @@ pub(crate) fn build_link_config(
     };
     // r498 knife 4 — user-fn dead-strip; roots come from the
     // materialized tables in `cfg` itself (module doc in
-    // cmd_build_user_gc).
-    crate::cmd_build_user_gc::strip_dead_user_fns(&mut cfg);
+    // torajs_link::user_gc).
+    torajs_link::user_gc::strip_dead_user_fns(&mut cfg);
     cfg
 }

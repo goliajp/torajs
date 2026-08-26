@@ -12,11 +12,14 @@ use core::ffi::c_void;
 
 use crate::accessor::{
     ACC_GET_OFF, ACC_KIND_BOOL, ACC_KIND_BOXED, ACC_KIND_F64, ACC_KIND_I64, ACC_KIND_NAKED,
-    ACC_KIND_PTR, ACC_KIND_RECV, ACC_KIND_VOID, ACC_KINDS_OFF, ACC_SET_OFF,
-    CLOSURE_BOXED_ENTRY_OFF, CLOSURE_FN_ADDR_OFF, VALUE_UNDEFINED,
+    ACC_KIND_PTR, ACC_KIND_RECV, ACC_KIND_VOID, ACC_KINDS_OFF, ACC_SET_OFF, CLOSURE_FN_ADDR_OFF,
+    VALUE_UNDEFINED,
 };
 
 unsafe extern "C" {
+    /// torajs-rc — the one boxed-entry reader (link-judged; see
+    /// `torajs_rc::closure_entry`).
+    fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
     /// torajs-anyvalue — NaN-box a `(tag, value)` pair into an
     /// `AnyValue`. `tag`: 0=Null 1=Bool 2=I64 3=F64(bits) 4=Heap(ptr).
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
@@ -98,7 +101,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
         // the receiver the body reads as `this`. The header-flag OR
         // covers routes that never stamped the kind byte (alias /
         // any-boxed faces, knife 2W).
-        let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        let entry = unsafe { __torajs_closure_boxed_entry(getter as *const u8) };
         if entry == 0 {
             return VALUE_UNDEFINED;
         }
@@ -113,7 +116,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
     // reads no params) — the env-first transmutes below stay correct
     // for both shapes, so the flag only matters for the setter.
     if ret_kind == ACC_KIND_BOXED {
-        let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        let entry = unsafe { __torajs_closure_boxed_entry(getter as *const u8) };
         if entry == 0 {
             return VALUE_UNDEFINED;
         }
@@ -218,7 +221,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
         // Receiver-first fn-expr face — boxed dual entry, argv[0] is
         // the receiver the body reads as `this`, argv[1] the value.
         // Header-flag OR: see the getter twin.
-        let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        let entry = unsafe { __torajs_closure_boxed_entry(setter as *const u8) };
         if entry == 0 {
             return 1;
         }
@@ -260,7 +263,7 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
         return 1;
     }
     if param_kind == ACC_KIND_BOXED {
-        let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        let entry = unsafe { __torajs_closure_boxed_entry(setter as *const u8) };
         if entry == 0 {
             return 1;
         }

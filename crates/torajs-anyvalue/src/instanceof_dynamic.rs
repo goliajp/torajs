@@ -56,10 +56,6 @@ const TAG_HEAP: u64 = 4;
 /// alphabetical by property name (torajs-str `WELL_KNOWN_DESCS`).
 const WK_HAS_INSTANCE: i64 = 3;
 
-/// Closure-env boxed-entry slot — `method_value::CLOSURE_BOXED_ENTRY_OFF`
-/// mirror (the universal closure layout).
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
-
 /// §13.10.2 `v instanceof target` for a runtime-resolved target.
 ///
 /// # Safety
@@ -106,7 +102,7 @@ unsafe fn call_has_instance(v: AnyValue, target: AnyValue, cell: *mut c_void) ->
             __torajs_throw_type_error(c"Symbol.hasInstance handler is not callable".as_ptr());
             return false;
         }
-        let entry = *(cell.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        let entry = crate::method_call_closure_dispatch::boxed_entry_of(cell.cast::<u8>());
         if entry == 0 {
             __torajs_throw_type_error(c"Symbol.hasInstance handler is not callable".as_ptr());
             return false;

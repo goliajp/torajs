@@ -71,10 +71,6 @@ pub unsafe extern "C" fn __torajs_instanceof_proto_chain_any_tag(
     }
 }
 
-/// Mirror of `method_value.rs`'s cell layout constant — the boxed
-/// dual-entry slot of a closure cell.
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
-
 /// Power of two, and comfortably above the 256 class tags
 /// `torajs-meta` allows, so the table never fills and probe chains
 /// stay at one or two steps.
@@ -362,7 +358,7 @@ unsafe fn construct_plain_fn(cell: *mut c_void, argv: *const u64, argc: i64) -> 
         let this_obj = __torajs_dynobj_alloc();
         __torajs_object_create_link_proto(this_obj, __torajs_anyv_box_pointer(pval as *mut c_void));
         let this_av = __torajs_anyv_box_pointer(this_obj);
-        let entry = *((cell as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        let entry = crate::method_call_closure_dispatch::boxed_entry_of(cell as *const u8);
         let result = invoke_with_this(cell, entry, this_av, argv, argc);
         if __torajs_throw_check() != 0 {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(this_av);

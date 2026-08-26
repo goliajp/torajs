@@ -299,7 +299,7 @@ fn mint_named_fn_env(ctx: &mut LowerCtx, fid: crate::ssa::FuncId) -> Operand {
         Some(&(bfid, bsig)) => {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::FnAddr(bfid),
+                InstKind::BoxedEntryAddr(bfid),
                 Type::FnSig(bsig),
                 None,
             );

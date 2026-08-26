@@ -48,6 +48,18 @@
 //! silent answer: a writer added later without routing through the
 //! entries would surface as a named TypeError under the gate.
 //!
+//! **Adapter mints** (r501, 刀 4 A1) — every closure mint stores its
+//! `__boxed_` any-ABI adapter's address into the cell, and the
+//! adapter's per-parameter unbox roots the whole any world (one
+//! directly-called closure: 397 KB against 84 KB). The runtime reads
+//! that slot only through torajs-rc's `#[inline(never)]`
+//! `__torajs_closure_boxed_entry`, so each mint's `adrp/add` pair
+//! (codegen's `__torajs_boxed_<i>` alias — the other address-takers
+//! of the same adapter, the class registries, use `__torajs_fn_<i>`
+//! and are never touched) is a `SiteShape::FnAddr` site guarded on
+//! that symbol; assumed, it stores 0 and the link strips the orphaned
+//! adapter (`dead_strip_elide::assume`).
+//!
 //! Every feeder lives in the guard member (or IS the guard symbol)
 //! and is reached from any other crate through an extern symbol, so
 //! a kept verdict is conservative and an assumed one is exact. Same
@@ -56,7 +68,7 @@
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
-use torajs_link::exec::{ElidableCall, Guard, GuardedStub};
+use torajs_link::exec::{ElidableSite, Guard, GuardedStub, SiteShape};
 
 use crate::cmd_build_synthesize::USER_MAIN_SYM;
 
@@ -129,8 +141,19 @@ fn guard(prefix: &str, ignore: &[&str]) -> Guard {
     }
 }
 
-/// Every drain site in the user main body, in reloc order.
-pub(crate) fn collect_elidable_calls(funcs: &[CompiledFunction]) -> Vec<ElidableCall> {
+/// The rc entry every boxed-entry read goes through
+/// (`torajs_rc::closure_entry`).
+const BOXED_ENTRY_READER: &str = "___torajs_closure_boxed_entry";
+
+/// Every conditional site: the drain calls in the user main body,
+/// then every adapter mint in any fn, each in reloc order.
+pub(crate) fn collect_elidable_sites(funcs: &[CompiledFunction]) -> Vec<ElidableSite> {
+    let mut out = drain_sites(funcs);
+    out.extend(adapter_mint_sites(funcs));
+    out
+}
+
+fn drain_sites(funcs: &[CompiledFunction]) -> Vec<ElidableSite> {
     let Some(main) = funcs.iter().find(|f| f.name == USER_MAIN_SYM) else {
         return Vec::new();
     };
@@ -145,11 +168,37 @@ pub(crate) fn collect_elidable_calls(funcs: &[CompiledFunction]) -> Vec<Elidable
             };
             let (_, prefix, ignore, replacement) =
                 SITES.iter().find(|(callee, _, _, _)| callee == name)?;
-            Some(ElidableCall {
+            Some(ElidableSite {
                 func: USER_MAIN_SYM.to_string(),
-                byte_offset: r.byte_offset,
                 guard: guard(prefix, ignore),
-                replacement: *replacement,
+                shape: SiteShape::Call {
+                    byte_offset: r.byte_offset,
+                    replacement: *replacement,
+                },
+            })
+        })
+        .collect()
+}
+
+fn adapter_mint_sites(funcs: &[CompiledFunction]) -> Vec<ElidableSite> {
+    let guard = Guard::Symbols(vec![BOXED_ENTRY_READER.to_string()]);
+    funcs
+        .iter()
+        .flat_map(|f| {
+            f.relocs.iter().filter_map(|r| {
+                let RelocKind::Page21 { target_sym } = &r.kind else {
+                    return None;
+                };
+                target_sym
+                    .starts_with("__torajs_boxed_")
+                    .then(|| ElidableSite {
+                        func: f.name.clone(),
+                        guard: guard.clone(),
+                        shape: SiteShape::FnAddr {
+                            adrp_offset: r.byte_offset,
+                            target: target_sym.clone(),
+                        },
+                    })
             })
         })
         .collect()
@@ -216,10 +265,19 @@ mod tests {
                 ],
             ),
         ];
-        let sites = collect_elidable_calls(&funcs);
+        let sites = collect_elidable_sites(&funcs);
         let got: Vec<(u32, String, u32)> = sites
             .iter()
-            .map(|s| (s.byte_offset, s.guard.to_string(), s.replacement))
+            .map(|s| {
+                let SiteShape::Call {
+                    byte_offset,
+                    replacement,
+                } = s.shape
+                else {
+                    panic!("drain sites are calls");
+                };
+                (byte_offset, s.guard.to_string(), replacement)
+            })
             .collect();
         assert_eq!(
             got,
@@ -244,8 +302,49 @@ mod tests {
     }
 
     #[test]
-    fn no_main_means_no_sites() {
-        assert!(collect_elidable_calls(&[f("x", &["___torajs_main_exit_code"])]).is_empty());
+    fn no_main_means_no_drain_sites() {
+        assert!(collect_elidable_sites(&[f("x", &["___torajs_main_exit_code"])]).is_empty());
+    }
+
+    #[test]
+    fn adapter_mints_are_symbol_guarded_fn_addr_sites_in_any_fn() {
+        let pair = |off: u32, sym: &str| {
+            [
+                Reloc {
+                    byte_offset: off,
+                    kind: RelocKind::Page21 {
+                        target_sym: sym.into(),
+                    },
+                },
+                Reloc {
+                    byte_offset: off + 4,
+                    kind: RelocKind::PageOff12 {
+                        target_sym: sym.into(),
+                    },
+                },
+            ]
+        };
+        let mut helper = f("helper", &[]);
+        helper.bytes = vec![0; 16];
+        helper.relocs = pair(0, "__torajs_boxed_3")
+            .into_iter()
+            .chain(pair(8, "__torajs_fn_3"))
+            .collect();
+        let sites = collect_elidable_sites(&[f(USER_MAIN_SYM, &[]), helper]);
+        assert_eq!(sites.len(), 1, "the plain fn_addr alias is never a site");
+        assert_eq!(sites[0].func, "helper");
+        assert_eq!(
+            sites[0].guard.to_string(),
+            "syms:___torajs_closure_boxed_entry"
+        );
+        let SiteShape::FnAddr {
+            adrp_offset,
+            ref target,
+        } = sites[0].shape
+        else {
+            panic!("mint is a fn-addr site");
+        };
+        assert_eq!((adrp_offset, target.as_str()), (0, "__torajs_boxed_3"));
     }
 
     #[test]

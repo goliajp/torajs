@@ -77,7 +77,8 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::StringRef(_)
         | InstKind::StaticStrRef(_)
         | InstKind::GlobalRef(_)
-        | InstKind::FnAddr(_) => {}
+        | InstKind::FnAddr(_)
+        | InstKind::BoxedEntryAddr(_) => {}
     }
 }
 
@@ -156,6 +157,7 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         | InstKind::StringRef(_)
         | InstKind::StaticStrRef(_)
         | InstKind::GlobalRef(_)
-        | InstKind::FnAddr(_) => {}
+        | InstKind::FnAddr(_)
+        | InstKind::BoxedEntryAddr(_) => {}
     }
 }

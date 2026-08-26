@@ -233,6 +233,8 @@ pub use ns_static::{
 pub mod tag;
 pub use tag::Tag;
 
+pub mod closure_entry;
+
 // ============================================================
 // Any-slot tag (16-byte Array<Any> slot)
 // ============================================================

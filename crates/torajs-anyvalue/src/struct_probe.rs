@@ -93,13 +93,6 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 /// Str-cell payload offsets — mirror of `member_get.rs`.
 const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
-/// Closure-cell boxed dual-entry slot — mirror of torajs-core
-/// `ssa_lower.rs::CLOSURE_BOXED_ENTRY_OFF` (32; `torajs-dynobj`'s
-/// `accessor.rs` carries the same twin). NOT 16 — that slot is the
-/// drop fn, and calling IT through the boxed ABI hands back an
-/// unboxed word that decodes as a garbage Str (`typeof` said
-/// "string" while the probe was mid-bringup).
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
 /// `kind` bytes of `__torajs_struct_accessor_find` (torajs-structmeta
 /// `AccessorKind::from_raw`).
@@ -198,11 +191,7 @@ unsafe fn invoke_getter(recv: *mut c_void, acc: StructAccessor) -> AnyValue {
             // The lifted body is `(__env, __this)`: the closure cell's
             // boxed adapter feeds argv[0] into `__this`.
             StructAccessor::Closure(env) => {
-                let entry = env
-                    .cast::<u8>()
-                    .add(CLOSURE_BOXED_ENTRY_OFF)
-                    .cast::<u64>()
-                    .read();
+                let entry = crate::method_call_closure_dispatch::boxed_entry_of(env.cast::<u8>());
                 if entry == 0 {
                     return VALUE_UNDEFINED;
                 }
@@ -282,11 +271,7 @@ unsafe fn invoke_setter(recv: *mut c_void, acc: StructAccessor, value: AnyValue)
         match acc {
             // The lifted body is `(__env, __this, v)`.
             StructAccessor::Closure(env) => {
-                let entry = env
-                    .cast::<u8>()
-                    .add(CLOSURE_BOXED_ENTRY_OFF)
-                    .cast::<u64>()
-                    .read();
+                let entry = crate::method_call_closure_dispatch::boxed_entry_of(env.cast::<u8>());
                 if entry == 0 {
                     return;
                 }

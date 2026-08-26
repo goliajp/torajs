@@ -33,6 +33,9 @@ use crate::layout::{
 };
 
 unsafe extern "C" {
+    /// torajs-rc — the one boxed-entry reader (link-judged; see
+    /// `torajs_rc::closure_entry`).
+    fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
     fn __torajs_any_iter_next_array_like(
         recv: u64,
         idx_slot: *mut i64,
@@ -69,8 +72,8 @@ unsafe extern "C" {
 
 /// Callback-shape probe — NaN-box cell gate + Closure tag + boxed
 /// dual entry present. Mirrors torajs-anyvalue
-/// `closure_boxed_entry` (offsets lockstep torajs-core
-/// `CLOSURE_BOXED_ENTRY_OFF`); needed here because §2.1.1 step 2
+/// `closure_boxed_entry` (through torajs-rc's link-judged
+/// `__torajs_closure_boxed_entry`); needed here because §2.1.1 step 2
 /// checks IsCallable BEFORE iteration — a non-callable mapfn
 /// rejects even for an empty source, so the per-call TypeError
 /// inside `__torajs_any_call` fires too late.
@@ -78,7 +81,6 @@ unsafe fn callback_shaped(bits: u64) -> bool {
     const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
     const TAG_BIT_TYPE_OTHER: u64 = 0x02;
     const TAG_CLOSURE: u16 = 3;
-    const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
     if bits == 0 || bits & TOP_16_MASK != 0 || bits & TAG_BIT_TYPE_OTHER != 0 {
         return false;
     }
@@ -87,7 +89,7 @@ unsafe fn callback_shaped(bits: u64) -> bool {
         if *(p.add(4) as *const u16) != TAG_CLOSURE {
             return false;
         }
-        *(p.add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) != 0
+        __torajs_closure_boxed_entry(p) != 0
     }
 }
 

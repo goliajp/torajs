@@ -370,7 +370,8 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         | InstKind::StringRef(_)
         | InstKind::StaticStrRef(_)
         | InstKind::GlobalRef(_)
-        | InstKind::FnAddr(_) => kind.clone(),
+        | InstKind::FnAddr(_)
+        | InstKind::BoxedEntryAddr(_) => kind.clone(),
     }
 }
 

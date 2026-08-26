@@ -97,7 +97,8 @@ pub(super) fn can_speculate(kind: &InstKind) -> bool {
         | InstKind::StringRef(_)
         | InstKind::StaticStrRef(_)
         | InstKind::GlobalRef(_)
-        | InstKind::FnAddr(_) => true,
+        | InstKind::FnAddr(_)
+        | InstKind::BoxedEntryAddr(_) => true,
         _ => false,
     }
 }

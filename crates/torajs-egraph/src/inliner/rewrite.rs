@@ -63,6 +63,7 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
         InstKind::StaticStrRef(id) => InstKind::StaticStrRef(*id),
         InstKind::GlobalRef(name) => InstKind::GlobalRef(name.clone()),
         InstKind::FnAddr(fid) => InstKind::FnAddr(*fid),
+        InstKind::BoxedEntryAddr(fid) => InstKind::BoxedEntryAddr(*fid),
         InstKind::Identity(o) => InstKind::Identity(r(o)),
         InstKind::Neg(o) => InstKind::Neg(r(o)),
         InstKind::Ctpop(o) => InstKind::Ctpop(r(o)),

@@ -30,6 +30,9 @@ use super::replace::{
 };
 
 unsafe extern "C" {
+    /// torajs-rc — the one boxed-entry reader (link-judged; see
+    /// `torajs_rc::closure_entry`).
+    fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
@@ -49,10 +52,9 @@ unsafe extern "C" {
 }
 
 /// Boxed closure entry ABI — mirrors the `__boxed_<fn>` wrappers
-/// ssa_lower synthesizes at `CLOSURE_BOXED_ENTRY_OFF` (+32).
+/// ssa_lower synthesizes (read through torajs-rc's link-judged
+/// `__torajs_closure_boxed_entry`).
 type BoxedEntry = unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64;
-
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
 /// Closure header flags word (cell +6) and the receiver-first bit —
 /// mirror of `torajs_rc::FLAG_CLOSURE_RECV_FIRST` (bit 12), must move
@@ -88,9 +90,8 @@ unsafe fn invoke_cb(
     position_cu: i64,
     whole_str: *const c_void,
 ) -> *mut c_void {
-    let boxed_entry = unsafe {
-        let slot = (closure as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const BoxedEntry;
-        slot.read()
+    let boxed_entry: BoxedEntry = unsafe {
+        core::mem::transmute(__torajs_closure_boxed_entry(closure as *const u8) as usize)
     };
     let undef = unsafe { __torajs_anyv_box_from_pair(TAG_UNDEF, 0) };
     let mut argv = [undef; ARGV_SLOTS];

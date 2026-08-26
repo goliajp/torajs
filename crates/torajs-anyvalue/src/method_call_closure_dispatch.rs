@@ -32,9 +32,21 @@ use torajs_rc::Tag;
 use crate::method_call::not_callable;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 
-/// Closure-cell boxed dual-entry offset — mirror of torajs-core
-/// `ssa_lower.rs::CLOSURE_BOXED_ENTRY_OFF`.
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
+unsafe extern "C" {
+    /// torajs-rc — the one boxed-entry reader (link-judged; see
+    /// `torajs_rc::closure_entry`).
+    fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
+}
+
+/// The boxed dual entry of a closure cell (0 = none linked) — every
+/// invocation-shaped read in this crate goes through the rc entry so
+/// the link can judge the adapters on its liveness.
+///
+/// # Safety
+/// `cell` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn boxed_entry_of(cell: *const u8) -> u64 {
+    unsafe { __torajs_closure_boxed_entry(cell) }
+}
 
 /// The boxed adapters read up to 8 param slots unconditionally —
 /// mirror of torajs-core `ssa_lower_boxed_entry::MAX_BOXED_PARAMS`.
@@ -57,7 +69,7 @@ pub(crate) unsafe fn closure_cell_entry(ptr: *mut c_void) -> Option<(*mut c_void
         if ptr.is_null() || (ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
             return None;
         }
-        let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        let entry = boxed_entry_of(ptr.cast::<u8>());
         if entry == 0 {
             return None;
         }
