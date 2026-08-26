@@ -267,6 +267,12 @@ pub fn class_name_table_rebase_targets_from_layouts(
     let mut sym_table = SymTable::new();
     for entry in &user_strings_layout.entries {
         sym_table.insert(entry.sym.clone(), entry.vaddr);
+        if let Some(alias) = &entry.payload_alias {
+            sym_table.insert(
+                alias.clone(),
+                entry.vaddr + u64::from(crate::user_strings_layout::STR_HEADER_SIZE),
+            );
+        }
     }
     compute_class_name_table_rebase_targets(layout, &sym_table, seg_vmaddr_base, image_vmaddr_base)
 }

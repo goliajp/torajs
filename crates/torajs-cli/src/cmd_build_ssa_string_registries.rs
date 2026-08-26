@@ -3,9 +3,9 @@
 //! W-J Phase A3c chunk 2 to keep `cmd_build.rs` below its file-size
 //! debt ceiling after the class-name registry intern step landed.
 //!
-//! - `build_user_strings`: `ssa::Module.strings` → both
-//!   StaticStr (`__torajs_str_lit_<i>`) + RawBytes
-//!   (`__torajs_str_dyn_<i>`) flavour entries.
+//! - `build_user_strings`: `ssa::Module.strings` → one StaticStr
+//!   (`__torajs_str_lit_<i>`) entry per literal, carrying
+//!   `__torajs_str_dyn_<i>` as the alias of its payload.
 //! - `build_class_names`: `ssa::Module.class_layouts` →
 //!   `(UserClassNameEntry, UserStringEntry)` pairs for each named
 //!   class, appended to the strings vec under
@@ -20,25 +20,25 @@ use torajs_link::exec::{
     UserStringEntry, UserStringKind, UserVtableEntry,
 };
 
+/// One entry per literal. The Str cell (`__torajs_str_lit_<i>`) is
+/// header + payload; the raw-byte readers' `__torajs_str_dyn_<i>` is
+/// registered as an alias of that payload rather than emitted as a
+/// second copy — a class program spent a third of its user-string
+/// region on the duplicates (s3 rotation 504 census).
 pub fn build_user_strings(ssa_module: &Module) -> Vec<UserStringEntry> {
-    let mut strings: Vec<UserStringEntry> = Vec::with_capacity(ssa_module.strings.len() * 2);
-    for (i, lit) in ssa_module.strings.iter().enumerate() {
-        strings.push(UserStringEntry {
+    ssa_module
+        .strings
+        .iter()
+        .enumerate()
+        .map(|(i, lit)| UserStringEntry {
             sym: format!("__torajs_str_lit_{i}"),
             bytes: lit.bytes.clone(),
             is_latin1: lit.is_latin1,
             length: lit.length,
             kind: UserStringKind::StaticStr,
-        });
-        strings.push(UserStringEntry {
-            sym: format!("__torajs_str_dyn_{i}"),
-            bytes: lit.bytes.clone(),
-            is_latin1: lit.is_latin1,
-            length: lit.length,
-            kind: UserStringKind::RawBytes,
-        });
-    }
-    strings
+            payload_alias: Some(format!("__torajs_str_dyn_{i}")),
+        })
+        .collect()
 }
 
 /// Append a RawBytes string for each named class's source-text name
@@ -76,6 +76,7 @@ pub fn build_class_names(
             is_latin1: true,
             length: name_len,
             kind: UserStringKind::RawBytes,
+            payload_alias: None,
         });
         class_names.push(UserClassNameEntry {
             class_tag,

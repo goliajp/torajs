@@ -108,6 +108,7 @@ fn main() {
             is_latin1: true,
             length: 5,
             kind: UserStringKind::StaticStr,
+            payload_alias: None,
         }],
         data_globals: Vec::new(),
         vtable_globals: Vec::new(),

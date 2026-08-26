@@ -29,6 +29,14 @@ pub struct UserStringEntry {
     /// ES `String.length` code unit count.
     pub length: u32,
     pub kind: UserStringKind,
+    /// A second sym the link registers at the entry's payload — the
+    /// header's end, `vaddr + STR_HEADER_SIZE`. A literal's raw-byte
+    /// readers (`InstKind::StringRef`, the fn-name and class-name
+    /// tables) address `__torajs_str_dyn_<i>`; the bytes they want
+    /// are exactly the ones already sitting behind `__torajs_str_lit_<i>`'s
+    /// header, so the alias points into that entry instead of a
+    /// second copy of the payload. `StaticStr` only.
+    pub payload_alias: Option<String>,
 }
 
 /// SD-4c-prereq+e7 — one `[N x ptr]` vtable. `sym` is what codegen's

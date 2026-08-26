@@ -52,6 +52,9 @@ pub struct UserStringEntryLayout {
     /// `STR_HEADER_SIZE + bytes.len()` — total bytes the entry
     /// occupies (header + length + pad + payload).
     pub payload_size: u32,
+    /// Carried from `UserStringEntry::payload_alias`; registered at
+    /// `vaddr + STR_HEADER_SIZE` by `apply_user_string_overrides`.
+    pub payload_alias: Option<String>,
 }
 
 /// Aggregated layout for the user-string region. `entries[i]`
@@ -128,6 +131,7 @@ pub fn compute_user_strings_layout(
             vaddr: aligned_base_vaddr + u64::from(running),
             file_offset: aligned_base_file_offset + running,
             payload_size,
+            payload_alias: e.payload_alias.clone(),
         });
         running += payload_size;
     }
@@ -163,7 +167,10 @@ pub fn entry_body_size(e: &UserStringEntry) -> u32 {
 pub fn user_strings_extra_defined_syms(
     strings: &[UserStringEntry],
 ) -> std::collections::BTreeSet<String> {
-    strings.iter().map(|s| s.sym.clone()).collect()
+    strings
+        .iter()
+        .flat_map(|s| core::iter::once(s.sym.clone()).chain(s.payload_alias.clone()))
+        .collect()
 }
 
 /// Pipeline helper bundling layout + pre-built payload for one
@@ -194,6 +201,7 @@ mod tests {
             is_latin1,
             length,
             kind: UserStringKind::StaticStr,
+            payload_alias: None,
         }
     }
 
@@ -204,6 +212,7 @@ mod tests {
             is_latin1: true,
             length: bytes.len() as u32,
             kind: UserStringKind::RawBytes,
+            payload_alias: None,
         }
     }
 

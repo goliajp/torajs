@@ -101,6 +101,7 @@ fn main() {
             is_latin1: true,
             length: 6,
             kind: UserStringKind::RawBytes,
+            payload_alias: None,
         }],
         data_globals: Vec::new(),
         vtable_globals: Vec::new(),

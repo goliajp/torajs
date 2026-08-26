@@ -15,7 +15,9 @@
 
 use crate::exec::{UserStringEntry, UserStringKind};
 use crate::resolve::SymTable;
-use crate::user_strings_layout::{STATIC_LITERAL_FLAG, STR_FLAG_IS_LATIN1, UserStringsLayout};
+use crate::user_strings_layout::{
+    STATIC_LITERAL_FLAG, STR_FLAG_IS_LATIN1, STR_HEADER_SIZE, UserStringsLayout,
+};
 
 /// Build the contiguous user-strings byte payload for one
 /// `LinkConfig.strings` set. Caller is responsible for splicing
@@ -93,6 +95,9 @@ pub fn build_user_strings_payload(
 pub fn apply_user_string_overrides(layout: &UserStringsLayout, sym_table: &mut SymTable) {
     for entry in &layout.entries {
         sym_table.insert(entry.sym.clone(), entry.vaddr);
+        if let Some(alias) = &entry.payload_alias {
+            sym_table.insert(alias.clone(), entry.vaddr + u64::from(STR_HEADER_SIZE));
+        }
     }
 }
 
@@ -108,6 +113,7 @@ mod tests {
             is_latin1,
             length,
             kind: UserStringKind::StaticStr,
+            payload_alias: None,
         }
     }
 
@@ -118,7 +124,28 @@ mod tests {
             is_latin1: true,
             length: bytes.len() as u32,
             kind: UserStringKind::RawBytes,
+            payload_alias: None,
         }
+    }
+
+    /// A literal's `__torajs_str_dyn_<i>` alias resolves to the
+    /// payload behind its `__torajs_str_lit_<i>` header — one copy of
+    /// the bytes, two names.
+    #[test]
+    fn payload_alias_registers_at_header_end() {
+        let mut e = make_entry("__torajs_str_lit_0", b"hello", true, 5);
+        e.payload_alias = Some("__torajs_str_dyn_0".into());
+        let strings = [e];
+        let layout = compute_user_strings_layout(&strings, 0x4100, 0x1_0000_4100);
+        let mut table = SymTable::new();
+        apply_user_string_overrides(&layout, &mut table);
+        assert_eq!(table.get("__torajs_str_lit_0"), Some(&0x1_0000_4100));
+        assert_eq!(
+            table.get("__torajs_str_dyn_0"),
+            Some(&(0x1_0000_4100 + u64::from(STR_HEADER_SIZE)))
+        );
+        let payload = build_user_strings_payload(&strings, &layout);
+        assert_eq!(&payload[STR_HEADER_SIZE as usize..][..5], b"hello");
     }
 
     #[test]
