@@ -109,8 +109,14 @@ pub fn build_user_class_layouts_payload(
                     buf.len() - elem_start,
                     METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM as usize
                 );
-                // adapter_ptr u64 (chain-fixup link value → fn vaddr).
-                let lv = take_link_value(class_layouts_link_values, &mut link_idx);
+                // adapter_ptr u64 (chain-fixup link value → fn vaddr);
+                // r502: a blanked column bakes a raw 0 (lockstep with
+                // the sym.rs enumeration).
+                let lv = if mm.adapter_fn_id.is_some() {
+                    take_link_value(class_layouts_link_values, &mut link_idx)
+                } else {
+                    0
+                };
                 buf.extend_from_slice(&lv.to_le_bytes());
                 debug_assert_eq!(
                     buf.len() - elem_start,

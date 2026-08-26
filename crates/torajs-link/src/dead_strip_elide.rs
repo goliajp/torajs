@@ -45,6 +45,18 @@
 //! itself has no reference left, and `assume` re-runs the user-fn
 //! dead-strip so its relocs stop seeding the member closure.
 //!
+//! One assumption is a table column rather than a site (r502, 刀 4
+//! A8): a class-method row's `__cmany_` twin adapter is read by the
+//! runtime through exactly one structmeta entry
+//! (`__torajs_struct_method_twin_at`, called only by the register
+//! kernel's prototype reification), and the twin's per-member
+//! `any_member_get` / `accessor_get` relocs root the any world the
+//! way the closure adapter's unbox did. With that entry dead the
+//! column bakes 0 and the twins stop being user-gc roots. The reader
+//! is a runtime-substrate fact, not per-program policy, so the
+//! symbol lives here (as `force_emit_derive` names the table
+//! globals).
+//!
 //! Policy stays in the caller (`torajs-cli` knows which members feed
 //! which hook); this file is mechanism only. `TORAJS_LINK_ELIDE=0`
 //! disables the pass (A/B pricing); `TORAJS_LINK_ELIDE_DIAG=1`
@@ -56,9 +68,10 @@ use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 
 use crate::archives_merge::{MergedArchives, compute_required_members};
+use crate::dead_strip_elide_columns::{Columns, columns_present, without_columns};
 use crate::dead_strip_elide_patch::patch_site;
 use crate::dead_strip_reach::{MemberReach, ReachResult, compute_reachability};
-use crate::exec::LinkConfig;
+use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 use crate::user_gc;
 
 /// Which runtime text is the evidence.
@@ -134,33 +147,55 @@ pub struct GuardedStub {
     pub guard: Guard,
 }
 
-/// Run the fix-point over `cfg.elidable_sites` + `cfg.guarded_stubs`;
-/// answer the patched fn list (sites rewritten, surviving stubs
-/// appended) when any shape survived, `None` when nothing changes.
+/// What the judgment assumed: the user fn list with the chosen
+/// shapes applied, and the class-layout table with the twin column
+/// dropped when that survived (`None` = the caller's table).
+pub(crate) struct Assumed {
+    pub(crate) funcs: Vec<CompiledFunction>,
+    pub(crate) class_layouts: Option<Vec<UserClassLayoutEntry>>,
+    /// The fn-name registry with the rows of fns the re-rooting
+    /// stripped dropped (`None` = the caller's).
+    pub(crate) fn_name_globals: Option<Vec<UserFnNameEntry>>,
+}
+
+/// Run the fix-point over `cfg.elidable_sites` + `cfg.guarded_stubs`
+/// + the twin column; answer the assumed shape (sites rewritten,
+/// surviving stubs appended, column dropped) when any of it
+/// survived, `None` when nothing changes.
 pub(crate) fn judge_and_patch(
     cfg: &LinkConfig,
     merged: &MergedArchives<'_>,
     extra_defined_syms: &BTreeSet<String>,
-) -> Result<Option<Vec<CompiledFunction>>, String> {
-    if (cfg.elidable_sites.is_empty() && cfg.guarded_stubs.is_empty())
+) -> Result<Option<Assumed>, String> {
+    let present = columns_present(&cfg.class_layouts);
+    if (cfg.elidable_sites.is_empty() && cfg.guarded_stubs.is_empty() && !present.any())
         || std::env::var_os("TORAJS_LINK_ELIDE").is_some_and(|v| v == "0")
     {
         return Ok(None);
     }
     let diag = std::env::var_os("TORAJS_LINK_ELIDE_DIAG").is_some();
+    let twin_guard = Columns::twin_guard();
+    let adapter_guard = Columns::adapter_guard();
 
     let mut elided: Vec<bool> = vec![true; cfg.elidable_sites.len()];
     let mut applied: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
+    let mut dropped = present;
     // An applied stub no live atom imports is dead weight (it would
     // only ride along because `___torajs_`-named user fns are always
     // rooted) — and a page-line away from costing a whole page.
     let mut referenced: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
     loop {
-        let probe = assume(cfg, &elided, &applied)?;
-        let required = compute_required_members(&probe, merged, extra_defined_syms)
+        let assumed = assume(cfg, &elided, &applied, dropped, diag)?;
+        let required = compute_required_members(&assumed.funcs, merged, extra_defined_syms)
             .map_err(|e| format!("member closure (elide probe): {e:?}"))?;
         let probe_cfg = LinkConfig {
-            funcs: probe,
+            funcs: assumed.funcs,
+            class_layouts: assumed
+                .class_layouts
+                .unwrap_or_else(|| cfg.class_layouts.clone()),
+            fn_name_globals: assumed
+                .fn_name_globals
+                .unwrap_or_else(|| cfg.fn_name_globals.clone()),
             ..cfg.clone()
         };
         // preds only under diag — `explain_live` walks them.
@@ -189,6 +224,20 @@ pub(crate) fn judge_and_patch(
                 if diag {
                     eprint!("{}", explain_live(&reach, &stub.guard));
                 }
+            }
+        }
+        if dropped.twin && guard_live(&reach, &twin_guard) {
+            dropped.twin = false;
+            changed = true;
+            if diag {
+                eprint!("{}", explain_live(&reach, &twin_guard));
+            }
+        }
+        if dropped.adapter && guard_live(&reach, &adapter_guard) {
+            dropped.adapter = false;
+            changed = true;
+            if diag {
+                eprint!("{}", explain_live(&reach, &adapter_guard));
             }
         }
         if !changed {
@@ -231,21 +280,36 @@ pub(crate) fn judge_and_patch(
                 }
             );
         }
+        if present.twin {
+            eprintln!(
+                "twin-column: guard={twin_guard} -> {}",
+                if dropped.twin { "DROPPED" } else { "KEPT" }
+            );
+        }
+        if present.adapter {
+            eprintln!(
+                "adapter-column: guard={adapter_guard} -> {}",
+                if dropped.adapter { "DROPPED" } else { "KEPT" }
+            );
+        }
     }
-    if !elided.iter().any(|&e| e) && !applied.iter().any(|&a| a) {
+    if !elided.iter().any(|&e| e) && !applied.iter().any(|&a| a) && !dropped.any() {
         return Ok(None);
     }
-    Ok(Some(assume(cfg, &elided, &applied)?))
+    Ok(Some(assume(cfg, &elided, &applied, dropped, false)?))
 }
 
 /// The user fn list with the chosen shapes assumed: elided sites
-/// patched (bytes + relocs removed), fns the patched-away fn-address
-/// sites orphaned stripped, applied stubs appended.
+/// patched (bytes + relocs removed), the dropped columns blanked, fns
+/// the patched-away fn-address sites and the blanked columns
+/// orphaned stripped, applied stubs appended.
 fn assume(
     cfg: &LinkConfig,
     elided: &[bool],
     applied: &[bool],
-) -> Result<Vec<CompiledFunction>, String> {
+    dropped: Columns,
+    diag: bool,
+) -> Result<Assumed, String> {
     let mut funcs = cfg.funcs.clone();
     let mut fn_addr_taken = false;
     for (site, &e) in cfg.elidable_sites.iter().zip(elided) {
@@ -254,12 +318,35 @@ fn assume(
             fn_addr_taken |= matches!(site.shape, SiteShape::FnAddr { .. });
         }
     }
-    if fn_addr_taken {
+    let class_layouts = dropped
+        .any()
+        .then(|| without_columns(&cfg.class_layouts, dropped));
+    let mut fn_name_globals = None;
+    if fn_addr_taken || dropped.any() {
         // The caller ran user-gc over the unpatched list; an adapter
-        // whose mints are all gone is dead only now, and its relocs
-        // are exactly the seeds the guard must not see.
-        let roots = user_gc::table_root_fids(cfg);
-        user_gc::strip_with_roots(&mut funcs, &cfg.entry, &roots, false);
+        // whose mints are all gone (or a twin whose row no longer
+        // names it) is dead only now, and its relocs are exactly the
+        // seeds the guard must not see.
+        let roots = user_gc::table_root_fids_with(
+            cfg,
+            class_layouts.as_deref().unwrap_or(&cfg.class_layouts),
+        );
+        if diag {
+            let named: Vec<&str> = roots
+                .iter()
+                .filter_map(|&i| funcs.get(i).map(|f| f.name.as_str()))
+                .collect();
+            eprintln!(
+                "elide-probe: dropped twin={} adapter={} table roots: {}",
+                dropped.twin,
+                dropped.adapter,
+                named.join(" ")
+            );
+        }
+        user_gc::strip_with_roots(&mut funcs, &cfg.entry, &roots, diag);
+        let mut rows = cfg.fn_name_globals.clone();
+        user_gc::drop_stripped_fn_name_rows(&mut rows, &funcs);
+        fn_name_globals = Some(rows);
     }
     for (stub, &a) in cfg.guarded_stubs.iter().zip(applied) {
         if a {
@@ -271,7 +358,11 @@ fn assume(
             });
         }
     }
-    Ok(funcs)
+    Ok(Assumed {
+        funcs,
+        class_layouts,
+        fn_name_globals,
+    })
 }
 
 /// Diag — why the guard came back live in THIS probe (the final
@@ -454,10 +545,14 @@ mod tests {
             vec![fn_with_bl("_main_user", "___torajs_drain")],
             vec![site("_main_user", 4)],
         );
-        let kept = assume(&cfg, &[false], &[false]).unwrap();
+        let kept = assume(&cfg, &[false], &[false], Columns::NONE, false)
+            .unwrap()
+            .funcs;
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].relocs.len(), 1);
-        let taken = assume(&cfg, &[true], &[true]).unwrap();
+        let taken = assume(&cfg, &[true], &[true], Columns::NONE, false)
+            .unwrap()
+            .funcs;
         assert_eq!(taken.len(), 2);
         assert!(taken[0].relocs.is_empty());
         assert_eq!(taken[1].name, "___torajs_hook");
@@ -481,17 +576,104 @@ mod tests {
             },
         };
         let cfg = cfg_with(funcs, vec![mint]);
-        let kept = assume(&cfg, &[false], &[false]).unwrap();
+        let kept = assume(&cfg, &[false], &[false], Columns::NONE, false)
+            .unwrap()
+            .funcs;
         assert!(
             !kept[1].bytes.is_empty(),
             "adapter stays while its mint does"
         );
-        let taken = assume(&cfg, &[true], &[false]).unwrap();
+        let taken = assume(&cfg, &[true], &[false], Columns::NONE, false)
+            .unwrap()
+            .funcs;
         // movz x9, #0 ; nop — relocs gone, adapter emptied.
         assert_eq!(&taken[0].bytes[..4], &(0xD280_0000u32 | 9).to_le_bytes());
         assert_eq!(&taken[0].bytes[4..], &NOP.to_le_bytes());
         assert!(taken[0].relocs.is_empty());
         assert!(taken[1].bytes.is_empty(), "no mint left → adapter stripped");
         assert!(taken[1].relocs.is_empty());
+    }
+
+    #[test]
+    fn dropped_twin_column_strips_the_twin_it_rooted() {
+        use crate::exec::{UserClassLayoutEntry, UserMethodMetaEntry};
+        // main; the mono adapter (row 1); the twin adapter (row 2)
+        // whose reloc is the any-world seed.
+        let mut twin = fn_with_bl("__boxed___cmany_A__m", "___torajs_any_member_get_tag");
+        twin.name = "__boxed___cmany_A__m".into();
+        let funcs = vec![
+            fn_with_bl("_main_user", "___torajs_print_i64"),
+            fn_with_bl("__boxed___cm_A__m", "___torajs_anyv_box_from_pair"),
+            twin,
+        ];
+        let mut cfg = cfg_with(funcs, Vec::new());
+        cfg.guarded_stubs.clear();
+        cfg.class_layouts = vec![UserClassLayoutEntry {
+            child_offsets: Vec::new(),
+            fields: Vec::new(),
+            is_named: true,
+            is_generic: false,
+            methods: vec![UserMethodMetaEntry {
+                name: "m".into(),
+                adapter_fn_id: Some(1),
+                flags: 0,
+                twin_fn_id: Some(2),
+            }],
+        }];
+        assert_eq!(
+            columns_present(&cfg.class_layouts),
+            Columns {
+                twin: true,
+                adapter: true
+            }
+        );
+        let kept = assume(&cfg, &[], &[], Columns::NONE, false).unwrap();
+        assert!(kept.class_layouts.is_none());
+        assert!(!kept.funcs[2].bytes.is_empty(), "the row roots the twin");
+        let dropped = assume(
+            &cfg,
+            &[],
+            &[],
+            Columns {
+                twin: true,
+                adapter: false,
+            },
+            false,
+        )
+        .unwrap();
+        let layouts = dropped.class_layouts.expect("column rewritten");
+        assert_eq!(layouts[0].methods[0].twin_fn_id, None);
+        assert_eq!(layouts[0].methods[0].adapter_fn_id, Some(1));
+        assert!(
+            !dropped.funcs[1].bytes.is_empty(),
+            "the adapter column stays"
+        );
+        assert!(
+            dropped.funcs[2].bytes.is_empty(),
+            "no row names the twin → stripped"
+        );
+        assert!(
+            dropped.funcs[2].relocs.is_empty(),
+            "its any-world seed goes with it"
+        );
+        let both = assume(
+            &cfg,
+            &[],
+            &[],
+            Columns {
+                twin: true,
+                adapter: true,
+            },
+            false,
+        )
+        .unwrap();
+        let layouts = both.class_layouts.expect("columns rewritten");
+        assert_eq!(layouts[0].methods[0].adapter_fn_id, None);
+        assert_eq!(layouts[0].methods[0].name, "m", "the name column stays");
+        assert!(
+            both.funcs[1].bytes.is_empty(),
+            "no row names the adapter → stripped"
+        );
+        assert!(both.funcs[2].bytes.is_empty());
     }
 }

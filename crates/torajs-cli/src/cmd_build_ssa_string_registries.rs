@@ -158,7 +158,7 @@ pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLa
                 .iter()
                 .map(|mm| torajs_link::exec::UserMethodMetaEntry {
                     name: mm.name.clone(),
-                    adapter_fn_id: mm.adapter_fid.0,
+                    adapter_fn_id: Some(mm.adapter_fid.0),
                     // Bit 0 = this-free (S2.38); bit 1 = twin-primary
                     // (404-01 — the adapter is recv-first-shaped).
                     flags: u32::from(mm.this_free) | (u32::from(mm.twin_primary) << 1),

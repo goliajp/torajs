@@ -28,7 +28,7 @@ use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{compute_required_members, merge_archive_indexes};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
 use crate::dead_strip_rewrite::{scan_load_commands, strip_member_section};
-use crate::exec::LinkConfig;
+use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 
 /// What the pre-pass rewrote: each side is `None` when that input
 /// is unchanged (the caller then links the original).
@@ -38,6 +38,12 @@ pub(crate) struct StripOutput {
     /// (`dead_strip_elide`); the archives above were stripped
     /// against these.
     pub(crate) funcs: Option<Vec<CompiledFunction>>,
+    /// r502 — the class-layout table with the twin column dropped
+    /// (`dead_strip_elide`); the fns above were re-rooted against it.
+    pub(crate) class_layouts: Option<Vec<UserClassLayoutEntry>>,
+    /// r502 — the fn-name registry minus the rows of fns that
+    /// re-rooting stripped.
+    pub(crate) fn_name_globals: Option<Vec<UserFnNameEntry>>,
 }
 
 /// Run the dead-strip pre-pass over `cfg.archives`: judge the
@@ -45,12 +51,20 @@ pub(crate) struct StripOutput {
 pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<StripOutput, String> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(|e| format!("merge: {e:?}"))?;
     let extra = collect_extra_defined_syms(cfg);
-    let patched_funcs = crate::dead_strip_elide::judge_and_patch(cfg, &merged, &extra)?;
+    let assumed = crate::dead_strip_elide::judge_and_patch(cfg, &merged, &extra)?;
     let patched_cfg;
-    let cfg = match &patched_funcs {
-        Some(funcs) => {
+    let cfg = match &assumed {
+        Some(a) => {
             patched_cfg = LinkConfig {
-                funcs: funcs.clone(),
+                funcs: a.funcs.clone(),
+                class_layouts: a
+                    .class_layouts
+                    .clone()
+                    .unwrap_or_else(|| cfg.class_layouts.clone()),
+                fn_name_globals: a
+                    .fn_name_globals
+                    .clone()
+                    .unwrap_or_else(|| cfg.fn_name_globals.clone()),
                 ..cfg.clone()
             };
             &patched_cfg
@@ -83,7 +97,9 @@ pub(crate) fn strip_archives(cfg: &LinkConfig) -> Result<StripOutput, String> {
     }
     Ok(StripOutput {
         archives: any.then_some(out),
-        funcs: patched_funcs,
+        funcs: assumed.as_ref().map(|a| a.funcs.clone()),
+        class_layouts: assumed.as_ref().and_then(|a| a.class_layouts.clone()),
+        fn_name_globals: assumed.and_then(|a| a.fn_name_globals),
     })
 }
 

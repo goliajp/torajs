@@ -21,10 +21,16 @@
 //! rows' boxed adapters lived only in `class_layouts[].methods` and
 //! the first cut stripped every dispatchable method body):
 //! - the entry wrapper (`_main`),
-//! - every `FuncId` a link-emitted table takes the address of:
-//!   vtable `slot_syms` + fn-name registry `fn_addr_sym` (both
-//!   `__torajs_fn_<fid>`-shaped) + class-method rows'
-//!   `adapter_fn_id` / `twin_fn_id`,
+//! - every `FuncId` a link-emitted table takes the address of to
+//!   CALL: vtable `slot_syms` (`__torajs_fn_<fid>`-shaped) + class-
+//!   method rows' `adapter_fn_id` / `twin_fn_id`. The fn-name
+//!   registry is not a root (r502): its rows LABEL an address (`f.name`
+//!   / `[Function: f]` look a cell's entry up by it), so a row whose
+//!   fn nothing else references can never be hit — the strip drops
+//!   such rows instead ([`drop_stripped_fn_name_rows`]). Before r502
+//!   every named fn's row rooted it, and a class method's `__cmany_`
+//!   twin (registered for its face's `.name`) kept the any world alive
+//!   through the row alone.
 //! - every fn whose name is `___torajs_*`-shaped: those are
 //!   runtime-facing definitions (dispatch-arm stubs, obj_alloc /
 //!   obj_drop_sized) that live archive members may call by name —
@@ -72,23 +78,47 @@ pub fn strip_dead_user_fns(cfg: &mut LinkConfig) -> Vec<bool> {
     let roots = table_root_fids(cfg);
     let entry = cfg.entry.clone();
     let diag = std::env::var_os("TORAJS_USER_GC_DIAG").is_some();
-    strip_with_roots(&mut cfg.funcs, &entry, &roots, diag)
+    let live = strip_with_roots(&mut cfg.funcs, &entry, &roots, diag);
+    drop_stripped_fn_name_rows(&mut cfg.fn_name_globals, &cfg.funcs);
+    live
+}
+
+/// Drop every fn-name row whose fn the strip emptied: no reference
+/// means no cell can carry the address the row is keyed by, so the
+/// row could never answer a lookup — and its `__torajs_fn_<fid>`
+/// alias would have nothing to resolve to.
+pub(crate) fn drop_stripped_fn_name_rows(
+    rows: &mut Vec<crate::exec::UserFnNameEntry>,
+    funcs: &[CompiledFunction],
+) {
+    rows.retain(|e| {
+        parse_fn_addr_alias(&e.fn_addr_sym)
+            .is_none_or(|i| funcs.get(i).is_some_and(|f| !f.bytes.is_empty()))
+    });
 }
 
 /// Every `FuncId` a link-emitted table takes the address of.
 pub(crate) fn table_root_fids(cfg: &LinkConfig) -> Vec<usize> {
+    table_root_fids_with(cfg, &cfg.class_layouts)
+}
+
+/// [`table_root_fids`] against a class-layout table other than the
+/// config's own — the elide pre-pass re-roots after dropping the
+/// twin column.
+pub(crate) fn table_root_fids_with(
+    cfg: &LinkConfig,
+    class_layouts: &[crate::exec::UserClassLayoutEntry],
+) -> Vec<usize> {
     cfg.vtable_globals
         .iter()
         .flat_map(|vt| vt.slot_syms.iter().flatten())
         .filter_map(|s| parse_fn_addr_alias(s))
-        .chain(
-            cfg.fn_name_globals
-                .iter()
-                .filter_map(|e| parse_fn_addr_alias(&e.fn_addr_sym)),
-        )
-        .chain(cfg.class_layouts.iter().flat_map(|cl| {
+        .chain(class_layouts.iter().flat_map(|cl| {
             cl.methods.iter().flat_map(|m| {
-                std::iter::once(m.adapter_fn_id as usize).chain(m.twin_fn_id.map(|t| t as usize))
+                m.adapter_fn_id
+                    .map(|a| a as usize)
+                    .into_iter()
+                    .chain(m.twin_fn_id.map(|t| t as usize))
             })
         }))
         .collect()
@@ -260,7 +290,7 @@ mod tests {
                 is_generic: false,
                 methods: vec![UserMethodMetaEntry {
                     name: "m".into(),
-                    adapter_fn_id: 1,
+                    adapter_fn_id: Some(1),
                     flags: 0,
                     twin_fn_id: None,
                 }],
@@ -277,6 +307,53 @@ mod tests {
             !cfg.funcs[1].bytes.is_empty(),
             "method-table adapter row roots its fn"
         );
+    }
+
+    #[test]
+    fn a_fn_name_row_does_not_root_its_fn_and_goes_with_it() {
+        use crate::exec::UserFnNameEntry;
+        use crate::resolve::SymTable;
+        let row = |i: usize| UserFnNameEntry {
+            fn_addr_sym: format!("__torajs_fn_{i}"),
+            name_ptr_sym: "__torajs_str_dyn_0".into(),
+            name_len: 1,
+            arity: 0,
+            src_ptr_sym: None,
+            src_len: 0,
+        };
+        let mut cfg = LinkConfig {
+            funcs: vec![
+                f("_main", vec![call_fid(1)]),
+                f("called", Vec::new()),
+                f(
+                    "__cmany_A__m",
+                    vec![call_name("___torajs_any_member_get_tag")],
+                ),
+            ],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
+            dead_strip: false,
+            strip_member_symbols: false,
+            elidable_sites: Vec::new(),
+            guarded_stubs: Vec::new(),
+            archives: Vec::new(),
+            strings: Vec::new(),
+            data_globals: Vec::new(),
+            vtable_globals: Vec::new(),
+            class_layouts: Vec::new(),
+            force_emit_class_layouts_globals: false,
+            fn_name_globals: vec![row(1), row(2)],
+            force_emit_fn_name_globals: false,
+            class_names: Vec::new(),
+            force_emit_class_names_globals: false,
+            baked_regex_entries: Vec::new(),
+        };
+        strip_dead_user_fns(&mut cfg);
+        assert!(!cfg.funcs[1].bytes.is_empty());
+        assert!(cfg.funcs[2].bytes.is_empty(), "a row alone roots nothing");
+        assert_eq!(cfg.fn_name_globals.len(), 1, "the stripped fn's row goes");
+        assert_eq!(cfg.fn_name_globals[0].fn_addr_sym, "__torajs_fn_1");
     }
 
     #[test]

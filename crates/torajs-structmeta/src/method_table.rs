@@ -385,6 +385,38 @@ pub unsafe extern "C" fn __torajs_struct_method_at(
     m.adapter
 }
 
+/// The `idx`-th record's name span alone — the inspect walker's
+/// enumerator (r502, RFC 20260824-s2-5 刀 4 A8). Answers 1 on a hit
+/// (`out_name` / `out_len` written), 0 past the end or for a NULL
+/// layout. It deliberately does NOT hand out the adapter: the link
+/// bakes the adapter column only while a finder that INVOKES it is
+/// live, and a printer that read the slot for a null check would
+/// have kept every class program's any world alive.
+///
+/// # Safety
+/// `layout` as above; `out_name` / `out_len` point at writable slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_method_name_at(
+    layout: *const StructLayoutEntry,
+    idx: u32,
+    out_name: *mut *const u8,
+    out_len: *mut u32,
+) -> u32 {
+    if layout.is_null() {
+        return 0;
+    }
+    // SAFETY: caller contract above.
+    let Some(m) = (unsafe { &*layout }).method(idx) else {
+        return 0;
+    };
+    // SAFETY: caller passes writable out-slots.
+    unsafe {
+        *out_name = m.name_ptr;
+        *out_len = m.name_len;
+    }
+    1
+}
+
 /// The `idx`-th record's `__cmany_` twin adapter vaddr (blade 3) —
 /// NULL when the method minted no twin, for a NULL layout, or an
 /// out-of-range index.

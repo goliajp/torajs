@@ -129,8 +129,9 @@ pub struct UserMethodMetaPlacement {
     /// File offset of `.__class_method_name_<i>_<j>`.
     pub name_file_offset: u32,
     /// The boxed adapter's fn id — indexes the link layer's
-    /// `fn_vaddrs` slice at rebase-assembly time.
-    pub adapter_fn_id: u32,
+    /// `fn_vaddrs` slice at rebase-assembly time; `None` bakes a 0
+    /// adapter_ptr and enumerates no rebase target for it (r502).
+    pub adapter_fn_id: Option<u32>,
     /// Blade 3 — the `__cmany_` twin's boxed adapter fn id; `None`
     /// bakes a 0 twin_ptr and enumerates no rebase target for it.
     pub twin_fn_id: Option<u32>,

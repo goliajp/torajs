@@ -64,12 +64,22 @@ fn dead_strip_prepass(cfg: &LinkConfig) -> Result<Option<LinkConfig>, ArchiveLay
     }
     let out =
         crate::dead_strip_repack::strip_archives(cfg).map_err(ArchiveLayoutError::DeadStrip)?;
-    if out.archives.is_none() && out.funcs.is_none() {
+    if out.archives.is_none()
+        && out.funcs.is_none()
+        && out.class_layouts.is_none()
+        && out.fn_name_globals.is_none()
+    {
         return Ok(None);
     }
     Ok(Some(LinkConfig {
         archives: out.archives.unwrap_or_else(|| cfg.archives.clone()),
         funcs: out.funcs.unwrap_or_else(|| cfg.funcs.clone()),
+        class_layouts: out
+            .class_layouts
+            .unwrap_or_else(|| cfg.class_layouts.clone()),
+        fn_name_globals: out
+            .fn_name_globals
+            .unwrap_or_else(|| cfg.fn_name_globals.clone()),
         ..cfg.clone()
     }))
 }

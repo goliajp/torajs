@@ -20,12 +20,15 @@ use crate::struct_reflect::{ACC_GETTER, ACC_SETTER, accessor_slot_name, slot_key
 unsafe extern "C" {
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_method_count(layout: *const c_void) -> u32;
-    fn __torajs_struct_method_at(
+    /// torajs-structmeta — the row's name alone (r502): the inspect
+    /// face never invokes the adapter, and reading the slot would
+    /// make it a reader the link has to keep the adapter column for.
+    fn __torajs_struct_method_name_at(
         layout: *const c_void,
         idx: u32,
         name_ptr: *mut *const u8,
         name_len: *mut u32,
-    ) -> *const c_void;
+    ) -> u32;
     fn __torajs_io_putc_out(c: i32) -> i32;
     fn __torajs_inspect_line_add(n: u32);
 }
@@ -37,14 +40,16 @@ unsafe fn put_bytes(s: &[u8]) {
     }
 }
 
-/// The `(name, adapter)` of row `i`, or `None` for a row the inspect
-/// face skips (null adapter / empty name / `__ccm_` computed-name
-/// sentinel — the reify walk's exact filter).
+/// The name of row `i`, or `None` for a row the inspect face skips
+/// (empty name / `__ccm_` computed-name sentinel — the reify walk's
+/// filter minus its adapter null check: every baked row names an
+/// adapter fn, and the link may blank the column for a program that
+/// never invokes one).
 unsafe fn visible_row(layout: *const c_void, i: u32) -> Option<(*const u8, usize)> {
     let mut name_ptr: *const u8 = core::ptr::null();
     let mut name_len: u32 = 0;
-    let adapter = unsafe { __torajs_struct_method_at(layout, i, &mut name_ptr, &mut name_len) };
-    if adapter.is_null() || name_ptr.is_null() || name_len == 0 {
+    let hit = unsafe { __torajs_struct_method_name_at(layout, i, &mut name_ptr, &mut name_len) };
+    if hit == 0 || name_ptr.is_null() || name_len == 0 {
         return None;
     }
     let name = unsafe { core::slice::from_raw_parts(name_ptr, name_len as usize) };

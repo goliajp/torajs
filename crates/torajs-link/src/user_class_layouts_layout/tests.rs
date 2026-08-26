@@ -407,7 +407,7 @@ pub(super) fn entry_with_methods(
 pub(super) fn mmeta(name: &str, adapter_fn_id: u32) -> crate::exec::UserMethodMetaEntry {
     crate::exec::UserMethodMetaEntry {
         name: name.into(),
-        adapter_fn_id,
+        adapter_fn_id: Some(adapter_fn_id),
         flags: 0,
         twin_fn_id: None,
     }
@@ -426,7 +426,7 @@ fn single_entry_with_one_method_layout_and_payload() {
     assert!(e.field_meta_array_vaddr.is_none());
     assert_eq!(e.methods.len(), 1);
     assert_eq!(e.methods[0].name_bytes, b"next");
-    assert_eq!(e.methods[0].adapter_fn_id, 7);
+    assert_eq!(e.methods[0].adapter_fn_id, Some(7));
     assert_eq!(e.method_meta_array_file_offset, 0x4008);
     assert_eq!(e.method_meta_array_vaddr, Some(0x1_0000_4008));
     assert_eq!(layout.total_size, 48 + 32 + 4);

@@ -94,16 +94,22 @@ pub fn compute_class_layouts_rebase_targets(
                     name_slot - seg_vmaddr_base,
                     mm.name_vaddr - image_vmaddr_base,
                 ));
-                let adapter_vaddr = fn_vaddrs[mm.adapter_fn_id as usize];
-                debug_assert!(
-                    adapter_vaddr >= image_vmaddr_base,
-                    "class_methods adapter target {adapter_vaddr:#x} cannot precede image base {image_vmaddr_base:#x}",
-                );
-                let adapter_slot = elem_vaddr + u64::from(METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM);
-                targets.push((
-                    adapter_slot - seg_vmaddr_base,
-                    adapter_vaddr - image_vmaddr_base,
-                ));
+                // r502 — the adapter slot, only while the link keeps
+                // the column (payload writes a raw 0 otherwise;
+                // lockstep with build_user_class_layouts_payload).
+                if let Some(adapter_id) = mm.adapter_fn_id {
+                    let adapter_vaddr = fn_vaddrs[adapter_id as usize];
+                    debug_assert!(
+                        adapter_vaddr >= image_vmaddr_base,
+                        "class_methods adapter target {adapter_vaddr:#x} cannot precede image base {image_vmaddr_base:#x}",
+                    );
+                    let adapter_slot =
+                        elem_vaddr + u64::from(METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM);
+                    targets.push((
+                        adapter_slot - seg_vmaddr_base,
+                        adapter_vaddr - image_vmaddr_base,
+                    ));
+                }
                 // Blade 3 — the twin adapter slot, only when minted
                 // (payload writes a raw 0 otherwise; lockstep with
                 // build_user_class_layouts_payload's take order).

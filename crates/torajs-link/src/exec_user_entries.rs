@@ -139,8 +139,10 @@ pub struct UserMethodMetaEntry {
     /// Method name as declared (`next`, not `__cm_Gen__next`).
     pub name: String,
     /// The boxed adapter's `FuncId` index into the link layer's
-    /// `fn_vaddrs` slice.
-    pub adapter_fn_id: u32,
+    /// `fn_vaddrs` slice; `None` bakes a 0 adapter_ptr (r502 — the
+    /// dead-strip pre-pass blanks the column when no runtime finder
+    /// that invokes an adapter is live).
+    pub adapter_fn_id: Option<u32>,
     /// S2.38 — MethodMeta flags word (bit 0 = this-free body); baked
     /// into the elem's formerly-pad u32 at +12.
     pub flags: u32,

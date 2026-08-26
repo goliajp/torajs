@@ -409,5 +409,11 @@ pub(crate) fn build_link_config(
     // AFTER the strip: a mint in a fn the artifact will not carry has
     // no reloc left to patch.
     cfg.elidable_sites = crate::cmd_build_elide::collect_elidable_sites(&cfg.funcs);
+    // r502 — and the class register calls, when no class cell leaves
+    // its prologue (policy in cmd_build_elide_class).
+    cfg.elidable_sites
+        .extend(crate::cmd_build_elide_class::class_register_sites(
+            &cfg.funcs, ssa_module,
+        ));
     cfg
 }
