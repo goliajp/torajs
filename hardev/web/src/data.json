@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T18:51:55.359Z",
+  "generatedAt": "2026-08-26T03:30:30.725Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-25T18:41:14Z",
-    "headSha": "d6735a63e",
-    "elapsedSec": 366.04,
+    "ranAt": "2026-08-26T03:19:46Z",
+    "headSha": "3da78bcf7",
+    "elapsedSec": 365.71,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.24
   },
   "torajs": {
-    "commit": "d6735a63e",
-    "commitSubject": "fix: one predicate decides __DATA_CONST presence for sizing and layout",
+    "commit": "3da78bcf7",
+    "commitSubject": "perf: scalar-array drop kernel with link-judged props / subclass legs — an array-only program links 84,537 -> 51,569",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "3da78bcf7",
+      "subject": "perf: scalar-array drop kernel with link-judged props / subclass legs — an array-only program links 84,537 -> 51,569"
+    },
+    {
+      "hash": "601e8c89f",
+      "subject": "Revert \"perf: closure any-world escape judgment — a program whose closures never cross into any links no __boxed_ adapter; s4 397,313 -> 83,633\""
+    },
+    {
+      "hash": "fd1dd66c6",
+      "subject": "perf: closure any-world escape judgment — a program whose closures never cross into any links no __boxed_ adapter; s4 397,313 -> 83,633"
+    },
+    {
+      "hash": "efcfa66a5",
+      "subject": "perf: link-judged seams for the typed array kernels' exotic slow paths — a join-only program links 348,649 -> 84,537"
+    },
+    {
+      "hash": "d801004a4",
+      "subject": "chore: rotation 499 close — link-judged conditional shapes (main drains elided, weak hook stubbed, forced table globals derived) take the empty program 84,449 -> 34,961, sweep identical / 0 regressions, dashboard"
+    },
+    {
       "hash": "d6735a63e",
       "subject": "fix: one predicate decides __DATA_CONST presence for sizing and layout"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "2e25039c4",
       "subject": "refactor: move the SSA-to-link builder family out of cmd_build.rs"
-    },
-    {
-      "hash": "1d2ce1977",
-      "subject": "fix: user-gc roots come from the materialized LinkConfig tables"
-    },
-    {
-      "hash": "a0a7dac8a",
-      "subject": "perf: user-fn dead-strip — stop dead user fns from seeding the member closure"
-    },
-    {
-      "hash": "885692cbe",
-      "subject": "perf: skip the main wrapper's argv-init call when no reloc can observe it"
-    },
-    {
-      "hash": "bdd311abd",
-      "subject": "perf: pack __text right after the load commands (ld64 layout)"
-    },
-    {
-      "hash": "314d47041",
-      "subject": "perf: strip runtime member symbols from tr build artifacts (ld64 -x class policy)"
     }
   ],
-  "headSha": "d6735a63e",
+  "headSha": "3da78bcf7",
   "autorun": {
-    "total": 802,
+    "total": 803,
     "baselineTarget": 10,
-    "bySelf": 797,
+    "bySelf": 798,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787677948-513a",
-      "at": "2026-08-25T17:12:28Z",
-      "ts": 1787677948,
+      "rotationId": "r-1787683944-1a14",
+      "at": "2026-08-25T18:52:24Z",
+      "ts": 1787683944,
       "trigger": "self",
-      "prevHead": "d8dd425c7",
-      "handoffSha": "sha256:bbbd75463e3ca842d66031245b81391ff9b5b33c8b68b2bab87beb5385e907ad",
-      "handoffAgeSec": 1,
+      "prevHead": "d801004a4",
+      "handoffSha": "sha256:69e830bf199abd14f5edb97dbd78cc2a61195acf82920498715ae0be4b7b3afc",
+      "handoffAgeSec": 31,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787683944-1a14",
+        "at": "2026-08-25T18:52:24Z",
+        "ts": 1787683944,
+        "trigger": "self",
+        "prevHead": "d801004a4",
+        "handoffSha": "sha256:69e830bf199abd14f5edb97dbd78cc2a61195acf82920498715ae0be4b7b3afc",
+        "handoffAgeSec": 31,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787677948-513a",
         "at": "2026-08-25T17:12:28Z",
@@ -876,17 +887,6 @@
         "prevHead": "1d8849deb",
         "handoffSha": "sha256:18178472d9e5d9fa715bfd67b4bacc188f4938e1ed802c5fbf8f0e4e8aa06528",
         "handoffAgeSec": 27,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787583546-59b2",
-        "at": "2026-08-24T14:59:06Z",
-        "ts": 1787583546,
-        "trigger": "self",
-        "prevHead": "76f1cde9a",
-        "handoffSha": "sha256:0f7421efb637fd8138ddf4cec0d5c9a8683b0c2b2fc7abef29fae95349335da8",
-        "handoffAgeSec": 35,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1557,7 +1557,34 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `d6735a63e`** (2026-08-26, rotation 499 — an artifact-mass
+**Latest @ `3da78bcf7`** (2026-08-26, rotation 500 — an artifact-mass
+rotation on the S2-5 刀 4 line, Phase A + three knives. Phase A
+(`.claude/rfcs/20260824-s2-5-selective-registration/blade4-phase-a.md`)
+overturned the handoff's framing: the dispatcher's 15 runtime-internal
+in-edges are the cluster's internal topology, and the whole any world
+of an ordinary program hangs off three speculative typed→any edges —
+the closure `__boxed_` adapter's ToNumber, the typed join kernel's
+exotic-index branch, and the species guard's props probe — any two of
+which price at zero and all three at −85% live text. Knife 1 put the
+join / species slow paths behind link seams judged by the text
+liveness of the arr crate's two `#[inline(never)]` writer entries
+(`Guard::Symbols`): a join-only program 348,649 → **84,537**. Knife 2
+judged closure escape by SSA operand type and was reverted the same
+rotation (gate 3325/14/4 — closures are `Ptr`-typed at the crossing
+sites; redo direction recorded). Knife 3 gave scalar-kind arrays a
+drop kernel with no element walk and no cycle hook, its props /
+subclass legs behind seams: an array-only program 84,537 → **51,569**;
+the reach pass now records which user symbols live atoms import so an
+unreferenced stub is never emitted, and the landing pad's messages
+were shortened out of `__TEXT` — the empty program stays on the r499
+floor, **34,961**.) Gate predicate: **159** clusters of ≥ 4 holding
+**1225** cases, register 2 · 251, residue 652 · 810 (35.4%), core
+**2286** — identical to rotations 498-499. Sweep passTotal **34818
+(0)**, bug **12723 (0)**, incompatible **5633 (0)**, trAccepted 47541
+(0); verdict diff empty — every shipped knife touched runtime text
+and artifact layout only.
+
+**Prior @ `d6735a63e`** (2026-08-26, rotation 499 — an artifact-mass
 rotation on the S2 line, link-judged conditional shapes: the synthesized
 `main`'s three end-of-program drains become `ElidableCall` sites and the
 rc-hit-zero weak-observer hook a `GuardedStub`, each decided by a
