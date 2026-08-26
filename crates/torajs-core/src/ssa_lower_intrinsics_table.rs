@@ -65,6 +65,7 @@ pub(crate) fn build(
         arr_species_guard: init_a.arr.arr_species_guard,
         arr_len_write_guard: init_a.arr.arr_len_write_guard,
         arr_drop: init_a.arr.arr_drop,
+        arr_drop_scalar: init_a.arr.arr_drop_scalar,
         arr_reserve: init_a.arr.arr_reserve,
         arr_push_unchecked: init_a.arr.arr_push_unchecked,
         arr_extend_unchecked: init_a.arr.arr_extend_unchecked,

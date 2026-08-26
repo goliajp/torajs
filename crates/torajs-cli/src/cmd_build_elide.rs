@@ -89,7 +89,7 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-const SYMBOL_STUBS: [(&str, &[&str], u32); 2] = [
+const SYMBOL_STUBS: [(&str, &[&str], u32); 4] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -102,6 +102,23 @@ const SYMBOL_STUBS: [(&str, &[&str], u32); 2] = [
             "___torajs_arrprops_attach_exec3",
         ],
         41,
+    ),
+    // the scalar-array drop's two legs (r500 A4'): a props bag to
+    // release — same enablers as the species probe — and a subclass
+    // envelope to unwind — only `__torajs_arr_subclass_alloc` sets
+    // FLAG_SUBCLASSED on an array.
+    (
+        "___torajs_arr_drop_props_slow",
+        &[
+            "___torajs_arr_props_attach",
+            "___torajs_arrprops_attach_exec3",
+        ],
+        42,
+    ),
+    (
+        "___torajs_arr_drop_subclass_slow",
+        &["___torajs_arr_subclass_alloc"],
+        43,
     ),
 ];
 
@@ -247,7 +264,7 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 3);
+        assert_eq!(stubs.len(), 5);
         let join = &stubs[1];
         assert_eq!(join.sym, "___torajs_arr_join_exotic");
         assert_eq!(join.guard.to_string(), "syms:___torajs_arr_flag_exotic");
@@ -268,6 +285,17 @@ mod tests {
         assert_eq!(
             &species.bytes[..4],
             &(0xD280_0000u32 | (41 << 5) | 7).to_le_bytes()
+        );
+        assert_eq!(stubs[3].sym, "___torajs_arr_drop_props_slow");
+        assert_eq!(stubs[3].guard.to_string(), species.guard.to_string());
+        assert_eq!(stubs[4].sym, "___torajs_arr_drop_subclass_slow");
+        assert_eq!(
+            stubs[4].guard.to_string(),
+            "syms:___torajs_arr_subclass_alloc"
+        );
+        assert_eq!(
+            &stubs[4].bytes[..4],
+            &(0xD280_0000u32 | (43 << 5) | 7).to_le_bytes()
         );
     }
 }

@@ -118,6 +118,10 @@ pub(crate) fn judge_and_patch(
 
     let mut elided: Vec<bool> = vec![true; cfg.elidable_calls.len()];
     let mut applied: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
+    // An applied stub no live atom imports is dead weight (it would
+    // only ride along because `___torajs_`-named user fns are always
+    // rooted) — and a page-line away from costing a whole page.
+    let mut referenced: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
     loop {
         let probe = assume(cfg, &elided, &applied)?;
         let required = compute_required_members(&probe, merged, extra_defined_syms)
@@ -148,8 +152,14 @@ pub(crate) fn judge_and_patch(
             }
         }
         if !changed {
+            for (i, stub) in cfg.guarded_stubs.iter().enumerate() {
+                referenced[i] = !applied[i] || reach.user_refs.contains(&stub.sym);
+            }
             break;
         }
+    }
+    for (a, r) in applied.iter_mut().zip(&referenced) {
+        *a = *a && *r;
     }
 
     if diag {
@@ -162,12 +172,16 @@ pub(crate) fn judge_and_patch(
                 if e { "ELIDED" } else { "KEPT" }
             );
         }
-        for (stub, &a) in cfg.guarded_stubs.iter().zip(&applied) {
+        for ((stub, &a), &r) in cfg.guarded_stubs.iter().zip(&applied).zip(&referenced) {
             eprintln!(
                 "stub: {} guard={} -> {}",
                 stub.sym,
                 stub.guard,
-                if a { "APPLIED" } else { "DROPPED" }
+                match (a, r) {
+                    (true, _) => "APPLIED",
+                    (false, false) => "UNREFERENCED",
+                    (false, true) => "DROPPED",
+                }
             );
         }
     }

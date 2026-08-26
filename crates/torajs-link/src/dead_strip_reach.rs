@@ -27,7 +27,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use torajs_obj::{
-    N_NO_DEAD_STRIP, N_SECT, N_TYPE, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
+    N_NO_DEAD_STRIP, N_SECT, N_TYPE, N_UNDF, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
     S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES, SECTION_TYPE,
 };
 
@@ -109,6 +109,10 @@ pub(crate) enum Pred {
 pub(crate) struct ReachResult<'a> {
     pub(crate) members: BTreeMap<(usize, usize), MemberReach<'a>>,
     pub(crate) unresolved: BTreeSet<String>,
+    /// User-`.o` symbols some LIVE atom imports (an undef row the
+    /// user definition satisfies) — the link judgment's evidence
+    /// that a shadowing stub is referenced at all (r500).
+    pub(crate) user_refs: BTreeSet<String>,
     /// First-recorded liveness edge per node; empty unless
     /// `record_preds` was set (the strip path never pays for it).
     pub(crate) preds: BTreeMap<Node, Pred>,
@@ -213,6 +217,7 @@ pub(crate) fn compute_reachability<'a>(
     }
 
     // Fixpoint.
+    let mut user_refs: BTreeSet<String> = BTreeSet::new();
     let mut visited: BTreeSet<Node> = BTreeSet::new();
     while let Some(node) = worklist.pop() {
         if !visited.insert(node) {
@@ -245,6 +250,7 @@ pub(crate) fn compute_reachability<'a>(
             required,
             &mut worklist,
             &mut unresolved,
+            &mut user_refs,
             record_preds.then_some(&mut preds),
         )?;
     }
@@ -252,6 +258,7 @@ pub(crate) fn compute_reachability<'a>(
     Ok(ReachResult {
         members: reach,
         unresolved,
+        user_refs,
         preds,
     })
 }
@@ -295,6 +302,7 @@ fn expand_node(
     required: &RequiredMembers,
     worklist: &mut Vec<Node>,
     unresolved: &mut BTreeSet<String>,
+    user_refs: &mut BTreeSet<String>,
     mut preds: Option<&mut BTreeMap<Node, Pred>>,
 ) -> Result<(), String> {
     let (key, sect_ord, range) = match node {
@@ -342,6 +350,13 @@ fn expand_node(
         .filter(|e| u64::from(e.r_address) >= lo && u64::from(e.r_address) < hi)
     {
         let r = reach.get(&key).ok_or("member vanished")?;
+        if e.r_extern == 1
+            && let Some(en) = r.nlist.get(e.r_symbolnum as usize)
+            && en.n_type & N_TYPE == N_UNDF
+            && defined_in_user.contains(en.name)
+        {
+            user_refs.insert(en.name.to_string());
+        }
         if let Some(next) = resolve_reloc_target(
             key,
             sect_ord,

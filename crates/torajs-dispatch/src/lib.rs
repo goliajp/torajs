@@ -160,6 +160,8 @@ unsafe extern "C" {
         locale: i64,
     ) -> *mut u8;
     fn __torajs_arr_species_guard_props(arr: *const u8) -> i64;
+    fn __torajs_arrprops_drop_entry(arr: *mut core::ffi::c_void);
+    fn __torajs_subclass_drop_entry(p: *mut core::ffi::c_void);
 }
 
 /// Default resolution of the exotic-join seam — the any-world join
@@ -186,6 +188,24 @@ pub unsafe extern "C" fn __torajs_arr_join_exotic(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_species_guard_slow(arr: *const u8) -> i64 {
     unsafe { __torajs_arr_species_guard_props(arr) }
+}
+
+/// Default resolution of the scalar-array drop's props leg.
+///
+/// # Safety
+/// `arr` is a live array heap block reaching rc=0 in the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_drop_props_slow(arr: *mut core::ffi::c_void) {
+    unsafe { __torajs_arrprops_drop_entry(arr) }
+}
+
+/// Default resolution of the scalar-array drop's subclass leg.
+///
+/// # Safety
+/// `arr` is a live `FLAG_SUBCLASSED` array heap block reaching rc=0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_drop_subclass_slow(arr: *mut core::ffi::c_void) {
+    unsafe { __torajs_subclass_drop_entry(arr) }
 }
 
 /// The loud-reject landing pad for compiler-emitted family stubs
@@ -215,28 +235,30 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
     // exotic slow paths. The name makes a wrong
     // judgment attributable from the failure line alone.
     let msg: &core::ffi::CStr = match fam_id {
-        0 => c"str method family stripped from this program (dispatch specialization bug)",
-        1 => c"arr method family stripped from this program (dispatch specialization bug)",
-        2 => c"dynobj method family stripped from this program (dispatch specialization bug)",
-        3 => c"struct method family stripped from this program (dispatch specialization bug)",
-        4 => c"mapset method family stripped from this program (dispatch specialization bug)",
-        5 => c"iter method family stripped from this program (dispatch specialization bug)",
-        6 => c"buffer method family stripped from this program (dispatch specialization bug)",
-        7 => c"date method family stripped from this program (dispatch specialization bug)",
-        8 => c"promise method family stripped from this program (dispatch specialization bug)",
-        9 => c"regexp method family stripped from this program (dispatch specialization bug)",
-        10 => c"bigint method family stripped from this program (dispatch specialization bug)",
-        11 => c"symbol method family stripped from this program (dispatch specialization bug)",
-        12 => c"closure method family stripped from this program (dispatch specialization bug)",
-        13 => c"weak method family stripped from this program (dispatch specialization bug)",
-        14 => c"num method family stripped from this program (dispatch specialization bug)",
-        15 => c"namespace-static world stripped from this program (dispatch specialization bug)",
+        0 => c"str method family stripped (dispatch judgment bug)",
+        1 => c"arr method family stripped (dispatch judgment bug)",
+        2 => c"dynobj method family stripped (dispatch judgment bug)",
+        3 => c"struct method family stripped (dispatch judgment bug)",
+        4 => c"mapset method family stripped (dispatch judgment bug)",
+        5 => c"iter method family stripped (dispatch judgment bug)",
+        6 => c"buffer method family stripped (dispatch judgment bug)",
+        7 => c"date method family stripped (dispatch judgment bug)",
+        8 => c"promise method family stripped (dispatch judgment bug)",
+        9 => c"regexp method family stripped (dispatch judgment bug)",
+        10 => c"bigint method family stripped (dispatch judgment bug)",
+        11 => c"symbol method family stripped (dispatch judgment bug)",
+        12 => c"closure method family stripped (dispatch judgment bug)",
+        13 => c"weak method family stripped (dispatch judgment bug)",
+        14 => c"num method family stripped (dispatch judgment bug)",
+        15 => c"namespace-static world stripped (dispatch judgment bug)",
         // 40+: the typed kernels' exotic slow paths (link-judged on
         // the arr crate's writer entries, r500).
-        40 => c"exotic-array join stripped from this program (link judgment bug: an array became exotic)",
-        41 => c"array species probe stripped from this program (link judgment bug: an array grew props)",
-        n if (16..40).contains(&n) => c"printer kernel stripped from this program (dispatch specialization bug)",
-        _ => c"method family stripped from this program (dispatch specialization bug)",
+        40 => c"exotic-array join stripped (link judgment bug)",
+        41 => c"array species probe stripped (link judgment bug)",
+        42 => c"scalar-array props drop stripped (link judgment bug)",
+        43 => c"scalar-array subclass drop stripped (link judgment bug)",
+        n if (16..40).contains(&n) => c"printer kernel stripped (dispatch judgment bug)",
+        _ => c"method family stripped (dispatch judgment bug)",
     };
     unsafe {
         __torajs_throw_type_error(msg.as_ptr());

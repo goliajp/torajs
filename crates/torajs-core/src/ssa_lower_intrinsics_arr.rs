@@ -37,6 +37,9 @@ pub(crate) struct ArrIds {
     pub arr_splice: FuncId,
     pub arr_splice_items: FuncId,
     pub arr_drop: FuncId,
+    /// r500 A4' — scalar-kind array drop (no element walk, no cycle
+    /// hook; props / subclass legs behind link seams).
+    pub arr_drop_scalar: FuncId,
     pub arr_species_guard: FuncId,
     pub arr_len_write_guard: FuncId,
     pub arr_reserve: FuncId,
@@ -113,6 +116,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_arr_drop",
+            &[Type::Ptr],
+            Type::Void,
+        ),
+        arr_drop_scalar: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_drop_scalar",
             &[Type::Ptr],
             Type::Void,
         ),

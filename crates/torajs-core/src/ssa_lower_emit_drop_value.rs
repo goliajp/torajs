@@ -197,7 +197,14 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
             ctx.f.set_term(ctx.cur_block, Terminator::Br(walk_done));
             ctx.cur_block = walk_done;
         }
-        let drop_fid = ctx.intrinsics.arr_drop;
+        // r500 A4' — a scalar-kind array (the any lane coerces or
+        // refuses a kind-mismatched store, it never re-kinds) takes
+        // the kernel with no element walk and no cycle-buffer hook.
+        let drop_fid = if matches!(elem_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool) {
+            ctx.intrinsics.arr_drop_scalar
+        } else {
+            ctx.intrinsics.arr_drop
+        };
         ctx.f
             .append_void(ctx.cur_block, InstKind::Call(drop_fid, vec![val]));
     }

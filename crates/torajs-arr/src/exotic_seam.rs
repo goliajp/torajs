@@ -12,6 +12,14 @@
 //! (Phase A: `[1,2,3].join(",")` links 348 KB, of which the join's
 //! exotic branch accounts for 264 KB).
 //!
+//! The scalar-array drop (`__torajs_arr_drop_scalar`, r500 A4') is
+//! the third member of the family: a `number[]` / `boolean[]` can
+//! never hold a heap pointer (the any lane coerces or refuses a
+//! kind-mismatched store, it never re-kinds), so its drop has no
+//! element walk and no cycle-buffer hook; its only slow legs are a
+//! props bag to release and a subclass envelope to unwind, each
+//! behind a seam guarded on that state's sole writer.
+//!
 //! Two facts make the link the right judge:
 //!
 //! - an array only becomes exotic through [`__torajs_arr_flag_exotic`]
@@ -61,6 +69,12 @@ unsafe extern "C" {
     ) -> *mut u8;
     /// Species guard slow path — the receiver has a props bag.
     pub(crate) fn __torajs_arr_species_guard_slow(arr: *const u8) -> i64;
+    /// Scalar-array drop, props leg — the dying array has a props
+    /// bag to release (`__torajs_arrprops_drop_entry`).
+    pub(crate) fn __torajs_arr_drop_props_slow(arr: *mut c_void);
+    /// Scalar-array drop, subclass leg — the dying array wears
+    /// `FLAG_SUBCLASSED` (`__torajs_subclass_drop_entry`).
+    pub(crate) fn __torajs_arr_drop_subclass_slow(arr: *mut c_void);
 }
 
 #[cfg(test)]
@@ -76,6 +90,19 @@ pub(crate) unsafe fn __torajs_arr_join_exotic(
 #[cfg(test)]
 pub(crate) unsafe fn __torajs_arr_species_guard_slow(arr: *const u8) -> i64 {
     unsafe { crate::species::__torajs_arr_species_guard_props(arr) }
+}
+
+#[cfg(test)]
+pub(crate) unsafe fn __torajs_arr_drop_props_slow(arr: *mut c_void) {
+    unsafe { crate::props::__torajs_arrprops_drop_entry(arr) }
+}
+
+#[cfg(test)]
+pub(crate) unsafe fn __torajs_arr_drop_subclass_slow(arr: *mut c_void) {
+    unsafe extern "C" {
+        fn __torajs_subclass_drop_entry(p: *mut c_void);
+    }
+    unsafe { __torajs_subclass_drop_entry(arr) }
 }
 
 /// Raise the header's exotic-index bit. The ONE writer of that bit —

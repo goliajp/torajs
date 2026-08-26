@@ -123,6 +123,41 @@ pub unsafe extern "C" fn __torajs_arr_drop(p: *mut c_void) {
     }
 }
 
+/// rc-aware drop for a scalar-kind typed array (`Array<I64 | F64 |
+/// Bool>`; RFC 20260824-s2-5 刀 4 A4'). The slots never carry heap
+/// pointers, so there is no element walk and no cycle-root hook
+/// (`arr_may_cycle` is false by construction, and such an array is
+/// never buffered); the props bag and the subclass envelope are the
+/// only legs, each behind a link seam (`crate::exotic_seam`) that a
+/// program in which no array can reach that state links as a stub.
+/// NULL-safe + `FLAG_STATIC_LITERAL`-safe like [`__torajs_arr_drop`].
+///
+/// # Safety
+/// `p` is NULL or a valid scalar-kind Array heap block pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_drop_scalar(p: *mut c_void) {
+    if p.is_null() {
+        return;
+    }
+    let header = unsafe { &*(p as *const HeapHeader) };
+    if header.flags & FLAG_STATIC_LITERAL != 0 {
+        return;
+    }
+    if unsafe { __torajs_rc_dec(p) } != 0 {
+        unsafe {
+            if header.flags & FLAG_SUBCLASSED != 0 {
+                crate::exotic_seam::__torajs_arr_drop_subclass_slow(p);
+            }
+            if !(*(p.cast::<u8>().add(crate::layout::ARR_PROPS_OFF) as *const *mut c_void))
+                .is_null()
+            {
+                crate::exotic_seam::__torajs_arr_drop_props_slow(p);
+            }
+            __torajs_arr_free(p);
+        }
+    }
+}
+
 /// rc-aware drop for `Array<Any>` — walks every 8-byte AnyValue slot,
 /// releases each cell-tagged heap value (via the NaN-box-safe
 /// `value_drop_heap`), then frees the outer block.
