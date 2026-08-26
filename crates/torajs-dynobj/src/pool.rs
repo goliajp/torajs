@@ -47,8 +47,13 @@ pub fn pop() -> Option<NonNull<u8>> {
         return None;
     }
     let new_count = count - 1;
+    // r503 — `get`, not `[]`: `COUNT <= DYNOBJ_POOL_SLOTS` holds by
+    // construction (push refuses past the end), and the bounds-check
+    // panic was the allocator's only edge into the core::fmt
+    // renderer. A miss answers "pool empty".
+    let slot = SLOTS.get(new_count)?;
     COUNT.store(new_count, Ordering::Relaxed);
-    let p = SLOTS[new_count].swap(ptr::null_mut(), Ordering::Relaxed);
+    let p = slot.swap(ptr::null_mut(), Ordering::Relaxed);
     NonNull::new(p)
 }
 
@@ -59,10 +64,11 @@ pub fn pop() -> Option<NonNull<u8>> {
 #[inline]
 pub fn push(p: NonNull<u8>) -> bool {
     let count = COUNT.load(Ordering::Relaxed);
-    if count >= DYNOBJ_POOL_SLOTS {
+    // r503 — the capacity check and the slot in one `get` (see `pop`).
+    let Some(slot) = SLOTS.get(count) else {
         return false;
-    }
-    SLOTS[count].store(p.as_ptr(), Ordering::Relaxed);
+    };
+    slot.store(p.as_ptr(), Ordering::Relaxed);
     COUNT.store(count + 1, Ordering::Relaxed);
     true
 }

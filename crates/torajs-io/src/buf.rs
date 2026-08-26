@@ -87,8 +87,16 @@ impl LineBuf {
         if inner.len == BUF_CAP {
             Self::flush_inner(inner);
         }
-        inner.buf[inner.len] = c;
-        inner.len += 1;
+        // r503 — `get_mut`, not `[]`: the flush above keeps `len` in
+        // range by construction, but not provably so, and the
+        // bounds-check panic was the io crate's only edge into the
+        // core::fmt renderer (4 KB in every program). A miss drops
+        // the byte — unreachable, and loud nowhere is the honest
+        // price of the renderer's absence.
+        if let Some(slot) = inner.buf.get_mut(inner.len) {
+            *slot = c;
+            inner.len += 1;
+        }
         if c == b'\n' {
             Self::flush_inner(inner);
         }
@@ -123,7 +131,11 @@ impl LineBuf {
     fn flush_inner(inner: &mut Inner) {
         let mut off = 0;
         while off < inner.len {
-            let slice = &inner.buf[off..inner.len];
+            // r503 — `get`, same reason as `push`: `off < len <=
+            // BUF_CAP` holds by construction, not by type.
+            let Some(slice) = inner.buf.get(off..inner.len) else {
+                break;
+            };
             // SAFETY: slice is a live `&[u8]`; torajs_syscall::write
             // requires `len` bytes valid which is enforced by the
             // slice itself.

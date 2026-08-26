@@ -64,9 +64,11 @@ pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *
     let length = len_u as u32;
     let mut block = StrBlock::alloc_with_encoding(length, true);
     if len_u > 0 {
-        let src_slice = unsafe { core::slice::from_raw_parts(src, len_u) };
+        // r503 — a raw copy, not `copy_from_slice`: the two lengths
+        // are equal by construction, and the mismatch panic was one
+        // of this crate's edges into the core::fmt renderer.
         let dst = unsafe { block.as_bytes_mut(length) };
-        dst.copy_from_slice(src_slice);
+        unsafe { core::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), dst.len()) };
     }
     block.into_raw()
 }
@@ -130,7 +132,8 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
         let length = len_u as u32;
         let mut block = StrBlock::alloc_with_encoding(length, true);
         let dst = unsafe { block.as_bytes_mut(length) };
-        dst.copy_from_slice(src_slice);
+        // r503 — raw copy; see `__torajs_str_alloc_ascii`.
+        unsafe { core::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), dst.len()) };
         return block.into_raw();
     }
     // Something above ASCII is in there, so the widest codepoint now
@@ -146,11 +149,17 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
     if max_cp <= 0xFF {
         // Latin-1 supplement (0x80..=0xFF). Re-encode codepoint-
         // by-codepoint into one byte each.
-        let length = utf8.chars().count() as u32;
+        // r503 — a byte scan, not `chars().count()`: a UTF-8 char
+        // starts at every non-continuation byte, and the char counter
+        // is 2.5 KB of core (`do_count_chars`) in every program that
+        // materializes a string.
+        let length = src_slice.iter().filter(|b| (*b & 0xC0) != 0x80).count() as u32;
         let mut block = StrBlock::alloc_with_encoding(length, true);
         let dst = unsafe { block.as_bytes_mut(length) };
-        for (i, c) in utf8.chars().enumerate() {
-            dst[i] = c as u8;
+        // r503 — zip, not `dst[i]`: one slot per char by
+        // construction; an index would link the bounds-check panic.
+        for (slot, c) in dst.iter_mut().zip(utf8.chars()) {
+            *slot = c as u8;
         }
         return block.into_raw();
     }
@@ -164,26 +173,25 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
     let byte_cap = (length as usize) * 2;
     let mut block = StrBlock::alloc_with_encoding(length, false);
     let dst = unsafe { block.as_bytes_mut(byte_cap as u32) };
-    let mut i = 0usize;
+    // r503 — a cursor over the payload, not `dst[i]`: the counting
+    // walk above sized it exactly, and an index would link the
+    // bounds-check panic (the renderer edge).
+    let mut out = dst.iter_mut();
+    let mut put_u16 = |u: u16| {
+        for b in u.to_le_bytes() {
+            if let Some(slot) = out.next() {
+                *slot = b;
+            }
+        }
+    };
     for c in utf8.chars() {
         let cp = c as u32;
         if cp <= 0xFFFF {
-            let u = cp as u16;
-            let le = u.to_le_bytes();
-            dst[i] = le[0];
-            dst[i + 1] = le[1];
-            i += 2;
+            put_u16(cp as u16);
         } else {
             let cp_off = cp - 0x10000;
-            let hi = (0xD800 | (cp_off >> 10)) as u16;
-            let lo = (0xDC00 | (cp_off & 0x3FF)) as u16;
-            let hi_le = hi.to_le_bytes();
-            let lo_le = lo.to_le_bytes();
-            dst[i] = hi_le[0];
-            dst[i + 1] = hi_le[1];
-            dst[i + 2] = lo_le[0];
-            dst[i + 3] = lo_le[1];
-            i += 4;
+            put_u16((0xD800 | (cp_off >> 10)) as u16);
+            put_u16((0xDC00 | (cp_off & 0x3FF)) as u16);
         }
     }
     block.into_raw()
