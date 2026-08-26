@@ -15,7 +15,7 @@
 //!   exit hook before `exit(0)` to ensure all buffered bytes
 //!   reach stdout.
 
-use crate::buf::STDOUT;
+use crate::buf::{STDOUT, STDOUT_FD};
 
 /// Push one byte to the stdout line buffer. Drop-in replacement
 /// for libc `putchar(c)`. Returns the byte (cast to `i32`).
@@ -30,7 +30,7 @@ pub extern "C" fn __torajs_io_putc_stdout(c: i32) -> i32 {
     // Safety: caller covenant — single-threaded access. Cast c
     // (which may carry sign-extended high bits from C `int`) to
     // u8; matches libc putchar's "unsigned char value" contract.
-    unsafe { STDOUT.push(c as u8) };
+    unsafe { STDOUT.push(STDOUT_FD, c as u8) };
     c
 }
 
@@ -49,7 +49,7 @@ pub unsafe extern "C" fn __torajs_io_write_stdout(buf: *const u8, len: u64) {
         return;
     }
     let s = unsafe { core::slice::from_raw_parts(buf, len as usize) };
-    unsafe { STDOUT.write(s) };
+    unsafe { STDOUT.write(STDOUT_FD, s) };
 }
 
 /// Drain all buffered io bytes — stdout then stderr — each via a
@@ -65,6 +65,6 @@ pub unsafe extern "C" fn __torajs_io_write_stdout(buf: *const u8, len: u64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_io_flush() {
     // SAFETY: see __torajs_io_putc_stdout.
-    unsafe { STDOUT.flush() };
-    unsafe { crate::buf::STDERR.flush() };
+    unsafe { STDOUT.flush(STDOUT_FD) };
+    unsafe { crate::buf::STDERR.flush(crate::buf::STDERR_FD) };
 }

@@ -296,7 +296,7 @@ unsafe fn throw_native_str(slot: i64, err: *mut u8) {
     // reachability-gated build that proved no one can observe the
     // instance shape).
     let named = if slot >= 0 && (slot as usize) < SLOT_COUNT {
-        let name = registry::SLOT_NAMES[slot as usize];
+        let name = registry::slot_name(slot as usize);
         let msg_len = unsafe { (err.add(STR_LEN_OFF) as *const u32).read() } as usize;
         let total = name.len() + 2 + msg_len;
         // SAFETY: fresh Str of `total` bytes; header + len set by the

@@ -49,8 +49,16 @@ pub struct LineBuf {
 struct Inner {
     buf: [u8; BUF_CAP],
     len: usize,
-    fd: i32,
 }
+
+/// The two sinks' file descriptors — carried by the caller into
+/// every `push` / `write` / `flush`, never stored in the buffer.
+/// r505: an `fd` field made the two 4 KB statics NON-zero, so both
+/// lived in `__DATA,__data` and every program paid 8,224 B of file
+/// for two buffers that start empty; all-zero statics are `.bss` —
+/// vmsize only, no file backing.
+pub const STDOUT_FD: i32 = 1;
+pub const STDERR_FD: i32 = 2;
 
 /// SAFETY: `LineBuf` is single-threaded by v0.7 scope. Sync is
 /// vacuously satisfied since there's no concurrent access path
@@ -63,12 +71,11 @@ impl LineBuf {
     /// Construct a fresh empty line buffer bound to `fd` (1 for
     /// stdout, 2 for stderr). `const fn` so the global static
     /// can be zero-initialized at program start.
-    pub const fn new(fd: i32) -> Self {
+    pub const fn new() -> Self {
         Self {
             inner: UnsafeCell::new(Inner {
                 buf: [0u8; BUF_CAP],
                 len: 0,
-                fd,
             }),
         }
     }
@@ -82,10 +89,10 @@ impl LineBuf {
     /// Single-threaded access only. Caller (the extern entry
     /// point) is responsible for ensuring no concurrent reborrow
     /// of `&self`'s inner state.
-    pub unsafe fn push(&self, c: u8) {
+    pub unsafe fn push(&self, fd: i32, c: u8) {
         let inner = unsafe { &mut *self.inner.get() };
         if inner.len == BUF_CAP {
-            Self::flush_inner(inner);
+            Self::flush_inner(inner, fd);
         }
         // r503 — `get_mut`, not `[]`: the flush above keeps `len` in
         // range by construction, but not provably so, and the
@@ -98,7 +105,7 @@ impl LineBuf {
             inner.len += 1;
         }
         if c == b'\n' {
-            Self::flush_inner(inner);
+            Self::flush_inner(inner, fd);
         }
     }
 
@@ -110,9 +117,9 @@ impl LineBuf {
     /// # Safety
     ///
     /// Same as [`push`](LineBuf::push).
-    pub unsafe fn write(&self, s: &[u8]) {
+    pub unsafe fn write(&self, fd: i32, s: &[u8]) {
         for &b in s {
-            unsafe { self.push(b) };
+            unsafe { self.push(fd, b) };
         }
     }
 
@@ -123,12 +130,12 @@ impl LineBuf {
     /// # Safety
     ///
     /// Same as [`push`](LineBuf::push).
-    pub unsafe fn flush(&self) {
+    pub unsafe fn flush(&self, fd: i32) {
         let inner = unsafe { &mut *self.inner.get() };
-        Self::flush_inner(inner);
+        Self::flush_inner(inner, fd);
     }
 
-    fn flush_inner(inner: &mut Inner) {
+    fn flush_inner(inner: &mut Inner, fd: i32) {
         let mut off = 0;
         while off < inner.len {
             // r503 — `get`, same reason as `push`: `off < len <=
@@ -139,7 +146,7 @@ impl LineBuf {
             // SAFETY: slice is a live `&[u8]`; torajs_syscall::write
             // requires `len` bytes valid which is enforced by the
             // slice itself.
-            let r = unsafe { torajs_syscall::write(inner.fd, slice) };
+            let r = unsafe { torajs_syscall::write(fd, slice) };
             match r {
                 Ok(0) => break,
                 Ok(n) => off += n,
@@ -152,7 +159,7 @@ impl LineBuf {
 
 /// Process-global stdout buffer. Initialized at program start
 /// (const init); first push lazy-fills.
-pub static STDOUT: LineBuf = LineBuf::new(1);
+pub static STDOUT: LineBuf = LineBuf::new();
 
 /// Process-global stderr buffer — the `console.error` /
 /// `console.warn` sink behind [`crate::sink`]'s current-sink
@@ -160,35 +167,39 @@ pub static STDOUT: LineBuf = LineBuf::new(1);
 /// drain both buffers at every crossing so `2>&1` redirection
 /// preserves caller-order interleaving (the generalization of the
 /// legacy "flush stdout before a raw stderr write(2)" convention).
-pub static STDERR: LineBuf = LineBuf::new(2);
+pub static STDERR: LineBuf = LineBuf::new();
 
 #[cfg(test)]
 mod tests {
+    /// Sentinel fd for the buffer-state tests: write() on it errors
+    /// (EBADF), which buf swallows.
+    const FD: i32 = 99;
+
     use super::*;
 
     /// Sanity: const init shapes the buffer as empty + fd=1.
     /// We don't call write() from tests (would clobber test
     /// runner's stdout); just exercise the buffer state.
     #[test]
-    fn stdout_const_init() {
-        let inner = unsafe { &*STDOUT.inner.get() };
-        assert_eq!(inner.fd, 1);
-        // len could be non-zero if prior tests in same process
-        // pushed; tolerate either way — STDOUT is process-global
-        // so test ordering matters here. The point is fd is
-        // bound correctly.
+    fn sink_fds_are_the_posix_ones() {
+        assert_eq!(STDOUT_FD, 1);
+        assert_eq!(STDERR_FD, 2);
+        // The statics themselves are all-zero by construction (no
+        // fd inside) — that is what keeps them out of `__data`.
+        let inner = unsafe { &*STDERR.inner.get() };
+        assert_eq!(inner.len, 0);
     }
 
     /// Push without newline does not flush. Verify by checking
     /// the buffer length grew.
     #[test]
     fn push_no_newline_buffers() {
-        let lb = LineBuf::new(99); // sentinel fd; write() on it
+        let lb = LineBuf::new(); // sentinel fd; write() on it
         // would error (EBADF) which buf swallows.
         unsafe {
-            lb.push(b'a');
-            lb.push(b'b');
-            lb.push(b'c');
+            lb.push(FD, b'a');
+            lb.push(FD, b'b');
+            lb.push(FD, b'c');
         }
         let inner = unsafe { &*lb.inner.get() };
         assert_eq!(inner.len, 3);
@@ -201,11 +212,11 @@ mod tests {
     /// preserve buffered bytes; they go to a sink).
     #[test]
     fn push_newline_flushes() {
-        let lb = LineBuf::new(99);
+        let lb = LineBuf::new();
         unsafe {
-            lb.push(b'h');
-            lb.push(b'i');
-            lb.push(b'\n');
+            lb.push(FD, b'h');
+            lb.push(FD, b'i');
+            lb.push(FD, b'\n');
         }
         let inner = unsafe { &*lb.inner.get() };
         assert_eq!(inner.len, 0, "newline must flush buffer");
@@ -218,10 +229,10 @@ mod tests {
     /// into the (now empty) buf at position 0.
     #[test]
     fn buffer_full_pre_flushes() {
-        let lb = LineBuf::new(99);
+        let lb = LineBuf::new();
         unsafe {
             for _ in 0..BUF_CAP {
-                lb.push(b'x'); // any non-`\n` byte
+                lb.push(FD, b'x'); // any non-`\n` byte
             }
         }
         let inner_pre = unsafe { &*lb.inner.get() };
@@ -230,7 +241,7 @@ mod tests {
             "buffer should be full before next push"
         );
         unsafe {
-            lb.push(0xAA);
+            lb.push(FD, 0xAA);
         }
         let inner_post = unsafe { &*lb.inner.get() };
         // After buffer-full pre-flush + 1 byte push, len = 1.
@@ -245,8 +256,8 @@ mod tests {
     /// containing a newline flushes mid-chunk.
     #[test]
     fn write_chunk_with_newline_flushes_midchunk() {
-        let lb = LineBuf::new(99);
-        unsafe { lb.write(b"foo\nbar") };
+        let lb = LineBuf::new();
+        unsafe { lb.write(FD, b"foo\nbar") };
         let inner = unsafe { &*lb.inner.get() };
         // "foo\n" flushed; "bar" remains buffered.
         assert_eq!(inner.len, 3);
@@ -256,11 +267,11 @@ mod tests {
     /// Explicit flush drains arbitrary buffered bytes.
     #[test]
     fn explicit_flush_drains() {
-        let lb = LineBuf::new(99);
+        let lb = LineBuf::new();
         unsafe {
-            lb.push(b'x');
-            lb.push(b'y');
-            lb.flush();
+            lb.push(FD, b'x');
+            lb.push(FD, b'y');
+            lb.flush(FD);
         }
         let inner = unsafe { &*lb.inner.get() };
         assert_eq!(inner.len, 0);

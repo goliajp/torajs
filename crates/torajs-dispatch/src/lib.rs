@@ -347,12 +347,54 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
     torajs_anyvalue::VALUE_UNDEFINED
 }
 
-/// Arm-roster family names, indexed by fam_id 0..14 — the same order
-/// `torajs_rc::any_method_family` numbers its bits.
-const ARM_FAMILY_NAMES: [&str; 15] = [
-    "str", "arr", "dynobj", "struct", "mapset", "iter", "buffer", "date", "promise", "regexp",
-    "bigint", "symbol", "closure", "weak", "num",
+/// The reject subjects, one string: the fifteen arm families first
+/// (fam_id 0..14, the order `torajs_rc::any_method_family` numbers its
+/// bits), then the named worlds. r505 — one string plus a byte offset
+/// table instead of an array of `&str`: fifteen fat pointers were 240 B
+/// of `__DATA,__const` (each needs a rebase fixup), and that file-backed
+/// section was what kept a whole `__DATA` page in every program whose
+/// dispatch reject stub was live. Offsets into a string are plain
+/// rodata — `__TEXT,__const`, no fixups.
+const SUBJECTS: &str = "str\
+arr\
+dynobj\
+struct\
+mapset\
+iter\
+buffer\
+date\
+promise\
+regexp\
+bigint\
+symbol\
+closure\
+weak\
+num\
+namespace-static world\
+printer kernel\
+exotic-array join\
+array species probe\
+scalar-array props drop\
+scalar-array subclass drop\
+closure props drop\
+closure unbuffer\
+uncaught error render\
+struct props drop\
+struct cycle buffering\
+struct unbuffer\
+struct field-write guard\
+method family";
+/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 344 B).
+const OFF: [u16; 30] = [
+    0, 3, 6, 12, 18, 24, 28, 34, 38, 45, 51, 57, 63, 70, 74, 77, 99, 113, 130, 149, 172, 198, 216,
+    232, 253, 270, 292, 307, 331, 344,
 ];
+const ARM_FAMILY_COUNT: u64 = 15;
+/// Subject indices past the arm families.
+const SUBJ_NS_STATIC: usize = 15;
+const SUBJ_PRINTER: usize = 16;
+const SUBJ_LINK_FIRST: usize = 17;
+const SUBJ_FALLBACK: usize = 28;
 
 const REJECT_METHOD_FAMILY: &str = " method family";
 const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
@@ -361,6 +403,13 @@ const REJECT_LINK_TAIL: &str = " stripped (link judgment bug)";
 /// Longest composed reject line + NUL: `"scalar-array subclass drop"`
 /// (26) + the link tail (29) is the widest, with room to spare.
 const REJECT_MSG_CAP: usize = 96;
+
+fn subject(i: usize) -> &'static str {
+    match (OFF.get(i), OFF.get(i + 1)) {
+        (Some(&a), Some(&b)) => SUBJECTS.get(a as usize..b as usize).unwrap_or(""),
+        _ => "",
+    }
+}
 
 /// Compose the reject line for `fam_id` into `buf`, NUL-terminated;
 /// returns the byte length before the NUL.
@@ -373,33 +422,23 @@ const REJECT_MSG_CAP: usize = 96;
 /// alone are a quarter of that. The bytes each id produces are the
 /// ones the per-id literals produced — the unit tests pin them.
 fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
-    let (subject, mid, tail) = match fam_id {
-        n if (n as usize) < ARM_FAMILY_NAMES.len() => (
-            ARM_FAMILY_NAMES[n as usize],
-            REJECT_METHOD_FAMILY,
-            REJECT_DISPATCH_TAIL,
+    let (subj, mid, tail) = match fam_id {
+        n if n < ARM_FAMILY_COUNT => (n as usize, REJECT_METHOD_FAMILY, REJECT_DISPATCH_TAIL),
+        15 => (SUBJ_NS_STATIC, "", REJECT_DISPATCH_TAIL),
+        16..40 => (SUBJ_PRINTER, "", REJECT_DISPATCH_TAIL),
+        40..=50 => (
+            SUBJ_LINK_FIRST + (fam_id - 40) as usize,
+            "",
+            REJECT_LINK_TAIL,
         ),
-        15 => ("namespace-static world", "", REJECT_DISPATCH_TAIL),
-        16..40 => ("printer kernel", "", REJECT_DISPATCH_TAIL),
-        40 => ("exotic-array join", "", REJECT_LINK_TAIL),
-        41 => ("array species probe", "", REJECT_LINK_TAIL),
-        42 => ("scalar-array props drop", "", REJECT_LINK_TAIL),
-        43 => ("scalar-array subclass drop", "", REJECT_LINK_TAIL),
-        44 => ("closure props drop", "", REJECT_LINK_TAIL),
-        45 => ("closure unbuffer", "", REJECT_LINK_TAIL),
-        46 => ("uncaught error render", "", REJECT_LINK_TAIL),
-        47 => ("struct props drop", "", REJECT_LINK_TAIL),
-        48 => ("struct cycle buffering", "", REJECT_LINK_TAIL),
-        49 => ("struct unbuffer", "", REJECT_LINK_TAIL),
-        50 => ("struct field-write guard", "", REJECT_LINK_TAIL),
-        _ => ("method family", "", REJECT_DISPATCH_TAIL),
+        _ => (SUBJ_FALLBACK, "", REJECT_DISPATCH_TAIL),
     };
     // Filled through the iterator forms rather than range indexing:
     // the indexed forms carry a formatted panic path, and a runtime
     // kernel that owns one drags `core::fmt` into every program that
     // links it (the r503 census).
     let mut len = 0;
-    for part in [subject, mid, tail] {
+    for part in [subject(subj), mid, tail] {
         for (dst, &b) in buf.iter_mut().skip(len).zip(part.as_bytes()) {
             *dst = b;
         }

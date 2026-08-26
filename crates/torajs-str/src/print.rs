@@ -91,11 +91,18 @@ pub(crate) fn write_utf8_for_codepoint<F: FnMut(u8)>(cp: u32, mut put: F) {
 /// preserve the bits.
 #[inline]
 pub(crate) fn iter_utf16_codepoints(bytes: &[u8], mut yield_cp: impl FnMut(u32)) {
+    // r505 — `get`-shaped reads, not `[]`: the loop guard keeps every
+    // index in range by construction but not by type, and each `[]`
+    // carried a bounds-check panic whose `core::panic::Location` was
+    // the empty program's last file-backed `__DATA,__const` atom (the
+    // one that kept a whole page in the file). A miss ends the walk.
     let mut i = 0;
-    while i + 1 < bytes.len() {
-        let cu = u16::from_le_bytes([bytes[i], bytes[i + 1]]) as u32;
-        if (0xD800..=0xDBFF).contains(&cu) && i + 3 < bytes.len() {
-            let lo = u16::from_le_bytes([bytes[i + 2], bytes[i + 3]]) as u32;
+    while let (Some(&b0), Some(&b1)) = (bytes.get(i), bytes.get(i + 1)) {
+        let cu = u16::from_le_bytes([b0, b1]) as u32;
+        if (0xD800..=0xDBFF).contains(&cu)
+            && let (Some(&b2), Some(&b3)) = (bytes.get(i + 2), bytes.get(i + 3))
+        {
+            let lo = u16::from_le_bytes([b2, b3]) as u32;
             if (0xDC00..=0xDFFF).contains(&lo) {
                 let cp = 0x10000 + ((cu - 0xD800) << 10) + (lo - 0xDC00);
                 yield_cp(cp);

@@ -295,9 +295,17 @@ pub fn build_chained_fixups(
         data_seg_idx < seg_count,
         "data_seg_idx {data_seg_idx} must be < seg_count {seg_count}"
     );
+    // r505 — a `__DATA` segment with no file-backed byte (every
+    // buffer zero-initialised, every table rodata) has no page a
+    // chain could start on: it gets no `starts_in_segment` and its
+    // `seg_info_offset` stays 0, exactly like a segment the chain
+    // never touches. Any slot addressed into it would be a caller
+    // bug — `build_starts_in_segment` asserts that.
+    let data_has_pages = data_segment_filesize > 0;
     debug_assert!(
-        data_segment_filesize > 0,
-        "data_segment_filesize must be non-zero when chain participants exist"
+        data_has_pages
+            || (la_ptr_imports.is_empty() && tlv_thunk_offsets.is_empty() && !has_data_rebase),
+        "chain slots addressed into a __DATA segment with no file-backed pages"
     );
     if let Some(r) = text_rebase {
         debug_assert!(
@@ -345,15 +353,18 @@ pub fn build_chained_fixups(
     // emit one chain via `next_stride` links; chains never cross
     // page boundaries — each page starts its own chain via
     // page_start[page_idx].
-    let data_starts = build_starts_in_segment(
-        la_ptr_imports,
-        la_ptr_offset_in_segment,
-        data_segment_vmaddr_offset,
-        data_segment_filesize,
-        tlv_thunk_offsets,
-        tlv_import_ordinal,
-        data_rebase_targets,
-    );
+    let data_starts = data_has_pages.then(|| {
+        build_starts_in_segment(
+            la_ptr_imports,
+            la_ptr_offset_in_segment,
+            data_segment_vmaddr_offset,
+            data_segment_filesize,
+            tlv_thunk_offsets,
+            tlv_import_ordinal,
+            data_rebase_targets,
+        )
+    });
+    let data_starts_bytes_len = data_starts.as_ref().map_or(0, |s| s.bytes.len());
     let text_starts = text_rebase.map(|r| {
         build_starts_in_segment(
             &BTreeMap::new(),
@@ -374,12 +385,16 @@ pub fn build_chained_fixups(
     // table; __TEXT (when present) follows __DATA.
     let starts_in_image_header_size: u32 = 4 + 4 * seg_count;
     let data_starts_off = starts_in_image_header_size;
-    let text_starts_off = data_starts_off + data_starts.bytes.len() as u32;
+    let text_starts_off = data_starts_off + data_starts_bytes_len as u32;
     let mut starts_in_image: Vec<u8> = Vec::with_capacity(starts_in_image_header_size as usize);
     starts_in_image.extend_from_slice(&seg_count.to_le_bytes());
     for seg in 0..seg_count {
         let off: u32 = if seg == data_seg_idx {
-            data_starts_off
+            if data_starts.is_some() {
+                data_starts_off
+            } else {
+                0
+            }
         } else if text_starts.is_some() && text_rebase.is_some_and(|r| seg == r.text_seg_idx) {
             text_starts_off
         } else {
@@ -390,7 +405,7 @@ pub fn build_chained_fixups(
 
     // Concatenate: header + starts_in_image + per-seg starts → imports → symbols.
     let text_starts_bytes_len = text_starts.as_ref().map_or(0, |s| s.bytes.len());
-    let starts_total_size = starts_in_image.len() + data_starts.bytes.len() + text_starts_bytes_len;
+    let starts_total_size = starts_in_image.len() + data_starts_bytes_len + text_starts_bytes_len;
     let imports_offset = FIXUPS_HEADER_SIZE + starts_total_size as u32;
     let imports_offset = round_up_4(imports_offset);
     let imports_count = imports_seq.len() as u32;
@@ -398,33 +413,7 @@ pub fn build_chained_fixups(
     let mut symbols_offset = imports_offset + imports_blob_size;
     symbols_offset = round_up_4(symbols_offset);
 
-    // Compose symbol strings table and remember each name's
-    // starting offset + the dylib's lib_ordinal for the imports[]
-    // entry build below.
-    let mut sym_blob: Vec<u8> = Vec::new();
-    let mut name_offsets: Vec<(u32, u8)> = Vec::with_capacity(imports_seq.len());
-    for &(name, lib_ordinal) in &imports_seq {
-        name_offsets.push((sym_blob.len() as u32, lib_ordinal));
-        sym_blob.extend_from_slice(name.as_bytes());
-        sym_blob.push(0);
-    }
-    // 8-byte align the tail so the codesign hash covers a
-    // self-contained, padded blob.
-    while sym_blob.len() % 8 != 0 {
-        sym_blob.push(0);
-    }
-
-    // Assemble dyld_chained_import[] (4 bytes each, packed).
-    // Per-import lib_ordinal picks which LC_LOAD_DYLIB dyld binds
-    // against (1 = libSystem, 2 = libcurl, ...). weak_import = 0.
-    let mut imports_blob: Vec<u8> = Vec::with_capacity(4 * imports_seq.len());
-    for &(name_off, lib_ordinal) in &name_offsets {
-        let weak_import: u32 = 0;
-        let packed: u32 = (u32::from(lib_ordinal) & 0xFF)
-            | ((weak_import & 0x1) << 8)
-            | ((name_off & 0x7F_FFFF) << 9);
-        imports_blob.extend_from_slice(&packed.to_le_bytes());
-    }
+    let (imports_blob, sym_blob) = import_tables(&imports_seq);
 
     // Header.
     let mut blob: Vec<u8> = Vec::new();
@@ -439,7 +428,9 @@ pub fn build_chained_fixups(
     debug_assert_eq!(blob.len() as u32, FIXUPS_HEADER_SIZE);
 
     blob.extend_from_slice(&starts_in_image);
-    blob.extend_from_slice(&data_starts.bytes);
+    if let Some(ref ds) = data_starts {
+        blob.extend_from_slice(&ds.bytes);
+    }
     if let Some(ref ts) = text_starts {
         blob.extend_from_slice(&ts.bytes);
     }
@@ -455,18 +446,82 @@ pub fn build_chained_fixups(
     let text_rebase_link_values = text_starts
         .map(|ts| ts.rebase_link_values)
         .unwrap_or_default();
+    let (la_ptr_slot_values, tlv_thunk_link_values, data_rebase_link_values) = data_starts
+        .map(|ds| {
+            (
+                ds.la_ptr_slot_values,
+                ds.tlv_thunk_link_values,
+                ds.rebase_link_values,
+            )
+        })
+        .unwrap_or_default();
     ChainedFixupsBlob {
         blob,
-        la_ptr_slot_values: data_starts.la_ptr_slot_values,
-        tlv_thunk_link_values: data_starts.tlv_thunk_link_values,
+        la_ptr_slot_values,
+        tlv_thunk_link_values,
         text_rebase_link_values,
-        data_rebase_link_values: data_starts.rebase_link_values,
+        data_rebase_link_values,
     }
+}
+
+/// The `dyld_chained_import[]` blob and the C string table it indexes,
+/// for `imports_seq` in order: each import packs `(lib_ordinal,
+/// weak_import = 0, name_offset)` — the ordinal picks which
+/// `LC_LOAD_DYLIB` dyld binds against (1 = libSystem, 2 = libcurl) —
+/// and the string table is 8-aligned so the codesign hash covers a
+/// self-contained, padded blob.
+fn import_tables(imports_seq: &[(&str, u8)]) -> (Vec<u8>, Vec<u8>) {
+    let mut sym_blob: Vec<u8> = Vec::new();
+    let mut name_offsets: Vec<(u32, u8)> = Vec::with_capacity(imports_seq.len());
+    for &(name, lib_ordinal) in imports_seq {
+        name_offsets.push((sym_blob.len() as u32, lib_ordinal));
+        sym_blob.extend_from_slice(name.as_bytes());
+        sym_blob.push(0);
+    }
+    while sym_blob.len() % 8 != 0 {
+        sym_blob.push(0);
+    }
+    let mut imports_blob: Vec<u8> = Vec::with_capacity(4 * imports_seq.len());
+    for &(name_off, lib_ordinal) in &name_offsets {
+        let weak_import: u32 = 0;
+        let packed: u32 = (u32::from(lib_ordinal) & 0xFF)
+            | ((weak_import & 0x1) << 8)
+            | ((name_off & 0x7F_FFFF) << 9);
+        imports_blob.extend_from_slice(&packed.to_le_bytes());
+    }
+    (imports_blob, sym_blob)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_data_segment_without_file_pages_gets_no_starts_entry() {
+        // __DATA_CONST carries one text rebase; __DATA has no file
+        // byte (filesize 0) → its seg_info_offset is 0 and only the
+        // text starts blob follows the image header.
+        let targets = [(0x8u64, 0x1000u64)];
+        let scope = TextRebaseScope {
+            text_segment_vmaddr_offset: 0x4000,
+            text_segment_vmsize: 0x4000,
+            text_seg_idx: 2,
+            rebase_targets: &targets,
+        };
+        let built =
+            build_chained_fixups(&BTreeMap::new(), 0x8000, 0, 0, &[], 4, 3, Some(&scope), &[]);
+        let b = &built.blob;
+        let u = |o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+        assert_eq!(u(32), 4);
+        assert_eq!(u(36 + 4 * 3), 0, "__DATA: no starts");
+        assert_eq!(
+            u(36 + 4 * 2),
+            4 + 4 * 4,
+            "__DATA_CONST starts right after the image header"
+        );
+        assert!(built.la_ptr_slot_values.is_empty());
+        assert_eq!(built.text_rebase_link_values.len(), 1);
+    }
 
     /// Helper — all imports route through libSystem (ordinal 1).
     /// Tests that exercise multi-dylib ordinals use the direct

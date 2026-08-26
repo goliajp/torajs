@@ -5,8 +5,11 @@
 
 use std::collections::BTreeMap;
 
-use crate::chained_fixups::{TextRebaseScope, build_chained_fixups};
+use crate::chained_fixups::{
+    DYLD_CHAINED_IMPORT, FIXUPS_HEADER_SIZE, TextRebaseScope, build_chained_fixups,
+};
 use crate::chained_fixups_starts::RebaseTarget;
+use crate::chained_fixups_starts::round_up_4;
 use crate::class_name_table_layout::class_name_table_rebase_targets_from_layouts;
 use crate::data_const_layout::DataConstLayout;
 use crate::fn_name_table_layout::fn_name_table_rebase_targets_from_layouts;
@@ -19,7 +22,44 @@ use crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs;
 /// Args bundle for [`compute_chained_fixups_outputs`] — keeps the
 /// archive_link call site to a handful of lines while still
 /// passing every layout-derived input through explicitly.
+/// r505 — the blob for an image that carries `LC_DYLD_CHAINED_FIXUPS`
+/// but has nothing to fix up: no import, no thread-local thunk, no
+/// rebase slot in any segment. dyld still requires a well-formed
+/// header: `seg_info_offset[i] == 0` for every segment (no chain
+/// starts), `imports_count == 0`, and the imports / symbols offsets
+/// pointing at the end. A zero-length payload is what it calls a
+/// "malformed import table". This is the shape of every program
+/// whose `__DATA` segment lost its last file-backed byte (the empty
+/// program, after the line buffers moved to bss and the name tables
+/// to rodata).
+pub(crate) fn empty_chained_fixups_blob(seg_count: u32) -> Vec<u8> {
+    let starts_size = 4 + 4 * seg_count;
+    let imports_offset = round_up_4(FIXUPS_HEADER_SIZE + starts_size);
+    let mut blob: Vec<u8> = Vec::with_capacity(imports_offset as usize);
+    blob.extend_from_slice(&0u32.to_le_bytes()); // fixups_version
+    blob.extend_from_slice(&FIXUPS_HEADER_SIZE.to_le_bytes()); // starts_offset
+    blob.extend_from_slice(&imports_offset.to_le_bytes());
+    blob.extend_from_slice(&imports_offset.to_le_bytes()); // symbols_offset
+    blob.extend_from_slice(&0u32.to_le_bytes()); // imports_count
+    blob.extend_from_slice(&DYLD_CHAINED_IMPORT.to_le_bytes()); // imports_format
+    blob.extend_from_slice(&0u32.to_le_bytes()); // symbols_format
+    blob.extend_from_slice(&0u32.to_le_bytes()); // header padding to 32 B
+    blob.extend_from_slice(&seg_count.to_le_bytes());
+    for _ in 0..seg_count {
+        blob.extend_from_slice(&0u32.to_le_bytes());
+    }
+    while blob.len() < imports_offset as usize {
+        blob.push(0);
+    }
+    blob
+}
+
 pub struct ChainedFixupsInputs<'a> {
+    /// r505 — whether the image carries `LC_DYLD_CHAINED_FIXUPS` at
+    /// all (the text plan's `has_chained_fixups`). With the command
+    /// present and nothing to fix up, the payload is the well-formed
+    /// empty blob, never zero bytes.
+    pub lc_present: bool,
     pub dyld_imports: &'a BTreeMap<String, u8>,
     pub data_seg_vmaddr_offset: u64,
     /// `__DATA` FILESIZE (file-backed only — chunk 633: page_count
@@ -50,7 +90,12 @@ pub fn compute_chained_fixups_outputs(
     let has_vtable_rebase = !input.vtable_rebase_targets.is_empty();
     let has_data_rebase = !input.data_seg_rebase_targets.is_empty();
     if !has_dyld && !has_vtable_rebase && !has_data_rebase {
-        return (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let blob = if input.lc_present {
+            empty_chained_fixups_blob(input.segment_count)
+        } else {
+            Vec::new()
+        };
+        return (blob, Vec::new(), Vec::new(), Vec::new(), Vec::new());
     }
     let text_rebase = if has_vtable_rebase {
         Some(TextRebaseScope {
@@ -153,6 +198,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
         .collect();
     let (blob, la_ptr, tlv_thunk, text_rebase, data_rebase) =
         compute_chained_fixups_outputs(ChainedFixupsInputs {
+            lc_present: true,
             dyld_imports: &layout.dyld_imports,
             data_seg_vmaddr_offset: layout.data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
             data_seg_filesize: layout.data_filesize,
@@ -195,4 +241,22 @@ pub fn recompute_chained_fixups_with_data_rebase(
     layout.tlv_thunk_link_values = tlv_thunk;
     layout.text_rebase_link_values = text_rebase;
     data_rebase
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_blob_is_a_well_formed_header_with_no_starts() {
+        let b = empty_chained_fixups_blob(4);
+        let u = |o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+        assert_eq!(b.len(), 52);
+        assert_eq!(u(4), FIXUPS_HEADER_SIZE, "starts_offset");
+        assert_eq!(u(8), 52, "imports_offset at the end");
+        assert_eq!(u(12), 52, "symbols_offset at the end");
+        assert_eq!(u(16), 0, "imports_count");
+        assert_eq!(u(32), 4, "seg_count");
+        assert!((0..4).all(|i| u(36 + 4 * i) == 0), "no chain starts");
+    }
 }

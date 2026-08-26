@@ -28,18 +28,18 @@
 //! natural semantics (each thread's console redirection is its
 //! own).
 
-use crate::buf::{LineBuf, STDERR, STDOUT};
+use crate::buf::{LineBuf, STDERR, STDERR_FD, STDOUT, STDOUT_FD};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Current-sink flag: `false` = STDOUT (default), `true` = STDERR.
 static CUR_IS_STDERR: AtomicBool = AtomicBool::new(false);
 
 #[inline]
-fn cur() -> &'static LineBuf {
+fn cur() -> (&'static LineBuf, i32) {
     if CUR_IS_STDERR.load(Ordering::Relaxed) {
-        &STDERR
+        (&STDERR, STDERR_FD)
     } else {
-        &STDOUT
+        (&STDOUT, STDOUT_FD)
     }
 }
 
@@ -55,7 +55,8 @@ fn cur() -> &'static LineBuf {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_io_putc_out(c: i32) -> i32 {
     // SAFETY: caller covenant — single-threaded access.
-    unsafe { cur().push(c as u8) };
+    let (b, fd) = cur();
+    unsafe { b.push(fd, c as u8) };
     c
 }
 
@@ -72,7 +73,8 @@ pub unsafe extern "C" fn __torajs_io_write_out(buf: *const u8, len: u64) {
     }
     let s = unsafe { core::slice::from_raw_parts(buf, len as usize) };
     // SAFETY: caller covenant — single-threaded access.
-    unsafe { cur().write(s) };
+    let (b, fd) = cur();
+    unsafe { b.write(fd, s) };
 }
 
 /// Route subsequent `_out` writes to STDERR. Drains STDOUT first
@@ -81,7 +83,7 @@ pub unsafe extern "C" fn __torajs_io_write_out(buf: *const u8, len: u64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_io_sink_to_stderr() {
     // SAFETY: single-threaded covenant (see module doc).
-    unsafe { STDOUT.flush() };
+    unsafe { STDOUT.flush(STDOUT_FD) };
     CUR_IS_STDERR.store(true, Ordering::Relaxed);
 }
 
@@ -91,7 +93,7 @@ pub extern "C" fn __torajs_io_sink_to_stderr() {
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_io_sink_to_stdout() {
     // SAFETY: single-threaded covenant (see module doc).
-    unsafe { STDERR.flush() };
+    unsafe { STDERR.flush(STDERR_FD) };
     CUR_IS_STDERR.store(false, Ordering::Relaxed);
 }
 

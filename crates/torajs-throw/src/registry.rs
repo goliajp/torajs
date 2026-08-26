@@ -49,15 +49,23 @@ pub(crate) const SLOT_COUNT: usize = 7;
 /// prints a Str payload verbatim) shows the same first line the
 /// instance path renders (RFC 20260825-injection-reachability 刀 A).
 /// Index-lockstep with the `SLOT_*` constants above.
-pub(crate) const SLOT_NAMES: [&[u8]; SLOT_COUNT] = [
-    b"Error",
-    b"TypeError",
-    b"RangeError",
-    b"ReferenceError",
-    b"SyntaxError",
-    b"AggregateError",
-    b"URIError",
-];
+/// The slot names, one byte string: `SLOT_NAME_OFF[i]..SLOT_NAME_OFF[i
+/// + 1]` is slot `i`. r505 — not a `[&[u8]; N]`: seven fat pointers
+/// were 112 B of `__DATA,__const` (each needs a rebase fixup), the
+/// last file-backed data in every program and so the whole `__DATA`
+/// page's reason to exist. Offsets into one string are plain rodata.
+const SLOT_NAMES: &[u8] =
+    b"ErrorTypeErrorRangeErrorReferenceErrorSyntaxErrorAggregateErrorURIError";
+const SLOT_NAME_OFF: [u8; SLOT_COUNT + 1] = [0, 5, 14, 24, 38, 49, 63, 71];
+
+/// The name of native-error slot `slot`, empty for an out-of-range
+/// slot.
+pub(crate) fn slot_name(slot: usize) -> &'static [u8] {
+    match (SLOT_NAME_OFF.get(slot), SLOT_NAME_OFF.get(slot + 1)) {
+        (Some(&a), Some(&b)) => SLOT_NAMES.get(a as usize..b as usize).unwrap_or(&[]),
+        _ => &[],
+    }
+}
 
 /// `undefined` in AnyValue NaN-box form (`torajs_anyvalue::nanbox::
 /// VALUE_UNDEFINED` = `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED`).

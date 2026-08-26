@@ -68,6 +68,7 @@ pub(crate) fn compute_linkedit_plan(
         text_rebase_link_values,
         _data_rebase_link_values,
     ) = compute_chained_fixups_outputs(ChainedFixupsInputs {
+        lc_present: tp.has_chained_fixups,
         dyld_imports: &required.dyld_imports,
         data_seg_vmaddr_offset: dp.data_vmaddr.saturating_sub(TEXT_VMADDR_BASE),
         data_seg_filesize: dp.data_filesize,
