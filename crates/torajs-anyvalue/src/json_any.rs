@@ -51,7 +51,10 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
 
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set_fresh(
+    /// r503 — the duplicate-capable fresh store: JSON text repeats
+    /// keys at will, and the insert-only `set_fresh` is the
+    /// compiler's lane for keys it proved fresh.
+    fn __torajs_dynobj_set_fresh_dup(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
         tag: u64,
@@ -320,9 +323,9 @@ unsafe fn parse_object(str_ptr: *const u8, pos: &mut i64, depth: u32) -> AnyValu
                 crate::__torajs_anyv_unbox_tag(val),
                 crate::__torajs_anyv_unbox_value(val),
             );
-            // Duplicate keys: last one wins (§25.5.1 — the entry
-            // overwrite drops the earlier value inside dynobj_set).
-            __torajs_dynobj_set_fresh(&mut obj, key.cast(), t as u64, p as u64);
+            // Duplicate keys: last one wins (§25.5.1 — the found path
+            // inside set_fresh_dup drops the earlier value).
+            __torajs_dynobj_set_fresh_dup(&mut obj, key.cast(), t as u64, p as u64);
             __torajs_str_drop(key.cast());
             let data = str_units(str_ptr);
             skip_ws(&data, pos);
