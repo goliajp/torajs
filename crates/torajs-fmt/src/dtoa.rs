@@ -96,7 +96,7 @@ fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
 fn format_decimal(buf: &mut [u8], dec: Decimal64, use_exp: bool) -> usize {
     let mut pos = 0;
     if dec.sign {
-        buf[pos] = b'-';
+        put(buf, pos, b'-');
         pos += 1;
     }
 
@@ -118,19 +118,19 @@ fn format_decimal(buf: &mut [u8], dec: Decimal64, use_exp: bool) -> usize {
         if n_digits > 1 {
             // Shift digits after digit_start by 1 to make room for '.'.
             for i in (digit_start + 2..=pos).rev() {
-                buf[i] = buf[i - 1];
+                put(buf, i, at(buf, i - 1));
             }
-            buf[digit_start + 1] = b'.';
+            put(buf, digit_start + 1, b'.');
             pos += 1;
         }
         // 'e' + explicit sign + exponent digits.
-        buf[pos] = b'e';
+        put(buf, pos, b'e');
         pos += 1;
         if abs_exp >= 0 {
-            buf[pos] = b'+';
+            put(buf, pos, b'+');
             pos += 1;
         } else {
-            buf[pos] = b'-';
+            put(buf, pos, b'-');
             pos += 1;
         }
         let abs_e_abs = abs_exp.unsigned_abs();
@@ -141,7 +141,7 @@ fn format_decimal(buf: &mut [u8], dec: Decimal64, use_exp: bool) -> usize {
         // Plain decimal form, mantissa followed by `exponent` zeros.
         pos = write_digits(buf, pos, mantissa, n_digits as usize);
         for _ in 0..exponent {
-            buf[pos] = b'0';
+            put(buf, pos, b'0');
             pos += 1;
         }
         pos
@@ -152,11 +152,11 @@ fn format_decimal(buf: &mut [u8], dec: Decimal64, use_exp: bool) -> usize {
         if dot_pos <= 0 {
             // `0.` followed by `(-dot_pos)` leading zeros, then all
             // mantissa digits.
-            buf[pos] = b'0';
-            buf[pos + 1] = b'.';
+            put(buf, pos, b'0');
+            put(buf, pos + 1, b'.');
             pos += 2;
             for _ in 0..(-dot_pos) {
-                buf[pos] = b'0';
+                put(buf, pos, b'0');
                 pos += 1;
             }
             pos = write_digits(buf, pos, mantissa, n_digits as usize);
@@ -169,9 +169,9 @@ fn format_decimal(buf: &mut [u8], dec: Decimal64, use_exp: bool) -> usize {
             pos = write_digits(buf, pos, mantissa, n_digits as usize);
             let dot_pos_u = dot_pos as usize;
             for i in (digit_start + dot_pos_u + 1..=pos).rev() {
-                buf[i] = buf[i - 1];
+                put(buf, i, at(buf, i - 1));
             }
-            buf[digit_start + dot_pos_u] = b'.';
+            put(buf, digit_start + dot_pos_u, b'.');
             pos += 1;
             pos
         }
@@ -182,7 +182,7 @@ fn format_decimal(buf: &mut [u8], dec: Decimal64, use_exp: bool) -> usize {
 /// most-significant first. Returns `pos + n_digits`.
 fn write_digits(buf: &mut [u8], pos: usize, mut v: u64, n_digits: usize) -> usize {
     for i in (0..n_digits).rev() {
-        buf[pos + i] = b'0' + (v % 10) as u8;
+        put(buf, pos + i, b'0' + (v % 10) as u8);
         v /= 10;
     }
     pos + n_digits
@@ -192,7 +192,7 @@ fn write_digits(buf: &mut [u8], pos: usize, mut v: u64, n_digits: usize) -> usiz
 /// most-significant first, no leading zeros. Returns new pos.
 fn write_u32(buf: &mut [u8], pos: usize, v: u32) -> usize {
     if v == 0 {
-        buf[pos] = b'0';
+        put(buf, pos, b'0');
         return pos + 1;
     }
     let mut n = 0usize;
@@ -203,7 +203,7 @@ fn write_u32(buf: &mut [u8], pos: usize, v: u32) -> usize {
     }
     let mut v = v;
     for i in (0..n).rev() {
-        buf[pos + i] = b'0' + (v % 10) as u8;
+        put(buf, pos + i, b'0' + (v % 10) as u8);
         v /= 10;
     }
     pos + n
@@ -215,8 +215,31 @@ fn write_literal(buf: &mut [u8], lit: &[u8]) -> usize {
     if n > buf.len() {
         return 0;
     }
-    buf[..n].copy_from_slice(lit);
+    for (dst, &b) in buf.iter_mut().zip(lit) {
+        *dst = b;
+    }
     n
+}
+
+/// r505 — every write into the caller's buffer goes through these
+/// two, never `buf[i]`: the algorithm's longest line is 24 bytes and
+/// the entry rejects a buffer under 32, so an out-of-range index is
+/// unreachable — but not provably so to the compiler, and each `[]`
+/// carried a bounds-check panic whose formatting path dragged
+/// `core::fmt` (pad_integral, Display for usize, …) into every
+/// program that prints a float (the r505 loop-accumulator census).
+/// A miss drops the byte; loud nowhere is the honest price of the
+/// renderer's absence (same posture as torajs-io's line buffer).
+#[inline]
+fn put(buf: &mut [u8], i: usize, b: u8) {
+    if let Some(slot) = buf.get_mut(i) {
+        *slot = b;
+    }
+}
+
+#[inline]
+fn at(buf: &[u8], i: usize) -> u8 {
+    buf.get(i).copied().unwrap_or(0)
 }
 
 #[cfg(test)]

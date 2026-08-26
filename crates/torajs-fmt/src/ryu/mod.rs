@@ -296,11 +296,22 @@ fn mul_shift_64(m: u64, mul: (u64, u64), j: i32) -> u64 {
 }
 
 fn mul_pow5_inv_div_pow2(m: u64, q: u32, j: i32) -> u64 {
-    mul_shift_64(m, POW5_INV_SPLIT[q as usize], j)
+    debug_assert!((q as usize) < POW5_INV_SPLIT.len());
+    // SAFETY: `q` is `log10_pow2(e2) - (e2 > 3)` for a double's
+    // binary exponent, bounded by the table's construction (upstream
+    // ryu indexes it unchecked for the same reason); the checked
+    // form's panic path was a `core::fmt` edge in every program that
+    // prints a float (r505).
+    let mul = unsafe { *POW5_INV_SPLIT.get_unchecked(q as usize) };
+    mul_shift_64(m, mul, j)
 }
 
 fn mul_pow5_div_pow2(m: u64, i: u32, j: i32) -> u64 {
-    mul_shift_64(m, POW5_SPLIT[i as usize], j)
+    debug_assert!((i as usize) < POW5_SPLIT.len());
+    // SAFETY: as above — `i` is `-e2 - q`, within the table by
+    // construction.
+    let mul = unsafe { *POW5_SPLIT.get_unchecked(i as usize) };
+    mul_shift_64(m, mul, j)
 }
 
 /// Count the number of times `value` is divisible by 5.
