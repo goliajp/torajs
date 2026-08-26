@@ -40,7 +40,7 @@ use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE};
 /// (`any_length_get` / `any_name_get` / `any_size_get` /
 /// `any_regexp_prop`) answer fresh/retained values, and the probe
 /// fallback's data arm takes `any_payload_rc_inc` inside
-/// `emit_dynobj_get_result`. `eid` is recorded in
+/// `emit_any_get_result`. `eid` is recorded in
 /// `owned_member_reads` so every consumer (let-decl slot, discard,
 /// call arg, BinOp temp, console arg, assign) takes the release over
 /// instead of treating the read as a receiver borrow — pre-717 the
@@ -450,7 +450,7 @@ fn emit_member_fallback(
 /// `dynobj_get_tag/value` layout read; an Arr expando probe missed
 /// by accident, every non-DynObj tag was an out-of-layout read).
 /// The pair keeps the dynobj probe's borrow shape and accessor
-/// sentinel, so `emit_dynobj_get_result` consumes it unchanged; a
+/// sentinel, so `emit_any_get_result` consumes it unchanged; a
 /// null/undefined receiver records a catchable TypeError.
 pub(crate) fn emit_any_member_probe(
     ctx: &mut LowerCtx,

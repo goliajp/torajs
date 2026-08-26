@@ -97,8 +97,8 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Any, _) => Type::Any,
         // T-27 — Function-as-Object reads. Per ECMAScript
         // §10.2 functions are objects. `f.x` on a closure
-        // reads from its lazy props_dynobj at offset
-        // CLOSURE_PROPS_OFF; missing/unset → undefined.
+        // takes the any-member lane (r505): own expando,
+        // then the [[Prototype]] chain, then undefined.
         // Other built-in props (.bind, .call, .apply,
         // .toString, etc.) are L3b T-27.c-rest — not
         // implemented; currently return undefined.

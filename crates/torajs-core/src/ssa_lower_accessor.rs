@@ -10,9 +10,9 @@
 //! - [`emit_accessor_define`] — DEFINE: lower the getter/setter
 //!   closures, build the `AccessorPair`, store it with the descriptor's
 //!   enumerable/configurable attributes.
-//! - [`emit_dynobj_get_result`] — GET: branch a dynobj property read on
+//! - [`emit_any_get_result`] — GET: branch a dynobj property read on
 //!   the `ANY_ACCESSOR` `get_tag` sentinel, dispatching the getter
-//!   (`accessor_invoke_getter`) vs the data-property `any_box`.
+//!   (`any_accessor_get`) vs the data-property `any_box`.
 
 use crate::ast::ExprId;
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type, ValueId};
@@ -23,41 +23,16 @@ use crate::ssa_lower_object_define::{DefineKey, lower_key};
 /// `get_tag` sentinel marking an accessor entry — mirrors
 /// `torajs_dynobj::layout::ANY_ACCESSOR`. When a dynobj property GET
 /// reads this tag, `value` is the `AccessorPair` pointer and the emit
-/// branches to `accessor_invoke_getter` instead of `any_box`.
+/// branches to `any_accessor_get` instead of `any_box`.
 const ANY_ACCESSOR_TAG: i64 = 6;
 
-/// Box a dynobj GET result, dispatching the getter when the entry is an
-/// accessor. `tag` / `value` are the `dynobj_get_tag` /
-/// `dynobj_get_value` results: an [`ANY_ACCESSOR_TAG`] tag means
-/// `value` is the `AccessorPair` pointer — call `accessor_invoke_getter`
-/// (returns the getter's already-boxed result); any other tag NaN-boxes
-/// `(tag, value)` as a data property. Emits a 2-way branch, leaves
-/// `ctx.cur_block` at the merge, and returns the `Type::Any` result.
-/// Data-property reads pay one well-predicted `tag == 6` compare.
-///
-/// Chunk 717 — the result is OWNED on every arm: the accessor arm's
-/// getter answer already carries its own ref, and the data arm takes
-/// `any_payload_rc_inc` on the borrowed `(tag, value)` pair before
-/// boxing (heap payloads +1, immediates no-op). Pre-717 the data arm
-/// was borrow-shaped while the accessor arm was owned — the join mixed
-/// ownership and the owned arms' +1 had no release site (32B leaked
-/// per accessor/special-prop read). Consumers key off
-/// `owned_member_reads` to take the release over.
-/// `owner` is the cell the property was addressed on (a closure for
-/// the T-27 props-bag read) — an `ACC_KIND_RECV` fn-expr getter reads
-/// it as `this` (RFC 20260717-fnexpr-this-channel knife 1).
-pub(crate) fn emit_dynobj_get_result(
-    ctx: &mut LowerCtx,
-    tag: ValueId,
-    value: ValueId,
-    owner: &Operand,
-) -> Operand {
-    emit_get_result(ctx, tag, value, None, Some(owner.clone()))
-}
-
-/// [`emit_dynobj_get_result`] for a probe over an ARBITRARY `any`
-/// receiver (RFC 20260714-objlit-accessor blade 5). Same two arms, but
-/// the accessor one routes through `__torajs_any_accessor_get(recv,
+/// Box a dynobj GET result for a probe over an `any` receiver (RFC
+/// 20260714-objlit-accessor blade 5): a `tag == 6` (`ANY_ACCESSOR`)
+/// entry dispatches the getter, any other tag NaN-boxes `(tag, value)`
+/// as an OWNED data property (chunk 717 — the data arm takes
+/// `any_payload_rc_inc` on the borrowed pair; consumers key off
+/// `owned_member_reads` to take the release over). Leaves
+/// `ctx.cur_block` at the merge. The accessor arm routes through `__torajs_any_accessor_get(recv,
 /// key, pair)` so a STRUCT accessor — which has no `AccessorPair` cell
 /// to invoke, only a layout slot / dispatch-table adapter keyed off the
 /// receiver — reaches its getter with `this` bound. A dynobj receiver
@@ -72,20 +47,19 @@ pub(crate) fn emit_any_get_result(
     tag: ValueId,
     value: ValueId,
 ) -> Operand {
-    emit_get_result(ctx, tag, value, Some((recv.clone(), key)), None)
+    emit_get_result(ctx, tag, value, recv.clone(), key)
 }
 
-/// `recv_key` = the `any`-lane receiver + key, or `None` for the
-/// dynobj-only lane (a closure's props bag, whose accessor entries are
-/// always real `AccessorPair` cells). `owner` = the dynobj-only lane's
-/// addressed cell (Ptr-typed), boxed into the pair invoke as the
-/// `this` an `ACC_KIND_RECV` getter reads.
+/// The two-arm emit behind [`emit_any_get_result`]. (The dynobj-only
+/// variant — a closure's props bag addressed without a receiver — retired
+/// with the T-27 inline read in r505; every probe now carries the `any`
+/// receiver and key.)
 fn emit_get_result(
     ctx: &mut LowerCtx,
     tag: ValueId,
     value: ValueId,
-    recv_key: Option<(Operand, ValueId)>,
-    owner: Option<Operand>,
+    recv: Operand,
+    key: ValueId,
 ) -> Operand {
     let is_acc = ctx.f.append_inst(
         ctx.cur_block,
@@ -112,54 +86,15 @@ fn emit_get_result(
     // accessor path: `value` is the AccessorPair pointer (0 = a struct
     // accessor, which the receiver-aware kernel resolves by key).
     ctx.cur_block = acc_blk;
-    let getr = match &recv_key {
-        Some((recv, key)) => ctx.f.append_inst(
-            acc_blk,
-            InstKind::Call(
-                ctx.intrinsics.any_accessor_get,
-                vec![recv.clone(), Operand::Value(*key), Operand::Value(value)],
-            ),
-            Type::Any,
-            None,
+    let getr = ctx.f.append_inst(
+        acc_blk,
+        InstKind::Call(
+            ctx.intrinsics.any_accessor_get,
+            vec![recv, Operand::Value(key), Operand::Value(value)],
         ),
-        None => {
-            let pair = ctx.f.append_inst(
-                acc_blk,
-                InstKind::IntToPtr(Operand::Value(value)),
-                Type::Ptr,
-                None,
-            );
-            // `this` for an ACC_KIND_RECV face = the addressed cell,
-            // heap-boxed (other faces ignore the argument).
-            let recv_op = match &owner {
-                Some(o) => {
-                    let bits =
-                        ctx.f
-                            .append_inst(acc_blk, InstKind::PtrToInt(o.clone()), Type::I64, None);
-                    let boxed = ctx.f.append_inst(
-                        acc_blk,
-                        InstKind::Call(
-                            ctx.intrinsics.any_box,
-                            vec![Operand::ConstI64(4), Operand::Value(bits)],
-                        ),
-                        Type::Any,
-                        None,
-                    );
-                    Operand::Value(boxed)
-                }
-                None => Operand::ConstI64(0x0A),
-            };
-            ctx.f.append_inst(
-                acc_blk,
-                InstKind::Call(
-                    ctx.intrinsics.accessor_invoke_getter,
-                    vec![Operand::Value(pair), recv_op],
-                ),
-                Type::Any,
-                None,
-            )
-        }
-    };
+        Type::Any,
+        None,
+    );
     // The getter runs user code — route its pending throw before the
     // result is touched (pre-fix the pending flag stayed latent and a
     // throwing getter read fell through as undefined; RFC

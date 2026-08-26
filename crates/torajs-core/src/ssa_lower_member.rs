@@ -176,12 +176,18 @@ pub(crate) fn lower_with_val(
         // find/findLast miss must throw like bun, not read past the
         // sentinel header. No-op for plain receivers.
         crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
-        // Chunk 717 — the expando read answers owned on every arm
-        // (`emit_dynobj_get_result`'s data arm takes the payload inc;
-        // the NULL-props arm boxes an immediate undef). Record the
-        // eid so consumers release it.
-        ctx.owned_member_reads.insert(eid);
-        return ctx.fn_props_get(obj_val, name);
+        // r505 — a fn-as-object read goes through the any-member
+        // lane's `Tag::Closure` arm (`closure_arm_tag` / `_value`):
+        // own expando, the virtual name/length pair, `.prototype`,
+        // the §10.4 user [[Prototype]] chain a `setPrototypeOf`
+        // installed, the inherited `Function.prototype` expando, the
+        // builtin reify. The T-27 inline probe it replaces read the
+        // own expando only and answered undefined for everything
+        // inherited (`Object.setPrototypeOf(f, {hello})` then
+        // `f.hello` — the r501 finding). Same routing as the Promise
+        // receiver above.
+        let boxed = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, name);
     }
     if let Some(op) =
         crate::ssa_lower_member_props_read::try_lower(ctx, eid, obj, obj_val, obj_ty, name)
