@@ -58,7 +58,23 @@ pub(crate) fn collect_own_class_methods(
         accessor_slots.insert(fname.as_str(), format!("__setter_{prop}"));
     }
     let mut own: HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>> = HashMap::new();
-    for (fname, &fid) in fn_table {
+    // Declaration order: walk the top-level FnDecls in source order
+    // rather than iterating `fn_table` (a HashMap), so each class's
+    // rows land in class-body order. `console.log(instance)` reifies
+    // the prototype methods in this order, and bun prints instance
+    // methods in declaration order, not name-sorted. The mono
+    // instances (`…$$anywv`, appended after the originals by
+    // monomorphization) come later in the walk — the adapter-
+    // preferring dedup in `resolve_class_methods` picks the mono's
+    // boxed adapter regardless, so a generic method's row survives at
+    // its original declaration position.
+    for stmt in &ast.stmts {
+        let crate::ast::Stmt::FnDecl { name: fname, .. } = stmt else {
+            continue;
+        };
+        let Some(&fid) = fn_table.get(fname) else {
+            continue;
+        };
         let Some(rest) = fname.strip_prefix("__cm_") else {
             continue;
         };
@@ -166,15 +182,43 @@ pub(crate) fn resolve_class_methods(
             break;
         }
         if let Some(methods) = own_methods.get(&name) {
+            // Collapse this class's rows to one per method name,
+            // preferring the row that carries a boxed adapter, and
+            // keep first-declaration order. A generic method appears
+            // twice — the original `__cm_C__m` (params still typed, no
+            // adapter) at its declaration position, and the `$$anywv`
+            // mono (all-`any`, adapter) later — and the mono is the
+            // dispatchable body. Picking by adapter here is what lets
+            // the declaration-order walk keep it: a plain first-seen
+            // dedup would shadow the mono behind the adapter-less
+            // original and drop the method.
+            let mut order: Vec<&str> = Vec::new();
+            let mut best: HashMap<&str, (ssa::FuncId, Option<ssa::FuncId>)> = HashMap::new();
             for (mname, fid, twin_fid) in methods {
-                if seen.contains(mname.as_str()) {
+                match best.get(mname.as_str()) {
+                    None => {
+                        order.push(mname.as_str());
+                        best.insert(mname.as_str(), (*fid, *twin_fid));
+                    }
+                    Some((cur_fid, _)) if !boxed_entries.contains_key(cur_fid) => {
+                        // Upgrade to an adapter-bearing row if this one has one.
+                        if boxed_entries.contains_key(fid) {
+                            best.insert(mname.as_str(), (*fid, *twin_fid));
+                        }
+                    }
+                    Some(_) => {}
+                }
+            }
+            for mname in order {
+                if seen.contains(mname) {
                     continue;
                 }
-                if let Some(&(adapter_fid, _)) = boxed_entries.get(fid) {
+                let (fid, twin_fid) = best[mname];
+                if let Some(&(adapter_fid, _)) = boxed_entries.get(&fid) {
                     out.push(ssa::MethodMetaSpec {
-                        name: mname.clone(),
+                        name: mname.to_string(),
                         adapter_fid,
-                        this_free: this_free_fids.contains(fid),
+                        this_free: this_free_fids.contains(&fid),
                         twin_adapter_fid: twin_fid
                             .and_then(|t| boxed_entries.get(&t).map(|&(a, _)| a)),
                         twin_primary: false,
@@ -182,14 +226,17 @@ pub(crate) fn resolve_class_methods(
                 }
                 // Shadow even on adapter dropout — a child decl
                 // without an adapter must not expose the parent's.
-                seen.insert(mname.as_str());
+                seen.insert(mname);
             }
         }
         cur = ast.class_parents.get(&name).and_then(|p| p.clone());
         depth += 1;
     }
-    // Deterministic table order (HashMap iteration fed `own_methods`).
-    out.sort_by(|a, b| a.name.cmp(&b.name));
+    // No final sort: `own_methods` now arrives in source declaration
+    // order (see `collect_own_class_methods`), and the parent-chain
+    // walk lays own rows before inherited ones — the shape bun's
+    // `console.log(instance)` prints. Dispatch is a by-name scan
+    // (`__torajs_struct_method_find`), so row order never gated it.
     out
 }
 
