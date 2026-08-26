@@ -54,6 +54,12 @@ unsafe extern "C" {
 /// undefined early; compiled callers rely on the throw check), 0
 /// when the derive may proceed with the default Array product.
 ///
+/// The props-NULL fast path answers here; a receiver with a props
+/// bag goes through the `__torajs_arr_species_guard_slow` link seam
+/// (`crate::exotic_seam`) to [`__torajs_arr_species_guard_props`],
+/// so a program in which no array can grow a bag links none of the
+/// accessor / dispatch machinery the slow path reaches.
+///
 /// # Safety
 /// `arr` is a live array heap block pointer.
 #[unsafe(no_mangle)]
@@ -63,6 +69,20 @@ pub unsafe extern "C" fn __torajs_arr_species_guard(arr: *const u8) -> i64 {
         if props.is_null() {
             return 0;
         }
+        crate::exotic_seam::__torajs_arr_species_guard_slow(arr)
+    }
+}
+
+/// The slow half of [`__torajs_arr_species_guard`]: the receiver has
+/// a props bag, so `constructor` may be present — read it and
+/// classify per §9.4.2.3 steps 4-7.
+///
+/// # Safety
+/// `arr` is a live array heap block pointer whose props slot is
+/// non-NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_species_guard_props(arr: *const u8) -> i64 {
+    unsafe {
         let key = __torajs_str_alloc(b"constructor".as_ptr(), 11);
         let dtag =
             crate::props::__torajs_arrprops_get_tag(arr as *mut c_void, key as *const c_void);

@@ -27,6 +27,13 @@
 //! verdict was checked against a world holding everything the
 //! artifact will hold. The strip pass then runs over the patched fns.
 //!
+//! Two guard shapes ([`Guard`]): member text liveness (the drains and
+//! the weak hook — every feeder crosses a crate boundary into one
+//! member), and named-symbol liveness (r500: a typed kernel's exotic
+//! slow path is un-assumable exactly when one of a few `#[inline
+//! (never)]` writer entries in its own crate is live — the member
+//! itself is live regardless).
+//!
 //! Policy stays in the caller (`torajs-cli` knows which members feed
 //! which hook); this file is mechanism only. `TORAJS_LINK_ELIDE=0`
 //! disables the pass (A/B pricing); `TORAJS_LINK_ELIDE_DIAG=1`
@@ -36,23 +43,37 @@ use std::collections::BTreeSet;
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
-use torajs_codegen::reloc::{CallTarget, RelocKind};
+use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
 use torajs_obj::{N_SECT, N_TYPE};
 
 use crate::archives_merge::{MergedArchives, compute_required_members};
 use crate::dead_strip_reach::{MemberReach, ReachResult, compute_reachability};
 use crate::exec::LinkConfig;
 
-/// Which runtime text is the evidence: archive members whose name
-/// starts with `member_prefix` (`torajs_cycle-` covers every cgu of
-/// that crate), ignoring atoms anchored by a symbol in `ignore` —
-/// the member's entry points that can never matter (a drop, a
-/// printer, the hook being shadowed). An unlisted entry keeps the
-/// shape un-assumed, the safe direction.
+/// Which runtime text is the evidence.
 #[derive(Debug, Clone)]
-pub struct MemberGuard {
-    pub member_prefix: String,
-    pub ignore: Vec<String>,
+pub enum Guard {
+    /// Archive members whose name starts with `prefix`
+    /// (`torajs_cycle-` covers every cgu of that crate), ignoring
+    /// atoms anchored by a symbol in `ignore` — the member's entry
+    /// points that can never matter (a drop, a printer, the hook
+    /// being shadowed). An unlisted entry keeps the shape
+    /// un-assumed, the safe direction.
+    Member { prefix: String, ignore: Vec<String> },
+    /// Any live text atom, in any member, anchored by one of these
+    /// defined symbols (exact Mach-O names). For a slow path whose
+    /// only enablers are a few named entries of an otherwise-live
+    /// member.
+    Symbols(Vec<String>),
+}
+
+impl core::fmt::Display for Guard {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Guard::Member { prefix, .. } => write!(f, "member:{prefix}"),
+            Guard::Symbols(syms) => write!(f, "syms:{}", syms.join("|")),
+        }
+    }
 }
 
 /// One conditional `bl` site. `func` + `byte_offset` name the reloc
@@ -63,19 +84,21 @@ pub struct MemberGuard {
 pub struct ElidableCall {
     pub func: String,
     pub byte_offset: u32,
-    pub guard: MemberGuard,
+    pub guard: Guard,
     pub replacement: u32,
 }
 
 /// One conditional definition: a leaf fn named `sym` with body
-/// `bytes` (no relocs) that, when applied, shadows the archive's
+/// `bytes` (plus `relocs` — a loud-reject stub tail-branches into
+/// the landing pad) that, when applied, shadows the archive's
 /// definition — user-defined names win symbol resolution, so the
 /// member atom loses its in-edges.
 #[derive(Debug, Clone)]
 pub struct GuardedStub {
     pub sym: String,
     pub bytes: Vec<u8>,
-    pub guard: MemberGuard,
+    pub relocs: Vec<Reloc>,
+    pub guard: Guard,
 }
 
 /// Run the fix-point over `cfg.elidable_calls` + `cfg.guarded_stubs`;
@@ -113,13 +136,13 @@ pub(crate) fn judge_and_patch(
         )?;
         let mut changed = false;
         for (i, site) in cfg.elidable_calls.iter().enumerate() {
-            if elided[i] && member_text_live(&reach, &site.guard) {
+            if elided[i] && guard_live(&reach, &site.guard) {
                 elided[i] = false;
                 changed = true;
             }
         }
         for (i, stub) in cfg.guarded_stubs.iter().enumerate() {
-            if applied[i] && member_text_live(&reach, &stub.guard) {
+            if applied[i] && guard_live(&reach, &stub.guard) {
                 applied[i] = false;
                 changed = true;
             }
@@ -135,7 +158,7 @@ pub(crate) fn judge_and_patch(
                 "elide: {}+{:#x} guard={} -> {}",
                 site.func,
                 site.byte_offset,
-                site.guard.member_prefix,
+                site.guard,
                 if e { "ELIDED" } else { "KEPT" }
             );
         }
@@ -143,7 +166,7 @@ pub(crate) fn judge_and_patch(
             eprintln!(
                 "stub: {} guard={} -> {}",
                 stub.sym,
-                stub.guard.member_prefix,
+                stub.guard,
                 if a { "APPLIED" } else { "DROPPED" }
             );
         }
@@ -173,7 +196,7 @@ fn assume(
             funcs.push(CompiledFunction {
                 name: stub.sym.clone(),
                 bytes: stub.bytes.clone(),
-                relocs: Vec::new(),
+                relocs: stub.relocs.clone(),
                 frame: FrameLayout::leaf_no_spill(),
             });
         }
@@ -181,36 +204,48 @@ fn assume(
     Ok(funcs)
 }
 
-/// Does any text atom of a guarded member come out live, other than
-/// the atoms anchored by an ignored symbol? Members outside the
-/// closure are absent from the map, so they answer `false`. A
-/// flag-rooted (`all_live`) text section answers `true` without
-/// looking at names.
-fn member_text_live(reach: &ReachResult<'_>, guard: &MemberGuard) -> bool {
-    reach
-        .members
-        .values()
-        .filter(|m| m.member_name.starts_with(&guard.member_prefix))
-        .any(|m| {
+/// Is the guard's evidence live? `Member`: any text atom of a
+/// matching member, other than the atoms anchored by an ignored
+/// symbol (members outside the closure are absent from the map, so
+/// they answer `false`; a flag-rooted `all_live` text section
+/// answers `true` without looking at names). `Symbols`: any live
+/// text atom, in any member, anchored by one of the names.
+fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
+    match guard {
+        Guard::Member { prefix, ignore } => reach
+            .members
+            .values()
+            .filter(|m| m.member_name.starts_with(prefix))
+            .any(|m| {
+                m.sects.iter().enumerate().any(|(si, s)| {
+                    s.is_text
+                        && (s.all_live
+                            || s.atoms.iter().zip(&s.live).any(|(&(start, _), &l)| {
+                                l && !anchor_named(m, (si + 1) as u8, start, ignore)
+                            }))
+                })
+            }),
+        Guard::Symbols(syms) => reach.members.values().any(|m| {
             m.sects.iter().enumerate().any(|(si, s)| {
                 s.is_text
-                    && (s.all_live
-                        || s.atoms.iter().zip(&s.live).any(|(&(start, _), &l)| {
-                            l && !anchor_ignored(m, (si + 1) as u8, start, &guard.ignore)
-                        }))
+                    && s.atoms
+                        .iter()
+                        .zip(&s.live)
+                        .any(|(&(start, _), &l)| l && anchor_named(m, (si + 1) as u8, start, syms))
             })
-        })
+        }),
+    }
 }
 
 /// Is the defined symbol anchoring the atom at `start` (the highest
-/// `N_SECT` nlist row at or below it in that section) on the ignore
-/// list? An unanchored atom (leading gap) is never ignored.
-fn anchor_ignored(m: &MemberReach<'_>, n_sect: u8, start: u64, ignore: &[String]) -> bool {
+/// `N_SECT` nlist row at or below it in that section) one of
+/// `names`? An unanchored atom (leading gap) never is.
+fn anchor_named(m: &MemberReach<'_>, n_sect: u8, start: u64, names: &[String]) -> bool {
     m.nlist
         .iter()
         .filter(|n| n.n_type & N_TYPE == N_SECT && n.n_sect == n_sect && n.n_value <= start)
         .max_by_key(|n| n.n_value)
-        .is_some_and(|n| ignore.iter().any(|i| i == n.name))
+        .is_some_and(|n| names.iter().any(|i| i == n.name))
 }
 
 /// Find the site's fn and the index of its reloc. A missing fn or
@@ -292,9 +327,9 @@ mod tests {
         }
     }
 
-    fn guard() -> MemberGuard {
-        MemberGuard {
-            member_prefix: "torajs_x-".into(),
+    fn guard() -> Guard {
+        Guard::Member {
+            prefix: "torajs_x-".into(),
             ignore: Vec::new(),
         }
     }
@@ -345,6 +380,7 @@ mod tests {
             guarded_stubs: vec![GuardedStub {
                 sym: "___torajs_hook".into(),
                 bytes: 0xD65F_03C0u32.to_le_bytes().to_vec(),
+                relocs: Vec::new(),
                 guard: guard(),
             }],
             archives: Vec::new(),

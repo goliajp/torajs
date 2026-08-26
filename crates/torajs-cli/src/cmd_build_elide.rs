@@ -32,15 +32,31 @@
 //! hook itself" is exactly "no observer can exist"; the stub is then
 //! a bare `ret`, the hook's own fast path.
 //!
-//! Every feeder lives in the guard member and is reached from any
-//! other crate through an extern symbol, so a kept verdict is
-//! conservative and an assumed one is exact. Same family as r498's
-//! argv-init judgment: evidence is reloc reachability, the runtime is
-//! never asked to check at run time.
+//! **Symbol-guarded stubs** (r500, RFC 20260824-s2-5 刀 4 A2/A3) —
+//! the typed array kernels keep one slow path each for a receiver
+//! that stopped being dense: `arr_join_*`'s exotic branch and the
+//! species guard's props-bag probe, both behind seams
+//! (`torajs-arr/src/exotic_seam.rs`, defaults in `torajs-dispatch`).
+//! Either alone roots the whole any world (a `[1,2,3].join(",")`
+//! program links 348 KB, 264 KB of it through that one branch). An
+//! array only becomes exotic through `__torajs_arr_flag_exotic` and
+//! only grows a props bag through `__torajs_arr_props_attach` (or the
+//! regex exec attach) — `#[inline(never)]` entries of the arr crate,
+//! so the evidence is those symbols' own text liveness, not the
+//! member's (the arr member is live in any program with an array).
+//! The stub is the loud-reject landing pad (fam ids 40+), never a
+//! silent answer: a writer added later without routing through the
+//! entries would surface as a named TypeError under the gate.
+//!
+//! Every feeder lives in the guard member (or IS the guard symbol)
+//! and is reached from any other crate through an extern symbol, so
+//! a kept verdict is conservative and an assumed one is exact. Same
+//! family as r498's argv-init judgment: evidence is reloc
+//! reachability, the runtime is never asked to check at run time.
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
-use torajs_link::exec::{ElidableCall, GuardedStub, MemberGuard};
+use torajs_link::exec::{ElidableCall, Guard, GuardedStub};
 
 use crate::cmd_build_synthesize::USER_MAIN_SYM;
 
@@ -69,12 +85,29 @@ const SITES: [(&str, &str, &[&str], u32); 3] = [
     ("___torajs_cycle_at_exit_drain", "torajs_cycle-", &[], NOP),
 ];
 
-/// (shadowed symbol, guard member prefix): the stub body is `ret`.
-const STUBS: [(&str, &str); 1] = [("___torajs_weakref_target_dying", "torajs_weak-")];
+/// The typed kernels' link-judged slow paths: (shadowed seam, writer
+/// entries whose text liveness un-assumes the stub, landing-pad fam
+/// id). The join seam's enabler is the exotic-flag writer; the
+/// species probe's enablers are the two props-bag creators.
+const SYMBOL_STUBS: [(&str, &[&str], u32); 2] = [
+    (
+        "___torajs_arr_join_exotic",
+        &["___torajs_arr_flag_exotic"],
+        40,
+    ),
+    (
+        "___torajs_arr_species_guard_slow",
+        &[
+            "___torajs_arr_props_attach",
+            "___torajs_arrprops_attach_exec3",
+        ],
+        41,
+    ),
+];
 
-fn guard(prefix: &str, ignore: &[&str]) -> MemberGuard {
-    MemberGuard {
-        member_prefix: prefix.to_string(),
+fn guard(prefix: &str, ignore: &[&str]) -> Guard {
+    Guard::Member {
+        prefix: prefix.to_string(),
         ignore: ignore.iter().map(|s| (*s).to_string()).collect(),
     }
 }
@@ -105,16 +138,27 @@ pub(crate) fn collect_elidable_calls(funcs: &[CompiledFunction]) -> Vec<Elidable
         .collect()
 }
 
-/// The hook stubs every `tr build` offers the link judgment.
+/// The stubs every `tr build` offers the link judgment: the weak
+/// hook (`ret`, member-guarded on `torajs_weak-` ignoring itself)
+/// and the symbol-guarded exotic slow paths.
 pub(crate) fn guarded_stubs() -> Vec<GuardedStub> {
-    STUBS
-        .iter()
-        .map(|(sym, prefix)| GuardedStub {
+    let weak_hook = "___torajs_weakref_target_dying";
+    let mut out = vec![GuardedStub {
+        sym: weak_hook.to_string(),
+        bytes: RET.to_le_bytes().to_vec(),
+        relocs: Vec::new(),
+        guard: guard("torajs_weak-", &[weak_hook]),
+    }];
+    out.extend(SYMBOL_STUBS.iter().map(|(sym, writers, fam_id)| {
+        let (bytes, relocs) = crate::cmd_build_dispatch_stubs::reject_stub_body(*fam_id);
+        GuardedStub {
             sym: (*sym).to_string(),
-            bytes: RET.to_le_bytes().to_vec(),
-            guard: guard(prefix, &[sym]),
-        })
-        .collect()
+            bytes,
+            relocs,
+            guard: Guard::Symbols(writers.iter().map(|w| (*w).to_string()).collect()),
+        }
+    }));
+    out
 }
 
 #[cfg(test)]
@@ -156,24 +200,30 @@ mod tests {
             ),
         ];
         let sites = collect_elidable_calls(&funcs);
-        let got: Vec<(u32, &str, u32)> = sites
+        let got: Vec<(u32, String, u32)> = sites
             .iter()
-            .map(|s| (s.byte_offset, s.guard.member_prefix.as_str(), s.replacement))
+            .map(|s| (s.byte_offset, s.guard.to_string(), s.replacement))
             .collect();
         assert_eq!(
             got,
             vec![
-                (4, "torajs_microtask-", NOP),
-                (8, "torajs_promise-", MOV_W0_ZERO),
-                (12, "torajs_cycle-", NOP),
+                (4, "member:torajs_microtask-".to_string(), NOP),
+                (8, "member:torajs_promise-".to_string(), MOV_W0_ZERO),
+                (12, "member:torajs_cycle-".to_string(), NOP),
             ]
         );
         assert!(sites.iter().all(|s| s.func == USER_MAIN_SYM));
+        let Guard::Member { ignore, .. } = &sites[1].guard else {
+            panic!("exit-code site is member-guarded");
+        };
         assert_eq!(
-            sites[1].guard.ignore,
-            ["___torajs_promise_drop", "___torajs_promise_print"]
+            ignore,
+            &["___torajs_promise_drop", "___torajs_promise_print"]
         );
-        assert!(sites[0].guard.ignore.is_empty());
+        let Guard::Member { ignore, .. } = &sites[0].guard else {
+            panic!("microtask site is member-guarded");
+        };
+        assert!(ignore.is_empty());
     }
 
     #[test]
@@ -184,10 +234,40 @@ mod tests {
     #[test]
     fn weak_hook_stub_ignores_only_itself() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 1);
         assert_eq!(stubs[0].sym, "___torajs_weakref_target_dying");
         assert_eq!(stubs[0].bytes, RET.to_le_bytes());
-        assert_eq!(stubs[0].guard.member_prefix, "torajs_weak-");
-        assert_eq!(stubs[0].guard.ignore, ["___torajs_weakref_target_dying"]);
+        assert!(stubs[0].relocs.is_empty());
+        assert_eq!(stubs[0].guard.to_string(), "member:torajs_weak-");
+        let Guard::Member { ignore, .. } = &stubs[0].guard else {
+            panic!("weak hook is member-guarded");
+        };
+        assert_eq!(ignore, &["___torajs_weakref_target_dying"]);
+    }
+
+    #[test]
+    fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
+        let stubs = guarded_stubs();
+        assert_eq!(stubs.len(), 3);
+        let join = &stubs[1];
+        assert_eq!(join.sym, "___torajs_arr_join_exotic");
+        assert_eq!(join.guard.to_string(), "syms:___torajs_arr_flag_exotic");
+        // movz x7, #40 ; b <reject>
+        assert_eq!(
+            &join.bytes[..4],
+            &(0xD280_0000u32 | (40 << 5) | 7).to_le_bytes()
+        );
+        assert_eq!(&join.bytes[4..], &[0x00, 0x00, 0x00, 0x14]);
+        assert_eq!(join.relocs.len(), 1);
+        assert_eq!(join.relocs[0].byte_offset, 4);
+        let species = &stubs[2];
+        assert_eq!(species.sym, "___torajs_arr_species_guard_slow");
+        assert_eq!(
+            species.guard.to_string(),
+            "syms:___torajs_arr_props_attach|___torajs_arrprops_attach_exec3"
+        );
+        assert_eq!(
+            &species.bytes[..4],
+            &(0xD280_0000u32 | (41 << 5) | 7).to_le_bytes()
+        );
     }
 }

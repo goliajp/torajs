@@ -233,11 +233,12 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
 pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
         if is_exotic(arr) {
-            crate::mark_kind::__torajs_arr_mark_kind(
-                arr as *mut u8 as *mut c_void,
+            return crate::exotic_seam::__torajs_arr_join_exotic(
+                arr,
+                sep,
                 torajs_rc::ARR_KIND_I64 as u64,
+                0,
             );
-            return __torajs_arr_join_any(arr, sep);
         }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
@@ -282,11 +283,12 @@ pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -
 pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
         if is_exotic(arr) {
-            crate::mark_kind::__torajs_arr_mark_kind(
-                arr as *mut u8 as *mut c_void,
+            return crate::exotic_seam::__torajs_arr_join_exotic(
+                arr,
+                sep,
                 torajs_rc::ARR_KIND_F64 as u64,
+                0,
             );
-            return __torajs_arr_join_any(arr, sep);
         }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
@@ -345,11 +347,12 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
 pub unsafe extern "C" fn __torajs_arr_join_bool(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
         if is_exotic(arr) {
-            crate::mark_kind::__torajs_arr_mark_kind(
-                arr as *mut u8 as *mut c_void,
+            return crate::exotic_seam::__torajs_arr_join_exotic(
+                arr,
+                sep,
                 torajs_rc::ARR_KIND_BOOL as u64,
+                0,
             );
-            return __torajs_arr_join_any(arr, sep);
         }
         let len = arr_len(arr);
         let sep_units = str_units(sep);

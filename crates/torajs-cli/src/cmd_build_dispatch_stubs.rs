@@ -127,24 +127,33 @@ pub(crate) fn append_dispatch_stubs(
         .chain(ctor_date)
         .chain(printers_tagged)
     {
-        // movz x7, #fam_id — rides the unused 8th C-ABI arg slot so
-        // the landing pad can NAME the stripped family in its
-        // TypeError (x0-x5 pass through untouched).
-        let movz: u32 = 0xD280_0000 | ((fam_id as u32) << 5) | 7;
-        let mut bytes = movz.to_le_bytes().to_vec();
-        bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
+        let (bytes, relocs) = reject_stub_body(fam_id as u32);
         funcs.push(CompiledFunction {
             name: name.into(),
             bytes,
-            relocs: vec![Reloc {
-                byte_offset: 4,
-                kind: RelocKind::CallSite {
-                    target: CallTarget::Extern("___torajs_dispatch_stub_reject".into()),
-                },
-            }],
+            relocs,
             frame: FrameLayout::leaf_no_spill(),
         });
     }
+}
+
+/// The loud-reject stub body: `movz x7, #fam_id` (the unused 8th
+/// C-ABI arg slot, so the landing pad can NAME the stripped family
+/// in its TypeError — x0-x5 pass through untouched) + a bare `b`
+/// whose BRANCH26 reloc the link pass patches into
+/// `__torajs_dispatch_stub_reject`. Shared with the link-judged
+/// stubs (`cmd_build_elide`), whose fam ids start at 40.
+pub(crate) fn reject_stub_body(fam_id: u32) -> (Vec<u8>, Vec<Reloc>) {
+    let movz: u32 = 0xD280_0000 | (fam_id << 5) | 7;
+    let mut bytes = movz.to_le_bytes().to_vec();
+    bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
+    let relocs = vec![Reloc {
+        byte_offset: 4,
+        kind: RelocKind::CallSite {
+            target: CallTarget::Extern("___torajs_dispatch_stub_reject".into()),
+        },
+    }];
+    (bytes, relocs)
 }
 
 /// Pricing/diagnosis override — forces every family stubbed

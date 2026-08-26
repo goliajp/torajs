@@ -143,6 +143,51 @@ pub unsafe extern "C" fn __torajs_ctor_date_call() -> u64 {
     unsafe { torajs_anyvalue::ctor_date_call_impl() }
 }
 
+// ---- Typed-kernel exotic slow paths (RFC 20260824-s2-5 刀 4 A2/A3) ----
+//
+// `torajs-arr`'s typed join kernels and the species guard reach
+// their exotic-receiver slow paths through these seams; the link
+// judgment (`torajs-link::dead_strip_elide`, guard = the arr crate's
+// flag / props writer entries) shadows them with a loud-reject stub
+// when no array in the artifact can become exotic or grow a props
+// bag. Same archive-member argument as the arm seams above.
+
+unsafe extern "C" {
+    fn __torajs_arr_join_exotic_impl(
+        arr: *const u8,
+        sep: *const u8,
+        kind: u64,
+        locale: i64,
+    ) -> *mut u8;
+    fn __torajs_arr_species_guard_props(arr: *const u8) -> i64;
+}
+
+/// Default resolution of the exotic-join seam — the any-world join
+/// walk in torajs-arr / torajs-anyvalue.
+///
+/// # Safety
+/// `arr` is a live array heap block; `sep` a live Str (unused by
+/// the locale walk).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_join_exotic(
+    arr: *const u8,
+    sep: *const u8,
+    kind: u64,
+    locale: i64,
+) -> *mut u8 {
+    unsafe { __torajs_arr_join_exotic_impl(arr, sep, kind, locale) }
+}
+
+/// Default resolution of the species-guard slow seam — the props-bag
+/// `constructor` classification in torajs-arr.
+///
+/// # Safety
+/// `arr` is a live array heap block whose props slot is non-NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_species_guard_slow(arr: *const u8) -> i64 {
+    unsafe { __torajs_arr_species_guard_props(arr) }
+}
+
 /// The loud-reject landing pad for compiler-emitted family stubs
 /// (RFC 20260824-s2-5 blade 2b). A specialized program's user `.o`
 /// defines `__torajs_dispatch_<family>_arm` as a single
@@ -166,7 +211,8 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
     fam_id: u64,
 ) -> u64 {
     // fam_id rides x7 (stamped by the stub's movz): 0..14 = the arm
-    // roster order, 16+ = printer kernels. The name makes a wrong
+    // roster order, 16..40 = printer kernels, 40+ = link-judged
+    // exotic slow paths. The name makes a wrong
     // judgment attributable from the failure line alone.
     let msg: &core::ffi::CStr = match fam_id {
         0 => c"str method family stripped from this program (dispatch specialization bug)",
@@ -185,7 +231,11 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject(
         13 => c"weak method family stripped from this program (dispatch specialization bug)",
         14 => c"num method family stripped from this program (dispatch specialization bug)",
         15 => c"namespace-static world stripped from this program (dispatch specialization bug)",
-        n if n >= 16 => c"printer kernel stripped from this program (dispatch specialization bug)",
+        // 40+: the typed kernels' exotic slow paths (link-judged on
+        // the arr crate's writer entries, r500).
+        40 => c"exotic-array join stripped from this program (link judgment bug: an array became exotic)",
+        41 => c"array species probe stripped from this program (link judgment bug: an array grew props)",
+        n if (16..40).contains(&n) => c"printer kernel stripped from this program (dispatch specialization bug)",
         _ => c"method family stripped from this program (dispatch specialization bug)",
     };
     unsafe {

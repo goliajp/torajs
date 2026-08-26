@@ -29,7 +29,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, HeapHeader, Tag};
+use torajs_rc::{HeapHeader, Tag};
 
 // The per-index attribute READERS live in the sibling (file-size
 // rule); the re-export keeps every `crate::define::` consumer path
@@ -56,7 +56,6 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     ) -> i64;
-    fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_flags(dynobj: *const c_void, key: *const c_void) -> u64;
     /// torajs-dynobj — raw flags upsert for shadow entries (no
@@ -288,10 +287,7 @@ unsafe fn arr_define_impl(
     }
     // Ordinary key — full-flags define on the expando props dynobj
     // (lazily allocated; dynobj_define's null-obj guard would no-op).
-    let slot = unsafe { props_slot(arr) };
-    if unsafe { (*slot).is_null() } {
-        unsafe { *slot = __torajs_dynobj_alloc() };
-    }
+    let slot = unsafe { crate::exotic_seam::__torajs_arr_props_attach(arr) };
     if throw_on_refusal {
         unsafe { __torajs_dynobj_define_plain(slot, key, tag, value, flags_byte) };
         1
@@ -302,11 +298,7 @@ unsafe fn arr_define_impl(
 
 /// Write the shadow flags entry + raise the header exotic bit.
 pub(crate) unsafe fn store_shadow(arr: *mut c_void, key: *mut c_void, flags: u64) {
-    let slot = unsafe { props_slot(arr) };
-    if unsafe { (*slot).is_null() } {
-        unsafe { *slot = __torajs_dynobj_alloc() };
-    }
+    let slot = unsafe { crate::exotic_seam::__torajs_arr_props_attach(arr) };
     unsafe { __torajs_dynobj_set_entry_flags(slot, key, flags) };
-    let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
-    unsafe { p.write(p.read() | FLAG_ARR_EXOTIC_INDEX) };
+    unsafe { crate::exotic_seam::__torajs_arr_flag_exotic(arr) };
 }

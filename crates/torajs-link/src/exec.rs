@@ -26,7 +26,7 @@ use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
-pub use crate::dead_strip_elide::{ElidableCall, GuardedStub, MemberGuard};
+pub use crate::dead_strip_elide::{ElidableCall, Guard, GuardedStub};
 pub use crate::exec_user_entries::{
     UserBakedRegexEntry, UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry,
     UserFieldMetaEntry, UserFnNameEntry, UserMethodMetaEntry, UserStringEntry, UserStringKind,

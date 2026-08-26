@@ -28,7 +28,6 @@ use crate::define::{ANY_UNDEF, F_HOLE, index_flags_with_key, mint_index_key, pro
 use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
-    fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_define_plain(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
@@ -243,18 +242,14 @@ unsafe fn define_shadow_accessor(
     flags_byte: u64,
     throw_on_refusal: bool,
 ) -> i64 {
-    let slot = unsafe { props_slot(arr) };
-    if unsafe { (*slot).is_null() } {
-        unsafe { *slot = __torajs_dynobj_alloc() };
-    }
+    let slot = unsafe { crate::exotic_seam::__torajs_arr_props_attach(arr) };
     let ok = if throw_on_refusal {
         unsafe { __torajs_dynobj_define_plain(slot, key, tag, value, flags_byte) };
         1
     } else {
         unsafe { __torajs_dynobj_define_plain_soft(slot, key, tag, value, flags_byte) }
     };
-    let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
-    unsafe { p.write(p.read() | FLAG_ARR_EXOTIC_INDEX) };
+    unsafe { crate::exotic_seam::__torajs_arr_flag_exotic(arr) };
     ok
 }
 

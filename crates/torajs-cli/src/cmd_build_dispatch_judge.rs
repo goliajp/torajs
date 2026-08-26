@@ -168,7 +168,16 @@ const SYNTH_ERROR_FNS: [&str; 16] = [
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-const PREFIX_FAMILIES: [(&str, u16); 27] = [
+const PREFIX_FAMILIES: [(&str, u16); 30] = [
+    // the array toLocaleString kernels walk Invoke(elem,
+    // "toLocaleString") over ANY element value — the any-lane walk
+    // directly, the typed kernels once the receiver is exotic (an
+    // accessor index answers any value; r500: that walk sits behind
+    // a link seam, but this judgment runs before the link knows
+    // whether the seam is stubbed). Every family.
+    ("__torajs_arr_any_to_locale_string", fam::FAM_ALL),
+    ("__torajs_arr_join_i64_locale", fam::FAM_ALL),
+    ("__torajs_arr_join_f64_locale", fam::FAM_ALL),
     ("__torajs_map_", fam::FAM_MAPSET | fam::FAM_ITER),
     ("__torajs_set_", fam::FAM_MAPSET | fam::FAM_ITER),
     ("__torajs_arr_iter_", fam::FAM_ITER),

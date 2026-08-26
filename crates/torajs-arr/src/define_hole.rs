@@ -20,7 +20,6 @@ use crate::define::{
 use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
-    fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — HOLE sentinel upsert / probe (chunk C).
     fn __torajs_dynobj_set_entry_hole(obj_slot: *mut *mut c_void, key: *mut c_void);
@@ -99,17 +98,13 @@ pub(crate) unsafe fn mark_hole_range(arr: *mut c_void, from: u64, to: u64) {
         return;
     }
     unsafe {
-        let slot = props_slot(arr);
-        if (*slot).is_null() {
-            *slot = __torajs_dynobj_alloc();
-        }
+        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr);
         for i in from..to {
             let key = crate::define::mint_index_key(i);
             __torajs_dynobj_set_entry_hole(slot, key as *mut c_void);
             __torajs_str_drop(key as *mut c_void);
         }
-        let p = (arr as *mut u8).add(6) as *mut u16;
-        p.write(p.read() | FLAG_ARR_EXOTIC_INDEX);
+        crate::exotic_seam::__torajs_arr_flag_exotic(arr);
     }
 }
 
@@ -176,10 +171,7 @@ pub(crate) unsafe fn splice_remap_holes(
         return;
     }
     unsafe {
-        let slot = props_slot(arr);
-        if (*slot).is_null() {
-            *slot = __torajs_dynobj_alloc();
-        }
+        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr);
         for nidx in moved {
             let key = crate::define::mint_index_key(nidx as u64);
             __torajs_dynobj_set_entry_hole(slot, key as *mut c_void);
@@ -216,13 +208,9 @@ pub unsafe extern "C" fn __torajs_arr_delete_index(
     // the dense model; reads through the hole answer undefined
     // regardless).
     unsafe { crate::index_any::__torajs_arr_index_set(arr, idx as i64, ANY_UNDEF, 0) };
-    let slot = unsafe { props_slot(arr) };
-    if unsafe { (*slot).is_null() } {
-        unsafe { *slot = __torajs_dynobj_alloc() };
-    }
+    let slot = unsafe { crate::exotic_seam::__torajs_arr_props_attach(arr) };
     unsafe { __torajs_dynobj_set_entry_hole(slot, key) };
-    let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
-    unsafe { p.write(p.read() | FLAG_ARR_EXOTIC_INDEX) };
+    unsafe { crate::exotic_seam::__torajs_arr_flag_exotic(arr) };
     1
 }
 

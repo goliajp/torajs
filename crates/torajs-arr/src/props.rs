@@ -116,10 +116,7 @@ pub unsafe extern "C" fn __torajs_arrprops_set(
 ) {
     unsafe {
         note_builtin_proto_write(arr_ptr, key);
-        let slot = props_slot_ptr(arr_ptr);
-        if (*slot).is_null() {
-            *slot = __torajs_dynobj_alloc();
-        }
+        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr_ptr);
         __torajs_dynobj_set(slot, key, tag as u64, value as u64);
     }
 }
@@ -147,10 +144,7 @@ pub unsafe extern "C" fn __torajs_arrprops_define(
 ) {
     unsafe {
         note_builtin_proto_write(arr_ptr, key);
-        let slot = props_slot_ptr(arr_ptr);
-        if (*slot).is_null() {
-            *slot = __torajs_dynobj_alloc();
-        }
+        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr_ptr);
         __torajs_dynobj_define_plain(
             slot,
             key as *mut c_void,
