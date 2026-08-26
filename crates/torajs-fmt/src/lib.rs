@@ -35,6 +35,8 @@
 // the handler symbol via its own staticlib, mirroring how
 // torajs-str / torajs-arr / etc. do it).
 
+#![feature(optimize_attribute)]
+
 pub mod atod;
 pub mod dtoa;
 pub mod itoa;

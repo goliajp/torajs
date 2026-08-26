@@ -40,6 +40,10 @@
 //! triggers torajs-io's line flush, so byte-arrival timing is
 //! unchanged.
 
+#![feature(optimize_attribute)]
+
+use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
+
 unsafe extern "C" {
     fn __torajs_io_write_out(buf: *const u8, len: u64);
     fn __torajs_print_f64_js(d: f64);
@@ -62,42 +66,49 @@ pub unsafe extern "C" fn print_bool(b: bool) {
 }
 
 /// `_print_i64(n)` — writes the base-10 decimal representation
-/// of `n` followed by `\n`. Max-length input is
-/// `i64::MIN = -9_223_372_036_854_775_808` (20 chars) + `'\n'`
-/// = 21 bytes, which fits in the on-stack 21-byte buffer with
-/// no allocation.
+/// of `n` followed by `\n`. The digits come from torajs-fmt's
+/// [`itoa_into`] — the one i64 formatter every print / join /
+/// `String(n)` site shares — so this crate carries no digit loop of
+/// its own. The longest rendering is
+/// `i64::MIN = -9_223_372_036_854_775_808` (20 chars) + `'\n'`,
+/// which fits the on-stack buffer with no allocation.
+///
+/// The previous body kept a private one-digit-at-a-time loop, and
+/// LLVM unrolled its 20 bounded iterations in full — a magic-constant
+/// divide per digit — into 1,584 bytes of `__text` that every
+/// `console.log(int)` program paid (s3 rotation 504 census). One
+/// kernel — and, here, the rolled shape of it: `console.log(int)`
+/// is bounded by the write behind it, so this entry is compiled for
+/// size and LLVM leaves the two-digit loop as a loop (the inlined
+/// copies in the string-building kernels keep their own tuning).
 #[unsafe(no_mangle)]
+#[optimize(size)]
 pub unsafe extern "C" fn print_i64(n: i64) {
-    let mut buf = [0u8; 21];
-    let mut idx = buf.len();
+    let mut out = [0u8; I64_LINE_LEN];
+    let len = render_i64_line(n, &mut out);
+    write_all(&out[..len]);
+}
 
-    idx -= 1;
-    buf[idx] = b'\n';
+/// `"-9223372036854775808\n"` — the longest line `print_i64` writes.
+const I64_LINE_LEN: usize = ITOA_BUF_LEN + 1;
 
-    if n == 0 {
-        idx -= 1;
-        buf[idx] = b'0';
-    } else {
-        // `unsigned_abs` handles `i64::MIN` (returns 2^63) without
-        // overflow; plain `-n` would wrap.
-        let (mut value, neg) = if n < 0 {
-            (n.unsigned_abs(), true)
-        } else {
-            (n as u64, false)
-        };
-        while value > 0 {
-            idx -= 1;
-            buf[idx] = b'0' + (value % 10) as u8;
-            value /= 10;
-        }
-        if neg {
-            idx -= 1;
-            buf[idx] = b'-';
-        }
+/// Render `n` as `<decimal>\n` into the head of `out`; returns the
+/// byte count. Pure — the one piece of `print_i64` a unit test can
+/// hold, since the entry point itself only writes to the sink.
+fn render_i64_line(n: i64, out: &mut [u8; I64_LINE_LEN]) -> usize {
+    let mut digits = [0u8; ITOA_BUF_LEN];
+    let start = itoa_into(n, &mut digits);
+    let len = ITOA_BUF_LEN - start;
+    // Iterator forms, not range indexing: an indexed copy carries a
+    // formatted panic path, and one of those in a runtime kernel
+    // drags `core::fmt` into every program that links it.
+    for (dst, &b) in out.iter_mut().zip(digits.iter().skip(start)) {
+        *dst = b;
     }
-
-    let len = buf.len() - idx;
-    write_all(&buf[idx..idx + len]);
+    if let Some(nl) = out.get_mut(len) {
+        *nl = b'\n';
+    }
+    len + 1
 }
 
 /// `_print_f64(d)` — delegates to `__torajs_print_f64_js` in
@@ -111,76 +122,34 @@ pub unsafe extern "C" fn print_f64(d: f64) {
 
 #[cfg(test)]
 mod tests {
-    // Tests intentionally re-implement the in-source format loops in-place
-    // (rather than driving the `extern "C"` entry points) because the
-    // entry points write to fd 1 via syscall — there's no test-friendly
-    // way to capture that without spawning a child process. The tests
-    // pin the byte-level invariants that the in-source loops rely on
-    // (i64::MIN no-overflow, n==0 special case, multi-digit reverse fill).
+    // The entry points write to the current sink, so the tests drive
+    // the pure renderer they share and pin the bytes it produces.
+    use super::*;
 
-    /// `i64::MIN` exercises the `n.unsigned_abs()` / no-wrap path —
-    /// a naive `-n` would overflow. Asserts the formatted byte
-    /// length matches `"-9223372036854775808\n"` = 21 bytes.
+    fn line(n: i64) -> String {
+        let mut out = [0u8; I64_LINE_LEN];
+        let len = render_i64_line(n, &mut out);
+        std::str::from_utf8(&out[..len]).unwrap().to_string()
+    }
+
+    /// `i64::MIN` has no positive counterpart — the magnitude must be
+    /// taken without negating. Also the longest line: 21 bytes fills
+    /// the buffer exactly.
     #[test]
     fn i64_min_does_not_overflow() {
-        // Drive the helper end-to-end via a fake write captured in
-        // a thread-local; if the rendering would panic we'd never
-        // reach the assert. Run inside an OS pipe so write_all's
-        // syscall path is exercised under unit tests too.
-        //
-        // We can't trivially capture stdout in a unit test without
-        // dragging libc::dup2 in, so we only assert that the
-        // formatter produces the expected byte sequence by
-        // re-implementing the rendering in-place.
-        let n: i64 = i64::MIN;
-        let value = n.unsigned_abs();
-        let mut buf = [0u8; 21];
-        let mut idx = buf.len();
-        idx -= 1;
-        buf[idx] = b'\n';
-        let mut v = value;
-        while v > 0 {
-            idx -= 1;
-            buf[idx] = b'0' + (v % 10) as u8;
-            v /= 10;
-        }
-        idx -= 1;
-        buf[idx] = b'-';
-        let s = std::str::from_utf8(&buf[idx..]).unwrap();
-        assert_eq!(s, "-9223372036854775808\n");
-        assert_eq!(buf.len() - idx, 21);
+        assert_eq!(line(i64::MIN), "-9223372036854775808\n");
+        assert_eq!(line(i64::MIN).len(), 21);
     }
 
-    /// `n == 0` must emit `"0\n"` — the digit-extraction loop
-    /// terminates immediately on `value == 0` without the
-    /// special-case branch.
     #[test]
     fn i64_zero_emits_zero_newline() {
-        let mut buf = [0u8; 21];
-        let mut idx = buf.len();
-        idx -= 1;
-        buf[idx] = b'\n';
-        idx -= 1;
-        buf[idx] = b'0';
-        let s = std::str::from_utf8(&buf[idx..]).unwrap();
-        assert_eq!(s, "0\n");
+        assert_eq!(line(0), "0\n");
     }
 
-    /// Positive multi-digit reverse-fill round-trip.
     #[test]
-    fn i64_positive_round_trips() {
-        let n: i64 = 4_277_891;
-        let mut buf = [0u8; 21];
-        let mut idx = buf.len();
-        idx -= 1;
-        buf[idx] = b'\n';
-        let mut v = n as u64;
-        while v > 0 {
-            idx -= 1;
-            buf[idx] = b'0' + (v % 10) as u8;
-            v /= 10;
-        }
-        let s = std::str::from_utf8(&buf[idx..]).unwrap();
-        assert_eq!(s, "4277891\n");
+    fn i64_positive_and_negative_round_trip() {
+        assert_eq!(line(4_277_891), "4277891\n");
+        assert_eq!(line(-7), "-7\n");
+        assert_eq!(line(i64::MAX), "9223372036854775807\n");
     }
 }

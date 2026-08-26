@@ -35,7 +35,15 @@ pub const ITOA_BUF_LEN: usize = 24;
 ///
 /// `i64::MIN` has no positive counterpart, so the magnitude is taken
 /// in `u64` via `unsigned_abs` rather than by negating.
+///
+/// Compiled for size so the loop stays a loop: LLVM optimizes a
+/// callee before inlining it, and left to itself it unrolled the
+/// bounded ten iterations into ~1 KB that `print_i64` — a size-tuned
+/// entry behind a write — then inherited whole. A hot caller's own
+/// unroll pass still runs over the inlined copy afterwards, so this
+/// changes nothing the string-building kernels see.
 #[inline]
+#[optimize(size)]
 pub fn itoa_into(n: i64, buf: &mut [u8; ITOA_BUF_LEN]) -> usize {
     let negative = n < 0;
     let mut v = n.unsigned_abs();

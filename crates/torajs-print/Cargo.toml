@@ -17,6 +17,7 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+torajs-fmt = { path = "../torajs-fmt" }
 # 0 Cargo deps — `__torajs_syscall_write` + `__torajs_print_f64_js`
 # resolved at staticlib link time from the existing `torajs-syscall`
 # / `torajs-num` archives. Vision #4 (0 Cargo deps) preserved.
