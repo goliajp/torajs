@@ -51,6 +51,13 @@
 //! declaration text `C.toString()` answers, read only by
 //! `class_source_for_cell`).
 //!
+//! r503 — and the cells' exit release (`__torajs_class_cell_release`,
+//! the end-of-main drop of `__class_<C>` / `__proto_<C>`) is the
+//! fourth: with the register assumed away the cells are private and
+//! rc-only, so not releasing them at exit has no observable effect,
+//! while releasing them would root the generic any-drop (cycle
+//! collector, weak registry) from the user main.
+//!
 //! `TORAJS_CLASS_ELIDE_DIAG=1` prints the first escape to stderr.
 
 use std::collections::{HashMap, HashSet};
@@ -66,10 +73,11 @@ const NOP: u32 = 0xD503_201F;
 /// The prologue kernels whose every effect the guard's readers (or a
 /// cell read the taint walk would have caught) observe, as the relocs
 /// name them.
-const PROLOGUE_SYMS: [&str; 3] = [
+const PROLOGUE_SYMS: [&str; 4] = [
     "___torajs_anyv_class_register",
     "___torajs_proto_link_fresh",
     "___torajs_class_source_register",
+    "___torajs_class_cell_release",
 ];
 #[cfg(test)]
 const REGISTER_SYM: &str = PROLOGUE_SYMS[0];
@@ -90,10 +98,11 @@ const SEEDS: [&str; 2] = [
 /// registers, the rc traffic, the ctor-side registries a reader can
 /// only query with a cell it already holds, and the prologue's
 /// prototype-chain links between private cells.
-const SINKS: [&str; 10] = [
+const SINKS: [&str; 11] = [
     "__torajs_anyv_proto_register",
     "__torajs_anyv_class_register",
     "__torajs_anyv_rc_dec",
+    "__torajs_class_cell_release",
     "__torajs_anyv_rc_inc",
     "__torajs_anyv_ctor_mark_arr_species",
     "__torajs_anyv_ctorany_register",
@@ -109,10 +118,11 @@ const PASS_THROUGH: [&str; 4] = [
     "__torajs_anyv_unbox_value",
     "__torajs_anyv_unbox_value_owned",
 ];
-/// The object-literal store: a tainted value written into the
+/// The object-literal stores: a tainted value written into the
 /// literal's init slot taints the literal (the class cell's
-/// `prototype` entry holds the prototype cell).
-const CONTAINER_STORE: &str = "__torajs_dynobj_set_fresh";
+/// `prototype` entry holds the prototype cell). r503 — the fresh
+/// store has an insert-only and a duplicate-capable form.
+const CONTAINER_STORES: [&str; 2] = ["__torajs_dynobj_set_fresh", "__torajs_dynobj_set_fresh_dup"];
 
 /// Every `bl` to a prologue kernel ([`PROLOGUE_SYMS`]) in any live
 /// fn, offered only when no class cell escapes its prologue.
@@ -221,7 +231,7 @@ fn first_escape(module: &Module, f: &Function) -> Option<String> {
                                 if let Some(r) = i.result {
                                     tainted.insert(r);
                                 }
-                            } else if name == CONTAINER_STORE {
+                            } else if CONTAINER_STORES.contains(&name) {
                                 if let Some(Operand::Value(slot)) = args.first() {
                                     tainted.insert(*slot);
                                 }

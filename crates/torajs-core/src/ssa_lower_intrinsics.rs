@@ -394,6 +394,7 @@ pub(crate) struct Intrinsics {
     /// RFC 20260825-inject-narrow-define 刀 3 — the accessor-free
     /// object-literal init set (fresh-receiver narrow kernel).
     pub(crate) dynobj_set_fresh: FuncId,
+    pub(crate) dynobj_set_fresh_dup: FuncId,
     pub(crate) dynobj_define: FuncId,
     pub(crate) dynobj_define_from_desc: FuncId,
     pub(crate) dynobj_define_from_desc_soft: FuncId,
@@ -673,6 +674,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_unbox_value_owned: FuncId,
     pub(crate) any_unbox_settle: FuncId,
     pub(crate) any_box_drop: FuncId,
+    pub(crate) class_cell_release: FuncId,
     pub(crate) any_box_rc_inc: FuncId,
     /// S-NEW 刀 2 — class object → boxed factory adapter registration.
     pub(crate) ctor_register: FuncId,

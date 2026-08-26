@@ -60,6 +60,9 @@ pub(crate) struct ObjectIds {
     pub dynobj_get_value: FuncId,
     pub dynobj_set: FuncId,
     pub dynobj_set_fresh: FuncId,
+    /// r503 — the fresh-literal store for a key the lowering cannot
+    /// prove fresh (keeps the duplicate-key found path).
+    pub dynobj_set_fresh_dup: FuncId,
     pub dynobj_define: FuncId,
     pub dynobj_define_from_desc: FuncId,
     pub accessor_pair_new: FuncId,
@@ -209,6 +212,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         dynobj_get_value: decl!("__torajs_dynobj_get_value", [Ptr, Ptr], I64),
         dynobj_set: decl!("__torajs_dynobj_set", [Ptr, Ptr, I64, I64], Void),
         dynobj_set_fresh: decl!("__torajs_dynobj_set_fresh", [Ptr, Ptr, I64, I64], Void),
+        dynobj_set_fresh_dup: decl!("__torajs_dynobj_set_fresh_dup", [Ptr, Ptr, I64, I64], Void),
         dynobj_define: decl!("__torajs_dynobj_define", [Ptr, Ptr, I64, I64, I64], Void),
         dynobj_define_from_desc: decl!("__torajs_dynobj_define_from_desc", [Ptr, Ptr, Ptr], Void),
         accessor_pair_new: decl!("__torajs_accessor_pair_new", [Ptr, Ptr, I64], Ptr),

@@ -14,11 +14,66 @@
 //!   cells and the dict keys off the cell's own `type_tag`, so the
 //!   store core needs no second entry point — only the coerce differs.
 
+use std::collections::HashSet;
+
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
+/// Which store kernel one literal field takes (r503, refining RFC
+/// 20260825-inject-narrow-define 刀 3's per-literal `fresh` flag to a
+/// per-field one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SetLane {
+    /// The literal has accessor members: the general `dynobj_set`
+    /// (a later duplicate data key must dispatch the accessor entry
+    /// it lands on).
+    General,
+    /// Accessor-free literal, and the key is provably not in the
+    /// table yet — first of its static name, no computed key or
+    /// spread evaluated before it: the insert-only
+    /// `dynobj_set_fresh`, which carries no drop edge.
+    FreshUnique,
+    /// Accessor-free literal, key not provable: `dynobj_set_fresh_
+    /// dup`, which keeps the duplicate-key found path (last write
+    /// wins, the first value dropped).
+    FreshDup,
+}
+
 impl LowerCtx<'_> {
+    /// r503 — the per-field lane of one literal, in field order.
+    /// Spread and `[[Prototype]]` members store nothing themselves
+    /// (their lane is unread) but a spread, like a computed key,
+    /// puts runtime keys in the table every later static key may
+    /// collide with.
+    pub(crate) fn objlit_set_lanes(&self, fields: &[(String, ExprId)]) -> Vec<SetLane> {
+        if !self.objlit_accessor_free(fields) {
+            return vec![SetLane::General; fields.len()];
+        }
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut runtime_keys = false;
+        fields
+            .iter()
+            .map(|(fname, fval_eid)| {
+                if self.ast.objlit_computed_keys.contains_key(fval_eid)
+                    || crate::check_type_of_object_lit::spread_omit_set(fname).is_some()
+                {
+                    runtime_keys = true;
+                    return SetLane::FreshDup;
+                }
+                if fname == "__proto__" && !self.ast.objlit_shorthand_proto_exprs.contains(fval_eid)
+                {
+                    return SetLane::FreshDup;
+                }
+                if runtime_keys || !seen.insert(fname.as_str()) {
+                    SetLane::FreshDup
+                } else {
+                    SetLane::FreshUnique
+                }
+            })
+            .collect()
+    }
+
     /// Key-parameterized core of `emit_dynobj_set` — the computed-key
     /// lane passes a runtime Str instead of an interned literal. The
     /// kernel rc-bumps the key on fresh insert, so the caller keeps
@@ -29,17 +84,14 @@ impl LowerCtx<'_> {
         key: Operand,
         tag: Operand,
         val: Operand,
-        fresh: bool,
+        fresh: SetLane,
     ) {
-        // RFC 20260825-inject-narrow-define 刀 3 — an accessor-free
-        // literal stores through the fresh-receiver narrow kernel;
-        // a literal with getter/setter members keeps the general
-        // set (a later duplicate data key must dispatch the
-        // accessor entry it lands on).
-        let kernel = if fresh {
-            self.intrinsics.dynobj_set_fresh
-        } else {
-            self.intrinsics.dynobj_set
+        // RFC 20260825-inject-narrow-define 刀 3 / r503 — see
+        // [`SetLane`].
+        let kernel = match fresh {
+            SetLane::General => self.intrinsics.dynobj_set,
+            SetLane::FreshUnique => self.intrinsics.dynobj_set_fresh,
+            SetLane::FreshDup => self.intrinsics.dynobj_set_fresh_dup,
         };
         self.f.append_void(
             self.cur_block,
@@ -70,7 +122,7 @@ impl LowerCtx<'_> {
         fname: &str,
         tag: Operand,
         val: Operand,
-        fresh: bool,
+        fresh: SetLane,
     ) {
         let key_str = self.intern_string_literal(fname);
         self.emit_dynobj_set_key(slot, Operand::Value(key_str), tag, val, fresh);
@@ -84,7 +136,7 @@ impl LowerCtx<'_> {
         runtime_key: Option<ValueId>,
         tag: Operand,
         val: Operand,
-        fresh: bool,
+        fresh: SetLane,
     ) {
         match runtime_key {
             Some(k) => self.emit_dynobj_set_key(slot, Operand::Value(k), tag, val, fresh),
@@ -101,7 +153,7 @@ impl LowerCtx<'_> {
         slot: ValueId,
         key_eid: ExprId,
         fval_eid: ExprId,
-        fresh: bool,
+        fresh: SetLane,
     ) {
         // §7.1.19 step 2 — ToPropertyKey has two faces, and a Symbol
         // takes the one that does not coerce.
@@ -143,7 +195,7 @@ impl LowerCtx<'_> {
         slot: ValueId,
         key_eid: ExprId,
         fval_eid: ExprId,
-        fresh: bool,
+        fresh: SetLane,
     ) {
         let k_raw = self.lower_expr(key_eid);
         let k_ty = self.operand_ty(&k_raw);

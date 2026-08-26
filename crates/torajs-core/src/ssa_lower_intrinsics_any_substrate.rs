@@ -225,6 +225,9 @@ pub(crate) struct AnySubstrateIds {
     pub any_unbox_value_owned: FuncId,
     pub any_unbox_settle: FuncId,
     pub any_box_drop: FuncId,
+    /// r503 — a class prologue cell's exit release, a link seam over
+    /// `anyv_rc_dec` (NOPed under the register call's guard).
+    pub class_cell_release: FuncId,
     pub any_box_rc_inc: FuncId,
     /// S-NEW 刀 2 — record a class object's boxed factory adapter, so
     /// `new <expr>()` can find it once the callee has been evaluated.
@@ -454,6 +457,7 @@ pub(crate) fn declare(
         // consumer (args: original AnyValue, raw unboxed value).
         any_unbox_settle: decl!("__torajs_anyv_unbox_settle", [Any, I64], Void),
         any_box_drop: decl!("__torajs_anyv_rc_dec", [Any], Void),
+        class_cell_release: decl!("__torajs_class_cell_release", [Any], Void),
         any_box_rc_inc: decl!("__torajs_anyv_rc_inc", [Any], Void),
         ctor_register: decl!("__torajs_anyv_ctor_register", [Any, Ptr], Void),
         construct: decl!("__torajs_anyv_construct", [Any, Ptr, I64], Any),

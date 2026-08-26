@@ -166,6 +166,21 @@ unsafe extern "C" {
     fn __torajs_cycle_unbuffer(p: *mut core::ffi::c_void);
     fn __torajs_cycle_buffer(p: *mut core::ffi::c_void);
     fn __torajs_uncaught_error_render_impl(p: *const u8);
+    fn __torajs_anyv_rc_dec(v: u64);
+}
+
+/// Default resolution of a class prologue cell's exit release (r503):
+/// the `__class_<C>` / `__proto_<C>` bindings' end-of-main drop is
+/// the generic any release. The link judgment NOPs the site under the
+/// register call's guard — a cell the registry never held and no
+/// reader can reach is not observable after exit — so a program whose
+/// classes stay private stops rooting the any-world drop from here.
+///
+/// # Safety
+/// `v` is a live AnyValue the caller owns one reference of.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_cell_release(v: u64) {
+    unsafe { __torajs_anyv_rc_dec(v) }
 }
 
 /// Default resolution of the exotic-join seam — the any-world join

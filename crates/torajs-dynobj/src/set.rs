@@ -23,7 +23,7 @@ use crate::layout::{
     BUCKET_TAG_MASK, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
 };
 use crate::probe::{
-    Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
+    Entry, Probe, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
     index_ptr, key_str_bytes, probe, set_count, set_entries_len,
 };
 use crate::resize::resize;
@@ -262,11 +262,19 @@ unsafe fn dynobj_set_impl(
 /// Those arms are exactly what link-rooted the accessor-invoke and
 /// dispatch worlds from every program with an object literal.
 ///
+/// r503 — and the duplicate-key found path is the one edge from
+/// every literal into the generic heap drop (`{a: 1, a: 2}` drops
+/// the first value), which roots the cycle / weak worlds. The
+/// lowering knows a literal's static keys, so it proves a key
+/// fresh — first of its name, no computed key or spread before it —
+/// and stores it here, insert-only; every other key stores through
+/// [`__torajs_dynobj_set_fresh_dup`], which keeps the found path.
+///
 /// # Safety
 /// `obj_slot` points at the literal's live init slot (fresh
-/// `TAG_DYNOBJ`, never NULL); `key` is a live Str cell; on
-/// `tag == ANY_HEAP` the entry takes the caller's transferred
-/// reference to `value`.
+/// `TAG_DYNOBJ`, never NULL); `key` is a live Str cell the table
+/// does not yet hold; on `tag == ANY_HEAP` the entry takes the
+/// caller's transferred reference to `value`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_set_fresh(
     obj_slot: *mut *mut c_void,
@@ -274,6 +282,55 @@ pub unsafe extern "C" fn __torajs_dynobj_set_fresh(
     tag: u64,
     value: u64,
 ) {
+    unsafe {
+        let obj = fresh_receiver(obj_slot);
+        let pr = probe(obj, key as *const c_void);
+        debug_assert!(
+            !pr.found,
+            "set_fresh contract: a key the lowering could not prove fresh stores through set_fresh_dup"
+        );
+        fresh_insert(obj, key, tag, value, &pr);
+    }
+}
+
+/// [`__torajs_dynobj_set_fresh`] for a key the lowering cannot prove
+/// fresh: a repeated literal key, or any key after a computed key or
+/// a spread. Last write wins (§13.2.5.5 evaluation order); the flags
+/// stay the data defaults the first write stamped.
+///
+/// # Safety
+/// As [`__torajs_dynobj_set_fresh`], minus the fresh-key clause.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_fresh_dup(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) {
+    unsafe {
+        let obj = fresh_receiver(obj_slot);
+        let pr = probe(obj, key as *const c_void);
+        if pr.found {
+            let e = entries(obj).add(pr.entry as usize);
+            let cur = (*e).value_anyv;
+            if __torajs_anyv_unbox_tag(cur) as u64 == ANY_HEAP {
+                __torajs_value_drop_heap(cur as *mut c_void);
+            }
+            (*e).value_anyv =
+                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
+            return;
+        }
+        fresh_insert(obj, key, tag, value, &pr);
+    }
+}
+
+/// The literal's fresh dynobj, grown ahead of the insert the caller
+/// is about to make (a grow must precede the probe: the slot index
+/// is capacity-relative).
+///
+/// # Safety
+/// `obj_slot` per the set_fresh contract.
+unsafe fn fresh_receiver(obj_slot: *mut *mut c_void) -> *mut c_void {
     unsafe {
         let obj = *obj_slot;
         debug_assert_eq!(
@@ -284,24 +341,20 @@ pub unsafe extern "C" fn __torajs_dynobj_set_fresh(
         if entries_len(obj) == entries_cap(obj) {
             resize(obj);
         }
-        let pr = probe(obj, key as *const c_void);
-        let ent = entries(obj);
-        if pr.found {
-            // Duplicate literal key — last write wins (§13.2.5.5
-            // evaluation order); flags stay the data defaults the
-            // first write stamped.
-            let e = ent.add(pr.entry as usize);
-            let cur = (*e).value_anyv;
-            if __torajs_anyv_unbox_tag(cur) as u64 == ANY_HEAP {
-                __torajs_value_drop_heap(cur as *mut c_void);
-            }
-            (*e).value_anyv =
-                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
-            return;
-        }
+        obj
+    }
+}
+
+/// Append a new data entry at the probe's insertion slot.
+///
+/// # Safety
+/// `pr` is a not-found probe of `key` against `obj` with room for
+/// one more entry.
+unsafe fn fresh_insert(obj: *mut c_void, key: *mut c_void, tag: u64, value: u64, pr: &Probe) {
+    unsafe {
         let e_idx = entries_len(obj);
         __torajs_rc_inc(key);
-        *ent.add(e_idx as usize) = Entry {
+        *entries(obj).add(e_idx as usize) = Entry {
             key_ptr_tagged: bucket_make_key_tagged(key, BUCKET_FLAGS_DEFAULT),
             value_anyv: __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64),
         };

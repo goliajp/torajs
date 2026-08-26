@@ -44,25 +44,46 @@ impl LowerCtx<'_> {
         // (which need &mut self.f). Cheap: bench cases have <10 locals each.
         // 11-A2-a — skip stack-alloced locals: their backing storage is
         // reclaimed by fn return; no rc-dec / obj_drop_sized needed.
-        let mut to_drop: Vec<(ValueId, Type)> = self
+        // r503 — a class prologue cell (`__class_<C>` / `__proto_<C>`,
+        // `: any`, a local of the fn that declared the class) releases
+        // through a link seam the judgment NOPs together with the
+        // register call: a cell the registry never held and no
+        // reader can reach is unobservable after exit, and the
+        // generic any-drop it would otherwise call roots the cycle /
+        // weak worlds from the user main.
+        let mut to_drop: Vec<(ValueId, Type, bool)> = self
             .locals
             .iter()
             .filter(|(name, info)| {
                 !info.moved && !info.ty.is_copy() && !self.stack_alloced_locals.contains(*name)
             })
-            .map(|(_, info)| (info.slot, info.ty))
+            .map(|(name, info)| {
+                let class_cell = info.ty == Type::Any
+                    && crate::ssa_lower_closure::class_sentinel_name(self, name);
+                (info.slot, info.ty, class_cell)
+            })
             .collect();
         // Drop in declaration reverse (slot ids are allocated in
         // declaration order), the textbook LIFO destruction order.
-        to_drop.sort_by_key(|&(slot, _)| std::cmp::Reverse(slot.0));
-        for (slot, ty) in to_drop {
+        to_drop.sort_by_key(|&(slot, _, _)| std::cmp::Reverse(slot.0));
+        for (slot, ty, class_cell) in to_drop {
             let val = self.f.append_inst(
                 self.cur_block,
                 InstKind::Load(ty, Operand::Value(slot), 0),
                 ty,
                 None,
             );
-            self.emit_drop_value(Operand::Value(val), ty);
+            if class_cell {
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.class_cell_release,
+                        vec![Operand::Value(val)],
+                    ),
+                );
+            } else {
+                self.emit_drop_value(Operand::Value(val), ty);
+            }
         }
         // RFC 20260705 chunk 550 fix-up — escape-promoted Copy locals
         // live in refcounted capture boxes (outer-stake protocol:
@@ -136,6 +157,8 @@ impl LowerCtx<'_> {
             .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         for (name, ty) in entries {
+            let class_cell =
+                ty == Type::Any && crate::ssa_lower_closure::class_sentinel_name(self, &name);
             let ptr =
                 self.f
                     .append_inst(self.cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
@@ -145,7 +168,16 @@ impl LowerCtx<'_> {
                 ty,
                 None,
             );
-            self.emit_drop_value(Operand::Value(v), ty);
+            // r503 — a closure-captured class cell lives here as a
+            // global; same seam as the local case above.
+            if class_cell {
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.class_cell_release, vec![Operand::Value(v)]),
+                );
+            } else {
+                self.emit_drop_value(Operand::Value(v), ty);
+            }
         }
     }
 }

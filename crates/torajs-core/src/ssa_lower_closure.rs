@@ -474,7 +474,7 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
 /// that merely starts with `__class_` names nothing, and answering
 /// `true` for it would drop a genuinely-unresolvable capture silently
 /// instead of failing loud.
-fn class_sentinel_name(ctx: &LowerCtx<'_>, name: &str) -> bool {
+pub(crate) fn class_sentinel_name(ctx: &LowerCtx<'_>, name: &str) -> bool {
     name.strip_prefix("__class_")
         .or_else(|| name.strip_prefix("__proto_"))
         .is_some_and(|c| ctx.class_name_to_tag.contains_key(c))

@@ -41,6 +41,10 @@ mod visit;
 /// a class instance dies).
 pub const THROW_ACTIVE_SYM: &str = "___torajs_throw_active";
 pub const WEAKREF_ACTIVE_SYM: &str = "___torajs_weakref_active";
+/// The any-slot tag of a heap cell as `__torajs_anyv_box_from_pair`
+/// reads it (torajs-rc `AnySlotTag::Heap`); every other tag boxes an
+/// immediate, which no rc kernel touches.
+pub const ANY_SLOT_TAG_HEAP: i64 = torajs_rc::AnySlotTag::Heap as i64;
 
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::demo_fib40;

@@ -38,6 +38,7 @@ pub mod loop_analysis;
 pub mod mem2reg;
 pub mod optimize;
 pub mod phi_promote;
+pub mod rc_dec_immediate;
 pub mod rc_peephole;
 pub mod rewrite;
 pub mod scaled_addr;
@@ -49,7 +50,7 @@ pub mod slot_forward;
 pub mod srem_parity;
 pub mod str_append;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, Module, ValueId};
 
@@ -161,6 +162,23 @@ fn dump_after(key: &str, module: &Module) {
     }
 }
 
+/// The integer range analysis, or `None` under `TORAJS_INTERVAL_OFF=1`;
+/// `TORAJS_INTERVAL_STATS=1` prints each fn's fact counts to stderr.
+fn analyze_intervals(module: &Module) -> Option<Vec<HashMap<ValueId, interval::NumFact>>> {
+    (std::env::var("TORAJS_INTERVAL_OFF").as_deref() != Ok("1")).then(|| {
+        let facts = interval::analyze_module(module);
+        if std::env::var("TORAJS_INTERVAL_STATS").as_deref() == Ok("1") {
+            for (func, fm) in module.funcs.iter().zip(&facts) {
+                if !func.is_declaration() {
+                    let st = interval::stats_for(fm, func);
+                    eprintln!("torajs-interval-stats: {} {st:?}", func.name);
+                }
+            }
+        }
+        facts
+    })
+}
+
 pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         return module;
@@ -226,18 +244,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // canonical shape. Feeds float demotion below and seeds sext_elide
     // R2 with loop cells provably inside i32 range (the popcount
     // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
-    let interval_facts = (std::env::var("TORAJS_INTERVAL_OFF").as_deref() != Ok("1")).then(|| {
-        let facts = interval::analyze_module(&module);
-        if std::env::var("TORAJS_INTERVAL_STATS").as_deref() == Ok("1") {
-            for (func, fm) in module.funcs.iter().zip(&facts) {
-                if !func.is_declaration() {
-                    let st = interval::stats_for(fm, func);
-                    eprintln!("torajs-interval-stats: {} {st:?}", func.name);
-                }
-            }
-        }
-        facts
-    });
+    let interval_facts = analyze_intervals(&module);
     // Float demotion (RFC 20260611 phase 1b-i) — integer-valued f64
     // closures whose every op is provably exact rewrite to i64 in
     // place (frem→srem kills the per-iteration fmod libcall). Facts
@@ -379,6 +386,15 @@ pub fn transform_module(mut module: Module) -> Module {
     // retain/release pairs. `TORAJS_RC_PEEPHOLE_OFF=1` skips (bisect
     // gate, mirrors TORAJS_INLINER_OFF).
     gated_pass("RC_PEEPHOLE", &mut module, rc_peephole::elide_rc_pairs);
+    // Immediate-box release elision — `anyv_rc_dec` of a `box_from_
+    // pair(<non-heap tag>, _)` is the kernel's own no-op (a `new C()`
+    // site's undefined `__new_target` box). After inlining so mint
+    // and release share a fn. `TORAJS_RC_DEC_IMMEDIATE_OFF=1` skips.
+    gated_pass(
+        "RC_DEC_IMMEDIATE",
+        &mut module,
+        rc_dec_immediate::elide_immediate_rc_decs,
+    );
     // Loop-body contiguity layout — last, so the block order codegen
     // sees (fall-through chains, positional liveness/spill weights)
     // is the final one. Sinks cold blocks out of loop position

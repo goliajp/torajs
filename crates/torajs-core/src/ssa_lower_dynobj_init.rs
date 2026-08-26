@@ -109,7 +109,7 @@ impl<'a> LowerCtx<'a> {
         fname: &str,
         fval_eid: ExprId,
         runtime_key: Option<ValueId>,
-        fresh: bool,
+        fresh: crate::ssa_lower_dynobj_init_computed::SetLane,
     ) {
         let v_raw = self.lower_expr(fval_eid);
         // Chunk 570 — SHARE: the bucket takes its own +1 (the
@@ -254,7 +254,7 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr,
             None,
         );
-        let fresh = self.objlit_accessor_free(&fields);
+        let lanes = self.objlit_set_lanes(&fields);
         let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
         self.f.append_void(
             self.cur_block,
@@ -262,7 +262,7 @@ impl<'a> LowerCtx<'a> {
         );
         // For each (name, value), set into the dynobj. Box value
         // first using the same scheme as box_to_any but inlined.
-        for (fname, fval_eid) in fields {
+        for ((fname, fval_eid), fresh) in fields.into_iter().zip(lanes) {
             // RFC 20260725-objlit-computed-key 刀 3 — a computed-key
             // field evaluates its key at runtime (field order = spec
             // evaluation order) and stores under the ToString'd name.
