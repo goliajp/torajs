@@ -79,7 +79,12 @@ impl CentralQueue {
     /// embedded `next` link.
     pub unsafe fn push(&self, class_idx: usize, ptr: *mut u8) {
         let node = ptr as *mut CentralNode;
-        let head = &self.heads[class_idx];
+        // `get` (r502) — an out-of-range class has no list; the
+        // block is dropped on the floor rather than linking the
+        // panic renderer (see `tlab.rs`).
+        let Some(head) = self.heads.get(class_idx) else {
+            return;
+        };
         let mut cur = head.load(Ordering::Acquire);
         loop {
             unsafe {
@@ -104,7 +109,7 @@ impl CentralQueue {
     /// re-push), which cannot complete in the window of a single
     /// `pop` attempt.
     pub fn pop(&self, class_idx: usize) -> Option<*mut u8> {
-        let head = &self.heads[class_idx];
+        let head = self.heads.get(class_idx)?;
         let mut cur = head.load(Ordering::Acquire);
         loop {
             if cur.is_null() {
@@ -142,7 +147,9 @@ impl CentralQueue {
     /// needed, check central first" fast path.
     #[inline]
     pub fn is_empty(&self, class_idx: usize) -> bool {
-        self.heads[class_idx].load(Ordering::Acquire).is_null()
+        self.heads
+            .get(class_idx)
+            .is_none_or(|h| h.load(Ordering::Acquire).is_null())
     }
 }
 

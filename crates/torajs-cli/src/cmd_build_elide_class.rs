@@ -43,6 +43,14 @@
 //! all-or-nothing: either every class in the program keeps its cells
 //! private and every register call is offered, or none is.
 //!
+//! Two more prologue calls write into the same closure and ride the
+//! same guard: `__torajs_proto_link_fresh` (a subclass prototype's
+//! `[[Prototype]]` link to its parent's — a dynobj define whose
+//! own-write bookkeeping interns method names, 8 KB of torajs-rc on
+//! the subclass fixture) and `__torajs_class_source_register` (the
+//! declaration text `C.toString()` answers, read only by
+//! `class_source_for_cell`).
+//!
 //! `TORAJS_CLASS_ELIDE_DIAG=1` prints the first escape to stderr.
 
 use std::collections::{HashMap, HashSet};
@@ -55,8 +63,16 @@ use torajs_core::ssa::{
 use torajs_link::exec::{ElidableSite, Guard, SiteShape};
 
 const NOP: u32 = 0xD503_201F;
-/// The register kernel, as the reloc names it.
-const REGISTER_SYM: &str = "___torajs_anyv_class_register";
+/// The prologue kernels whose every effect the guard's readers (or a
+/// cell read the taint walk would have caught) observe, as the relocs
+/// name them.
+const PROLOGUE_SYMS: [&str; 3] = [
+    "___torajs_anyv_class_register",
+    "___torajs_proto_link_fresh",
+    "___torajs_class_source_register",
+];
+#[cfg(test)]
+const REGISTER_SYM: &str = PROLOGUE_SYMS[0];
 /// The registry's readers (torajs-meta `classmeta`).
 const REGISTRY_READERS: [&str; 3] = [
     "___torajs_anyv_class_get",
@@ -98,8 +114,8 @@ const PASS_THROUGH: [&str; 4] = [
 /// `prototype` entry holds the prototype cell).
 const CONTAINER_STORE: &str = "__torajs_dynobj_set_fresh";
 
-/// Every `bl __torajs_anyv_class_register` in any live fn, offered
-/// only when no class cell escapes its prologue.
+/// Every `bl` to a prologue kernel ([`PROLOGUE_SYMS`]) in any live
+/// fn, offered only when no class cell escapes its prologue.
 pub(crate) fn class_register_sites(
     funcs: &[CompiledFunction],
     module: &Module,
@@ -119,14 +135,16 @@ pub(crate) fn class_register_sites(
                 else {
                     return None;
                 };
-                (name == REGISTER_SYM).then(|| ElidableSite {
-                    func: f.name.clone(),
-                    guard: guard.clone(),
-                    shape: SiteShape::Call {
-                        byte_offset: r.byte_offset,
-                        replacement: NOP,
-                    },
-                })
+                PROLOGUE_SYMS
+                    .contains(&name.as_str())
+                    .then(|| ElidableSite {
+                        func: f.name.clone(),
+                        guard: guard.clone(),
+                        shape: SiteShape::Call {
+                            byte_offset: r.byte_offset,
+                            replacement: NOP,
+                        },
+                    })
             })
         })
         .collect()
@@ -344,13 +362,21 @@ mod tests {
             );
         });
         let funcs = vec![
-            f("_main_user", &["___torajs_print_i64", REGISTER_SYM]),
+            f(
+                "_main_user",
+                &[
+                    "___torajs_print_i64",
+                    REGISTER_SYM,
+                    "___torajs_proto_link_fresh",
+                    "___torajs_class_source_register",
+                ],
+            ),
             f("helper", &[REGISTER_SYM]),
         ];
         let sites = class_register_sites(&funcs, &m);
-        assert_eq!(sites.len(), 2);
+        assert_eq!(sites.len(), 4, "every prologue kernel call is a site");
         assert_eq!(sites[0].func, "_main_user");
-        assert_eq!(sites[1].func, "helper");
+        assert_eq!(sites[3].func, "helper");
         assert_eq!(
             sites[0].guard.to_string(),
             "syms:___torajs_anyv_class_get|___torajs_anyv_proto_get|___torajs_class_source_for_cell"

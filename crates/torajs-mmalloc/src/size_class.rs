@@ -188,19 +188,29 @@ impl Allocator {
     /// past the largest class (caller routes to `super::large`).
     pub fn alloc(&mut self, size: usize) -> Option<*mut u8> {
         let bucket = Self::bucket_for(size)?;
-        let class_size = SIZE_CLASSES[bucket];
+        // `bucket_for` answers below the class count by construction,
+        // but the compiler cannot see it, and a `[]` here would link
+        // `panic_bounds_check` — and through it `Display for usize`
+        // and `Formatter::pad_integral`, 5 KB of `core` text in every
+        // program (r502: the empty program's only edge into it). The
+        // compare-and-branch is the same one the check made; only
+        // the panic call is gone. Out of range answers "not mine".
+        let class_size = *SIZE_CLASSES.get(bucket)?;
+        let first_open = *self.first_open.get(bucket)?;
 
         // 1. LIFO span scan over the open range — newest span first
         //    (the bump span; common case hits on the first probe).
         //    A full sweep with no hit proves every open span is
         //    full: advance the watermark past them.
-        let list = &mut self.classes[bucket];
-        for i in (self.first_open[bucket]..list.len).rev() {
+        let list = self.classes.get_mut(bucket)?;
+        for i in (first_open..list.len).rev() {
             if let Some(p) = list.get_mut(i).alloc_slot() {
                 return Some(p);
             }
         }
-        self.first_open[bucket] = list.len;
+        if let Some(fo) = self.first_open.get_mut(bucket) {
+            *fo = list.len;
+        }
 
         // 2. All open spans full — grow (no cap; kernel is the
         //    ceiling).
@@ -231,8 +241,11 @@ impl Allocator {
             // invariant simple.
             return;
         };
-        // Dispatch ptr to its owning span: same-class scan.
-        let list = &mut self.classes[bucket];
+        // Dispatch ptr to its owning span: same-class scan. `get`
+        // for the same reason as `alloc`.
+        let Some(list) = self.classes.get_mut(bucket) else {
+            return;
+        };
         for i in 0..list.len {
             let span = list.get_mut(i);
             if span.contains(ptr) {
@@ -243,8 +256,10 @@ impl Allocator {
                 unsafe { span.free_slot(ptr) };
                 // The span has a free slot again — reopen it for
                 // the alloc scan.
-                if i < self.first_open[bucket] {
-                    self.first_open[bucket] = i;
+                if let Some(fo) = self.first_open.get_mut(bucket)
+                    && i < *fo
+                {
+                    *fo = i;
                 }
                 return;
             }

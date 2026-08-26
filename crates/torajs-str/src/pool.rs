@@ -40,18 +40,30 @@ static SLOTS: [[AtomicPtr<u8>; STR_POOL_SLOTS]; N_CLASSES] =
     [const { [const { AtomicPtr::new(ptr::null_mut()) }; STR_POOL_SLOTS] }; N_CLASSES];
 static COUNT: [AtomicUsize; N_CLASSES] = [const { AtomicUsize::new(0) }; N_CLASSES];
 
+// Every index below is `get`, never `[]`: `pool_class_of` only
+// answers a class below `N_CLASSES` and `push` keeps every count
+// within `STR_POOL_SLOTS`, but the compiler cannot see either, and a
+// bounds check that can never fail still links the whole
+// `panic_bounds_check` rendering path — `Display for usize`,
+// `Formatter::pad_integral`, the char counter — 5 KB of `core` text
+// in a program that prints one integer (r502: `str_alloc_pooled` was
+// the empty program's only edge into it). An out-of-range class
+// answers "not pooled" instead.
+
 /// Pop the most-recently-pushed block, or `None` if the pool is
 /// empty. The popped block's bytes are uninitialized — caller
 /// must write the header + len + payload before exposing it.
 #[inline]
 pub fn pop(class: usize) -> Option<NonNull<u8>> {
-    let count = COUNT[class].load(Ordering::Relaxed);
+    let counter = COUNT.get(class)?;
+    let count = counter.load(Ordering::Relaxed);
     if count == 0 {
         return None;
     }
     let new_count = count - 1;
-    COUNT[class].store(new_count, Ordering::Relaxed);
-    let p = SLOTS[class][new_count].swap(ptr::null_mut(), Ordering::Relaxed);
+    let slot = SLOTS.get(class)?.get(new_count)?;
+    counter.store(new_count, Ordering::Relaxed);
+    let p = slot.swap(ptr::null_mut(), Ordering::Relaxed);
     // `swap` to null clears the slot so a leaked debug walk
     // doesn't think the pool still owns it. `p` was non-null when
     // we pushed it, so `NonNull::new` is `Some` in non-corrupt
@@ -71,12 +83,15 @@ pub fn pop(class: usize) -> Option<NonNull<u8>> {
 /// `pop()` retrieves it.
 #[inline]
 pub fn push(class: usize, p: NonNull<u8>) -> bool {
-    let count = COUNT[class].load(Ordering::Relaxed);
-    if count >= STR_POOL_SLOTS {
+    let (Some(counter), Some(slots)) = (COUNT.get(class), SLOTS.get(class)) else {
         return false;
-    }
-    SLOTS[class][count].store(p.as_ptr(), Ordering::Relaxed);
-    COUNT[class].store(count + 1, Ordering::Relaxed);
+    };
+    let count = counter.load(Ordering::Relaxed);
+    let Some(slot) = slots.get(count) else {
+        return false;
+    };
+    slot.store(p.as_ptr(), Ordering::Relaxed);
+    counter.store(count + 1, Ordering::Relaxed);
     true
 }
 
@@ -99,11 +114,11 @@ pub fn occupancy() -> usize {
 /// holds them on behalf of `__torajs_str_free`).
 #[doc(hidden)]
 pub fn clear_for_test() {
-    for (class, slots) in SLOTS.iter().enumerate() {
+    for (counter, slots) in COUNT.iter().zip(SLOTS.iter()) {
         for slot in slots.iter() {
             slot.store(ptr::null_mut(), Ordering::Relaxed);
         }
-        COUNT[class].store(0, Ordering::Relaxed);
+        counter.store(0, Ordering::Relaxed);
     }
 }
 

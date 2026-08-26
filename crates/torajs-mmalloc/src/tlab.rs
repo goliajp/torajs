@@ -109,15 +109,25 @@ impl TlabCache {
     /// TLAB has no slots cached for this class — caller falls
     /// back to the central `Allocator`. ~3 cycles when hit
     /// (single load + single subtract + single load).
+    // Every class / depth index below is `get`, never `[]` (r502):
+    // the callers pass a `bucket_for` answer and a depth this cache
+    // kept below `TLAB_CACHE_DEPTH`, but the compiler cannot see
+    // either, and a `[]` links `panic_bounds_check` — through it
+    // `Display for usize` and `Formatter::pad_integral`, 5 KB of
+    // `core` text every program carries for the allocator alone.
+    // The compare-and-branch is the one the check already made; an
+    // out-of-range index answers "cache miss".
     #[inline(always)]
     pub fn pop(&mut self, class_idx: usize) -> Option<*mut u8> {
-        let d = self.depth[class_idx];
+        let depth = self.depth.get_mut(class_idx)?;
+        let d = *depth;
         if d == 0 {
             return None;
         }
         let new_depth = d - 1;
-        self.depth[class_idx] = new_depth;
-        Some(self.slots[class_idx][new_depth as usize])
+        let p = *self.slots.get(class_idx)?.get(new_depth as usize)?;
+        *depth = new_depth;
+        Some(p)
     }
 
     /// Push a slot into the TLAB cache for `class_idx`. Returns
@@ -126,12 +136,15 @@ impl TlabCache {
     /// full (single load + compare + single store + single store).
     #[inline(always)]
     pub fn push(&mut self, class_idx: usize, ptr: *mut u8) -> bool {
-        let d = self.depth[class_idx] as usize;
-        if d >= TLAB_CACHE_DEPTH {
+        let Some(depth) = self.depth.get_mut(class_idx) else {
             return false;
-        }
-        self.slots[class_idx][d] = ptr;
-        self.depth[class_idx] = (d + 1) as u8;
+        };
+        let d = *depth as usize;
+        let Some(slot) = self.slots.get_mut(class_idx).and_then(|s| s.get_mut(d)) else {
+            return false;
+        };
+        *slot = ptr;
+        *depth = (d + 1) as u8;
         true
     }
 
@@ -140,11 +153,14 @@ impl TlabCache {
     /// spillover and by the integration layer's "flush to
     /// central when TLAB grows too large" path.
     pub fn drain<F: FnMut(*mut u8)>(&mut self, class_idx: usize, mut f: F) {
-        let d = self.depth[class_idx] as usize;
-        for i in 0..d {
-            f(self.slots[class_idx][i]);
+        let (Some(depth), Some(slots)) = (self.depth.get_mut(class_idx), self.slots.get(class_idx))
+        else {
+            return;
+        };
+        for &p in slots.iter().take(*depth as usize) {
+            f(p);
         }
-        self.depth[class_idx] = 0;
+        *depth = 0;
     }
 
     /// Total cached slot count across all classes. Diagnostic.
