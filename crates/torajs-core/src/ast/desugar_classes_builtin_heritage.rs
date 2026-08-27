@@ -162,10 +162,16 @@ fn exotic_super_zero_is_noop(parent: &str) -> bool {
 /// through it. `None` = no link needed (Object — the default chain
 /// is already correct). RFC 20260730-iterator-global 刀 1.
 fn builtin_proto_heir_tag(parent: &str) -> Option<i64> {
-    match parent {
-        "Iterator" => Some(15),
-        _ => None,
-    }
+    // 508-05 — every stripped builtin parent contributes the same
+    // §15.7.14 link: `C.prototype`'s [[Prototype]] IS the parent's
+    // prototype. Only `Iterator` was wired, so
+    // `Object.getPrototypeOf(MySet.prototype) === Set.prototype`
+    // answered false and the class's prototype object sat with no
+    // parent at all. The tag space already carries the name of every
+    // builtin constructor, so the answer is that table read backwards
+    // rather than a second list to keep in step with the first.
+    (0..torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS as i64)
+        .find(|t| torajs_rc::builtin_proto::builtin_ctor_meta(*t).is_some_and(|(n, _)| n == parent))
 }
 
 /// Strip a builtin parent down to base-class shape (see module doc).
