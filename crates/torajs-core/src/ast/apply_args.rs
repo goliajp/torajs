@@ -60,14 +60,32 @@ pub(crate) fn collect_fn_defaults(ast: &Ast) -> HashMap<String, Vec<Option<ExprI
         if let Stmt::FnDecl { name, params, .. } = s {
             let user_params: &[Param] = peel_hidden_params(params);
             if user_params.iter().any(|p| p.default.is_some()) {
-                fn_defaults.insert(
-                    name.clone(),
-                    user_params.iter().map(|p| p.default).collect(),
-                );
+                fn_defaults.insert(name.clone(), paddable_defaults(user_params));
             }
         }
     }
     fn_defaults
+}
+
+/// The paddable slots of a user-param list: the fixed prefix, with a
+/// trailing rest position dropped.
+///
+/// A rest position is not an omitted argument the caller can supply.
+/// What §10.2.11 owes an absent variadic tail is an EMPTY array, so
+/// an `undefined` padded there lands IN the tail instead — `g()` on
+/// `g(x = 5, ...r)` would answer `r.length` 1. The tail is the
+/// callee's own; padding stops in front of it.
+///
+/// `apply_spread_args`, this table's other reader, indexes it up to
+/// a separately computed arity — it never reaches past this, because
+/// it skips variadic callees outright (`apply_rest_args` consumed
+/// their spread sites already).
+fn paddable_defaults(user_params: &[Param]) -> Vec<Option<ExprId>> {
+    let fixed = match user_params.last() {
+        Some(p) if p.is_rest => &user_params[..user_params.len() - 1],
+        _ => user_params,
+    };
+    fixed.iter().map(|p| p.default).collect()
 }
 
 /// Fold one method's default list into the Member-callee padding
@@ -113,27 +131,62 @@ fn merge_method_defaults(
     }
 }
 
-/// Method names some class row declares with a rest parameter — the
-/// names the by-name default table must refuse to serve.
+/// Method names the by-name default table must refuse to serve.
 ///
-/// That table exists for a receiver this pass cannot resolve, and
-/// what it would supply to a variadic row is not the omitted argument
-/// the language owes (§10.2.11) but an EXTRA one: it lands in the
-/// tail, so an unrelated class's `q = 3` reached a `f(x, ...r)` as
-/// `r = [3]` and the row answered one more than it should. Seeded as
-/// a conflict rather than filtered at the call site because a
-/// conflict is what the name being ambiguous MEANS here; a receiver
+/// That table exists for a receiver this pass cannot resolve, so it
+/// may only carry what EVERY owner of the name agrees on. Two kinds
+/// of row break that, and both are the rule `merge_method_defaults`
+/// already states — a wrong default is a silent wrong, an unpadded
+/// call is an honest arity error:
+///
+/// - **A variadic row.** What the table would supply to it is not the
+///   omitted argument the language owes (§10.2.11) but an EXTRA one:
+///   it lands in the tail, so an unrelated class's `q = 3` reached a
+///   `f(x, ...r)` as `r = [3]`.
+/// - **A row of the same arity that declares no default at all.** The
+///   merge only ever walks rows that HAVE defaults, so a plain
+///   `m(x, y)` beside an `m(x, y = 5)` never registered its
+///   disagreement and took the 5 (`B:1:5` where the language owes
+///   undefined). Arity is part of the test on purpose: a row of a
+///   DIFFERENT shape is a different method that happens to share a
+///   name — `class It { next() {} }` must not evict the resume slot
+///   every desugared generator's one-param `next` is padded with.
+///
+/// Seeded as a conflict rather than filtered at the call site because
+/// a conflict is what the name being ambiguous MEANS here; a receiver
 /// this pass DOES resolve still reads the row's own defaults, one
 /// branch earlier in `member_call_defaults`.
-fn rest_tailed_method_names(ast: &Ast) -> std::collections::HashSet<String> {
+fn unservable_method_names(ast: &Ast) -> std::collections::HashSet<String> {
+    let mut arities: HashMap<String, std::collections::HashSet<usize>> = HashMap::new();
+    let mut bare: Vec<(String, usize)> = Vec::new();
     let mut out = std::collections::HashSet::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, .. } = s
-            && params.last().is_some_and(|p| p.is_rest)
-            && let Some(rest) = name.strip_prefix("__cm_")
-            && let Some(idx) = rest.rfind("__")
-        {
-            out.insert(rest[idx + 2..].to_string());
+        let Stmt::FnDecl { name, params, .. } = s else {
+            continue;
+        };
+        let Some(rest) = name.strip_prefix("__cm_") else {
+            continue;
+        };
+        let Some(idx) = rest.rfind("__") else {
+            continue;
+        };
+        let mname = rest[idx + 2..].to_string();
+        if params.last().is_some_and(|p| p.is_rest) {
+            out.insert(mname);
+            continue;
+        }
+        // `__cm_C__M` leads with `__this`, which no Member call site
+        // passes — the same slice the by-name merge takes.
+        let user = &params[1.min(params.len())..];
+        if user.iter().any(|p| p.default.is_some()) {
+            arities.entry(mname).or_default().insert(user.len());
+        } else {
+            bare.push((mname, user.len()));
+        }
+    }
+    for (mname, arity) in bare {
+        if arities.get(&mname).is_some_and(|a| a.contains(&arity)) {
+            out.insert(mname);
         }
     }
     out
@@ -173,12 +226,22 @@ fn synthetic_fn_ident(e: &Expr) -> Option<String> {
 /// default for an explicit `undefined` exactly as for a missing
 /// argument — `f(undefined)` on `f(x: number = 5)` is 5, and the
 /// typed direct lane was rejecting it at the checker), then pad the
-/// missing tail. A hole in the defaults past the actuals abandons the
-/// padding (the language binds undefined there and the body-side lane
-/// owns it) but keeps any substitutions. Runtime-undefined actuals
-/// (an `any` value) are the lowering's or_default lane, not this
-/// walk — a literal is the only spelling the AST can prove.
-fn defaulted_args(ast: &Ast, args: &[ExprId], defaults: &[Option<ExprId>]) -> Option<Vec<ExprId>> {
+/// missing tail. A slot with NO default in that tail is filled with a
+/// fresh `undefined` literal — that IS what the language binds there
+/// (step 26 again), and stopping at it used to abandon every default
+/// BEHIND it: `m(x, y = 5)` called `m()` reached the arity gate
+/// unpadded. Nothing else can fill those: a method param carrying a
+/// default is annotated from it (`infer_default_param_anns`), which
+/// puts it out of reach of both the callee-side guard (that lane
+/// wants an `any` slot) and `t28_pad` (a typed slot cannot hold
+/// undefined). Runtime-undefined actuals (an `any` value) are the
+/// lowering's or_default lane, not this walk — a literal is the only
+/// spelling the AST can prove.
+fn defaulted_args(
+    ast: &mut Ast,
+    args: &[ExprId],
+    defaults: &[Option<ExprId>],
+) -> Option<Vec<ExprId>> {
     let mut new_args = args.to_vec();
     let mut subst = false;
     for (slot, dflt) in new_args.iter_mut().zip(defaults) {
@@ -189,14 +252,17 @@ fn defaulted_args(ast: &Ast, args: &[ExprId], defaults: &[Option<ExprId>]) -> Op
             subst = true;
         }
     }
-    let mut padded = args.len() < defaults.len();
-    for dflt in &defaults[args.len().min(defaults.len())..] {
-        match dflt {
-            Some(default_eid) => new_args.push(*default_eid),
+    let padded = args.len() < defaults.len();
+    for slot in args.len().min(defaults.len())..defaults.len() {
+        match defaults[slot] {
+            Some(default_eid) => new_args.push(default_eid),
+            // A fresh literal per hole, not one shared node: the
+            // materialize pass mints its pad value the same way, and
+            // a shared ident would let one site's later rewrite reach
+            // every other site.
             None => {
-                padded = false;
-                new_args.truncate(args.len());
-                break;
+                let undef = ast.add_expr(Expr::Ident("undefined".into()));
+                new_args.push(undef);
             }
         }
     }
@@ -213,7 +279,7 @@ pub fn apply_default_args(ast: &mut Ast) {
     // we can apply them to the bare `obj.method(args)` call site
     // without knowing the receiver's static type.
     let mut method_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
-    let mut method_conflict = rest_tailed_method_names(ast);
+    let mut method_conflict = unservable_method_names(ast);
     for (fname, defaults) in &fn_defaults {
         let Some(rest) = fname.strip_prefix("__cm_") else {
             continue;
@@ -451,7 +517,7 @@ mod tests {
             "__cm_A__f",
             vec![p("__this", false), p("x", false), p("r", true)],
         )]);
-        assert!(rest_tailed_method_names(&ast).contains("f"));
+        assert!(unservable_method_names(&ast).contains("f"));
     }
 
     #[test]
@@ -460,7 +526,37 @@ mod tests {
             "__cm_A__f",
             vec![p("__this", false), p("x", false), p("y", false)],
         )]);
-        assert!(rest_tailed_method_names(&ast).is_empty());
+        assert!(unservable_method_names(&ast).is_empty());
+    }
+
+    #[test]
+    fn a_same_shape_row_with_no_default_refuses_the_name() {
+        let ast = ast_of(vec![
+            fnd(
+                "__cm_A__m",
+                vec![p("__this", false), p("x", false), pd("y", Some(ExprId(0)))],
+            ),
+            fnd(
+                "__cm_B__m",
+                vec![p("__this", false), p("x", false), p("y", false)],
+            ),
+        ]);
+        assert!(unservable_method_names(&ast).contains("m"));
+    }
+
+    #[test]
+    fn a_different_shape_row_with_no_default_leaves_the_name_alone() {
+        // `class It { next() {} }` beside a desugared generator: a
+        // different arity is a different method, and evicting `next`
+        // would unpad every `it.next()`.
+        let ast = ast_of(vec![
+            fnd(
+                "__cm___Gen_g__next",
+                vec![p("__this", false), pd("__yield_arg", Some(ExprId(0)))],
+            ),
+            fnd("__cm_It__next", vec![p("__this", false)]),
+        ]);
+        assert!(unservable_method_names(&ast).is_empty());
     }
 
     #[test]
@@ -470,13 +566,60 @@ mod tests {
             "__cm___Gen_count3__next",
             vec![p("__this", false), p("r", true)],
         )]);
-        let names = rest_tailed_method_names(&ast);
+        let names = unservable_method_names(&ast);
         assert!(names.contains("next"), "{names:?}");
+    }
+
+    fn pd(name: &str, default: Option<ExprId>) -> Param {
+        Param {
+            name: name.into(),
+            type_ann: None,
+            default,
+            is_rest: false,
+        }
+    }
+
+    #[test]
+    fn the_rest_position_is_not_a_paddable_slot() {
+        let ps = vec![pd("x", Some(ExprId(0))), p("r", true)];
+        assert_eq!(paddable_defaults(&ps), vec![Some(ExprId(0))]);
+    }
+
+    #[test]
+    fn a_fixed_tail_keeps_every_slot() {
+        let ps = vec![p("x", false), pd("y", Some(ExprId(0)))];
+        assert_eq!(paddable_defaults(&ps), vec![None, Some(ExprId(0))]);
+    }
+
+    #[test]
+    fn a_hole_before_a_default_is_filled_not_abandoned() {
+        let mut ast = ast_of(vec![]);
+        let five = ast.add_expr(Expr::Number(5.0));
+        let got = defaulted_args(&mut ast, &[], &[None, Some(five)]).expect("padded");
+        assert_eq!(got.len(), 2);
+        assert!(matches!(ast.get_expr(got[0]), Expr::Ident(n) if n == "undefined"));
+        assert_eq!(got[1], five);
+    }
+
+    #[test]
+    fn every_hole_gets_its_own_undefined() {
+        let mut ast = ast_of(vec![]);
+        let five = ast.add_expr(Expr::Number(5.0));
+        let got = defaulted_args(&mut ast, &[], &[None, None, Some(five)]).expect("padded");
+        assert_ne!(got[0], got[1]);
+    }
+
+    #[test]
+    fn a_call_that_fills_every_slot_is_left_alone() {
+        let mut ast = ast_of(vec![]);
+        let five = ast.add_expr(Expr::Number(5.0));
+        let one = ast.add_expr(Expr::Number(1.0));
+        assert!(defaulted_args(&mut ast, &[one, one], &[None, Some(five)]).is_none());
     }
 
     #[test]
     fn a_plain_variadic_function_is_not_a_method_name() {
         let ast = ast_of(vec![fnd("g", vec![p("x", false), p("r", true)])]);
-        assert!(rest_tailed_method_names(&ast).is_empty());
+        assert!(unservable_method_names(&ast).is_empty());
     }
 }
