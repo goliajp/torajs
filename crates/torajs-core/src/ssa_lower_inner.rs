@@ -208,6 +208,7 @@ pub(crate) fn lower_inner(
         &mut module,
         ast,
         &fn_table,
+        &fn_sig_ids,
         &boxed_entries,
         arr_layouts,
         fn_sigs,
@@ -430,6 +431,7 @@ fn finalize_module(
     module: &mut Module,
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
+    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
     arr_layouts: Vec<Type>,
     fn_sigs: Vec<(Vec<Type>, Type)>,
@@ -450,6 +452,12 @@ fn finalize_module(
     // — see [`crate::ssa_lower_module_metadata`] for the consolidated
     // builder docs.
     crate::ssa_lower_module_metadata::populate_vtables(ast, fn_table, module);
+    // 507-02 — one slot, one ABI: the indirect call through a slot
+    // takes ITS signature from a single owner, so the table is only
+    // callable if every row agrees. Nothing else pins that; the
+    // union-find that establishes it (`num_width::slot_abi`) is a
+    // different pass with its own idea of which bodies share a slot.
+    crate::ssa_lower_module_metadata_slot_abi::assert_vtable_slot_abi(ast, module, fn_sig_ids);
     let generic_methods = crate::ssa_lower_module_metadata::populate_class_layouts(
         ast,
         fn_table,
