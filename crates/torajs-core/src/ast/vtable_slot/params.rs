@@ -64,6 +64,15 @@ struct RowPlan {
     moved: Vec<(usize, String, ExprId)>,
 }
 
+/// The parameter list one slot settled on: an annotation per fixed
+/// position, and the rest tail every row gains when some row declares
+/// one.
+#[derive(Debug, PartialEq)]
+struct SlotShape {
+    fixed: Vec<Option<String>>,
+    rest: Option<String>,
+}
+
 /// What becomes of one row's default once its slot is widened.
 enum DefaultFate {
     /// Nothing to carry: no default, or the `undefined` literal that
@@ -164,16 +173,12 @@ fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<St
     let mut plan: HashMap<String, RowPlan> = HashMap::new();
     for (m, by_root) in super::slot_groups_by_name(ast) {
         let stubs = super::dispatch_stub_names(sigs.keys(), &m);
-        let mut shapes: Vec<Vec<Option<String>>> = Vec::new();
+        let mut shapes: Vec<SlotShape> = Vec::new();
         for rows in by_root.values() {
-            // A rest parameter has no fixed arity to join to, and a
-            // row missing from `sigs` is not a `__this` shape at all.
-            // Either way the honest move is to leave the slot as the
-            // ABI check found it.
-            if rows
-                .iter()
-                .any(|r| sigs.get(r).is_none_or(|ps| ps.iter().any(|p| p.is_rest)))
-            {
+            // A row missing from `sigs` is not a `__this` shape at
+            // all, so there is no list to align — leave the slot as
+            // the ABI check found it.
+            if rows.iter().any(|r| !sigs.contains_key(r)) {
                 continue;
             }
             if let Some(shape) = plan_one_root(ast, rows, sigs, &global_fns, &mut plan) {
@@ -219,8 +224,8 @@ fn plan_one_root(
     sigs: &HashMap<String, Vec<Param>>,
     global_fns: &[String],
     plan: &mut HashMap<String, RowPlan>,
-) -> Option<Vec<Option<String>>> {
-    let shape = join_rows(rows, sigs);
+) -> Option<SlotShape> {
+    let shape = join_rows(rows, sigs)?;
     if rows.iter().all(|r| rebuild(&sigs[r], &shape).is_none()) {
         return Some(shape);
     }
@@ -236,8 +241,10 @@ fn plan_one_root(
     let mut shape = shape;
     for fate_row in &fates {
         for (i, f) in fate_row.iter().enumerate() {
-            if matches!(f, DefaultFate::Move(_)) {
-                shape[i] = Some("any".to_string());
+            if matches!(f, DefaultFate::Move(_))
+                && let Some(slot) = shape.fixed.get_mut(i)
+            {
+                *slot = Some("any".to_string());
             }
         }
     }
@@ -258,37 +265,77 @@ fn plan_one_root(
     Some(shape)
 }
 
-/// The joined annotation at each position of one root's rows: the
+/// The shape one root's rows agree on: at each fixed position the
 /// annotation every row spells there, or `any` when they differ or
 /// when some row does not reach that far.
-fn join_rows(rows: &[String], sigs: &HashMap<String, Vec<Param>>) -> Vec<Option<String>> {
-    let width = rows.iter().map(|r| sigs[r].len()).max().unwrap_or(0);
-    (0..width)
+///
+/// A rest parameter is the one thing a join cannot widen INTO. Where
+/// a row's fixed parameters end decides where its rest begins, so
+/// rows whose fixed arities differ unpack the same argument list two
+/// different ways (`f(1,2,3)` gives one row `r = [2,3]` and the other
+/// `y = 2, r = [3]`) and no single slot expresses both — `None`, and
+/// the ABI check says so out loud. When the fixed arities DO agree,
+/// the tail is uniform and every row gains one: a row that never
+/// declared a rest carries a `__slotrest` it does not read, which is
+/// what makes the call site pack for whichever row it resolved to.
+fn join_rows(rows: &[String], sigs: &HashMap<String, Vec<Param>>) -> Option<SlotShape> {
+    let split = |r: &String| -> (&[Param], Option<&Param>) {
+        let ps: &[Param] = &sigs[r];
+        match ps.last() {
+            Some(l) if l.is_rest => (&ps[..ps.len() - 1], Some(l)),
+            _ => (ps, None),
+        }
+    };
+    let any_rest = rows.iter().any(|r| split(r).1.is_some());
+    let fixed_len = |r: &String| split(r).0.len();
+    if any_rest && rows.iter().any(|r| fixed_len(r) != fixed_len(&rows[0])) {
+        return None;
+    }
+    let width = rows.iter().map(fixed_len).max().unwrap_or(0);
+    let fixed = (0..width)
         .map(|i| {
-            let head = sigs[&rows[0]].get(i).map(|p| p.type_ann.clone());
+            let head = split(&rows[0]).0.get(i).map(|p| p.type_ann.clone());
             match head {
                 Some(a)
-                    if rows
-                        .iter()
-                        .all(|r| sigs[r].get(i).map(|p| p.type_ann.clone()) == Some(a.clone())) =>
+                    if rows.iter().all(|r| {
+                        split(r).0.get(i).map(|p| p.type_ann.clone()) == Some(a.clone())
+                    }) =>
                 {
                     a
                 }
                 _ => Some("any".to_string()),
             }
         })
-        .collect()
+        .collect();
+    let rest = any_rest.then(|| {
+        let mut anns = rows
+            .iter()
+            .filter_map(|r| split(r).1)
+            .map(|p| p.type_ann.clone().unwrap_or_else(|| "any[]".to_string()));
+        let head = anns.next().unwrap_or_else(|| "any[]".to_string());
+        if anns.all(|a| a == head) {
+            head
+        } else {
+            "any[]".to_string()
+        }
+    });
+    Some(SlotShape { fixed, rest })
 }
 
 /// One declaration's parameters rewritten to the joined shape, or
 /// `None` when it already had it. Existing parameters keep their
 /// names — the body reads them by name — and only the annotation
-/// moves; the positions the row never declared arrive as pads.
-fn rebuild(have: &[Param], shape: &[Option<String>]) -> Option<Vec<Param>> {
-    let mut out: Vec<Param> = Vec::with_capacity(shape.len());
-    let mut changed = have.len() != shape.len();
-    for (i, want) in shape.iter().enumerate() {
-        match have.get(i) {
+/// moves; the positions the row never declared arrive as pads, and so
+/// does a rest tail the row never declared.
+fn rebuild(have: &[Param], shape: &SlotShape) -> Option<Vec<Param>> {
+    let (fixed, had_rest) = match have.last() {
+        Some(l) if l.is_rest => (&have[..have.len() - 1], Some(l)),
+        _ => (have, None),
+    };
+    let mut out: Vec<Param> = Vec::with_capacity(shape.fixed.len() + 1);
+    let mut changed = fixed.len() != shape.fixed.len();
+    for (i, want) in shape.fixed.iter().enumerate() {
+        match fixed.get(i) {
             Some(p) => {
                 changed |= p.type_ann != *want;
                 out.push(Param {
@@ -303,6 +350,26 @@ fn rebuild(have: &[Param], shape: &[Option<String>]) -> Option<Vec<Param>> {
                 is_rest: false,
             }),
         }
+    }
+    match (&shape.rest, had_rest) {
+        (Some(ann), Some(p)) => {
+            changed |= p.type_ann.as_ref() != Some(ann);
+            out.push(Param {
+                type_ann: Some(ann.clone()),
+                ..p.clone()
+            });
+        }
+        (Some(ann), None) => {
+            changed = true;
+            out.push(Param {
+                name: "__slotrest".to_string(),
+                type_ann: Some(ann.clone()),
+                default: None,
+                is_rest: true,
+            });
+        }
+        (None, Some(_)) => unreachable!("a row with a rest joins to a shape with one"),
+        (None, None) => {}
     }
     changed.then_some(out)
 }
@@ -386,14 +453,29 @@ mod tests {
             .collect()
     }
 
+    fn names(rows: &[&str]) -> Vec<String> {
+        rows.iter().map(|r| (*r).to_string()).collect()
+    }
+
+    fn join(s: &HashMap<String, Vec<Param>>, rows: &[&str]) -> SlotShape {
+        join_rows(&names(rows), s).expect("rows join")
+    }
+
+    fn rest(name: &str, ann: Option<&str>) -> Param {
+        Param {
+            is_rest: true,
+            ..p(name, ann)
+        }
+    }
+
     #[test]
     fn rows_that_agree_join_to_themselves() {
         let s = sigs(&[
             ("a", vec![p("x", Some("number"))]),
             ("b", vec![p("x", Some("number"))]),
         ]);
-        let shape = join_rows(&["a".into(), "b".into()], &s);
-        assert_eq!(shape, vec![Some("number".to_string())]);
+        let shape = join(&s, &["a", "b"]);
+        assert_eq!(shape.fixed, vec![Some("number".to_string())]);
         // and nothing is rewritten
         assert!(rebuild(&s["a"], &shape).is_none());
     }
@@ -401,8 +483,8 @@ mod tests {
     #[test]
     fn unannotated_rows_stay_unannotated() {
         let s = sigs(&[("a", vec![p("x", None)]), ("b", vec![p("x", None)])]);
-        let shape = join_rows(&["a".into(), "b".into()], &s);
-        assert_eq!(shape, vec![None]);
+        let shape = join(&s, &["a", "b"]);
+        assert_eq!(shape.fixed, vec![None]);
         assert!(rebuild(&s["a"], &shape).is_none());
     }
 
@@ -412,8 +494,8 @@ mod tests {
             ("a", vec![p("x", Some("number"))]),
             ("b", vec![p("x", Some("string"))]),
         ]);
-        let shape = join_rows(&["a".into(), "b".into()], &s);
-        assert_eq!(shape, vec![Some("any".to_string())]);
+        let shape = join(&s, &["a", "b"]);
+        assert_eq!(shape.fixed, vec![Some("any".to_string())]);
         let out = rebuild(&s["a"], &shape).expect("row widens");
         assert_eq!(out[0].name, "x");
         assert_eq!(out[0].type_ann.as_deref(), Some("any"));
@@ -425,8 +507,11 @@ mod tests {
             ("a", vec![p("x", Some("number"))]),
             ("b", vec![p("x", Some("number")), p("y", Some("number"))]),
         ]);
-        let shape = join_rows(&["a".into(), "b".into()], &s);
-        assert_eq!(shape, vec![Some("number".to_string()), Some("any".into())]);
+        let shape = join(&s, &["a", "b"]);
+        assert_eq!(
+            shape.fixed,
+            vec![Some("number".to_string()), Some("any".into())]
+        );
         let narrow = rebuild(&s["a"], &shape).expect("narrow row pads");
         assert_eq!(narrow.len(), 2);
         assert_eq!(narrow[0].name, "x");
@@ -505,5 +590,49 @@ mod tests {
         assert!(plan_one_root(&ast, &rows, &s, &[], &mut plan).is_some());
         assert!(plan["b"].moved.is_empty());
         assert!(plan["b"].params[1].default.is_some());
+    }
+
+    /// Fixed arities agreeing, one row variadic: every row gains the
+    /// tail, and the row that never declared one carries a
+    /// `__slotrest` it does not read.
+    #[test]
+    fn a_rest_tail_reaches_every_row_of_the_slot() {
+        let s = sigs(&[
+            ("a", vec![p("x", None)]),
+            ("b", vec![p("x", None), rest("r", Some("any[]"))]),
+        ]);
+        let shape = join(&s, &["a", "b"]);
+        assert_eq!(shape.rest.as_deref(), Some("any[]"));
+        let narrow = rebuild(&s["a"], &shape).expect("narrow row gains the tail");
+        assert_eq!(narrow.len(), 2);
+        assert_eq!(narrow[1].name, "__slotrest");
+        assert!(narrow[1].is_rest);
+        // the variadic row keeps its own name and is left alone
+        assert!(rebuild(&s["b"], &shape).is_none());
+    }
+
+    /// Fixed arities disagreeing with a rest in play unpacks the same
+    /// argument list two ways, which one slot cannot express.
+    #[test]
+    fn rows_that_start_their_rest_at_different_positions_do_not_join() {
+        let s = sigs(&[
+            ("a", vec![p("x", None), rest("r", Some("any[]"))]),
+            (
+                "b",
+                vec![p("x", None), p("y", None), rest("r2", Some("any[]"))],
+            ),
+        ]);
+        assert!(join_rows(&names(&["a", "b"]), &s).is_none());
+    }
+
+    /// Rest tails spelling different element types widen to `any[]`,
+    /// the same rule the fixed positions take.
+    #[test]
+    fn rest_tails_that_disagree_widen() {
+        let s = sigs(&[
+            ("a", vec![p("x", None), rest("r", Some("number[]"))]),
+            ("b", vec![p("x", None), rest("r", Some("string[]"))]),
+        ]);
+        assert_eq!(join(&s, &["a", "b"]).rest.as_deref(), Some("any[]"));
     }
 }
