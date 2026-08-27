@@ -95,10 +95,14 @@ pub(super) struct GenSm<'a> {
     /// declares `value: any` but the ObjectLit's field_tys carries the
     /// concrete primitive type) and SIGSEGVs.
     pub(super) yield_ty: String,
+    /// §27.6.3.8 AsyncGeneratorYield step 5 — an ASYNC generator
+    /// awaits the value before it yields it. Set for the async
+    /// generators only; a sync one yields verbatim (§27.5.3.7).
+    pub(super) is_async_gen: bool,
 }
 
 impl<'a> GenSm<'a> {
-    pub(super) fn new(ast: &'a mut Ast, yield_ty: String) -> Self {
+    pub(super) fn new(ast: &'a mut Ast, yield_ty: String, is_async_gen: bool) -> Self {
         Self {
             ast,
             arms: vec![Vec::new()],
@@ -110,6 +114,7 @@ impl<'a> GenSm<'a> {
             loop_stack: Vec::new(),
             pending_label: None,
             yield_ty,
+            is_async_gen,
         }
     }
 
@@ -193,6 +198,30 @@ impl<'a> GenSm<'a> {
 
     fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {
         let set = self.emit_set_state(next);
+        // §27.6.3.8 AsyncGeneratorYield step 5 — an ASYNC generator
+        // awaits what it yields, so `yield Promise.resolve(3)` steps
+        // with 3 and `yield Promise.reject(e)` REJECTS the step's
+        // promise instead of resolving with the rejected promise
+        // itself. A sync generator yields verbatim (§27.5.3.7) and
+        // must keep doing so — `g().next().value` on a yielded
+        // promise IS the promise. The mark makes the read
+        // type-dispatched (a promise unwraps, anything else is
+        // identity), the same one the parser's `await e` and the
+        // async `return(v)` (§27.6.3.7 step 8.d) mint.
+        //
+        // `yield*` needs no separate arm: the parser desugars
+        // delegation into plain yields, and AsyncGeneratorYield is
+        // the step §27.6.3.9 routes each delegated value through too.
+        let val = if self.is_async_gen {
+            let read = self.ast.add_expr(Expr::Member {
+                obj: val,
+                name: "value".into(),
+            });
+            self.ast.await_value_reads.insert(read);
+            read
+        } else {
+            val
+        };
         // P10.7 — Default-Any yield: route through `Expr::As { …,
         // ty_ann: "any" }` so the step's `value: any` field write
         // picks up the existing box-to-Any path (NaN-box AnyValue).

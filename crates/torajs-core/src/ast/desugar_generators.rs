@@ -261,7 +261,10 @@ fn desugar_one_generator(
     // `while(true)` loop re-enters the if-chain at the new state.
     let (next_body, gen_hoisted, has_try_regions, has_finally_ret) =
         crate::ast::desugar_generators_assemble::build_state_machine_next_body(
-            ast, gen_body, &yield_ty,
+            ast,
+            gen_body,
+            &yield_ty,
+            is_async_gen,
         );
     // RFC 20260802 — the SM's hoisted catch-param slots become class
     // fields alongside the lifted locals.

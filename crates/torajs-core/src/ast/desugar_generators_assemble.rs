@@ -28,13 +28,14 @@ pub(super) fn build_state_machine_next_body(
     ast: &mut Ast,
     gen_body: Vec<Stmt>,
     yield_ty: &str,
+    is_async_gen: bool,
 ) -> (Vec<Stmt>, Vec<(String, String)>, bool, bool) {
     // Build the state machine. Each arm is the body of one state in
     // an if-chain wrapped by `while (true) { ... }`. Yields close an
     // arm with `return {value:e, done:false}`; control-flow gotos
     // close with `state = N; continue;` and the `while(true)` loop
     // re-enters the if-chain at the new state.
-    let mut sm = super::desugar_generators_sm::GenSm::new(ast, yield_ty.to_string());
+    let mut sm = super::desugar_generators_sm::GenSm::new(ast, yield_ty.to_string(), is_async_gen);
     sm.lower_seq(gen_body);
     // After the last body stmt, the natural exit is "done forever".
     let zero = default_init_for_type(yield_ty);
