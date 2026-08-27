@@ -185,6 +185,7 @@ pub(crate) mod stmt_nested_lists;
 mod strict_reserved_goal;
 mod super_collect;
 mod super_collect_prop;
+mod super_home_dynamic;
 mod this_param;
 mod toplevel_this;
 mod uncallable_builtins;

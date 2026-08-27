@@ -64,7 +64,11 @@ struct DeclaredShape {
     has_setter: bool,
 }
 
-pub(super) fn rewrite_super_prop_sites(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
+pub(super) fn rewrite_super_prop_sites(
+    ast: &mut Ast,
+    class_index: &[ClassIndexEntry],
+    dynamic: bool,
+) {
     for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in class_index {
         // Instance context: ctor body (field inits are folded in) +
         // instance methods. Super base = <Parent>.prototype, receiver
@@ -85,7 +89,13 @@ pub(super) fn rewrite_super_prop_sites(ast: &mut Ast, class_index: &[ClassIndexE
                 collect_superprop_in_stmt(ast, s, &mut inst);
             }
         }
-        rewrite_sites(ast, class_index, parent_name, cname, false, inst);
+        // 507-03 — a class whose heritage was STRIPPED to a builtin
+        // (`exotic_parent`) keeps its base spelling: the runtime base
+        // there is the builtin prototype, which this lane's kernels
+        // cannot read a method off in the first place, so re-spelling
+        // it would only move an already-recorded failure.
+        let dyn_here = dynamic && !ast.exotic_parent.contains_key(cname);
+        rewrite_sites(ast, class_index, parent_name, cname, false, dyn_here, inst);
 
         // Static context: super base = the <Parent> class object.
         // A base class's static super base would be
@@ -98,7 +108,15 @@ pub(super) fn rewrite_super_prop_sites(ast: &mut Ast, class_index: &[ClassIndexE
                     collect_superprop_in_stmt(ast, s, &mut stat);
                 }
             }
-            rewrite_sites(ast, class_index, Some(parent_name), cname, true, stat);
+            rewrite_sites(
+                ast,
+                class_index,
+                Some(parent_name),
+                cname,
+                true,
+                dyn_here,
+                stat,
+            );
         }
     }
 }
@@ -109,13 +127,25 @@ fn rewrite_sites(
     parent_name: Option<&str>,
     cname: &str,
     is_static: bool,
+    dynamic: bool,
     found: SuperPropSites,
 ) {
     let deletes = delete_operands(ast);
     for site in found.sites {
         match site {
             SuperPropSite::Read { member, name } => {
-                let decl = nearest_declaring_shape(class_index, parent_name, &name, is_static);
+                // 507-03 — the static accessor call names the owner the
+                // chain had at class-definition time; under a runtime
+                // base the chain answers instead, so the name form
+                // takes the same receiver-aware [[Get]] the computed
+                // form does. That also retires this arm's recorded
+                // silent boundary (a runtime-defined accessor read with
+                // the BASE as receiver) for degraded programs.
+                let decl = if dynamic {
+                    None
+                } else {
+                    nearest_declaring_shape(class_index, parent_name, &name, is_static)
+                };
                 if let Some(d) = decl.filter(|d| d.has_getter) {
                     let callee =
                         ast.add_expr(Expr::Ident(accessor_fn(is_static, &d.owner, &name, "_get")));
@@ -125,8 +155,19 @@ fn rewrite_sites(
                         vec![ast.add_expr(Expr::This)]
                     };
                     ast.exprs[member.0 as usize] = Expr::Call { callee, args };
+                } else if dynamic && !deletes.contains(&member) {
+                    // See `delete_operands`: a delete operand must stay
+                    // a property reference, so it keeps the plain read.
+                    let base = mint_base(ast, parent_name, cname, is_static, dynamic);
+                    let key = ast.add_expr(Expr::String(name));
+                    let recv = mint_receiver(ast, cname, is_static);
+                    let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_get".to_string()));
+                    ast.exprs[member.0 as usize] = Expr::Call {
+                        callee,
+                        args: vec![base, key, recv],
+                    };
                 } else {
-                    let base = mint_base(ast, parent_name, is_static);
+                    let base = mint_base(ast, parent_name, cname, is_static, dynamic);
                     ast.exprs[member.0 as usize] = Expr::Member { obj: base, name };
                 }
             }
@@ -135,7 +176,7 @@ fn rewrite_sites(
                     continue;
                 };
                 let key = *index;
-                let base = mint_base(ast, parent_name, is_static);
+                let base = mint_base(ast, parent_name, cname, is_static, dynamic);
                 if deletes.contains(&index_expr) {
                     // See `delete_operands` — the plain index stays.
                     ast.exprs[index_expr.0 as usize] = Expr::Index {
@@ -158,7 +199,21 @@ fn rewrite_sites(
                 value,
                 stmt_pos,
             } => {
-                let decl = nearest_declaring_shape(class_index, parent_name, &name, is_static);
+                // 507-03 — same reason as the Read arm: under a runtime
+                // base the static owner walk names an owner the chain
+                // may no longer reach, so the site takes the
+                // receiver-write fallback (§9.1.9 OrdinarySet with
+                // receiver = this). Recorded boundary (507-05, not a
+                // super question): that fallback's own accessor
+                // dispatch is itself resolved through the class
+                // hierarchy at compile time, so a setter only the
+                // relinked chain declares is missed there too —
+                // exactly as a plain `this.x = v` misses it.
+                let decl = if dynamic {
+                    None
+                } else {
+                    nearest_declaring_shape(class_index, parent_name, &name, is_static)
+                };
                 if stmt_pos && decl.as_ref().is_some_and(|d| d.has_setter) {
                     let owner = decl.unwrap().owner;
                     let callee =
@@ -184,7 +239,7 @@ fn rewrite_sites(
                     continue;
                 };
                 let key = *index;
-                let base = mint_base(ast, parent_name, is_static);
+                let base = mint_base(ast, parent_name, cname, is_static, dynamic);
                 let recv = mint_receiver(ast, cname, is_static);
                 // The pack is an array literal, the protocol
                 // `__torajs_super_value` already uses: one dense
@@ -223,7 +278,21 @@ fn accessor_fn(is_static: bool, owner: &str, name: &str, suffix: &str) -> String
     }
 }
 
-fn mint_base(ast: &mut Ast, parent_name: Option<&str>, is_static: bool) -> ExprId {
+fn mint_base(
+    ast: &mut Ast,
+    parent_name: Option<&str>,
+    cname: &str,
+    is_static: bool,
+    dynamic: bool,
+) -> ExprId {
+    // 507-03 — the parent is only the home object's prototype while
+    // nothing re-links it; when the program can, the base is read from
+    // the home object itself. That also covers the no-extends case
+    // uniformly: `Object.getPrototypeOf(C.prototype)` IS
+    // %Object.prototype% there.
+    if dynamic {
+        return super::super_home_dynamic::mint_home_proto(ast, cname, is_static);
+    }
     // No extends clause → the instance super base is %Object.prototype%
     // (the caller never reaches here for a base class's statics).
     let parent = ast.add_expr(Expr::Ident(parent_name.unwrap_or("Object").to_string()));

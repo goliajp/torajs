@@ -174,7 +174,14 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
     }
 }
 
-pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
+/// Answers the super base spelling this pass used, so Pass 1.7 can
+/// use the same one: `true` = the runtime `[[HomeObject]].[[Prototype]]`
+/// read, `false` = the static parent (see `super_home_dynamic`). The
+/// two passes must not mix spellings within one program, so the
+/// judgment is made once, here, before either of them mutates the
+/// arena.
+pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassIndexEntry]) -> bool {
+    let dynamic = super::super_home_dynamic::program_mutates_prototypes(ast);
     // V3-18 wedge — Pass 1.6: rewrite `super.<m>(args)` (encoded
     // as a Call to ident `__supercall__<m>`) inside each subclass's
     // method bodies into `__cm_<Parent>__<m>(__this, args)`. Walks
@@ -213,7 +220,6 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             }
         }
         for (eid, m_name, args) in sites {
-            let _ = cname; // diag context only
             // S2.12 — `super.m()` names the nearest ancestor that
             // declares `m`, not necessarily the direct parent. Walking
             // up from the parent is what `class C extends B extends A`
@@ -222,6 +228,30 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             // Falling back to the direct parent when nothing declares it
             // keeps the pre-existing diagnostic for a genuine typo.
             let owner = nearest_declaring(class_index, parent_name, &m_name, false);
+            // 507-03 — the direct `__cm_` call names the ancestor the
+            // chain had at class-definition time; when the program can
+            // re-link a prototype that is no longer the answer, so the
+            // site takes the same receiver-aware get-then-call kernel
+            // the computed form (`super[k](args)`) already uses, which
+            // reads the base when the site runs. The builtin re-dispatch
+            // below is left alone: it does not name a `__cm_` owner that
+            // could go stale, and the generic kernel cannot reach a
+            // builtin prototype's methods at all. Decided before the
+            // callee is minted so no orphan ident reaches the arena.
+            let builtin_route =
+                owner.is_none() && builtin_heritage_root(ast, class_index, parent_name);
+            if dynamic && !builtin_route {
+                let base = super::super_home_dynamic::mint_home_proto(ast, cname, false);
+                let key = ast.add_expr(Expr::String(m_name));
+                let recv = ast.add_expr(Expr::This);
+                let pack = ast.add_expr(Expr::Array(args));
+                let kernel = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));
+                ast.exprs[eid.0 as usize] = Expr::Call {
+                    callee: kernel,
+                    args: vec![base, key, recv, pack],
+                };
+                continue;
+            }
             // Rotation 371 — no user ancestor declares `m` and the
             // heritage chain roots in a builtin (`class C extends
             // Set`): `super.m()` resolves on the BUILTIN prototype,
@@ -232,7 +262,7 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             // identifier at compile time.
             let callee = match &owner {
                 Some(o) => ast.add_expr(Expr::Ident(format!("__cm_{o}__{m_name}"))),
-                None if builtin_heritage_root(ast, class_index, parent_name) => {
+                None if builtin_route => {
                     ast.add_expr(Expr::Ident(format!("__superbuiltin__{m_name}")))
                 }
                 None => ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__{m_name}"))),
@@ -274,12 +304,28 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             }
         }
         for (eid, m_name, args) in static_sites {
+            // Same degrade as the instance sites, with the static home
+            // object: `super.m()` in a static body names the parent
+            // CLASS, whose link is `Object.getPrototypeOf(C)`.
+            if dynamic {
+                let base = super::super_home_dynamic::mint_home_proto(ast, cname, true);
+                let key = ast.add_expr(Expr::String(m_name));
+                let recv = ast.add_expr(Expr::Ident(cname.clone()));
+                let pack = ast.add_expr(Expr::Array(args));
+                let kernel = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));
+                ast.exprs[eid.0 as usize] = Expr::Call {
+                    callee: kernel,
+                    args: vec![base, key, recv, pack],
+                };
+                continue;
+            }
             let owner = nearest_declaring(class_index, parent_name, &m_name, true)
                 .unwrap_or(parent_name.clone());
             let callee = ast.add_expr(Expr::Ident(format!("__sm_{owner}__{m_name}")));
             ast.exprs[eid.0 as usize] = Expr::Call { callee, args };
         }
     }
+    dynamic
 }
 
 /// True when `start`'s heritage chain roots in a name outside the
