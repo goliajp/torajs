@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T18:29:25.063Z",
+  "generatedAt": "2026-08-27T20:08:44.466Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T18:16:19Z",
-    "headSha": "6a7dbc530",
-    "elapsedSec": 370.99,
+    "ranAt": "2026-08-27T19:48:27Z",
+    "headSha": "42e040a4b",
+    "elapsedSec": 380.78,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29768,
+    "pass": 29787,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34843,
-    "bug": 12717,
-    "incompatible": 5614,
+    "passTotal": 34862,
+    "bug": 12702,
+    "incompatible": 5610,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47560,
-    "passRateInScope": 65.53,
-    "passRateTrAccepted": 73.26
+    "trAccepted": 47564,
+    "passRateInScope": 65.56,
+    "passRateTrAccepted": 73.29
   },
   "torajs": {
-    "commit": "6a7dbc530",
-    "commitSubject": "fix: a chain through a class instance reads what the plain read reads",
+    "commit": "42e040a4b",
+    "commitSubject": "fix: both sides ask the same question about a global's slot type",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "42e040a4b",
+      "subject": "fix: both sides ask the same question about a global's slot type"
+    },
+    {
+      "hash": "9468b8d9c",
+      "subject": "fix: an async generator awaits what it yields"
+    },
+    {
+      "hash": "b5cfd8b15",
+      "subject": "fix: a binding holding a new instance is visible to named functions"
+    },
+    {
+      "hash": "dd1ac5aff",
+      "subject": "fix: a hole in front of a default is undefined, not an arity error"
+    },
+    {
+      "hash": "6fd817e95",
+      "subject": "docs: rotation 513 test262 sweep ingest + dashboard snapshot"
+    },
+    {
       "hash": "6a7dbc530",
       "subject": "fix: a chain through a class instance reads what the plain read reads"
     },
@@ -739,29 +759,9 @@
     {
       "hash": "d4d84d794",
       "subject": "fix: a parameter the slot's tail swallowed reads itself back out of it"
-    },
-    {
-      "hash": "77b93cc4d",
-      "subject": "refactor: what a default becomes when a slot widens is its own question"
-    },
-    {
-      "hash": "903c0076d",
-      "subject": "fix: an optional chain on a class instance reads that class's own fields"
-    },
-    {
-      "hash": "11082dd97",
-      "subject": "fix: a rest parameter binds the empty array, so a short call is not a short call"
-    },
-    {
-      "hash": "ba93738f5",
-      "subject": "fix: a rest parameter is one array, and the sibling lane was handing it registers"
-    },
-    {
-      "hash": "b67b2c6d6",
-      "subject": "docs: rotation 511 roadmap snapshot + test262 sweep ingest"
     }
   ],
-  "headSha": "6a7dbc530",
+  "headSha": "42e040a4b",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,
