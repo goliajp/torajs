@@ -378,7 +378,9 @@ fn try_dispatch_d(
         return Some(op);
     }
     // Phase I.1 — sibling-class static dispatch for cross-class methods without shared __dispatch_<M>.
-    if let Some(op) = crate::ssa_lower_call_sibling_class_dispatch::try_lower(ctx, callee, args) {
+    if let Some(op) =
+        crate::ssa_lower_call_sibling_class_dispatch::try_lower(ctx, eid, callee, args)
+    {
         return Some(op);
     }
     // T-26 / T-26.B — `wr.deref()` on Type::WeakRef + WeakMap/WeakSet typed-receiver methods.

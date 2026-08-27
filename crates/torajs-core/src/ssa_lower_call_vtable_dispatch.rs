@@ -83,7 +83,7 @@ pub(crate) fn try_lower(
             (None, Some(sig), ctx.f_ret_type_hint(base_fid))
         }
     };
-    let arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    let mut arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
     let owned_temps: Vec<(usize, Operand)> = args
         .iter()
         .zip(arg_ops.iter())
@@ -91,6 +91,14 @@ pub(crate) fn try_lower(
         .filter(|(_, (a, _))| ctx.expr_owned_shape(**a))
         .map(|(i, (_, op))| (i, *op))
         .collect();
+    // §10.2.11 — an argument the call omits is `undefined`, and the
+    // slot's row reads its parameter register either way. Every other
+    // call lane routes through this pad; this one handed the callee a
+    // short argv, so the missing register held whatever the caller
+    // left there (`x.f(1)` on `f(x, y)` printed `object null` for one
+    // row and a garbage any-tag for the next). owned_temps is built
+    // first so its indices still address real arguments.
+    crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut arg_ops);
     let cur_block = ctx.cur_block;
     let r = match direct_fid {
         Some(fid) => ctx

@@ -47,6 +47,7 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -121,6 +122,11 @@ pub(crate) fn try_lower(
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(recv_op);
     argv.extend(arg_ops);
+    // §10.2.11 — the omitted argument is `undefined`. The body reads
+    // its parameter register regardless, so a short argv hands it the
+    // caller's leftovers; the pad goes on after the receiver because
+    // the missing slots are trailing user params.
+    crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;
     let (v, may_throw) = match (slot, ctx.fn_sig_ids.get(&fid).copied()) {
