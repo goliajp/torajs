@@ -309,6 +309,38 @@ impl Checker {
                 .find(|(fn_, _)| fn_ == n)
                 .map(|(_, t)| t.clone())
                 .ok_or_else(|| format!("no field `{n}` on struct {obj_ty:?}")),
+            // A class INSTANCE. This shim's doc has claimed since it
+            // was pulled out that OptChain reuses the Member arm's
+            // resolution, and for a class it never did — the class
+            // ladder grew up next door in `check_type_of_member`, so
+            // `a?.x` on any class instance answered "no field `x`
+            // accessible on type ClassRef" about a field that is right
+            // there. Resolved to the class's shape and asked the same
+            // question.
+            //
+            // A DECLARED FIELD only. What the class keeps on its
+            // prototype — its methods — is not in this struct, and
+            // answering `Any` for those would hand the lowering an
+            // optional chain it has no shape for: `a?.m()` is a Call
+            // whose callee is the chain, and a chain through a method
+            // has no lowering yet (512-02). The name that misses stays
+            // refused, loudly, exactly as it was.
+            (Type::ClassRef(_), n) => {
+                let resolved = crate::check_resolve_class_ref::resolve_class_ref(
+                    obj_ty,
+                    &self.class_structs,
+                    &self.aliases,
+                    &self.generic_alias_decls,
+                );
+                match &resolved {
+                    Type::Struct(fields) => fields
+                        .iter()
+                        .find(|(fn_, _)| fn_ == n)
+                        .map(|(_, t)| t.clone())
+                        .ok_or_else(|| format!("no field `{n}` accessible on type {obj_ty:?}")),
+                    _ => Err(format!("no field `{n}` accessible on type {obj_ty:?}")),
+                }
+            }
             (other, _) => Err(format!("no field `{name}` accessible on type {other:?}")),
         }
     }
