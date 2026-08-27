@@ -38,7 +38,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, ExprId, Param, Stmt};
 use crate::check::{Checker, Type, substitute_typevars};
 use crate::ssa_lower_generics_monomorph::{
     Generics, collect_generics, compute_arg_anns, substitute_in_ann, substitute_in_stmt,
@@ -194,7 +194,7 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
     owned_ast.undeclared_reads = std::mem::take(&mut c.undeclared_reads);
     owned_ast.self_name_writes = std::mem::take(&mut c.self_name_writes);
-    prune_unresolved_captures(c, &mut owned_ast);
+    crate::check_monomorph_closures::prune_unresolved_captures(c, &mut owned_ast);
     MonoOutput {
         mono_ast: owned_ast,
         call_retargets,
@@ -250,6 +250,7 @@ pub(crate) fn process_one_generic(
             .cloned()
             .zip(arg_anns.iter().cloned())
             .collect();
+        let spec_fn_name = mono_name.clone();
         let (new_params, new_return_type, new_body, id_map) =
             clone_spec_body(owned_ast, params, return_type, body, &subst);
         // Type-level signature for the checker: substitute the
@@ -323,8 +324,16 @@ pub(crate) fn process_one_generic(
             &subst,
         );
         c.check_stmt(owned_ast, &spec_decl);
-        c.errors.truncate(saved_error_count);
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
+        crate::check_monomorph_uninferred::settle_body_diagnostics(
+            c,
+            owned_ast,
+            &id_map,
+            generics,
+            &inner_sites,
+            saved_error_count,
+            &spec_fn_name,
+        );
         let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
         let mut inner: Vec<(ExprId, (String, Vec<Type>))> =
             inner_sites.iter().map(|(k, v)| (*k, v.clone())).collect();
@@ -368,39 +377,6 @@ pub(crate) fn process_one_generic(
             &arg_anns,
             &type_args,
         );
-    }
-}
-
-/// RFC 20260730-undeclared-ident 刀 3 — prune nowhere-resolving
-/// capture names (recorded by check_closure per construction site)
-/// from the owned AST's capture lists, so the lowerer's env
-/// materialization never sees them; the body's marked Ident read
-/// raises the ReferenceError instead. The lifted FnDecl's
-/// `__env(...)` ann is kept in step (the lowerer only gates on
-/// empty/non-empty, but a stale name list misleads readers). Runs
-/// after the mono worklist so specialization-clone closures (fresh
-/// ExprIds marked during their body checks) are covered too.
-fn prune_unresolved_captures(c: &mut Checker, owned_ast: &mut Ast) {
-    for (ceid, gone) in std::mem::take(&mut c.unresolved_captures) {
-        let Expr::Closure { fn_name, captures } = &mut owned_ast.exprs[ceid.0 as usize] else {
-            continue;
-        };
-        captures.retain(|cap| !gone.contains(cap));
-        let caps = captures.join("|");
-        let fname = fn_name.clone();
-        for s in owned_ast.stmts.iter_mut() {
-            let Stmt::FnDecl { name, params, .. } = s else {
-                continue;
-            };
-            if *name != fname {
-                continue;
-            }
-            if let Some(env) = params.first_mut()
-                && env.name == "__env"
-            {
-                env.type_ann = Some(format!("__env({caps})"));
-            }
-        }
     }
 }
 

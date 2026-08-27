@@ -59,9 +59,10 @@ pub type CheckArtifacts = (
 ///
 /// Runs post-check monomorphization (specializations emitted and
 /// checked inference-only — RFC 20260713-mono-check-specializations)
-/// after the main pipeline; specialization diagnostics are discarded
-/// inside the pass (see check_monomorph.rs), so only main-pipeline
-/// errors reject the program.
+/// after the main pipeline. A specialization's diagnostics are
+/// discarded inside the pass (see check_monomorph.rs) unless the body
+/// left a generic call with no retarget — that one rejects, because
+/// the alternative is the lowerer panicking on the callee's name.
 pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
     check_with_arity_warn(ast).map(|(artifacts, _)| artifacts)
 }
@@ -72,8 +73,8 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
 /// read warnings synthesize here from the surviving mark set (one
 /// per name, sorted — marks self-heal during the pipeline, so only
 /// end-state marks warn); any Warning-severity diagnostics ride
-/// along. Collected before the mono pass, whose specialization
-/// diagnostics are discarded.
+/// along. Collected before the mono pass, which discards its own
+/// diagnostics except where a specialization body left a hole.
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
@@ -108,7 +109,22 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
             .filter(|d| d.severity == Severity::Warning)
             .map(|d| d.message.clone()),
     );
+    let before_mono = c.errors.len();
     let mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
+    // A specialization body's diagnostics are discarded inside the
+    // pass — except when the body left a HOLE (a generic call with no
+    // retarget). Those are not diagnostics about a program that
+    // lowers; they say it cannot, and the lowerer's own answer to
+    // them is a panic naming the callee. See
+    // `check_monomorph_uninferred`.
+    let mono_errors: Vec<String> = c.errors[before_mono..]
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.message.clone())
+        .collect();
+    if !mono_errors.is_empty() {
+        return Err(mono_errors.join("\n"));
+    }
     Ok((
         (
             c.generic_call_sites,

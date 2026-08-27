@@ -51,6 +51,7 @@ pub(crate) mod check_monomorph;
 pub(crate) mod check_monomorph_any_widen;
 pub(crate) mod check_monomorph_clone_tables;
 pub(crate) mod check_monomorph_closures;
+pub(crate) mod check_monomorph_uninferred;
 pub(crate) mod check_monomorph_vtable_seed;
 pub(crate) mod check_pipeline;
 pub(crate) mod check_resolve_class_ref;
