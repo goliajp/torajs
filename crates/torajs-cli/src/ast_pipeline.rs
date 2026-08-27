@@ -264,7 +264,15 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // after the slot lanes learned to pad an omitted argument: the
     // rows it pads are entered with that pad, and without it the
     // widened slot answers wrongly instead of refusing loudly.
-    ast::join_vtable_slot_params(ast);
+    // Its refusal is the program's: the rows of a slot that mix a rest
+    // parameter with different fixed arities cannot share one, and the
+    // ABI check downstream compares MACHINE shapes — a defaulted
+    // scalar and a rest array are both one word, so it passes them and
+    // the second row reads a number where it expects an array.
+    if let Some(msg) = ast::join_vtable_slot_params(ast) {
+        eprintln!("not yet supported: {msg}");
+        return Err(());
+    }
     // After it, because the receiver-promoting knives live inside it —
     // what still carries a `__this` capture by now is a fn-expr nobody
     // supplies a receiver for, and gets the plain-call answer.

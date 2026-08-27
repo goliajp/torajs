@@ -40,17 +40,22 @@ use std::collections::HashMap;
 use super::super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// 509-01 — widen and pad every row of a vtable slot until the rows
-/// agree about what the slot takes.
-pub fn join_vtable_slot_params(ast: &mut Ast) {
+/// agree about what the slot takes. Answers the slot it could not,
+/// which the caller refuses the program over.
+pub fn join_vtable_slot_params(ast: &mut Ast) -> Option<String> {
     if ast.method_index.is_empty() {
-        return;
+        return None;
     }
     let sigs = collect_user_params(ast);
-    let plan = plan_slot_params(ast, &sigs);
+    let plan = match plan_slot_params(ast, &sigs) {
+        Ok(plan) => plan,
+        Err(msg) => return Some(msg),
+    };
     if plan.is_empty() {
-        return;
+        return None;
     }
     apply_param_plan(ast, plan);
+    None
 }
 
 /// One declaration's replacement user-parameter list, plus the
@@ -168,19 +173,26 @@ fn collect_user_params(ast: &Ast) -> HashMap<String, Vec<Param>> {
 /// `num_width::slot_abi` unions widths over and
 /// `ssa_lower_module_metadata_slot_abi` checks shapes over: a slot
 /// those three passes disagree about is a slot nobody checks.
-fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<String, RowPlan> {
+fn plan_slot_params(
+    ast: &Ast,
+    sigs: &HashMap<String, Vec<Param>>,
+) -> Result<HashMap<String, RowPlan>, String> {
     let global_fns = toplevel_fn_names(ast);
     let mut plan: HashMap<String, RowPlan> = HashMap::new();
     for (m, by_root) in super::slot_groups_by_name(ast) {
         let stubs = super::dispatch_stub_names(sigs.keys(), &m);
         let mut shapes: Vec<SlotShape> = Vec::new();
-        for rows in by_root.values() {
+        let mut roots: Vec<&String> = by_root.keys().collect();
+        roots.sort();
+        for root in roots {
+            let rows = &by_root[root];
             // A row missing from `sigs` is not a `__this` shape at
             // all, so there is no list to align — leave the slot as
             // the ABI check found it.
             if rows.iter().any(|r| !sigs.contains_key(r)) {
                 continue;
             }
+            rest_starts_agree(rows, sigs, &m, root)?;
             if let Some(shape) = plan_one_root(ast, rows, sigs, &global_fns, &mut plan) {
                 shapes.push(shape);
             }
@@ -203,7 +215,53 @@ fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<St
             }
         }
     }
-    plan
+    Ok(plan)
+}
+
+/// The rows of one slot have to agree about where a rest parameter
+/// begins, and the ABI check cannot ask them.
+///
+/// It compares MACHINE shapes, and a defaulted scalar and a rest array
+/// are both one word: `f(x, y = 5)` and `f(x, ...r)` fill the same
+/// three registers and pass it silently, then the second row reads a
+/// number where it expects an array and the program dies with a
+/// segfault. So the refusal has to happen here, where the parameter
+/// LISTS are still visible — the join already declines to widen such a
+/// slot (there is no shape that unpacks `f(1,2,3)` as both `r = [2,3]`
+/// and `y = 2, r = [3]`), and declining silently is what left the
+/// crash standing.
+fn rest_starts_agree(
+    rows: &[String],
+    sigs: &HashMap<String, Vec<Param>>,
+    m: &str,
+    root: &str,
+) -> Result<(), String> {
+    let Some((a, na, b, nb)) = rest_mismatch(rows, sigs) else {
+        return Ok(());
+    };
+    Err(format!(
+        "ast: vtable slot for `{m}` of hierarchy `{root}` mixes a rest parameter with rows \
+         that stop taking fixed parameters at different positions — `{a}` takes {na} before \
+         its tail, `{b}` takes {nb}; one slot, one shape"
+    ))
+}
+
+/// The two rows that disagree about where the tail begins, when some
+/// row declares one — the single reading of that disagreement.
+/// [`join_rows`] asks it because it then has no shape to offer, and
+/// [`rest_starts_agree`] asks it to say so; a slot the two answer
+/// differently about cannot exist.
+fn rest_mismatch<'a>(
+    rows: &'a [String],
+    sigs: &HashMap<String, Vec<Param>>,
+) -> Option<(&'a String, usize, &'a String, usize)> {
+    let fixed_len = |r: &String| split_rest(&sigs[r]).0.len();
+    if !rows.iter().any(|r| split_rest(&sigs[r]).1.is_some()) {
+        return None;
+    }
+    let head = rows.first()?;
+    let odd = rows.iter().find(|r| fixed_len(r) != fixed_len(head))?;
+    Some((head, fixed_len(head), odd, fixed_len(odd)))
 }
 
 /// Plan one root's rows, answering the shape the slot settled on —
@@ -274,23 +332,16 @@ fn plan_one_root(
 /// rows whose fixed arities differ unpack the same argument list two
 /// different ways (`f(1,2,3)` gives one row `r = [2,3]` and the other
 /// `y = 2, r = [3]`) and no single slot expresses both — `None`, and
-/// the ABI check says so out loud. When the fixed arities DO agree,
+/// [`rest_starts_agree`] has already refused the program over the
+/// same reading. When the fixed arities DO agree,
 /// the tail is uniform and every row gains one: a row that never
 /// declared a rest carries a `__slotrest` it does not read, which is
 /// what makes the call site pack for whichever row it resolved to.
 fn join_rows(rows: &[String], sigs: &HashMap<String, Vec<Param>>) -> Option<SlotShape> {
-    let split = |r: &String| -> (&[Param], Option<&Param>) {
-        let ps: &[Param] = &sigs[r];
-        match ps.last() {
-            Some(l) if l.is_rest => (&ps[..ps.len() - 1], Some(l)),
-            _ => (ps, None),
-        }
-    };
+    let split = |r: &String| split_rest(&sigs[r]);
     let any_rest = rows.iter().any(|r| split(r).1.is_some());
     let fixed_len = |r: &String| split(r).0.len();
-    if any_rest && rows.iter().any(|r| fixed_len(r) != fixed_len(&rows[0])) {
-        return None;
-    }
+    rest_mismatch(rows, sigs).is_none().then_some(())?;
     let width = rows.iter().map(fixed_len).max().unwrap_or(0);
     let fixed = (0..width)
         .map(|i| {
@@ -322,16 +373,22 @@ fn join_rows(rows: &[String], sigs: &HashMap<String, Vec<Param>>) -> Option<Slot
     Some(SlotShape { fixed, rest })
 }
 
+/// One declaration's parameters split into its fixed ones and the
+/// trailing rest it may declare.
+fn split_rest(ps: &[Param]) -> (&[Param], Option<&Param>) {
+    match ps.last() {
+        Some(l) if l.is_rest => (&ps[..ps.len() - 1], Some(l)),
+        _ => (ps, None),
+    }
+}
+
 /// One declaration's parameters rewritten to the joined shape, or
 /// `None` when it already had it. Existing parameters keep their
 /// names — the body reads them by name — and only the annotation
 /// moves; the positions the row never declared arrive as pads, and so
 /// does a rest tail the row never declared.
 fn rebuild(have: &[Param], shape: &SlotShape) -> Option<Vec<Param>> {
-    let (fixed, had_rest) = match have.last() {
-        Some(l) if l.is_rest => (&have[..have.len() - 1], Some(l)),
-        _ => (have, None),
-    };
+    let (fixed, had_rest) = split_rest(have);
     let mut out: Vec<Param> = Vec::with_capacity(shape.fixed.len() + 1);
     let mut changed = fixed.len() != shape.fixed.len();
     for (i, want) in shape.fixed.iter().enumerate() {
@@ -623,6 +680,37 @@ mod tests {
             ),
         ]);
         assert!(join_rows(&names(&["a", "b"]), &s).is_none());
+        assert!(rest_starts_agree(&names(&["a", "b"]), &s, "f", "A").is_err());
+    }
+
+    /// The ABI check downstream cannot see this one: a defaulted
+    /// scalar and a rest array are both one word, so the refusal has
+    /// to happen while the parameter LISTS are still visible.
+    #[test]
+    fn a_defaulted_row_beside_a_variadic_one_is_refused_here() {
+        let mut ast = Ast::default();
+        let y = dflt(p("y", Some("number")), &mut ast, Expr::Number(5.0));
+        let s = sigs(&[
+            ("a", vec![p("x", None), y]),
+            ("b", vec![p("x", None), rest("r", Some("any[]"))]),
+        ]);
+        let rows = names(&["a", "b"]);
+        let msg = rest_starts_agree(&rows, &s, "f", "A").expect_err("refused");
+        assert!(msg.contains("`a` takes 2"), "{msg}");
+        assert!(msg.contains("`b` takes 1"), "{msg}");
+    }
+
+    /// Rows that all stop at the same position are not a mismatch,
+    /// whether or not they declare a tail.
+    #[test]
+    fn agreeing_rest_starts_are_not_refused() {
+        let s = sigs(&[
+            ("a", vec![p("x", None)]),
+            ("b", vec![p("x", None), rest("r", Some("any[]"))]),
+        ]);
+        let rows = names(&["a", "b"]);
+        assert!(rest_mismatch(&rows, &s).is_none());
+        assert!(rest_starts_agree(&rows, &s, "f", "A").is_ok());
     }
 
     /// Rest tails spelling different element types widen to `any[]`,
