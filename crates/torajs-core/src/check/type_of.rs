@@ -318,28 +318,38 @@ impl Checker {
             // there. Resolved to the class's shape and asked the same
             // question.
             //
-            // A DECLARED FIELD only. What the class keeps on its
-            // prototype — its methods — is not in this struct, and
-            // answering `Any` for those would hand the lowering an
-            // optional chain it has no shape for: `a?.m()` is a Call
-            // whose callee is the chain, and a chain through a method
-            // has no lowering yet (512-02). The name that misses stays
-            // refused, loudly, exactly as it was.
+            // A DECLARED FIELD answers its own type; anything else
+            // answers `Any` — which is what the ladder next door
+            // (`check_type_of_member`) has always answered for the same
+            // receiver, so `a.m` and `a.nosuch` already work and only
+            // the chain spelling refused them. Rotation 512 opened the
+            // fields half and held the rest back, because a method
+            // reached this way handed the lowering a chain it had no
+            // shape for; that shape exists now
+            // (`ssa_lower_call_optchain`), so the two readings agree
+            // again. A private name keeps the loud reject the ladder
+            // gives it: `#x` is not a miss, it is a violation.
             (Type::ClassRef(_), n) => {
+                if let Some(rest) = n.strip_prefix("__priv_") {
+                    let field = rest.split_once("__").map(|(_, f)| f).unwrap_or(rest);
+                    return Err(format!(
+                        "private field `#{field}` is not declared in this class"
+                    ));
+                }
                 let resolved = crate::check_resolve_class_ref::resolve_class_ref(
                     obj_ty,
                     &self.class_structs,
                     &self.aliases,
                     &self.generic_alias_decls,
                 );
-                match &resolved {
+                Ok(match &resolved {
                     Type::Struct(fields) => fields
                         .iter()
                         .find(|(fn_, _)| fn_ == n)
                         .map(|(_, t)| t.clone())
-                        .ok_or_else(|| format!("no field `{n}` accessible on type {obj_ty:?}")),
-                    _ => Err(format!("no field `{n}` accessible on type {obj_ty:?}")),
-                }
+                        .unwrap_or(Type::Any),
+                    _ => Type::Any,
+                })
             }
             (other, _) => Err(format!("no field `{name}` accessible on type {other:?}")),
         }

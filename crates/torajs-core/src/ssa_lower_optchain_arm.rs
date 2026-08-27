@@ -153,14 +153,28 @@ fn emit_hit_path(
     after: crate::ssa::BlockId,
 ) {
     ctx.cur_block = mem_blk;
-    let (field_idx, field_ty) = {
+    let found = {
         let layout = &ctx.struct_layouts[sid.0 as usize];
         layout
             .iter()
             .enumerate()
             .find(|(_, (n, _))| n == name)
             .map(|(i, (_, t))| (i, *t))
-            .unwrap_or_else(|| panic!("ssa-lower: no field `{name}` on struct {sid:?}"))
+    };
+    // A name the LAYOUT does not carry is not a miss — the class keeps
+    // its methods on the prototype, and an ordinary object is
+    // extensible. `a.m` and `a.nosuch` have always answered that
+    // through the any-member probe; the chain spelling now reaches the
+    // same place instead of stopping the compile at a struct that was
+    // never going to hold the answer.
+    let Some((field_idx, field_ty)) = found else {
+        let boxed_recv = ctx.box_to_any(obj_op);
+        let v = crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
+        let blk = ctx.cur_block;
+        ctx.f
+            .append_void(blk, InstKind::Store(v, Operand::Value(res_slot), 0));
+        ctx.f.set_term(blk, Terminator::Br(after));
+        return;
     };
     let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
     let cur_block = ctx.cur_block;
