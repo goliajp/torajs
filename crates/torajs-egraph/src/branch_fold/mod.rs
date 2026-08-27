@@ -229,7 +229,13 @@ fn is_removable(kind: &InstKind) -> bool {
 /// Drop blocks no longer reachable from the entry block and renumber
 /// the survivors (the `BlockId.0 == position` invariant the whole
 /// pipeline relies on).
-fn sweep_unreachable_blocks(func: &mut Function) -> u32 {
+///
+/// Sound as a plain terminator remap because the IR has no phi nodes:
+/// a removed block's id appears only in `Terminator`s, all of which
+/// are rewritten here. `block_layout` calls it once more at the end
+/// of the pipeline — folding is not the only way a block loses its
+/// last predecessor (507-04).
+pub(crate) fn sweep_unreachable_blocks(func: &mut Function) -> u32 {
     let n = func.blocks.len();
     let mut reachable = vec![false; n];
     let mut stack = vec![0usize];

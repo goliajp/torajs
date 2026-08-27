@@ -37,6 +37,8 @@ pub struct BlockLayoutStats {
     pub blocks_sunk: u32,
     /// Functions whose block order changed.
     pub funcs_relaid: u32,
+    /// Blocks nothing could reach, dropped before laying the rest out.
+    pub blocks_pruned: u32,
 }
 
 /// Restore loop-body contiguity in every function body.
@@ -46,6 +48,17 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         if func.is_declaration() {
             continue;
         }
+        // 507-04 — an empty block whose terminator is a bare `br` is
+        // pure forwarding. Codegen already threads through it, so the
+        // block itself is unreachable in the MACHINE cfg and is
+        // emitted as a `b` nothing jumps to (measured: two of them,
+        // 8 B, on every loop whose versioning guard got folded). It
+        // stays in the SSA cfg because the edge is still spelled
+        // there, so `branch_fold`'s entry-reachability sweep does not
+        // see it. Thread the edges here — this is the last pass that
+        // touches the cfg — and the sweep that follows then really can
+        // drop them.
+        stats.blocks_pruned += thread_empty_forwarders(func);
         let sunk = layout_function(func);
         if sunk > 0 {
             stats.blocks_sunk += sunk;
@@ -53,6 +66,53 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         }
     }
     stats
+}
+
+/// Retarget every edge that lands on an empty `br`-only block to
+/// whatever that block forwards to, then drop the blocks nothing
+/// reaches any more. Answers how many blocks went away.
+///
+/// Safe as a pure edge rewrite because the IR has no phi nodes: an
+/// edge carries nothing but control. A forwarder chain resolves in
+/// one walk, and a cycle of forwarders (an empty infinite loop)
+/// stops at the first block seen twice — it is real control flow and
+/// must keep a block to spin on.
+fn thread_empty_forwarders(func: &mut Function) -> u32 {
+    let forwards: Vec<Option<u32>> = func
+        .blocks
+        .iter()
+        .map(|b| match (&b.insts.is_empty(), &b.term) {
+            (true, Terminator::Br(t)) if t.0 != b.id.0 => Some(t.0),
+            _ => None,
+        })
+        .collect();
+    if forwards.iter().all(|f| f.is_none()) {
+        return 0;
+    }
+    let resolve = |start: u32| -> u32 {
+        let mut seen = HashSet::new();
+        let mut cur = start;
+        while seen.insert(cur) {
+            match forwards.get(cur as usize).copied().flatten() {
+                Some(next) => cur = next,
+                None => break,
+            }
+        }
+        cur
+    };
+    for block in func.blocks.iter_mut() {
+        match &mut block.term {
+            Terminator::Br(t) => t.0 = resolve(t.0),
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => {
+                then_blk.0 = resolve(then_blk.0);
+                else_blk.0 = resolve(else_blk.0);
+            }
+            _ => {}
+        }
+    }
+    crate::branch_fold::sweep_unreachable_blocks(func)
 }
 
 fn layout_function(func: &mut Function) -> u32 {
@@ -127,7 +187,7 @@ fn layout_function(func: &mut Function) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{IPred, Inst, InstKind, Operand, Type, ValueId, ValueInfo};
+    use torajs_core::ssa::{BinOp, IPred, Inst, InstKind, Operand, Type, ValueId, ValueInfo};
 
     fn block(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
         Block {
@@ -251,5 +311,80 @@ mod tests {
         for (i, b) in f.blocks.iter().enumerate() {
             assert_eq!(b.id.0 as usize, i);
         }
+    }
+
+    fn void_fn(blocks: Vec<Block>) -> Function {
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            values: vec![],
+            blocks,
+            current_origin: None,
+        }
+    }
+
+    /// The 507-04 shape: `br` lands on an empty block that only
+    /// forwards, so codegen threads past it and emits the block as a
+    /// `b` nothing jumps to. Threading the edge lets the sweep drop it.
+    ///
+    ///   b0 → b1 ; b1(empty) → b2 ; b2: ret   ==>   b0 → b1(ret)
+    #[test]
+    fn an_empty_forwarder_is_threaded_away() {
+        let mut f = void_fn(vec![
+            block(0, vec![], Terminator::Br(BlockId(1))),
+            block(1, vec![], Terminator::Br(BlockId(2))),
+            block(2, vec![], Terminator::Ret(None)),
+        ]);
+        // b0 is itself an empty forwarder, but it is the entry: no
+        // edge lands on it, so it stays and takes the resolved target.
+        assert_eq!(thread_empty_forwarders(&mut f), 1);
+        assert_eq!(f.blocks.len(), 2);
+        assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(1))));
+        assert!(matches!(f.blocks[1].term, Terminator::Ret(None)));
+    }
+
+    /// A chain resolves in one walk, and both arms of a CondBr take
+    /// the resolution.
+    #[test]
+    fn a_forwarder_chain_resolves_through() {
+        let mut f = void_fn(vec![
+            block(
+                0,
+                vec![inst(
+                    0,
+                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(1), Operand::ConstI64(2)),
+                )],
+                Terminator::CondBr {
+                    cond: Operand::Value(ValueId(0)),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(3),
+                },
+            ),
+            block(1, vec![], Terminator::Br(BlockId(2))),
+            block(2, vec![], Terminator::Br(BlockId(4))),
+            block(3, vec![], Terminator::Br(BlockId(4))),
+            block(4, vec![], Terminator::Ret(None)),
+        ]);
+        assert_eq!(thread_empty_forwarders(&mut f), 3);
+        assert_eq!(f.blocks.len(), 2);
+        match f.blocks[0].term {
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => assert_eq!((then_blk.0, else_blk.0), (1, 1)),
+            ref other => panic!("expected a cond_br, got {other:?}"),
+        }
+    }
+
+    /// An empty infinite loop is real control flow — it forwards to
+    /// itself, so there is nothing to thread and the block stays.
+    #[test]
+    fn a_self_forwarding_block_stays() {
+        let mut f = void_fn(vec![
+            block(0, vec![], Terminator::Br(BlockId(1))),
+            block(1, vec![], Terminator::Br(BlockId(1))),
+        ]);
+        assert_eq!(thread_empty_forwarders(&mut f), 0);
+        assert_eq!(f.blocks.len(), 2);
     }
 }
