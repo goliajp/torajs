@@ -7,6 +7,19 @@ use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 /// Mark every slot dependency as reaching the consumer through a
 /// growth op (W5). Inside an assignment-graph cycle that marking
 /// makes the cycle non-i64-safe.
+/// Largest literal step magnitude the counter carve-out admits
+/// without a growth mark (see [`Analysis::is_int_const`]).
+///
+/// The horizon behind it: a tight `t += 1` loop runs 2^31 trips in
+/// 0.54 s on the M-series bench box (rotation 507, three runs), so
+/// 2^48 trips is one loop running uninterrupted for ~20 hours — the
+/// point past which the original carve-out's "physically unreachable"
+/// claim is taken to hold. `|k| ≤ 2^5` keeps `2^53 / |k| ≥ 2^48`;
+/// the `i += 1` family that motivated the carve-out sits far inside
+/// it, and every real loop body is slower than the tight one the
+/// horizon was measured on.
+const MAX_COUNTER_STEP: i64 = 1 << 5;
+
 fn mark_growth(w: W) -> W {
     match w {
         W::Num(deps) => W::Num(deps.into_iter().map(|(k, _)| (k, true)).collect()),
@@ -49,19 +62,32 @@ impl<'a> Analysis<'a> {
         }
     }
 
-    /// A literal whose value an i64 slot holds exactly — the Add/Sub
-    /// increment shape that keeps a self-feeding counter linear-small
-    /// (`i = i + 1` family). Non-constant increments (slot / param /
-    /// call / member) can be arbitrarily large per step, so they mark
+    /// A SMALL integer literal — the Add/Sub increment shape that
+    /// keeps a self-feeding counter linear-small (`i = i + 1`
+    /// family). Non-constant increments (slot / param / call /
+    /// member) can be arbitrarily large per step, so they mark
     /// growth instead.
+    ///
+    /// The carve-out is a trip-count argument, so it is only sound
+    /// while the step is small: a counter stepping by `k` leaves the
+    /// exact-i64 window after `2^53 / |k|` trips, and rotation 506
+    /// measured the unbounded version of this rule going wrong at
+    /// the first big literal (`t += 9007199254740991` printed a
+    /// wrapped negative where bun prints `18014398509481982000`).
+    /// [`MAX_COUNTER_STEP`] is the largest `|k|` whose trip count to
+    /// the window edge stays past the reachability horizon; a bigger
+    /// literal marks growth and rides the float_demote guard, which
+    /// branch_fold removes again whenever the trip count is
+    /// statically bounded.
     fn is_int_const(&self, eid: ExprId) -> bool {
+        let small = |n: f64| !literal_is_f64(n) && n.abs() <= MAX_COUNTER_STEP as f64;
         match self.ast.get_expr(eid) {
-            Expr::Number(n) => !literal_is_f64(*n),
+            Expr::Number(n) => small(*n),
             Expr::Unary {
                 op: UnaryOp::Neg,
                 expr,
             } => {
-                matches!(self.ast.get_expr(*expr), Expr::Number(n) if !literal_is_f64(*n) && *n != 0.0)
+                matches!(self.ast.get_expr(*expr), Expr::Number(n) if small(*n) && *n != 0.0)
             }
             _ => false,
         }
