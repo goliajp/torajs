@@ -92,9 +92,15 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
             continue;
         }
         let user = peel_hidden_params(params);
-        // Defaulted params are call-site substitutions the dynamic
-        // lane cannot replay; such shapes keep the loud reject.
-        if user.iter().any(|p| p.default.is_some()) {
+        // A default the CALL SITE still has to substitute is one the
+        // dynamic lane cannot replay, and such a shape keeps the loud
+        // reject. One that already moved INTO the body does not:
+        // `materialize_expr_defaults` leaves the `undefined` literal
+        // behind it, and the guard it spliced fires on whatever the
+        // relay pads — which is exactly undefined. Reading the whole
+        // skip off "has a default" put every converted callee on the
+        // loud reject too, for a substitution nobody was waiting for.
+        if needs_call_site_default(ast, user) {
             continue;
         }
         // …but only when it really will. `apply_spread_args` skips an
@@ -126,6 +132,21 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         }
     }
     ast.stmts.extend(new_decls);
+}
+
+/// Whether some parameter still expects the CALL SITE to write its
+/// default in. A default that `materialize_expr_defaults` already
+/// moved into the body leaves the `undefined` literal in its place,
+/// and the guard spliced there fires on exactly what the relay pads —
+/// so the dynamic lane replays it for free.
+fn needs_call_site_default(ast: &Ast, user: &[super::Param]) -> bool {
+    user.iter()
+        .any(|p| p.default.is_some_and(|d| !is_undefined(ast, d)))
+}
+
+/// The pad value `materialize_expr_defaults` leaves behind.
+fn is_undefined(ast: &Ast, d: ExprId) -> bool {
+    matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined")
 }
 
 /// Mirror of the static expanders' accept conditions — `true` means
@@ -182,6 +203,50 @@ mod tests {
             default: None,
             is_rest,
         }
+    }
+
+    fn defaulted(name: &str, default: Option<ExprId>) -> Param {
+        Param {
+            name: name.into(),
+            type_ann: None,
+            default,
+            is_rest: false,
+        }
+    }
+
+    #[test]
+    fn a_row_with_no_defaults_wants_nothing_from_the_call_site() {
+        let ast = Ast::default();
+        assert!(!needs_call_site_default(&ast, &[defaulted("x", None)]));
+    }
+
+    #[test]
+    fn a_default_still_spelled_out_wants_the_call_site() {
+        let mut ast = Ast::default();
+        let five = ast.add_expr(Expr::Number(5.0));
+        assert!(needs_call_site_default(&ast, &[defaulted("x", Some(five))]));
+    }
+
+    #[test]
+    fn a_default_already_moved_into_the_body_does_not() {
+        // the pad `materialize_expr_defaults` leaves in its place
+        let mut ast = Ast::default();
+        let undef = ast.add_expr(Expr::Ident("undefined".into()));
+        assert!(!needs_call_site_default(
+            &ast,
+            &[defaulted("x", Some(undef))]
+        ));
+    }
+
+    #[test]
+    fn one_unconverted_default_speaks_for_the_whole_row() {
+        let mut ast = Ast::default();
+        let undef = ast.add_expr(Expr::Ident("undefined".into()));
+        let five = ast.add_expr(Expr::Number(5.0));
+        assert!(needs_call_site_default(
+            &ast,
+            &[defaulted("x", Some(undef)), defaulted("y", Some(five))]
+        ));
     }
 
     /// `(ast, args)` for one call's argument list, `true` marking a
