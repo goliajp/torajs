@@ -132,10 +132,24 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
 /// a later pass will consume this site, so the wrap stands aside.
 fn static_expander_takes(ast: &Ast, args: &[ExprId], user: &[super::Param]) -> bool {
     if user.last().is_some_and(|p| p.is_rest) {
-        // `apply_rest_args` packs any site with the required prefix
+        // `apply_rest_args` packs a site whose required prefix is
         // covered (its trailing args bundle into the rest array,
         // spreads included via the array-literal / Array.from arms).
-        return args.len() >= user.len() - 1;
+        // Covered by the args that are STILL ARGUMENTS: a spread
+        // stands for an unknown number of them, so it settles no
+        // position — `g(...xs)` on `g(x, ...r)` binds `x` to `xs[0]`
+        // and the rest to the tail, which no static packing can
+        // spell. Counting the spread itself toward the prefix made
+        // this pass stand aside for an expander that then also
+        // declined, and the bare fn name reached the runtime lane it
+        // cannot be boxed for — a loud `unknown ident` on ordinary
+        // JavaScript, the exact "rest callee starved of its required
+        // prefix" shape the module doc names as this pass's own.
+        let settled = args
+            .iter()
+            .take_while(|a| !matches!(ast.get_expr(**a), Expr::Spread { .. }))
+            .count();
+        return settled >= user.len() - 1;
     }
     // `apply_spread_args` takes exactly one spread, at the last
     // position, over an Ident source, with the fixed prefix inside
@@ -154,4 +168,71 @@ fn static_expander_takes(ast: &Ast, args: &[ExprId], user: &[super::Param]) -> b
         return false;
     };
     matches!(ast.get_expr(*expr), Expr::Ident(_)) && prefix.len() <= user.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::Param;
+
+    fn param(name: &str, is_rest: bool) -> Param {
+        Param {
+            name: name.into(),
+            type_ann: None,
+            default: None,
+            is_rest,
+        }
+    }
+
+    /// `(ast, args)` for one call's argument list, `true` marking a
+    /// spread.
+    fn call_args(spreads: &[bool]) -> (Ast, Vec<ExprId>) {
+        let mut ast = Ast::default();
+        let args = spreads
+            .iter()
+            .map(|&sp| {
+                let inner = ast.add_expr(Expr::Ident("xs".into()));
+                if sp {
+                    ast.add_expr(Expr::Spread { expr: inner })
+                } else {
+                    inner
+                }
+            })
+            .collect();
+        (ast, args)
+    }
+
+    /// The shape this pass exists for: a rest callee whose required
+    /// prefix the spread cannot settle.
+    #[test]
+    fn a_leading_spread_settles_no_required_parameter() {
+        let (ast, args) = call_args(&[true]);
+        let user = [param("x", false), param("r", true)];
+        assert!(!static_expander_takes(&ast, &args, &user));
+    }
+
+    /// Once the prefix IS settled by real arguments, the static
+    /// expander owns the site and this pass stands aside.
+    #[test]
+    fn a_settled_prefix_leaves_the_site_to_the_static_expander() {
+        let (ast, args) = call_args(&[false, true]);
+        let user = [param("x", false), param("r", true)];
+        assert!(static_expander_takes(&ast, &args, &user));
+    }
+
+    /// A callee that is nothing but a tail has no prefix to settle.
+    #[test]
+    fn a_tail_only_callee_needs_nothing_settled() {
+        let (ast, args) = call_args(&[true]);
+        let user = [param("r", true)];
+        assert!(static_expander_takes(&ast, &args, &user));
+    }
+
+    /// Two required parameters, one spread: still unsettled.
+    #[test]
+    fn one_settled_argument_is_not_two() {
+        let (ast, args) = call_args(&[false, true]);
+        let user = [param("x", false), param("y", false), param("r", true)];
+        assert!(!static_expander_takes(&ast, &args, &user));
+    }
 }
