@@ -83,7 +83,7 @@ fn slot_unions(a: &mut Analysis) {
                 })
                 .collect();
             cms.sort();
-            let root = hierarchy_root(a.ast, c);
+            let root = crate::ast::hierarchy_root(a.ast, c);
             for cm in cms {
                 match first_by_root.get(&root) {
                     Some(head) => unions.push((head.clone(), cm.clone())),
@@ -105,19 +105,4 @@ fn slot_unions(a: &mut Analysis) {
             );
         }
     }
-}
-
-/// Topmost ancestor of `c` along `class_parents` (hop-bounded; `c`
-/// itself when it has no parent).
-fn hierarchy_root(ast: &crate::ast::Ast, c: &str) -> String {
-    let mut cur = c.to_string();
-    let mut hops = ast.class_parents.len() + 1;
-    while let Some(p) = ast.class_parents.get(&cur).and_then(|p| p.clone()) {
-        cur = p;
-        hops -= 1;
-        if hops == 0 {
-            break;
-        }
-    }
-    cur
 }

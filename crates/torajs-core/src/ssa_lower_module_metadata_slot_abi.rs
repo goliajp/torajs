@@ -45,7 +45,7 @@ pub(crate) fn assert_vtable_slot_abi(
 ) {
     let mut claimed: HashMap<(usize, String), (String, String)> = HashMap::new();
     for row in &module.vtable_globals {
-        let root = hierarchy_root(ast, &row.class_name);
+        let root = crate::ast::hierarchy_root(ast, &row.class_name);
         for (slot, fid) in row.fn_ids.iter().enumerate() {
             let Some(fid) = fid else { continue };
             // A body with no interned signature is not reachable
@@ -79,20 +79,4 @@ fn abi_class(t: &ssa::Type) -> char {
         ssa::Type::Void => 'v',
         _ => 'w',
     }
-}
-
-/// Topmost ancestor of `c` along `class_parents`, with a mono row's
-/// `$$<suffix>` tail dropped first (a specialization sits in its base
-/// class's chain). Hop-bounded against a malformed `extends` cycle.
-fn hierarchy_root(ast: &crate::ast::Ast, c: &str) -> String {
-    let mut cur = c.split_once("$$").map(|(b, _)| b).unwrap_or(c).to_string();
-    let mut hops = ast.class_parents.len() + 1;
-    while let Some(p) = ast.class_parents.get(&cur).and_then(|p| p.clone()) {
-        cur = p;
-        hops -= 1;
-        if hops == 0 {
-            break;
-        }
-    }
-    cur
 }

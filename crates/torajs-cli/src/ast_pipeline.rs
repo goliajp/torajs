@@ -255,6 +255,11 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::rewrite_split_for_i_to_iter(ast);
     ast::escape_analyze_array_literals(ast);
     ast::desugar_implicit_generics(ast);
+    // Right after it: that pass is where an unannotated body's return
+    // type is decided, so it is the first moment a vtable slot's rows
+    // can be seen to disagree — and nothing later rewrites a `__cm_`
+    // return annotation.
+    ast::join_vtable_slot_returns(ast);
     // After it, because the receiver-promoting knives live inside it —
     // what still carries a `__this` capture by now is a fn-expr nobody
     // supplies a receiver for, and gets the plain-call answer.
