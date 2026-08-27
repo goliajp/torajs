@@ -69,6 +69,66 @@ pub(crate) fn assert_vtable_slot_abi(
             }
         }
     }
+    assert_dispatch_stub_abi(module, fn_sig_ids, &claimed);
+}
+
+/// 508-06 — the `__dispatch_<M>` stub is the third thing in a slot,
+/// and until now nothing compared its shape to the rows'.
+///
+/// It is lowered as a tag-switch over every owner's `__cm_<C>__<M>`
+/// and it is what a chain method's Member-shape call sites enter, so
+/// it shares the slot as surely as any row — `num_width::slot_abi`
+/// unions their widths on exactly that reasoning. But its own
+/// annotation came from the base owner's DECLARATION, read before the
+/// unannotated bodies were given theirs, so it can disagree with rows
+/// that all agree with each other. That is the shape the loop above
+/// cannot see, because a stub is not a vtable row.
+///
+/// Global, not per hierarchy root: a dispatcher forwards to every
+/// owner of the name it was minted for, so one stub answers for all
+/// of them. Measured: silent on the whole case corpus once
+/// `ast::vtable_slot` folds the stub into the return join.
+fn assert_dispatch_stub_abi(
+    module: &Module,
+    fn_sig_ids: &HashMap<ssa::FuncId, ssa::SigId>,
+    claimed: &HashMap<(usize, String), (String, String)>,
+) {
+    for (fid, f) in module.funcs.iter().enumerate() {
+        let Some(m) = f.name.strip_prefix("__dispatch_") else {
+            continue;
+        };
+        let Some(sig) = fn_sig_ids.get(&ssa::FuncId(fid as u32)).copied() else {
+            continue;
+        };
+        let (params, ret) = &module.signatures[sig.0 as usize];
+        let shape: String = params.iter().chain([ret]).map(abi_class).collect();
+        // A mono dispatcher (`__dispatch_area$$_number`) answers for
+        // the bare name's owners too — the suffix rides the tail.
+        let bare = m.split_once("$$").map(|(b, _)| b).unwrap_or(m);
+        for ((_, root), (row_shape, row_name)) in claimed {
+            if !owns_method(module, row_name, bare) || *row_shape == shape {
+                continue;
+            }
+            panic!(
+                "ssa-lower: dispatcher `{}` is {shape} but slot row `{row_name}` of hierarchy                  `{root}` is {row_shape}; one slot, one shape",
+                f.name
+            );
+        }
+    }
+}
+
+/// Is `row_name` a `__cm_<C>__<m>` body for method `m`? The class
+/// boundary is not parseable (a class name may itself contain `__`),
+/// so the method is matched off the tail, with a mono row's `$$`
+/// suffix dropped first.
+fn owns_method(module: &Module, row_name: &str, m: &str) -> bool {
+    let _ = module;
+    let tail = row_name
+        .split_once("$$")
+        .map(|(b, _)| b)
+        .unwrap_or(row_name);
+    tail.strip_suffix(m)
+        .is_some_and(|h| h.ends_with("__") && h.starts_with("__cm_"))
 }
 
 /// How a value of this type is passed: in a float register, in a

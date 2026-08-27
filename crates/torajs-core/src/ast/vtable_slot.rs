@@ -115,10 +115,19 @@ fn slots_needing_widening(ast: &Ast, anns: &HashMap<String, String>) -> Vec<Stri
                 by_root.entry(root.clone()).or_default().push(cm.clone());
             }
         }
+        // The `__dispatch_<M>` stub took its annotation from the base
+        // owner's DECLARATION, before `desugar_implicit_generics`
+        // gave the unannotated bodies theirs — so it can disagree with
+        // every row it forwards to while the rows all agree with each
+        // other. It is unioned into their slot for width, and nothing
+        // downstream compares its shape, so that disagreement is the
+        // silent kind. Treat it as one more row.
+        let stub = dispatch_stub_names(anns, m);
+        let stub_ann = stub.first().map(|d| anns[d].as_str());
         let mut split = false;
         for rows in by_root.values() {
             let head = &anns[&rows[0]];
-            if rows.iter().any(|r| anns[r] != *head) {
+            if rows.iter().any(|r| anns[r] != *head) || stub_ann.is_some_and(|a| a != head) {
                 out.extend(rows.iter().cloned());
                 split = true;
             }
@@ -129,19 +138,28 @@ fn slots_needing_widening(ast: &Ast, anns: &HashMap<String, String>) -> Vec<Stri
         // `slot_abi::dispatch_unions` unions) and has to move with
         // them. Its own mono spellings ride the name's tail.
         if split {
-            let d = format!("__dispatch_{m}");
-            out.extend(
-                anns.keys()
-                    .filter(|k| {
-                        k.strip_prefix(d.as_str())
-                            .is_some_and(|r| r.is_empty() || r.starts_with("$$"))
-                    })
-                    .cloned(),
-            );
+            out.extend(stub);
         }
     }
     out.sort();
     out.dedup();
+    out
+}
+
+/// The `__dispatch_<M>` stub's name, plus its mono spellings (the
+/// `$$` suffix rides the name's tail). Empty for a method with no
+/// dispatcher — a name an unrelated class also declares gets none.
+fn dispatch_stub_names(anns: &HashMap<String, String>, m: &str) -> Vec<String> {
+    let d = format!("__dispatch_{m}");
+    let mut out: Vec<String> = anns
+        .keys()
+        .filter(|k| {
+            k.strip_prefix(d.as_str())
+                .is_some_and(|r| r.is_empty() || r.starts_with("$$"))
+        })
+        .cloned()
+        .collect();
+    out.sort();
     out
 }
 
@@ -305,6 +323,27 @@ mod tests {
         );
         join_vtable_slot_returns(&mut ast);
         assert_eq!(ret_of(&ast, "__dispatch_f").as_deref(), Some("any"));
+    }
+
+    #[test]
+    fn a_stub_that_disagrees_with_agreeing_rows_still_splits_the_slot() {
+        // The stub's annotation came from the base owner's
+        // DECLARATION, read before the unannotated bodies were given
+        // theirs — so it can be the only thing in the slot that is
+        // wrong, with every row agreeing with every other.
+        let mut ast = ast_of(
+            &[("A", None), ("B", Some("A"))],
+            &["f"],
+            &[
+                ("__cm_A__f", Some("number")),
+                ("__cm_B__f", Some("number")),
+                ("__dispatch_f", None),
+            ],
+        );
+        join_vtable_slot_returns(&mut ast);
+        assert_eq!(ret_of(&ast, "__dispatch_f").as_deref(), Some("any"));
+        assert_eq!(ret_of(&ast, "__cm_A__f").as_deref(), Some("any"));
+        assert_eq!(ret_of(&ast, "__cm_B__f").as_deref(), Some("any"));
     }
 
     #[test]
