@@ -220,3 +220,37 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
     }
     Some(format!("__inlobj({})", parts.join("|")))
 }
+
+/// The class spelling of an un-annotated `new C(...)` init — the
+/// synthesized annotation a top-level binding promotes under, in the
+/// [`objlit_literal_inlobj_ann`] / `arrlit_literal_elem_ann` family.
+///
+/// `desugar_classes` has already rewritten `new C(args)` into a call
+/// to the synthesized `__new_C` factory by the time either consumer
+/// asks, so the spelling is the name that factory carries. Requiring
+/// the factory to EXIST is what keeps this to classes the program
+/// declares: a `new` whose target the compiler could not resolve to
+/// a class never got one (`NewDynamic`), and so never answers here.
+///
+/// The nominal type is the whole point. `any_promote_init` refuses
+/// class instances deliberately — boxing one away demotes every
+/// main-side method call to the any-lane (rotation 238) — but that
+/// refusal left the binding with no home at all, so a named fn
+/// reading it died with "unknown identifier": `let e = new Error(…)`
+/// plus any `function f() { … e … }` did not compile, while the same
+/// program with `let e: Error` written out did. Under its own
+/// spelling the binding rides exactly the lane the written
+/// annotation already rides.
+pub fn new_class_ann(ast: &Ast, init: ExprId) -> Option<String> {
+    let Expr::Call { callee, .. } = ast.get_expr(init) else {
+        return None;
+    };
+    let Expr::Ident(fname) = ast.get_expr(*callee) else {
+        return None;
+    };
+    let class = fname.strip_prefix("__new_")?;
+    crate::ast::toplevel_stmts_flat(ast)
+        .iter()
+        .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name.as_str() == fname.as_str()))
+        .then(|| class.to_string())
+}

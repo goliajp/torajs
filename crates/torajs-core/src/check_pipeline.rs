@@ -343,6 +343,21 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                                 crate::ast_refs_arrlit::arrlit_literal_elem_ann(ast, *init)
                         {
                             resolve_type_ann(&ann, &c.aliases)
+                        }
+                        // An un-annotated `new C()` init registers
+                        // under its class spelling (the lowerer's
+                        // K.3b arm resolves the same string, so the
+                        // slots can't drift). Its own nominal type,
+                        // not Any: `any_promote_init` refuses class
+                        // instances so main-side method calls keep
+                        // the typed lanes, and before this arm that
+                        // refusal left the binding unregistered —
+                        // every named-fn read of a `let e = new
+                        // Error()` answered "unknown identifier".
+                        else if !*is_var
+                            && let Some(ann) = crate::ast_refs::new_class_ann(ast, *init)
+                        {
+                            resolve_type_ann(&ann, &c.aliases)
                         } else {
                             let shaped = crate::ast_refs::infer_toplevel_slot_shape(ast, *init)
                                 .map(|s| match s {

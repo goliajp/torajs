@@ -24,7 +24,8 @@ use std::collections::HashSet;
 // keeps every `crate::ast_refs::*` consumer path unchanged.
 mod shape;
 pub use shape::{
-    GlobalSlotShape, infer_toplevel_slot_shape, lifted_closure_fn_canon, objlit_literal_inlobj_ann,
+    GlobalSlotShape, infer_toplevel_slot_shape, lifted_closure_fn_canon, new_class_ann,
+    objlit_literal_inlobj_ann,
 };
 
 pub struct ToplevelBindingRefs {

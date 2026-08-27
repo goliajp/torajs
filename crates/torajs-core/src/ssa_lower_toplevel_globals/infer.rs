@@ -172,6 +172,34 @@ pub(super) fn inferred_slot_ty(
             fn_sigs,
         ));
     }
+    // A `new C(...)` init promotes under its class spelling — the
+    // same string the checker's pass_2 registers from, resolved
+    // through the same parse pipeline (the `__inlobj` / `T[]`
+    // precedents above). It sits in FRONT of the any-promote
+    // fallback on purpose: that verdict refuses class instances, so
+    // this is the "different wall" its doc names — the binding keeps
+    // the nominal type main-side method calls dispatch on instead of
+    // being boxed away.
+    if let Some(ann) = crate::ast_refs::new_class_ann(ast, init) {
+        let parsed = parse_type(
+            Some(&ann),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+        return Some(crate::ssa_lower_container_width::widen_container_ty(
+            parsed,
+            Some(&ann),
+            &SlotKey::Global(name.to_string()),
+            num_f64_slots,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        ));
+    }
     let Some(shape) = crate::ast_refs::infer_toplevel_slot_shape(ast, init) else {
         // S2.35 — a call-result init the shape inference can't type
         // promotes as an Any slot via the shared verdict the
