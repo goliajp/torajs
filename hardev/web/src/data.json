@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T13:54:10.450Z",
+  "generatedAt": "2026-08-27T16:05:38.102Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T13:51:54Z",
-    "headSha": "4bd64984a",
-    "elapsedSec": 386.75,
+    "ranAt": "2026-08-27T16:02:56Z",
+    "headSha": "d4d84d794",
+    "elapsedSec": 372.5,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.26
   },
   "torajs": {
-    "commit": "4bd64984a",
-    "commitSubject": "fix: a spread settles no parameter position, so it settles no prefix",
+    "commit": "d4d84d794",
+    "commitSubject": "fix: a parameter the slot's tail swallowed reads itself back out of it",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "d4d84d794",
+      "subject": "fix: a parameter the slot's tail swallowed reads itself back out of it"
+    },
+    {
+      "hash": "77b93cc4d",
+      "subject": "refactor: what a default becomes when a slot widens is its own question"
+    },
+    {
+      "hash": "903c0076d",
+      "subject": "fix: an optional chain on a class instance reads that class's own fields"
+    },
+    {
+      "hash": "11082dd97",
+      "subject": "fix: a rest parameter binds the empty array, so a short call is not a short call"
+    },
+    {
+      "hash": "ba93738f5",
+      "subject": "fix: a rest parameter is one array, and the sibling lane was handing it registers"
+    },
+    {
+      "hash": "b67b2c6d6",
+      "subject": "docs: rotation 511 roadmap snapshot + test262 sweep ingest"
+    },
+    {
       "hash": "4bd64984a",
       "subject": "fix: a spread settles no parameter position, so it settles no prefix"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "e0b4688bf",
       "subject": "fix: a slot whose rows carry defaults is refused, not silently widened"
-    },
-    {
-      "hash": "78b1f375a",
-      "subject": "fix: a subclass and its ancestor are one answer for a type parameter"
-    },
-    {
-      "hash": "7e5a03eed",
-      "subject": "feat: a vtable slot's parameter list is the join of its rows"
-    },
-    {
-      "hash": "0059a8e65",
-      "subject": "fix: a slot call converts its arguments like every other lane does"
-    },
-    {
-      "hash": "9426cbcaf",
-      "subject": "fix: a slot call pads the arguments it was not given"
-    },
-    {
-      "hash": "220e89751",
-      "subject": "docs: rotation 509 roadmap snapshot + test262 sweep ingest"
-    },
-    {
-      "hash": "90030c182",
-      "subject": "fix: a stale dispatch stub adopts its rows' type instead of widening them"
     }
   ],
-  "headSha": "4bd64984a",
+  "headSha": "d4d84d794",
   "autorun": {
-    "total": 814,
+    "total": 815,
     "baselineTarget": 10,
-    "bySelf": 809,
+    "bySelf": 810,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787833215-0b46",
-      "at": "2026-08-27T12:20:15Z",
-      "ts": 1787833215,
+      "rotationId": "r-1787838902-5ca1",
+      "at": "2026-08-27T13:55:02Z",
+      "ts": 1787838902,
       "trigger": "self",
-      "prevHead": "82ec19ad5",
-      "handoffSha": "sha256:8082d0b6e80b17cffc6ff9bc978bc1e1cc0bbdcd9d214506234c39bdf58f14fb",
-      "handoffAgeSec": 5,
+      "prevHead": "b67b2c6d6",
+      "handoffSha": "sha256:cf6a5af863c82d595362656276922973e9419a1a09b98140eec2b0e4c63b9f9a",
+      "handoffAgeSec": 25,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787838902-5ca1",
+        "at": "2026-08-27T13:55:02Z",
+        "ts": 1787838902,
+        "trigger": "self",
+        "prevHead": "b67b2c6d6",
+        "handoffSha": "sha256:cf6a5af863c82d595362656276922973e9419a1a09b98140eec2b0e4c63b9f9a",
+        "handoffAgeSec": 25,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787833215-0b46",
         "at": "2026-08-27T12:20:15Z",
@@ -876,17 +887,6 @@
         "prevHead": "7b5d8b5d0",
         "handoffSha": "sha256:eed31795c8f1b736088abd374f3bbc4a6cccbe29cf9e88c682e681f25fb9b908",
         "handoffAgeSec": 42,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787723527-172d",
-        "at": "2026-08-26T05:52:07Z",
-        "ts": 1787723527,
-        "trigger": "self",
-        "prevHead": "26ded3f7c",
-        "handoffSha": "sha256:197cb66ad88c0431d6111a0386bdd6ab309090328c53bb4999e0da9e63f6fc50",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }
