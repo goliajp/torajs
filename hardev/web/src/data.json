@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T10:38:17.957Z",
+  "generatedAt": "2026-08-27T12:18:28.940Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T10:18:40Z",
-    "headSha": "90030c182",
-    "elapsedSec": 376.52,
+    "ranAt": "2026-08-27T12:07:33Z",
+    "headSha": "e0b4688bf",
+    "elapsedSec": 367.63,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29765,
+    "pass": 29766,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34840,
+    "passTotal": 34841,
     "bug": 12717,
-    "incompatible": 5617,
+    "incompatible": 5616,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47557,
+    "trAccepted": 47558,
     "passRateInScope": 65.52,
     "passRateTrAccepted": 73.26
   },
   "torajs": {
-    "commit": "90030c182",
-    "commitSubject": "fix: a stale dispatch stub adopts its rows' type instead of widening them",
+    "commit": "e0b4688bf",
+    "commitSubject": "fix: a slot whose rows carry defaults is refused, not silently widened",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "e0b4688bf",
+      "subject": "fix: a slot whose rows carry defaults is refused, not silently widened"
+    },
+    {
+      "hash": "78b1f375a",
+      "subject": "fix: a subclass and its ancestor are one answer for a type parameter"
+    },
+    {
+      "hash": "7e5a03eed",
+      "subject": "feat: a vtable slot's parameter list is the join of its rows"
+    },
+    {
+      "hash": "0059a8e65",
+      "subject": "fix: a slot call converts its arguments like every other lane does"
+    },
+    {
+      "hash": "9426cbcaf",
+      "subject": "fix: a slot call pads the arguments it was not given"
+    },
+    {
+      "hash": "220e89751",
+      "subject": "docs: rotation 509 roadmap snapshot + test262 sweep ingest"
+    },
+    {
       "hash": "90030c182",
       "subject": "fix: a stale dispatch stub adopts its rows' type instead of widening them"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "a5dcbbfa6",
       "subject": "fix: a vtable slot's return type is the join of its rows, not the first row's"
-    },
-    {
-      "hash": "ea6548e02",
-      "subject": "docs: rotation 508 roadmap snapshot + test262 sweep ingest"
-    },
-    {
-      "hash": "fc6c22c4d",
-      "subject": "fix: every stripped builtin parent chains its subclass's prototype, not just Iterator"
-    },
-    {
-      "hash": "8a3b58576",
-      "subject": "fix: a stripped builtin heritage still names the builtin as its super base"
-    },
-    {
-      "hash": "e0d8fa2b6",
-      "subject": "perf: an empty forwarding block is threaded away instead of emitted as a branch nobody takes"
-    },
-    {
-      "hash": "4a63476cc",
-      "subject": "feat: the vtable is checked for one-slot-one-ABI before it is emitted"
-    },
-    {
-      "hash": "fcc30d658",
-      "subject": "fix: super property lookup follows a prototype re-link at run time"
     }
   ],
-  "headSha": "90030c182",
+  "headSha": "e0b4688bf",
   "autorun": {
-    "total": 812,
+    "total": 813,
     "baselineTarget": 10,
-    "bySelf": 807,
+    "bySelf": 808,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787817805-1a18",
-      "at": "2026-08-27T08:03:25Z",
-      "ts": 1787817805,
+      "rotationId": "r-1787827321-5be8",
+      "at": "2026-08-27T10:42:01Z",
+      "ts": 1787827321,
       "trigger": "self",
-      "prevHead": "ea6548e02",
-      "handoffSha": "sha256:422a260e2f3ec67a6a408e9f4e2d2fd61622599b20c1948b5d8279b06e272dbc",
-      "handoffAgeSec": 22,
+      "prevHead": "220e89751",
+      "handoffSha": "sha256:a7085511bf25b9e729aa1c0d1bb62ae64d164a265b30bee1470e25ad67409158",
+      "handoffAgeSec": 123,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787827321-5be8",
+        "at": "2026-08-27T10:42:01Z",
+        "ts": 1787827321,
+        "trigger": "self",
+        "prevHead": "220e89751",
+        "handoffSha": "sha256:a7085511bf25b9e729aa1c0d1bb62ae64d164a265b30bee1470e25ad67409158",
+        "handoffAgeSec": 123,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787817805-1a18",
         "at": "2026-08-27T08:03:25Z",
@@ -876,17 +887,6 @@
         "prevHead": "58c24cc16",
         "handoffSha": "sha256:2ce4ca95d795b5087e6cb3dae33f65ffc06704a02c2d210d2a0f4a4a1d0ed8fc",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787683944-1a14",
-        "at": "2026-08-25T18:52:24Z",
-        "ts": 1787683944,
-        "trigger": "self",
-        "prevHead": "d801004a4",
-        "handoffSha": "sha256:69e830bf199abd14f5edb97dbd78cc2a61195acf82920498715ae0be4b7b3afc",
-        "handoffAgeSec": 31,
         "conformanceBefore": null,
         "commitsInSession": null
       }

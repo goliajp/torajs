@@ -1557,7 +1557,43 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `90030c182`** (2026-08-27, rotation 509 — a slot-agreement
+**Latest @ `e0b4688bf`** (2026-08-27, rotation 510 — what a call through
+a vtable slot actually hands the body. Rotation 509 refused
+`class A { f(x: number) }` overridden by `f(x: number, y: number)`
+outright, and withdrew the fix for it because the fix answered wrongly
+instead: two rows, two ABIs, one slot. The withdrawal was right, and
+the reason turns out to be two defects underneath, both on the slot's
+call sites and both older than the attempt. Every other call lane pads
+an omitted argument with `undefined` before it emits; the slot lane and
+the sibling-class lane sent exactly as many operands as the source
+wrote, so the parameter the call did not fill was read out of whatever
+the caller had left in that register — `x.f(1)` on `f(x, y)` printing
+`object null` for one row and a garbage any-tag for the next, and no
+output at all when two were missing. And every other lane converts its
+arguments against the callee's signature first; the slot lane did not,
+so an i64 reaching an unannotated (`any`) parameter arrived as raw bits
+and `class A { f(x) { return x } }` called through the slot with `2`
+answered `null` — the sibling lane's own S2.42, one lane over, five
+rotations late. With both fixed the parameter join lands: as wide as
+the widest row, `any` where the rows spell different types, and byte
+for byte identical for every program whose rows already agreed. One
+shape stayed refused on purpose — a class method's default is supplied
+by the call site, and widening a slot is what makes its owners disagree,
+so a defaulted row would have answered NaN where the language owes it 6;
+the honest answer is the loud refusal until a class method's default
+lives in its body the way a plain function's already does (510-02).
+Rotation 509's one pass regression is also closed: a type parameter
+given `X` and then a `Y` that extends it was two answers to tr and one
+to TS, and the join now consults the class parent map.) Gate predicate:
+**158** clusters of ≥ 4 holding **1209** cases, register 2 · 251,
+residue 652 · 809 (35.7%), core **2269** — clusters identical to
+rotations 503-509. Sweep passTotal **34841 (+1)**, pass **29766 (+1)**,
+bug **12717 (=)**, incompatible **5616 (−1)**, trAccepted 47558 (+1);
+conservation holds (+1 = +1 + 0) and the verdict diff is **one line**:
+`super-reference-resolution.js` incompatible → **pass**. Zero pass
+regressions, zero new timeouts or crashes.
+
+**Prior @ `90030c182`** (2026-08-27, rotation 509 — a slot-agreement
 rotation, closing the three things rotation 508's new vtable assertion
 found once someone was finally checking. A slot's return type is now
 the join of its rows: a base that answers a value and an override that
