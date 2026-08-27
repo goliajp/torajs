@@ -54,44 +54,12 @@ pub(super) fn init_header(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId, 
     }
 }
 
-/// The named class whose own sid is `sid`, if any. Deterministic:
-/// two structurally identical classes intern to one sid, so the
-/// lowest tag wins rather than whichever the map happened to yield.
-fn named_class_tag_of_sid(ctx: &LowerCtx<'_>, sid: StructId) -> Option<u32> {
-    ctx.aliases
-        .iter()
-        .filter(|(_, ty)| matches!(ty, Type::Obj(s) if *s == sid))
-        .filter_map(|(name, _)| ctx.class_name_to_tag.get(name).copied())
-        .min()
-}
-
 pub(super) fn write_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId, sid: StructId) {
-    // The tag names which class this CELL is — not which factory is
-    // being lowered. Those coincide for the factory's own instance
-    // and NOT for a nested one: a factory that default-initializes
-    // an `Obj`-typed field builds that field's instance in the same
-    // body, and `ctx.f.name` stamped the ENCLOSING class on it. A
-    // 3-field `__Gen_rf` then wore `__Gen_gen`'s six-field layout,
-    // and the cycle collector — the one consumer that reads
-    // `child_offsets` — walked 24 bytes past a 56-byte allocation
-    // and dereferenced whatever was there (rotation 515; the async
-    // generator × for-await crashes).
-    //
-    // Only withhold the factory tag where the sid PROVES the cell is
-    // not the factory's class: a class with no alias sid (generic —
-    // see the note below) keeps the old answer untouched.
-    let factory_name = ctx.f.name.strip_prefix("__new_").map(str::to_owned);
-    let factory_own_sid = factory_name
-        .as_deref()
-        .and_then(|cname| match ctx.aliases.get(cname) {
-            Some(Type::Obj(s)) => Some(*s),
-            _ => None,
-        });
-    let factory_tag = match (factory_name.as_deref(), factory_own_sid) {
-        (Some(_), Some(own)) if own != sid => named_class_tag_of_sid(ctx, sid),
-        (Some(cname), _) => ctx.class_name_to_tag.get(cname).copied(),
-        (None, _) => None,
-    };
+    let factory_tag = ctx
+        .f
+        .name
+        .strip_prefix("__new_")
+        .and_then(|cname| ctx.class_name_to_tag.get(cname).copied());
     // 404-01 / 405-03 — a GENERIC class's mono factory
     // (`__new_G$$_number` / `__new_G$$anywv`) misses the name lookup
     // above. Its instances need a tag of their own — per FACTORY,
