@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T18:02:44.140Z",
+  "generatedAt": "2026-08-27T01:23:33.653Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-26T17:49:52Z",
-    "headSha": "9768d49f0",
-    "elapsedSec": 465.02,
+    "ranAt": "2026-08-27T01:10:25Z",
+    "headSha": "80de8cea4",
+    "elapsedSec": 416.42,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.26
   },
   "torajs": {
-    "commit": "9768d49f0",
-    "commitSubject": "perf: torajs-fmt's float formatter carries no bounds-check panic path",
+    "commit": "80de8cea4",
+    "commitSubject": "perf: a counted accumulator prints through the i64 printer",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "80de8cea4",
+      "subject": "perf: a counted accumulator prints through the i64 printer"
+    },
+    {
+      "hash": "599d82e4d",
+      "subject": "fix: float_demote installs the growth guard of a post-op site that ends its block"
+    },
+    {
+      "hash": "82278a45f",
+      "subject": "fix: a link-judged stub reads every name its guard atom carries, not one"
+    },
+    {
+      "hash": "46b1d7739",
+      "subject": "perf: vtable slots are relative offsets, so the table needs no fixup and leaves __DATA_CONST"
+    },
+    {
+      "hash": "c328af0ee",
+      "subject": "chore: rotation 505 close — A12 class prologue as one link-judged fn (s3 __text 15,904→10,544) + every program's __DATA page gone (e 34,961→18,425, s3 34,201→17,665) + multi-arg console.log off the any printer (116,705→18,425) + panic-free float formatter + closure member reads walk the prototype chain"
+    },
+    {
       "hash": "9768d49f0",
       "subject": "perf: torajs-fmt's float formatter carries no bounds-check panic path"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "052876884",
       "subject": "fix: class instance methods print in declaration order, not name-sorted"
-    },
-    {
-      "hash": "9b6dece59",
-      "subject": "chore: record torajs-print → torajs-fmt in Cargo.lock"
-    },
-    {
-      "hash": "508e8dd38",
-      "subject": "perf: __torajs_str_alloc's non-ASCII re-encode moves out-of-line and cold"
-    },
-    {
-      "hash": "e864a4554",
-      "subject": "perf: a string literal's raw-byte alias points into its Str payload, not a copy"
-    },
-    {
-      "hash": "23b24ce11",
-      "subject": "perf: the stub-reject landing pad composes its message from a subject table"
-    },
-    {
-      "hash": "dd9191b1a",
-      "subject": "perf: print_i64 delegates to torajs-fmt's shared itoa kernel, sized to stay rolled"
     }
   ],
-  "headSha": "9768d49f0",
+  "headSha": "80de8cea4",
   "autorun": {
-    "total": 808,
+    "total": 809,
     "baselineTarget": 10,
-    "bySelf": 803,
+    "bySelf": 804,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787756802-2fad",
-      "at": "2026-08-26T15:06:42Z",
-      "ts": 1787756802,
+      "rotationId": "r-1787767400-7a05",
+      "at": "2026-08-26T18:03:20Z",
+      "ts": 1787767400,
       "trigger": "self",
-      "prevHead": "c04e18117",
-      "handoffSha": "sha256:1ca3f6d07deeea869ef7c6dfe400ac338d26ec8265bfcd21c32261e68db04f33",
-      "handoffAgeSec": 7,
+      "prevHead": "c328af0ee",
+      "handoffSha": "sha256:fea745a7cfa62eb997d94fa53f240e828753eb41130495c4a6b877ddd4b5a814",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787767400-7a05",
+        "at": "2026-08-26T18:03:20Z",
+        "ts": 1787767400,
+        "trigger": "self",
+        "prevHead": "c328af0ee",
+        "handoffSha": "sha256:fea745a7cfa62eb997d94fa53f240e828753eb41130495c4a6b877ddd4b5a814",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787756802-2fad",
         "at": "2026-08-26T15:06:42Z",
@@ -876,17 +887,6 @@
         "prevHead": "03564d82f",
         "handoffSha": "sha256:d2b2a715d867d9468e06a1a039b0a8a6353dca0f78f0716526a27d658c9e25fb",
         "handoffAgeSec": 1,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787646905-18c8",
-        "at": "2026-08-25T08:35:05Z",
-        "ts": 1787646905,
-        "trigger": "self",
-        "prevHead": "a1326203a",
-        "handoffSha": "sha256:27432b5cc80f110bafaa9e309134a5b2042b7f724d55e8d25ce1a0b7dc5d3db5",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }

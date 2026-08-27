@@ -1557,7 +1557,26 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `3da78bcf7`** (2026-08-26, rotation 500 — an artifact-mass
+**Latest @ `80de8cea4`** (2026-08-27, rotation 506 — an artifact-mass
+and link-soundness rotation: vtable slots became relative offsets
+(`fn - table`, the LLVM / Swift relative-vtables shape) so the table
+needs no dyld fixup and leaves `__DATA_CONST` — an override program
+51,657 → 35,121; two release-only silent-wrongs the conformance gate
+is blind to were fixed (a link-judged stub read one name of an atom
+that MergeFunctions had given two, stubbing the closure props drop
+under every static-`this` class program; float_demote's post-op growth
+guard on a block-ending add was never installed, so a sum past 2^53
+stayed exact where bun's rounds) and the release-artifact sample that
+caught them became `hardev/autorun/release_batch.sh`; a counted
+accumulator's exit bridge now folds and prints through the i64
+printer — `total += i; console.log(total)` 34,937 → 18,425, the
+empty-program floor.) Gate predicate: **158** clusters of ≥ 4 holding
+**1210** cases, register 2 · 251, residue 652 · 809 (35.6%), core
+**2270** — identical to rotations 503-505. Sweep passTotal **34840
+(0)**, bug **12717 (0)**, incompatible **5617 (0)**, trAccepted 47557
+(0); verdict diff empty.
+
+**Prior @ `3da78bcf7`** (2026-08-26, rotation 500 — an artifact-mass
 rotation on the S2-5 刀 4 line, Phase A + three knives. Phase A
 (`.claude/rfcs/20260824-s2-5-selective-registration/blade4-phase-a.md`)
 overturned the handoff's framing: the dispatcher's 15 runtime-internal
