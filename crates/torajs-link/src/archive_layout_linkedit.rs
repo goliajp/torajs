@@ -21,7 +21,6 @@ pub(crate) struct LinkeditPlan {
     pub(crate) la_ptr_slot_values: Vec<u64>,
     pub(crate) tlv_thunk_link_values: Vec<u64>,
     pub(crate) text_rebase_link_values: Vec<u64>,
-    pub(crate) vtable_rebase_target_count: usize,
     pub(crate) fn_name_rebase_target_count: usize,
     pub(crate) class_name_rebase_target_count: usize,
     pub(crate) baked_regex_rebase_target_count: usize,
@@ -48,12 +47,11 @@ pub(crate) fn compute_linkedit_plan(
         .iter()
         .map(|d| d.thunk_slot_vaddr - dp.data_vmaddr)
         .collect();
-    // Phase 3 — concat vtable | class_layouts | fn_name_table |
-    // class_name_table rebase in walk order so dyld + archive_emit
-    // can per-region split via the recorded counts.
+    // Phase 3 — concat class_layouts | fn_name_table | class_name_table
+    // | baked_regex rebase in walk order so dyld + archive_emit can
+    // per-region split via the recorded counts.
     let TextRebaseAssembly {
         combined: combined_text_rebase_targets,
-        vtable_rebase_target_count,
         fn_name_rebase_target_count,
         class_name_rebase_target_count,
         baked_regex_rebase_target_count,
@@ -76,7 +74,7 @@ pub(crate) fn compute_linkedit_plan(
         segment_count: tp.segment_count,
         data_seg_idx,
         data_const_layout: &dp.data_const_layout,
-        vtable_rebase_targets: &combined_text_rebase_targets,
+        data_const_rebase_targets: &combined_text_rebase_targets,
         data_seg_rebase_targets: &[],
     });
     // +c: chain + CodeDir both need 8-aligned LINKEDIT offsets.
@@ -106,7 +104,6 @@ pub(crate) fn compute_linkedit_plan(
         la_ptr_slot_values,
         tlv_thunk_link_values,
         text_rebase_link_values,
-        vtable_rebase_target_count,
         fn_name_rebase_target_count,
         class_name_rebase_target_count,
         baked_regex_rebase_target_count,

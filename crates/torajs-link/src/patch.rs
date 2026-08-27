@@ -140,7 +140,7 @@ fn load_store_scale(insn: u32) -> u32 {
 
 /// Write an 8-byte little-endian absolute address into a data
 /// slot — the `ARM64_RELOC_UNSIGNED` resolution path. Used for
-/// vtable slots, static function pointers, and any place the
+/// static function pointers and any place the
 /// codegen emitted a zero-filled 8-byte hole expecting a fixup.
 pub fn write_unsigned64(slot: &mut [u8; 8], target_addr: u64) {
     slot.copy_from_slice(&target_addr.to_le_bytes());

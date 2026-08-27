@@ -6,9 +6,12 @@
 //! Desugar rewrites `obj.M()` (for chain methods) into a call to the
 //! synthetic `__dispatch_<M>(obj, args)`. This arm bypasses that
 //! stub: load the receiver's vtable_ptr at `OBJ_VTABLE_OFF`, load the
-//! slot at `method_index[M] * 8`, and `CallIndirect` through it.
-//! O(1) regardless of inheritance depth — replaces the prior
-//! O(chain depth) tag-switch cascade.
+//! slot at `method_index[M] * 8`, add the vtable base back (slots are
+//! `fn - table` relative offsets since r506 — the LLVM / Swift
+//! relative-vtables shape, which is what keeps the table fixup-free
+//! and in `__TEXT`), and `CallIndirect` through it. O(1) regardless
+//! of inheritance depth — replaces the prior O(chain depth)
+//! tag-switch cascade.
 //!
 //! The return type + signature are resolved from the base owner's
 //! `__cm_<base>__<M>` fn. Every override shares the signature
@@ -25,7 +28,7 @@
 //! falls back to the plain call lanes instead of panicking).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_VTABLE_OFF};
 
 pub(crate) fn try_lower(
@@ -101,9 +104,15 @@ pub(crate) fn try_lower(
                 Type::Ptr,
                 None,
             );
+            let rel = ctx.f.append_inst(
+                cur_block,
+                InstKind::Load(Type::I64, Operand::Value(vt), (method_idx as u64) * 8),
+                Type::I64,
+                None,
+            );
             let fn_ptr = ctx.f.append_inst(
                 cur_block,
-                InstKind::Load(Type::Ptr, Operand::Value(vt), (method_idx as u64) * 8),
+                InstKind::BinOp(SsaBinOp::Add, Operand::Value(vt), Operand::Value(rel)),
                 Type::Ptr,
                 None,
             );

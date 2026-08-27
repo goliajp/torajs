@@ -1,7 +1,7 @@
 //! Per-member `__DATA,*` rebase-target collection — #9 SD-4c swap-2k
 //! chunk 2b-1.
 //!
-//! Mirror of [`crate::user_vtables_layout::compute_vtable_rebase_targets`]
+//! Mirror of [`crate::user_class_layouts_layout::compute_class_layouts_rebase_targets`]
 //! for staticlib member `__DATA,*` UNSIGNED relocs. Walks every
 //! integrated member's `__DATA,*` sections, parses their reloc tables
 //! (via [`crate::member_data_apply::parse_member_section_relocs`]),
@@ -427,7 +427,6 @@ mod tests {
             ),
             data_const_layout: crate::data_const_layout::DataConstLayout::default(),
             text_rebase_link_values: Vec::new(),
-            vtable_rebase_target_count: 0,
             fn_name_rebase_target_count: 0,
             class_name_rebase_target_count: 0,
             baked_regex_rebase_target_count: 0,

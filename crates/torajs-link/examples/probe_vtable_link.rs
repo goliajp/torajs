@@ -7,21 +7,18 @@
 //! sharing `__TEXT,__cstring` with `strings`, registered the sym
 //! override, and resolved each slot through the effective sym table.
 //!
-//! e7b adds the missing piece: each rodata slot is an absolute
-//! pointer that the PIE binary needs `LC_DYLD_CHAINED_FIXUPS` rebase
-//! entries to correct after the kernel's ASLR slide. With the rebase
-//! chain emission in place (`chained_fixups_starts` + `TextRebaseScope`
-//! + multi-segment page-start tables), dyld walks the `__TEXT` chain
-//! at load time, adds the slide, and stamps the runtime `_helper`
-//! address into slot 0 — so the indirect `BR x2` lands inside
-//! `_helper` regardless of ASLR.
+//! r506: each slot is RELATIVE — `fn vaddr - table vaddr` — so the
+//! ASLR slide cancels out of the arithmetic and the table needs no
+//! `LC_DYLD_CHAINED_FIXUPS` entry (it stays in `__TEXT` rodata; the
+//! e7b/e8 absolute-slot form needed a `__DATA_CONST` page for dyld to
+//! stamp). The dispatch adds the table base back: `ADD x2, x1, x2`.
 //!
 //! Acceptance: `OK: link produced N bytes`; the resulting binary at
 //! `/tmp/torajs_vtable_link` exits with **42** because `_main` does
-//! `ADRP+ADD __vtable_A` → `LDR x2,[x1,#0]` → `BR x2` → `_helper`
-//! sets x0 = 42 and `RET`s (no LR pushed by `BR`, so `_helper`'s
-//! return lands in dyld's main wrapper, which treats x0 as the
-//! exit code).
+//! `ADRP+ADD __vtable_A` → `LDR x2,[x1,#0]` → `ADD x2,x1,x2` →
+//! `BR x2` → `_helper` sets x0 = 42 and `RET`s (no LR pushed by
+//! `BR`, so `_helper`'s return lands in dyld's main wrapper, which
+//! treats x0 as the exit code).
 //!
 //! Run: `cargo run --release -p torajs-link --example probe_vtable_link`
 //! then `/tmp/torajs_vtable_link; echo "EXIT=$?"`.
@@ -50,23 +47,26 @@ fn build_helper() -> CompiledFunction {
     }
 }
 
-/// _main loads `__vtable_A` base into x1, loads the first slot into
-/// x2, then tail-branches there. dyld rebases the slot at load time
-/// (chained fixup), so BR lands in `_helper` regardless of ASLR
-/// slide; `_helper` then exits 42.
+/// _main loads `__vtable_A` base into x1, loads the first slot's
+/// relative offset into x2, adds the base back, then tail-branches
+/// there. Both the table and `_helper` slide together under ASLR,
+/// so the sum is `_helper` regardless; it then exits 42.
 fn build_main() -> CompiledFunction {
     let adrp_x1: [u8; 4] = [0x01, 0x00, 0x00, 0x90];
     let add_x1_pageoff: [u8; 4] = [0x21, 0x00, 0x00, 0x91];
     // LDR x2, [x1, #0] unsigned-offset 64-bit.
     let ldr_x2_x1: [u8; 4] = [0x22, 0x00, 0x40, 0xF9];
+    // ADD x2, x1, x2 (shifted-register form, shift 0).
+    let add_x2_x1_x2: [u8; 4] = [0x22, 0x00, 0x02, 0x8B];
     // BR x2 (unconditional indirect tail branch).
     let br_x2: [u8; 4] = [0x40, 0x00, 0x1F, 0xD6];
 
-    let mut bytes: Vec<u8> = Vec::with_capacity(16);
+    let mut bytes: Vec<u8> = Vec::with_capacity(20);
     bytes.extend_from_slice(&adrp_x1); // @0   ← Page21
     bytes.extend_from_slice(&add_x1_pageoff); // @4   ← PageOff12
-    bytes.extend_from_slice(&ldr_x2_x1); // @8   x2 = *(x1 + 0)
-    bytes.extend_from_slice(&br_x2); // @12  jump through x2
+    bytes.extend_from_slice(&ldr_x2_x1); // @8   x2 = *(x1 + 0)  (relative)
+    bytes.extend_from_slice(&add_x2_x1_x2); // @12  x2 = x1 + x2
+    bytes.extend_from_slice(&br_x2); // @16  jump through x2
 
     CompiledFunction {
         name: "_main".into(),

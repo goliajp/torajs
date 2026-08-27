@@ -41,13 +41,16 @@ pub struct Module {
     /// writes lower to `GlobalRef(name)` + `Store(value, ...)`.
     pub data_globals: Vec<DataGlobal>,
     /// T-24 — per-class virtual-method tables. torajs-link
-    /// materializes each as a pointer-array global named `__vtable_<C>`,
-    /// where slot[i] = the FuncId of `__cm_<best-owner-of-method[i]>__M`
-    /// (or None if class C's MRO has no impl of method[i] — that slot
-    /// becomes a null ptr that should never be loaded for this class).
-    /// Class instances stamp the global's address into
-    /// `OBJ_VTABLE_OFF (=16)` at construction time; `__dispatch_<M>`
-    /// loads `vtable[method_index] -> fn_ptr` and `CallIndirect`s.
+    /// materializes each as an i64-array rodata global named
+    /// `__vtable_<C>`, where slot[i] = the FuncId of
+    /// `__cm_<best-owner-of-method[i]>__M` (or None if class C's MRO
+    /// has no impl of method[i] — that slot is 0 and never loaded
+    /// for this class). Slots are RELATIVE (r506): the link writes
+    /// `fn vaddr - table vaddr`, so the table needs no dyld fixup and
+    /// lives in `__TEXT`. Class instances stamp the global's address
+    /// into `OBJ_VTABLE_OFF (=16)` at construction time;
+    /// `__dispatch_<M>` loads `vtable[method_index]`, adds the table
+    /// base back, and `CallIndirect`s.
     pub vtable_globals: Vec<VtableGlobal>,
     /// T-26.C — per-class children-offset metadata for the cycle
     /// collector's mark/scan/collect walks. Indexed by `class_tag - 1`

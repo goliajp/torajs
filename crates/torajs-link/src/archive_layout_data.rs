@@ -49,10 +49,9 @@ pub(crate) fn compute_data_region_plan(
     member_keys: &[(usize, usize)],
     tp: &TextRegionPlan,
 ) -> Result<DataRegionPlan, ArchiveLayoutError> {
-    // e8 + W-J A3c __DATA_CONST — vtable + class_layouts +
-    // fn_name_table + class_name_table rodata.
+    // e8 + W-J A3c __DATA_CONST — class_layouts + fn_name_table +
+    // class_name_table + baked regex rodata (absolute pointers).
     let data_const_layout = compute_data_const_layout(
-        &cfg.vtable_globals,
         &cfg.class_layouts,
         cfg.force_emit_class_layouts_globals,
         &cfg.fn_name_globals,

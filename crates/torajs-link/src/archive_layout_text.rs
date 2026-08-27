@@ -18,6 +18,7 @@ use crate::lc::{
 use crate::non_text_layout::{NonTextLayoutError, NonTextSectionLayout, compute_non_text_layouts};
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
 use crate::user_strings_layout::{UserStringsLayout, build_user_strings_region};
+use crate::user_vtables_layout::{UserVtablesLayout, build_user_vtables_region};
 
 /// Phase-T outputs consumed by the data / linkedit phases and the
 /// final [`crate::layout_types::ArchiveLayout`] assembly.
@@ -31,6 +32,9 @@ pub(crate) struct TextRegionPlan {
     pub(crate) non_text_region_size: u32,
     pub(crate) user_strings_layout: UserStringsLayout,
     pub(crate) user_strings_payload: Vec<u8>,
+    /// r506 — relative `__vtable_<C>` tables, right after the user
+    /// strings inside `__TEXT` (no fixup, no `__DATA_CONST` page).
+    pub(crate) user_vtables_layout: UserVtablesLayout,
     pub(crate) text_size: u32,
     pub(crate) stubs_section_size: u64,
     pub(crate) la_ptr_section_size: u64,
@@ -46,8 +50,10 @@ pub(crate) fn compute_text_region_plan(
     member_text_sizes: &[u32],
 ) -> Result<TextRegionPlan, ArchiveLayoutError> {
     // Phase 3: layout. has_dyld → __stubs/__la_symbol_ptr/chain LC
-    // (libSystem ord 1, libcurl ord 2). e8: __DATA_CONST hosts vtable
-    // + class_layouts; chain LC also turns on for __DATA_CONST rebases.
+    // (libSystem ord 1, libcurl ord 2). e8: __DATA_CONST hosts the
+    // absolute-pointer tables (class_layouts / name tables); chain LC
+    // also turns on for __DATA_CONST rebases. Vtables are relative
+    // (r506) and live in __TEXT — no chain participation.
     // Zero-import programs with data globals keep the dyld shape —
     // see `ArchiveLayout::has_dyld` for the platform-contract note.
     // A required member's `__text` may reference its OWN `__DATA,*`
@@ -77,10 +83,6 @@ pub(crate) fn compute_text_region_plan(
         || !cfg.data_globals.is_empty()
         || member_data_section_count > 0;
     let has_data_const_seg = crate::data_const_layout::data_const_present(cfg);
-    let has_vtable_rebase = cfg
-        .vtable_globals
-        .iter()
-        .any(|v| v.slot_syms.iter().any(|s| s.is_some()));
     let has_class_layouts_rebase = cfg
         .class_layouts
         .iter()
@@ -94,7 +96,6 @@ pub(crate) fn compute_text_region_plan(
     let has_class_names_table_rebase =
         !cfg.class_names.is_empty() || cfg.force_emit_class_names_globals;
     let has_chained_fixups = has_dyld
-        || has_vtable_rebase
         || has_class_layouts_rebase
         || has_fn_name_table_rebase
         || has_class_names_table_rebase;
@@ -193,8 +194,18 @@ pub(crate) fn compute_text_region_plan(
         TEXT_VMADDR_BASE,
         non_text_region_file_offset + non_text_region_size,
     );
-    let text_size =
-        user_text_size + members_text_total + non_text_region_size + user_strings_layout.total_size;
+    // r506 — relative vtables follow the user strings; their
+    // `total_size` carries the 8-align pad so the slots stay LDR-safe.
+    let user_vtables_layout = build_user_vtables_region(
+        &cfg.vtable_globals,
+        TEXT_VMADDR_BASE,
+        non_text_region_file_offset + non_text_region_size + user_strings_layout.total_size,
+    );
+    let text_size = user_text_size
+        + members_text_total
+        + non_text_region_size
+        + user_strings_layout.total_size
+        + user_vtables_layout.total_size;
 
     // __TEXT = __text + __stubs (has_dyld); vmsize page-aligned.
     let dyld_count = required.dyld_imports.len() as u64;
@@ -218,6 +229,7 @@ pub(crate) fn compute_text_region_plan(
         non_text_region_size,
         user_strings_layout,
         user_strings_payload,
+        user_vtables_layout,
         text_size,
         stubs_section_size,
         la_ptr_section_size,

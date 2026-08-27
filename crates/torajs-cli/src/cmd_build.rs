@@ -1,8 +1,8 @@
 //! `tr build` — AOT pipeline. Routes the source through
 //! `torajs-codegen` (aarch64 emit) + `torajs-obj` (relocs) +
 //! `torajs-link` (Mach-O exec with `link_to_exec_with_archives`).
-//! All seven user-code data sections (`strings` / `data_globals` /
-//! `vtable_globals` / `__DATA_CONST` rebase chain) are wired into
+//! All user-code data sections (`strings` / `data_globals` /
+//! relative `vtable_globals` / `__DATA_CONST` rebase chain) are wired into
 //! the link layer; this module materializes `ssa::Module` →
 //! `LinkConfig` and shells out to the staticlib-aware emit path.
 

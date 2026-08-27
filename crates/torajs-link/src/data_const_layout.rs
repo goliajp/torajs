@@ -1,16 +1,22 @@
-//! SD-4c-prereq+e8 — `__DATA_CONST` segment layout for vtable rodata.
+//! SD-4c-prereq+e8 — `__DATA_CONST` segment layout for the rodata
+//! tables that hold ABSOLUTE pointers and so need dyld to stamp the
+//! ASLR slide at load: class_layouts / fn_name_table /
+//! class_name_table / baked regex. Apple's kernel codesigns `__TEXT`
+//! pages — once dyld walks the chained-fixup chain and rewrites a
+//! slot, the page hash diverges from what `LC_CODE_SIGNATURE`
+//! recorded and the kernel terminates the process with `SIGKILL
+//! (Code Signature Invalid)`. Every modern arm64 macOS binary
+//! (swift / objc / rustc) moves such slots into a dedicated
+//! `__DATA_CONST` segment instead: dyld can fix it up at load time,
+//! and the `SG_READ_ONLY` segment flag tells the kernel to apply
+//! `mprotect(PROT_READ)` after the fixup walk so the data is still
+//! effectively immutable.
 //!
-//! e7a placed `__vtable_<C>` slots in `__TEXT,__cstring`, but Apple's
-//! kernel codesigns `__TEXT` pages — once dyld walks the chained-fixup
-//! chain and stamps the resolved fn vaddr into each slot, the page
-//! hash diverges from what `LC_CODE_SIGNATURE` recorded and the
-//! kernel terminates the process with `SIGKILL (Code Signature
-//! Invalid)`. Every modern arm64 macOS binary (swift / objc / rustc)
-//! moves rodata pointer slots into a dedicated `__DATA_CONST` segment
-//! instead: dyld can fix it up at load time, and the `SG_READ_ONLY`
-//! segment flag tells the kernel to apply `mprotect(PROT_READ)` after
-//! the fixup walk so the data is still effectively immutable. e8
-//! adopts that placement.
+//! `__vtable_<C>` slots lived here from e8 to r505. r506 made them
+//! RELATIVE (`target - table_base`, see `user_vtables_layout`), which
+//! needs no fixup — they are back in `__TEXT` rodata, and a program
+//! whose only pointer table was its vtables no longer carries this
+//! segment (one 16 KB page, the whole cost of a class override).
 //!
 //! Wire format references:
 //! - `<mach-o/loader.h>` — `segment_command_64.flags` carries
@@ -27,7 +33,6 @@ use crate::fn_name_table_layout::{
 use crate::lc::APPLE_SILICON_PAGE_SIZE;
 use crate::user_class_layouts_layout::{UserClassLayoutsLayout, compute_user_class_layouts_layout};
 use crate::user_regex_baked_layout::{UserRegexBakedLayout, compute_user_regex_baked_layout};
-use crate::user_vtables_layout::{UserVtablesLayout, compute_user_vtables_layout};
 use torajs_obj::{SegmentCommand64, VM_PROT_READ, VM_PROT_WRITE};
 
 /// `segment_command_64.flags` — segment becomes read-only after dyld
@@ -43,21 +48,15 @@ pub const SG_READ_ONLY: u32 = 0x10;
 /// segment indices stay unchanged from the pre-e8 layout.
 #[derive(Debug, Clone, Default)]
 pub struct DataConstLayout {
-    /// Vtable placement inside the segment. `entries[i].file_offset`
-    /// / `entries[i].vaddr` are absolute (image-relative + base) so
-    /// callers can pass them through unchanged to the emit pass.
-    pub vtable_layout: UserVtablesLayout,
     /// SD-4c-prereq+e8 — per-class `child_offsets` tables for the
-    /// cycle collector. Chained immediately after the vtable bytes
-    /// inside the same `__DATA_CONST` segment so dyld's chained-fixup
-    /// page walker covers both regions in one pass.
+    /// cycle collector, at the segment base.
     pub class_layouts_layout: UserClassLayoutsLayout,
     /// Fn-name registry Phase 2 Step 3b.3 — `__torajs_fn_name_table[]`
     /// + `__torajs_fn_name_table_count` placed after class_layouts
     /// inside the same `__DATA_CONST` segment. Two chain-fixup slots
     /// per entry (`fn_addr`, `name_ptr`) need dyld rebase at load
     /// time, so the same `SG_READ_ONLY` post-mprotect path that hosts
-    /// vtables hosts this region too. Empty layout (`total_size == 0`)
+    /// class_layouts hosts this region too. Empty layout (`total_size == 0`)
     /// when `cfg.fn_name_globals.is_empty()`.
     pub fn_name_table_layout: FnNameTableLayout,
     /// W-J Phase A3c — `__torajs_class_name_table[]` +
@@ -72,7 +71,7 @@ pub struct DataConstLayout {
     /// `__DATA_CONST` segment. Each `UserBakedRegexEntry` becomes a
     /// `(BakedDfaMeta, [DfaState; N])` pair; the `BakedDfaMeta::states_ptr`
     /// slot needs chain-LC rebase so the same `SG_READ_ONLY` post-mprotect
-    /// path that hosts vtables / class_layouts hosts this region too.
+    /// path that hosts class_layouts hosts this region too.
     /// Empty layout (`total_size == 0`) when `cfg.baked_regex_entries`
     /// is empty — current state, since the SSA-side `Module` never
     /// pushes entries until Phase C-6 trips the AOT gate.
@@ -84,29 +83,17 @@ pub struct DataConstLayout {
     /// `text_vmaddr + text_vmsize`.
     pub segment_vmaddr: u64,
     /// Page-aligned size of the segment's file payload. Equals
-    /// `segment_vmsize` because vtable bytes are file-backed (no
+    /// `segment_vmsize` because every table here is file-backed (no
     /// zerofill).
     pub segment_filesize: u64,
     /// Page-aligned virtual size of the segment. dyld's chained-fixup
     /// `page_start[]` table walks every page in this range.
     pub segment_vmsize: u64,
-    /// `false` when `vtable_globals` is empty — the caller short-
-    /// circuits every `__DATA_CONST` emit hook so the binary stays
-    /// byte-identical to the pre-e8 single-`__TEXT` layout.
+    /// `false` when no table is present — the caller short-circuits
+    /// every `__DATA_CONST` emit hook and the segment is not emitted.
     pub has_data_const: bool,
 }
 
-/// Compute the `__DATA_CONST` segment layout for the given vtable
-/// set. `segment_file_offset_base` and `segment_vmaddr_base` are the
-/// file / virtual addresses of the segment's first byte — typically
-/// `text_segment_file_offset + text_vmsize` and `text_vmaddr +
-/// text_vmsize`.
-///
-/// When `vtable_globals` is empty the returned layout has
-/// `has_data_const = false`, `segment_vmsize = 0`, and an empty
-/// vtable layout. Callers must skip every `__DATA_CONST` emit path
-/// in that case so the pre-e8 byte-identical guarantee for every
-/// vtable-less probe survives.
 /// Does this config put anything into `__DATA_CONST`? The one
 /// predicate both the load-command sizing (`archive_layout_text`) and
 /// this layout consult — r499: the sizing used to test a shorter list
@@ -114,8 +101,7 @@ pub struct DataConstLayout {
 /// invisible only while `tr build` forced every table on; the first
 /// derived-off flag exposed it as a one-LC overrun on regex programs.
 pub fn data_const_present(cfg: &crate::exec::LinkConfig) -> bool {
-    !cfg.vtable_globals.is_empty()
-        || !cfg.class_layouts.is_empty()
+    !cfg.class_layouts.is_empty()
         || cfg.force_emit_class_layouts_globals
         || !cfg.fn_name_globals.is_empty()
         || cfg.force_emit_fn_name_globals
@@ -124,8 +110,13 @@ pub fn data_const_present(cfg: &crate::exec::LinkConfig) -> bool {
         || !cfg.baked_regex_entries.is_empty()
 }
 
+/// Compute the `__DATA_CONST` segment layout. `segment_file_offset_base`
+/// and `segment_vmaddr_base` are the file / virtual addresses of the
+/// segment's first byte — `text_segment_file_offset + text_vmsize` and
+/// `text_vmaddr + text_vmsize`. With every table empty the returned
+/// layout has `has_data_const = false` and `segment_vmsize = 0`;
+/// callers skip every `__DATA_CONST` emit path in that case.
 pub fn compute_data_const_layout(
-    vtable_globals: &[crate::exec::UserVtableEntry],
     class_layouts: &[crate::exec::UserClassLayoutEntry],
     force_emit_class_layouts_globals: bool,
     fn_name_globals: &[crate::exec::UserFnNameEntry],
@@ -136,8 +127,7 @@ pub fn compute_data_const_layout(
     segment_file_offset_base: u32,
     segment_vmaddr_base: u64,
 ) -> DataConstLayout {
-    if vtable_globals.is_empty()
-        && class_layouts.is_empty()
+    if class_layouts.is_empty()
         && !force_emit_class_layouts_globals
         && fn_name_globals.is_empty()
         && !force_emit_fn_name_globals
@@ -146,7 +136,6 @@ pub fn compute_data_const_layout(
         && baked_regex_entries.is_empty()
     {
         return DataConstLayout {
-            vtable_layout: UserVtablesLayout::default(),
             class_layouts_layout: UserClassLayoutsLayout::default(),
             fn_name_table_layout: FnNameTableLayout::default(),
             class_name_table_layout: ClassNameTableLayout::default(),
@@ -158,21 +147,13 @@ pub fn compute_data_const_layout(
             has_data_const: false,
         };
     }
-    // Place the vtable rodata at the start of the segment, then chain
-    // class_layouts directly after, then fn_name_table.
-    // `compute_user_*_layout` / `compute_fn_name_table_layout` handle
-    // per-region alignment + offset math; we hand them the running
-    // cursor + vaddr. Unlike `build_user_vtables_region` (which adds
-    // `file_offset` to the image base assuming __TEXT placement), we
-    // pass the segment base directly so entries land at their actual
-    // vaddrs.
-    let vtable_layout = compute_user_vtables_layout(
-        vtable_globals,
-        segment_file_offset_base,
-        segment_vmaddr_base,
-    );
-    let class_layouts_cursor = segment_file_offset_base + vtable_layout.total_size;
-    let class_layouts_vaddr = segment_vmaddr_base + u64::from(vtable_layout.total_size);
+    // class_layouts at the segment base, then fn_name_table, then
+    // class_name_table, then baked regex. Each `compute_*_layout`
+    // handles its own alignment + offset math from the running
+    // cursor + vaddr (the segment base, so entries land at their
+    // actual vaddrs).
+    let class_layouts_cursor = segment_file_offset_base;
+    let class_layouts_vaddr = segment_vmaddr_base;
     let class_layouts_layout = compute_user_class_layouts_layout(
         class_layouts,
         class_layouts_cursor,
@@ -221,8 +202,7 @@ pub fn compute_data_const_layout(
     let baked_regex_vaddr = class_name_vaddr + u64::from(class_name_table_layout.total_size);
     let baked_regex_layout =
         compute_user_regex_baked_layout(baked_regex_entries, baked_regex_cursor, baked_regex_vaddr);
-    let total_region_size = vtable_layout.total_size
-        + class_layouts_layout.total_size
+    let total_region_size = class_layouts_layout.total_size
         + fn_name_table_layout.total_size
         + class_name_table_layout.total_size
         + baked_regex_layout.total_size;
@@ -231,7 +211,6 @@ pub fn compute_data_const_layout(
     let segment_vmsize =
         u64::from(total_region_size).div_ceil(APPLE_SILICON_PAGE_SIZE) * APPLE_SILICON_PAGE_SIZE;
     DataConstLayout {
-        vtable_layout,
         class_layouts_layout,
         fn_name_table_layout,
         class_name_table_layout,
@@ -267,17 +246,14 @@ pub fn build_data_const_segment(layout: &DataConstLayout) -> Option<SegmentComma
     })
 }
 
-/// Write the `__DATA_CONST` segment payload (vtable bytes,
-/// class_layouts bytes if any, plus page padding to segment_filesize).
-/// Pad-then-emit so the buf cursor lands at `segment_file_offset +
-/// segment_filesize` before the next segment's payload starts
-/// (la_ptr_file_offset). The `*_payload` slices are the byte streams
-/// `build_user_vtables_payload` / `build_user_class_layouts_payload`
-/// return — caller is responsible for handing them in.
+/// Write the `__DATA_CONST` segment payload (class_layouts bytes if
+/// any, then the name tables and baked regex). Pads the buf cursor
+/// up to `segment_file_offset` first so the region lands where the
+/// layout said. The `*_payload` slices are the byte streams the
+/// `build_*_payload` helpers return — caller hands them in.
 pub fn write_data_const_payload(
     buf: &mut Vec<u8>,
     layout: &DataConstLayout,
-    user_vtables_payload: &[u8],
     user_class_layouts_payload: &[u8],
     fn_name_table_payload: &[u8],
     class_name_table_payload: &[u8],
@@ -290,7 +266,6 @@ pub fn write_data_const_payload(
     if buf.len() < off {
         buf.resize(off, 0);
     }
-    buf.extend_from_slice(user_vtables_payload);
     buf.extend_from_slice(user_class_layouts_payload);
     buf.extend_from_slice(fn_name_table_payload);
     buf.extend_from_slice(class_name_table_payload);
@@ -300,14 +275,7 @@ pub fn write_data_const_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exec::{UserFnNameEntry, UserVtableEntry};
-
-    fn entry(sym: &str, slots: Vec<Option<&str>>) -> UserVtableEntry {
-        UserVtableEntry {
-            sym: sym.into(),
-            slot_syms: slots.into_iter().map(|s| s.map(String::from)).collect(),
-        }
-    }
+    use crate::exec::UserFnNameEntry;
 
     fn fn_name_entry(fid: u32, sid: u32, name_len: u32) -> UserFnNameEntry {
         UserFnNameEntry {
@@ -320,183 +288,64 @@ mod tests {
         }
     }
 
+    fn layout_with_fn_names(
+        fn_names: &[UserFnNameEntry],
+        file_offset_base: u32,
+        vmaddr_base: u64,
+    ) -> DataConstLayout {
+        compute_data_const_layout(
+            &[],
+            false,
+            fn_names,
+            false,
+            &[],
+            false,
+            &[],
+            file_offset_base,
+            vmaddr_base,
+        )
+    }
+
     #[test]
     fn empty_input_marks_segment_absent() {
-        let layout = compute_data_const_layout(
-            &[],
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            0x4000,
-            0x1_0000_4000,
-        );
+        let layout = layout_with_fn_names(&[], 0x4000, 0x1_0000_4000);
         assert!(!layout.has_data_const);
         assert_eq!(layout.segment_vmsize, 0);
         assert_eq!(layout.segment_filesize, 0);
-        assert!(layout.vtable_layout.entries.is_empty());
+        assert!(layout.fn_name_table_layout.entries.is_empty());
     }
 
     #[test]
-    fn single_vtable_fits_in_one_page() {
-        let vtables = [entry("__vtable_A", vec![Some("fn_0")])];
-        let layout = compute_data_const_layout(
-            &vtables,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            0x4000,
-            0x1_0000_4000,
-        );
+    fn fn_name_globals_alone_emits_one_page() {
+        // Only fn_name_globals — the segment must still emit so the
+        // runtime helper's externs resolve to a defined region, and
+        // the table lands at the segment base.
+        let fn_names = [fn_name_entry(0, 0, 3), fn_name_entry(1, 1, 5)];
+        let layout = layout_with_fn_names(&fn_names, 0x4000, 0x1_0000_4000);
         assert!(layout.has_data_const);
-        // 8 bytes vtable -> one page after alignment.
+        assert_eq!(layout.fn_name_table_layout.entries.len(), 2);
+        // 2 × 40 entries + 8 count = 88; page-aligned to 0x4000.
+        assert_eq!(layout.fn_name_table_layout.total_size, 88);
         assert_eq!(layout.segment_vmsize, 0x4000);
         assert_eq!(layout.segment_filesize, 0x4000);
-        assert_eq!(layout.segment_vmaddr, 0x1_0000_4000);
-        assert_eq!(layout.segment_file_offset, 0x4000);
-        // vtable_layout entry vaddr lands inside the segment.
-        assert_eq!(layout.vtable_layout.entries.len(), 1);
-        assert_eq!(layout.vtable_layout.entries[0].vaddr, 0x1_0000_4000);
-    }
-
-    #[test]
-    fn multi_vtable_pages_align_up() {
-        // Three vtables × 8 slots × 8 bytes = 192 bytes — well under
-        // one page so vmsize still rounds to 0x4000.
-        let vtables = [
-            entry("__vtable_A", vec![Some("a0"); 8]),
-            entry("__vtable_B", vec![Some("b0"); 8]),
-            entry("__vtable_C", vec![Some("c0"); 8]),
-        ];
-        let layout = compute_data_const_layout(
-            &vtables,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            0x4000,
-            0x1_0000_4000,
-        );
-        assert!(layout.has_data_const);
-        assert_eq!(layout.segment_vmsize, 0x4000);
-        // 3 vtables × 64 bytes payload = 192 bytes total_size.
-        assert_eq!(layout.vtable_layout.total_size, 192);
+        assert_eq!(layout.fn_name_table_layout.table_vaddr, 0x1_0000_4000);
     }
 
     #[test]
     fn segment_base_offsets_propagate_to_layout() {
         // file_offset_base / vmaddr_base mismatch — checks the helper
         // doesn't re-derive them from anywhere else.
-        let vtables = [entry("__vtable_A", vec![Some("fn_0"), Some("fn_1")])];
-        let layout = compute_data_const_layout(
-            &vtables,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            0x8000,
-            0x1_0000_8000,
-        );
+        let fn_names = [fn_name_entry(0, 0, 3)];
+        let layout = layout_with_fn_names(&fn_names, 0x8000, 0x1_0000_8000);
         assert_eq!(layout.segment_file_offset, 0x8000);
         assert_eq!(layout.segment_vmaddr, 0x1_0000_8000);
-        assert_eq!(layout.vtable_layout.entries[0].vaddr, 0x1_0000_8000);
-        assert_eq!(layout.vtable_layout.entries[0].file_offset, 0x8000);
-    }
-
-    #[test]
-    fn fn_name_globals_alone_emits_segment() {
-        // No vtable / class_layouts / force_emit — only fn_name_globals.
-        // Segment must still emit so the runtime helper's externs
-        // resolve to a defined region.
-        let fn_names = [fn_name_entry(0, 0, 3), fn_name_entry(1, 1, 5)];
-        let layout = compute_data_const_layout(
-            &[],
-            &[],
-            false,
-            &fn_names,
-            false,
-            &[],
-            false,
-            &[],
-            0x4000,
-            0x1_0000_4000,
-        );
-        assert!(layout.has_data_const);
-        assert_eq!(layout.fn_name_table_layout.entries.len(), 2);
-        // 2 × 40 entries + 8 count = 88; page-aligned to 0x4000.
-        assert_eq!(layout.fn_name_table_layout.total_size, 88);
-        assert_eq!(layout.segment_vmsize, 0x4000);
-        // fn_name_table lands at segment base (no preceding vtable /
-        // class_layouts bytes).
-        assert_eq!(layout.fn_name_table_layout.table_vaddr, 0x1_0000_4000);
-    }
-
-    #[test]
-    fn fn_name_globals_after_vtable_and_class_layouts() {
-        // Chain placement: vtable → class_layouts → fn_name_table.
-        // Single vtable entry contributes 8 bytes (one Some slot).
-        let vtables = [entry("__vtable_A", vec![Some("fn_0")])];
-        let fn_names = [fn_name_entry(0, 0, 3)];
-        let layout = compute_data_const_layout(
-            &vtables,
-            &[],
-            false,
-            &fn_names,
-            false,
-            &[],
-            false,
-            &[],
-            0x4000,
-            0x1_0000_4000,
-        );
-        assert!(layout.has_data_const);
-        // vtable 8 bytes, no class_layouts → fn_name_table at base + 8.
-        assert_eq!(layout.vtable_layout.total_size, 8);
-        assert_eq!(layout.fn_name_table_layout.table_vaddr, 0x1_0000_4008);
-        // segment still fits in one page (8 + 40 + 8 = 56 < 0x4000).
-        assert_eq!(layout.segment_vmsize, 0x4000);
-    }
-
-    #[test]
-    fn empty_fn_name_globals_keeps_layout_unchanged() {
-        // Empty fn_name_globals next to vtable-only path produces
-        // the same byte stream as the pre-3b.3 baseline.
-        let vtables = [entry("__vtable_A", vec![Some("fn_0")])];
-        let layout = compute_data_const_layout(
-            &vtables,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            false,
-            &[],
-            0x4000,
-            0x1_0000_4000,
-        );
-        assert!(layout.has_data_const);
-        assert_eq!(layout.fn_name_table_layout.total_size, 0);
-        assert!(layout.fn_name_table_layout.entries.is_empty());
-        // segment unchanged vs vtable-only case.
-        assert_eq!(layout.segment_vmsize, 0x4000);
+        assert_eq!(layout.fn_name_table_layout.table_vaddr, 0x1_0000_8000);
     }
 
     /// r499 — the sizing predicate and the layout's own emptiness
     /// test must agree on every table, or the load-command region
-    /// overruns `text_file_offset` by one segment command.
+    /// overruns `text_file_offset` by one segment command. r506: a
+    /// vtable-only config no longer puts anything here.
     #[test]
     fn presence_predicate_matches_layout_for_every_table() {
         let base = crate::exec::LinkConfig {
@@ -522,7 +371,6 @@ mod tests {
         };
         let layout_of = |c: &crate::exec::LinkConfig| {
             compute_data_const_layout(
-                &c.vtable_globals,
                 &c.class_layouts,
                 c.force_emit_class_layouts_globals,
                 &c.fn_name_globals,
@@ -537,6 +385,15 @@ mod tests {
         };
         assert!(!data_const_present(&base));
         assert_eq!(layout_of(&base), data_const_present(&base));
+        let mut only_vtables = base.clone();
+        only_vtables
+            .vtable_globals
+            .push(crate::exec::UserVtableEntry {
+                sym: "__vtable_A".into(),
+                slot_syms: vec![Some("__torajs_fn_0".into())],
+            });
+        assert!(!data_const_present(&only_vtables));
+        assert_eq!(layout_of(&only_vtables), data_const_present(&only_vtables));
         let mut only_class_names = base.clone();
         only_class_names.force_emit_class_names_globals = true;
         assert!(data_const_present(&only_class_names));

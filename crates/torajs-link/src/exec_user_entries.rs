@@ -39,9 +39,10 @@ pub struct UserStringEntry {
     pub payload_alias: Option<String>,
 }
 
-/// SD-4c-prereq+e7 — one `[N x ptr]` vtable. `sym` is what codegen's
-/// `GlobalRef("__vtable_<C>")` ADRP+ADD targets; slots resolve at
-/// emit time (Some(name) → name's final vaddr; None → 0).
+/// SD-4c-prereq+e7 / r506 — one `[N x i64]` vtable. `sym` is what
+/// codegen's `GlobalRef("__vtable_<C>")` ADRP+ADD targets; slots
+/// resolve at emit time to `fn vaddr - table vaddr` (None → 0) and
+/// the dispatch adds the table base back.
 #[derive(Debug, Clone)]
 pub struct UserVtableEntry {
     pub sym: String,

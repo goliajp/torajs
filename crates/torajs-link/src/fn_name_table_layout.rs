@@ -3,7 +3,7 @@
 //! binary-search target consumed by `__torajs_fn_print_inline` to
 //! turn a fn_addr into the bun `[Function: name]` form.
 //!
-//! Mirrors `user_vtables_layout` (chain-fixup-aware) but the
+//! Mirrors `user_class_layouts_layout` (chain-fixup-aware) but the
 //! shape is a single contiguous array of fixed-size entries (no
 //! per-symbol grouping), keyed on fn_addr ascending so the runtime
 //! can binary-search. Two adjacent globals:
@@ -28,7 +28,7 @@
 //! externs resolve. The table is sorted by `fn_addr` ascending at
 //! emit time so the runtime can binary-search.
 //!
-//! Placement: `__DATA_CONST` segment, after `user_vtables_layout`
+//! Placement: `__DATA_CONST` segment, after class_layouts
 //! + `user_class_layouts_layout`. The two chain-fixup-target slots
 //! (`fn_addr`, `name_ptr`) require dyld rebase at load time, which
 //! invalidates the codesigned `__TEXT` page hash if placed in
@@ -490,7 +490,7 @@ pub fn build_fn_name_table_region(
 }
 
 /// archive_link-side helper — mirror of
-/// [`crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs`].
+/// [`crate::user_class_layouts_layout::compute_class_layouts_rebase_targets`].
 /// Builds a mini sym table containing fn_addr aliases
 /// (`__torajs_fn_<fid>` → `fn_vaddrs[fid]`) + user-string aliases
 /// (`entry.sym` → `entry.vaddr` for every `user_strings_layout` entry)

@@ -85,9 +85,10 @@ pub struct LinkConfig {
     /// Requires the has_dyld path; non-empty + !has_dyld → reject.
     /// Empty default preserves pre-e4 byte streams.
     pub data_globals: Vec<UserDataGlobalEntry>,
-    /// SD-4c-prereq+e7 — `__vtable_<C>` tables emitted as `[N x ptr]`
-    /// rodata sharing `__TEXT,__cstring` with `strings`.
-    /// `slot_syms[i] = Some(name)` writes vaddr-of-`name`; `None` → 0.
+    /// SD-4c-prereq+e7 / r506 — `__vtable_<C>` tables emitted as
+    /// `[N x i64]` rodata sharing `__TEXT,__cstring` with `strings`.
+    /// `slot_syms[i] = Some("__torajs_fn_<fid>")` writes
+    /// `vaddr-of-fn - table-vaddr` (relative, no fixup); `None` → 0.
     pub vtable_globals: Vec<UserVtableEntry>,
     /// SD-4c-prereq+e8 — per-class `child_offsets` for the cycle
     /// collector (T-26.C); materializes the `__torajs_class_layouts`

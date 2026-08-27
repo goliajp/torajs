@@ -17,7 +17,6 @@ use crate::layout_types::ArchiveLayout;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::user_class_layouts_layout::compute_class_layouts_rebase_targets;
 use crate::user_regex_baked_layout::compute_user_regex_baked_rebase_targets;
-use crate::user_vtables_layout::vtable_rebase_targets_from_fn_vaddrs;
 
 /// Args bundle for [`compute_chained_fixups_outputs`] — keeps the
 /// archive_link call site to a handful of lines while still
@@ -69,7 +68,10 @@ pub struct ChainedFixupsInputs<'a> {
     pub segment_count: u32,
     pub data_seg_idx: u32,
     pub data_const_layout: &'a DataConstLayout,
-    pub vtable_rebase_targets: &'a [RebaseTarget],
+    /// Combined `__DATA_CONST` rebase slots in region walk order
+    /// (class_layouts | fn_name_table | class_name_table | baked
+    /// regex) — every absolute pointer dyld must slide.
+    pub data_const_rebase_targets: &'a [RebaseTarget],
     /// SD-4c swap-2k chunk 2b — per staticlib-member `__DATA,*`
     /// rebase target list (offset_in_data_segment, target_off_in_image).
     /// Empty slice (default) keeps the binary byte-identical to the
@@ -81,15 +83,15 @@ pub struct ChainedFixupsInputs<'a> {
 
 /// Returns `(blob, la_ptr_slot_values, tlv_thunk_link_values,
 /// text_rebase_link_values, data_rebase_link_values)`. Short-circuits
-/// to five empty vecs when no la-ptr / TLV / vtable rebase / data
-/// rebase participants exist.
+/// to five empty vecs when no la-ptr / TLV / `__DATA_CONST` rebase /
+/// data rebase participants exist.
 pub fn compute_chained_fixups_outputs(
     input: ChainedFixupsInputs<'_>,
 ) -> (Vec<u8>, Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
     let has_dyld = !input.dyld_imports.is_empty();
-    let has_vtable_rebase = !input.vtable_rebase_targets.is_empty();
+    let has_data_const_rebase = !input.data_const_rebase_targets.is_empty();
     let has_data_rebase = !input.data_seg_rebase_targets.is_empty();
-    if !has_dyld && !has_vtable_rebase && !has_data_rebase {
+    if !has_dyld && !has_data_const_rebase && !has_data_rebase {
         let blob = if input.lc_present {
             empty_chained_fixups_blob(input.segment_count)
         } else {
@@ -97,13 +99,13 @@ pub fn compute_chained_fixups_outputs(
         };
         return (blob, Vec::new(), Vec::new(), Vec::new(), Vec::new());
     }
-    let text_rebase = if has_vtable_rebase {
+    let text_rebase = if has_data_const_rebase {
         Some(TextRebaseScope {
             // Field names are vestigial — e8+ uses __DATA_CONST.
             text_segment_vmaddr_offset: input.data_const_layout.segment_vmaddr - TEXT_VMADDR_BASE,
             text_segment_vmsize: input.data_const_layout.segment_vmsize,
             text_seg_idx: 2, // __DATA_CONST idx in PAGEZERO+TEXT+DATA_CONST+...
-            rebase_targets: input.vtable_rebase_targets,
+            rebase_targets: input.data_const_rebase_targets,
         })
     } else {
         None
@@ -151,12 +153,6 @@ pub fn recompute_chained_fixups_with_data_rebase(
     // (__DATA_CONST?) + (__DATA?) + __LINKEDIT.
     let segment_count = 3 + u32::from(has_dyld) + u32::from(has_data_const);
     let data_seg_idx: u32 = if has_data_const { 3 } else { 2 };
-    let vtable_rebase_targets = vtable_rebase_targets_from_fn_vaddrs(
-        &layout.data_const_layout.vtable_layout,
-        &layout.fn_vaddrs,
-        layout.data_const_layout.segment_vmaddr,
-        TEXT_VMADDR_BASE,
-    );
     let class_layouts_rebase_targets = compute_class_layouts_rebase_targets(
         &layout.data_const_layout.class_layouts_layout,
         &layout.fn_vaddrs,
@@ -164,7 +160,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
         TEXT_VMADDR_BASE,
     );
     // Step 3b.4 + W-J A3c — mirror archive_link.rs walk order:
-    // vtable + class_layouts + fn_name_table + class_name_table.
+    // class_layouts + fn_name_table + class_name_table + baked regex.
     // The recompute path must produce the same combined list so per-
     // slot link values stay indexed-aligned with text_rebase_link_values
     // after the data-rebase round-trip.
@@ -186,8 +182,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
         layout.data_const_layout.segment_vmaddr,
         TEXT_VMADDR_BASE,
     );
-    let mut combined_text_rebase = vtable_rebase_targets;
-    combined_text_rebase.extend(class_layouts_rebase_targets);
+    let mut combined_text_rebase = class_layouts_rebase_targets;
     combined_text_rebase.extend(fn_name_table_rebase_targets);
     combined_text_rebase.extend(class_name_table_rebase_targets);
     combined_text_rebase.extend(baked_regex_rebase_targets);
@@ -206,7 +201,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
             segment_count,
             data_seg_idx,
             data_const_layout: &layout.data_const_layout,
-            vtable_rebase_targets: &combined_text_rebase,
+            data_const_rebase_targets: &combined_text_rebase,
             data_seg_rebase_targets: data_rebase_targets,
         });
     // The recompute can GROW the blob: an import-free closure whose

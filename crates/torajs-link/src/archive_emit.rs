@@ -199,26 +199,26 @@ pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLa
         &cfg.codesign_ident,
     );
 
-    // e7b-4/e8-2b + Step 3b.4-5 + W-J A3c + C-5c.2c: 5-way split
-    // text_rebase_link_values = vtable | class_layouts |
-    // fn_name_table | class_name_table | baked_regex. class_layouts
-    // count is the middle slice computed by subtraction so the split
-    // arithmetic stays single-source-of-truth even if other counts
-    // drift.
+    // e8-2b + Step 3b.4-5 + W-J A3c + C-5c.2c: region split of
+    // text_rebase_link_values = class_layouts | fn_name_table |
+    // class_name_table | baked_regex. class_layouts count is the head
+    // slice computed by subtraction so the split arithmetic stays
+    // single-source-of-truth even if other counts drift.
     let total_text_rebase = layout.text_rebase_link_values.len();
-    let vtable_count = layout.vtable_rebase_target_count;
     let fn_name_count = layout.fn_name_rebase_target_count;
     let class_name_count = layout.class_name_rebase_target_count;
     let baked_regex_count = layout.baked_regex_rebase_target_count;
     let class_count = total_text_rebase
-        .checked_sub(vtable_count + fn_name_count + class_name_count + baked_regex_count)
-        .expect("text_rebase_link_values has fewer entries than the 4 fixed regions combined");
-    let (vtable_lv, rest) = layout.text_rebase_link_values.split_at(vtable_count);
-    let (class_lv, rest) = rest.split_at(class_count);
+        .checked_sub(fn_name_count + class_name_count + baked_regex_count)
+        .expect("text_rebase_link_values has fewer entries than the 3 fixed regions combined");
+    let (class_lv, rest) = layout.text_rebase_link_values.split_at(class_count);
     let (fn_name_lv, rest) = rest.split_at(fn_name_count);
     let (class_name_lv, baked_regex_lv) = rest.split_at(class_name_count);
     debug_assert_eq!(baked_regex_lv.len(), baked_regex_count);
-    let user_vtables_payload = build_user_vtables_payload(&layout.user_vtables_layout, vtable_lv);
+    // r506 — relative vtable slots resolve straight off the fn vaddr
+    // table; no chain link value is involved.
+    let user_vtables_payload =
+        build_user_vtables_payload(&layout.user_vtables_layout, &layout.fn_vaddrs);
     let user_class_layouts_payload =
         build_user_class_layouts_payload(&layout.data_const_layout.class_layouts_layout, class_lv);
     let fn_name_table_payload =
@@ -338,12 +338,23 @@ fn emit_binary(
         buf.extend_from_slice(&member_text_payloads[i]);
     }
 
-    // Non-text section payloads + user-strings region splice between
-    // member __texts and `__TEXT,__stubs` (SD-4c-prereq-c / +e1).
+    // Non-text section payloads + user-strings region + relative
+    // vtables splice between member __texts and `__TEXT,__stubs`
+    // (SD-4c-prereq-c / +e1 / r506).
     crate::non_text_layout::write_non_text_payloads(&mut buf, layout, non_text_payloads);
     buf.extend_from_slice(&layout.user_strings_payload);
+    // Hard gate, same rationale as the load-command one above: a
+    // drift between the text plan and this splice would shift every
+    // slot while `__vtable_<C>` kept its recorded vaddr.
+    assert_eq!(
+        buf.len() as u32,
+        layout.user_vtables_layout.region_file_offset(),
+        "relative vtable region must start right after the user strings — text plan and emit have drifted apart",
+    );
+    buf.extend_from_slice(user_vtables_payload);
 
-    // e8: __TEXT __stubs → __DATA_CONST (vtable) → __DATA la_ptr.
+    // e8: __TEXT __stubs → __DATA_CONST (class_layouts + name tables)
+    // → __DATA la_ptr.
     if meta.has_dyld {
         // chunk 3 — pad to `stubs_file_offset` past per-section align.
         pad_to(&mut buf, layout.stubs_file_offset as usize);
@@ -352,7 +363,6 @@ fn emit_binary(
     crate::data_const_layout::write_data_const_payload(
         &mut buf,
         &layout.data_const_layout,
-        user_vtables_payload,
         user_class_layouts_payload,
         fn_name_table_payload,
         class_name_table_payload,

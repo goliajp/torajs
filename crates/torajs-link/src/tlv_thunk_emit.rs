@@ -120,7 +120,6 @@ mod tests {
             class_name_table_layout: Default::default(),
             data_const_layout: Default::default(),
             text_rebase_link_values: Vec::new(),
-            vtable_rebase_target_count: 0,
             fn_name_rebase_target_count: 0,
             class_name_rebase_target_count: 0,
             baked_regex_rebase_target_count: 0,

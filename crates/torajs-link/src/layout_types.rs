@@ -173,19 +173,14 @@ pub struct ArchiveLayout {
     /// __DATA segment; no file payload (zerofill). Empty layout
     /// (`total_vmsize == 0`) when `data_globals.is_empty()`.
     pub user_data_globals_layout: UserDataGlobalsLayout,
-    /// SD-4c-prereq+e7 / e8 — user-binary virtual method tables.
-    /// e7a placed entries in `__TEXT,__cstring`; e8 migrated the
-    /// rodata to a dedicated `__DATA_CONST` segment so dyld can
-    /// rebase slots without invalidating the codesigned `__TEXT`
-    /// pages. The vtable layout itself (`entries[i].vaddr` /
-    /// `file_offset`) is also exposed through
-    /// `data_const_layout.vtable_layout`; this field is kept for
-    /// the `apply_user_vtable_overrides` + `build_user_vtables_payload`
-    /// emit path that needs the layout directly.
+    /// SD-4c-prereq+e7 / r506 — user-binary virtual method tables,
+    /// placed in `__TEXT` right after `user_strings_layout`. Slots
+    /// are relative (`target - table_base`), so the region needs no
+    /// dyld fixup; see `user_vtables_layout`.
     pub user_vtables_layout: UserVtablesLayout,
     /// Fn-name registry Phase 2 Step 3b.3 — `__torajs_fn_name_table[]`
     /// + `__torajs_fn_name_table_count` placement inside `__DATA_CONST`,
-    /// after `user_vtables_layout` + class_layouts. Mirror of
+    /// after class_layouts. Mirror of
     /// `data_const_layout.fn_name_table_layout` for the
     /// `apply_fn_name_table_overrides` / `build_fn_name_table_payload`
     /// emit path that needs the layout directly. Empty layout
@@ -204,44 +199,36 @@ pub struct ArchiveLayout {
     /// emit pass skips every `__DATA_CONST` emit hook so the binary
     /// stays byte-identical to the pre-e8 layout.
     pub data_const_layout: super::data_const_layout::DataConstLayout,
-    /// SD-4c-prereq+e7b-4/e8-2b — combined __DATA_CONST rebase
-    /// chain-link u64 values. First `vtable_rebase_target_count`
-    /// entries match `compute_vtable_rebase_targets` output order
-    /// (one per `Some` vtable slot); the remainder belong to
-    /// `compute_class_layouts_rebase_targets` (one per non-empty
-    /// class_layouts entry's inner-ptr slot). The emit pass splits
-    /// at `vtable_rebase_target_count` to feed the two `build_*_payload`
-    /// helpers their respective slices.
+    /// SD-4c-prereq+e8-2b — combined __DATA_CONST rebase chain-link
+    /// u64 values in region walk order: class_layouts (one per
+    /// non-empty entry's inner-ptr slot) | fn_name_table |
+    /// class_name_table | baked_regex. The emit pass splits at the
+    /// recorded per-region counts below; class_layouts is the head
+    /// remainder.
     pub text_rebase_link_values: Vec<u64>,
-    /// SD-4c-prereq+e8-2b — split point into `text_rebase_link_values`.
-    /// Equals the number of vtable slots that produced a rebase target
-    /// (= total `Some` slot_syms across all entries in
-    /// `user_vtables_layout`).
-    pub vtable_rebase_target_count: usize,
     /// Fn-name registry Phase 2 Step 3b.4 — count of fn_name_table
     /// chain-fixup slots (= `2 × fn_name_globals.len()` for the
     /// `fn_addr` + `name_ptr` slot pair per entry; 0 when
     /// `fn_name_globals.is_empty()`). archive_emit.rs uses this as
-    /// the third split point so the 3-way split of
+    /// a split point so the region split of
     /// `text_rebase_link_values` lines up:
-    /// `vtable_lv[..vtable_rebase_target_count]`,
-    /// `class_lv[vtable_rebase_target_count..total - fn_name_rebase_target_count]`,
-    /// `fn_name_lv[total - fn_name_rebase_target_count..]`.
+    /// `class_lv[..total - fn_name - class_name - baked_regex]`,
+    /// then `fn_name_lv`.
     pub fn_name_rebase_target_count: usize,
     /// W-J Phase A3c — count of class_name_table chain-fixup slots
     /// (= `1 × class_names.len()` for the single `name_ptr` slot
     /// per entry; 0 when `class_names.is_empty()`). archive_emit.rs
-    /// uses this as the fourth split point so the 4-way split of
+    /// uses this as a split point so the region split of
     /// `text_rebase_link_values` lines up:
-    /// `vtable_lv | class_lv | fn_name_lv | class_name_lv`.
+    /// `class_lv | fn_name_lv | class_name_lv`.
     pub class_name_rebase_target_count: usize,
     /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5c.2b — count of
     /// baked-regex chain-fixup slots (= `1 × baked_regex_entries.len()`
     /// for the single `BakedDfaMeta::states_ptr` slot per entry; 0
     /// when `cfg.baked_regex_entries.is_empty()`). archive_emit.rs
-    /// uses this as the fifth split point so the 5-way split of
+    /// uses this as the last split point so the region split of
     /// `text_rebase_link_values` lines up:
-    /// `vtable_lv | class_lv | fn_name_lv | class_name_lv | baked_regex_lv`.
+    /// `class_lv | fn_name_lv | class_name_lv | baked_regex_lv`.
     pub baked_regex_rebase_target_count: usize,
 }
 

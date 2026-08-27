@@ -18,14 +18,14 @@ use crate::chained_fixups::{
 /// segment (so dyld can compute the page bucket); `target_offset_in_image`
 /// is the offset from `text_vmaddr` to the symbol the slot resolves
 /// to and lands directly in the format-6 `target` field. Used for
-/// `__vtable_<C>` slots in SD-4c-prereq+e7b — every entry rebases to
-/// a `__torajs_fn_<fid>` body offset.
+/// the `__DATA_CONST` tables' absolute slots (class_layouts / name
+/// tables / baked regex) and member `__DATA,*` rebases.
 pub(crate) type RebaseTarget = (u64, u64);
 
 /// Pre-encoded `dyld_chained_starts_in_segment` blob together
 /// with the per-slot 8-byte chain link values the emit pass
 /// writes into `__DATA,__la_symbol_ptr`, each TLV descriptor's
-/// `thunk` slot, and each rebase slot (vtable / data rebase).
+/// `thunk` slot, and each rebase slot (`__DATA_CONST` / data rebase).
 /// Split out so [`crate::chained_fixups::build_chained_fixups`]
 /// stays under the function-size limit while the per-page chain math
 /// gets dedicated coverage.
