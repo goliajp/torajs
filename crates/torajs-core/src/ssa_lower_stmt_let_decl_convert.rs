@@ -119,7 +119,7 @@ pub(crate) fn maybe_arr_any_to_typed(
 /// assign-boundary conversion (mirror of `arr_kind_chain`'s low
 /// bits). `None` = no runtime kind can express the elem — the decl
 /// keeps the pre-698 behavior (no conversion).
-fn arr_elem_kind_const(elem: &Type) -> Option<i64> {
+pub(crate) fn arr_elem_kind_const(elem: &Type) -> Option<i64> {
     Some(match elem {
         Type::I64 | Type::I32 => 1,
         Type::F64 => 2,

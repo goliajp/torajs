@@ -113,6 +113,32 @@ fn merge_method_defaults(
     }
 }
 
+/// Method names some class row declares with a rest parameter — the
+/// names the by-name default table must refuse to serve.
+///
+/// That table exists for a receiver this pass cannot resolve, and
+/// what it would supply to a variadic row is not the omitted argument
+/// the language owes (§10.2.11) but an EXTRA one: it lands in the
+/// tail, so an unrelated class's `q = 3` reached a `f(x, ...r)` as
+/// `r = [3]` and the row answered one more than it should. Seeded as
+/// a conflict rather than filtered at the call site because a
+/// conflict is what the name being ambiguous MEANS here; a receiver
+/// this pass DOES resolve still reads the row's own defaults, one
+/// branch earlier in `member_call_defaults`.
+fn rest_tailed_method_names(ast: &Ast) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, .. } = s
+            && params.last().is_some_and(|p| p.is_rest)
+            && let Some(rest) = name.strip_prefix("__cm_")
+            && let Some(idx) = rest.rfind("__")
+        {
+            out.insert(rest[idx + 2..].to_string());
+        }
+    }
+    out
+}
+
 /// Literal-value equality across distinct ExprIds (the merge rule's
 /// "same default" test). NaN literals compare equal to themselves.
 fn same_literal(ast: &Ast, a: ExprId, b: ExprId) -> bool {
@@ -187,7 +213,7 @@ pub fn apply_default_args(ast: &mut Ast) {
     // we can apply them to the bare `obj.method(args)` call site
     // without knowing the receiver's static type.
     let mut method_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
-    let mut method_conflict: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut method_conflict = rest_tailed_method_names(ast);
     for (fname, defaults) in &fn_defaults {
         let Some(rest) = fname.strip_prefix("__cm_") else {
             continue;
@@ -384,5 +410,73 @@ pub fn apply_default_args(ast: &mut Ast) {
                 };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fnd(name: &str, params: Vec<Param>) -> Stmt {
+        Stmt::FnDecl {
+            name: name.into(),
+            type_params: Vec::new(),
+            params,
+            return_type: None,
+            body: Vec::new(),
+            is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
+        }
+    }
+
+    fn p(name: &str, is_rest: bool) -> Param {
+        Param {
+            name: name.into(),
+            type_ann: None,
+            default: None,
+            is_rest,
+        }
+    }
+
+    fn ast_of(stmts: Vec<Stmt>) -> Ast {
+        Ast {
+            stmts,
+            ..Ast::default()
+        }
+    }
+
+    #[test]
+    fn a_variadic_row_refuses_the_name() {
+        let ast = ast_of(vec![fnd(
+            "__cm_A__f",
+            vec![p("__this", false), p("x", false), p("r", true)],
+        )]);
+        assert!(rest_tailed_method_names(&ast).contains("f"));
+    }
+
+    #[test]
+    fn a_fixed_row_leaves_the_name_alone() {
+        let ast = ast_of(vec![fnd(
+            "__cm_A__f",
+            vec![p("__this", false), p("x", false), p("y", false)],
+        )]);
+        assert!(rest_tailed_method_names(&ast).is_empty());
+    }
+
+    #[test]
+    fn the_method_boundary_is_the_last_double_underscore() {
+        // a class name may itself contain `__` (`__Gen_count3`)
+        let ast = ast_of(vec![fnd(
+            "__cm___Gen_count3__next",
+            vec![p("__this", false), p("r", true)],
+        )]);
+        let names = rest_tailed_method_names(&ast);
+        assert!(names.contains("next"), "{names:?}");
+    }
+
+    #[test]
+    fn a_plain_variadic_function_is_not_a_method_name() {
+        let ast = ast_of(vec![fnd("g", vec![p("x", false), p("r", true)])]);
+        assert!(rest_tailed_method_names(&ast).is_empty());
     }
 }

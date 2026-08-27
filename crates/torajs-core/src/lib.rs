@@ -373,6 +373,7 @@ pub(crate) mod ssa_lower_call_regex_methods;
 pub(crate) mod ssa_lower_call_regexp_escape;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_sibling_class_dispatch;
+pub(crate) mod ssa_lower_call_sibling_rest;
 pub(crate) mod ssa_lower_call_spread;
 pub(crate) mod ssa_lower_call_str_match_custom;
 pub(crate) mod ssa_lower_call_str_regex_emit;

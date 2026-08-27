@@ -132,6 +132,16 @@ pub struct Ast {
     /// non-rest binding over-admits, which fails safe: the probe
     /// answers the [[Get]] semantics either way.
     pub obj_rest_names: std::collections::HashSet<String>,
+    /// How many arguments a call site supplies before the tail, for
+    /// every top-level declaration whose last parameter is a rest.
+    /// Published by `apply_rest_args` out of the very reading it packs
+    /// with, so the packer and the lanes that have no packing site
+    /// cannot drift apart about where a tail begins.
+    ///
+    /// The receiver of a `__this`-first body is peeled: the lane that
+    /// needs this table (sibling-class dispatch) resolves the receiver
+    /// itself and never carries it in the argument list.
+    pub rest_arg_prefix: std::collections::HashMap<String, usize>,
     /// RFC 20260730-undeclared-ident — expression-position occurrences
     /// of identifiers that resolve nowhere (§6.2.5.5 GetValue /
     /// §6.2.5.6 PutValue on an unresolvable Reference), ExprId → name.

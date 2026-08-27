@@ -27,6 +27,8 @@ use std::collections::HashMap;
 pub fn apply_rest_args(ast: &mut Ast) {
     // Map: callee name -> (n_required, rest_param_type_ann).
     let mut fn_rest: HashMap<String, (usize, String)> = HashMap::new();
+    // The same reading, minus the receiver — see `Ast::rest_arg_prefix`.
+    let mut arg_prefix: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
             let user_params: &[Param] = peel_hidden_params(params);
@@ -35,10 +37,24 @@ pub fn apply_rest_args(ast: &mut Ast) {
                     let n_required = user_params.len() - 1;
                     let rest_ann = last.type_ann.clone().unwrap_or_else(|| "any[]".into());
                     fn_rest.insert(name.clone(), (n_required, rest_ann));
+                    let this_led = user_params.first().is_some_and(|p| p.name == "__this");
+                    arg_prefix.insert(
+                        name.clone(),
+                        n_required.saturating_sub(usize::from(this_led)),
+                    );
                 }
             }
         }
     }
+    // Published for the lanes that have no packing site of their own.
+    // A Member-shape call survives desugar when several unrelated
+    // classes declare the name — sibling-class dispatch resolves the
+    // receiver at SSA level, not here — and that lane handed a
+    // rest-declaring body its trailing arguments one per register, so
+    // the parameter read a scalar where it expects an array. It reads
+    // this table rather than its own walk because a second reading of
+    // "where does the tail begin" is a second thing to drift.
+    ast.rest_arg_prefix = arg_prefix;
     if fn_rest.is_empty() {
         return;
     }
@@ -153,5 +169,81 @@ pub fn apply_rest_args(ast: &mut Ast) {
                 args: new_args,
             };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fnd(name: &str, params: Vec<Param>) -> Stmt {
+        Stmt::FnDecl {
+            name: name.into(),
+            type_params: Vec::new(),
+            params,
+            return_type: None,
+            body: Vec::new(),
+            is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
+        }
+    }
+
+    fn p(name: &str, is_rest: bool) -> Param {
+        Param {
+            name: name.into(),
+            type_ann: None,
+            default: None,
+            is_rest,
+        }
+    }
+
+    fn prefixes(stmts: Vec<Stmt>) -> HashMap<String, usize> {
+        let mut ast = Ast {
+            stmts,
+            ..Ast::default()
+        };
+        apply_rest_args(&mut ast);
+        ast.rest_arg_prefix
+    }
+
+    #[test]
+    fn the_receiver_is_not_an_argument() {
+        // `new A().f(1, 2, 3)` supplies one argument before the tail
+        let m = prefixes(vec![fnd(
+            "__cm_A__f",
+            vec![p("__this", false), p("x", false), p("r", true)],
+        )]);
+        assert_eq!(m.get("__cm_A__f"), Some(&1));
+    }
+
+    #[test]
+    fn a_plain_function_counts_every_fixed_parameter() {
+        let m = prefixes(vec![fnd(
+            "g",
+            vec![p("x", false), p("y", false), p("r", true)],
+        )]);
+        assert_eq!(m.get("g"), Some(&2));
+    }
+
+    #[test]
+    fn a_fixed_declaration_has_no_tail_to_begin() {
+        let m = prefixes(vec![fnd("g", vec![p("x", false)])]);
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn a_hidden_head_is_peeled_before_the_count() {
+        // an `__env`-first body: neither the environment nor the
+        // receiver behind it is written at a call site
+        let m = prefixes(vec![fnd(
+            "__closure_0",
+            vec![
+                p("__env", false),
+                p("__this", false),
+                p("x", false),
+                p("r", true),
+            ],
+        )]);
+        assert_eq!(m.get("__closure_0"), Some(&1));
     }
 }

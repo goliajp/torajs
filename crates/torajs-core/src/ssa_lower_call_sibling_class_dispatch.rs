@@ -99,7 +99,30 @@ pub(crate) fn try_lower(
             crate::ssa_lower_call_vtable_dispatch::overridden_below(ctx, &cname, &owners)
         });
 
-    let mut arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    let param_tys: Vec<Type> = match ctx.fn_sig_ids.get(&fid).copied() {
+        Some(sig_id) => ctx.fn_sigs[sig_id.0 as usize].0.clone(),
+        None => Vec::new(),
+    };
+    // A rest-declaring callee takes ONE array where this lane used to
+    // hand it a register per argument — see
+    // `ssa_lower_call_sibling_rest`, which is where the packing every
+    // other direct call site gets at AST level happens for this one.
+    // Both questions are asked before an argument is lowered: the
+    // decline protocol re-parks only the receiver.
+    let tail_at = ctx
+        .ast
+        .rest_arg_prefix
+        .get(&fn_name)
+        .copied()
+        .filter(|n| args.len() >= *n);
+    if let Some(n) = tail_at
+        && !crate::ssa_lower_call_sibling_rest::packable(ctx, param_tys.get(n + 1))
+    {
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
+        return None;
+    }
+    let head = &args[..tail_at.unwrap_or(args.len())];
+    let mut arg_ops: Vec<Operand> = head.iter().map(|a| ctx.lower_expr(*a)).collect();
     // S2.42 (rotation 240) — this lane handed every argument verbatim
     // while all its sibling call lanes route through the `arg_conv`
     // contract; an i64 into the callee's Any param arrived as raw
@@ -107,26 +130,33 @@ pub(crate) fn try_lower(
     // so `g.next(42)` came through here and the generator's
     // resumption value read back as a garbage NaN-box). The sig is
     // receiver-first: user args align to params[1..].
-    let coerce_owned = match ctx.fn_sig_ids.get(&fid).copied() {
-        Some(sig_id) => {
-            let param_tys = ctx.fn_sigs[sig_id.0 as usize].0.clone();
-            crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
-                ctx,
-                param_tys.get(1..).unwrap_or(&[]),
-                args,
-                &mut arg_ops,
-            )
-        }
-        None => Vec::new(),
-    };
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+    let mut coerce_owned = crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+        ctx,
+        param_tys.get(1..).unwrap_or(&[]),
+        head,
+        &mut arg_ops,
+    );
+    if let Some(n) = tail_at {
+        let (op, temp) = crate::ssa_lower_call_sibling_rest::pack(
+            ctx,
+            &args[n..],
+            param_tys.get(n + 1).copied(),
+        );
+        arg_ops.push(op);
+        coerce_owned.push(temp);
+    }
+    let mut argv: Vec<Operand> = Vec::with_capacity(arg_ops.len() + 1);
     argv.push(recv_op);
     argv.extend(arg_ops);
     // §10.2.11 — the omitted argument is `undefined`. The body reads
     // its parameter register regardless, so a short argv hands it the
     // caller's leftovers; the pad goes on after the receiver because
-    // the missing slots are trailing user params.
-    crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
+    // the missing slots are trailing user params. A packed tail is
+    // already the full arity, and a call short of the fixed prefix
+    // never reaches this lane — the checker refuses it.
+    if tail_at.is_none() {
+        crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
+    }
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;
     let (v, may_throw) = match (slot, ctx.fn_sig_ids.get(&fid).copied()) {
