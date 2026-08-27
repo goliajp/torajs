@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T12:18:28.940Z",
+  "generatedAt": "2026-08-27T13:54:10.450Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T12:07:33Z",
-    "headSha": "e0b4688bf",
-    "elapsedSec": 367.63,
+    "ranAt": "2026-08-27T13:51:54Z",
+    "headSha": "4bd64984a",
+    "elapsedSec": 386.75,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.26
   },
   "torajs": {
-    "commit": "e0b4688bf",
-    "commitSubject": "fix: a slot whose rows carry defaults is refused, not silently widened",
+    "commit": "4bd64984a",
+    "commitSubject": "fix: a spread settles no parameter position, so it settles no prefix",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "4bd64984a",
+      "subject": "fix: a spread settles no parameter position, so it settles no prefix"
+    },
+    {
+      "hash": "58f23f437",
+      "subject": "fix: a slot whose rows disagree about where the rest begins is refused"
+    },
+    {
+      "hash": "0c8dce897",
+      "subject": "feat: a slot's rest tail reaches every row that shares it"
+    },
+    {
+      "hash": "a4f2b818a",
+      "subject": "fix: a widened slot carries its own defaults instead of refusing"
+    },
+    {
+      "hash": "82ec19ad5",
+      "subject": "docs: rotation 510 roadmap snapshot + test262 sweep ingest"
+    },
+    {
       "hash": "e0b4688bf",
       "subject": "fix: a slot whose rows carry defaults is refused, not silently widened"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "90030c182",
       "subject": "fix: a stale dispatch stub adopts its rows' type instead of widening them"
-    },
-    {
-      "hash": "63831ed02",
-      "subject": "fix: the dispatch stub is a row of its slot, and now has to agree like one"
-    },
-    {
-      "hash": "d8e965391",
-      "subject": "revert: the any-lane relink gate — its flag is not the fact it claimed"
-    },
-    {
-      "hash": "fe959524d",
-      "subject": "fix: a re-linked prototype is what the any-lane method call walks"
-    },
-    {
-      "hash": "72d85dc7b",
-      "subject": "fix: a prototype level lists the methods its class declares, not its ancestors'"
-    },
-    {
-      "hash": "a5dcbbfa6",
-      "subject": "fix: a vtable slot's return type is the join of its rows, not the first row's"
     }
   ],
-  "headSha": "e0b4688bf",
+  "headSha": "4bd64984a",
   "autorun": {
-    "total": 813,
+    "total": 814,
     "baselineTarget": 10,
-    "bySelf": 808,
+    "bySelf": 809,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787827321-5be8",
-      "at": "2026-08-27T10:42:01Z",
-      "ts": 1787827321,
+      "rotationId": "r-1787833215-0b46",
+      "at": "2026-08-27T12:20:15Z",
+      "ts": 1787833215,
       "trigger": "self",
-      "prevHead": "220e89751",
-      "handoffSha": "sha256:a7085511bf25b9e729aa1c0d1bb62ae64d164a265b30bee1470e25ad67409158",
-      "handoffAgeSec": 123,
+      "prevHead": "82ec19ad5",
+      "handoffSha": "sha256:8082d0b6e80b17cffc6ff9bc978bc1e1cc0bbdcd9d214506234c39bdf58f14fb",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787833215-0b46",
+        "at": "2026-08-27T12:20:15Z",
+        "ts": 1787833215,
+        "trigger": "self",
+        "prevHead": "82ec19ad5",
+        "handoffSha": "sha256:8082d0b6e80b17cffc6ff9bc978bc1e1cc0bbdcd9d214506234c39bdf58f14fb",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787827321-5be8",
         "at": "2026-08-27T10:42:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "26ded3f7c",
         "handoffSha": "sha256:197cb66ad88c0431d6111a0386bdd6ab309090328c53bb4999e0da9e63f6fc50",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787715041-4564",
-        "at": "2026-08-26T03:30:41Z",
-        "ts": 1787715041,
-        "trigger": "self",
-        "prevHead": "58c24cc16",
-        "handoffSha": "sha256:2ce4ca95d795b5087e6cb3dae33f65ffc06704a02c2d210d2a0f4a4a1d0ed8fc",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }

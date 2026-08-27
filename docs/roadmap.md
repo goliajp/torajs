@@ -1557,7 +1557,53 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `e0b4688bf`** (2026-08-27, rotation 510 — what a call through
+**Latest @ `4bd64984a`** (2026-08-27, rotation 511 — the slot's parameter
+list has to carry its own defaults and its own tail, because the call
+site will not carry them for it. Rotation 510 left one shape refused on
+purpose: a class method's default is supplied by the CALL SITE, and
+widening a slot is exactly what makes its owners disagree, so a
+defaulted row would have answered NaN. The handoff blamed a pass that
+never looks inside `Stmt::Multi`; a five-line diagnostic printed
+`__cm_B__f` on its first line — the method IS at top level, and the real
+cause was one layer over, a parser rule that gives a method-position
+defaulted parameter an annotation inferred from its literal, which put
+it outside the only lane that moves a default into a body. So it was
+never the whole-corpus size change that estimate implied: the default
+now moves into the row as an `if (y === undefined) y = 5` guard, and
+because the widening question is asked FIRST, a hierarchy whose rows
+already agree keeps its narrow parameters and its call-site defaults —
+three artifact probes byte-identical to the rotation before. The
+parameter keeps a default, now the `undefined` literal, and that is not
+bookkeeping: it is what evicts the method NAME from the by-name pad
+table when an unrelated class declares the same name with a real default
+of its own; clearing it outright let a neighbour's `q = 3` be pasted into
+this row's call sites, which the fifteenth probe caught and the first
+fourteen did not. A rest tail joins the same way when the rows' fixed
+arities agree — `class A { f(x) }` overridden by `f(x, ...r)` did not
+compile at all before. When they DISAGREE the rows unpack the same
+argument list two different ways, and the ABI check downstream cannot
+see it: a defaulted scalar and a rest array are both one word, so
+`f(x, y = 5)` beside `f(x, ...r)` filled the same three registers,
+passed every gate, and died at exit 139 with its output truncated
+mid-run. That now refuses out loud, while the parameter lists are still
+legible. And one lane over, a spread was being counted toward a callee's
+required prefix: `g(...xs)` on `function g(x, ...r)` answered `unknown
+identifier g` about a function plainly in scope, because the gate that
+decides whether a static expander will take the site said "covered" and
+stood aside for an expander that then also declined.) Gate predicate:
+**158** clusters of ≥ 4 holding **1209** cases, register 2 · 251,
+residue 652 · 809 (35.7%), core **2269** — clusters identical to
+rotations 503-510. Sweep passTotal **34841 (=)**, pass **29766 (=)**,
+bug **12717 (=)**, incompatible **5616 (=)**, trAccepted 47558 (=);
+the verdict diff is **zero lines**. That is honest rather than
+disappointing: the `call/spread` family's seven non-passing cases are
+all object-spread (`{...obj}`) shapes, and the named-function-with-rest
+site this rotation fixed is not among them — test262 reaches that shape
+only through callee forms tr already handled. Zero pass regressions,
+zero new timeouts or crashes; build determinism 44/44 (N=12), Guard
+Malloc 3030/3032 clean with 0 true hits.
+
+**Prior @ `e0b4688bf`** (2026-08-27, rotation 510 — what a call through
 a vtable slot actually hands the body. Rotation 509 refused
 `class A { f(x: number) }` overridden by `f(x: number, y: number)`
 outright, and withdrew the fix for it because the fix answered wrongly
