@@ -207,6 +207,12 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // `const m = globalThis.Math`), before anything consumes member
     // shapes.
     ast::desugar_ns_alias_members(ast);
+    // §13.3.9 — an optional chain that ENDS IN A CALL is an ordinary
+    // member call under a nullish guard. The callee flattens to
+    // `Member` here, before any pass or the checker reads a callee
+    // shape; the guard goes back on at the checker (result widening)
+    // and in lowering, keyed off `Ast::optchain_calls`.
+    ast::desugar_optchain_calls(ast);
     ast::desugar_prototype_call(ast);
     ast::inject_builtin_classes(ast);
     ast::desugar_classes(ast);

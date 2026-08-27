@@ -36,6 +36,27 @@ pub(crate) fn lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Operand {
+    // §13.3.9 — a call the desugar marked as an optional chain runs
+    // under its base's nullish guard. It sits OUTSIDE the cascade
+    // rather than at the top of it because its hit branch re-enters
+    // the cascade for the very same call: that is what keeps the
+    // arguments from evaluating when the chain short-circuits, and
+    // re-entering here instead would never terminate.
+    if let Some(op) = crate::ssa_lower_call_optchain::try_lower(ctx, eid, callee, args) {
+        return op;
+    }
+    dispatch(ctx, eid, callee, args)
+}
+
+/// The dispatcher cascade proper — every lane from the undeclared-read
+/// claim down. Reached directly by the optional-chain guard, whose hit
+/// branch IS an ordinary call.
+pub(crate) fn dispatch(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Operand {
     // RFC 20260730-undeclared-ident — a call whose callee is a
     // marked unresolvable Ident (`ff()` with `ff` declared nowhere)
     // raises the ReferenceError at the callee read (§6.2.5.5

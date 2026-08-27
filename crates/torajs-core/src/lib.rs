@@ -360,6 +360,7 @@ pub(crate) mod ssa_lower_call_object_integrity;
 pub(crate) mod ssa_lower_call_object_is;
 pub(crate) mod ssa_lower_call_object_keys;
 pub(crate) mod ssa_lower_call_object_values;
+pub(crate) mod ssa_lower_call_optchain;
 pub(crate) mod ssa_lower_call_promise_keyed;
 pub(crate) mod ssa_lower_call_promise_resolve;
 pub(crate) mod ssa_lower_call_promise_static;

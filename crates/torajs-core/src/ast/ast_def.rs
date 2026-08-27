@@ -132,6 +132,20 @@ pub struct Ast {
     /// non-rest binding over-admits, which fails safe: the probe
     /// answers the [[Get]] semantics either way.
     pub obj_rest_names: std::collections::HashSet<String>,
+    /// Calls that were written as an optional chain ending in a call
+    /// (`a?.m(args)`): the Call's ExprId → the chain's BASE.
+    ///
+    /// `desugar_optchain_calls` rewrites such a callee from `OptChain`
+    /// to `Member` so the checker and every dispatch lane read an
+    /// ORDINARY member call — which is what the hit branch of §13.3.9
+    /// is. What the rewrite would otherwise lose is recorded here: the
+    /// chain may still short-circuit, so the result widens to `Any` at
+    /// the checker and the lowering wraps the call in the base's
+    /// nullish guard (arguments live inside the hit block, per
+    /// §13.3.9's "the arguments never evaluate"). The base is kept
+    /// because the guard has to evaluate it — once — before the branch,
+    /// and the rewritten callee reads it through a non-null assertion.
+    pub optchain_calls: std::collections::HashMap<ExprId, ExprId>,
     /// How many arguments a call site supplies before the tail, for
     /// every top-level declaration whose last parameter is a rest.
     /// Published by `apply_rest_args` out of the very reading it packs
