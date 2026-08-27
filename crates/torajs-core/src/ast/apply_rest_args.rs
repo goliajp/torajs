@@ -16,6 +16,19 @@ use super::apply_args::peel_hidden_params;
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
+/// What a call site has to supply for one variadic callee.
+#[derive(Clone)]
+struct RestShape {
+    /// How many arguments come before the tail.
+    fixed: usize,
+    /// The rest parameter's annotation, which picks the empty-array
+    /// helper a call with no tail arguments reaches for.
+    ann: String,
+    /// Each fixed parameter's own default, for a call that stops
+    /// short of it.
+    defaults: Vec<Option<ExprId>>,
+}
+
 /// Pack trailing call-site args into an array literal when the
 /// callee declares its last param with `...rest`. This pass mirrors
 /// `apply_default_args` but for the rest-param shape.
@@ -25,8 +38,7 @@ use std::collections::HashMap;
 /// — the trailing args (positions n through k) get bundled into a
 /// single Array literal at the rest-param position.
 pub fn apply_rest_args(ast: &mut Ast) {
-    // Map: callee name -> (n_required, rest_param_type_ann).
-    let mut fn_rest: HashMap<String, (usize, String)> = HashMap::new();
+    let mut fn_rest: HashMap<String, RestShape> = HashMap::new();
     // The same reading, minus the receiver — see `Ast::rest_arg_prefix`.
     let mut arg_prefix: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
@@ -34,14 +46,17 @@ pub fn apply_rest_args(ast: &mut Ast) {
             let user_params: &[Param] = peel_hidden_params(params);
             if let Some(last) = user_params.last() {
                 if last.is_rest {
-                    let n_required = user_params.len() - 1;
-                    let rest_ann = last.type_ann.clone().unwrap_or_else(|| "any[]".into());
-                    fn_rest.insert(name.clone(), (n_required, rest_ann));
-                    let this_led = user_params.first().is_some_and(|p| p.name == "__this");
-                    arg_prefix.insert(
+                    let fixed = user_params.len() - 1;
+                    fn_rest.insert(
                         name.clone(),
-                        n_required.saturating_sub(usize::from(this_led)),
+                        RestShape {
+                            fixed,
+                            ann: last.type_ann.clone().unwrap_or_else(|| "any[]".into()),
+                            defaults: user_params[..fixed].iter().map(|p| p.default).collect(),
+                        },
                     );
+                    let this_led = user_params.first().is_some_and(|p| p.name == "__this");
+                    arg_prefix.insert(name.clone(), fixed.saturating_sub(usize::from(this_led)));
                 }
             }
         }
@@ -63,7 +78,8 @@ pub fn apply_rest_args(ast: &mut Ast) {
     //   let _e: T[] = []; return _e; }`. The let-binding's annotation
     // gives ssa-lower the typed-empty-array path.
     let mut empty_helpers: HashMap<String, String> = HashMap::new();
-    for (_, (_, rest_ann)) in &fn_rest {
+    for shape in fn_rest.values() {
+        let rest_ann = &shape.ann;
         if !empty_helpers.contains_key(rest_ann) {
             let sanitized: String = rest_ann
                 .chars()
@@ -112,15 +128,34 @@ pub fn apply_rest_args(ast: &mut Ast) {
                 Expr::Ident(n) => n.clone(),
                 _ => continue,
             };
-            let Some((n_required, rest_ann)) = fn_rest.get(&name).cloned() else {
+            let Some(RestShape {
+                fixed,
+                ann: rest_ann,
+                defaults,
+            }) = fn_rest.get(&name).cloned()
+            else {
                 continue;
             };
             let args_clone = args.clone();
-            if args_clone.len() < n_required {
-                continue;
+            let given = args_clone.len().min(fixed);
+            let mut new_args: Vec<ExprId> = args_clone[..given].to_vec();
+            let rest_elems: Vec<ExprId> = args_clone[given..].to_vec();
+            // §10.2.11 — a call that stops short of the fixed prefix
+            // binds the missing parameters to their defaults, or to
+            // undefined, and the tail to the empty array. It is settled
+            // HERE because this is the pass that says what a variadic
+            // call site looks like: the by-name default padding one
+            // pass earlier has nothing to put in the tail, so it backs
+            // out of the whole call — which left `g()` on
+            // `function g(x, ...r)` refused for want of an argument the
+            // language does not ask for.
+            for d in &defaults[given..] {
+                let pad = match d {
+                    Some(dflt) => *dflt,
+                    None => ast.add_expr(Expr::Ident("undefined".into())),
+                };
+                new_args.push(pad);
             }
-            let mut new_args: Vec<ExprId> = args_clone[..n_required].to_vec();
-            let rest_elems: Vec<ExprId> = args_clone[n_required..].to_vec();
             // Single-spread shape: `f(req…, ...src)`. Common in
             // delegating wrappers, and it used to hand the source
             // straight through as the rest param — which is not what a
@@ -229,6 +264,66 @@ mod tests {
     fn a_fixed_declaration_has_no_tail_to_begin() {
         let m = prefixes(vec![fnd("g", vec![p("x", false)])]);
         assert!(m.is_empty());
+    }
+
+    fn call_args(mut ast: Ast, decl: Stmt, given: Vec<ExprId>) -> (Ast, Vec<ExprId>) {
+        ast.stmts.push(decl);
+        let callee = ast.add_expr(Expr::Ident("g".into()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: given,
+        });
+        apply_rest_args(&mut ast);
+        let args = match ast.get_expr(call) {
+            Expr::Call { args, .. } => args.clone(),
+            _ => unreachable!("the call stays a call"),
+        };
+        (ast, args)
+    }
+
+    #[test]
+    fn a_call_short_of_the_prefix_binds_undefined_and_an_empty_tail() {
+        // `function g(x, ...r) {}` called as `g()`
+        let (ast, args) = call_args(
+            Ast::default(),
+            fnd("g", vec![p("x", false), p("r", true)]),
+            Vec::new(),
+        );
+        assert_eq!(args.len(), 2, "one fixed pad and the tail");
+        assert!(matches!(ast.get_expr(args[0]), Expr::Ident(n) if n == "undefined"));
+        assert!(
+            matches!(ast.get_expr(args[1]), Expr::Call { .. }),
+            "the empty-array helper"
+        );
+    }
+
+    #[test]
+    fn a_missing_parameter_takes_its_own_default() {
+        // `function g(x = 5, ...r) {}` called as `g()` — the default
+        // is the callee's own, not an unrelated declaration's
+        let mut ast = Ast::default();
+        let five = ast.add_expr(Expr::Number(5.0));
+        let mut x = p("x", false);
+        x.default = Some(five);
+        let (_, args) = call_args(ast, fnd("g", vec![x, p("r", true)]), Vec::new());
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], five);
+    }
+
+    #[test]
+    fn arguments_past_the_prefix_are_the_tail() {
+        // `g(1, 2, 3)` on `function g(x, ...r) {}` — one fixed
+        // argument and a two-element tail
+        let mut ast = Ast::default();
+        let given: Vec<ExprId> = (1..=3)
+            .map(|n| ast.add_expr(Expr::Number(n.into())))
+            .collect();
+        let (ast, args) = call_args(ast, fnd("g", vec![p("x", false), p("r", true)]), given);
+        assert_eq!(args.len(), 2);
+        match ast.get_expr(args[1]) {
+            Expr::Array(elems) => assert_eq!(elems.len(), 2),
+            other => panic!("the tail is an array literal, got {other:?}"),
+        }
     }
 
     #[test]
