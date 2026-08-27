@@ -1,6 +1,8 @@
 //! TypeVar inference helpers for generic call sites — pattern/actual
 //! unification and occurs checks. Split out of check.rs (file-size
-//! debt); pure functions over `check::Type`, no Checker state.
+//! debt); pure functions over `check::Type` plus the class parent map,
+//! which is what tells two class types whether one is the other's
+//! ancestor. No Checker state.
 
 use crate::check::Type;
 use std::collections::HashMap;
@@ -12,6 +14,7 @@ pub(crate) fn unify_typevar(
     pattern: &Type,
     actual: &Type,
     subst: &mut HashMap<String, Type>,
+    parents: &HashMap<String, Option<String>>,
 ) -> Result<(), String> {
     match (pattern, actual) {
         (Type::TypeVar(name), concrete) => {
@@ -50,7 +53,7 @@ pub(crate) fn unify_typevar(
                 // Array(Any) while the assert's expected literal is
                 // Array(Number)). Only structurally-distinct concrete
                 // types conflict.
-                match any_absorbing_join(existing, concrete) {
+                match any_absorbing_join(existing, concrete, parents) {
                     Some(joined) => {
                         if joined != *existing {
                             subst.insert(name.clone(), joined);
@@ -76,7 +79,7 @@ pub(crate) fn unify_typevar(
         // the structural fallback below would reject the call with
         // "expected Any, got Number".
         (Type::Any, _) => Ok(()),
-        (Type::Array(p_elem), Type::Array(a_elem)) => unify_typevar(p_elem, a_elem, subst),
+        (Type::Array(p_elem), Type::Array(a_elem)) => unify_typevar(p_elem, a_elem, subst, parents),
         (Type::Function(p_args, p_ret), Type::Function(a_args, a_ret)) => {
             // Rest-tail pattern (`(...args: T[]) => T`, RFC
             // 20260708-variadic-fn-type-ann): the fixed prefix
@@ -93,15 +96,15 @@ pub(crate) fn unify_typevar(
                     ));
                 }
                 for (pa, aa) in fixed.iter().zip(a_args.iter()) {
-                    unify_typevar(pa, aa, subst)?;
+                    unify_typevar(pa, aa, subst, parents)?;
                 }
                 for aa in &a_args[fixed.len()..] {
                     match aa {
-                        Type::Rest(a_elem) => unify_typevar(elem, a_elem, subst)?,
-                        other => unify_typevar(elem, other, subst)?,
+                        Type::Rest(a_elem) => unify_typevar(elem, a_elem, subst, parents)?,
+                        other => unify_typevar(elem, other, subst, parents)?,
                     }
                 }
-                return unify_typevar(p_ret, a_ret, subst);
+                return unify_typevar(p_ret, a_ret, subst, parents);
             }
             // TS function-type compatibility — an actual that
             // accepts FEWER parameters than the pattern provides is
@@ -120,9 +123,9 @@ pub(crate) fn unify_typevar(
                 ));
             }
             for (pa, aa) in p_args.iter().zip(a_args.iter()) {
-                unify_typevar(pa, aa, subst)?;
+                unify_typevar(pa, aa, subst, parents)?;
             }
-            unify_typevar(p_ret, a_ret, subst)
+            unify_typevar(p_ret, a_ret, subst, parents)
         }
         (Type::Struct(p_fields), Type::Struct(a_fields)) => {
             if p_fields.len() != a_fields.len() {
@@ -138,11 +141,11 @@ pub(crate) fn unify_typevar(
                         "struct field name mismatch: expected `{pn}`, got `{an}`"
                     ));
                 }
-                unify_typevar(pt, at, subst)?;
+                unify_typevar(pt, at, subst, parents)?;
             }
             Ok(())
         }
-        (Type::Nullable(p), Type::Nullable(a)) => unify_typevar(p, a, subst),
+        (Type::Nullable(p), Type::Nullable(a)) => unify_typevar(p, a, subst, parents),
         (a, b) if a == b => Ok(()),
         (a, b) => Err(format!("expected {a:?}, got {b:?}")),
     }
@@ -155,14 +158,18 @@ pub(crate) fn unify_typevar(
 /// caller keeps the inference-conflict reject. Function shapes stay
 /// conflict-on-difference: widening a callback signature would
 /// change its calling convention, not just its repr.
-fn any_absorbing_join(a: &Type, b: &Type) -> Option<Type> {
+fn any_absorbing_join(
+    a: &Type,
+    b: &Type,
+    parents: &HashMap<String, Option<String>>,
+) -> Option<Type> {
     if a == b {
         return Some(a.clone());
     }
     match (a, b) {
         (Type::Any, _) | (_, Type::Any) => Some(Type::Any),
         (Type::Array(ae), Type::Array(be)) => {
-            Some(Type::Array(Box::new(any_absorbing_join(ae, be)?)))
+            Some(Type::Array(Box::new(any_absorbing_join(ae, be, parents)?)))
         }
         // Cluster #6 sibling (rotation 442) — Null is a legal
         // inhabitant of every Nullable(T) and of a match result's
@@ -181,6 +188,15 @@ fn any_absorbing_join(a: &Type, b: &Type) -> Option<Type> {
         | (Type::Nullable(_), Type::Nullable(_))
         | (Type::Array(_), Type::Null)
         | (Type::Null, Type::Array(_)) => Some(Type::Any),
+        // 509-03 — a subclass and its ancestor are not two answers to
+        // `T`, they are one: every value of the subclass is a value of
+        // the ancestor, so the ancestor is what `T` was all along. The
+        // t262 harness's `sameValue<T>(a: T, b: T)` hands over
+        // `Y.prototype.method()`'s `X` and then a `Y`, which TS binds
+        // as `X` and tr refused as a conflict the moment rotation 509
+        // gave the dispatch stub its rows' return type. Unrelated
+        // classes still conflict — their join is not a class.
+        (Type::ClassRef(x), Type::ClassRef(y)) => class_join(x, y, parents),
         _ => None,
     }
 }
@@ -206,4 +222,20 @@ pub(crate) fn typevar_appears_in(ty: &Type, name: &str) -> bool {
 
 pub(crate) fn typevar_appears_in_iter(tys: &[Type], name: &str) -> bool {
     tys.iter().any(|t| typevar_appears_in(t, name))
+}
+
+/// The nearer of two class names when one descends from the other,
+/// and nothing when they are unrelated. A `ClassRef` key carries its
+/// type arguments in a `<...>` tail; the chain is spelled without
+/// them.
+fn class_join(x: &str, y: &str, parents: &HashMap<String, Option<String>>) -> Option<Type> {
+    let bare = |k: &str| k.split('<').next().unwrap_or(k).to_string();
+    let (bx, by) = (bare(x), bare(y));
+    if crate::ast::method_owner_is_in_chain(parents, &bx, &by) {
+        Some(Type::ClassRef(x.to_string()))
+    } else if crate::ast::method_owner_is_in_chain(parents, &by, &bx) {
+        Some(Type::ClassRef(y.to_string()))
+    } else {
+        None
+    }
 }

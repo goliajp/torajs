@@ -203,7 +203,8 @@ pub(crate) fn try_match(
                     };
                     let arg_ty = decay_nullable_arr(param_ty, arg_ty);
                     let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
-                    if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
+                    if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents)
+                    {
                         return Some(Err(format!("argument {i} to `{name}`: {e}")));
                     }
                 }
@@ -255,7 +256,7 @@ pub(crate) fn try_match(
             };
             let arg_ty = decay_nullable_arr(param_ty, arg_ty);
             let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
-            if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
+            if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents) {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }
             arg_tys.push(arg_ty);
