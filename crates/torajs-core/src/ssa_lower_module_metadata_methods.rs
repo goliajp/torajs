@@ -222,6 +222,9 @@ pub(crate) fn resolve_class_methods(
                         twin_adapter_fid: twin_fid
                             .and_then(|t| boxed_entries.get(&t).map(|&(a, _)| a)),
                         twin_primary: false,
+                        // depth 0 is the class's own body list; every
+                        // later hop is an ancestor's.
+                        declared_here: depth == 0,
                     });
                 }
                 // Shadow even on adapter dropout — a child decl

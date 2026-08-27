@@ -17,9 +17,11 @@ use super::*;
 /// `__setter_<p>` synthetic names) are skipped — their surface is
 /// the AccessorPair face, not an own method entry.
 ///
-/// The table merges parent chains, so a subclass prototype lists
-/// inherited methods too — a recorded boundary vs bun (spec lists
-/// only own methods per prototype level).
+/// The table merges parent chains — it is the dispatch resolution,
+/// answering "which body does `c.m()` reach" in one lookup — so only
+/// the rows flagged as DECLARED by this class become own entries
+/// here. Each prototype level lists its own methods, and the rest are
+/// found by the walk, per spec.
 ///
 /// # Safety
 /// `proto` is a live dynobj heap pointer.
@@ -56,6 +58,16 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             // receiver-free body; the face runs bare calls with a
             // null receiver instead of the this-undefined TypeError.
             let flags = __torajs_struct_method_flags_at(layout, i);
+            // 508-03 — bit 2 marks a row this class DECLARES. An
+            // inherited row is already reachable one hop up the
+            // prototype chain, so copying it here would only add a
+            // name `hasOwnProperty` / `getOwnPropertyNames` must not
+            // see, and a shadow that outlives re-linking the chain
+            // (`setPrototypeOf(D.prototype, standin)` left the copy in
+            // front of `standin`'s method).
+            if flags & 4 == 0 {
+                continue;
+            }
             let this_free = u64::from(flags & 1);
             // Blade 3 — the face carries its owning class tag + the
             // `__cmany_` twin adapter so a re-bound receiver routes

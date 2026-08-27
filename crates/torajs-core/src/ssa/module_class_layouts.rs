@@ -66,6 +66,15 @@ pub struct MethodMetaSpec {
     /// as MethodMeta flags bit 1; env-slot dispatch sites must not
     /// invoke such a record through the env channel.
     pub twin_primary: bool,
+    /// 508-03 — this row is one the class DECLARES, not one it
+    /// inherits. The table itself stays merged (it is what the typed
+    /// `struct_method` dispatch resolves against, in one lookup), but
+    /// only a declared row becomes an own property of `__proto_<C>`:
+    /// the subclass prototype's [[Prototype]] already points at the
+    /// parent's, so a copy there is both a phantom own name and a
+    /// shadow that survives re-linking the chain. Baked as MethodMeta
+    /// flags bit 2.
+    pub declared_here: bool,
 }
 
 #[derive(Debug, Clone)]
