@@ -55,11 +55,11 @@ pub fn join_vtable_slot_returns(ast: &mut Ast) {
         return;
     }
     let anns = collect_cm_return_anns(ast);
-    let widen = slots_needing_widening(ast, &anns);
-    if widen.is_empty() {
+    let plan = plan_slot_returns(ast, &anns);
+    if plan.is_empty() {
         return;
     }
-    apply_widening(ast, &widen);
+    apply_plan(ast, &plan);
 }
 
 /// Return annotation of every top-level `FnDecl`, normalised so that
@@ -91,19 +91,99 @@ fn collect_cm_return_anns(ast: &Ast) -> HashMap<String, String> {
 /// mono-suffixed), same grouping by hierarchy root. It has to: that
 /// pass is what makes the widths of these rows agree, and a slot the
 /// two passes disagree about is a slot nobody checks.
-fn slots_needing_widening(ast: &Ast, anns: &HashMap<String, String>) -> Vec<String> {
+fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut plan: HashMap<String, String> = HashMap::new();
+    for (m, by_root) in slot_groups_by_name(ast) {
+        let stub = dispatch_stub_names(anns, &m);
+        // Per ROOT: a receiver only ever wears a row from its own
+        // chain, so an unrelated class that happens to declare the
+        // same name fills the shared slot index with its own body
+        // under its own signature and no call site sees both.
+        let mut heads: Vec<String> = Vec::new();
+        let mut split = false;
+        for rows in by_root.values() {
+            let head = anns[&rows[0]].clone();
+            if rows.iter().any(|r| anns[r] != head) {
+                // Rows that really answer different things: the
+                // slot's type is their join, and `any` is the
+                // spelling that holds a value and the undefined at
+                // once.
+                for r in rows {
+                    plan.insert(r.clone(), "any".to_string());
+                }
+                split = true;
+            } else {
+                heads.push(head);
+            }
+        }
+        if stub.is_empty() {
+            continue;
+        }
+        // A dispatcher is minted only for a name whose owners form
+        // ONE chain, so `heads` holds one entry here in practice; a
+        // second would mean the stub forwards to rows it cannot both
+        // match, and the honest answer is the join.
+        heads.sort();
+        heads.dedup();
+        let want = if split || heads.len() != 1 {
+            "any".to_string()
+        } else {
+            // Rows agree and only the stub differs. That is not a
+            // disagreement about what the slot answers — the stub
+            // read the base owner's DECLARATION, before
+            // `desugar_implicit_generics` gave the unannotated
+            // bodies theirs, so it is simply stale. It adopts what
+            // the rows say.
+            //
+            // Widening the slot instead would be catastrophic and
+            // almost universal: an unannotated chain method's stub
+            // says `void` for every one of them, so every hierarchy
+            // in every program would join to `any` and drag in the
+            // any world. Measured when this branch widened: a
+            // two-class program's artifact went 35,121 -> 133,425 B.
+            heads[0].clone()
+        };
+        if want == "any" {
+            for rows in by_root.values() {
+                for r in rows {
+                    plan.insert(r.clone(), "any".to_string());
+                }
+            }
+        }
+        for d in stub {
+            if anns[&d] != want {
+                plan.insert(d, want.clone());
+            }
+        }
+    }
+    plan
+}
+
+/// Every vtable slot's rows, keyed by method name then hierarchy
+/// root. This IS the population — same method names, same per-class
+/// spellings (bare and mono-suffixed), same grouping by root — that
+/// `num_width::slot_abi::slot_unions` unions widths over. It has to
+/// be: that pass is what makes these rows' widths agree, and a slot
+/// the two passes disagree about is a slot nobody checks.
+fn slot_groups_by_name(ast: &Ast) -> Vec<(String, HashMap<String, Vec<String>>)> {
+    let decls: Vec<String> = super::toplevel_stmts_flat(ast)
+        .into_iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     let mut classes: Vec<&String> = ast.class_parents.keys().collect();
     classes.sort();
     let mut names: Vec<&String> = ast.method_index.keys().collect();
     names.sort();
-
-    let mut out: Vec<String> = Vec::new();
+    let mut out = Vec::new();
     for m in names {
         let mut by_root: HashMap<String, Vec<String>> = HashMap::new();
         for c in &classes {
             let prefix = format!("__cm_{c}__{m}");
-            let mut cms: Vec<&String> = anns
-                .keys()
+            let mut cms: Vec<&String> = decls
+                .iter()
                 .filter(|k| {
                     k.strip_prefix(prefix.as_str())
                         .is_some_and(|r| r.is_empty() || r.starts_with("$$"))
@@ -115,34 +195,8 @@ fn slots_needing_widening(ast: &Ast, anns: &HashMap<String, String>) -> Vec<Stri
                 by_root.entry(root.clone()).or_default().push(cm.clone());
             }
         }
-        // The `__dispatch_<M>` stub took its annotation from the base
-        // owner's DECLARATION, before `desugar_implicit_generics`
-        // gave the unannotated bodies theirs — so it can disagree with
-        // every row it forwards to while the rows all agree with each
-        // other. It is unioned into their slot for width, and nothing
-        // downstream compares its shape, so that disagreement is the
-        // silent kind. Treat it as one more row.
-        let stub = dispatch_stub_names(anns, m);
-        let stub_ann = stub.first().map(|d| anns[d].as_str());
-        let mut split = false;
-        for rows in by_root.values() {
-            let head = &anns[&rows[0]];
-            if rows.iter().any(|r| anns[r] != *head) || stub_ann.is_some_and(|a| a != head) {
-                out.extend(rows.iter().cloned());
-                split = true;
-            }
-        }
-        // The `__dispatch_<M>` stub took its annotation from the base
-        // owner's declaration and forwards to every owner, so it sits
-        // in the same slot as the rows it forwards to (that is what
-        // `slot_abi::dispatch_unions` unions) and has to move with
-        // them. Its own mono spellings ride the name's tail.
-        if split {
-            out.extend(stub);
-        }
+        out.push((m.clone(), by_root));
     }
-    out.sort();
-    out.dedup();
     out
 }
 
@@ -163,26 +217,27 @@ fn dispatch_stub_names(anns: &HashMap<String, String>, m: &str) -> Vec<String> {
     out
 }
 
-/// Write `any` onto each named declaration. A body that falls off
-/// its end needs no new `return`: an `any` slot has a spelling for
-/// undefined, which is exactly why the tail close can terminate it.
-fn apply_widening(ast: &mut Ast, widen: &[String]) {
-    fn walk(stmts: &mut [Stmt], widen: &[String]) {
+/// Write each planned annotation onto its declaration. A body that
+/// falls off its end needs no new `return` when it widens to `any`:
+/// an `any` slot has a spelling for undefined, which is exactly why
+/// the tail close can terminate it.
+fn apply_plan(ast: &mut Ast, plan: &HashMap<String, String>) {
+    fn walk(stmts: &mut [Stmt], plan: &HashMap<String, String>) {
         for s in stmts {
             match s {
-                Stmt::Multi(inner) => walk(inner, widen),
+                Stmt::Multi(inner) => walk(inner, plan),
                 Stmt::FnDecl {
                     name, return_type, ..
                 } => {
-                    if widen.binary_search(name).is_ok() {
-                        *return_type = Some("any".to_string());
+                    if let Some(a) = plan.get(name.as_str()) {
+                        *return_type = Some(a.clone());
                     }
                 }
                 _ => {}
             }
         }
     }
-    walk(&mut ast.stmts, widen);
+    walk(&mut ast.stmts, plan);
 }
 
 /// Topmost ancestor of `c` along `class_parents` — the identity of
@@ -341,9 +396,12 @@ mod tests {
             ],
         );
         join_vtable_slot_returns(&mut ast);
-        assert_eq!(ret_of(&ast, "__dispatch_f").as_deref(), Some("any"));
-        assert_eq!(ret_of(&ast, "__cm_A__f").as_deref(), Some("any"));
-        assert_eq!(ret_of(&ast, "__cm_B__f").as_deref(), Some("any"));
+        // The stub adopts what the rows say; nothing widens. Widening
+        // here would fire on nearly every class hierarchy there is —
+        // an unannotated chain method's stub always says `void`.
+        assert_eq!(ret_of(&ast, "__dispatch_f").as_deref(), Some("number"));
+        assert_eq!(ret_of(&ast, "__cm_A__f").as_deref(), Some("number"));
+        assert_eq!(ret_of(&ast, "__cm_B__f").as_deref(), Some("number"));
     }
 
     #[test]
