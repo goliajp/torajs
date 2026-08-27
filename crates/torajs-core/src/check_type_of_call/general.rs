@@ -98,7 +98,7 @@ pub(crate) fn general_call(
         *callee,
         &mut params,
     );
-    crate::check_type_of_call_rest_param::apply(&mut params, &effective_args)?;
+    let variadic = crate::check_type_of_call_rest_param::apply(&mut params, &effective_args);
     // T-28 — Default param missing → undefined widen wedge
     // extracted to [`crate::check_type_of_call_t28_pad`]
     // (chunk 298).
@@ -129,8 +129,12 @@ pub(crate) fn general_call(
         effective_args.truncate(params.len());
     }
     if params.len() != effective_args.len() {
+        // A variadic callee has no exact arity to name: what the call
+        // fell short of is its FIXED prefix, and only a slot undefined
+        // does not fit (a typed one) gets this far.
+        let bound = if variadic { "at least " } else { "" };
         return Err(format!(
-            "expected {} argument(s), got {}",
+            "expected {bound}{} argument(s), got {}",
             params.len(),
             effective_args.len()
         ));

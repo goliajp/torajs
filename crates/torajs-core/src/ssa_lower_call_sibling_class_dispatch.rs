@@ -109,19 +109,19 @@ pub(crate) fn try_lower(
     // other direct call site gets at AST level happens for this one.
     // Both questions are asked before an argument is lowered: the
     // decline protocol re-parks only the receiver.
-    let tail_at = ctx
-        .ast
-        .rest_arg_prefix
-        .get(&fn_name)
-        .copied()
-        .filter(|n| args.len() >= *n);
+    let tail_at = ctx.ast.rest_arg_prefix.get(&fn_name).copied();
     if let Some(n) = tail_at
         && !crate::ssa_lower_call_sibling_rest::packable(ctx, param_tys.get(n + 1))
     {
         ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     }
-    let head = &args[..tail_at.unwrap_or(args.len())];
+    // §10.2.11 — the call may stop short of the fixed prefix, and then
+    // the tail begins where the arguments ran out rather than where the
+    // declaration says: what is missing is fixed positions, which bind
+    // undefined below, and a tail that was never reached is empty.
+    let tail_from = tail_at.map_or(args.len(), |n| n.min(args.len()));
+    let head = &args[..tail_from];
     let mut arg_ops: Vec<Operand> = head.iter().map(|a| ctx.lower_expr(*a)).collect();
     // S2.42 (rotation 240) — this lane handed every argument verbatim
     // while all its sibling call lanes route through the `arg_conv`
@@ -137,9 +137,14 @@ pub(crate) fn try_lower(
         &mut arg_ops,
     );
     if let Some(n) = tail_at {
+        // The missing fixed positions sit BETWEEN the given arguments
+        // and the tail, so they are filled before it is packed. The
+        // checker only admitted the short call because every one of
+        // them is `Any` — an undefined box is what fits.
+        crate::ssa_lower_call_terminal::pad_undef_n(ctx, n - tail_from, &mut arg_ops);
         let (op, temp) = crate::ssa_lower_call_sibling_rest::pack(
             ctx,
-            &args[n..],
+            &args[tail_from..],
             param_tys.get(n + 1).copied(),
         );
         arg_ops.push(op);
@@ -152,8 +157,8 @@ pub(crate) fn try_lower(
     // its parameter register regardless, so a short argv hands it the
     // caller's leftovers; the pad goes on after the receiver because
     // the missing slots are trailing user params. A packed tail is
-    // already the full arity, and a call short of the fixed prefix
-    // never reaches this lane — the checker refuses it.
+    // already the full arity — a variadic row filled its own gap
+    // above, where the tail's position told it how wide the gap was.
     if tail_at.is_none() {
         crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
     }
