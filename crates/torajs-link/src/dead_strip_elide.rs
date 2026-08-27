@@ -416,17 +416,16 @@ fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
                     s.is_text
                         && (s.all_live
                             || s.atoms.iter().zip(&s.live).any(|(&(start, _), &l)| {
-                                l && !anchor_named(m, (si + 1) as u8, start, ignore)
+                                l && !anchor_all_named(m, (si + 1) as u8, start, ignore)
                             }))
                 })
             }),
         Guard::Symbols(syms) => reach.members.values().any(|m| {
             m.sects.iter().enumerate().any(|(si, s)| {
                 s.is_text
-                    && s.atoms
-                        .iter()
-                        .zip(&s.live)
-                        .any(|(&(start, _), &l)| l && anchor_named(m, (si + 1) as u8, start, syms))
+                    && s.atoms.iter().zip(&s.live).any(|(&(start, _), &l)| {
+                        l && anchor_any_named(m, (si + 1) as u8, start, syms)
+                    })
             })
         }),
     }
@@ -435,13 +434,55 @@ fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
 /// Is the defined symbol anchoring the atom at `start` (the highest
 /// `N_SECT` nlist row at or below it in that section) one of
 /// `names`? An unanchored atom (leading gap) never is.
-fn anchor_named(m: &MemberReach<'_>, n_sect: u8, start: u64, names: &[String]) -> bool {
+/// Every defined symbol anchored at `start`'s atom — the nearest
+/// `n_value <= start` in this section, and ALL the names that share
+/// it. One atom can carry several names: LLVM's MergeFunctions
+/// aliases identical bodies onto one address (`__torajs_closure_
+/// props_attach` / `__torajs_obj_props_attach` are both
+/// `str x1, [x0, #24]; ret`), and rustc emits `ltmp` labels beside
+/// the real name. A judgment that read only one of them answered
+/// "dead" for the other writer while its atom was live — the
+/// release-only `closure props drop stripped` reject (r506).
+fn anchor_names<'m>(
+    m: &'m MemberReach<'_>,
+    n_sect: u8,
+    start: u64,
+) -> impl Iterator<Item = &'m str> {
     use torajs_obj::{N_SECT, N_TYPE};
-    m.nlist
+    let anchor = m
+        .nlist
         .iter()
         .filter(|n| n.n_type & N_TYPE == N_SECT && n.n_sect == n_sect && n.n_value <= start)
-        .max_by_key(|n| n.n_value)
-        .is_some_and(|n| names.iter().any(|i| i == n.name))
+        .map(|n| n.n_value)
+        .max();
+    m.nlist
+        .iter()
+        .filter(move |n| {
+            n.n_type & N_TYPE == N_SECT && n.n_sect == n_sect && Some(n.n_value) == anchor
+        })
+        .map(|n| n.name)
+}
+
+/// Is any of the atom's names in `names`? The `Symbols` guard's
+/// question — a live atom that answers to a writer's name is
+/// evidence for that writer, whoever else shares the address.
+fn anchor_any_named(m: &MemberReach<'_>, n_sect: u8, start: u64, names: &[String]) -> bool {
+    anchor_names(m, n_sect, start).any(|a| names.iter().any(|i| i == a))
+}
+
+/// Are ALL of the atom's names in `names`? The `Member` guard's
+/// ignore test — an atom is only "just the writer entry" when every
+/// name it carries is one; a merged non-writer body counts as
+/// member liveness.
+fn anchor_all_named(m: &MemberReach<'_>, n_sect: u8, start: u64, names: &[String]) -> bool {
+    let mut any = false;
+    for a in anchor_names(m, n_sect, start) {
+        any = true;
+        if !names.iter().any(|i| i == a) {
+            return false;
+        }
+    }
+    any
 }
 
 #[cfg(test)]
@@ -707,5 +748,60 @@ mod tests {
             "no row names the adapter → stripped"
         );
         assert!(both.funcs[2].bytes.is_empty());
+    }
+
+    /// r506 — an atom carrying two names (MergeFunctions aliases)
+    /// is evidence for BOTH writers; reading one name answered
+    /// "dead" for the other and stubbed a slow path the program
+    /// reached.
+    #[test]
+    fn aliased_anchor_answers_to_every_name() {
+        use crate::dead_strip_reach::{MemberReach, NlEntry, SectAtoms};
+        use torajs_obj::N_SECT;
+        let names = [
+            "___torajs_closure_props_attach",
+            "___torajs_obj_props_attach",
+            "ltmp3",
+        ];
+        let nlist: Vec<NlEntry<'_>> = names
+            .iter()
+            .copied()
+            .map(|n| NlEntry {
+                name: n,
+                n_type: N_SECT,
+                n_sect: 1,
+                n_desc: 0,
+                n_value: 0x4800,
+            })
+            .collect();
+        let m = MemberReach {
+            member_name: "rc.o",
+            sects: vec![SectAtoms {
+                addr: 0x4000,
+                size: 0x1000,
+                file_off: 0,
+                no_file_storage: false,
+                flags: 0,
+                sectname: *b"__text\0\0\0\0\0\0\0\0\0\0",
+                is_text: true,
+                atoms: vec![(0x4000, 0x4800), (0x4800, 0x5000)],
+                live: vec![false, true],
+                all_live: false,
+            }],
+            nlist,
+            defined: Default::default(),
+        };
+        let closure = vec!["___torajs_closure_props_attach".to_string()];
+        let obj = vec!["___torajs_obj_props_attach".to_string()];
+        assert!(anchor_any_named(&m, 1, 0x4800, &closure));
+        assert!(anchor_any_named(&m, 1, 0x4800, &obj));
+        assert!(!anchor_any_named(&m, 1, 0x4800, &["other".to_string()]));
+        // Ignore-list semantics: the atom is "just the writer" only
+        // when every name it carries is ignored.
+        assert!(!anchor_all_named(&m, 1, 0x4800, &closure));
+        let all: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+        assert!(anchor_all_named(&m, 1, 0x4800, &all));
+        // An atom with no anchoring symbol is never "all named".
+        assert!(!anchor_all_named(&m, 1, 0x4000, &all));
     }
 }
