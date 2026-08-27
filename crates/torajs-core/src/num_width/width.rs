@@ -79,7 +79,7 @@ impl<'a> Analysis<'a> {
     /// literal marks growth and rides the float_demote guard, which
     /// branch_fold removes again whenever the trip count is
     /// statically bounded.
-    fn is_int_const(&self, eid: ExprId) -> bool {
+    fn is_int_const(&self, eid: ExprId, scope: &Scope) -> bool {
         let small = |n: f64| !literal_is_f64(n) && n.abs() <= MAX_COUNTER_STEP as f64;
         match self.ast.get_expr(eid) {
             Expr::Number(n) => small(*n),
@@ -89,6 +89,18 @@ impl<'a> Analysis<'a> {
             } => {
                 matches!(self.ast.get_expr(*expr), Expr::Number(n) if small(*n) && *n != 0.0)
             }
+            // A step spelled `const step = 3` is the same counter as
+            // one spelled `3` (rotation 507 / 506-06): without this
+            // the accumulator was marked growth, kept an f64 slot,
+            // and paid a versioned loop plus a per-iteration guard
+            // the literal form never sees. `mutable: false` is the
+            // guarantee the value cannot change under the read; the
+            // slot key is what makes a shadowing local of the same
+            // name miss the table rather than borrow its value.
+            Expr::Ident(n) => self
+                .resolve(n, scope)
+                .and_then(|k| self.const_ints.get(&k).copied())
+                .is_some_and(small),
             _ => false,
         }
     }
@@ -229,7 +241,7 @@ impl<'a> Analysis<'a> {
             // (see rfc 20260611-ann-width-unification §5.5).
             BinOp::Add | BinOp::Sub => {
                 let w = join(self.width_of(left, scope), self.width_of(right, scope));
-                if self.is_int_const(left) || self.is_int_const(right) {
+                if self.is_int_const(left, scope) || self.is_int_const(right, scope) {
                     w
                 } else {
                     mark_growth(w)

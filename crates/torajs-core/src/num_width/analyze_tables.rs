@@ -3,11 +3,16 @@
 //! known-debt list at 225 lines and the file at 508). Verbatim moves:
 //! the slot-name registry the walk phase resolves names against, and
 //! the W4 objlit shape-join table the frozen verdict set feeds.
+//!
+//! Rotation 507 — the registry also carries the const-int table
+//! ([`record_const_int`]): the value behind an immutable binding whose
+//! initializer is an integer literal, so a `const step = 3` counter
+//! reads as the same small-step counter a literal `3` does.
 
 use std::collections::{HashMap, HashSet};
 
 use super::{Analysis, SlotKey, container, let_names};
-use crate::ast::{Ast, Stmt};
+use crate::ast::{Ast, Expr, Stmt, UnaryOp};
 
 /// Pre-walk name registry: every fn's param names, every top-level
 /// let (Global-keyed, including ones nested in top-level blocks /
@@ -21,12 +26,53 @@ pub(super) type SlotRegistry = (
     HashMap<String, Vec<String>>,
     HashSet<String>,
     HashMap<String, Vec<SlotKey>>,
+    HashMap<SlotKey, f64>,
 );
+
+/// The integer literal an immutable binding was initialized with,
+/// keyed by the slot it resolves to. Rotation 507 — a step written
+/// `const step = 3` is the same counter as one written `3`, and the
+/// W5 carve-out has to see it that way or the accumulator pays a
+/// versioned loop and a per-iteration guard the literal form does not
+/// (506-06). `mutable: false` is the whole guarantee: the checker
+/// rejects every assignment to such a binding, so the value the
+/// declaration shows is the value every read sees.
+fn record_const_int(ast: &Ast, decl: Option<&Stmt>, key: SlotKey, out: &mut HashMap<SlotKey, f64>) {
+    let Some(Stmt::LetDecl {
+        mutable: false,
+        init,
+        is_var: false,
+        ..
+    }) = decl
+    else {
+        return;
+    };
+    if let Some(v) = int_literal_value(ast, *init) {
+        out.insert(key, v);
+    }
+}
+
+/// The value of an integer-literal initializer (`3`, `-3`), or
+/// `None` for anything else.
+fn int_literal_value(ast: &Ast, eid: crate::ast::ExprId) -> Option<f64> {
+    match ast.get_expr(eid) {
+        Expr::Number(n) if n.fract() == 0.0 => Some(*n),
+        Expr::Unary {
+            op: UnaryOp::Neg,
+            expr,
+        } => match ast.get_expr(*expr) {
+            Expr::Number(n) if n.fract() == 0.0 => Some(-*n),
+            _ => None,
+        },
+        _ => None,
+    }
+}
 
 pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut toplevel_lets: HashSet<String> = HashSet::new();
     let mut by_name: HashMap<String, Vec<SlotKey>> = HashMap::new();
+    let mut const_ints: HashMap<SlotKey, f64> = HashMap::new();
     for stmt in &ast.stmts {
         match stmt {
             Stmt::FnDecl { name, params, .. } => {
@@ -40,27 +86,41 @@ pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
                         .or_default()
                         .push(SlotKey::Param(name.clone(), p.name.clone()));
                 }
-                for v in let_names::collect_let_names_fn(stmt) {
-                    by_name
-                        .entry(v.clone())
-                        .or_default()
-                        .push(SlotKey::Local(name.clone(), v));
+                if let Stmt::FnDecl { body, .. } = stmt {
+                    for b in body {
+                        let_names::walk_bindings(b, &mut |v, decl| {
+                            by_name
+                                .entry(v.to_string())
+                                .or_default()
+                                .push(SlotKey::Local(name.clone(), v.to_string()));
+                            record_const_int(
+                                ast,
+                                decl,
+                                SlotKey::Local(name.clone(), v.to_string()),
+                                &mut const_ints,
+                            );
+                        });
+                    }
                 }
             }
             other => {
-                let mut names = HashSet::new();
-                let_names::collect_let_names(other, &mut names);
-                for name in names {
-                    toplevel_lets.insert(name.clone());
+                let_names::walk_bindings(other, &mut |name, decl| {
+                    toplevel_lets.insert(name.to_string());
                     by_name
-                        .entry(name.clone())
+                        .entry(name.to_string())
                         .or_default()
-                        .push(SlotKey::Global(name.clone()));
-                }
+                        .push(SlotKey::Global(name.to_string()));
+                    record_const_int(
+                        ast,
+                        decl,
+                        SlotKey::Global(name.to_string()),
+                        &mut const_ints,
+                    );
+                });
             }
         }
     }
-    (fn_params, toplevel_lets, by_name)
+    (fn_params, toplevel_lets, by_name, const_ints)
 }
 
 /// W4 shape-join (rotation 371) — same-shaped anonymous literals

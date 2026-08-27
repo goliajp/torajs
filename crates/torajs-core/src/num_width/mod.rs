@@ -175,6 +175,12 @@ pub(super) struct Analysis<'a> {
     /// and inside named fns (named fns see top-level bindings via the
     /// data-global path).
     pub(super) toplevel_lets: HashSet<String>,
+    /// Rotation 507 — the integer literal behind an immutable
+    /// binding, keyed by the slot it resolves to. `width.rs`'s
+    /// counter carve-out reads it so `const step = 3; t += step`
+    /// stays the small-step counter the literal form is (506-06);
+    /// the magnitude rule applies to both spellings alike.
+    pub(super) const_ints: HashMap<SlotKey, f64>,
     /// Every slot key in the module sharing a given name — broadcast
     /// target for writes from closure bodies, where the defining
     /// scope of a captured name is no longer recoverable post-lift.
@@ -271,7 +277,8 @@ pub(crate) fn analyze(
 ) -> WidthTable {
     // Pre-walk slot-name registry (doc on the collector — sibling
     // `analyze_tables.rs`).
-    let (fn_params, toplevel_lets, by_name) = analyze_tables::collect_slot_registry(ast);
+    let (fn_params, toplevel_lets, by_name, const_ints) =
+        analyze_tables::collect_slot_registry(ast);
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
@@ -285,6 +292,7 @@ pub(crate) fn analyze(
         demoted,
         fn_params,
         toplevel_lets,
+        const_ints,
         by_name,
         seeds: Vec::new(),
         edges: HashMap::new(),
