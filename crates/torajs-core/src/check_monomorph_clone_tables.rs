@@ -14,6 +14,9 @@
 //!   call `apply_default_args` padded; without the carry the fresh
 //!   ExprId falls back to the padded length and the head-less tier's
 //!   `arguments.length` over-counts.
+//! * `arity_hole_args` — the `undefined` that same pad wrote into a
+//!   slot with no default of its own; the mark is what types it
+//!   `Any` instead of `Undefined`.
 //!
 //! Split from `check_monomorph.rs` at the 500-line file cap.
 
@@ -56,4 +59,13 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         })
         .collect();
     owned_ast.synth_promise_static_calls.extend(synth);
+    // `arity_hole_args` — the default pad's hole fillers (rotation
+    // 515). A cloned body reproduces the padded call verbatim, and a
+    // clone whose hole lost the mark types it `Undefined` again,
+    // which is the disagreement the mark exists to close.
+    let holes: Vec<ExprId> = id_map
+        .iter()
+        .filter_map(|&(old, new)| owned_ast.arity_hole_args.contains(&old).then_some(new))
+        .collect();
+    owned_ast.arity_hole_args.extend(holes);
 }

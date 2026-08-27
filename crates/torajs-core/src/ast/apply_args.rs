@@ -262,6 +262,11 @@ fn defaulted_args(
             // every other site.
             None => {
                 let undef = ast.add_expr(Expr::Ident("undefined".into()));
+                // Marked as a hole: a type parameter it lands on
+                // is pinned `Any`, the answer the checker's own
+                // T-28 lane already gives for an absent argument
+                // (doc on `Ast::arity_hole_args`).
+                ast.arity_hole_args.insert(undef);
                 new_args.push(undef);
             }
         }
@@ -599,6 +604,15 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert!(matches!(ast.get_expr(got[0]), Expr::Ident(n) if n == "undefined"));
         assert_eq!(got[1], five);
+    }
+
+    #[test]
+    fn a_hole_is_marked_but_a_padded_default_is_not() {
+        let mut ast = ast_of(vec![]);
+        let five = ast.add_expr(Expr::Number(5.0));
+        let got = defaulted_args(&mut ast, &[], &[None, Some(five)]).expect("padded");
+        assert!(ast.arity_hole_args.contains(&got[0]));
+        assert!(!ast.arity_hole_args.contains(&got[1]));
     }
 
     #[test]

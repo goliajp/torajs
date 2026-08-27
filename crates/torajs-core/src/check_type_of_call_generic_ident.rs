@@ -124,6 +124,34 @@ fn explicit_type_arg_subst(
     subst
 }
 
+/// The type an argument pins a type PARAMETER to.
+///
+/// An arity hole the default pad wrote (`Ast::arity_hole_args`) pins
+/// `Any`, because the program passed no argument there and the T-28
+/// branch in [`try_match`] already answers that question that way for
+/// the calls it keeps — an absent trailing argument binds `Any` and
+/// pads with ANY_UNDEF. Once the pad started materializing the hole
+/// those two lanes disagreed: `function f(x, _ = 0)` called `f()`
+/// bound `x`'s implicit typevar to `Any` before the pad could reach
+/// the default behind the hole and to `Undefined` after, and an
+/// `Undefined`-typed `x` then failed to unify at any generic call
+/// taking it beside another type (`sameValue(x, 2)`) — reported by
+/// the lowerer as "unknown function", since a call the checker could
+/// not infer gets no monomorph retarget.
+///
+/// Only the UNIFICATION answer moves. The hole's expression type
+/// stays `Undefined`, which is what the call-arg conversion reads to
+/// box ANY_UNDEF into the slot; typing the expression itself `Any`
+/// handed the callee a raw null instead (`m()` on `m(x, y = 5)`
+/// printed `null`).
+fn unification_ty(ast: &Ast, arg_id: ExprId, arg_ty: Type) -> Type {
+    if ast.arity_hole_args.contains(&arg_id) {
+        Type::Any
+    } else {
+        arg_ty
+    }
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -203,6 +231,7 @@ pub(crate) fn try_match(
                     };
                     let arg_ty = decay_nullable_arr(param_ty, arg_ty);
                     let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
+                    let arg_ty = unification_ty(ast, *arg_id, arg_ty);
                     if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents)
                     {
                         return Some(Err(format!("argument {i} to `{name}`: {e}")));
@@ -256,6 +285,7 @@ pub(crate) fn try_match(
             };
             let arg_ty = decay_nullable_arr(param_ty, arg_ty);
             let arg_ty = decay_classref_struct(checker, param_ty, arg_ty);
+            let arg_ty = unification_ty(ast, *arg_id, arg_ty);
             if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents) {
                 return Some(Err(format!("argument {i} to `{name}`: {e}")));
             }

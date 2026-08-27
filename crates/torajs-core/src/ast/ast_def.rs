@@ -741,6 +741,26 @@ pub struct Ast {
     /// `function a1(x?: number)` answer `arguments.length === 1`.
     /// The face collectors are unaffected (they run before the pad).
     pub default_padded_argc: std::collections::HashMap<ExprId, usize>,
+    /// The `undefined` idents `apply_default_args` mints for an
+    /// ARITY HOLE — a parameter with no default sitting in front of
+    /// one that has it, so the pad has to write something to reach
+    /// the default behind it. §10.2.11 binds undefined at that slot,
+    /// so that IS the value; what the program did not do is pass an
+    /// argument, and the checker already has an answer for what an
+    /// absent argument pins a type parameter to — the T-28 lane binds
+    /// `Any` (`check_type_of_call_generic_ident::unification_ty`
+    /// carries it to the padded calls, which is the only reader).
+    /// Padded DEFAULTS are not in here: `0` is a value the program
+    /// wrote and the parameter is typed from it. Monomorph clones
+    /// carry entries across the id map
+    /// (`check_monomorph_clone_tables`).
+    ///
+    /// The mark deliberately does NOT reach the hole's expression
+    /// type: it stays `Undefined`, because that is what the call-arg
+    /// conversion reads to box ANY_UNDEF into a wide slot. Answering
+    /// `Any` there instead handed the callee the bare ident's raw
+    /// null and `m()` on `m(x, y = 5)` printed `null`.
+    pub arity_hole_args: std::collections::HashSet<ExprId>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a
