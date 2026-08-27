@@ -94,8 +94,28 @@ fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<St
                 continue;
             }
             let shape = join_rows(rows, sigs);
-            for r in rows {
-                if let Some(ps) = rebuild(&sigs[r], &shape) {
+            let rebuilt: Vec<(&String, Option<Vec<Param>>)> = rows
+                .iter()
+                .map(|r| (r, rebuild(&sigs[r], &shape)))
+                .collect();
+            // A default on a class method is supplied by the CALL
+            // SITE, not by a guard in the body — `apply_default_args`
+            // pads by method name, and only when every owner of that
+            // name agrees. Widening this slot is exactly what makes
+            // them disagree, so the row that owns the default would
+            // stop receiving it and answer NaN where the language owes
+            // it 5. Refusing the slot is the honest answer until a
+            // class method's default lives in its body the way a plain
+            // function's already does (510-02).
+            if rebuilt.iter().any(|(_, ps)| ps.is_some())
+                && rows
+                    .iter()
+                    .any(|r| sigs[r].iter().any(|p| p.default.is_some()))
+            {
+                continue;
+            }
+            for (r, ps) in rebuilt {
+                if let Some(ps) = ps {
                     plan.insert(r.clone(), ps);
                 }
             }
