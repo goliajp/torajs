@@ -225,8 +225,38 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
             );
         }
         __torajs_str_drop(key);
+        note_relink();
         true
     }
+}
+
+/// Has any object's [[Prototype]] actually been re-written since the
+/// program started?
+///
+/// The class-methods table is a merged, compile-time answer to "what
+/// would the prototype chain say", and it stops being that the moment
+/// a link moves. Consulting the live chain first would be correct
+/// always but charges every `any`-lane method call a walk, so the
+/// shortcut is kept and gated on this.
+///
+/// A runtime fact, not a syntactic guess: the compile-time scan for
+/// `setPrototypeOf` / `__proto__` spellings has to degrade a program
+/// that merely NAMES the channel, and misses one that reaches it
+/// reflectively. This trips when a link is really written, and
+/// answers false for the whole run otherwise — which is every program
+/// that never re-links, including the ones that mention it.
+static PROTO_RELINKED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+fn note_relink() {
+    PROTO_RELINKED.store(true, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// `1` = some [[Prototype]] has been re-written; the merged
+/// class-methods shortcut is no longer a sound stand-in for the
+/// chain. See [`PROTO_RELINKED`].
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_proto_relinked() -> i64 {
+    i64::from(PROTO_RELINKED.load(core::sync::atomic::Ordering::Relaxed))
 }
 
 /// `Object.setPrototypeOf(O, proto)` — §20.1.2.21. Invalid proto is
