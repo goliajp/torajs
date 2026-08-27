@@ -72,7 +72,11 @@ pub(crate) fn try_lower(
     // Both resolutions happen BEFORE lowering args — a `?` after
     // lowering would hand the fallback lane already-emitted effects.
     let (direct_fid, sig_id, ret_ty) = match devirt {
-        Some(fid) => (Some(fid), None, ctx.f_ret_type_hint(fid)),
+        Some(fid) => (
+            Some(fid),
+            ctx.fn_sig_ids.get(&fid).copied(),
+            ctx.f_ret_type_hint(fid),
+        ),
         None => {
             let base_bare = format!("__cm_{}__{method_name}", owners[0]);
             let base_fid = match ctx.fn_table.get(&base_bare) {
@@ -99,6 +103,24 @@ pub(crate) fn try_lower(
     // row and a garbage any-tag for the next). owned_temps is built
     // first so its indices still address real arguments.
     crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut arg_ops);
+    // S2.42's twin, one lane over. This one also handed every argument
+    // verbatim while its siblings route through the `arg_conv`
+    // contract, so an i64 reaching an unannotated (`any`) parameter
+    // arrived as raw bits: `class A { f(x) { return x } }` called
+    // through the slot with `2` printed `null`. The signature is
+    // receiver-first and so is `args` here, so both start at 1.
+    let coerce_owned = match sig_id {
+        Some(sig) => {
+            let param_tys = ctx.fn_sigs[sig.0 as usize].0.clone();
+            crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+                ctx,
+                param_tys.get(1..).unwrap_or(&[]),
+                args.get(1..).unwrap_or(&[]),
+                arg_ops.get_mut(1..).unwrap_or(&mut []),
+            )
+        }
+        None => Vec::new(),
+    };
     let cur_block = ctx.cur_block;
     let r = match direct_fid {
         Some(fid) => ctx
@@ -115,6 +137,9 @@ pub(crate) fn try_lower(
     // ran the statement after it).
     if slot_may_throw(ctx, args[0], method_name, &suffix, &owners) {
         ctx.emit_throw_check(None);
+    }
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     for (i, op) in owned_temps {
         ctx.release_owned_temp(args[i], &op);
