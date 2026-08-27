@@ -18,8 +18,8 @@
 //! guard or not. `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate),
 //! `TORAJS_BRANCH_FOLD_STATS=1` dumps counters.
 
-mod accum;
-mod point_eval;
+pub(crate) mod accum;
+pub(crate) mod point_eval;
 
 use std::collections::HashMap;
 
@@ -149,7 +149,7 @@ fn disjoint(a: NumFact, b: NumFact) -> bool {
     a.hi < b.lo || a.lo > b.hi
 }
 
-fn single_def(func: &Function, v: ValueId) -> Option<(usize, usize)> {
+pub(crate) fn single_def(func: &Function, v: ValueId) -> Option<(usize, usize)> {
     let mut found: Option<(usize, usize)> = None;
     for (bi, block) in func.blocks.iter().enumerate() {
         for (ii, inst) in block.insts.iter().enumerate() {

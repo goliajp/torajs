@@ -38,6 +38,7 @@ pub mod loop_analysis;
 pub mod mem2reg;
 pub mod optimize;
 pub mod phi_promote;
+pub mod print_narrow;
 pub mod rc_dec_immediate;
 pub mod rc_peephole;
 pub mod rewrite;
@@ -297,6 +298,12 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
+    // Integral-f64 print narrowing — `print_f64(sitofp w)` with `w`
+    // provably inside ±2^53 prints the same digits through
+    // `print_i64(w)`; the demoted accumulator's exit bridge is the
+    // shape (its guard just folded above, so the bridge has one def).
+    // `TORAJS_PRINT_NARROW_OFF=1` skips (bisect gate).
+    gated_pass("PRINT_NARROW", &mut module, print_narrow::narrow_prints);
     // FP-constant loop hoisting — each distinct in-loop ConstF64
     // operand mints one preheader Copy and body uses read the value,
     // killing the per-iteration 3-inst rematerialization + GPR→FPR

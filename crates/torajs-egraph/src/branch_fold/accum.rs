@@ -21,6 +21,17 @@
 //!   constant step `s >= 1`;
 //! * entry values for both cells come from `PointEval` at every
 //!   header predecessor outside the loop (join over entries).
+//!
+//! The increment is evaluated at the add's point; when that read is
+//! the loop counter itself (`total += i` — through the block-tail
+//! `copy` the post-φ form threads it through), point evaluation has
+//! no unique last def inside the body (the latch def and the entry
+//! def both reach) and answers nothing. The counter's own trip
+//! argument bounds it instead: at any body point it lies in
+//! `[entry, K (−1 for slt) + s]` — the header check bounds it at
+//! iteration start and one step is all a body pass adds (r506; the
+//! `sum += i` guard never folded before, so its slow version and
+//! f64 exit bridge stayed).
 
 use torajs_core::ssa::{BlockId, Function, IPred, InstKind, Operand, Terminator, ValueId};
 
@@ -79,14 +90,78 @@ pub(crate) fn accum_bound(
     if la.nest_depth(func.blocks[rec_def.0].id) != 1 {
         return None;
     }
-    let trip = loop_trip_bound(func, lp, pe)?;
+    let counter = loop_counter(func, lp, pe)?;
+    let trip = counter.trip();
     let entry = entry_fact(func, lp, pe, acc)?;
-    let inc = pe.eval_operand(inc_op, x_def)?;
+    let inc = match pe.eval_operand(inc_op, x_def) {
+        Some(f) => f,
+        None if resolves_to(func, inc_op, counter.cell) => counter.body_range(),
+        None => return None,
+    };
     // After k <= trip additions the checked (post-add) value is
     // entry + k * inc; bound each side by the worst-signed growth.
     let hi = entry.hi.checked_add(trip.checked_mul(inc.hi.max(0))?)?;
     let lo = entry.lo.checked_add(trip.checked_mul(inc.lo.min(0))?)?;
     Some(NumFact::new(lo, hi))
+}
+
+/// Bound a loop cell read AFTER its loop (the `console.log(sum)` /
+/// `return sum` accumulator shape — the exit bridge's `sitofp` reads
+/// it there): the join of the cell's entry value and the recurrence
+/// bound of its in-loop def. Sound when every def of the cell is
+/// either the in-loop recurrence def or sits in a header predecessor
+/// outside the loop, and the read point is dominated by the header
+/// (so every path to it entered the loop through the same entries).
+pub(crate) fn cell_bound_after_loop(
+    func: &Function,
+    la: &LoopAnalysis,
+    pe: &PointEval,
+    dom: &crate::dominator::DominatorTree,
+    cell: ValueId,
+    point: (usize, usize),
+) -> Option<NumFact> {
+    // the one in-loop def `copy x`, and every other def on an entry edge
+    let mut rec: Option<(ValueId, BlockId)> = None;
+    let mut lp: Option<&NaturalLoop> = None;
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if inst.result != Some(cell) {
+                continue;
+            }
+            match innermost_loop(la, block.id) {
+                Some(l) => {
+                    if rec.is_some() {
+                        return None;
+                    }
+                    let InstKind::Copy(_, Operand::Value(x)) = &inst.kind else {
+                        return None;
+                    };
+                    rec = Some((*x, block.id));
+                    lp = Some(l);
+                }
+                None => {}
+            }
+        }
+    }
+    let (x, _) = rec?;
+    let lp = lp?;
+    let point_block = func.blocks[point.0].id;
+    if lp.body.contains(&point_block) || !dom.dominates(lp.header, point_block) {
+        return None;
+    }
+    for block in &func.blocks {
+        if lp.body.contains(&block.id) {
+            continue;
+        }
+        let defines = block.insts.iter().any(|i| i.result == Some(cell));
+        if defines && !super::point_eval::successors(&block.term).contains(&lp.header) {
+            return None;
+        }
+    }
+    let x_def = single_def(func, x)?;
+    let grown = accum_bound(func, la, pe, x, x_def)?;
+    let entry = entry_fact(func, lp, pe, cell)?;
+    Some(entry.join(grown))
 }
 
 /// Is `cell` a multi-def value with a `copy x` def somewhere (the
@@ -114,9 +189,56 @@ fn innermost_loop(la: &LoopAnalysis, b: BlockId) -> Option<&NaturalLoop> {
         .min_by_key(|l| l.body.len())
 }
 
-/// Max header-true outcomes per loop episode, from the header's
-/// `counter <slt/sle> K` exit compare and the counter's `+s` step.
-fn loop_trip_bound(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<i128> {
+/// The loop's counting argument: cell, constant step, the header's
+/// exclusive-or-inclusive bound and the entry value.
+struct LoopCounter {
+    cell: ValueId,
+    step: i128,
+    /// `K − 1` for `slt K`, `K` for `sle K`: the largest value the
+    /// header lets into the body.
+    last: i128,
+    entry: NumFact,
+}
+
+impl LoopCounter {
+    /// Max header-true outcomes per loop episode.
+    fn trip(&self) -> i128 {
+        let span = self.last - self.entry.lo + 1;
+        (span.max(0) + self.step - 1) / self.step
+    }
+
+    /// The counter's range at any point of the body: at most `last`
+    /// on entry to the body, plus the one step the latch adds.
+    fn body_range(&self) -> NumFact {
+        NumFact::new(self.entry.lo, self.last + self.step)
+    }
+}
+
+/// Does `op` name `cell`, directly or through single-def `copy`s
+/// (the post-φ form reads a loop cell through a block-tail copy)?
+fn resolves_to(func: &Function, op: &Operand, cell: ValueId) -> bool {
+    let mut cur = match op {
+        Operand::Value(v) => *v,
+        _ => return false,
+    };
+    for _ in 0..8 {
+        if cur == cell {
+            return true;
+        }
+        let Some((bi, ii)) = single_def(func, cur) else {
+            return false;
+        };
+        let InstKind::Copy(_, Operand::Value(src)) = &func.blocks[bi].insts[ii].kind else {
+            return false;
+        };
+        cur = *src;
+    }
+    false
+}
+
+/// The counting argument from the header's `counter <slt/sle> K`
+/// exit compare and the counter's `+s` step.
+fn loop_counter(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<LoopCounter> {
     let hb = lp.header.0 as usize;
     let header = &func.blocks[hb];
     let Terminator::CondBr {
@@ -175,8 +297,13 @@ fn loop_trip_bound(func: &Function, lp: &NaturalLoop, pe: &PointEval) -> Option<
     if entry.lo <= crate::interval::transfer::NEG_INF {
         return None;
     }
-    let span = k - entry.lo + if matches!(pred, IPred::Sle) { 1 } else { 0 };
-    Some((span.max(0) + step - 1) / step)
+    let last = k - if matches!(pred, IPred::Sle) { 0 } else { 1 };
+    Some(LoopCounter {
+        cell: *counter,
+        step,
+        last,
+        entry,
+    })
 }
 
 /// Join of the cell's value over every header predecessor outside the
