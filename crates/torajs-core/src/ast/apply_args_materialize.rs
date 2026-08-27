@@ -145,7 +145,7 @@ fn body_safe_default(ast: &Ast, e: ExprId, global_fns: &[String], prior: &[Strin
 }
 
 /// Build one `if (name === undefined) name = <default>;` guard.
-fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
+pub(super) fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
     let undef = ast.add_expr(Expr::Ident("undefined".into()));
     let name_ref = ast.add_expr(Expr::Ident(name.to_string()));
     let cond = ast.add_expr(Expr::BinOp {
@@ -192,7 +192,7 @@ fn converting_default(
 
 /// The channel-independent half of the conversion gate: a body-safe
 /// default, minus the two exclusions [`converting_default`] documents.
-fn guardable_default(
+pub(super) fn guardable_default(
     ast: &Ast,
     p: &super::Param,
     global_fns: &[String],
@@ -365,7 +365,7 @@ fn patch_params(params: &mut [super::Param], pads: Vec<(usize, ExprId, Option<St
 /// splice. (Generators — sync AND async — are unaffected: their
 /// factory body is never async-wrapped, and instantiation abrupt
 /// completions there propagate synchronously per §27.3/§27.6.)
-fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>) {
+pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>) {
     let into_try = matches!(
         &body[..],
         [Stmt::Try {

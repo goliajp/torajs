@@ -37,7 +37,7 @@
 
 use std::collections::HashMap;
 
-use super::super::{Ast, Param, Stmt};
+use super::super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// 509-01 — widen and pad every row of a vtable slot until the rows
 /// agree about what the slot takes.
@@ -50,7 +50,89 @@ pub fn join_vtable_slot_params(ast: &mut Ast) {
     if plan.is_empty() {
         return;
     }
-    apply_param_plan(ast, &plan);
+    apply_param_plan(ast, plan);
+}
+
+/// One declaration's replacement user-parameter list, plus the
+/// defaults that have to stop being supplied by the call site.
+struct RowPlan {
+    params: Vec<Param>,
+    /// `(param index, param name, default expression)` in parameter
+    /// order — one `if (p === undefined) p = <default>` guard each,
+    /// spliced at the head of the row's body, and the parameter's own
+    /// default replaced by the `undefined` literal.
+    moved: Vec<(usize, String, ExprId)>,
+}
+
+/// What becomes of one row's default once its slot is widened.
+enum DefaultFate {
+    /// Nothing to carry: no default, or the `undefined` literal that
+    /// is already what a pad sends.
+    Absent,
+    /// Movable into the body, guarded on the parameter itself.
+    Move(ExprId),
+    /// Cannot move — the slot keeps today's refusal.
+    Blocking,
+}
+
+/// Read one parameter's default against the body-guard channel —
+/// `apply_args_materialize::guardable_default`, the same gate that
+/// decides whether a plain function's default may be evaluated in the
+/// callee. It answers `None` both for a default nothing needs to
+/// carry and for one nothing may, so the two cases the slot cares
+/// about are separated here: an absent default and this pass's own
+/// pad value leave the row alone, anything else it declines to move
+/// keeps the slot refused (`__yield_arg` is the one named exclusion —
+/// the generator resume slot keeps one shape-uniform default across
+/// every lane, and converting a single copy evicts `next` from the
+/// pad table for all of them).
+fn default_fate(ast: &Ast, p: &Param, prior: &[String], global_fns: &[String]) -> DefaultFate {
+    let Some(d) = p.default else {
+        return DefaultFate::Absent;
+    };
+    if matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined") {
+        return DefaultFate::Absent;
+    }
+    match super::super::apply_args_materialize::guardable_default(ast, p, global_fns, prior) {
+        Some(d) => DefaultFate::Move(d),
+        None => DefaultFate::Blocking,
+    }
+}
+
+/// Every row's default, read in parameter order — `None` when some
+/// row carries one that may not move.
+fn root_default_fates(
+    ast: &Ast,
+    rows: &[String],
+    sigs: &HashMap<String, Vec<Param>>,
+    global_fns: &[String],
+) -> Option<Vec<Vec<DefaultFate>>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let ps = &sigs[r];
+        let mut fates = Vec::with_capacity(ps.len());
+        for (pi, p) in ps.iter().enumerate() {
+            let prior: Vec<String> = ps[..pi].iter().map(|q| q.name.clone()).collect();
+            match default_fate(ast, p, &prior, global_fns) {
+                DefaultFate::Blocking => return None,
+                f => fates.push(f),
+            }
+        }
+        out.push(fates);
+    }
+    Some(out)
+}
+
+/// Top-level function names, for the arrow-shaped default's free-var
+/// test (`body_safe_default`'s only use of them).
+fn toplevel_fn_names(ast: &Ast) -> Vec<String> {
+    super::super::toplevel_stmts_flat(ast)
+        .into_iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// User-facing parameters of every top-level `__cm_` / `__dispatch_`
@@ -77,8 +159,9 @@ fn collect_user_params(ast: &Ast) -> HashMap<String, Vec<Param>> {
 /// `num_width::slot_abi` unions widths over and
 /// `ssa_lower_module_metadata_slot_abi` checks shapes over: a slot
 /// those three passes disagree about is a slot nobody checks.
-fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<String, Vec<Param>> {
-    let mut plan: HashMap<String, Vec<Param>> = HashMap::new();
+fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<String, RowPlan> {
+    let global_fns = toplevel_fn_names(ast);
+    let mut plan: HashMap<String, RowPlan> = HashMap::new();
     for (m, by_root) in super::slot_groups_by_name(ast) {
         let stubs = super::dispatch_stub_names(sigs.keys(), &m);
         let mut shapes: Vec<Vec<Option<String>>> = Vec::new();
@@ -93,33 +176,9 @@ fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<St
             {
                 continue;
             }
-            let shape = join_rows(rows, sigs);
-            let rebuilt: Vec<(&String, Option<Vec<Param>>)> = rows
-                .iter()
-                .map(|r| (r, rebuild(&sigs[r], &shape)))
-                .collect();
-            // A default on a class method is supplied by the CALL
-            // SITE, not by a guard in the body — `apply_default_args`
-            // pads by method name, and only when every owner of that
-            // name agrees. Widening this slot is exactly what makes
-            // them disagree, so the row that owns the default would
-            // stop receiving it and answer NaN where the language owes
-            // it 5. Refusing the slot is the honest answer until a
-            // class method's default lives in its body the way a plain
-            // function's already does (510-02).
-            if rebuilt.iter().any(|(_, ps)| ps.is_some())
-                && rows
-                    .iter()
-                    .any(|r| sigs[r].iter().any(|p| p.default.is_some()))
-            {
-                continue;
+            if let Some(shape) = plan_one_root(ast, rows, sigs, &global_fns, &mut plan) {
+                shapes.push(shape);
             }
-            for (r, ps) in rebuilt {
-                if let Some(ps) = ps {
-                    plan.insert(r.clone(), ps);
-                }
-            }
-            shapes.push(shape);
         }
         // A dispatcher is minted only for a name whose owners form one
         // chain, so one shape is the case that matters; more than one
@@ -128,12 +187,75 @@ fn plan_slot_params(ast: &Ast, sigs: &HashMap<String, Vec<Param>>) -> HashMap<St
         if let ([shape], [_, ..]) = (shapes.as_slice(), stubs.as_slice()) {
             for d in &stubs {
                 if let Some(ps) = rebuild(&sigs[d], shape) {
-                    plan.insert(d.clone(), ps);
+                    plan.insert(
+                        d.clone(),
+                        RowPlan {
+                            params: ps,
+                            moved: Vec::new(),
+                        },
+                    );
                 }
             }
         }
     }
     plan
+}
+
+/// Plan one root's rows, answering the shape the slot settled on —
+/// or `None` when the slot is left exactly as the ABI check found it.
+///
+/// Two orderings are load-bearing. The widening question is asked
+/// FIRST, against the rows' own annotations: a hierarchy whose rows
+/// already agree keeps its narrow parameters, its narrow calls, and
+/// its call-site-supplied defaults, so this pass costs it nothing.
+/// Only once a slot is known to widen does the default question
+/// arise — and then a defaulted position joins to `any` no matter
+/// what the rows spell there, because the row that owns the default
+/// is about to be entered with the pad's undefined and has to be able
+/// to hold it.
+fn plan_one_root(
+    ast: &Ast,
+    rows: &[String],
+    sigs: &HashMap<String, Vec<Param>>,
+    global_fns: &[String],
+    plan: &mut HashMap<String, RowPlan>,
+) -> Option<Vec<Option<String>>> {
+    let shape = join_rows(rows, sigs);
+    if rows.iter().all(|r| rebuild(&sigs[r], &shape).is_none()) {
+        return Some(shape);
+    }
+    // A default on a class method is supplied by the CALL SITE, not
+    // by a guard in the body — `apply_default_args` pads by method
+    // name, and only when every owner of that name agrees. Widening
+    // this slot is exactly what makes them disagree, so the row that
+    // owns the default would stop receiving it and answer NaN where
+    // the language owes it 5. The default therefore moves into the
+    // body, the way a plain function's already does; a default that
+    // may not move keeps the slot refused (510-02).
+    let fates = root_default_fates(ast, rows, sigs, global_fns)?;
+    let mut shape = shape;
+    for fate_row in &fates {
+        for (i, f) in fate_row.iter().enumerate() {
+            if matches!(f, DefaultFate::Move(_)) {
+                shape[i] = Some("any".to_string());
+            }
+        }
+    }
+    for (r, fate_row) in rows.iter().zip(&fates) {
+        let rebuilt = rebuild(&sigs[r], &shape);
+        let changed = rebuilt.is_some();
+        let params = rebuilt.unwrap_or_else(|| sigs[r].clone());
+        let mut moved = Vec::new();
+        for (i, f) in fate_row.iter().enumerate() {
+            if let DefaultFate::Move(d) = f {
+                moved.push((i, params[i].name.clone(), *d));
+            }
+        }
+        if changed || !moved.is_empty() {
+            plan.insert(r.clone(), RowPlan { params, moved });
+        }
+    }
+    Some(shape)
 }
 
 /// The joined annotation at each position of one root's rows: the
@@ -186,23 +308,63 @@ fn rebuild(have: &[Param], shape: &[Option<String>]) -> Option<Vec<Param>> {
 }
 
 /// Write each planned parameter list onto its declaration, behind the
-/// receiver the plan was computed without.
-fn apply_param_plan(ast: &mut Ast, plan: &HashMap<String, Vec<Param>>) {
-    fn walk(stmts: &mut [Stmt], plan: &HashMap<String, Vec<Param>>) {
+/// receiver the plan was computed without, and splice the guards for
+/// the defaults that left the call site.
+///
+/// The guards are built first — minting their expressions needs the
+/// arena the walk borrows — and go in parameter order, so a later
+/// default reading an earlier parameter sees the value that
+/// parameter's own guard settled (§9.2 ordering).
+fn apply_param_plan(ast: &mut Ast, mut plan: HashMap<String, RowPlan>) {
+    let mut guards: HashMap<String, Vec<Stmt>> = HashMap::new();
+    for (name, row) in &mut plan {
+        if row.moved.is_empty() {
+            continue;
+        }
+        let mut g: Vec<Stmt> = Vec::with_capacity(row.moved.len());
+        for (pi, p, d) in &row.moved {
+            g.push(super::super::apply_args_materialize::build_default_guard(
+                ast, p, *d,
+            ));
+            // The parameter keeps a default — now the `undefined`
+            // literal, which needs no scope and is what the guard
+            // fires on. That is also what evicts the method NAME from
+            // `apply_default_args`' by-name table when some unrelated
+            // class declares the same name with a real default: an
+            // evicted name is padded by arity instead, and arity
+            // sends the undefined this guard is waiting for. Clearing
+            // the default outright let that other class's literal be
+            // pasted into this row's call sites (`f(1)` on a row
+            // owing 5 answered 4 with a stray 3 next door).
+            let undef = ast.add_expr(Expr::Ident("undefined".into()));
+            row.params[*pi].default = Some(undef);
+        }
+        guards.insert(name.clone(), g);
+    }
+    fn walk(
+        stmts: &mut [Stmt],
+        plan: &HashMap<String, RowPlan>,
+        guards: &mut HashMap<String, Vec<Stmt>>,
+    ) {
         for s in stmts {
             match s {
-                Stmt::Multi(inner) => walk(inner, plan),
-                Stmt::FnDecl { name, params, .. } => {
-                    if let Some(ps) = plan.get(name.as_str()) {
+                Stmt::Multi(inner) => walk(inner, plan, guards),
+                Stmt::FnDecl {
+                    name, params, body, ..
+                } => {
+                    if let Some(row) = plan.get(name.as_str()) {
                         params.truncate(1);
-                        params.extend(ps.iter().cloned());
+                        params.extend(row.params.iter().cloned());
+                        if let Some(g) = guards.remove(name.as_str()) {
+                            super::super::apply_args_materialize::splice_guards(body, g);
+                        }
                     }
                 }
                 _ => {}
             }
         }
     }
-    walk(&mut ast.stmts, plan);
+    walk(&mut ast.stmts, &plan, &mut guards);
 }
 
 #[cfg(test)]
@@ -274,5 +436,74 @@ mod tests {
         let wide = rebuild(&s["b"], &shape).expect("wide row widens");
         assert_eq!(wide[1].name, "y");
         assert_eq!(wide[1].type_ann.as_deref(), Some("any"));
+    }
+
+    fn dflt(mut q: Param, ast: &mut Ast, e: Expr) -> Param {
+        q.default = Some(ast.add_expr(e));
+        q
+    }
+
+    /// The widening question comes first: rows that already agree
+    /// keep their call-site-supplied defaults untouched.
+    #[test]
+    fn agreeing_rows_keep_their_call_site_defaults() {
+        let mut ast = Ast::default();
+        let y = dflt(p("y", Some("number")), &mut ast, Expr::Number(5.0));
+        let s = sigs(&[
+            ("a", vec![p("x", None), y.clone()]),
+            ("b", vec![p("x", None), y]),
+        ]);
+        let mut plan = HashMap::new();
+        let rows = vec!["a".to_string(), "b".to_string()];
+        assert!(plan_one_root(&ast, &rows, &s, &[], &mut plan).is_some());
+        assert!(plan.is_empty());
+    }
+
+    /// A widened slot moves the default into the row that owns it,
+    /// and the position it sits at joins to `any` so the row can hold
+    /// the pad's undefined.
+    #[test]
+    fn a_widened_slot_moves_its_default_into_the_body() {
+        let mut ast = Ast::default();
+        let y = dflt(p("y", Some("number")), &mut ast, Expr::Number(5.0));
+        let s = sigs(&[("a", vec![p("x", None)]), ("b", vec![p("x", None), y])]);
+        let mut plan = HashMap::new();
+        let rows = vec!["a".to_string(), "b".to_string()];
+        assert!(plan_one_root(&ast, &rows, &s, &[], &mut plan).is_some());
+        let wide = &plan["b"];
+        assert_eq!(wide.params[1].type_ann.as_deref(), Some("any"));
+        assert_eq!(wide.moved.len(), 1);
+        assert_eq!(wide.moved[0].0, 1);
+        assert_eq!(wide.moved[0].1, "y");
+        // the narrow row gains the pad and moves nothing
+        assert_eq!(plan["a"].params[1].name, "__slotpad1");
+        assert!(plan["a"].moved.is_empty());
+    }
+
+    /// A default the body-guard channel refuses keeps the whole slot
+    /// refused — the ABI check then says so out loud.
+    #[test]
+    fn a_default_that_cannot_move_keeps_the_slot_refused() {
+        let mut ast = Ast::default();
+        let y = dflt(p("__yield_arg", None), &mut ast, Expr::Number(0.0));
+        let s = sigs(&[("a", vec![p("x", None)]), ("b", vec![p("x", None), y])]);
+        let mut plan = HashMap::new();
+        let rows = vec!["a".to_string(), "b".to_string()];
+        assert!(plan_one_root(&ast, &rows, &s, &[], &mut plan).is_none());
+        assert!(plan.is_empty());
+    }
+
+    /// The `undefined` literal is already what a pad sends, so it is
+    /// nothing to carry — the slot widens without moving anything.
+    #[test]
+    fn an_undefined_literal_default_is_not_moved() {
+        let mut ast = Ast::default();
+        let y = dflt(p("y", None), &mut ast, Expr::Ident("undefined".into()));
+        let s = sigs(&[("a", vec![p("x", None)]), ("b", vec![p("x", None), y])]);
+        let mut plan = HashMap::new();
+        let rows = vec!["a".to_string(), "b".to_string()];
+        assert!(plan_one_root(&ast, &rows, &s, &[], &mut plan).is_some());
+        assert!(plan["b"].moved.is_empty());
+        assert!(plan["b"].params[1].default.is_some());
     }
 }
