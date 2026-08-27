@@ -29,6 +29,9 @@ use std::collections::HashMap;
 
 use super::{Ast, Stmt};
 
+mod params;
+pub use params::join_vtable_slot_params;
+
 /// 508-06 — widen every row of a vtable slot to `any` when the rows
 /// disagree about what they return.
 ///
@@ -94,7 +97,7 @@ fn collect_cm_return_anns(ast: &Ast) -> HashMap<String, String> {
 fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<String, String> {
     let mut plan: HashMap<String, String> = HashMap::new();
     for (m, by_root) in slot_groups_by_name(ast) {
-        let stub = dispatch_stub_names(anns, &m);
+        let stub = dispatch_stub_names(anns.keys(), &m);
         // Per ROOT: a receiver only ever wears a row from its own
         // chain, so an unrelated class that happens to declare the
         // same name fills the shared slot index with its own body
@@ -165,7 +168,7 @@ fn plan_slot_returns(ast: &Ast, anns: &HashMap<String, String>) -> HashMap<Strin
 /// `num_width::slot_abi::slot_unions` unions widths over. It has to
 /// be: that pass is what makes these rows' widths agree, and a slot
 /// the two passes disagree about is a slot nobody checks.
-fn slot_groups_by_name(ast: &Ast) -> Vec<(String, HashMap<String, Vec<String>>)> {
+pub(super) fn slot_groups_by_name(ast: &Ast) -> Vec<(String, HashMap<String, Vec<String>>)> {
     let decls: Vec<String> = super::toplevel_stmts_flat(ast)
         .into_iter()
         .filter_map(|s| match s {
@@ -203,10 +206,12 @@ fn slot_groups_by_name(ast: &Ast) -> Vec<(String, HashMap<String, Vec<String>>)>
 /// The `__dispatch_<M>` stub's name, plus its mono spellings (the
 /// `$$` suffix rides the name's tail). Empty for a method with no
 /// dispatcher — a name an unrelated class also declares gets none.
-fn dispatch_stub_names(anns: &HashMap<String, String>, m: &str) -> Vec<String> {
+pub(super) fn dispatch_stub_names<'a>(
+    names: impl Iterator<Item = &'a String>,
+    m: &str,
+) -> Vec<String> {
     let d = format!("__dispatch_{m}");
-    let mut out: Vec<String> = anns
-        .keys()
+    let mut out: Vec<String> = names
         .filter(|k| {
             k.strip_prefix(d.as_str())
                 .is_some_and(|r| r.is_empty() || r.starts_with("$$"))

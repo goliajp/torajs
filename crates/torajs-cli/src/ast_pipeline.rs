@@ -260,6 +260,11 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // can be seen to disagree — and nothing later rewrites a `__cm_`
     // return annotation.
     ast::join_vtable_slot_returns(ast);
+    // The same join at the other end of the signature. It has to run
+    // after the slot lanes learned to pad an omitted argument: the
+    // rows it pads are entered with that pad, and without it the
+    // widened slot answers wrongly instead of refusing loudly.
+    ast::join_vtable_slot_params(ast);
     // After it, because the receiver-promoting knives live inside it —
     // what still carries a `__this` capture by now is a fn-expr nobody
     // supplies a receiver for, and gets the plain-call answer.
