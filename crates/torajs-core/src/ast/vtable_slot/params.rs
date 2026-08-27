@@ -40,7 +40,9 @@ use std::collections::HashMap;
 use super::super::{Ast, Expr, ExprId, Param, Stmt};
 
 mod defaults;
+mod rebind;
 use defaults::{DefaultFate, root_default_fates, toplevel_fn_names};
+use rebind::{RowShape, rebuild};
 
 /// 509-01 — widen and pad every row of a vtable slot until the rows
 /// agree about what the slot takes. Answers the slot it could not,
@@ -65,6 +67,9 @@ pub fn join_vtable_slot_params(ast: &mut Ast) -> Option<String> {
 /// defaults that have to stop being supplied by the call site.
 struct RowPlan {
     params: Vec<Param>,
+    /// Parameters the slot's tail begins in front of — read back out
+    /// of it at the head of the body (see [`rebind`]).
+    rebound: Vec<String>,
     /// `(param index, param name, default expression)` in parameter
     /// order — one `if (p === undefined) p = <default>` guard each,
     /// spliced at the head of the row's body, and the parameter's own
@@ -76,9 +81,9 @@ struct RowPlan {
 /// position, and the rest tail every row gains when some row declares
 /// one.
 #[derive(Debug, PartialEq)]
-struct SlotShape {
-    fixed: Vec<Option<String>>,
-    rest: Option<String>,
+pub(super) struct SlotShape {
+    pub fixed: Vec<Option<String>>,
+    pub rest: Option<String>,
 }
 
 /// User-facing parameters of every top-level `__cm_` / `__dispatch_`
@@ -135,11 +140,12 @@ fn plan_slot_params(
         // stub belongs to neither reading — leave it to the ABI check.
         if let ([shape], [_, ..]) = (shapes.as_slice(), stubs.as_slice()) {
             for d in &stubs {
-                if let Some(ps) = rebuild(&sigs[d], shape) {
+                if let Some(RowShape { params, rebound }) = rebuild(&sigs[d], shape) {
                     plan.insert(
                         d.clone(),
                         RowPlan {
-                            params: ps,
+                            params,
+                            rebound,
                             moved: Vec::new(),
                         },
                     );
@@ -150,18 +156,22 @@ fn plan_slot_params(
     Ok(plan)
 }
 
-/// The rows of one slot have to agree about where a rest parameter
+/// Two VARIADIC rows of one slot have to agree about where their rest
 /// begins, and the ABI check cannot ask them.
 ///
-/// It compares MACHINE shapes, and a defaulted scalar and a rest array
-/// are both one word: `f(x, y = 5)` and `f(x, ...r)` fill the same
-/// three registers and pass it silently, then the second row reads a
-/// number where it expects an array and the program dies with a
-/// segfault. So the refusal has to happen here, where the parameter
-/// LISTS are still visible — the join already declines to widen such a
-/// slot (there is no shape that unpacks `f(1,2,3)` as both `r = [2,3]`
-/// and `y = 2, r = [3]`), and declining silently is what left the
-/// crash standing.
+/// It compares MACHINE shapes, and a rest array is one word like
+/// anything else: `f(x, ...r)` beside `f(x, y, ...s)` fills the same
+/// registers and passes it silently, then one of them reads
+/// `f(1,2,3)` as `r = [2,3]` and the other as `y = 2, s = [3]`. No
+/// single slot expresses both, so the refusal has to happen here,
+/// where the parameter LISTS are still visible; declining silently is
+/// what left the crash standing.
+///
+/// A row with no rest of its own is NOT in this disagreement, however
+/// many fixed parameters it takes. There is exactly one reading of
+/// where the tail begins — the variadic row's — and the other row
+/// reads its extra parameters back out of that tail (see
+/// [`rebind`]).
 fn rest_starts_agree(
     rows: &[String],
     sigs: &HashMap<String, Vec<Param>>,
@@ -178,21 +188,23 @@ fn rest_starts_agree(
     ))
 }
 
-/// The two rows that disagree about where the tail begins, when some
-/// row declares one — the single reading of that disagreement.
-/// [`join_rows`] asks it because it then has no shape to offer, and
-/// [`rest_starts_agree`] asks it to say so; a slot the two answer
-/// differently about cannot exist.
+/// The two VARIADIC rows that disagree about where the tail begins —
+/// the single reading of that disagreement. [`join_rows`] asks it
+/// because it then has no shape to offer, and [`rest_starts_agree`]
+/// asks it to say so; a slot the two answer differently about cannot
+/// exist. Rows with no rest of their own are not consulted: they have
+/// no opinion about where a tail starts, they only have parameters
+/// that end up inside one.
 fn rest_mismatch<'a>(
     rows: &'a [String],
     sigs: &HashMap<String, Vec<Param>>,
 ) -> Option<(&'a String, usize, &'a String, usize)> {
     let fixed_len = |r: &String| split_rest(&sigs[r]).0.len();
-    if !rows.iter().any(|r| split_rest(&sigs[r]).1.is_some()) {
-        return None;
-    }
-    let head = rows.first()?;
-    let odd = rows.iter().find(|r| fixed_len(r) != fixed_len(head))?;
+    let mut variadic = rows
+        .iter()
+        .filter(|r| split_rest(&sigs[r.as_str()]).1.is_some());
+    let head = variadic.next()?;
+    let odd = variadic.find(|r| fixed_len(r) != fixed_len(head))?;
     Some((head, fixed_len(head), odd, fixed_len(odd)))
 }
 
@@ -241,15 +253,27 @@ fn plan_one_root(
     for (r, fate_row) in rows.iter().zip(&fates) {
         let rebuilt = rebuild(&sigs[r], &shape);
         let changed = rebuilt.is_some();
-        let params = rebuilt.unwrap_or_else(|| sigs[r].clone());
+        let RowShape { params, rebound } = rebuilt.unwrap_or_else(|| RowShape {
+            params: sigs[r].clone(),
+            rebound: Vec::new(),
+        });
         let mut moved = Vec::new();
         for (i, f) in fate_row.iter().enumerate() {
             if let DefaultFate::Move(d) = f {
-                moved.push((i, params[i].name.clone(), *d));
+                // the name comes from the row's OWN list: a parameter
+                // the tail swallowed is no longer in the new one
+                moved.push((i, sigs[r][i].name.clone(), *d));
             }
         }
         if changed || !moved.is_empty() {
-            plan.insert(r.clone(), RowPlan { params, moved });
+            plan.insert(
+                r.clone(),
+                RowPlan {
+                    params,
+                    rebound,
+                    moved,
+                },
+            );
         }
     }
     Some(shape)
@@ -259,22 +283,39 @@ fn plan_one_root(
 /// annotation every row spells there, or `any` when they differ or
 /// when some row does not reach that far.
 ///
-/// A rest parameter is the one thing a join cannot widen INTO. Where
-/// a row's fixed parameters end decides where its rest begins, so
-/// rows whose fixed arities differ unpack the same argument list two
-/// different ways (`f(1,2,3)` gives one row `r = [2,3]` and the other
-/// `y = 2, r = [3]`) and no single slot expresses both — `None`, and
+/// A rest parameter is the one thing a join cannot widen INTO: where
+/// a row's fixed parameters end decides where its rest begins. The
+/// slot's tail therefore begins where its VARIADIC rows say it does —
+/// they have no other reading of the argument list — and every row
+/// gains one, so a row that never declared a rest carries a
+/// `__slotrest` it does not read, which is what makes the call site
+/// pack for whichever row it resolved to. A row whose fixed
+/// parameters run PAST that point reads the extra ones back out of the
+/// tail at the head of its body (see [`rebind`]), and the tail widens
+/// to `any[]` because it now carries them too.
+///
+/// Two variadic rows that disagree still have no shape — `None`, and
 /// [`rest_starts_agree`] has already refused the program over the
-/// same reading. When the fixed arities DO agree,
-/// the tail is uniform and every row gains one: a row that never
-/// declared a rest carries a `__slotrest` it does not read, which is
-/// what makes the call site pack for whichever row it resolved to.
+/// same reading.
 fn join_rows(rows: &[String], sigs: &HashMap<String, Vec<Param>>) -> Option<SlotShape> {
     let split = |r: &String| split_rest(&sigs[r]);
     let any_rest = rows.iter().any(|r| split(r).1.is_some());
     let fixed_len = |r: &String| split(r).0.len();
     rest_mismatch(rows, sigs).is_none().then_some(())?;
-    let width = rows.iter().map(fixed_len).max().unwrap_or(0);
+    // Where the tail begins is the VARIADIC rows' to say: that row has
+    // no other reading of the argument list. A row with more fixed
+    // parameters than that reads the extra ones back out of the tail
+    // (see [`rebind`]); with no variadic row at all the slot is as wide
+    // as its widest.
+    let width = match rows
+        .iter()
+        .filter(|r| split(r).1.is_some())
+        .map(fixed_len)
+        .min()
+    {
+        Some(w) => w,
+        None => rows.iter().map(fixed_len).max().unwrap_or(0),
+    };
     let fixed = (0..width)
         .map(|i| {
             let head = split(&rows[0]).0.get(i).map(|p| p.type_ann.clone());
@@ -290,7 +331,13 @@ fn join_rows(rows: &[String], sigs: &HashMap<String, Vec<Param>>) -> Option<Slot
             }
         })
         .collect();
+    let swallows = rows.iter().any(|r| fixed_len(r) > width);
     let rest = any_rest.then(|| {
+        if swallows {
+            // the tail now carries another row's fixed parameters too,
+            // whatever those were spelled
+            return "any[]".to_string();
+        }
         let mut anns = rows
             .iter()
             .filter_map(|r| split(r).1)
@@ -307,60 +354,11 @@ fn join_rows(rows: &[String], sigs: &HashMap<String, Vec<Param>>) -> Option<Slot
 
 /// One declaration's parameters split into its fixed ones and the
 /// trailing rest it may declare.
-fn split_rest(ps: &[Param]) -> (&[Param], Option<&Param>) {
+pub(super) fn split_rest(ps: &[Param]) -> (&[Param], Option<&Param>) {
     match ps.last() {
         Some(l) if l.is_rest => (&ps[..ps.len() - 1], Some(l)),
         _ => (ps, None),
     }
-}
-
-/// One declaration's parameters rewritten to the joined shape, or
-/// `None` when it already had it. Existing parameters keep their
-/// names — the body reads them by name — and only the annotation
-/// moves; the positions the row never declared arrive as pads, and so
-/// does a rest tail the row never declared.
-fn rebuild(have: &[Param], shape: &SlotShape) -> Option<Vec<Param>> {
-    let (fixed, had_rest) = split_rest(have);
-    let mut out: Vec<Param> = Vec::with_capacity(shape.fixed.len() + 1);
-    let mut changed = fixed.len() != shape.fixed.len();
-    for (i, want) in shape.fixed.iter().enumerate() {
-        match fixed.get(i) {
-            Some(p) => {
-                changed |= p.type_ann != *want;
-                out.push(Param {
-                    type_ann: want.clone(),
-                    ..p.clone()
-                });
-            }
-            None => out.push(Param {
-                name: format!("__slotpad{i}"),
-                type_ann: Some("any".to_string()),
-                default: None,
-                is_rest: false,
-            }),
-        }
-    }
-    match (&shape.rest, had_rest) {
-        (Some(ann), Some(p)) => {
-            changed |= p.type_ann.as_ref() != Some(ann);
-            out.push(Param {
-                type_ann: Some(ann.clone()),
-                ..p.clone()
-            });
-        }
-        (Some(ann), None) => {
-            changed = true;
-            out.push(Param {
-                name: "__slotrest".to_string(),
-                type_ann: Some(ann.clone()),
-                default: None,
-                is_rest: true,
-            });
-        }
-        (None, Some(_)) => unreachable!("a row with a rest joins to a shape with one"),
-        (None, None) => {}
-    }
-    changed.then_some(out)
 }
 
 /// Write each planned parameter list onto its declaration, behind the
@@ -372,46 +370,61 @@ fn rebuild(have: &[Param], shape: &SlotShape) -> Option<Vec<Param>> {
 /// default reading an earlier parameter sees the value that
 /// parameter's own guard settled (§9.2 ordering).
 fn apply_param_plan(ast: &mut Ast, mut plan: HashMap<String, RowPlan>) {
-    let mut guards: HashMap<String, Vec<Stmt>> = HashMap::new();
+    let mut head: HashMap<String, Vec<Stmt>> = HashMap::new();
     for (name, row) in &mut plan {
-        if row.moved.is_empty() {
+        if row.moved.is_empty() && row.rebound.is_empty() {
             continue;
         }
-        let mut g: Vec<Stmt> = Vec::with_capacity(row.moved.len());
+        // The rebinds go FIRST: a guard for a swallowed parameter
+        // assigns to the binding the rebind declares.
+        let mut stmts = rebind::rebind_stmts(ast, &row.rebound);
         for (pi, p, d) in &row.moved {
-            g.push(super::super::apply_args_materialize::build_default_guard(
+            stmts.push(super::super::apply_args_materialize::build_default_guard(
                 ast, p, *d,
             ));
-            // The parameter keeps a default — now the `undefined`
-            // literal, which needs no scope and is what the guard
-            // fires on. That is also what evicts the method NAME from
-            // `apply_default_args`' by-name table when some unrelated
-            // class declares the same name with a real default: an
-            // evicted name is padded by arity instead, and arity
-            // sends the undefined this guard is waiting for. Clearing
-            // the default outright let that other class's literal be
-            // pasted into this row's call sites (`f(1)` on a row
-            // owing 5 answered 4 with a stray 3 next door).
-            let undef = ast.add_expr(Expr::Ident("undefined".into()));
-            row.params[*pi].default = Some(undef);
+            // A parameter that is STILL one keeps a default — now the
+            // `undefined` literal, which needs no scope and is what
+            // the guard fires on. That is also what evicts the method
+            // NAME from `apply_default_args`' by-name table when some
+            // unrelated class declares the same name with a real
+            // default: an evicted name is padded by arity instead, and
+            // arity sends the undefined this guard is waiting for.
+            // Clearing the default outright let that other class's
+            // literal be pasted into this row's call sites (`f(1)` on
+            // a row owing 5 answered 4 with a stray 3 next door). A
+            // parameter the tail swallowed has no slot to keep it in,
+            // and needs none: a slot with a tail is already refused
+            // that table, by the rule that a variadic row is padded an
+            // EXTRA argument rather than an omitted one.
+            if let Some(param) = row.params.get_mut(*pi)
+                && &param.name == p
+            {
+                let undef = ast.add_expr(Expr::Ident("undefined".into()));
+                param.default = Some(undef);
+            }
         }
-        guards.insert(name.clone(), g);
+        head.insert(name.clone(), stmts);
     }
+    let mut bodies = rebind::forward_bodies(ast, &plan);
     fn walk(
         stmts: &mut [Stmt],
         plan: &HashMap<String, RowPlan>,
-        guards: &mut HashMap<String, Vec<Stmt>>,
+        head: &mut HashMap<String, Vec<Stmt>>,
+        bodies: &mut HashMap<String, Vec<Stmt>>,
     ) {
         for s in stmts {
             match s {
-                Stmt::Multi(inner) => walk(inner, plan, guards),
+                Stmt::Multi(inner) => walk(inner, plan, head, bodies),
                 Stmt::FnDecl {
                     name, params, body, ..
                 } => {
                     if let Some(row) = plan.get(name.as_str()) {
                         params.truncate(1);
                         params.extend(row.params.iter().cloned());
-                        if let Some(g) = guards.remove(name.as_str()) {
+                        if let Some(b) = bodies.remove(name.as_str()) {
+                            *body = b;
+                        }
+                        if let Some(g) = head.remove(name.as_str()) {
                             super::super::apply_args_materialize::splice_guards(body, g);
                         }
                     }
@@ -420,7 +433,7 @@ fn apply_param_plan(ast: &mut Ast, mut plan: HashMap<String, RowPlan>) {
             }
         }
     }
-    walk(&mut ast.stmts, &plan, &mut guards);
+    walk(&mut ast.stmts, &plan, &mut head, &mut bodies);
 }
 
 #[cfg(test)]
@@ -450,6 +463,12 @@ mod tests {
         join_rows(&names(rows), s).expect("rows join")
     }
 
+    /// Just the parameter list — most assertions do not care which
+    /// names the tail swallowed.
+    fn rb(have: &[Param], shape: &SlotShape) -> Option<Vec<Param>> {
+        rebuild(have, shape).map(|r| r.params)
+    }
+
     fn rest(name: &str, ann: Option<&str>) -> Param {
         Param {
             is_rest: true,
@@ -466,7 +485,7 @@ mod tests {
         let shape = join(&s, &["a", "b"]);
         assert_eq!(shape.fixed, vec![Some("number".to_string())]);
         // and nothing is rewritten
-        assert!(rebuild(&s["a"], &shape).is_none());
+        assert!(rb(&s["a"], &shape).is_none());
     }
 
     #[test]
@@ -474,7 +493,7 @@ mod tests {
         let s = sigs(&[("a", vec![p("x", None)]), ("b", vec![p("x", None)])]);
         let shape = join(&s, &["a", "b"]);
         assert_eq!(shape.fixed, vec![None]);
-        assert!(rebuild(&s["a"], &shape).is_none());
+        assert!(rb(&s["a"], &shape).is_none());
     }
 
     #[test]
@@ -485,7 +504,7 @@ mod tests {
         ]);
         let shape = join(&s, &["a", "b"]);
         assert_eq!(shape.fixed, vec![Some("any".to_string())]);
-        let out = rebuild(&s["a"], &shape).expect("row widens");
+        let out = rb(&s["a"], &shape).expect("row widens");
         assert_eq!(out[0].name, "x");
         assert_eq!(out[0].type_ann.as_deref(), Some("any"));
     }
@@ -501,13 +520,13 @@ mod tests {
             shape.fixed,
             vec![Some("number".to_string()), Some("any".into())]
         );
-        let narrow = rebuild(&s["a"], &shape).expect("narrow row pads");
+        let narrow = rb(&s["a"], &shape).expect("narrow row pads");
         assert_eq!(narrow.len(), 2);
         assert_eq!(narrow[0].name, "x");
         assert_eq!(narrow[1].name, "__slotpad1");
         assert_eq!(narrow[1].type_ann.as_deref(), Some("any"));
         // the wide row keeps its own name at that position, widened
-        let wide = rebuild(&s["b"], &shape).expect("wide row widens");
+        let wide = rb(&s["b"], &shape).expect("wide row widens");
         assert_eq!(wide[1].name, "y");
         assert_eq!(wide[1].type_ann.as_deref(), Some("any"));
     }
@@ -592,12 +611,12 @@ mod tests {
         ]);
         let shape = join(&s, &["a", "b"]);
         assert_eq!(shape.rest.as_deref(), Some("any[]"));
-        let narrow = rebuild(&s["a"], &shape).expect("narrow row gains the tail");
+        let narrow = rb(&s["a"], &shape).expect("narrow row gains the tail");
         assert_eq!(narrow.len(), 2);
         assert_eq!(narrow[1].name, "__slotrest");
         assert!(narrow[1].is_rest);
         // the variadic row keeps its own name and is left alone
-        assert!(rebuild(&s["b"], &shape).is_none());
+        assert!(rb(&s["b"], &shape).is_none());
     }
 
     /// Fixed arities disagreeing with a rest in play unpacks the same
@@ -615,11 +634,11 @@ mod tests {
         assert!(rest_starts_agree(&names(&["a", "b"]), &s, "f", "A").is_err());
     }
 
-    /// The ABI check downstream cannot see this one: a defaulted
-    /// scalar and a rest array are both one word, so the refusal has
-    /// to happen while the parameter LISTS are still visible.
+    /// A defaulted scalar beside a variadic row: the tail begins
+    /// where the VARIADIC row says it does, and the other row's `y`
+    /// is inside it. Not a refusal — a rebinding.
     #[test]
-    fn a_defaulted_row_beside_a_variadic_one_is_refused_here() {
+    fn a_defaulted_row_beside_a_variadic_one_rebinds() {
         let mut ast = Ast::default();
         let y = dflt(p("y", Some("number")), &mut ast, Expr::Number(5.0));
         let s = sigs(&[
@@ -627,9 +646,53 @@ mod tests {
             ("b", vec![p("x", None), rest("r", Some("any[]"))]),
         ]);
         let rows = names(&["a", "b"]);
-        let msg = rest_starts_agree(&rows, &s, "f", "A").expect_err("refused");
-        assert!(msg.contains("`a` takes 2"), "{msg}");
-        assert!(msg.contains("`b` takes 1"), "{msg}");
+        assert!(rest_mismatch(&rows, &s).is_none());
+        assert!(rest_starts_agree(&rows, &s, "f", "A").is_ok());
+        let shape = join(&s, &["a", "b"]);
+        // one fixed position, and a tail wide enough to hold what it
+        // swallowed
+        assert_eq!(shape.fixed.len(), 1);
+        assert_eq!(shape.rest.as_deref(), Some("any[]"));
+        let swallowed = rebuild(&s["a"], &shape).expect("the row rewrites");
+        assert_eq!(swallowed.rebound, vec!["y".to_string()]);
+        assert_eq!(swallowed.params.len(), 2);
+        assert_eq!(swallowed.params[0].name, "x");
+        assert!(swallowed.params[1].is_rest);
+        // the variadic row is the one the tail's position came from,
+        // so it is left exactly alone
+        assert!(rebuild(&s["b"], &shape).is_none());
+    }
+
+    /// Two fixed positions past the tail's start both come back, in
+    /// declaration order.
+    #[test]
+    fn every_swallowed_position_is_rebound() {
+        let s = sigs(&[
+            ("a", vec![p("x", None), p("y", None), p("z", None)]),
+            ("b", vec![p("x", None), rest("r", Some("any[]"))]),
+        ]);
+        let shape = join(&s, &["a", "b"]);
+        assert_eq!(shape.fixed.len(), 1);
+        let out = rebuild(&s["a"], &shape).expect("the row rewrites");
+        assert_eq!(out.rebound, vec!["y".to_string(), "z".to_string()]);
+    }
+
+    /// A row that never reaches the tail's start still pads up to it.
+    #[test]
+    fn a_row_short_of_the_tail_pads_to_it() {
+        let s = sigs(&[
+            ("a", vec![p("x", None)]),
+            (
+                "b",
+                vec![p("x", None), p("y", None), rest("r", Some("any[]"))],
+            ),
+        ]);
+        let shape = join(&s, &["a", "b"]);
+        assert_eq!(shape.fixed.len(), 2);
+        let out = rebuild(&s["a"], &shape).expect("the row pads");
+        assert!(out.rebound.is_empty());
+        assert_eq!(out.params[1].name, "__slotpad1");
+        assert!(out.params[2].is_rest);
     }
 
     /// Rows that all stop at the same position are not a mismatch,
