@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, Diagnostic, Type};
+use crate::check::{Checker, Type};
 use crate::ssa_lower_generics_monomorph::Generics;
 
 /// Names of generic callees this specialization body calls that have
@@ -70,11 +70,17 @@ pub(crate) fn uninferred_callees(
 
 /// Settle one specialization body's diagnostics: discard them, which
 /// is the default and was the only behaviour, unless the body left a
-/// hole. A hole keeps whatever the body's own check said — which for
-/// the shape that produces holes is the precise message the SAME call
-/// written at top level answers with. When the check said nothing (it
-/// never reached the call), name the hole instead of letting the
-/// lowerer name the callee.
+/// hole AND said why. A hole keeps whatever the body's own check said
+/// — which for the shape that produces holes is the precise message
+/// the SAME call written at top level answers with.
+///
+/// A hole the check said NOTHING about is left alone. A hole is not
+/// on its own proof that the program cannot lower: two
+/// `new Function` cases in test262 carry one in a specialization body
+/// and pass, because nothing ever lowers that call. Synthesizing a
+/// message for those rejected two working programs (rotation 515,
+/// caught by the sweep, not by the gate). Only the checker's own
+/// verdict is trusted here.
 pub(crate) fn settle_body_diagnostics(
     c: &mut Checker,
     ast: &Ast,
@@ -82,20 +88,9 @@ pub(crate) fn settle_body_diagnostics(
     generics: &Generics,
     recorded: &HashMap<ExprId, (String, Vec<Type>)>,
     saved_error_count: usize,
-    spec_fn_name: &str,
 ) {
-    let holes = uninferred_callees(ast, id_map, generics, recorded);
-    if holes.is_empty() {
+    if uninferred_callees(ast, id_map, generics, recorded).is_empty() {
         c.errors.truncate(saved_error_count);
-        return;
-    }
-    if c.errors.len() != saved_error_count {
-        return;
-    }
-    for callee in &holes {
-        c.errors.push(Diagnostic::error(format!(
-            "cannot infer type arguments for the call to `{callee}` inside `{spec_fn_name}`"
-        )));
     }
 }
 

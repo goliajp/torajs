@@ -250,7 +250,6 @@ pub(crate) fn process_one_generic(
             .cloned()
             .zip(arg_anns.iter().cloned())
             .collect();
-        let spec_fn_name = mono_name.clone();
         let (new_params, new_return_type, new_body, id_map) =
             clone_spec_body(owned_ast, params, return_type, body, &subst);
         // Type-level signature for the checker: substitute the
@@ -332,7 +331,6 @@ pub(crate) fn process_one_generic(
             generics,
             &inner_sites,
             saved_error_count,
-            &spec_fn_name,
         );
         let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
         let mut inner: Vec<(ExprId, (String, Vec<Type>))> =
