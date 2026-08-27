@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T08:00:46.389Z",
+  "generatedAt": "2026-08-27T10:38:17.957Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T07:46:38Z",
-    "headSha": "fc6c22c4d",
-    "elapsedSec": 374.09,
+    "ranAt": "2026-08-27T10:18:40Z",
+    "headSha": "90030c182",
+    "elapsedSec": 376.52,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 928,
     "passNegative": 4147,
     "passTotal": 34840,
-    "bug": 12716,
-    "incompatible": 5618,
+    "bug": 12717,
+    "incompatible": 5617,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47556,
+    "trAccepted": 47557,
     "passRateInScope": 65.52,
     "passRateTrAccepted": 73.26
   },
   "torajs": {
-    "commit": "fc6c22c4d",
-    "commitSubject": "fix: every stripped builtin parent chains its subclass's prototype, not just Iterator",
+    "commit": "90030c182",
+    "commitSubject": "fix: a stale dispatch stub adopts its rows' type instead of widening them",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "90030c182",
+      "subject": "fix: a stale dispatch stub adopts its rows' type instead of widening them"
+    },
+    {
+      "hash": "63831ed02",
+      "subject": "fix: the dispatch stub is a row of its slot, and now has to agree like one"
+    },
+    {
+      "hash": "d8e965391",
+      "subject": "revert: the any-lane relink gate — its flag is not the fact it claimed"
+    },
+    {
+      "hash": "fe959524d",
+      "subject": "fix: a re-linked prototype is what the any-lane method call walks"
+    },
+    {
+      "hash": "72d85dc7b",
+      "subject": "fix: a prototype level lists the methods its class declares, not its ancestors'"
+    },
+    {
+      "hash": "a5dcbbfa6",
+      "subject": "fix: a vtable slot's return type is the join of its rows, not the first row's"
+    },
+    {
+      "hash": "ea6548e02",
+      "subject": "docs: rotation 508 roadmap snapshot + test262 sweep ingest"
+    },
+    {
       "hash": "fc6c22c4d",
       "subject": "fix: every stripped builtin parent chains its subclass's prototype, not just Iterator"
     },
@@ -731,162 +759,134 @@
     {
       "hash": "fcc30d658",
       "subject": "fix: super property lookup follows a prototype re-link at run time"
-    },
-    {
-      "hash": "e30b85dc7",
-      "subject": "chore: rotation 507 close — the counter carve-out admits only small literal steps (t += 2^53-1 no longer wraps) + an overridden method keeps its vtable slot when an unrelated class shares the name, and a throwing override propagates + ternary / ?? / || join two class instances at their common ancestor + a const step is the counter a literal is"
-    },
-    {
-      "hash": "9845a927e",
-      "subject": "perf: a counter whose step is a const binding is the counter the literal is"
-    },
-    {
-      "hash": "9b7f998b7",
-      "subject": "feat: `??` and `||` join two class instances at their common ancestor"
-    },
-    {
-      "hash": "d8c1dd2ca",
-      "subject": "feat: a ternary over two class instances joins to their nearest common ancestor"
-    },
-    {
-      "hash": "1ba086da0",
-      "subject": "fix: an overridden method keeps its vtable slot when an unrelated class shares the name, and a throwing override propagates"
-    },
-    {
-      "hash": "92e3f1e38",
-      "subject": "fix: the counter carve-out only admits small literal steps"
-    },
-    {
-      "hash": "c94ba28a6",
-      "subject": "chore: rotation 506 close — vtable slots relative (override program 51,657→35,121, __DATA_CONST gone) + link-judged stub guards read every alias of an atom + float_demote installs the block-end growth guard + counted accumulator prints through the i64 printer (34,937→18,425) + release_batch.sh"
     }
   ],
-  "headSha": "fc6c22c4d",
+  "headSha": "90030c182",
   "autorun": {
-    "total": 511,
+    "total": 812,
     "baselineTarget": 10,
-    "bySelf": 506,
+    "bySelf": 807,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784931424-3ed7",
-      "at": "2026-07-24T22:17:04Z",
-      "ts": 1784931424,
+      "rotationId": "r-1787817805-1a18",
+      "at": "2026-08-27T08:03:25Z",
+      "ts": 1787817805,
       "trigger": "self",
-      "prevHead": "6caee759",
-      "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
-      "handoffAgeSec": 4,
+      "prevHead": "ea6548e02",
+      "handoffSha": "sha256:422a260e2f3ec67a6a408e9f4e2d2fd61622599b20c1948b5d8279b06e272dbc",
+      "handoffAgeSec": 22,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
       {
-        "rotationId": "r-1784931424-3ed7",
-        "at": "2026-07-24T22:17:04Z",
-        "ts": 1784931424,
+        "rotationId": "r-1787817805-1a18",
+        "at": "2026-08-27T08:03:25Z",
+        "ts": 1787817805,
         "trigger": "self",
-        "prevHead": "6caee759",
-        "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
-        "handoffAgeSec": 4,
+        "prevHead": "ea6548e02",
+        "handoffSha": "sha256:422a260e2f3ec67a6a408e9f4e2d2fd61622599b20c1948b5d8279b06e272dbc",
+        "handoffAgeSec": 22,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784922574-192b",
-        "at": "2026-07-24T19:49:35Z",
-        "ts": 1784922575,
+        "rotationId": "r-1787809170-484e",
+        "at": "2026-08-27T05:39:30Z",
+        "ts": 1787809170,
         "trigger": "self",
-        "prevHead": "d347bdc2",
-        "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
-        "handoffAgeSec": 4,
+        "prevHead": "e30b85dc7",
+        "handoffSha": "sha256:60543e02986beb1bedb0feb7cd69a63714c571fdc037966ac05c96e0f75b5417",
+        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784916735-40ca",
-        "at": "2026-07-24T18:12:15Z",
-        "ts": 1784916735,
+        "rotationId": "r-1787793840-19d1",
+        "at": "2026-08-27T01:24:00Z",
+        "ts": 1787793840,
         "trigger": "self",
-        "prevHead": "f0464206",
-        "handoffSha": "sha256:b9ecf50b244ecaf63c2525e3c0b79036a5fc0ca8267e00d81fc058d2473c4c32",
-        "handoffAgeSec": 216,
+        "prevHead": "c94ba28a6",
+        "handoffSha": "sha256:f3ac35e930e3870a0bc5345629d6df957ffe46df91c1e741e5df661d5b82db47",
+        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784911321-73e6",
-        "at": "2026-07-24T16:42:01Z",
-        "ts": 1784911321,
+        "rotationId": "r-1787767400-7a05",
+        "at": "2026-08-26T18:03:20Z",
+        "ts": 1787767400,
         "trigger": "self",
-        "prevHead": "afa46564",
-        "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
-        "handoffAgeSec": 4,
+        "prevHead": "c328af0ee",
+        "handoffSha": "sha256:fea745a7cfa62eb997d94fa53f240e828753eb41130495c4a6b877ddd4b5a814",
+        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784902951-3e83",
-        "at": "2026-07-24T14:22:31Z",
-        "ts": 1784902951,
+        "rotationId": "r-1787756802-2fad",
+        "at": "2026-08-26T15:06:42Z",
+        "ts": 1787756802,
         "trigger": "self",
-        "prevHead": "995dce57",
-        "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
+        "prevHead": "c04e18117",
+        "handoffSha": "sha256:1ca3f6d07deeea869ef7c6dfe400ac338d26ec8265bfcd21c32261e68db04f33",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784897109-063d",
-        "at": "2026-07-24T12:45:09Z",
-        "ts": 1784897109,
+        "rotationId": "r-1787745722-0736",
+        "at": "2026-08-26T12:02:02Z",
+        "ts": 1787745722,
         "trigger": "self",
-        "prevHead": "cf93f4ac",
-        "handoffSha": "sha256:14c61e5b1fe723711e14f1ca892d1a681055610f12496e65aa96513a5b1bb7cd",
-        "handoffAgeSec": 5,
+        "prevHead": "b8b27a355",
+        "handoffSha": "sha256:346781512300339cf4ef117708db53ef2353a1a657bd9f50cfc7d7b1f8c8cf49",
+        "handoffAgeSec": 22,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784890738-6e31",
-        "at": "2026-07-24T10:58:58Z",
-        "ts": 1784890738,
+        "rotationId": "r-1787736511-6d7e",
+        "at": "2026-08-26T09:28:31Z",
+        "ts": 1787736511,
         "trigger": "self",
-        "prevHead": "afd510a4",
-        "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
-        "handoffAgeSec": 4,
+        "prevHead": "7b5d8b5d0",
+        "handoffSha": "sha256:eed31795c8f1b736088abd374f3bbc4a6cccbe29cf9e88c682e681f25fb9b908",
+        "handoffAgeSec": 42,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784878903-5f45",
-        "at": "2026-07-24T07:41:43Z",
-        "ts": 1784878903,
+        "rotationId": "r-1787723527-172d",
+        "at": "2026-08-26T05:52:07Z",
+        "ts": 1787723527,
         "trigger": "self",
-        "prevHead": "71520e66",
-        "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
-        "handoffAgeSec": 73,
+        "prevHead": "26ded3f7c",
+        "handoffSha": "sha256:197cb66ad88c0431d6111a0386bdd6ab309090328c53bb4999e0da9e63f6fc50",
+        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784871854-6136",
-        "at": "2026-07-24T05:44:14Z",
-        "ts": 1784871854,
+        "rotationId": "r-1787715041-4564",
+        "at": "2026-08-26T03:30:41Z",
+        "ts": 1787715041,
         "trigger": "self",
-        "prevHead": "ca912d11",
-        "handoffSha": "sha256:68ab650b8dc42563ad78be2b23e93fb853b38372d9f87077f20423b71f3c7927",
-        "handoffAgeSec": 77,
+        "prevHead": "58c24cc16",
+        "handoffSha": "sha256:2ce4ca95d795b5087e6cb3dae33f65ffc06704a02c2d210d2a0f4a4a1d0ed8fc",
+        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784832173-7644",
-        "at": "2026-07-23T18:42:53Z",
-        "ts": 1784832173,
+        "rotationId": "r-1787683944-1a14",
+        "at": "2026-08-25T18:52:24Z",
+        "ts": 1787683944,
         "trigger": "self",
-        "prevHead": "31e6b3a3",
-        "handoffSha": "sha256:9acb3bf9041b0b339eaf324094560765c34b20ffb05cf631be0a492b5779f519",
-        "handoffAgeSec": 928,
+        "prevHead": "d801004a4",
+        "handoffSha": "sha256:69e830bf199abd14f5edb97dbd78cc2a61195acf82920498715ae0be4b7b3afc",
+        "handoffAgeSec": 31,
         "conformanceBefore": null,
         "commitsInSession": null
       }

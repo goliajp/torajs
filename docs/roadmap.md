@@ -1557,7 +1557,43 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `fc6c22c4d`** (2026-08-27, rotation 508 — a name-resolution
+**Latest @ `90030c182`** (2026-08-27, rotation 509 — a slot-agreement
+rotation, closing the three things rotation 508's new vtable assertion
+found once someone was finally checking. A slot's return type is now
+the join of its rows: a base that answers a value and an override that
+does not are not in conflict about the language — falling out of a body
+is `return undefined` — so `any` is the spelling that holds both, and
+the common shape that had become a compile-time refusal runs again
+(`superPropProtoChanges.js` incompatible → pass). A prototype level
+lists only the methods its class declares: the class-methods table
+merges parent chains on purpose, because it IS the dispatch resolution,
+and reifying it wholesale made every inherited method an own property
+of every subclass prototype — a phantom name for `hasOwnProperty` and
+`getOwnPropertyNames`, and a shadow that outlived re-linking the chain.
+And the `__dispatch_<M>` stub is a row of its slot like any other: it
+took its return annotation from the base owner's declaration, read
+before the unannotated bodies were given theirs, so for an ordinary
+program it disagreed with every row it forwards to — `ww` against the
+row's `wf`, the same read-the-wrong-register shape rotation 507
+measured, on the one face the assertion could not see. Making it adopt
+what the rows say took a two-class program's artifact from **35,121 to
+18,609 bytes**. One attempt is registered rather than shipped: making
+the any-lane method call follow a re-linked prototype needs the chain
+arm to become a complete resolution first — forcing its gate flag true
+answers 3316 / 50 fail, almost all generators.) Gate predicate:
+**158** clusters of ≥ 4 holding **1209** cases, register 2 · 251,
+residue 653 · 810 (35.7%), core **2270** — clusters identical to
+rotations 503-508. Sweep passTotal **34840 (=)**, pass **29765 (=)**,
+bug **12717 (+1)**, incompatible **5617 (−1)**, trAccepted 47557 (+1);
+conservation holds (+1 = 0 + 1) and the verdict diff is 3 lines. Net
+pass movement zero, honestly one gain and one loss: `super`'s
+`superPropProtoChanges.js` becomes pass, and
+`super-reference-resolution.js` moves pass → incompatible because the
+stub's now-concrete return type meets a type-parameter inference that
+demands equality where TS takes a common supertype (logged 509-03; the
+runtime answer is still correct).
+
+**Prior @ `fc6c22c4d`** (2026-08-27, rotation 508 — a name-resolution
 rotation. `super.x` resolves `[[HomeObject]].[[Prototype]]`, which is a
 runtime value, and the class desugar spelled it statically as the
 parent: all five forms — name call, computed call, name read, computed
