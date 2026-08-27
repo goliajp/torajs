@@ -278,6 +278,18 @@ pub(crate) fn check_nullish(
     {
         return Ok(rhs_ty);
     }
+    // Rotation 507 — two DIFFERENT class instances meet at their
+    // nearest common ancestor, the ternary's join (`m ?? new Leaf(1)`
+    // with `m: Mid | null` used to reject where bun runs it). A
+    // `Nullable` rhs unwraps first: the lhs already answers the
+    // non-null side, so the join is over what each side can BE.
+    let rhs_core = match &rhs_ty {
+        Type::Nullable(i) => (**i).clone(),
+        other => other.clone(),
+    };
+    if let Some(joined) = crate::check_type_compare::class_join(ast, &inner, &rhs_core) {
+        return Ok(joined);
+    }
     Err(format!(
         "`??` rhs type {rhs_ty:?} does not match lhs inner {inner:?}"
     ))

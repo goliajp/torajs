@@ -11,12 +11,17 @@
 //!   is a valid receiver for an `Animal`-typed method (fields: name)
 //!   because the `name` field sits at the same offset in both layouts.
 //!
+//! - `class_lca` — rotation 507: nearest common ancestor of two
+//!   declared classes, the join every "two different class instances
+//!   meet here" site needs (ternary branches, `??`, `||` / `&&`).
+//!
 //! Both grouped here as the "type-shape comparison" family. Re-exported
 //! back into `crate::check` so callers
 //! (`check_type_of_ternary::unify_ternary`,
 //! `check_type_of_call_class_method_subtype::struct_is_prefix_subtype`)
 //! keep their import paths.
 
+use crate::ast::Ast;
 use crate::check::Type;
 
 pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
@@ -156,4 +161,54 @@ pub(crate) fn struct_is_prefix_subtype(arg: &Type, param: &Type) -> bool {
         }
         _ => false,
     }
+}
+
+/// Nearest common ancestor of two declared classes along
+/// `ast.class_parents` (a class is its own ancestor), or `None`
+/// when the chains never meet. Hop-bounded like
+/// `Checker::is_descendant_of`, so a mutual-extends cycle cannot
+/// spin it.
+///
+/// The `None` answer is what separates "these meet at a type" from
+/// "these only meet at `any`": callers join to the ancestor when it
+/// exists and widen to Any otherwise (the S129-1 posture — both
+/// sides box, consumers read the any lanes).
+pub(crate) fn class_lca(ast: &Ast, a: &str, b: &str) -> Option<String> {
+    let chain = |start: &str| -> Vec<String> {
+        let mut out = vec![start.to_string()];
+        let mut cur = start;
+        let mut hops = ast.class_parents.len() + 1;
+        while let Some(parent) = ast.class_parents.get(cur).and_then(|p| p.as_deref()) {
+            out.push(parent.to_string());
+            cur = parent;
+            hops -= 1;
+            if hops == 0 {
+                break;
+            }
+        }
+        out
+    };
+    let a_chain = chain(a);
+    chain(b).into_iter().find(|c| a_chain.contains(c))
+}
+
+/// Rotation 507 — the join two DIFFERENT declared-class types take:
+/// their nearest common ancestor, or Any when they share none. Used
+/// wherever the language lets two class instances meet in one slot;
+/// returns `None` when the pair is not two declared classes, leaving
+/// the caller's own rules in charge.
+pub(crate) fn class_join(ast: &Ast, a: &Type, b: &Type) -> Option<Type> {
+    let (Type::ClassRef(an), Type::ClassRef(bn)) = (a, b) else {
+        return None;
+    };
+    if an == bn
+        || !ast.class_parents.contains_key(an.as_str())
+        || !ast.class_parents.contains_key(bn.as_str())
+    {
+        return None;
+    }
+    Some(match class_lca(ast, an, bn) {
+        Some(lca) => Type::ClassRef(lca),
+        None => Type::Any,
+    })
 }

@@ -215,22 +215,8 @@ fn widen_branches(
     // dispatches on the static ancestor type (vtable). The struct
     // join below is for the rotation-233 shape (two literal layouts
     // the checker widened to Any), which this gate leaves alone.
-    if struct_join
-        && let Some(crate::check::Type::ClassRef(lca)) = ctx.expr_types.get(&eid)
-        && ctx.ast.class_parents.contains_key(lca)
-    {
-        let res = crate::ssa_lower_parse_type::parse_type(
-            Some(lca.as_str()),
-            ctx.aliases,
-            ctx.arr_layouts,
-            ctx.fn_sigs,
-            ctx.generic_struct_decls,
-            ctx.struct_layouts,
-            ctx.inst_memo,
-        );
-        if matches!(res, Type::Obj(_)) {
-            return (then_val, else_val, res, false, false);
-        }
+    if struct_join && let Some(res) = ctx.class_join_repr(eid) {
+        return (then_val, else_val, res, false, false);
     }
     // rotation 284 — two array-shaped branches whose element reprs
     // differ (the checker joined `Array(T)` × `Array(Any)` to Any):

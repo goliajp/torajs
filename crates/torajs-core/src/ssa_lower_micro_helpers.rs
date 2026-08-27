@@ -42,6 +42,39 @@ impl<'a> LowerCtx<'a> {
         false
     }
 
+    /// Rotation 507 — the SSA repr an expression whose checker type
+    /// is a declared class carries. `None` for everything else.
+    ///
+    /// The join sites (`cond ? a : b`, `a ?? b`, `a || b`) need it
+    /// when their two arms are different classes: the checker answers
+    /// their common ancestor, and the shared slot must wear THAT
+    /// layout so the SSA repr and the checker type agree — every
+    /// consumer (field offsets, vtable devirt, sibling dispatch)
+    /// resolves through the checker type, and a slot typed as one arm
+    /// would hand the other arm's reader a layout it never had. No
+    /// boxing is involved: both pointers carry the ancestor's field
+    /// prefix, the same invariant `let b: Base = new Leaf()` stores
+    /// through.
+    pub(crate) fn class_join_repr(&mut self, eid: crate::ast::ExprId) -> Option<Type> {
+        let crate::check::Type::ClassRef(name) = self.expr_types.get(&eid)? else {
+            return None;
+        };
+        let name = name.clone();
+        if !self.ast.class_parents.contains_key(&name) {
+            return None;
+        }
+        let ty = crate::ssa_lower_parse_type::parse_type(
+            Some(name.as_str()),
+            self.aliases,
+            self.arr_layouts,
+            self.fn_sigs,
+            self.generic_struct_decls,
+            self.struct_layouts,
+            self.inst_memo,
+        );
+        matches!(ty, Type::Obj(_)).then_some(ty)
+    }
+
     /// Phase 2B refcount: write the universal heap header (refcount=1
     /// + type_tag=OBJ + flags=0) at offset 0 of a freshly-alloc'd
     /// object. Lowerer emits this at every ObjectLit alloc site since

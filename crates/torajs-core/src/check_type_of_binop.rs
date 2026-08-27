@@ -58,7 +58,7 @@ pub(crate) fn check(
         BinOp::UShr => check_ushr(l, r),
         BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => check_compare(l, r),
         BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq => check_equality(op, l, r),
-        BinOp::LAnd | BinOp::LOr => check_logical(op, l, r),
+        BinOp::LAnd | BinOp::LOr => check_logical(ast, op, l, r),
     }
 }
 
@@ -316,7 +316,7 @@ fn check_equality(op: BinOp, l: Type, r: Type) -> Result<Type, String> {
     ))
 }
 
-fn check_logical(op: BinOp, l: Type, r: Type) -> Result<Type, String> {
+fn check_logical(ast: &Ast, op: BinOp, l: Type, r: Type) -> Result<Type, String> {
     if l == r {
         return Ok(l);
     }
@@ -345,6 +345,19 @@ fn check_logical(op: BinOp, l: Type, r: Type) -> Result<Type, String> {
             BinOp::LOr | BinOp::LAnd => r,
             _ => unreachable!(),
         });
+    }
+    // Rotation 507 — two DIFFERENT class instances meet at their
+    // nearest common ancestor, the ternary / `??` join (`m || new
+    // Leaf(2)` with `m: Mid | null` used to reject where bun runs
+    // it). Either side unwraps its `Nullable` first: `||` answers the
+    // rhs exactly when the lhs is falsy, so the join is over what
+    // each side can BE.
+    let core = |t: &Type| match t {
+        Type::Nullable(i) => (**i).clone(),
+        other => other.clone(),
+    };
+    if let Some(joined) = crate::check_type_compare::class_join(ast, &core(&l), &core(&r)) {
+        return Ok(joined);
     }
     Err(format!(
         "`&&` / `||` require matching operand types, got {l:?} and {r:?}"

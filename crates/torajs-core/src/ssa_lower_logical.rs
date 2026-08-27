@@ -66,7 +66,15 @@ impl LowerCtx<'_> {
         // so `anyVal && undefined` answered `null` (`typeof` printed
         // "object") — the same hole the ternary's mixed-Any join had.
         let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
-        let slot_ty = if widen_to_any { Type::Any } else { a_ty };
+        // Rotation 507 — two different class instances (`m || new
+        // Leaf(2)`): the checker joined them to a common ancestor, so
+        // the slot wears the ancestor's layout. No box — both pointers
+        // carry its field prefix (see `class_join_repr`).
+        let slot_ty = if widen_to_any {
+            Type::Any
+        } else {
+            self.class_join_repr(eid).unwrap_or(a_ty.clone())
+        };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
             self.box_to_any_from_expr(left, a)
         } else {
@@ -180,7 +188,15 @@ impl LowerCtx<'_> {
         // V3-18 m1.g mixed-Any case — mirror of `&&` above; widen
         // to Any so both short-circuit values share a uniform slot.
         let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
-        let slot_ty = if widen_to_any { Type::Any } else { a_ty };
+        // Rotation 507 — two different class instances (`m || new
+        // Leaf(2)`): the checker joined them to a common ancestor, so
+        // the slot wears the ancestor's layout. No box — both pointers
+        // carry its field prefix (see `class_join_repr`).
+        let slot_ty = if widen_to_any {
+            Type::Any
+        } else {
+            self.class_join_repr(eid).unwrap_or(a_ty.clone())
+        };
         let a_for_slot = if widen_to_any && a_ty != Type::Any {
             self.box_to_any_from_expr(left, a)
         } else {

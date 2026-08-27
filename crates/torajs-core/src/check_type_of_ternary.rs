@@ -98,15 +98,8 @@ pub(crate) fn check(
     // ancestor join to ANY, the S129-1 posture (both branches box,
     // consumers read the any lanes) — bun runs the program either
     // way. Builtin-backed refs keep the reject below.
-    if let (Type::ClassRef(tn), Type::ClassRef(en)) = (&t, &e)
-        && tn != en
-        && ast.class_parents.contains_key(tn.as_str())
-        && ast.class_parents.contains_key(en.as_str())
-    {
-        return Ok(match class_lca(ast, tn, en) {
-            Some(lca) => Type::ClassRef(lca),
-            None => Type::Any,
-        });
+    if let Some(joined) = crate::check_type_compare::class_join(ast, &t, &e) {
+        return Ok(joined);
     }
     match unify_ternary(&t, &e) {
         Some(ty) => Ok(ty),
@@ -114,28 +107,4 @@ pub(crate) fn check(
             "ternary branches differ — `then` is {t:?}, `else` is {e:?}"
         )),
     }
-}
-
-/// Nearest common ancestor of two declared classes along
-/// `ast.class_parents` (a class is its own ancestor), or `None`
-/// when the chains never meet. Hop-bounded like
-/// `Checker::is_descendant_of`, so a mutual-extends cycle cannot
-/// spin it.
-fn class_lca(ast: &Ast, a: &str, b: &str) -> Option<String> {
-    let chain = |start: &str| -> Vec<String> {
-        let mut out = vec![start.to_string()];
-        let mut cur = start;
-        let mut hops = ast.class_parents.len() + 1;
-        while let Some(parent) = ast.class_parents.get(cur).and_then(|p| p.as_deref()) {
-            out.push(parent.to_string());
-            cur = parent;
-            hops -= 1;
-            if hops == 0 {
-                break;
-            }
-        }
-        out
-    };
-    let a_chain = chain(a);
-    chain(b).into_iter().find(|c| a_chain.contains(c))
 }

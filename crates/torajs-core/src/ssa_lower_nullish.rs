@@ -296,7 +296,12 @@ fn lower_generic_ptr_lhs(
     lhs: ExprId,
     rhs: ExprId,
 ) -> Operand {
-    let res_slot = ctx.alloca_in_entry(lhs_ty, Some("__nullish"));
+    // Rotation 507 — two different class instances (`m ?? new
+    // Leaf(1)`): the checker joined them to a common ancestor, so the
+    // slot wears the ancestor's layout rather than the lhs's. No box
+    // — both pointers carry its field prefix (`class_join_repr`).
+    let lhs_ty = ctx.class_join_repr(eid).unwrap_or(lhs_ty);
+    let res_slot = ctx.alloca_in_entry(lhs_ty.clone(), Some("__nullish"));
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
