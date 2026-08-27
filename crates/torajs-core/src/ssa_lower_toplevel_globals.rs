@@ -147,7 +147,29 @@ pub(crate) fn collect_toplevel_globals(
             // not in scope"). Top-level-positioned closures keep the
             // main-local capture-box machinery and do NOT widen this
             // gate.
-            if matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32)
+            //
+            // Rotation 514 — the family the refcounted gate admitted
+            // localizes on those same terms, and for a sharper reason
+            // than the primitives': it was admitted to give a named-fn
+            // body something to read, while on the MAIN path such a
+            // binding already works, method calls included. Promoting
+            // one with no named-fn reader only moves it off that path
+            // onto the global one, whose member-call lane does not
+            // carry it — `const m: Map<…> = new Map(); m.set(…)` went
+            // from working to "unsupported member call shape". The
+            // historical Str / Arr / Obj / Closure / Symbol keep
+            // promoting unconditionally per the paragraph above.
+            let visibility_only = ty.is_refcounted()
+                && !matches!(
+                    ty,
+                    Type::Str
+                        | Type::Arr(_)
+                        | Type::Obj(_)
+                        | Type::Closure(_)
+                        | Type::Symbol
+                        | Type::Any
+                );
+            if (matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32) || visibility_only)
                 && !binding_refs.named_fn_refs.contains(name)
             {
                 continue;
@@ -172,8 +194,17 @@ pub(crate) fn collect_toplevel_globals(
 /// K.6 — refcount Arr / Obj (same drop machinery as Str —
 ///       `emit_drop_value` dispatches by type, walking refcounted
 ///       array elements / object fields).
-/// FnSig still deferred: FnSig globals haven't surfaced a real use
-/// case yet.
+/// Rotation 514 — the list was an enumerated subset of exactly that
+/// machinery's domain, so every OTHER refcounted slot type the
+/// CHECKER registers (Map / Set / Date / RegExp / Promise / BigInt /
+/// the Weak family / Substr / the iterators) was registered on one
+/// side and refused on the other: `let d: Date = new Date()` plus any
+/// `function f() { … d … }` typechecked and then died in lowering
+/// with "unknown ident `d`". The two sides disagreeing is worse than
+/// either answer alone, so the gate now asks the question the lines
+/// above already answer — is this a slot `emit_drop_value` drops?
+/// FnSig stays deferred and is not refcounted (a bare code address);
+/// FnSig globals haven't surfaced a real use case yet.
 /// RFC 20260709-closure-global chunk 1 — Closure joins: the drop
 /// machinery dispatches by type (env drop_fn @+16, chunk 530), init
 /// is a fresh lifted env (K.4 fresh-heap-init holds), reads ride the
@@ -196,18 +227,9 @@ fn slot_type_supported(
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
     ast: &Ast,
 ) -> bool {
-    matches!(
-        ty,
-        Type::I64
-            | Type::F64
-            | Type::Bool
-            | Type::I32
-            | Type::Str
-            | Type::Arr(_)
-            | Type::Obj(_)
-            | Type::Closure(_)
-            | Type::Symbol
-    ) || (*ty == Type::Any
+    matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32)
+        || (ty.is_refcounted() && *ty != Type::Any)
+        || (*ty == Type::Any
         && binding_refs.named_fn_refs.contains(name)
         // Desugar-minted sentinels stay locals — EXCEPT the
         // computed-field key globals (RFC 20260802 刀 3 后半):
@@ -286,7 +308,17 @@ fn slot_type_supported(
 /// drop-old/store-new like Str/Closure/Any. Symbol rides the Str
 /// profile: no in-place mutation methods exist, so assignment
 /// (drop-old/store-new in the Assign-Ident lane) is the only
-/// mutation face. r290 — a closure-captured Any binding joins the
+/// mutation face. Rotation 514 — the rest of the refcounted family
+/// (Map / Set / Date / RegExp / Promise / BigInt / Weak* / Substr /
+/// the iterators) joins on the Arr argument, which is the general
+/// one: their mutation surface writes THROUGH the cell — a Map's
+/// `set` grows storage behind its own pointer, a Date's `setTime`
+/// and a RegExp's `lastIndex` are fixed-offset stores — so the cell
+/// stays put and there is nothing to write back, while whole-binding
+/// reassignment rides the Assign-Ident lane like every arm above.
+/// Keeping them out is what made the supported gate disagree with
+/// the checker for every `let` spelled with one.
+/// r290 — a closure-captured Any binding joins the
 /// gate: the hoisted-var `: any` shape's init is the Uninit sentinel
 /// the Any lane already digests, so the K.4 fresh-heap-init concern
 /// that keeps the concrete refcounted types on the named-fn gate
@@ -296,12 +328,7 @@ fn mutable_promotes(
     name: &str,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
 ) -> bool {
-    (*ty == Type::Str
-        || matches!(ty, Type::Closure(_))
-        || *ty == Type::Any
-        || matches!(ty, Type::Obj(_))
-        || matches!(ty, Type::Arr(_))
-        || *ty == Type::Symbol)
+    ty.is_refcounted()
         && (binding_refs.named_fn_refs.contains(name)
             || (*ty == Type::Any && binding_refs.closure_captured.contains(name)))
 }
