@@ -60,6 +60,7 @@ pub(crate) fn lower(
     let mut else_end = ctx.cur_block;
     let (then_val, else_val, res_ty, then_boxed, else_boxed) = widen_branches(
         ctx,
+        eid,
         then_val,
         else_val,
         &mut then_end,
@@ -136,6 +137,7 @@ pub(crate) fn lower(
 /// `cond ? typedArr[i] : undefined` join since the OOB-read RFC).
 fn widen_branches(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     then_val: Operand,
     else_val: Operand,
     then_end: &mut crate::ssa::BlockId,
@@ -205,6 +207,31 @@ fn widen_branches(
     // read by the other's (probe: `(false ? {v: 1} : {v: undefined})
     // .v` answered the sentinel-cell pointer as a number).
     let struct_join = matches!(tt, Type::Obj(_)) && matches!(et, Type::Obj(_)) && tt != et;
+    // 506-02 — two class instances the checker joined to a common
+    // ancestor (`ClassRef(lca)`, `check_type_of_ternary`): NO box.
+    // Both pointers carry the ancestor's layout prefix — the same
+    // invariant `let b: Base = new Leaf()` stores through — so the
+    // slot takes the ancestor's Obj repr and every consumer
+    // dispatches on the static ancestor type (vtable). The struct
+    // join below is for the rotation-233 shape (two literal layouts
+    // the checker widened to Any), which this gate leaves alone.
+    if struct_join
+        && let Some(crate::check::Type::ClassRef(lca)) = ctx.expr_types.get(&eid)
+        && ctx.ast.class_parents.contains_key(lca)
+    {
+        let res = crate::ssa_lower_parse_type::parse_type(
+            Some(lca.as_str()),
+            ctx.aliases,
+            ctx.arr_layouts,
+            ctx.fn_sigs,
+            ctx.generic_struct_decls,
+            ctx.struct_layouts,
+            ctx.inst_memo,
+        );
+        if matches!(res, Type::Obj(_)) {
+            return (then_val, else_val, res, false, false);
+        }
+    }
     // rotation 284 — two array-shaped branches whose element reprs
     // differ (the checker joined `Array(T)` × `Array(Any)` to Any):
     // box BOTH sides expr-aware, so each block reads back through

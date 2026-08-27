@@ -89,10 +89,53 @@ pub(crate) fn check(
     if let (Some((key, _, _)), Some(prev)) = (&member_narrow, else_member) {
         checker.restore_member_narrow(key, prev);
     }
+    // 506-02 — two DIFFERENT class instances join to their nearest
+    // common ancestor (`cond ? new Mid(i) : new Leaf(i)` types
+    // ClassRef("Mid")); the lowering keeps both pointers unboxed on
+    // the ancestor's Obj repr, the same layout-prefix invariant
+    // `let b: Base = new Leaf()` rides, so every consumer dispatches
+    // on the static ancestor. Two user classes with no common
+    // ancestor join to ANY, the S129-1 posture (both branches box,
+    // consumers read the any lanes) — bun runs the program either
+    // way. Builtin-backed refs keep the reject below.
+    if let (Type::ClassRef(tn), Type::ClassRef(en)) = (&t, &e)
+        && tn != en
+        && ast.class_parents.contains_key(tn.as_str())
+        && ast.class_parents.contains_key(en.as_str())
+    {
+        return Ok(match class_lca(ast, tn, en) {
+            Some(lca) => Type::ClassRef(lca),
+            None => Type::Any,
+        });
+    }
     match unify_ternary(&t, &e) {
         Some(ty) => Ok(ty),
         None => Err(format!(
             "ternary branches differ — `then` is {t:?}, `else` is {e:?}"
         )),
     }
+}
+
+/// Nearest common ancestor of two declared classes along
+/// `ast.class_parents` (a class is its own ancestor), or `None`
+/// when the chains never meet. Hop-bounded like
+/// `Checker::is_descendant_of`, so a mutual-extends cycle cannot
+/// spin it.
+fn class_lca(ast: &Ast, a: &str, b: &str) -> Option<String> {
+    let chain = |start: &str| -> Vec<String> {
+        let mut out = vec![start.to_string()];
+        let mut cur = start;
+        let mut hops = ast.class_parents.len() + 1;
+        while let Some(parent) = ast.class_parents.get(cur).and_then(|p| p.as_deref()) {
+            out.push(parent.to_string());
+            cur = parent;
+            hops -= 1;
+            if hops == 0 {
+                break;
+            }
+        }
+        out
+    };
+    let a_chain = chain(a);
+    chain(b).into_iter().find(|c| a_chain.contains(c))
 }
