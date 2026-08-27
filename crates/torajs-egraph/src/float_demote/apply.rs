@@ -206,7 +206,14 @@ pub(crate) fn install_guards(
 
 /// Split `block` before each inst index (ascending); continuation
 /// blocks append (chained head → c0 → c1 → … → original terminator).
-/// Returns the continuation starting at each index.
+/// Returns the continuation starting at each index. An index equal
+/// to `insts.len()` splits AFTER the last instruction: its
+/// continuation is an empty block carrying only the terminator. A
+/// post-op growth site whose op ends its block asks for exactly that
+/// split, and the old loop never produced it — the site's guard was
+/// silently skipped while the loop still went out as "versioned",
+/// so `t += 2**53 - 1` ran unguarded in i64 and printed the wrapped
+/// sum (r506; the same shape for an entry split at block end).
 pub(super) fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]) -> Vec<BlockId> {
     let src = &mut func.blocks[block.0 as usize];
     let term = std::mem::replace(&mut src.term, Terminator::Unreachable);
@@ -221,6 +228,11 @@ pub(super) fn split_block_at(func: &mut Function, block: BlockId, idxs: &[usize]
             next_split += 1;
         }
         cur.push(inst);
+    }
+    // splits at or past the end: each one opens an (empty) segment
+    while next_split < idxs.len() {
+        segments.push(std::mem::take(&mut cur));
+        next_split += 1;
     }
     segments.push(cur);
 
@@ -372,4 +384,73 @@ fn build_check_chain(
         });
     }
     head
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use torajs_core::ssa::{BinOp, Type, ValueInfo};
+
+    fn add_inst(result: u32, lhs: u32) -> Inst {
+        Inst {
+            result: Some(ValueId(result)),
+            kind: InstKind::BinOp(
+                BinOp::Add,
+                Operand::Value(ValueId(lhs)),
+                Operand::ConstI64(1),
+            ),
+            origin: None,
+        }
+    }
+
+    fn two_inst_block_fn() -> Function {
+        Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![add_inst(1, 0), add_inst(2, 1)],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![],
+                    term: Terminator::Ret(None),
+                },
+            ],
+            values: (0..3)
+                .map(|_| ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                })
+                .collect(),
+            current_origin: None,
+        }
+    }
+
+    /// r506 — a split at `insts.len()` (a post-op site on the block's
+    /// last instruction) must yield a continuation block, or the
+    /// site's guard is never installed.
+    #[test]
+    fn split_at_block_end_yields_an_empty_continuation() {
+        let mut f = two_inst_block_fn();
+        let conts = split_block_at(&mut f, BlockId(0), &[2]);
+        assert_eq!(conts, vec![BlockId(2)]);
+        assert_eq!(f.blocks[0].insts.len(), 2);
+        assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(2))));
+        assert!(f.blocks[2].insts.is_empty());
+        assert!(matches!(f.blocks[2].term, Terminator::Br(BlockId(1))));
+    }
+
+    #[test]
+    fn split_mid_block_keeps_the_tail() {
+        let mut f = two_inst_block_fn();
+        let conts = split_block_at(&mut f, BlockId(0), &[1]);
+        assert_eq!(conts, vec![BlockId(2)]);
+        assert_eq!(f.blocks[0].insts.len(), 1);
+        assert_eq!(f.blocks[2].insts.len(), 1);
+        assert!(matches!(f.blocks[2].term, Terminator::Br(BlockId(1))));
+    }
 }
