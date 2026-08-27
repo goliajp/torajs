@@ -338,14 +338,14 @@ pub struct Ast {
     /// `regex_parse_errors`: the CLI drivers print each entry with
     /// the `parse error:` prefix and exit 1 before any desugar runs.
     pub redecl_parse_errors: Vec<String>,
-    /// T-24 — virtual method index. Populated only for `chain_methods`
-    /// (methods with multiple owners forming a single inheritance
-    /// chain — the override case that goes through `__dispatch_<M>`).
-    /// Each chain method gets a stable u32 slot in the per-class
-    /// vtable; ssa_lower's dispatch interception loads
-    /// `vtable_ptr[method_index] -> fn_ptr` and `CallIndirect`s. The
-    /// indices are deterministic (sorted by method name) so codegen
-    /// is reproducible across builds.
+    /// T-24 — virtual method index. Populated for every OVERRIDDEN
+    /// method name (some owner is a strict descendant of another —
+    /// `desugar_classes_method_owners::vtable_methods`, rotation 507):
+    /// the single-chain names go through `__dispatch_<M>`, the rest
+    /// through the sibling-dispatch lane's Member-shape sites. Each
+    /// gets a stable u32 slot in the per-class vtable; the lowering
+    /// loads `vtable_ptr[method_index] -> fn_ptr` and `CallIndirect`s.
+    /// Indices are sorted by method name so codegen is reproducible.
     pub method_index: std::collections::HashMap<String, u32>,
     /// M-OO.5 — `(class_name, member_name)` → visibility, populated by
     /// the parser when a `private` / `protected` modifier appears on a

@@ -91,43 +91,55 @@ pub(crate) fn try_lower(
         .filter(|(_, (a, _))| ctx.expr_owned_shape(**a))
         .map(|(i, (_, op))| (i, *op))
         .collect();
-    let recv = arg_ops[0];
     let cur_block = ctx.cur_block;
     let r = match direct_fid {
         Some(fid) => ctx
             .f
             .append_inst(cur_block, InstKind::Call(fid, arg_ops), ret_ty, None),
-        None => {
-            let vt = ctx.f.append_inst(
-                cur_block,
-                InstKind::Load(Type::Ptr, recv, OBJ_VTABLE_OFF),
-                Type::Ptr,
-                None,
-            );
-            let rel = ctx.f.append_inst(
-                cur_block,
-                InstKind::Load(Type::I64, Operand::Value(vt), (method_idx as u64) * 8),
-                Type::I64,
-                None,
-            );
-            let fn_ptr = ctx.f.append_inst(
-                cur_block,
-                InstKind::BinOp(SsaBinOp::Add, Operand::Value(vt), Operand::Value(rel)),
-                Type::Ptr,
-                None,
-            );
-            ctx.f.append_inst(
-                cur_block,
-                InstKind::CallIndirect(sig_id.unwrap(), Operand::Value(fn_ptr), arg_ops),
-                ret_ty,
-                None,
-            )
-        }
+        None => emit_vtable_call(ctx, method_idx, sig_id.unwrap(), ret_ty, arg_ops),
     };
+    // Rotation 507 — a throwing OVERRIDE must reach the caller's
+    // handler like any direct call would: the stub's `__dispatch_<M>`
+    // name is never in `may_throw_fns` (its AST body only forwards to
+    // the base), so the check keys on the bodies the slot can
+    // resolve to — every declarer at or below the receiver's static
+    // class (probe: `e.score()` on a throwing override printed 0 and
+    // ran the statement after it).
+    if slot_may_throw(ctx, args[0], method_name, &suffix, &owners) {
+        ctx.emit_throw_check(None);
+    }
     for (i, op) in owned_temps {
         ctx.release_owned_temp(args[i], &op);
     }
     Some(Operand::Value(r))
+}
+
+/// True iff a body the slot may resolve to for this receiver is a
+/// may-throw fn. With a `ClassRef` receiver only the declarers at or
+/// below its class count; otherwise every owner does.
+fn slot_may_throw(
+    ctx: &LowerCtx<'_>,
+    recv: ExprId,
+    method_name: &str,
+    suffix: &str,
+    owners: &[String],
+) -> bool {
+    let static_class = match ctx.expr_types.get(&recv) {
+        Some(crate::check::Type::ClassRef(key)) => {
+            Some(key.split('<').next().unwrap_or(key.as_str()).to_string())
+        }
+        _ => None,
+    };
+    owners.iter().any(|o| {
+        static_class.as_deref().is_none_or(|base| {
+            crate::ast::method_owner_is_in_chain(&ctx.ast.class_parents, base, o)
+        }) && [
+            format!("__cm_{o}__{method_name}{suffix}"),
+            format!("__cm_{o}__{method_name}"),
+        ]
+        .iter()
+        .any(|n| ctx.may_throw_fns.contains(n))
+    })
 }
 
 /// The receiver's statically-settled slot target, or `None` to keep
@@ -153,25 +165,7 @@ fn devirt_target(
         return None;
     }
     // Any declarer below the static class keeps the vtable path.
-    let overridden_below = owners.iter().any(|c| {
-        if c == base {
-            return false;
-        }
-        let mut cur = ctx.ast.class_parents.get(c).and_then(|p| p.clone());
-        let mut depth = 0u32;
-        while let Some(p) = cur {
-            if depth > 64 {
-                break;
-            }
-            if p == base {
-                return true;
-            }
-            cur = ctx.ast.class_parents.get(&p).and_then(|q| q.clone());
-            depth += 1;
-        }
-        false
-    });
-    if overridden_below {
+    if overridden_below(ctx, base, owners) {
         return None;
     }
     let mut cur = Some(base.to_string());
@@ -203,4 +197,68 @@ fn devirt_target(
         depth += 1;
     }
     None
+}
+
+/// True iff some declarer in `owners` is a STRICT descendant of
+/// `base` — an instance statically typed `base` may then be wearing
+/// an override, so the call must read the slot.
+pub(crate) fn overridden_below(ctx: &LowerCtx<'_>, base: &str, owners: &[String]) -> bool {
+    owners.iter().any(|c| {
+        if c == base {
+            return false;
+        }
+        let mut cur = ctx.ast.class_parents.get(c).and_then(|p| p.clone());
+        let mut depth = 0u32;
+        while let Some(p) = cur {
+            if depth > 64 {
+                break;
+            }
+            if p == base {
+                return true;
+            }
+            cur = ctx.ast.class_parents.get(&p).and_then(|q| q.clone());
+            depth += 1;
+        }
+        false
+    })
+}
+
+/// The slot call itself: load the receiver's vtable, load the
+/// relative slot, add the table base back, `CallIndirect`. `argv[0]`
+/// is the receiver. Shared with the sibling-dispatch lane, whose
+/// Member-shape sites reach the same slot when the static class has
+/// an overriding descendant.
+pub(crate) fn emit_vtable_call(
+    ctx: &mut LowerCtx<'_>,
+    method_idx: u32,
+    sig_id: crate::ssa::SigId,
+    ret_ty: Type,
+    argv: Vec<Operand>,
+) -> crate::ssa::ValueId {
+    let recv = argv[0];
+    let cur_block = ctx.cur_block;
+    let vt = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::Ptr, recv, OBJ_VTABLE_OFF),
+        Type::Ptr,
+        None,
+    );
+    let rel = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::I64, Operand::Value(vt), (method_idx as u64) * 8),
+        Type::I64,
+        None,
+    );
+    let fn_ptr = ctx.f.append_inst(
+        cur_block,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(vt), Operand::Value(rel)),
+        Type::Ptr,
+        None,
+    );
+    ctx.f.append_inst(
+        cur_block,
+        InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
+        ret_ty,
+        None,
+    )
 }

@@ -15,6 +15,15 @@
 //!   * a method name is "chain" (gets `__dispatch_<M>`) iff
 //!     `owners[0]` (source-first) is an ancestor of every other
 //!     owner; otherwise sibling-class case stays Member-shape.
+//!   * a method name takes a VTABLE SLOT ([`vtable_methods`]) iff
+//!     any owner overrides another — a superset of "chain": a name
+//!     that an unrelated class also declares (or that two sibling
+//!     subclasses introduce below a silent base) keeps its
+//!     Member-shape call sites, and the sibling-dispatch lane routes
+//!     those through the slot whenever the receiver's static class
+//!     has an overriding descendant (rotation 507 — the old
+//!     chain-only slot set left `(b: Base = new Leaf()).name()` on
+//!     `Base`'s body as soon as an unrelated `Alone.name()` existed).
 //!
 //! No `&mut Ast` mutation — same lowest-risk pure-fn extraction
 //! pattern as chunks 177/178/179.
@@ -74,4 +83,26 @@ pub(super) fn compute_method_owners_and_chain_methods(
         .map(|(n, _)| n.clone())
         .collect();
     (method_owners, chain_methods)
+}
+
+/// Name-sorted method names that need a vtable slot: every name some
+/// owner overrides (one owner is a strict descendant of another),
+/// whatever else declares it. Sorted so slot numbering is stable.
+pub(super) fn vtable_methods(
+    method_owners: &HashMap<String, Vec<String>>,
+    parent_map: &HashMap<String, Option<String>>,
+) -> Vec<String> {
+    let mut out: Vec<String> = method_owners
+        .iter()
+        .filter(|(_, owners)| {
+            owners.iter().any(|a| {
+                owners
+                    .iter()
+                    .any(|b| a != b && method_owner_is_in_chain(parent_map, a, b))
+            })
+        })
+        .map(|(n, _)| n.clone())
+        .collect();
+    out.sort();
+    out
 }

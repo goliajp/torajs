@@ -39,6 +39,7 @@ mod fnsig;
 mod json_seed;
 mod let_names;
 mod mono;
+mod slot_abi;
 mod walk;
 mod width;
 
@@ -333,7 +334,7 @@ pub(crate) fn analyze(
     // canonicalize through the frozen union-find.
     container::nominal_unions(&mut a);
     container::objlit_ctor_unions(&mut a);
-    container::dispatch_unions(&mut a);
+    slot_abi::dispatch_unions(&mut a);
     a.alias_nominal_unions();
     a.fnsig_nominal_unions();
     container::activate_guarded(&mut a);

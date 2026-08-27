@@ -213,7 +213,6 @@ pub fn desugar_classes(ast: &mut Ast) {
     finalize_side_tables(
         ast,
         method_owners,
-        &chain_methods,
         accessor_getter_records,
         accessor_setter_records,
     );
@@ -460,28 +459,28 @@ fn reject_abstract_new(ast: &Ast, abstract_classes: &std::collections::HashSet<S
 /// Tail side-table population: multi-owner `method_owners` for the
 /// `__dispatch_<M>` runtime-tag dispatch (single-owner entries are
 /// statically rewritten already), T-24 name-sorted stable vtable slots
-/// in `method_index`, and the P8.2 accessor-record drain (done last so
-/// the maps are complete before any check / lower pass runs; duplicate
-/// (class, prop) entries are overwritten — the FnDecl-level
-/// redeclaration error halts the pipeline before they're consulted).
+/// in `method_index` (every overridden name, chain or not — see
+/// `desugar_classes_method_owners::vtable_methods`), and the P8.2
+/// accessor-record drain (done last so the maps are complete before
+/// any check / lower pass runs; duplicate (class, prop) entries are
+/// overwritten — the FnDecl-level redeclaration error halts the
+/// pipeline before they're consulted).
 fn finalize_side_tables(
     ast: &mut Ast,
     method_owners: std::collections::HashMap<String, Vec<String>>,
-    chain_methods: &std::collections::HashSet<String>,
     accessor_getter_records: Vec<(String, String, String)>,
     accessor_setter_records: Vec<(String, String, String)>,
 ) {
+    let slots =
+        super::desugar_classes_method_owners::vtable_methods(&method_owners, &ast.class_parents);
+    ast.method_index = slots
+        .into_iter()
+        .enumerate()
+        .map(|(i, n)| (n, i as u32))
+        .collect();
     ast.method_owners = method_owners
         .into_iter()
         .filter(|(_, owners)| owners.len() > 1)
-        .collect();
-
-    let mut chain_methods_sorted: Vec<&String> = chain_methods.iter().collect();
-    chain_methods_sorted.sort();
-    ast.method_index = chain_methods_sorted
-        .into_iter()
-        .enumerate()
-        .map(|(i, n)| (n.clone(), i as u32))
         .collect();
 
     for (cname, prop, fn_name) in accessor_getter_records {

@@ -13,6 +13,19 @@
 //! shared base, so we need static-call resolution rather than
 //! virtual `__dispatch_<M>`.
 //!
+//! Rotation 507 — a name can be BOTH: overridden inside one
+//! hierarchy and declared again by an unrelated class. Desugar keeps
+//! such sites Member-shape (no `__dispatch_` stub — its `__this`
+//! would have to fit two unrelated bases), so this lane is where
+//! the static class is finally known: when a strict descendant of it
+//! declares the method, the call reads the receiver's vtable slot
+//! (`ast.method_index` carries every overridden name since 507)
+//! with the static class's own resolved signature — Liskov holds
+//! inside the hierarchy, and the unrelated declarer's row fills the
+//! same slot with its own body. The old static resolution answered
+//! `Base`'s body for a `Leaf` wearing a `Base` type as soon as an
+//! unrelated `name()` existed.
+//!
 //! **P10.6-A3 throw-propagation** — sibling-class static dispatch
 //! must run the same throw-propagation gate as the regular `Call`
 //! path: a may-throw method (e.g. `Generator.prototype.throw`'s
@@ -72,6 +85,18 @@ pub(crate) fn try_lower(
         ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     };
+    // Polymorphic below the static class → the slot; otherwise the
+    // resolved body is the only one an instance can be wearing.
+    let owners = ctx
+        .ast
+        .method_owners
+        .get(&method_name)
+        .cloned()
+        .unwrap_or_default();
+    let slot =
+        ctx.ast.method_index.get(&method_name).copied().filter(|_| {
+            crate::ssa_lower_call_vtable_dispatch::overridden_below(ctx, &cname, &owners)
+        });
 
     let mut arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
     // S2.42 (rotation 240) — this lane handed every argument verbatim
@@ -98,10 +123,25 @@ pub(crate) fn try_lower(
     argv.extend(arg_ops);
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;
-    let v = ctx
-        .f
-        .append_inst(cur_block, InstKind::Call(fid, argv), ret_ty, None);
-    if ctx.may_throw_fns.contains(&fn_name) {
+    let (v, may_throw) = match (slot, ctx.fn_sig_ids.get(&fid).copied()) {
+        (Some(idx), Some(sig_id)) => (
+            crate::ssa_lower_call_vtable_dispatch::emit_vtable_call(ctx, idx, sig_id, ret_ty, argv),
+            // Any body the slot can resolve to at or below the static
+            // class may be the one that throws.
+            owners.iter().any(|o| {
+                crate::ast::method_owner_is_in_chain(&ctx.ast.class_parents, &cname, o)
+                    && ctx
+                        .may_throw_fns
+                        .contains(&format!("__cm_{o}__{method_name}"))
+            }) || ctx.may_throw_fns.contains(&fn_name),
+        ),
+        _ => (
+            ctx.f
+                .append_inst(cur_block, InstKind::Call(fid, argv), ret_ty, None),
+            ctx.may_throw_fns.contains(&fn_name),
+        ),
+    };
+    if may_throw {
         ctx.emit_throw_check(None);
     }
     for (op, ty) in coerce_owned {

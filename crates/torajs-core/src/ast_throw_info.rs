@@ -65,9 +65,27 @@ pub fn compute_may_throw_fns(
             name, params, body, ..
         } = stmt
         {
-            let (direct, called) = fn_throw_info(ast, params, body, expr_types);
+            let (direct, mut called) = fn_throw_info(ast, params, body, expr_types);
             if direct {
                 may_throw.insert(name.clone());
+            }
+            // Rotation 507 — a `__dispatch_<M>` stub's AST body only
+            // forwards to the base owner, but the slot it stands for
+            // resolves to EVERY owner's body at runtime: a throwing
+            // override behind a base-typed call was invisible here, so
+            // the caller of a fn that only called the stub never
+            // checked, printed the ret sentinel 0 and ran on (probe:
+            // `viaParam(new Other(13))` — the uncaught error surfaced
+            // at exit instead of in the enclosing try).
+            if let Some(m) = name.strip_prefix("__dispatch_") {
+                let (bare, suffix) = m
+                    .split_once("$$")
+                    .map(|(b, s)| (b, format!("$${s}")))
+                    .unwrap_or((m, String::new()));
+                for o in ast.method_owners.get(bare).into_iter().flatten() {
+                    called.push(format!("__cm_{o}__{bare}"));
+                    called.push(format!("__cm_{o}__{bare}{suffix}"));
+                }
             }
             decl_throw_info.push((name.clone(), direct, called));
         }
