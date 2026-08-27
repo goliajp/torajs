@@ -1557,6 +1557,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
+**Latest @ `85a64a7ba`** (2026-08-28, rotation 515 — an argument the
+program never passed pins no type parameter, and a call the checker
+could not infer says so itself). Gate predicate: **158** clusters of
+≥ 4 holding **1201** cases, register 2 · 251, residue 653 · 810
+(35.8%), core **2262** — the cluster count is flat across rotations
+503-515 while the cases inside them keep coming down. Sweep passTotal
+34862 → **34863 (+1)**, pass 29787 → **29788 (+1)**, bug 12702 →
+**12696 (−6)**, incompatible 5610 → **5615 (+5)**, trAccepted 47564 →
+**47559 (−5)**; conservation exact (−5 = +1 + −6). Verdict diff **17
+lines**: `bug:exit 3 → incompatible:type error` **6** and
+`incompatible:not yet supported → incompatible:type error` **5** are
+the same change — a generic call the checker could not infer used to
+reach the lowerer and panic on the callee's NAME, and now answers with
+the checker's own verdict; `incompatible:not yet supported → pass`
+**1**; the remaining 5 are crash fault-kind churn (138 ↔ 139) with the
+crash count flat at **32**. Zero pass regressions, zero new crashes.
+The rotation also located the largest crash family — 11 of those 32
+are one file name across 11 syntactic positions, one root, and their
+OUTPUT is already correct — but the fix for it was reverted (the
+discriminator it used was unsound; see
+`.claude/tasks/2026-08-28/async-gen-forawait-uaf-r515.md`), so the
+count does not move here.
+
 **Latest @ `4bd64984a`** (2026-08-27, rotation 511 — the slot's parameter
 list has to carry its own defaults and its own tail, because the call
 site will not carry them for it. Rotation 510 left one shape refused on

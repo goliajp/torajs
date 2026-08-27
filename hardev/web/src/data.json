@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T20:08:44.466Z",
+  "generatedAt": "2026-08-27T23:08:36.033Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T19:48:27Z",
-    "headSha": "42e040a4b",
-    "elapsedSec": 380.78,
+    "ranAt": "2026-08-27T22:56:40Z",
+    "headSha": "85a64a7ba",
+    "elapsedSec": 373.77,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29787,
+    "pass": 29788,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34862,
-    "bug": 12702,
-    "incompatible": 5610,
+    "passTotal": 34863,
+    "bug": 12696,
+    "incompatible": 5615,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47564,
+    "trAccepted": 47559,
     "passRateInScope": 65.56,
-    "passRateTrAccepted": 73.29
+    "passRateTrAccepted": 73.3
   },
   "torajs": {
-    "commit": "42e040a4b",
-    "commitSubject": "fix: both sides ask the same question about a global's slot type",
+    "commit": "85a64a7ba",
+    "commitSubject": "fix: a hole is not on its own proof that a program cannot lower",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "85a64a7ba",
+      "subject": "fix: a hole is not on its own proof that a program cannot lower"
+    },
+    {
+      "hash": "9a03ae71e",
+      "subject": "Revert \"fix: a class tag names the cell's class, not the factory it was built in\""
+    },
+    {
+      "hash": "c612e522e",
+      "subject": "fix: a class tag names the cell's class, not the factory it was built in"
+    },
+    {
+      "hash": "11ee21c5c",
+      "subject": "fix: a generic call the checker could not infer says so"
+    },
+    {
+      "hash": "71a09021f",
+      "subject": "fix: an argument the program never passed pins no type parameter"
+    },
+    {
+      "hash": "6de391697",
+      "subject": "docs: rotation 514 test262 sweep ingest + dashboard snapshot"
+    },
+    {
       "hash": "42e040a4b",
       "subject": "fix: both sides ask the same question about a global's slot type"
     },
@@ -735,158 +759,134 @@
     {
       "hash": "6a7dbc530",
       "subject": "fix: a chain through a class instance reads what the plain read reads"
-    },
-    {
-      "hash": "bc948f3f7",
-      "subject": "fix: an optional chain that ends in a call is a member call under a guard"
-    },
-    {
-      "hash": "572019fc9",
-      "subject": "fix: a default that already moved into the body is not waiting for the call site"
-    },
-    {
-      "hash": "9ceaddc5f",
-      "subject": "refactor: what a default expression allows is a question about the expression"
-    },
-    {
-      "hash": "b7a61f77c",
-      "subject": "fix: a variadic call that stops short is short of the fixed prefix, not of the tail"
-    },
-    {
-      "hash": "3c73581a0",
-      "subject": "docs: rotation 512 test262 sweep ingest + dashboard snapshot"
-    },
-    {
-      "hash": "d4d84d794",
-      "subject": "fix: a parameter the slot's tail swallowed reads itself back out of it"
     }
   ],
-  "headSha": "42e040a4b",
+  "headSha": "85a64a7ba",
   "autorun": {
-    "total": 511,
+    "total": 818,
     "baselineTarget": 10,
-    "bySelf": 506,
+    "bySelf": 813,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784931424-3ed7",
-      "at": "2026-07-24T22:17:04Z",
-      "ts": 1784931424,
+      "rotationId": "r-1787861503-7369",
+      "at": "2026-08-27T20:11:43Z",
+      "ts": 1787861503,
       "trigger": "self",
-      "prevHead": "6caee759",
-      "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
-      "handoffAgeSec": 4,
+      "prevHead": "6de391697",
+      "handoffSha": "sha256:5ec3a904f36fbc193a52674a066ab33ef355d89bd6b28ed827439473745d1fad",
+      "handoffAgeSec": 45,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
       {
-        "rotationId": "r-1784931424-3ed7",
-        "at": "2026-07-24T22:17:04Z",
-        "ts": 1784931424,
+        "rotationId": "r-1787861503-7369",
+        "at": "2026-08-27T20:11:43Z",
+        "ts": 1787861503,
         "trigger": "self",
-        "prevHead": "6caee759",
-        "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
-        "handoffAgeSec": 4,
+        "prevHead": "6de391697",
+        "handoffSha": "sha256:5ec3a904f36fbc193a52674a066ab33ef355d89bd6b28ed827439473745d1fad",
+        "handoffAgeSec": 45,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784922574-192b",
-        "at": "2026-07-24T19:49:35Z",
-        "ts": 1784922575,
+        "rotationId": "r-1787855424-41f9",
+        "at": "2026-08-27T18:30:24Z",
+        "ts": 1787855424,
         "trigger": "self",
-        "prevHead": "d347bdc2",
-        "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
-        "handoffAgeSec": 4,
+        "prevHead": "6fd817e95",
+        "handoffSha": "sha256:28a41794f567a6cd580f8f06faa1232270d87d7f520346f980fc408bcd22d500",
+        "handoffAgeSec": 27,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784916735-40ca",
-        "at": "2026-07-24T18:12:15Z",
-        "ts": 1784916735,
+        "rotationId": "r-1787846805-3a8b",
+        "at": "2026-08-27T16:06:45Z",
+        "ts": 1787846805,
         "trigger": "self",
-        "prevHead": "f0464206",
-        "handoffSha": "sha256:b9ecf50b244ecaf63c2525e3c0b79036a5fc0ca8267e00d81fc058d2473c4c32",
-        "handoffAgeSec": 216,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784911321-73e6",
-        "at": "2026-07-24T16:42:01Z",
-        "ts": 1784911321,
-        "trigger": "self",
-        "prevHead": "afa46564",
-        "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784902951-3e83",
-        "at": "2026-07-24T14:22:31Z",
-        "ts": 1784902951,
-        "trigger": "self",
-        "prevHead": "995dce57",
-        "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
-        "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784897109-063d",
-        "at": "2026-07-24T12:45:09Z",
-        "ts": 1784897109,
-        "trigger": "self",
-        "prevHead": "cf93f4ac",
-        "handoffSha": "sha256:14c61e5b1fe723711e14f1ca892d1a681055610f12496e65aa96513a5b1bb7cd",
+        "prevHead": "3c73581a0",
+        "handoffSha": "sha256:5c2159417d320b5bc881cb15759538df7ad2d53cb61deedbeafc5a47fcbc6acc",
         "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784890738-6e31",
-        "at": "2026-07-24T10:58:58Z",
-        "ts": 1784890738,
+        "rotationId": "r-1787838902-5ca1",
+        "at": "2026-08-27T13:55:02Z",
+        "ts": 1787838902,
         "trigger": "self",
-        "prevHead": "afd510a4",
-        "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
-        "handoffAgeSec": 4,
+        "prevHead": "b67b2c6d6",
+        "handoffSha": "sha256:cf6a5af863c82d595362656276922973e9419a1a09b98140eec2b0e4c63b9f9a",
+        "handoffAgeSec": 25,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784878903-5f45",
-        "at": "2026-07-24T07:41:43Z",
-        "ts": 1784878903,
+        "rotationId": "r-1787833215-0b46",
+        "at": "2026-08-27T12:20:15Z",
+        "ts": 1787833215,
         "trigger": "self",
-        "prevHead": "71520e66",
-        "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
-        "handoffAgeSec": 73,
+        "prevHead": "82ec19ad5",
+        "handoffSha": "sha256:8082d0b6e80b17cffc6ff9bc978bc1e1cc0bbdcd9d214506234c39bdf58f14fb",
+        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784871854-6136",
-        "at": "2026-07-24T05:44:14Z",
-        "ts": 1784871854,
+        "rotationId": "r-1787827321-5be8",
+        "at": "2026-08-27T10:42:01Z",
+        "ts": 1787827321,
         "trigger": "self",
-        "prevHead": "ca912d11",
-        "handoffSha": "sha256:68ab650b8dc42563ad78be2b23e93fb853b38372d9f87077f20423b71f3c7927",
-        "handoffAgeSec": 77,
+        "prevHead": "220e89751",
+        "handoffSha": "sha256:a7085511bf25b9e729aa1c0d1bb62ae64d164a265b30bee1470e25ad67409158",
+        "handoffAgeSec": 123,
         "conformanceBefore": null,
         "commitsInSession": null
       },
       {
-        "rotationId": "r-1784832173-7644",
-        "at": "2026-07-23T18:42:53Z",
-        "ts": 1784832173,
+        "rotationId": "r-1787817805-1a18",
+        "at": "2026-08-27T08:03:25Z",
+        "ts": 1787817805,
         "trigger": "self",
-        "prevHead": "31e6b3a3",
-        "handoffSha": "sha256:9acb3bf9041b0b339eaf324094560765c34b20ffb05cf631be0a492b5779f519",
-        "handoffAgeSec": 928,
+        "prevHead": "ea6548e02",
+        "handoffSha": "sha256:422a260e2f3ec67a6a408e9f4e2d2fd61622599b20c1948b5d8279b06e272dbc",
+        "handoffAgeSec": 22,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1787809170-484e",
+        "at": "2026-08-27T05:39:30Z",
+        "ts": 1787809170,
+        "trigger": "self",
+        "prevHead": "e30b85dc7",
+        "handoffSha": "sha256:60543e02986beb1bedb0feb7cd69a63714c571fdc037966ac05c96e0f75b5417",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1787793840-19d1",
+        "at": "2026-08-27T01:24:00Z",
+        "ts": 1787793840,
+        "trigger": "self",
+        "prevHead": "c94ba28a6",
+        "handoffSha": "sha256:f3ac35e930e3870a0bc5345629d6df957ffe46df91c1e741e5df661d5b82db47",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1787767400-7a05",
+        "at": "2026-08-26T18:03:20Z",
+        "ts": 1787767400,
+        "trigger": "self",
+        "prevHead": "c328af0ee",
+        "handoffSha": "sha256:fea745a7cfa62eb997d94fa53f240e828753eb41130495c4a6b877ddd4b5a814",
+        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
