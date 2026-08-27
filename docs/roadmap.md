@@ -1557,7 +1557,34 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
-**Latest @ `80de8cea4`** (2026-08-27, rotation 506 — an artifact-mass
+**Latest @ `fc6c22c4d`** (2026-08-27, rotation 508 — a name-resolution
+rotation. `super.x` resolves `[[HomeObject]].[[Prototype]]`, which is a
+runtime value, and the class desugar spelled it statically as the
+parent: all five forms — name call, computed call, name read, computed
+read, getter — answered from where the chain used to go once a program
+re-linked a prototype. The static spelling is what makes `super.m()` a
+direct call, so it is kept behind one whole-program judgment (a program
+that never spells `setPrototypeOf` or `__proto__` cannot invalidate
+it). A class whose builtin heritage was stripped was spelling its base
+`Object.prototype`, so `super["has"](x)` on a `Set` subclass answered
+"not a function"; and only `Iterator` was wired for the §15.7.14
+prototype link, so `Object.getPrototypeOf(MySet.prototype) ===
+Set.prototype` answered false for every other builtin. On the emitter
+side, the vtable now proves one-slot-one-ABI before it is emitted —
+per hierarchy root, machine shape, measured silent on the whole case
+corpus and loud on the rotation-507 pair when its union-find is
+disabled — and an empty forwarding block is threaded away instead of
+emitted as a `b` nothing jumps to.) Gate predicate: **158** clusters of
+≥ 4 holding **1209** cases, register 2 · 251, residue 653 · 811
+(35.7%), core **2271** — clusters identical to rotations 503-507. Sweep
+passTotal **34840 (+1)**, pass **29765 (+1)**, bug **12716 (−2)**,
+incompatible **5618 (+1)**, trAccepted 47556 (−1); verdict diff 3 lines,
+zero pass regressions. Two of those three are cases the new vtable
+assertion now refuses loudly rather than running with the wrong ABI —
+an override that returns nothing sharing a slot with a base that
+returns a value, previously silent, logged as 508-06.
+
+**Prior @ `80de8cea4`** (2026-08-27, rotation 506 — an artifact-mass
 and link-soundness rotation: vtable slots became relative offsets
 (`fn - table`, the LLVM / Swift relative-vtables shape) so the table
 needs no dyld fixup and leaves `__DATA_CONST` — an override program
