@@ -77,7 +77,18 @@ pub(super) fn rewrite_super_prop_sites(
         // methods — `Object.prototype` (§10.2.4: the home object is
         // C.prototype, whose [[Prototype]] is %Object.prototype%), so
         // `class A { m() { return super.toString(); } }` reads there.
-        let parent_name = parent.as_deref();
+        // 508-04 — a class whose builtin heritage was STRIPPED has no
+        // `parent` left, and spelling its super base `Object.prototype`
+        // sends every computed form to the wrong object: `class MySet
+        // extends Set { m(){ return super["has"](x) } }` answered
+        // `super property is not a function` because `has` is not there.
+        // The strip records who the parent was, and reading a method
+        // off the builtin prototype works (`Set.prototype.has.call(this,
+        // x)` is measured-good), so that is the base. The NAME forms
+        // keep their own `__superbuiltin__` re-dispatch route — this
+        // lane never sees them.
+        let stripped = ast.builtin_class_parents.get(cname).cloned();
+        let parent_name = parent.as_deref().or(stripped.as_deref());
         let mut inst = SuperPropSites::default();
         if let Some(c) = ctor.as_ref() {
             for s in &c.body {
