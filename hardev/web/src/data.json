@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T01:23:33.653Z",
+  "generatedAt": "2026-08-27T05:36:01.605Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T01:10:25Z",
-    "headSha": "80de8cea4",
-    "elapsedSec": 416.42,
+    "ranAt": "2026-08-27T05:04:02Z",
+    "headSha": "9845a927e",
+    "elapsedSec": 437.71,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29765,
+    "pass": 29764,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34840,
-    "bug": 12717,
+    "passTotal": 34839,
+    "bug": 12718,
     "incompatible": 5617,
     "bunSkip": 3041,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.26
   },
   "torajs": {
-    "commit": "80de8cea4",
-    "commitSubject": "perf: a counted accumulator prints through the i64 printer",
+    "commit": "9845a927e",
+    "commitSubject": "perf: a counter whose step is a const binding is the counter the literal is",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "9845a927e",
+      "subject": "perf: a counter whose step is a const binding is the counter the literal is"
+    },
+    {
+      "hash": "9b7f998b7",
+      "subject": "feat: `??` and `||` join two class instances at their common ancestor"
+    },
+    {
+      "hash": "d8c1dd2ca",
+      "subject": "feat: a ternary over two class instances joins to their nearest common ancestor"
+    },
+    {
+      "hash": "1ba086da0",
+      "subject": "fix: an overridden method keeps its vtable slot when an unrelated class shares the name, and a throwing override propagates"
+    },
+    {
+      "hash": "92e3f1e38",
+      "subject": "fix: the counter carve-out only admits small literal steps"
+    },
+    {
+      "hash": "c94ba28a6",
+      "subject": "chore: rotation 506 close — vtable slots relative (override program 51,657→35,121, __DATA_CONST gone) + link-judged stub guards read every alias of an atom + float_demote installs the block-end growth guard + counted accumulator prints through the i64 printer (34,937→18,425) + release_batch.sh"
+    },
+    {
       "hash": "80de8cea4",
       "subject": "perf: a counted accumulator prints through the i64 printer"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "9768d49f0",
       "subject": "perf: torajs-fmt's float formatter carries no bounds-check panic path"
-    },
-    {
-      "hash": "fdaf65596",
-      "subject": "perf: multi-arg console.log prints scalars and strings through typed inline printers"
-    },
-    {
-      "hash": "804295c6b",
-      "subject": "perf: every program's __DATA page — line buffers to bss, name tables to rodata"
-    },
-    {
-      "hash": "4fa4c2701",
-      "subject": "fix: a fn-as-object member read walks the [[Prototype]] chain (any-member lane)"
-    },
-    {
-      "hash": "de156ad34",
-      "subject": "perf: class prologue lives in its own fn and is link-judged whole (A12)"
-    },
-    {
-      "hash": "c04e18117",
-      "subject": "chore: rotation 504 close — s3 page win (str_alloc cold-tail 2028→356 B → 50,713→34,201) + broad __text cuts (print_i64 1584→788, dispatch-reject composer, str-literal dedup) + class-method print order (declaration, not name-sorted)"
-    },
-    {
-      "hash": "052876884",
-      "subject": "fix: class instance methods print in declaration order, not name-sorted"
     }
   ],
-  "headSha": "80de8cea4",
+  "headSha": "9845a927e",
   "autorun": {
-    "total": 809,
+    "total": 810,
     "baselineTarget": 10,
-    "bySelf": 804,
+    "bySelf": 805,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787767400-7a05",
-      "at": "2026-08-26T18:03:20Z",
-      "ts": 1787767400,
+      "rotationId": "r-1787793840-19d1",
+      "at": "2026-08-27T01:24:00Z",
+      "ts": 1787793840,
       "trigger": "self",
-      "prevHead": "c328af0ee",
-      "handoffSha": "sha256:fea745a7cfa62eb997d94fa53f240e828753eb41130495c4a6b877ddd4b5a814",
-      "handoffAgeSec": 10,
+      "prevHead": "c94ba28a6",
+      "handoffSha": "sha256:f3ac35e930e3870a0bc5345629d6df957ffe46df91c1e741e5df661d5b82db47",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787793840-19d1",
+        "at": "2026-08-27T01:24:00Z",
+        "ts": 1787793840,
+        "trigger": "self",
+        "prevHead": "c94ba28a6",
+        "handoffSha": "sha256:f3ac35e930e3870a0bc5345629d6df957ffe46df91c1e741e5df661d5b82db47",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787767400-7a05",
         "at": "2026-08-26T18:03:20Z",
@@ -876,17 +887,6 @@
         "prevHead": "7ab98a37c",
         "handoffSha": "sha256:dce4be680fbaf1874da98b5bd7a7d3029a0a251fc273a8238ea1304dfceedbef",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787659755-4d92",
-        "at": "2026-08-25T12:09:15Z",
-        "ts": 1787659755,
-        "trigger": "self",
-        "prevHead": "03564d82f",
-        "handoffSha": "sha256:d2b2a715d867d9468e06a1a039b0a8a6353dca0f78f0716526a27d658c9e25fb",
-        "handoffAgeSec": 1,
         "conformanceBefore": null,
         "commitsInSession": null
       }
