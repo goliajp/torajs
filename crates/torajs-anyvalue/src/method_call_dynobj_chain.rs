@@ -53,28 +53,8 @@ pub(crate) unsafe fn proto_chain_method(
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
-    let parent = unsafe { user_proto_cell(obj)? };
-    unsafe { proto_chain_method_from(parent, obj, name_str, recv_slot, argv, argc) }
-}
-
-/// The same walk with the first hop supplied. A struct receiver's
-/// [[Prototype]] is not an entry in the receiver — it is
-/// `__proto_<C>`, reached through the class-tag registry — so the
-/// `Tag::Obj` arm seeds the chain itself and everything from the
-/// second hop on is identical.
-///
-/// # Safety
-/// `parent` is a live cell AnyValue; the rest as
-/// [`proto_chain_method`].
-pub(crate) unsafe fn proto_chain_method_from(
-    parent: u64,
-    obj: *mut c_void,
-    name_str: *const u8,
-    recv_slot: *mut u64,
-    argv: *const u64,
-    argc: i64,
-) -> Option<AnyValue> {
     unsafe {
+        let parent = user_proto_cell(obj)?;
         let key = name_str as *const c_void;
         let ctag = __torajs_any_member_get_tag(parent, key);
         if ctag == 5 {

@@ -182,31 +182,6 @@ pub(crate) unsafe fn struct_method(
                 // `o.__getter_b()` keeps the honest no-such TypeError
                 // (the property read reaches the getter, the call does
                 // not). A user method really named `b` still wins here.
-                // 508-03 — that table is a MERGED, compile-time answer
-                // to "what would the chain say", so it stops being one
-                // the moment a link moves: after
-                // `setPrototypeOf(D.prototype, standin)` it still named
-                // the body `standin` now shadows. When a re-link has
-                // really happened, the live chain answers first and the
-                // shortcut is only a fallback. Gated on the runtime
-                // fact rather than taken always: the walk is a hop and
-                // a key lookup per level, and no program that never
-                // re-links should pay it.
-                if __torajs_proto_relinked() != 0 {
-                    let root = __torajs_proto_cell_raw(class_tag as i64);
-                    if root != 0
-                        && let Some(r) = crate::method_call_dynobj_chain::proto_chain_method_from(
-                            root,
-                            obj,
-                            name_str,
-                            core::ptr::null_mut(),
-                            argv,
-                            argc,
-                        )
-                    {
-                        return r;
-                    }
-                }
                 let mut mflags: u32 = 0;
                 let adapter = if __torajs_accessor_name_kind(name_bytes, name_len) == 255 {
                     __torajs_struct_method_find_flags(layout, name_bytes, name_len, &mut mflags)
@@ -327,10 +302,4 @@ unsafe extern "C" {
     /// torajs-meta — §7.3.22 prototype-chain membership against a
     /// builtin proto singleton (RFC 20260730-iterator-global).
     fn __torajs_instanceof_builtin_proto(v: u64, proto_tag: i64) -> bool;
-    /// torajs-meta — has any [[Prototype]] been re-written this run?
-    /// Gates the merged class-methods shortcut (508-03).
-    fn __torajs_proto_relinked() -> i64;
-    /// torajs-meta — `__proto_<C>` for a class tag; `0` when the
-    /// class registered no prototype cell.
-    fn __torajs_proto_cell_raw(tag: i64) -> u64;
 }
