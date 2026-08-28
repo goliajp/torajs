@@ -191,14 +191,43 @@ unsafe fn symbol_keyed_call(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
-    let (tag, value) = unsafe { crate::member_get_symbol::symbol_key_pair(recv, key) };
+    // A Get, so an accessor-shaped method entry runs its getter: the
+    // pair alone answers the sentinel, which this arm read as "not a
+    // heap value" and turned into `not_callable` (RFC knife 2b).
+    let (tag, value, owned) = unsafe { crate::member_get_symbol::symbol_key_get(recv, key) };
+    if unsafe { __torajs_throw_check() } != 0 {
+        return VALUE_UNDEFINED;
+    }
     if tag != TAG_HEAP || value == 0 {
+        // A non-heap answer carries no cell, so `owned` needs no release.
         if let Some(out) = unsafe { obj_symbol_iterator_call(recv, key) } {
             return out;
         }
         return unsafe { not_callable() };
     }
     let cell = value as *mut c_void;
+    // The call has five exits below; a getter-produced cell has to
+    // outlive all of them and be released once, so the dispatch moves
+    // into its own fn and this one owns the release.
+    let out = unsafe { call_resolved_symbol_method(recv, cell, argv, argc) };
+    if owned {
+        unsafe { __torajs_value_drop_heap(cell) };
+    }
+    out
+}
+
+/// The dispatch half of [`symbol_keyed_call`], split out so the caller
+/// can release a getter-produced cell across every exit.
+///
+/// # Safety
+/// `cell` is a live method cell; `recv` is a live AnyValue; `argv`
+/// points at `argc` slots.
+unsafe fn call_resolved_symbol_method(
+    recv: AnyValue,
+    cell: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
     // SAFETY: pair protocol hands out live cells.
     let ct = unsafe { (cell.cast::<u8>().add(4) as *const u16).read() };
     if ct != Tag::Closure as u16 {
@@ -245,6 +274,10 @@ unsafe extern "C" {
         name_len: u32,
     ) -> *const c_void;
     fn __torajs_rc_inc(p: *mut c_void);
+    /// torajs-throw — did the symbol getter leave a pending throw?
+    fn __torajs_throw_check() -> i64;
+    /// torajs-rc — release a getter-produced method cell.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// `src[Symbol.iterator]()` on a class instance — the symbol dict
