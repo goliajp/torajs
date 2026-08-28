@@ -64,6 +64,7 @@ pub mod mark_kind;
 pub mod method_any;
 pub mod method_any_copy;
 pub mod method_any_hof;
+pub mod method_any_predicate;
 pub mod method_any_search;
 pub mod method_any_transform;
 pub mod null_guard;
