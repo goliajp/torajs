@@ -76,8 +76,15 @@ impl ExpandoRecvs {
         }
     }
 
+    /// The census is keyed by BINDING NAME, so the receiver has to be
+    /// read through `as any` the same way
+    /// [`super::fnexpr_this_faces::collect_store_face`]'s admissions
+    /// are: `(o as any).f = function () { …this… }` names the same
+    /// binding `o.f = …` does. The declared-field bar below is what
+    /// keeps the cast from buying anything extra — a key the literal
+    /// DID declare stays loud whichever spelling reaches it.
     fn declared(&self, exprs: &[Expr], obj: ExprId) -> Option<&std::collections::HashSet<String>> {
-        match &exprs[obj.0 as usize] {
+        match &exprs[super::fnexpr_this_faces::peel_any_cast(exprs, obj).0 as usize] {
             Expr::Ident(n) => self.fields.get(n.as_str()),
             _ => None,
         }

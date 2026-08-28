@@ -317,7 +317,7 @@ pub(super) fn collect_store_face(
     // the target rather than on the receiver alone: a computed key
     // (`Expr::Index`) names no field and stays out.
     if let Expr::Member { obj, name } = &exprs[target.0 as usize]
-        && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "__this")
+        && matches!(&exprs[peel_any_cast(exprs, *obj).0 as usize], Expr::Ident(n) if n == "__this")
         && any_this_fields.contains(name)
     {
         collect_face(stmts, exprs, value, fn_expr_exprs, patches);
@@ -334,7 +334,7 @@ pub(super) fn collect_store_face(
     // checker's write-face bar), and only while nothing in the
     // program shadows the builtin name.
     if let Expr::Member { obj, name } = &exprs[target.0 as usize]
-        && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
+        && matches!(&exprs[peel_any_cast(exprs, *obj).0 as usize], Expr::Ident(n) if n == "Promise")
         && matches!(name.as_str(), "resolve" | "reject")
         && !super::fnexpr_this_names::name_shadowed_elsewhere(stmts, "Promise")
     {
@@ -347,7 +347,7 @@ pub(super) fn collect_store_face(
         Expr::Index { obj, .. } => Some(*obj),
         _ => None,
     };
-    let admits = store_recv.is_some_and(|obj| match &exprs[obj.0 as usize] {
+    let admits = store_recv.is_some_and(|obj| match &exprs[peel_any_cast(exprs, obj).0 as usize] {
         Expr::Ident(n) => props_recvs.contains(n),
         Expr::Member {
             obj: pobj,
@@ -364,7 +364,7 @@ pub(super) fn collect_store_face(
             // constructor lives on a namespace object.
             pname == "prototype"
                 || (pname == "constructor"
-                    && matches!(&exprs[pobj.0 as usize], Expr::Ident(n)
+                    && matches!(&exprs[peel_any_cast(exprs, *pobj).0 as usize], Expr::Ident(n)
                         if props_recvs.contains(n)))
         }
         _ => false,
@@ -431,4 +431,27 @@ pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet
     }
     admitted.retain(|f| !other_typed.contains(f));
     admitted
+}
+
+/// The store receiver seen through `as any` — a cast the lowering
+/// treats as typecheck-only, so it cannot move the stored value out
+/// of the any lane every [`collect_store_face`] admission depends on.
+///
+/// Without this the admissions read the WRAPPER and matched nothing:
+/// `Object.prototype.mm = function () { …this… }` promoted while
+/// `(Object.prototype as any).mm = …` — the spelling a TS program has
+/// to use, since the declared `Object.prototype` type has no such
+/// member — took the honest reject. Same for `(C.prototype as any).k`
+/// and `(anyBinding as any).f`. Peeling can only widen a receiver
+/// toward `any`, never narrow one into a typed slot, so no admission
+/// changes meaning: it either sees the shape it was always looking
+/// for, or it still sees none.
+pub(super) fn peel_any_cast(exprs: &[Expr], mut e: ExprId) -> ExprId {
+    while let Expr::As { expr, ty_ann } = &exprs[e.0 as usize] {
+        if ty_ann != "any" {
+            break;
+        }
+        e = *expr;
+    }
+    e
 }
