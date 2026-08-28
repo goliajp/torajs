@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T11:28:09.509Z",
+  "generatedAt": "2026-08-28T13:27:03.412Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-28T11:23:57Z",
-    "headSha": "f87f2ab3d",
-    "elapsedSec": 389.37,
+    "ranAt": "2026-08-28T13:15:11Z",
+    "headSha": "952d22b09",
+    "elapsedSec": 371.95,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.49
   },
   "torajs": {
-    "commit": "c4a297d50",
-    "commitSubject": "docs: the two legs are gone, so stop calling the first one a probe",
+    "commit": "952d22b09",
+    "commitSubject": "fix: the other spelling of that load declines the same way",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "952d22b09",
+      "subject": "fix: the other spelling of that load declines the same way"
+    },
+    {
+      "hash": "9b3d06544",
+      "subject": "fix: an index load off an `any` is `any`, and declining meant `number`"
+    },
+    {
+      "hash": "b9eb0f762",
+      "subject": "refactor: the builtin-namespace answers move out before the next arm goes in"
+    },
+    {
+      "hash": "ad927378f",
+      "subject": "refactor: the release had to land after the call, and only a comment said so"
+    },
+    {
+      "hash": "ed2ae8822",
+      "subject": "docs: rotation 519 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "c4a297d50",
       "subject": "docs: the two legs are gone, so stop calling the first one a probe"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "d4bf29391",
       "subject": "fix: the sentinel was neither undefined nor null, so it got built"
-    },
-    {
-      "hash": "4615f37ef",
-      "subject": "chore: dev profile keeps line tables instead of full debug info"
-    },
-    {
-      "hash": "fb83d50a3",
-      "subject": "fix: o[sym]() said the property is not a function, about one that resolves to a function"
-    },
-    {
-      "hash": "64d9b000d",
-      "subject": "fix: the doc said the two spellings cannot disagree, and under an accessor they did"
-    },
-    {
-      "hash": "c8db484fc",
-      "subject": "fix: the probe answered \"accessor\", and toString read that as \"no tag\""
-    },
-    {
-      "hash": "fca91b167",
-      "subject": "fix: an ordinary object inherits from Object.prototype, and the walk never asked"
     }
   ],
-  "headSha": "c4a297d50",
+  "headSha": "952d22b09",
   "autorun": {
-    "total": 822,
+    "total": 823,
     "baselineTarget": 10,
-    "bySelf": 817,
+    "bySelf": 818,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787909698-258b",
-      "at": "2026-08-28T09:34:59Z",
-      "ts": 1787909699,
+      "rotationId": "r-1787917263-2d86",
+      "at": "2026-08-28T11:41:03Z",
+      "ts": 1787917263,
       "trigger": "self",
-      "prevHead": "78509df3a",
-      "handoffSha": "sha256:4d467555d8a74cd0f564509558878b5aa2891ea9eb5f46df9d69d61c8e738f9f",
-      "handoffAgeSec": 2,
+      "prevHead": "ed2ae8822",
+      "handoffSha": "sha256:7db7d1841270a481ab056edad9ffb09884ca5213dee92f370938124768bc5578",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787917263-2d86",
+        "at": "2026-08-28T11:41:03Z",
+        "ts": 1787917263,
+        "trigger": "self",
+        "prevHead": "ed2ae8822",
+        "handoffSha": "sha256:7db7d1841270a481ab056edad9ffb09884ca5213dee92f370938124768bc5578",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787909698-258b",
         "at": "2026-08-28T09:34:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "82ec19ad5",
         "handoffSha": "sha256:8082d0b6e80b17cffc6ff9bc978bc1e1cc0bbdcd9d214506234c39bdf58f14fb",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787827321-5be8",
-        "at": "2026-08-27T10:42:01Z",
-        "ts": 1787827321,
-        "trigger": "self",
-        "prevHead": "220e89751",
-        "handoffSha": "sha256:a7085511bf25b9e729aa1c0d1bb62ae64d164a265b30bee1470e25ad67409158",
-        "handoffAgeSec": 123,
         "conformanceBefore": null,
         "commitsInSession": null
       }
