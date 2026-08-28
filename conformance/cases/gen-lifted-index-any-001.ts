@@ -30,3 +30,13 @@ function* rows(g: any): any {
   yield cell.n
 }
 console.log(rows([[{ n: 0 }, { n: 7 }]]).next().value)
+
+// The other spelling of the same load. `desugar_using`'s async
+// dispose helper opens with `const st = env.stack` before it indexes
+// anything, so the `Member` arm has to answer for an `any` base too.
+function* fields(env: any): any {
+  const st = env.stack
+  const n = st.length
+  yield n
+}
+console.log(fields({ stack: [1, 2, 3] }).next().value)

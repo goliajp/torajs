@@ -310,20 +310,27 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         // fallback and every use of it after ("no member `.exec` on
         // type Number") went down with it.
         Expr::Regex { .. } => return Some("RegExp".into()),
-        // An index load off an `any`. The shared sniff HAS an `Index`
-        // arm — but it answers by stripping `[]` off the base's
-        // annotation, so a base that reads `any` (a parameter, an
-        // already-lifted `any` field) makes it DECLINE, and declining
-        // here is not "no assertion", it is the `number` fallback.
-        // The everyday shape is a walk over an `any` list:
-        // `let i = st.length - 1; const r = st[i]`, which is how the
-        // injected `__torajs_adstack_walk` is written — and `r.k`
-        // after it reads "no member `.k` on type Number", taking the
-        // whole `using` family down with it. Indexing an `any`
-        // answers `any`, so say so. A base with a real annotation
-        // falls through to the shared arm untouched: this one only
-        // speaks where that one cannot.
-        Expr::Index { obj, .. } => {
+        // A load off an `any` — either spelling. The shared sniff has
+        // arms for both, and both answer by taking the base's
+        // annotation APART: `Index` strips a `[]` suffix, `Member`
+        // looks the name up in a receiver table keyed on `string` /
+        // `T[]`. An `any` base has nothing to take apart, so both
+        // DECLINE — and declining here is not "no assertion", it is
+        // the `number` fallback, which the r454 note above says in as
+        // many words for `Expr::Ident`.
+        //
+        // Both spellings are load-bearing and both are in injected
+        // code: `desugar_using`'s `__torajs_using_dispose_async`
+        // opens with `const st = env.stack` and then indexes it
+        // (`const r = st[i]`), so the whole `using` / DisposableStack
+        // family reads "no member `.length` on type Number" the
+        // moment those helpers become generators.
+        //
+        // A base with a real annotation falls through to the shared
+        // arms untouched — this one only speaks where they cannot,
+        // which is also why it does NOT try to answer for a typed
+        // receiver whose member type it would have to go and look up.
+        Expr::Index { obj, .. } | Expr::Member { obj, .. } => {
             return (field_ann(ast, *obj, ctx)? == "any").then(|| "any".into());
         }
         _ => return None,
