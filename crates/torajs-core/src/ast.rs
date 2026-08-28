@@ -176,6 +176,7 @@ mod regex_result_props;
 mod sfi_pass;
 mod sfi_rewrite;
 mod sfi_safe;
+mod shadowed_globals;
 mod sig_thunk;
 mod sloppy_implicit_globals;
 pub(crate) mod sloppy_this_prologue;

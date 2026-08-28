@@ -262,6 +262,12 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
             _ => None,
         })
         .collect();
+    // ...except where an enclosing scope rebinds one of those names.
+    // The reference then belongs to the local and the arrow must
+    // capture it; pre-binding would hand it to the declaration
+    // (RFC 20260828). Computed off the statement tree because this
+    // scan is flat and cannot tell which body an arrow sits in.
+    let shadowed = crate::ast::shadowed_globals::shadowed_globals_by_arrow(ast, &global_fn_names);
     let n = ast.exprs.len();
     for i in 0..n {
         if !matches!(ast.exprs[i], Expr::ArrowFn { .. }) {
@@ -301,12 +307,26 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         // vars (idents referenced inside the body that are neither one of
         // the arrow's params nor declared by an inner let, and not a
         // top-level FnDecl name).
+        // The shadowed case is rare; the common one must not copy the
+        // whole global list per arrow.
+        let narrowed: Vec<String>;
+        let prebound: &[String] = match shadowed.get(&eid) {
+            Some(sh) => {
+                narrowed = global_fn_names
+                    .iter()
+                    .filter(|g| !sh.iter().any(|s| s == *g))
+                    .cloned()
+                    .collect();
+                &narrowed
+            }
+            None => &global_fn_names,
+        };
         let captures = match &ast.exprs[i] {
             Expr::ArrowFn { params, body, .. } => crate::ast::free_vars::free_vars_of_arrow(
                 ast,
                 params,
                 body,
-                &global_fn_names,
+                prebound,
                 ast.closure_self_names.get(&name).map(|s| s.as_str()),
             ),
             _ => Vec::new(),
