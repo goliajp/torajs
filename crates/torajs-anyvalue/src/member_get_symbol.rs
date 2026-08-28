@@ -106,7 +106,16 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
     if t == Tag::DynObj as u16 {
         return match unsafe { user_proto_cell(ptr) } {
             Some(parent) => InheritedFrom::Receiver(parent),
-            None => InheritedFrom::Nothing,
+            // No EXPLICIT parent is not the same as no parent: an
+            // ordinary object still inherits from %Object.prototype%,
+            // and a symbol the program installed there was reachable
+            // from nowhere until this hop existed (the string-key twin
+            // in `member_get.rs` had the same gap). `None` here is the
+            // genuine end — the root itself, or an explicit null proto.
+            None => match unsafe { crate::member_get_own::implicit_proto_parent(ptr) } {
+                Some(root) => InheritedFrom::Receiver(root),
+                None => InheritedFrom::Nothing,
+            },
         };
     }
     // RFC 20260802-class-computed-member 刀 3a — a struct instance

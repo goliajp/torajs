@@ -171,6 +171,35 @@ pub(crate) unsafe fn dynobj_proto_pair(ptr: *const c_void) -> (u64, u64) {
     (AnySlotTag::Heap as u64, root as u64)
 }
 
+/// The implicit %Object.prototype% hop for a dynobj whose own probe
+/// and explicit-chain walk both missed — `None` when the receiver IS
+/// `Object.prototype` (the chain root) or carries an explicit null
+/// proto, i.e. exactly when there is no further ordinary parent.
+///
+/// Why this is its own step: [`dynobj_proto_pair`] has always known
+/// the right answer — it is what a dynamic `__proto__` READ returns
+/// — but neither get channel's chain walk ever asked it. Both went
+/// straight from "no explicit parent" to the builtin reify tail,
+/// which only surfaces the SPEC-GIVEN methods, so a property the
+/// program installed on `Object.prototype` itself had no path to any
+/// receiver at all: `Object.prototype.foo = 5; ({}).foo` answered
+/// undefined while `Object.prototype.foo` answered 5, and the
+/// symbol-keyed twin did the same. The property was installed and
+/// simply unreachable.
+///
+/// Recursing through the parent's own full [[Get]] — rather than
+/// probing that singleton's dict inline — is what makes the hop
+/// ordinary (§10.1.8.1 OrdinaryGet step 4): a user entry shadows the
+/// reified method exactly as it should, and the walk terminates
+/// because the root's own pair answers Null.
+///
+/// # Safety
+/// `ptr` is a live `Tag::DynObj` heap pointer.
+pub(crate) unsafe fn implicit_proto_parent(ptr: *const c_void) -> Option<u64> {
+    let (tag, val) = unsafe { dynobj_proto_pair(ptr) };
+    (tag == AnySlotTag::Heap as u64).then_some(val)
+}
+
 /// `Function.prototype`'s expando dynobj (builtin-proto registry
 /// tag 13) — the inheritance table a closure receiver reads through
 /// after its own expando and virtual pair miss (`Function.prototype

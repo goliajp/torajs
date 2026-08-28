@@ -333,6 +333,10 @@ unsafe fn dynobj_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void)
             if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
                 return 0;
             }
+            // Implicit %Object.prototype% hop — tag twin above.
+            if let Some(parent) = crate::member_get_own::implicit_proto_parent(ptr) {
+                return __torajs_any_member_get_value(parent, key);
+            }
             // Inherited Object.prototype reify (tag twin above).
             return reify_value(recv, key);
         }

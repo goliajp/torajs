@@ -400,6 +400,11 @@ unsafe fn dynobj_builtin_tail_tag(ptr: *mut c_void, recv: AnyValue, key: *const 
         if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
             return AnySlotTag::Undef as u64;
         }
+        // §10.1.8.1 step 4 — the implicit %Object.prototype% hop
+        // (rationale on the helper).
+        if let Some(parent) = crate::member_get_own::implicit_proto_parent(ptr) {
+            return __torajs_any_member_get_tag(parent, key);
+        }
         reify_tag(recv, key)
     }
 }
