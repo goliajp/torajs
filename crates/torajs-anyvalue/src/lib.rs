@@ -142,6 +142,7 @@ pub(crate) mod member_get_layout;
 pub(crate) mod member_get_own;
 pub(crate) mod member_get_private;
 pub(crate) mod member_get_probe;
+mod member_get_proto_root;
 mod member_get_receiver;
 pub(crate) mod member_get_str;
 pub(crate) mod member_get_symbol;

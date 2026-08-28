@@ -363,9 +363,11 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     {
         return val;
     }
-    unsafe { crate::method_value::builtin_method_lookup(recv, key) }
-        .map(|c| c as u64)
-        .unwrap_or(0)
+    if let Some(c) = unsafe { crate::method_value::builtin_method_lookup(recv, key) } {
+        return c as u64;
+    }
+    // Mirror of the tag channel (517-07).
+    unsafe { crate::member_get_proto_root::object_proto_expando_value(key) }
 }
 
 /// §22.2.4.1 `lastIndex` on the value channel — the twin of

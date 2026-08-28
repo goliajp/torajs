@@ -374,10 +374,11 @@ pub(crate) unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
         return tag;
     }
     if unsafe { crate::method_value::builtin_method_lookup(recv, key) }.is_some() {
-        4
-    } else {
-        5
+        return 4;
     }
+    // §10.1.8.1 step 4 — the walk does not end at the family
+    // prototype (517-07).
+    unsafe { crate::member_get_proto_root::object_proto_expando_tag(key) }
 }
 
 /// DynObj-arm builtin tail (tag channel) — the own-method reify,
