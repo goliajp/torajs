@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T07:06:07.491Z",
+  "generatedAt": "2026-08-28T09:33:40.703Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-28T06:52:53Z",
-    "headSha": "2cb172ab3",
-    "elapsedSec": 374.24,
+    "ranAt": "2026-08-28T09:27:06Z",
+    "headSha": "d4bf29391",
+    "elapsedSec": 597.04,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29812,
+    "pass": 29854,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34887,
-    "bug": 12672,
+    "passTotal": 34929,
+    "bug": 12630,
     "incompatible": 5615,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47559,
-    "passRateInScope": 65.61,
-    "passRateTrAccepted": 73.36
+    "passRateInScope": 65.69,
+    "passRateTrAccepted": 73.44
   },
   "torajs": {
-    "commit": "2cb172ab3",
-    "commitSubject": "fix: bit 1 is two things on Tag::Arr, so it is not an identity",
+    "commit": "d4bf29391",
+    "commitSubject": "fix: the sentinel was neither undefined nor null, so it got built",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "d4bf29391",
+      "subject": "fix: the sentinel was neither undefined nor null, so it got built"
+    },
+    {
+      "hash": "4615f37ef",
+      "subject": "chore: dev profile keeps line tables instead of full debug info"
+    },
+    {
+      "hash": "fb83d50a3",
+      "subject": "fix: o[sym]() said the property is not a function, about one that resolves to a function"
+    },
+    {
+      "hash": "64d9b000d",
+      "subject": "fix: the doc said the two spellings cannot disagree, and under an accessor they did"
+    },
+    {
+      "hash": "c8db484fc",
+      "subject": "fix: the probe answered \"accessor\", and toString read that as \"no tag\""
+    },
+    {
+      "hash": "fca91b167",
+      "subject": "fix: an ordinary object inherits from Object.prototype, and the walk never asked"
+    },
+    {
+      "hash": "c74575467",
+      "subject": "docs: rotation 517 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "2cb172ab3",
       "subject": "fix: bit 1 is two things on Tag::Arr, so it is not an identity"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "505975d00",
       "subject": "fix: a badge emulated from the cell tag outlives the property it copies"
-    },
-    {
-      "hash": "95b12b0d6",
-      "subject": "fix: a callable's repr is its ABI, and assignability cannot see it"
-    },
-    {
-      "hash": "1331ee660",
-      "subject": "docs: rotation 516 test262 sweep ingest, dashboard snapshot, debt accounting"
-    },
-    {
-      "hash": "cb6cb453a",
-      "subject": "refactor: two self-inflicted size breaks from this rotation"
-    },
-    {
-      "hash": "22efdf8ee",
-      "subject": "fix: a coerced store holds a value the source expression never had"
-    },
-    {
-      "hash": "e2da4e377",
-      "subject": "fix: only a heap tag names an address, so stop dereferencing the rest"
-    },
-    {
-      "hash": "764c758b3",
-      "subject": "fix: an any-typed descriptor value carries its own tag, so read it"
-    },
-    {
-      "hash": "50ed3407e",
-      "subject": "fix: an observed rejection is decided, so stop holding it until exit"
     }
   ],
-  "headSha": "2cb172ab3",
+  "headSha": "d4bf29391",
   "autorun": {
-    "total": 820,
+    "total": 821,
     "baselineTarget": 10,
-    "bySelf": 815,
+    "bySelf": 816,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787888473-5a77",
-      "at": "2026-08-28T03:41:13Z",
-      "ts": 1787888473,
+      "rotationId": "r-1787901021-3352",
+      "at": "2026-08-28T07:10:21Z",
+      "ts": 1787901021,
       "trigger": "self",
-      "prevHead": "1331ee660",
-      "handoffSha": "sha256:3270abf8cf891f40377e50a2c1b906c727e7fc9e04e949858ff90ecbc139891d",
-      "handoffAgeSec": 96,
+      "prevHead": "c74575467",
+      "handoffSha": "sha256:881e391bf9d53d4c0e7e0ad149c6cb1b0d2854242c98ef575a04d587ab94f4d0",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787901021-3352",
+        "at": "2026-08-28T07:10:21Z",
+        "ts": 1787901021,
+        "trigger": "self",
+        "prevHead": "c74575467",
+        "handoffSha": "sha256:881e391bf9d53d4c0e7e0ad149c6cb1b0d2854242c98ef575a04d587ab94f4d0",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787888473-5a77",
         "at": "2026-08-28T03:41:13Z",
@@ -876,17 +887,6 @@
         "prevHead": "ea6548e02",
         "handoffSha": "sha256:422a260e2f3ec67a6a408e9f4e2d2fd61622599b20c1948b5d8279b06e272dbc",
         "handoffAgeSec": 22,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787809170-484e",
-        "at": "2026-08-27T05:39:30Z",
-        "ts": 1787809170,
-        "trigger": "self",
-        "prevHead": "e30b85dc7",
-        "handoffSha": "sha256:60543e02986beb1bedb0feb7cd69a63714c571fdc037966ac05c96e0f75b5417",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
