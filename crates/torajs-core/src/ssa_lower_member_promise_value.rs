@@ -280,12 +280,22 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
         Type::I64,
         None,
     );
-    ctx.emit_throw_check(None);
-    let v = cast_promise_value(ctx, raw_v, inner_ssa_ty);
     let is_borrow = matches!(
         ctx.ast.get_expr(obj),
         Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
     );
+    // A rejected cell leaves through the throw path, which never
+    // reaches the drop below — and the temp promise it read from
+    // never reached a local either, so neither the catch nor the
+    // propagate destination can know to free it. `await`ing a
+    // rejection therefore stranded one promise per throw. A BORROWED
+    // source is the caller's to free on both paths, as before.
+    if is_borrow {
+        ctx.emit_throw_check(None);
+    } else {
+        ctx.emit_throw_check_owned(None, obj_op.clone(), Type::Promise);
+    }
+    let v = cast_promise_value(ctx, raw_v, inner_ssa_ty);
     if !is_borrow {
         ctx.emit_drop_value(obj_op, Type::Promise);
     }

@@ -37,6 +37,11 @@
 //!   [`UNHANDLED_LIST`], fires [`fire_unhandled_reporter`] on
 //!   every entry still un-observed, drops the rc bumped at
 //!   enqueue time, then returns `UNHANDLED_REJECTION_OCCURRED`.
+//! - [`compact_observed`] — deferring the sweep to exit must not
+//!   mean deferring the RELEASE to exit: an observed entry is
+//!   already decided, so the growth step drops it early instead of
+//!   pinning it, its reason and the reason's whole graph until the
+//!   process ends.
 
 use core::ffi::c_void;
 use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicU8, AtomicUsize, Ordering};
@@ -268,22 +273,69 @@ pub(crate) unsafe fn enqueue_hprt_check(p: *mut c_void) {
         return;
     }
     unsafe { __torajs_rc_inc(p) };
-    let len = UNHANDLED_LEN.load(Ordering::Relaxed);
+    let mut len = UNHANDLED_LEN.load(Ordering::Relaxed);
     let cap = UNHANDLED_CAP.load(Ordering::Relaxed);
     if len == cap {
-        let new_cap = if cap == 0 { 8 } else { cap * 2 };
-        let elem = core::mem::size_of::<i64>();
-        let cur = UNHANDLED_PTR.load(Ordering::Relaxed);
-        let new_buf =
-            unsafe { tr_realloc(cur as *mut c_void, cap * elem, new_cap * elem) } as *mut i64;
-        UNHANDLED_PTR.store(new_buf, Ordering::Relaxed);
-        UNHANDLED_CAP.store(new_cap, Ordering::Relaxed);
+        if cap != 0 {
+            len = unsafe { compact_observed(len) };
+        }
+        // Double when the scan did not buy back at least half the
+        // buffer — that is what keeps the push amortised O(1) once
+        // compaction stops paying (a program that never observes its
+        // rejections reclaims nothing and grows exactly as before).
+        if cap == 0 || len > cap / 2 {
+            let new_cap = if cap == 0 { 8 } else { cap * 2 };
+            let elem = core::mem::size_of::<i64>();
+            let cur = UNHANDLED_PTR.load(Ordering::Relaxed);
+            let new_buf =
+                unsafe { tr_realloc(cur as *mut c_void, cap * elem, new_cap * elem) } as *mut i64;
+            UNHANDLED_PTR.store(new_buf, Ordering::Relaxed);
+            UNHANDLED_CAP.store(new_cap, Ordering::Relaxed);
+        }
     }
     let buf = UNHANDLED_PTR.load(Ordering::Relaxed);
     unsafe {
         *buf.add(len) = p as i64;
     }
     UNHANDLED_LEN.store(len + 1, Ordering::Relaxed);
+}
+
+/// Drop every entry the exit sweep would already walk past, keeping
+/// the survivors packed at the front. Returns the new length.
+///
+/// `has_handler` only ever goes 0 → 1 while an entry is on the list:
+/// the rc this list holds keeps the cell out of the pool's recycler,
+/// and clearing the byte back to 0 happens only in a fresh
+/// allocation. So an observed entry can never become unobserved, the
+/// sweep is guaranteed to skip it, and the only thing it would still
+/// do to it there is the very `promise_drop` done here. Doing it at
+/// the growth step instead frees the promise, its reason and
+/// everything the reason holds when the handler attaches rather than
+/// at process exit — the difference between a loop that rejects and
+/// catches N promises costing O(1) and costing O(N). `await`ing a
+/// rejection inside a 200k-iteration loop held 52 MB.
+///
+/// Nothing here can re-enter the list: `promise_drop` frees cells, and
+/// freeing a cell never rejects a promise. The user listener, which
+/// can, runs in the sweep and not here.
+unsafe fn compact_observed(len: usize) -> usize {
+    let buf = UNHANDLED_PTR.load(Ordering::Relaxed);
+    if buf.is_null() {
+        return len;
+    }
+    let mut keep = 0usize;
+    for i in 0..len {
+        let p = unsafe { *buf.add(i) } as *mut c_void;
+        let pp = as_promise(p);
+        if unsafe { (*pp).has_handler } != 0 {
+            unsafe { crate::pool::__torajs_promise_drop(p) };
+            continue;
+        }
+        unsafe { *buf.add(keep) = p as i64 };
+        keep += 1;
+    }
+    UNHANDLED_LEN.store(keep, Ordering::Relaxed);
+    keep
 }
 
 /// Walk the pending-unhandled list once. For every entry whose
