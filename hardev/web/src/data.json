@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T09:33:40.703Z",
+  "generatedAt": "2026-08-28T11:28:09.509Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-28T09:27:06Z",
-    "headSha": "d4bf29391",
-    "elapsedSec": 597.04,
+    "ranAt": "2026-08-28T11:23:57Z",
+    "headSha": "f87f2ab3d",
+    "elapsedSec": 389.37,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29854,
+    "pass": 29875,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34929,
-    "bug": 12630,
+    "passTotal": 34950,
+    "bug": 12609,
     "incompatible": 5615,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47559,
-    "passRateInScope": 65.69,
-    "passRateTrAccepted": 73.44
+    "passRateInScope": 65.73,
+    "passRateTrAccepted": 73.49
   },
   "torajs": {
-    "commit": "d4bf29391",
-    "commitSubject": "fix: the sentinel was neither undefined nor null, so it got built",
+    "commit": "c4a297d50",
+    "commitSubject": "docs: the two legs are gone, so stop calling the first one a probe",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "c4a297d50",
+      "subject": "docs: the two legs are gone, so stop calling the first one a probe"
+    },
+    {
+      "hash": "f87f2ab3d",
+      "subject": "fix: it checked that the method is there, then went and asked for it again"
+    },
+    {
+      "hash": "5bf45d6e0",
+      "subject": "fix: the doc said the second walk answers the same property, and it ran a getter"
+    },
+    {
+      "hash": "63a4d3cb3",
+      "subject": "fix: the iterator method was there, and it was reported as not a function"
+    },
+    {
+      "hash": "0f139f40c",
+      "subject": "fix: it reported the hook is not a function, without ever running the getter"
+    },
+    {
+      "hash": "78509df3a",
+      "subject": "docs: rotation 518 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "d4bf29391",
       "subject": "fix: the sentinel was neither undefined nor null, so it got built"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "fca91b167",
       "subject": "fix: an ordinary object inherits from Object.prototype, and the walk never asked"
-    },
-    {
-      "hash": "c74575467",
-      "subject": "docs: rotation 517 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "2cb172ab3",
-      "subject": "fix: bit 1 is two things on Tag::Arr, so it is not an identity"
-    },
-    {
-      "hash": "bb82eba42",
-      "subject": "refactor: one IsArray, because two of them disagreed"
-    },
-    {
-      "hash": "0347e1eb7",
-      "subject": "fix: an arguments object gets its own badge by not being an array"
-    },
-    {
-      "hash": "47d177d27",
-      "subject": "fix: IsArray reads a slot, and a proxy still has the slot behind it"
-    },
-    {
-      "hash": "505975d00",
-      "subject": "fix: a badge emulated from the cell tag outlives the property it copies"
     }
   ],
-  "headSha": "d4bf29391",
+  "headSha": "c4a297d50",
   "autorun": {
-    "total": 821,
+    "total": 822,
     "baselineTarget": 10,
-    "bySelf": 816,
+    "bySelf": 817,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787901021-3352",
-      "at": "2026-08-28T07:10:21Z",
-      "ts": 1787901021,
+      "rotationId": "r-1787909698-258b",
+      "at": "2026-08-28T09:34:59Z",
+      "ts": 1787909699,
       "trigger": "self",
-      "prevHead": "c74575467",
-      "handoffSha": "sha256:881e391bf9d53d4c0e7e0ad149c6cb1b0d2854242c98ef575a04d587ab94f4d0",
-      "handoffAgeSec": 17,
+      "prevHead": "78509df3a",
+      "handoffSha": "sha256:4d467555d8a74cd0f564509558878b5aa2891ea9eb5f46df9d69d61c8e738f9f",
+      "handoffAgeSec": 2,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787909698-258b",
+        "at": "2026-08-28T09:34:59Z",
+        "ts": 1787909699,
+        "trigger": "self",
+        "prevHead": "78509df3a",
+        "handoffSha": "sha256:4d467555d8a74cd0f564509558878b5aa2891ea9eb5f46df9d69d61c8e738f9f",
+        "handoffAgeSec": 2,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787901021-3352",
         "at": "2026-08-28T07:10:21Z",
@@ -876,17 +887,6 @@
         "prevHead": "220e89751",
         "handoffSha": "sha256:a7085511bf25b9e729aa1c0d1bb62ae64d164a265b30bee1470e25ad67409158",
         "handoffAgeSec": 123,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787817805-1a18",
-        "at": "2026-08-27T08:03:25Z",
-        "ts": 1787817805,
-        "trigger": "self",
-        "prevHead": "ea6548e02",
-        "handoffSha": "sha256:422a260e2f3ec67a6a408e9f4e2d2fd61622599b20c1948b5d8279b06e272dbc",
-        "handoffAgeSec": 22,
         "conformanceBefore": null,
         "commitsInSession": null
       }

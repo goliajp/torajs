@@ -1557,6 +1557,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
+**Latest @ `f87f2ab3d`** (2026-08-28, rotation 519 — the Get that was
+skipped, and the doc that explained why skipping it was safe). Gate
+predicate: **158** clusters of ≥ 4 holding **1201** cases, register
+2 · 251, residue 653 · 810 (35.8%), core **2262** — every one of those
+flat, which is what a rotation that moves the `bug` bucket rather than
+the `incompatible` bucket looks like: 21 cases went from "runs but
+answers wrong" to "answers right", and not one went from "will not run"
+to "runs", and only the latter moves a cluster. Sweep passTotal 34929 →
+**34950 (+21)**, pass 29854 → **29875 (+21)**, passNoOracle **928 (=)**,
+bug 12630 → **12609 (−21)**, incompatible **5615 (=)**, trAccepted
+**47559 (=)**; conservation exact (0 = +21 + −21). Verdict diff **21
+lines, every one `bug` → `pass`**: 17 are `@@toPrimitive` (each
+operator's `S11.x_A2.3_T1`, addition's two symbol-to-primitive cases,
+trimStart/trimEnd's four meth-priority cases, and
+`String/prototype/concat/S15.5.4.6_A4_T2`), 2 are `Iterator/concat`
+(`arguments-checked-in-order` and `get-iterator-method-throws` — the
+eager-GetMethod semantics exactly), 1 is
+`Array/fromAsync/asyncitems-iterator-throws`. The `@@match` family
+knife moved **zero** verdicts: the corpus has no accessor-shaped
+`@@match`/`@@replace`/`@@search`/`@@split` case, so its evidence is
+probes and fixtures, recorded as such. Zero pass regressions, zero
+other verdict movement. Coverage curve unchanged: top-100 50.3%,
+top-400 81.0%. Unattributed head by directory: `built-ins/Date` 60,
+`built-ins/Object` 59, `language/import` 42, `built-ins/Function` 40,
+`built-ins/Iterator` 38, `built-ins/RegExp` 36.
+
 **Latest @ `85a64a7ba`** (2026-08-28, rotation 515 — an argument the
 program never passed pins no type parameter, and a call the checker
 could not infer says so itself). Gate predicate: **158** clusters of
