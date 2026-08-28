@@ -76,21 +76,17 @@ pub(crate) fn try_lower(
     {
         return Some(Operand::ConstBool(false));
     }
-    // §7.2.2 step 2 asks for an Array EXOTIC object, and the
-    // arguments object is not one — it is an ordinary object with a
-    // [[ParameterMap]]. tr desugars `arguments` to a plain
-    // `__torajs_arguments` array local, so its static type is
-    // `Arr` and the fold below would answer true. The runtime lane
-    // reads FLAG_ARR_ARGUMENTS for the same reason; this is the
-    // static half of one judgment.
-    let is_arguments_local = matches!(
-        ctx.ast.get_expr(args[0]),
-        Expr::Ident(n) if n == "__torajs_arguments"
-    );
     let arg_op = ctx.lower_expr(args[0]);
     let arg_ty = ctx.operand_ty(&arg_op);
+    // RECORDED GAP (517-06) — §7.2.2 step 2 wants an Array EXOTIC
+    // object, and an arguments object is not one. tr desugars
+    // `arguments` into a plain `__torajs_arguments` array local, so
+    // both the static type here and the runtime tag say "array"; the
+    // header bit that would have separated them is shared with
+    // FLAG_SPLIT_BLOCK. Both lanes answer true until that identity
+    // has a signal of its own.
     if matches!(arg_ty, Type::Arr(_)) {
-        return Some(Operand::ConstBool(!is_arguments_local));
+        return Some(Operand::ConstBool(true));
     }
     if matches!(arg_ty, Type::Any) {
         let cur_block = ctx.cur_block;

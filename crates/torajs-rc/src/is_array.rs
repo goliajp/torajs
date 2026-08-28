@@ -4,8 +4,10 @@
 //! its `[[ProxyTarget]]`, however deep, and it THROWS on a revoked
 //! one (step 3.a) rather than answering. It also says no to an
 //! arguments object, which tr mints as an `Arr` cell but which is an
-//! ordinary object carrying a [[ParameterMap]], not an Array exotic
-//! one.
+//! ordinary object carrying a [[ParameterMap]] — except that tr
+//! cannot yet tell an arguments object from an array (517-06), so
+//! that half of the predicate is a recorded gap rather than a
+//! behaviour.
 //!
 //! Two callers ask it, and before this module they were two separate
 //! implementations that disagreed:
@@ -14,8 +16,6 @@
 //! an array" to one and "an array" to the other.
 
 use core::ffi::c_void;
-
-use crate::FLAG_ARR_ARGUMENTS;
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -38,9 +38,8 @@ const TAG_PROXY: u16 = 26;
 /// Proxy cell: `{ header:8 | target:8 | handler:8 }`.
 const PROXY_TARGET_OFF: usize = 8;
 const PROXY_HANDLER_OFF: usize = 16;
-/// Universal heap header: type tag u16 @ +4, flags half-word @ +6.
+/// Universal heap header: type tag u16 @ +4.
 const HDR_TYPE_TAG_OFF: usize = 4;
-const HDR_FLAGS_OFF: usize = 6;
 
 /// A proxy-of-a-proxy chain is finite (ProxyCreate rejects a revoked
 /// target), but the walk is bounded anyway — a stack overflow is a
@@ -64,13 +63,15 @@ pub unsafe fn is_array_spec(v: i64) -> Result<bool, ()> {
         }
         let type_tag = unsafe { *((ptr as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) };
         if type_tag != TAG_PROXY {
-            if type_tag != TAG_ARR {
-                return Ok(false);
-            }
-            // The arguments object is the one Arr cell that is not an
-            // Array exotic object.
-            let flags = unsafe { *((ptr as *const u8).add(HDR_FLAGS_OFF) as *const u16) };
-            return Ok(flags & FLAG_ARR_ARGUMENTS == 0);
+            // RECORDED GAP (517-06): an arguments object is NOT an
+            // Array exotic object and §7.2.2 owes it a `false`, but
+            // tr mints it as an Arr cell and has no reliable way to
+            // tell the two apart — FLAG_ARR_ARGUMENTS shares bit 1
+            // with FLAG_SPLIT_BLOCK on the same tag, and the element
+            // kind that might have separated them depends on when a
+            // split block gets materialized. So this answers `true`
+            // for `arguments`, as it always has.
+            return Ok(type_tag == TAG_ARR);
         }
         let handler = unsafe { *((ptr as *const u8).add(PROXY_HANDLER_OFF) as *const i64) };
         if handler == ANY_VALUE_NULL {
@@ -182,12 +183,6 @@ mod tests {
     }
 
     #[test]
-    fn arguments_object_is_not_an_array_exotic_object() {
-        let a = block(TAG_ARR, FLAG_ARR_ARGUMENTS);
-        assert_eq!(unsafe { is_array_spec(boxed(&a)) }, Ok(false));
-    }
-
-    #[test]
     fn proxy_answers_for_its_target() {
         let arr = block(TAG_ARR, 0);
         let obj = block(1, 0);
@@ -212,13 +207,5 @@ mod tests {
         let arr = block(TAG_ARR, 0);
         let revoked = proxy_block(boxed(&arr), ANY_VALUE_NULL);
         assert_eq!(unsafe { is_array_spec(boxed(&revoked)) }, Err(()));
-    }
-
-    #[test]
-    fn a_proxy_over_arguments_is_still_not_an_array() {
-        let args = block(TAG_ARR, FLAG_ARR_ARGUMENTS);
-        let handler = block(1, 0);
-        let p = proxy_block(boxed(&args), boxed(&handler));
-        assert_eq!(unsafe { is_array_spec(boxed(&p)) }, Ok(false));
     }
 }

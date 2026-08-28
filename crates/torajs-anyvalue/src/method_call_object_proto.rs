@@ -35,10 +35,6 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     /// torajs-throw — typed-tier non-string override boundary.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
-    /// torajs-arr — bare `FLAG_ARR_ARGUMENTS` probe. tr mints an
-    /// arguments object as an Arr cell, so the flag is the only thing
-    /// that tells it apart from a real array.
-    fn __torajs_arr_is_arguments(arr: *const c_void) -> i64;
 }
 
 /// chunk D-1 — `hasOwnProperty` / `propertyIsEnumerable` universal
@@ -262,17 +258,13 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
     }
     match tag {
         t if t == Tag::Str as u16 => b"String",
-        // §20.1.3.6 step 5 — [[ParameterMap]] beats step 4's Array
-        // badge, and it is a different question from IsArray: the
-        // arguments object answers "Arguments" precisely because it
-        // is NOT an array exotic object.
-        t if t == Tag::Arr as u16 => {
-            if unsafe { __torajs_arr_is_arguments(ptr) } != 0 {
-                b"Arguments"
-            } else {
-                b"Array"
-            }
-        }
+        // RECORDED GAP (517-06) — §20.1.3.6 step 5 owes an arguments
+        // object the "Arguments" badge, but tr mints it as an Arr
+        // cell and FLAG_ARR_ARGUMENTS shares bit 1 with
+        // FLAG_SPLIT_BLOCK on that same tag, so reading the bit
+        // called `"a-b".split("-")` an arguments object. Until the
+        // identity has a signal of its own, both answer "Array".
+        t if t == Tag::Arr as u16 => b"Array",
         t if t == Tag::Closure as u16 => b"Function",
         // §20.1.3.6 step 6 — IsCallable answers the "Function" badge.
         // A class constructor is a dynobj carrying [[Call]] via
