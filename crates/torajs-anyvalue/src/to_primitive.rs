@@ -154,13 +154,28 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
             return Exotic::NoHook;
         }
         let recv = box_pointer(cell as *mut HeapHeader);
-        // Borrow-shaped pair walk — the receiver keeps its stake, so
-        // the method needs no retain (iter_any_get_method's pattern).
-        let (tag, payload) = crate::member_get_symbol::symbol_key_pair(recv, sym);
+        // GetMethod is a real Get, so an ACCESSOR-shaped `@@toPrimitive`
+        // runs its getter. The borrow-shaped pair answers the sentinel
+        // instead, and this lane is the RFC's B shape: the sentinel is
+        // neither undefined nor null, so it slipped past the nullish
+        // gate and reached `callable_entry`, which boxed it into
+        // something no closure lookup recognises — every accessor form
+        // threw "Symbol.toPrimitive is not a function" with the getter
+        // never running, `throw` inside the getter included.
+        let (tag, payload, owned) = crate::member_get_symbol::symbol_key_get(recv, sym);
         let _ = __torajs_rc_dec(sym);
+        // A getter that threw answers undefined with the throw pending;
+        // falling through to OrdinaryToPrimitive would swallow it.
+        if __torajs_throw_check() != 0 {
+            return Exotic::Answered(Some(crate::nanbox::VALUE_UNDEFINED));
+        }
         if tag == TAG_UNDEF || tag == TAG_NULL {
+            // Nullish carries no cell, so `owned` needs no release.
             return Exotic::NoHook;
         }
+        // A getter-produced hook is ours; `env` below aliases its cell,
+        // so the release waits until after the call.
+        let hook = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, payload as i64);
         let entry = crate::iter_any_get_method::callable_entry(
             tag,
             payload,
@@ -169,6 +184,9 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
         let Some((env, entry)) = entry else {
             // Present but not callable — the TypeError is recorded;
             // a type-correct placeholder lets the caller unwind.
+            if owned {
+                __torajs_anyv_rc_dec(hook);
+            }
             return Exotic::Answered(Some(crate::nanbox::VALUE_UNDEFINED));
         };
         let hint_cell = __torajs_str_alloc(hint.as_ptr(), hint.len() as i64);
@@ -181,6 +199,9 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
             1,
         );
         __torajs_str_drop(hint_cell as *mut c_void);
+        if owned {
+            __torajs_anyv_rc_dec(hook);
+        }
         if __torajs_throw_check() != 0 {
             // The hook threw — propagate through the placeholder.
             return Exotic::Answered(Some(out));
