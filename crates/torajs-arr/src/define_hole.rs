@@ -108,12 +108,15 @@ pub(crate) unsafe fn mark_hole_range(arr: *mut c_void, from: u64, to: u64) {
     }
 }
 
-/// Mark the LAST pushed slot of a freshly-built array literal a
-/// HOLE (§13.2.4 elision — the slot reads undefined but is not an
-/// own property: `1 in [0,,2]` is false, indexOf skips it). Called
-/// by the array-literal lowering right after the elision slot's
-/// push, so `len - 1` is the elision index; the fresh slot carries
-/// default attributes, so the delete below cannot refuse.
+/// Mark the LAST pushed slot a HOLE (§13.2.4 elision — the slot
+/// reads undefined but is not an own property: `1 in [0,,2]` is
+/// false, indexOf skips it). Every caller pushes a slot and marks it
+/// immediately, so `len - 1` is the index and the fresh slot carries
+/// default attributes, which is why the delete below cannot refuse.
+/// Three of them: the array-literal elision lowering, and `map`'s
+/// hole arm on either tier (§23.1.3.21 step 6.c — the product keeps
+/// the source's length, so a skipped index arrives as a hole instead
+/// of shortening the result).
 ///
 /// # Safety
 /// `arr` is a live `Tag::Arr` heap pointer.

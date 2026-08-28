@@ -38,6 +38,7 @@
 
 use core::ffi::c_void;
 
+use crate::define::ANY_UNDEF;
 use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
@@ -130,13 +131,20 @@ unsafe fn hof_loop(
             // kernel the `in` lane runs, prototype digit keys
             // included.
             //
-            // map (mode 1) is NOT gated here: skipping would shorten
-            // its result, and the spec wants a hole in that position
-            // instead. Recorded rather than half-done — the callback
-            // still runs for a hole there.
-            if mode != 1
-                && crate::define_hole::__torajs_arr_has_index(arr as *mut c_void, i as i64) == 0
-            {
+            // map cannot simply step past one: its product has the
+            // source's length, so the skipped index has to arrive in
+            // the destination as a hole of its own (§23.1.3.21 step
+            // 6.c leaves it uncreated). Push the undefined slot and
+            // mark it — the same pair the array-literal elision
+            // lowering emits, and the same one the typed lane's
+            // `emit_map_hole_block` does. That lane has to check
+            // first whether the destination can SAY hole; here it
+            // always can, because the product is an `Arr<Any>`.
+            if crate::define_hole::__torajs_arr_has_index(arr as *mut c_void, i as i64) == 0 {
+                if mode == 1 {
+                    crate::any::__torajs_arr_push_any(out as *mut c_void, ANY_UNDEF, 0);
+                    crate::define_hole::__torajs_arr_mark_last_hole(out as *mut c_void);
+                }
                 i += 1;
                 continue;
             }
