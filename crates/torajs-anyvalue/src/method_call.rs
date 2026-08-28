@@ -145,10 +145,13 @@ pub unsafe extern "C" fn __torajs_any_method_call(
         }
         // The end of the walk — %Object.prototype%'s own three, after
         // the patch consult so a program's write to the same name
-        // still wins.
-        if let Some(out) = unsafe {
-            crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
-        } {
+        // still wins, and not at all once the root has given the name
+        // up (521-07's tombstone, call side).
+        if !crate::method_call_object_proto::root_gave_up(mid)
+            && let Some(out) = unsafe {
+                crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
+            }
+        {
             return out;
         }
         return unsafe { not_callable() };
@@ -183,9 +186,11 @@ pub unsafe extern "C" fn __torajs_any_method_call_opt(
         } {
             return out;
         }
-        if let Some(out) = unsafe {
-            crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
-        } {
+        if !crate::method_call_object_proto::root_gave_up(mid)
+            && let Some(out) = unsafe {
+                crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
+            }
+        {
             return out;
         }
         return VALUE_UNDEFINED;

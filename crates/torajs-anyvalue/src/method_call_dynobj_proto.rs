@@ -123,11 +123,18 @@ pub(crate) unsafe fn object_proto_fallback(
         ) {
             return out;
         }
-        if mid == ANY_METHOD_VALUE_OF {
+        // 521-07 call side — everything from here down is
+        // `%Object.prototype%`'s own surface, answered natively, so a
+        // `delete Object.prototype.<m>` has to end the walk in a miss
+        // rather than in the native answer. The Error branch inside
+        // the toString arm below is `Error.prototype`'s and is asked
+        // first, because the root has nothing to give up there.
+        let root_gone = crate::method_call_object_proto::root_gave_up(mid);
+        if mid == ANY_METHOD_VALUE_OF && !root_gone {
             __torajs_rc_inc(obj);
             return __torajs_anyv_box_pointer(obj);
         }
-        if mid == ANY_METHOD_TO_LOCALE_STRING {
+        if mid == ANY_METHOD_TO_LOCALE_STRING && !root_gone {
             let key = __torajs_str_alloc(b"toString".as_ptr(), 8);
             let out = if is_struct {
                 struct_method(obj, ANY_METHOD_TO_STRING, key as *const u8, argv, 0)
@@ -159,18 +166,22 @@ pub(crate) unsafe fn object_proto_fallback(
             // hardcoded "[object Object]": the five container
             // prototypes carry a well-known `Symbol.toStringTag`, so
             // `Map.prototype.toString()` is "[object Map]".
-            return crate::method_call_object_proto::cell_badge_string(obj, is_struct);
+            if !root_gone {
+                return crate::method_call_object_proto::cell_badge_string(obj, is_struct);
+            }
         }
         // The end of THIS walk: the dynobj and struct arms claim
         // their receiver and never float the no-such sentinel the
         // dispatcher's exits answer these at, so %Object.prototype%'s
         // own three are answered here too.
-        if let Some(v) = crate::method_call_object_proto::object_proto_universal(
-            __torajs_anyv_box_pointer(obj),
-            mid,
-            argv,
-            argc,
-        ) {
+        if !root_gone
+            && let Some(v) = crate::method_call_object_proto::object_proto_universal(
+                __torajs_anyv_box_pointer(obj),
+                mid,
+                argv,
+                argc,
+            )
+        {
             return v;
         }
         not_callable()

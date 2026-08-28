@@ -37,6 +37,36 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
+/// `%Object.prototype%`'s builtin-proto tag (`torajs-rc`).
+const OBJECT_PROTO_FAMILY: i64 = 1;
+
+/// Has the chain ROOT given this name up (`delete
+/// Object.prototype.<m>` — the RFC 20260712 chunk 3 tombstone)?
+///
+/// Every answer given at the END of a walk here is
+/// `%Object.prototype%`'s own, and the arms give them NATIVELY —
+/// which is precisely why none of them could see the tombstone that
+/// prop_has, gOPD and (since 521-07) the value read all consult. The
+/// walk has to end in a miss instead: `delete
+/// Object.prototype.hasOwnProperty` leaves
+/// `({ a: 1 } as any).hasOwnProperty("a")` with nothing to resolve,
+/// which is a TypeError in both bun and V8 rather than `true`.
+///
+/// Only names the root actually owns. A mid it never had is not the
+/// root's to give up — an Error struct's §20.5.3.4 toString belongs
+/// to `Error.prototype` and is answered before this is asked.
+///
+/// A reified cell's re-dispatch does not ask at all: that is the
+/// body running, and the lookup ended before any delete could reach
+/// it.
+pub(crate) fn root_gave_up(mid: i64) -> bool {
+    crate::method_support_proto::proto_tag_family_owns(OBJECT_PROTO_FAMILY, mid)
+        // SAFETY: pure bitmask read, range-checked inside.
+        && unsafe {
+            torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(OBJECT_PROTO_FAMILY, mid)
+        } != 0
+}
+
 /// The three %Object.prototype% methods no per-tag arm implements,
 /// answered where every other %Object.prototype% method is: at the
 /// END of the walk.

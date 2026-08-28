@@ -224,9 +224,22 @@ pub(crate) unsafe fn primitive_patch_pregate(
             // its own toString, and both bun and V8 answer the badge
             // rather than throwing. Only a method with nothing above
             // it (`delete Map.prototype.get`) is really gone.
-            if torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(fam, mid) != 0
-                && proto_patch_slot(recv, mid, name_str).is_none()
+            //
+            // Read as "no live supplier left" rather than "the family
+            // deleted it", because the family is only one of the two
+            // that can supply a name. `Map.prototype` owns no
+            // toString, so `delete Object.prototype.toString` is what
+            // takes `new Map().toString()` away — and the old form,
+            // keyed on the family's own tombstone, never fired for
+            // it: the block above is entered (the root's write shows
+            // through) and then declined, leaving the Map arm to give
+            // its badge.
+            let claimed = crate::method_support_proto::proto_tag_family_owns(fam, mid)
+                || crate::method_support_proto::proto_tag_family_owns(OBJECT_PROTO_FAMILY, mid);
+            if claimed
+                && !crate::method_support_proto::proto_tag_owns(fam, mid)
                 && !crate::method_support_proto::proto_tag_owns(OBJECT_PROTO_FAMILY, mid)
+                && proto_patch_slot(recv, mid, name_str).is_none()
             {
                 return Some(not_callable());
             }
