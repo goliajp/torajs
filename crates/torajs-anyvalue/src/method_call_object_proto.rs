@@ -35,6 +35,10 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     /// torajs-throw — typed-tier non-string override boundary.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-arr — bare `FLAG_ARR_ARGUMENTS` probe. tr mints an
+    /// arguments object as an Arr cell, so the flag is the only thing
+    /// that tells it apart from a real array.
+    fn __torajs_arr_is_arguments(arr: *const c_void) -> i64;
 }
 
 /// chunk D-1 — `hasOwnProperty` / `propertyIsEnumerable` universal
@@ -173,10 +177,17 @@ unsafe fn is_array_spec(recv: AnyValue) -> Result<bool, ()> {
     // that invariant with a stack overflow as the failure mode.
     for _ in 0..1000 {
         if !crate::proxy::is_proxy(cur) {
-            let Some((_, tag)) = crate::member_get::recv_cell(cur) else {
+            let Some((ptr, tag)) = crate::member_get::recv_cell(cur) else {
                 return Ok(false);
             };
-            return Ok(tag == Tag::Arr as u16);
+            if tag != Tag::Arr as u16 {
+                return Ok(false);
+            }
+            // An arguments object is an ORDINARY object carrying a
+            // [[ParameterMap]], not an Array exotic one — §7.2.2 says
+            // false, and step 5 gives it its own badge. tr mints it as
+            // an Arr cell, so only the flag separates them.
+            return Ok(unsafe { __torajs_arr_is_arguments(ptr) } == 0);
         }
         let (target, handler) = unsafe { crate::proxy::slots(crate::nanbox::as_void_ptr(cur)) };
         // §7.2.2 step 3.a — a revoked proxy has a null handler, and
@@ -284,7 +295,17 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
     }
     match tag {
         t if t == Tag::Str as u16 => b"String",
-        t if t == Tag::Arr as u16 => b"Array",
+        // §20.1.3.6 step 5 — [[ParameterMap]] beats step 4's Array
+        // badge, and it is a different question from IsArray: the
+        // arguments object answers "Arguments" precisely because it
+        // is NOT an array exotic object.
+        t if t == Tag::Arr as u16 => {
+            if unsafe { __torajs_arr_is_arguments(ptr) } != 0 {
+                b"Arguments"
+            } else {
+                b"Array"
+            }
+        }
         t if t == Tag::Closure as u16 => b"Function",
         // §20.1.3.6 step 6 — IsCallable answers the "Function" badge.
         // A class constructor is a dynobj carrying [[Call]] via
