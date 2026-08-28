@@ -1557,6 +1557,28 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
+**Latest @ `0fffd3edb`** (2026-08-29, rotation 522 — a lookup that starts
+after the place it should start, in seven spellings). Gate predicate:
+**157** clusters of ≥ 4 holding **1196** cases, register 2 · 251,
+residue 653 · 812 (35.9%), core **2259**. Against the previous sweep
+(`6e075bab9`, rotation 521, which this section skipped): clusters
+158 → **157 (−1)**, cases 1201 → **1196 (−5)**, core 2261 → **2259
+(−2)**. Sweep passTotal 34951 → **34957 (+6)**, pass 29876 → **29889
+(+13)**, passNoOracle 928 → **921 (−7)**, bug 12609 → **12605 (−4)**,
+incompatible 5614 → **5612 (−2)**, trAccepted 47560 → **47562 (+2)**;
+conservation exact (+2 = +6 + −4). Verdict diff **16 lines, 13 forward
+and zero pass regressions**; the other 3 are bucket reclassification
+(`bug:no-oracle` → `bug`, bun acquired an oracle this run). The forward
+set is the rotation's own two halves: `Symbol.unscopables` × 3,
+`match-indices` / `named-groups` × 3 and `staging/sm/Array/unscopables`
+are the `.call`-rewrite knife, `Array/prototype/{filter,forEach}/
+15.4.4.*-b-11` are the array-hole knife, and both
+`class/elements/static-field-declaration` moved off
+`incompatible:type error`. Coverage curve: top-100 **50.4%**, top-200
+**67.7%**, top-400 **81.0%**. Unattributed head by directory:
+`built-ins/RegExp` 38, `built-ins/Promise` 25, `built-ins/BigInt` 21,
+`built-ins/Uint8Array` 20, `language/identifiers` 16.
+
 **Latest @ `f87f2ab3d`** (2026-08-28, rotation 519 — the Get that was
 skipped, and the doc that explained why skipping it was safe). Gate
 predicate: **158** clusters of ≥ 4 holding **1201** cases, register
