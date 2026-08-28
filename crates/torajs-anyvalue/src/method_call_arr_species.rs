@@ -37,7 +37,7 @@ use crate::construct::is_constructor;
 // The product WRITE face lives in the `_store` sibling; the
 // re-export keeps every `method_call_arr_species::store_elem`-shaped
 // caller face byte-identical.
-use crate::member_get_symbol::symbol_key_pair;
+use crate::member_get_symbol::symbol_key_get;
 use crate::method_call::{closure_boxed_entry, invoke_with_this};
 use crate::method_call_arr_species_len::species_ctor_len;
 pub(crate) use crate::method_call_arr_species_store::{
@@ -272,8 +272,17 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) ->
             return SpeciesOutcome::Default;
         }
         let ctor_av = __torajs_anyv_box_pointer(cptr);
-        let (stag, sval) = symbol_key_pair(ctor_av, sym as *const c_void);
+        // §23.1.3.x ArraySpeciesCreate reads @@species with a Get, so an
+        // ACCESSOR-shaped entry runs its getter. The pair alone answers
+        // the sentinel, which fell through the undefined/null checks
+        // below and got boxed as if it were the species itself — the
+        // "array species constructor is not a constructor" TypeError
+        // was that sentinel reaching Construct (RFC knife 2c).
+        let (stag, sval, owned) = symbol_key_get(ctor_av, sym as *const c_void);
         __torajs_value_drop_heap(sym);
+        if __torajs_throw_check() != 0 {
+            return SpeciesOutcome::Threw;
+        }
         // step 7.a with the INHERITED default getter (§23.1.2.5 —
         // `get Array[@@species]` returns this, and an `extends
         // Array` class inherits it through its static chain, which
@@ -290,7 +299,13 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) ->
             return SpeciesOutcome::Default;
         }
         let species = crate::nanbox_encode::__torajs_anyv_box_from_pair(stag as i64, sval as i64);
-        run_species_ctor(ctor_len, species)
+        let out = run_species_ctor(ctor_len, species);
+        // A getter-produced species is ours once Construct is done; the
+        // product carries its own +1 and is unaffected.
+        if owned && crate::nanbox::is_cell(species) {
+            __torajs_value_drop_heap(as_void_ptr(species));
+        }
+        out
     }
 }
 
