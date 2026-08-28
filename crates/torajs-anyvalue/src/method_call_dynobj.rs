@@ -165,7 +165,7 @@ pub(crate) unsafe fn dynobj_method(
                 if let Some(r) = proto_chain_method(obj, name_str, recv_slot, argv, argc) {
                     return r;
                 }
-                return object_proto_fallback(obj, mid, false, argv, argc);
+                return object_proto_fallback(obj, mid, name_str, false, argv, argc);
             }
             // ANY_HEAP = 4 — a plain closure-cell property.
             if dtag == 4 {

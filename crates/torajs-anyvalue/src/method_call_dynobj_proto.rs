@@ -50,6 +50,7 @@ unsafe extern "C" {
 pub(crate) unsafe fn object_proto_fallback(
     obj: *mut c_void,
     mid: i64,
+    name_str: *const u8,
     is_struct: bool,
     argv: *const u64,
     argc: i64,
@@ -72,6 +73,34 @@ pub(crate) unsafe fn object_proto_fallback(
             && let Some(v) = builtin_proto_primitive(obj, mid, argv, argc)
         {
             return v;
+        }
+        // 521-06 — what the PROGRAM put on %Object.prototype%, ahead
+        // of the spec-given surface below. The three faces this
+        // function serves (valueOf / toString / toLocaleString) are
+        // themselves %Object.prototype% entries, so an own write to
+        // the same name on the same object replaces them; answering
+        // the badge for a patched `Object.prototype.toString` was
+        // reading the receiver's prototype and its patch as two
+        // different objects.
+        //
+        // The other lanes reach this consult from the dispatcher's
+        // tail (`any_method_call_inner`), which the dynobj and struct
+        // arms never fall out of: both claim their receiver and end
+        // here instead (521-05 left them for exactly this reason).
+        // `recv_proto_family` answers %Object.prototype% for Tag::Obj
+        // and Tag::DynObj alike, so the same consult serves both.
+        //
+        // No cycle: the arms above already probed this receiver's own
+        // face, and a receiver that IS %Object.prototype% would have
+        // answered there — the peek below reads the same slot.
+        if let Some(out) = crate::method_call_proto_patch::builtin_proto_patch_method(
+            __torajs_anyv_box_pointer(obj),
+            mid,
+            name_str,
+            argv,
+            argc,
+        ) {
+            return out;
         }
         if mid == ANY_METHOD_VALUE_OF {
             __torajs_rc_inc(obj);
