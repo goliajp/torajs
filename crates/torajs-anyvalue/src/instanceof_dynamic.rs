@@ -18,7 +18,8 @@
 //!    property off a number.
 //! 2. **GetMethod(target, @@hasInstance).** The symbol face already
 //!    resolves the dict / monkey-patch / reify layers
-//!    ([`crate::member_get_symbol::symbol_key_pair`]) — the same
+//!    ([`crate::member_get_symbol::symbol_key_get`], which resolves an
+//!    accessor-shaped handler) — the same
 //!    lookup `Odd[Symbol.hasInstance]` performs as an expression, so
 //!    the two spellings cannot disagree.
 //! 3. **Call(handler, target, « V »)** with the handler's `this`
@@ -40,13 +41,17 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 use crate::construct::is_heap_object;
-use crate::member_get_symbol::symbol_key_pair;
+use crate::member_get_symbol::symbol_key_get;
 use crate::method_call_closure_dispatch::invoke_with_this;
 use crate::method_value::symbol_static::well_known_singleton;
 use crate::nanbox::{AnyValue, as_void_ptr};
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-throw — did the @@hasInstance getter leave a throw?
+    fn __torajs_throw_check() -> i64;
+    /// torajs-rc — release the getter's owned answer.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// `AnySlotTag::Heap` in the member-pair protocol.
@@ -68,11 +73,25 @@ pub unsafe extern "C" fn __torajs_instanceof_dynamic(v: AnyValue, target: AnyVal
             __torajs_throw_type_error(c"Right-hand side of 'instanceof' is not an object".as_ptr());
             return false;
         }
-        // Step 2 — GetMethod(target, @@hasInstance).
-        let (tag, value) = symbol_key_pair(target, well_known_singleton(WK_HAS_INSTANCE));
-        if tag == TAG_HEAP && value != 0 {
-            return call_has_instance(v, target, value as *mut c_void);
+        // Step 2 — GetMethod(target, @@hasInstance). This is a Get, so
+        // an ACCESSOR-shaped handler runs its getter: the pair alone
+        // answers the sentinel, and reading that as "not a heap value"
+        // silently dropped the handler and fell through to the ordinary
+        // prototype walk (517-01, RFC knife 2 — same shape the
+        // `@@toStringTag` consumer had).
+        let (tag, value, owned) = symbol_key_get(target, well_known_singleton(WK_HAS_INSTANCE));
+        if __torajs_throw_check() != 0 {
+            return false;
         }
+        if tag == TAG_HEAP && value != 0 {
+            let verdict = call_has_instance(v, target, value as *mut c_void);
+            // A getter-produced handler is ours once the call is done.
+            if owned {
+                __torajs_value_drop_heap(value as *mut c_void);
+            }
+            return verdict;
+        }
+        // A non-heap answer carries no cell, so `owned` needs no release.
         // Steps 4-5 — no handler: the target must itself be callable,
         // and then the answer is the ordinary prototype walk.
         let cell = as_void_ptr(target);

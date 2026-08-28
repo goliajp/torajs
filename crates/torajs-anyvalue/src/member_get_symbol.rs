@@ -287,11 +287,7 @@ pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64
 ///
 /// # Safety
 /// Cell receivers are live heap pointers; `key` is a live Symbol cell.
-///
-/// `cfg(not(test))` because every consumer is a runtime protocol path
-/// whose own definition is cfg-split the same way (the lib-test build
-/// stubs them out, which would leave this dead).
-#[cfg(not(test))]
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> (u64, u64, bool) {
     let (tag, value) = unsafe { symbol_key_pair(recv, key) };
     if tag != crate::struct_probe::ANY_ACCESSOR_TAG {
