@@ -192,7 +192,8 @@ pub(crate) unsafe fn primitive_patch_pregate(
         return None;
     };
     unsafe {
-        if torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(fam, mid) != 0
+        if (torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(fam, mid) != 0
+            || root_shadows_inherited(fam, mid))
             && !own_face_shadows(recv_face, mid, name_str)
         {
             if let Some(out) = builtin_proto_patch_method(recv, mid, name_str, argv, argc) {
@@ -249,6 +250,33 @@ pub(crate) unsafe fn primitive_patch_pregate(
         }
     }
     None
+}
+
+/// Does the chain ROOT carry a write under a name this family does
+/// NOT own?
+///
+/// The bitmap the gate above reads is per (prototype, mid), so a
+/// write to %Object.prototype% is invisible to every other family's
+/// gate — and 521-05's hop to the root, which happens inside the slot
+/// lookup, never ran because the gate had already declined. The arms
+/// that answer an INHERITED name natively therefore kept answering it:
+/// `Object.prototype.valueOf = f` left `[1].valueOf()` at the array
+/// identity, `new Map().valueOf()` at the map, and the same write
+/// under `toString` left a Map at its badge.
+///
+/// Ownership is the whole of the condition. `String.prototype` owns
+/// its own `valueOf` (§22.1.3.35) and `Array.prototype` its own
+/// `toString` (§23.1.3.36), so for those the root is not what the
+/// walk reaches — and `proto_tag_owns` reads the delete tombstone, so
+/// a family method the program removed stops being an answer and the
+/// root's shows through.
+fn root_shadows_inherited(fam: i64, mid: i64) -> bool {
+    fam != OBJECT_PROTO_FAMILY
+        // SAFETY: pure bitmask read, range-checked inside.
+        && unsafe {
+            torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(OBJECT_PROTO_FAMILY, mid)
+        } != 0
+        && !crate::method_support_proto::proto_tag_owns(fam, mid)
 }
 
 /// The Str cell to probe a property under for `mid`: the call site's
