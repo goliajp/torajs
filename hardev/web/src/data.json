@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T16:10:59.008Z",
+  "generatedAt": "2026-08-28T19:22:55.759Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,30 +9,30 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-28T15:57:41Z",
-    "headSha": "6e075bab9",
-    "elapsedSec": 380.71,
+    "ranAt": "2026-08-28T19:10:46Z",
+    "headSha": "0fffd3edb",
+    "elapsedSec": 1253.12,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29876,
-    "passNoOracle": 928,
+    "pass": 29889,
+    "passNoOracle": 921,
     "passNegative": 4147,
-    "passTotal": 34951,
-    "bug": 12609,
-    "incompatible": 5614,
-    "bunSkip": 3041,
+    "passTotal": 34957,
+    "bug": 12605,
+    "incompatible": 5612,
+    "bunSkip": 3031,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47560,
-    "passRateInScope": 65.73,
-    "passRateTrAccepted": 73.49,
-    "headShaNote": "worktree contents synced from the dev machine; mini git HEAD lagged at c75b40331 because pushing was not authorized this rotation"
+    "trAccepted": 47562,
+    "passRateInScope": 65.74,
+    "passRateTrAccepted": 73.5,
+    "headShaNote": "mini git HEAD lags the dev tree (push unauthorized); the working tree was rsynced to 0fffd3edb and that is what ran."
   },
   "torajs": {
-    "commit": "6e075bab9",
-    "commitSubject": "fix: the call channel's walk does not stop at the family prototype",
+    "commit": "0fffd3edb",
+    "commitSubject": "fix: the any lane's iteration loop never asked whether the index is there",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +714,38 @@
   },
   "commits": [
     {
+      "hash": "0fffd3edb",
+      "subject": "fix: the any lane's iteration loop never asked whether the index is there"
+    },
+    {
+      "hash": "311e20fff",
+      "subject": "fix: naming a prototype method is not looking it up on the receiver"
+    },
+    {
+      "hash": "03c7eacc6",
+      "subject": "fix: a write to the chain root is invisible to every other family's gate"
+    },
+    {
+      "hash": "f440ece9d",
+      "subject": "fix: the call channel never asked whether the chain reaches the root"
+    },
+    {
+      "hash": "3db93396a",
+      "subject": "fix: three Object.prototype methods jumped the name lookup"
+    },
+    {
+      "hash": "8ac7416e3",
+      "subject": "fix: the store receiver is read through the cast, not around it"
+    },
+    {
+      "hash": "3e5ecba0b",
+      "subject": "fix: the property-carrying shapes never reach the prototype patch consult"
+    },
+    {
+      "hash": "ef5829aa0",
+      "subject": "docs: rotation 521 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "6e075bab9",
       "subject": "fix: the call channel's walk does not stop at the family prototype"
     },
@@ -728,59 +760,38 @@
     {
       "hash": "8395cf79f",
       "subject": "fix: the nested-declaration half reads the same pre-bind"
-    },
-    {
-      "hash": "5e6d2c939",
-      "subject": "fix: a name the local scope rebinds is still a capture"
-    },
-    {
-      "hash": "c75b40331",
-      "subject": "docs: rotation 520 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "952d22b09",
-      "subject": "fix: the other spelling of that load declines the same way"
-    },
-    {
-      "hash": "9b3d06544",
-      "subject": "fix: an index load off an `any` is `any`, and declining meant `number`"
-    },
-    {
-      "hash": "b9eb0f762",
-      "subject": "refactor: the builtin-namespace answers move out before the next arm goes in"
-    },
-    {
-      "hash": "ad927378f",
-      "subject": "refactor: the release had to land after the call, and only a comment said so"
-    },
-    {
-      "hash": "ed2ae8822",
-      "subject": "docs: rotation 519 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "c4a297d50",
-      "subject": "docs: the two legs are gone, so stop calling the first one a probe"
     }
   ],
-  "headSha": "6e075bab9",
+  "headSha": "0fffd3edb",
   "autorun": {
-    "total": 824,
+    "total": 825,
     "baselineTarget": 10,
-    "bySelf": 819,
+    "bySelf": 820,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787923664-7bb4",
-      "at": "2026-08-28T13:27:44Z",
-      "ts": 1787923664,
+      "rotationId": "r-1787933493-33d1",
+      "at": "2026-08-28T16:11:33Z",
+      "ts": 1787933493,
       "trigger": "self",
-      "prevHead": "c75b40331",
-      "handoffSha": "sha256:3f076e344adc7fbec38aae5e13f1d07e1b889a0580f571191c21554169c3a39d",
-      "handoffAgeSec": 17,
+      "prevHead": "ef5829aa0",
+      "handoffSha": "sha256:ba2947287ae072318c23fbaebd008d80b401fd12141a08206b64cc0a9f827095",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787933493-33d1",
+        "at": "2026-08-28T16:11:33Z",
+        "ts": 1787933493,
+        "trigger": "self",
+        "prevHead": "ef5829aa0",
+        "handoffSha": "sha256:ba2947287ae072318c23fbaebd008d80b401fd12141a08206b64cc0a9f827095",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787923664-7bb4",
         "at": "2026-08-28T13:27:44Z",
@@ -877,17 +888,6 @@
         "prevHead": "3c73581a0",
         "handoffSha": "sha256:5c2159417d320b5bc881cb15759538df7ad2d53cb61deedbeafc5a47fcbc6acc",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787838902-5ca1",
-        "at": "2026-08-27T13:55:02Z",
-        "ts": 1787838902,
-        "trigger": "self",
-        "prevHead": "b67b2c6d6",
-        "handoffSha": "sha256:cf6a5af863c82d595362656276922973e9419a1a09b98140eec2b0e4c63b9f9a",
-        "handoffAgeSec": 25,
         "conformanceBefore": null,
         "commitsInSession": null
       }
