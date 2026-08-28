@@ -101,7 +101,7 @@ pub(crate) unsafe fn object_proto_fallback(
             // After the own-property probe, so a monkey-patched own
             // `toString` still wins.
             if is_struct
-                && let Some(v) = crate::method_call_object_proto::error_struct_tostring(obj)
+                && let Some(v) = crate::method_call_error_tostring::error_struct_tostring(obj)
             {
                 return v;
             }

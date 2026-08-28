@@ -191,6 +191,7 @@ mod method_call_date;
 mod method_call_dynobj;
 mod method_call_dynobj_chain;
 mod method_call_dynobj_proto;
+mod method_call_error_tostring;
 mod method_call_legacy_accessor;
 mod method_call_mapset;
 mod method_call_num;

@@ -223,60 +223,11 @@ pub(crate) fn lower_struct_field_store(
         // owns its stake while the source binding keeps its own —
         // the old consume let a re-assign's drop-old steal the
         // source's only ref (UAF, reuse-window probe-proven). Owned
-        // temps keep transferring their fresh reference.
-        let mut transfers = ctx.expr_transfers_ownership(value);
-        // W4 — align the stored value with the field width (mirrors
-        // the index-assign site; the reverse direction means the
-        // width analysis missed this write).
-        let v = match (field_ty, ctx.operand_ty(&v)) {
-            (Type::F64, Type::I64) => ctx.coerce_to_f64(v),
-            (Type::I64, Type::F64) => panic!(
-                "ssa-lower: f64 value into i64 struct field `{field}` — \
-                 container width analysis missed this write"
-            ),
-            // RFC 20260710 C4 — a declared-Any slot (`__nullable(
-            // number|boolean)` optional field, plain `any` field)
-            // takes a NaN-box: box the scalar / nullish-literal
-            // write (expr-aware — an undefined literal boxes to
-            // ANY_UNDEF, a null literal to ANY_NULL). The box is an
-            // rc-inert immediate for these payloads, so the share
-            // inc below no-ops through __torajs_rc_inc's NaN-box
-            // gate. Heap sources keep their pre-RFC raw store —
-            // their ownership story is a separate face.
-            (Type::Any, Type::I64 | Type::I32 | Type::F64 | Type::Bool) => {
-                ctx.box_to_any_from_expr(value, v)
-            }
-            (Type::Any, Type::Ptr) if matches!(v, Operand::ConstPtrNull) => {
-                ctx.box_to_any_from_expr(value, v)
-            }
-            // S2.26 (RFC 20260727-dstr-assignment 刀 4) — the reverse
-            // direction: an Any value into a declared scalar / Str
-            // field unboxes through the same kernels every other
-            // any→typed sink uses (coerce_for_local / coerce_for_
-            // global). The fall-through used to store the NaN-box
-            // bits raw — `o.k = (v: any) 9` read back as NaN.
-            // Bool / heap-typed fields still fall through (no
-            // established unbox kernel carries their guard story) —
-            // the registered S2.26 remainder.
-            (Type::F64 | Type::I64, Type::Any) => ctx.coerce_any_to_number(v, field_ty),
-            (Type::Str, Type::Any) => {
-                // This coercion MINTS: `any_to_str` hands back a
-                // reference of its own (an rc_inc on a plain Str, a
-                // fresh allocation for everything else). What reaches
-                // the slot is therefore not the source expression's
-                // value any more, so the ownership question asked
-                // above — about the SOURCE — is about the wrong
-                // thing. A borrowed `any` ident answered "does not
-                // transfer", the store retained a second time, and
-                // `new Error("x")` stranded one Str per call: 33
-                // bytes per construction, unbounded. The scalar arms
-                // above need no such correction (their results are
-                // Copy) and the boxing arms mint rc-inert immediates.
-                transfers = true;
-                ctx.coerce_to_str(v, Type::Any)
-            }
-            _ => v,
-        };
+        // temps keep transferring their fresh reference — and so
+        // does a fit that MINTED, whose value the source expression
+        // never held (see `fit_to_field`).
+        let (v, minted) = fit_to_field(ctx, field_ty, v, value);
+        let transfers = ctx.expr_transfers_ownership(value) || minted;
         let v_ty = ctx.operand_ty(&v);
         if !transfers && !v_ty.is_copy() {
             ctx.emit_rc_inc(v.clone());
@@ -370,4 +321,63 @@ fn emit_field_writable_guard(ctx: &mut LowerCtx, obj_val: Operand, field: &str) 
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Br(store_blk));
     ctx.cur_block = store_blk;
+}
+
+/// Fit `v` to `field_ty`, answering whether the fit MINTED — handed
+/// back a reference of its own rather than the source expression's.
+///
+/// The caller's retain is keyed on whether the VALUE EXPRESSION
+/// transfers ownership, and that question is about the wrong thing
+/// once a coercion has replaced the value: a borrowed `any` ident
+/// said "does not transfer", so an any→string fit was retained a
+/// second time and stranded one string cell per write (every
+/// `new Error(msg)` — the built-in ctor is `this.message = message`
+/// with `message: any`). Same `(Operand, minted)` shape
+/// `ssa_lower_binop_inner::add_str::coerce_to_str` already uses.
+fn fit_to_field(
+    ctx: &mut LowerCtx<'_>,
+    field_ty: Type,
+    v: Operand,
+    value: ExprId,
+) -> (Operand, bool) {
+    // W4 — align the stored value with the field width (mirrors the
+    // index-assign site; the reverse direction means the width
+    // analysis missed this write).
+    match (field_ty, ctx.operand_ty(&v)) {
+        (Type::F64, Type::I64) => (ctx.coerce_to_f64(v), false),
+        (Type::I64, Type::F64) => panic!(
+            "ssa-lower: f64 value into an i64 struct field — \
+             container width analysis missed this write"
+        ),
+        // RFC 20260710 C4 — a declared-Any slot (`__nullable(
+        // number|boolean)` optional field, plain `any` field) takes a
+        // NaN-box: box the scalar / nullish-literal write (expr-aware
+        // — an undefined literal boxes to ANY_UNDEF, a null literal
+        // to ANY_NULL). The box is an rc-inert immediate for these
+        // payloads, so the caller's share inc no-ops through
+        // __torajs_rc_inc's NaN-box gate. Heap sources keep their
+        // pre-RFC raw store — their ownership story is a separate
+        // face.
+        (Type::Any, Type::I64 | Type::I32 | Type::F64 | Type::Bool) => {
+            (ctx.box_to_any_from_expr(value, v), false)
+        }
+        (Type::Any, Type::Ptr) if matches!(v, Operand::ConstPtrNull) => {
+            (ctx.box_to_any_from_expr(value, v), false)
+        }
+        // S2.26 (RFC 20260727-dstr-assignment 刀 4) — the reverse
+        // direction: an Any value into a declared scalar / Str field
+        // unboxes through the same kernels every other any→typed sink
+        // uses (coerce_for_local / coerce_for_global). The
+        // fall-through used to store the NaN-box bits raw — `o.k =
+        // (v: any) 9` read back as NaN. Bool / heap-typed fields
+        // still fall through (no established unbox kernel carries
+        // their guard story) — the registered S2.26 remainder.
+        //
+        // The number fits answer `false` because their results are
+        // Copy; the string fit MINTS, and that is the whole reason
+        // this function reports it.
+        (Type::F64 | Type::I64, Type::Any) => (ctx.coerce_any_to_number(v, field_ty), false),
+        (Type::Str, Type::Any) => (ctx.coerce_to_str(v, Type::Any), true),
+        _ => (v, false),
+    }
 }
