@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T13:27:03.412Z",
+  "generatedAt": "2026-08-28T16:10:59.008Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,30 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-28T13:15:11Z",
-    "headSha": "952d22b09",
-    "elapsedSec": 371.95,
+    "ranAt": "2026-08-28T15:57:41Z",
+    "headSha": "6e075bab9",
+    "elapsedSec": 380.71,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29875,
+    "pass": 29876,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34950,
+    "passTotal": 34951,
     "bug": 12609,
-    "incompatible": 5615,
+    "incompatible": 5614,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47559,
+    "trAccepted": 47560,
     "passRateInScope": 65.73,
-    "passRateTrAccepted": 73.49
+    "passRateTrAccepted": 73.49,
+    "headShaNote": "worktree contents synced from the dev machine; mini git HEAD lagged at c75b40331 because pushing was not authorized this rotation"
   },
   "torajs": {
-    "commit": "952d22b09",
-    "commitSubject": "fix: the other spelling of that load declines the same way",
+    "commit": "6e075bab9",
+    "commitSubject": "fix: the call channel's walk does not stop at the family prototype",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +714,30 @@
   },
   "commits": [
     {
+      "hash": "6e075bab9",
+      "subject": "fix: the call channel's walk does not stop at the family prototype"
+    },
+    {
+      "hash": "2092f1e2c",
+      "subject": "fix: the walk does not end at the family prototype"
+    },
+    {
+      "hash": "9485018bf",
+      "subject": "fix: a captured name is not a value use of the function it spells"
+    },
+    {
+      "hash": "8395cf79f",
+      "subject": "fix: the nested-declaration half reads the same pre-bind"
+    },
+    {
+      "hash": "5e6d2c939",
+      "subject": "fix: a name the local scope rebinds is still a capture"
+    },
+    {
+      "hash": "c75b40331",
+      "subject": "docs: rotation 520 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "952d22b09",
       "subject": "fix: the other spelling of that load declines the same way"
     },
@@ -735,51 +760,38 @@
     {
       "hash": "c4a297d50",
       "subject": "docs: the two legs are gone, so stop calling the first one a probe"
-    },
-    {
-      "hash": "f87f2ab3d",
-      "subject": "fix: it checked that the method is there, then went and asked for it again"
-    },
-    {
-      "hash": "5bf45d6e0",
-      "subject": "fix: the doc said the second walk answers the same property, and it ran a getter"
-    },
-    {
-      "hash": "63a4d3cb3",
-      "subject": "fix: the iterator method was there, and it was reported as not a function"
-    },
-    {
-      "hash": "0f139f40c",
-      "subject": "fix: it reported the hook is not a function, without ever running the getter"
-    },
-    {
-      "hash": "78509df3a",
-      "subject": "docs: rotation 518 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "d4bf29391",
-      "subject": "fix: the sentinel was neither undefined nor null, so it got built"
     }
   ],
-  "headSha": "952d22b09",
+  "headSha": "6e075bab9",
   "autorun": {
-    "total": 823,
+    "total": 824,
     "baselineTarget": 10,
-    "bySelf": 818,
+    "bySelf": 819,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787917263-2d86",
-      "at": "2026-08-28T11:41:03Z",
-      "ts": 1787917263,
+      "rotationId": "r-1787923664-7bb4",
+      "at": "2026-08-28T13:27:44Z",
+      "ts": 1787923664,
       "trigger": "self",
-      "prevHead": "ed2ae8822",
-      "handoffSha": "sha256:7db7d1841270a481ab056edad9ffb09884ca5213dee92f370938124768bc5578",
-      "handoffAgeSec": 12,
+      "prevHead": "c75b40331",
+      "handoffSha": "sha256:3f076e344adc7fbec38aae5e13f1d07e1b889a0580f571191c21554169c3a39d",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787923664-7bb4",
+        "at": "2026-08-28T13:27:44Z",
+        "ts": 1787923664,
+        "trigger": "self",
+        "prevHead": "c75b40331",
+        "handoffSha": "sha256:3f076e344adc7fbec38aae5e13f1d07e1b889a0580f571191c21554169c3a39d",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787917263-2d86",
         "at": "2026-08-28T11:41:03Z",
@@ -876,17 +888,6 @@
         "prevHead": "b67b2c6d6",
         "handoffSha": "sha256:cf6a5af863c82d595362656276922973e9419a1a09b98140eec2b0e4c63b9f9a",
         "handoffAgeSec": 25,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787833215-0b46",
-        "at": "2026-08-27T12:20:15Z",
-        "ts": 1787833215,
-        "trigger": "self",
-        "prevHead": "82ec19ad5",
-        "handoffSha": "sha256:8082d0b6e80b17cffc6ff9bc978bc1e1cc0bbdcd9d214506234c39bdf58f14fb",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
