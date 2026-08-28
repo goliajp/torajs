@@ -187,13 +187,51 @@ pub(crate) unsafe fn get_iterator_wk(
         if sym.is_null() {
             return GetIterator::NoUserMethod;
         }
-        // The pair walk is borrow-shaped and the receiver keeps its
-        // stake for the whole call, so the method needs no retain.
-        let (tag, payload) = crate::member_get_symbol::symbol_key_pair(recv, sym);
+        // GetMethod is a real Get, so an ACCESSOR-shaped `@@iterator`
+        // runs its getter. The borrow-shaped pair answers the sentinel
+        // instead, and this lane read it as a VALUE: neither undefined
+        // nor null, so it slipped past the gate below into
+        // `callable_entry`, which boxed it into something no closure
+        // lookup recognises — every accessor spelling threw
+        // "Symbol.iterator is not a function" with the getter never
+        // running (RFC 20260828 knife 3b).
+        let (tag, payload, owned) = crate::member_get_symbol::symbol_key_get(recv, sym);
         let _ = __torajs_rc_dec(sym);
+        // A getter that threw answers undefined with the throw pending;
+        // the gate below would read that as "no user method" and ride
+        // the builtin lane with the throw still in flight.
+        if __torajs_throw_check() != 0 {
+            return GetIterator::Threw;
+        }
         if tag == TAG_UNDEF || (nullish_missing && tag == TAG_NULL) {
+            // Nullish carries no cell, so `owned` needs no release.
             return GetIterator::NoUserMethod;
         }
+        // A getter-produced method is ours across all four exits below,
+        // and the invoke's `env` aliases its cell — so the dispatch
+        // moves into its own fn and this frame owns the one release.
+        let out = iterator_from_method(recv, tag, payload, not_a_function);
+        if owned {
+            __torajs_anyv_rc_dec(__torajs_anyv_box_from_pair(tag as i64, payload as i64));
+        }
+        out
+    }
+}
+
+/// The GetMethod-verdict-then-call half of [`get_iterator_wk`], split
+/// out so its caller can release a getter-produced method across every
+/// exit exactly once (`index_any_method_call`'s
+/// `call_resolved_symbol_method` is the same shape).
+///
+/// # Safety
+/// `recv` is a live AnyValue; `(tag, payload)` is a live member pair.
+unsafe fn iterator_from_method(
+    recv: AnyValue,
+    tag: u64,
+    payload: u64,
+    not_a_function: &core::ffi::CStr,
+) -> GetIterator {
+    unsafe {
         // F0 follow-up (RFC 20260728-gen-forof-yieldstar) — the
         // symbol walk now ends in a builtin `@@iterator` reify for
         // native iterable tags, which used to be a miss. That cell
