@@ -381,9 +381,20 @@ function __t262_throwsAsync(expectedErrorConstructor: any, func: any, message: a
 // Divergences from the untyped source:
 // - symbol property names don't exist in tr — the symbol lanes are
 //   dropped (name params are string).
-// - Function.prototype.call.bind primordial capture is unnecessary:
-//   the typed port calls the receiver methods directly (cases that
-//   destroy Object.prototype primordials would diverge — exotic).
+// - Function.prototype.call.bind primordial capture is unnecessary,
+//   but the PRIMORDIAL SPELLING is not: `obj.hasOwnProperty(name)`
+//   only works when `obj` inherits from %Object.prototype%, and the
+//   objects these helpers are pointed at routinely do not —
+//   `Array.prototype[Symbol.unscopables]` (§23.1.3.35) and a match
+//   result's `groups` (§22.2.7.2) are both OrdinaryObjectCreate(null).
+//   Upstream propertyHelper.js writes every one of these as
+//   `Object.prototype.hasOwnProperty.call(obj, name)` for exactly
+//   that reason, and this port now does too. The earlier note here
+//   said only "cases that destroy Object.prototype primordials would
+//   diverge — exotic", which missed the far more ordinary case; it
+//   went unnoticed while tr answered these three methods on
+//   null-prototype receivers too, and surfaced as 11 cases the moment
+//   tr stopped.
 // - verifyCallableProperty runs its fn-valued verifyProperty checks
 //   for real; tr closures answer undefined gOPD for name/length, so
 //   those cases fail loudly into the bug bucket (attributable
@@ -407,7 +418,7 @@ function __t262_isConfigurable(obj: any, name: any): boolean {
       throw new Test262Error("Expected TypeError, got " + e);
     }
   }
-  if (obj.hasOwnProperty(name)) {
+  if (Object.prototype.hasOwnProperty.call(obj, name)) {
     return false;
   }
   return true;
@@ -431,17 +442,17 @@ function __t262_isEnumerable(obj: any, name: any): boolean {
   if (!stringCheck) {
     return false;
   }
-  if (!obj.hasOwnProperty(name)) {
+  if (!Object.prototype.hasOwnProperty.call(obj, name)) {
     return false;
   }
-  if (!obj.propertyIsEnumerable(name)) {
+  if (!Object.prototype.propertyIsEnumerable.call(obj, name)) {
     return false;
   }
   return true;
 }
 
 function __t262_isWritable(obj: any, name: any, verifyProp: any = "", value: any = undefined): boolean {
-  const hadValue: any = obj.hasOwnProperty(name);
+  const hadValue: any = Object.prototype.hasOwnProperty.call(obj, name);
   const oldValue: any = obj[name];
   let newValue: any = value;
   if (newValue === undefined) {
@@ -490,7 +501,7 @@ function __t262_verifyProperty(obj: any, name: any, desc: any, options: any = un
     }
     return true;
   }
-  if (!obj.hasOwnProperty(name)) {
+  if (!Object.prototype.hasOwnProperty.call(obj, name)) {
     throw new Test262Error("obj should have an own property " + nameStr);
   }
   if (desc === null) {
@@ -507,7 +518,7 @@ function __t262_verifyProperty(obj: any, name: any, desc: any, options: any = un
     }
   }
   const failures: string[] = [];
-  if (desc.hasOwnProperty("value")) {
+  if (Object.prototype.hasOwnProperty.call(desc, "value")) {
     if (!__t262_isSameValue(desc.value, originalDesc.value)) {
       failures.push("obj['" + nameStr + "'] descriptor value should be " + desc.value);
     }
@@ -515,7 +526,7 @@ function __t262_verifyProperty(obj: any, name: any, desc: any, options: any = un
       failures.push("obj['" + nameStr + "'] value should be " + desc.value);
     }
   }
-  if (desc.hasOwnProperty("enumerable")) {
+  if (Object.prototype.hasOwnProperty.call(desc, "enumerable")) {
     if (desc.enumerable !== undefined) {
       if (desc.enumerable !== originalDesc.enumerable || desc.enumerable !== __t262_isEnumerable(obj, name)) {
         failures.push("obj['" + nameStr + "'] descriptor enumerable mismatch");
@@ -523,14 +534,14 @@ function __t262_verifyProperty(obj: any, name: any, desc: any, options: any = un
     }
   }
   // Operations past this point are potentially destructive!
-  if (desc.hasOwnProperty("writable")) {
+  if (Object.prototype.hasOwnProperty.call(desc, "writable")) {
     if (desc.writable !== undefined) {
       if (desc.writable !== originalDesc.writable || desc.writable !== __t262_isWritable(obj, name)) {
         failures.push("obj['" + nameStr + "'] descriptor writable mismatch");
       }
     }
   }
-  if (desc.hasOwnProperty("configurable")) {
+  if (Object.prototype.hasOwnProperty.call(desc, "configurable")) {
     if (desc.configurable !== undefined) {
       if (desc.configurable !== originalDesc.configurable || desc.configurable !== __t262_isConfigurable(obj, name)) {
         failures.push("obj['" + nameStr + "'] descriptor configurable mismatch");
@@ -629,7 +640,7 @@ function __t262_verifyCallableProperty(obj: any, name: any, functionName: any = 
   if (d === undefined) {
     d = { writable: true, enumerable: false, configurable: true, value: value };
   } else {
-    if (!d.hasOwnProperty("value") && !d.hasOwnProperty("get")) {
+    if (!Object.prototype.hasOwnProperty.call(d, "value") && !Object.prototype.hasOwnProperty.call(d, "get")) {
       d.value = value;
     }
   }

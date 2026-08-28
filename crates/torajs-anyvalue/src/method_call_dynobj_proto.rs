@@ -64,7 +64,17 @@ pub(crate) unsafe fn object_proto_fallback(
         // channel never asked, so `typeof o.toString` was undefined
         // while `o.toString()` answered "[object Object]" — the two
         // faces of one name disagreeing again.
-        if !is_struct && !chain_reaches_object_proto(obj) {
+        //
+        // Only a NAMED call asks it, because only a named call is a
+        // lookup. A NULL name means the reified cell was already
+        // resolved and is now being run — `Object.prototype
+        // .hasOwnProperty.call(Object.create(null), "x")` is a
+        // perfectly ordinary thing to write, and the chain of the
+        // thisArg has nothing to do with it. Asking there took out
+        // every `groups` object (§22.2.7.2) and
+        // `Array.prototype[Symbol.unscopables]` (§23.1.3.35) the
+        // test262 property helpers touch.
+        if !is_struct && !name_str.is_null() && !chain_reaches_object_proto(obj) {
             return not_callable();
         }
         // ES §21.1.3 / §20.3.3 / §22.1.3 — `Number.prototype` IS a Number

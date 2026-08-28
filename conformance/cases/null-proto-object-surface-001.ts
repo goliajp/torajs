@@ -64,3 +64,33 @@ class C {
 }
 console.log((Object.create(C.prototype) as any).hasOwnProperty("x"))
 console.log(Object.prototype.toString(), Object.prototype.hasOwnProperty("toString"))
+
+// `Object.prototype.<m>.call(o, ...)` is not a lookup on `o` — it
+// names the function it wants — so a null prototype does not put it
+// out of reach. The AST rewrite of `X.prototype.m.call(recv, ...)`
+// into `recv.m(...)` had made it one.
+console.log(Object.prototype.hasOwnProperty.call(o, "f"))
+console.log(Object.prototype.propertyIsEnumerable.call(o, "f"))
+console.log(Object.prototype.valueOf.call(o) === o)
+console.log(Object.prototype.toString.call(o))
+console.log(Object.prototype.isPrototypeOf.call(o, child))
+
+// The same rewrite let the receiver's OWN member shadow the very
+// function being called.
+const shadowing: any = {
+  a: 1,
+  hasOwnProperty: () => "own",
+  propertyIsEnumerable: () => "own",
+  valueOf: () => "own",
+}
+console.log(Object.prototype.hasOwnProperty.call(shadowing, "a"))
+console.log(Object.prototype.propertyIsEnumerable.call(shadowing, "a"))
+console.log(Object.prototype.valueOf.call(shadowing) === shadowing)
+
+// The built-in null-prototype objects the spec mints: a match
+// result's `groups` (§22.2.7.2) and Array.prototype's unscopables
+// list (§23.1.3.35).
+const m: any = "abc".match(/(?<g>b)/)
+console.log(Object.getPrototypeOf(m.groups), Object.prototype.hasOwnProperty.call(m.groups, "g"))
+const un: any = (Array.prototype as any)[Symbol.unscopables]
+console.log(Object.getPrototypeOf(un), Object.prototype.hasOwnProperty.call(un, "flat"))
