@@ -154,7 +154,58 @@ pub(crate) unsafe fn arr_to_string_borrowed(recv: AnyValue) -> AnyValue {
     }
 }
 
+/// §7.2.2 IsArray — an Array exotic object, or a Proxy that wraps one
+/// however deep. `Err(())` = the proxy is revoked and step 3.a's
+/// TypeError is in flight.
+///
+/// The recursion is the whole point: a Proxy is not an Array cell, so
+/// the tag walk below classifies `new Proxy([1, 2], {})` as an
+/// ordinary object, and `Object.prototype.toString` answered
+/// "[object Object]" where every other engine answers "[object
+/// Array]".
+///
+/// # Safety
+/// `recv` carries a valid AnyValue bit pattern.
+unsafe fn is_array_spec(recv: AnyValue) -> Result<bool, ()> {
+    let mut cur = recv;
+    // A proxy-of-a-proxy chain is finite (ProxyCreate rejects a
+    // revoked target), but bound the walk anyway rather than trust
+    // that invariant with a stack overflow as the failure mode.
+    for _ in 0..1000 {
+        if !crate::proxy::is_proxy(cur) {
+            let Some((_, tag)) = crate::member_get::recv_cell(cur) else {
+                return Ok(false);
+            };
+            return Ok(tag == Tag::Arr as u16);
+        }
+        let (target, handler) = unsafe { crate::proxy::slots(crate::nanbox::as_void_ptr(cur)) };
+        // §7.2.2 step 3.a — a revoked proxy has a null handler, and
+        // IsArray THROWS on it instead of answering.
+        if is_null(handler) {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Cannot perform 'IsArray' on a proxy that has been revoked".as_ptr(),
+                )
+            };
+            return Err(());
+        }
+        cur = target;
+    }
+    Ok(false)
+}
+
 pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
+    // §20.1.3.6 step 3 — `IsArray(O)` runs BEFORE the @@toStringTag
+    // Get, and it is the step that can throw first: a revoked proxy
+    // takes its TypeError here rather than answering a badge.
+    let proxy_array = if is_undefined(recv) || is_null(recv) {
+        false
+    } else {
+        match unsafe { is_array_spec(recv) } {
+            Err(()) => return VALUE_UNDEFINED,
+            Ok(b) => b,
+        }
+    };
     // §20.1.3.6 steps 15-16 — the object gets to name itself, and that
     // name wins over every builtinTag below when it is a String. Steps
     // 1-2 answer before the Get, so undefined / null skip it.
@@ -168,6 +219,10 @@ pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
         b"Undefined"
     } else if is_null(recv) {
         b"Null"
+    } else if proxy_array {
+        // Step 4 — the wrapped Array won; the tag walk below would
+        // have said "Object" for the proxy cell itself.
+        b"Array"
     } else if is_bool(recv) {
         b"Boolean"
     } else if is_int32(recv) || is_double(recv) {
