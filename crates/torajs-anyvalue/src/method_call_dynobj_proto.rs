@@ -56,6 +56,17 @@ pub(crate) unsafe fn object_proto_fallback(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // Everything below is %Object.prototype%'s surface, so a
+        // receiver whose chain never reaches it inherits none of it:
+        // `Object.create(null).toString()` is a TypeError, not the
+        // badge. The READ channel has answered this correctly since
+        // `dynobj_proto_pair` learned the null-proto flag; the call
+        // channel never asked, so `typeof o.toString` was undefined
+        // while `o.toString()` answered "[object Object]" — the two
+        // faces of one name disagreeing again.
+        if !is_struct && !chain_reaches_object_proto(obj) {
+            return not_callable();
+        }
         // ES §21.1.3 / §20.3.3 / §22.1.3 — `Number.prototype` IS a Number
         // object ([[NumberData]] = +0), `Boolean.prototype` a Boolean one
         // (false), `String.prototype` a String one (""). tr builds every
@@ -221,4 +232,45 @@ unsafe fn builtin_proto_primitive(
         return None;
     }
     Some(out)
+}
+
+/// Walks the ordinary [[Prototype]] chain and answers whether
+/// %Object.prototype% is on it.
+///
+/// `dynobj_proto_pair` is the same answer a dynamic `__proto__` read
+/// gives, so the three cases it distinguishes are the three that
+/// matter: an explicit null proto ends the chain, the chain root
+/// answers Null for its own parent (and IS the thing being asked
+/// about, so that is a yes), and everything else hands back a parent
+/// to step to — implicitly the root when a dynobj carries no user
+/// one.
+///
+/// A non-dynobj parent (`Object.create([])`, `Object.create(
+/// C.prototype)`) answers yes without stepping: those shapes have no
+/// null-proto spelling of their own, so their families all end at the
+/// root. The depth cap is for a chain that should not exist at all —
+/// answering yes there keeps the pre-existing behaviour rather than
+/// inventing a new refusal.
+///
+/// # Safety
+/// `obj` is a live `Tag::DynObj` heap pointer.
+unsafe fn chain_reaches_object_proto(obj: *mut c_void) -> bool {
+    let mut cur = obj as *const c_void;
+    for _ in 0..64 {
+        let (tag, val) = unsafe { crate::member_get_own::dynobj_proto_pair(cur) };
+        if tag == torajs_rc::AnySlotTag::Undef as u64 {
+            return false;
+        }
+        if tag != torajs_rc::AnySlotTag::Heap as u64 {
+            return true;
+        }
+        let parent = val as *const c_void;
+        // SAFETY: a Heap proto pair carries a live cell pointer.
+        let ptag = unsafe { parent.cast::<u8>().add(4).cast::<u16>().read() };
+        if ptag != torajs_rc::Tag::DynObj as u16 {
+            return true;
+        }
+        cur = parent;
+    }
+    true
 }
