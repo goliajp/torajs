@@ -2,10 +2,10 @@
 //! the custom-matcher legs over an Any-typed pattern argument:
 //! GetMethod(regexp, @@match / @@search), then Call(matcher, regexp,
 //! «S»). The lowering (`ssa_lower_call_str_match_custom`) branches
-//! on the probe so the step-4 RegExpCreate coerce lane stays the
-//! fallback for an absent or nullish matcher (GetMethod §7.3.11
-//! step 3). The well-known index rides as an argument so one pair
-//! of externs serves every symbol-dispatch method face.
+//! on that one GetMethod's verdict so the step-4 RegExpCreate coerce
+//! lane stays the fallback for an absent or nullish matcher (GetMethod
+//! §7.3.11 step 3). The well-known index rides as an argument so one
+//! extern serves every symbol-dispatch method face.
 //!
 //! One call, not two legs. This was a presence probe the SSA
 //! branched on plus an invoke that walked the symbol a SECOND time,

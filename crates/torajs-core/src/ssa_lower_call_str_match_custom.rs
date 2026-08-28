@@ -189,10 +189,11 @@ pub(crate) fn lower_symbol_dispatch_pattern(
 }
 
 /// Lower `s.replace(x, r)` with an Any-typed `x` — §22.1.3.19
-/// step 3: probe GetMethod(searchValue, @@replace); when present the
-/// replacer runs as Call(replacer, searchValue, «O, replaceValue»),
-/// otherwise ToString(searchValue) takes the LITERAL substring
-/// replace kernels (`str_replace` / `str_replace_fn` — replace's
+/// step 3: run GetMethod(searchValue, @@replace); when it answers a
+/// method the replacer runs as Call(replacer, searchValue,
+/// «O, replaceValue»), otherwise ToString(searchValue) takes the
+/// LITERAL substring replace kernels (`str_replace` /
+/// `str_replace_fn` — replace's
 /// step 4 never mints a RegExp, unlike match/search). The caller
 /// gated `r` to a checker String or Function shape so both lanes
 /// can emit. Answers a `Type::Any` operand.
@@ -311,9 +312,10 @@ pub(crate) fn lower_replace_any_pattern(
 }
 
 /// Lower `s.split(x, limit?)` with an Any-typed `x` carrying store
-/// evidence — §22.1.3.23 step 2: probe GetMethod(separator,
-/// @@split); when present the splitter runs as Call(splitter,
-/// separator, «O, limit») with the limit passed through RAW (step 2
+/// evidence — §22.1.3.23 step 2: run GetMethod(separator,
+/// @@split); when it answers a method the splitter runs as
+/// Call(splitter, separator, «O, limit») with the limit passed
+/// through RAW (step 2
 /// precedes step 4's ToUint32), otherwise the existing any-separator
 /// three-way kernel answers with the step 4-onward behavior (limit
 /// clamp included). The caller (`ssa_lower_str_str_split`) hands the
@@ -381,7 +383,7 @@ pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>
     // Step 4-onward fallback — the limit-carrying any-separator
     // kernel (undefined → [S] / RegExp cell → regex split / else
     // ToString; the limit's ToUint32 runs inside, per step 4's
-    // placement AFTER the splitter probe). Answers an AnyValue box
+    // placement AFTER the splitter lookup). Answers an AnyValue box
     // so both lanes agree at the join.
     ctx.cur_block = coerce_blk;
     let v = ctx.f.append_inst(
