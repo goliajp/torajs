@@ -65,10 +65,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{
-    ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_PROPERTY_IS_ENUMERABLE, ANY_METHOD_TO_LOCALE_STRING,
-    ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF,
-};
+use torajs_rc::{ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF};
 
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, is_bool, is_cell, is_double, is_int32, is_null, is_short_str,
@@ -146,6 +143,14 @@ pub unsafe extern "C" fn __torajs_any_method_call(
         } {
             return out;
         }
+        // The end of the walk — %Object.prototype%'s own three, after
+        // the patch consult so a program's write to the same name
+        // still wins.
+        if let Some(out) = unsafe {
+            crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
+        } {
+            return out;
+        }
         return unsafe { not_callable() };
     }
     r
@@ -175,6 +180,11 @@ pub unsafe extern "C" fn __torajs_any_method_call_opt(
             crate::method_call_proto_patch::builtin_proto_patch_method(
                 recv, mid, name_str, argv, argc,
             )
+        } {
+            return out;
+        }
+        if let Some(out) = unsafe {
+            crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
         } {
             return out;
         }
@@ -268,7 +278,9 @@ pub unsafe fn any_method_dispatch_impl(
             crate::proxy_call::method_call(recv, mid, name_str, recv_slot, argv, argc)
         };
     }
-    if let Some(v) = unsafe { crate::method_call_prelude::pre_nullish_arm(recv, mid, argv, argc) } {
+    if let Some(v) = unsafe {
+        crate::method_call_prelude::pre_nullish_arm(recv, mid, argv, argc, skip_wrapper_expando)
+    } {
         return v;
     }
     if is_null(recv) || is_undefined(recv) {
@@ -277,27 +289,10 @@ pub unsafe fn any_method_dispatch_impl(
         }
         return VALUE_UNDEFINED;
     }
-    // §23.1.3.36 — the reified `Array.prototype.toString` cell
-    // borrowed across receivers (RFC 20260721 刀 11 G12): join for
-    // an Array, `Get(this, "join")` else, badge fallback. Sits after
-    // the nullish guard (step 1 is ToObject).
-    if mid == torajs_rc::ANY_METHOD_ARR_TO_STRING {
-        return unsafe { crate::method_call_object_proto::arr_to_string_borrowed(recv) };
-    }
-    // §21.4.4.37 — the reified `Date.prototype.toJSON` cell's
-    // [[Call]] body is receiver-generic (ToPrimitive number
-    // non-finite → null, else Invoke toISOString). Redispatch-only:
-    // a plain-named `obj.toJSON()` keeps ordinary own-property
-    // routing (a user object's own `toJSON` must win).
-    if mid == torajs_rc::ANY_METHOD_TO_JSON && skip_wrapper_expando {
-        return unsafe { crate::method_call_date::date_to_json_generic(recv) };
-    }
-    // chunk D-1 (RFC 20260711) — universal own-property probes
-    // (§20.1.4.3 / §20.1.4.5): every receiver shape answers through
-    // the prop_has substrate, so these dispatch BEFORE the per-tag
-    // arms.
-    if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
-        return unsafe { crate::method_call_object_proto::own_prop_probe(recv, mid, argv, argc) };
+    if let Some(v) = unsafe {
+        crate::method_call_prelude::post_nullish_arm(recv, mid, argv, argc, skip_wrapper_expando)
+    } {
+        return v;
     }
     // §20.4.3.3 / §20.4.3.4 — the reified Symbol.prototype.toString
     // / valueOf cells: thisSymbolValue throws a TypeError on every

@@ -287,36 +287,70 @@ pub(crate) unsafe fn dynobj_method(
                     return crate::method_call::invoke_boxed(env, entry, argv, argc);
                 }
             }
-            // C4+ chunk 523 — getter-as-callee: an accessor entry's
-            // getter runs first, its (owned) answer dispatches as
-            // the callee, and the reference releases after the call
-            // (the invoke keeps the cell alive across it).
-            if dtag == ANY_ACCESSOR_TAG {
-                let pair = __torajs_dynobj_get_value(obj, key) as *const c_void;
-                let got = __torajs_accessor_invoke_getter(
-                    pair,
-                    crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
-                );
-                // A throwing getter aborts the call (§13.3.6.1 Get
-                // ReturnIfAbrupt) — propagate before the callee
-                // probe, or `not_callable` below would clobber the
-                // user's pending throw with its own TypeError.
-                if __torajs_throw_check() != 0 {
-                    return got;
-                }
-                if let Some((env, entry)) = closure_boxed_entry(got) {
-                    // A recv-first callee binds the holder as `this`
-                    // (§13.3.6 EvaluateCall — the Reference base;
-                    // RFC 20260717-objlit-anylane-recv knife 2f).
-                    let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
-                    let r = crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
-                    return r;
-                }
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+            if dtag == ANY_ACCESSOR_TAG
+                && let Some(v) = accessor_callee(obj, key, argv, argc)
+            {
+                return v;
             }
         }
+        // A NULL-name re-entry probed nothing above, because there
+        // was no name to probe under: it is a reified
+        // %Object.prototype% cell that the chain already resolved,
+        // re-dispatching by mid. Its walk ends where a named miss
+        // ends — at the inherited surface — not at a TypeError for a
+        // method standing right there. (`Object.create(p)
+        // .hasOwnProperty("a")` reaches here: the chain's [[Get]]
+        // answers the reified cell, and the cell re-enters by mid.)
+        // The struct arm has always ended this way; this one threw.
+        if name_str.is_null() {
+            return object_proto_fallback(obj, mid, name_str, false, argv, argc);
+        }
         not_callable()
+    }
+}
+
+/// C4+ chunk 523 — getter-as-callee: an accessor entry's getter runs
+/// first, its (owned) answer dispatches as the callee, and the
+/// reference releases after the call (the invoke keeps the cell alive
+/// across it).
+///
+/// `None` = the getter answered something that is not callable, and
+/// the caller's own not-callable exit says so; the getter's own
+/// abrupt completion comes back as `Some` so it is not clobbered.
+///
+/// # Safety
+/// `obj` is a live `Tag::DynObj` pointer whose entry under `key` is an
+/// accessor pair; `argv` holds `argc` live slots.
+unsafe fn accessor_callee(
+    obj: *mut c_void,
+    key: *const c_void,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let pair = __torajs_dynobj_get_value(obj, key) as *const c_void;
+        let got = __torajs_accessor_invoke_getter(
+            pair,
+            crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
+        );
+        // A throwing getter aborts the call (§13.3.6.1 Get
+        // ReturnIfAbrupt) — propagate before the callee probe, or the
+        // caller's `not_callable` would clobber the user's pending
+        // throw with its own TypeError.
+        if __torajs_throw_check() != 0 {
+            return Some(got);
+        }
+        if let Some((env, entry)) = closure_boxed_entry(got) {
+            // A recv-first callee binds the holder as `this` (§13.3.6
+            // EvaluateCall — the Reference base; RFC
+            // 20260717-objlit-anylane-recv knife 2f).
+            let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+            let r = crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+            return Some(r);
+        }
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+        None
     }
 }
 

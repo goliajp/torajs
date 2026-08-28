@@ -140,6 +140,18 @@ pub(crate) unsafe fn object_proto_fallback(
             // `Map.prototype.toString()` is "[object Map]".
             return crate::method_call_object_proto::cell_badge_string(obj, is_struct);
         }
+        // The end of THIS walk: the dynobj and struct arms claim
+        // their receiver and never float the no-such sentinel the
+        // dispatcher's exits answer these at, so %Object.prototype%'s
+        // own three are answered here too.
+        if let Some(v) = crate::method_call_object_proto::object_proto_universal(
+            __torajs_anyv_box_pointer(obj),
+            mid,
+            argv,
+            argc,
+        ) {
+            return v;
+        }
         not_callable()
     }
 }
@@ -185,6 +197,18 @@ unsafe fn builtin_proto_primitive(
     // Tags are ssa_lower's, fixed by `torajs_rc::builtin_proto`:
     // Number=0, String=3, Boolean=4.
     let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(obj) };
+    // Only what the family OWNS re-dispatches on the initial value.
+    // An INHERITED name has to answer on the prototype OBJECT:
+    // §20.1.4.3's ToObject(this) is `Number.prototype` itself, not
+    // its [[NumberData]] +0, so `Number.prototype.hasOwnProperty(
+    // "toFixed")` asks about the prototype and not about zero. This
+    // used to be true by accident — the universal probes dispatched
+    // ahead of the walk and never got here — and reading it off the
+    // re-dispatch's own miss is not enough, because the probes have
+    // an answer for every receiver, including the wrong one.
+    if !crate::method_support_proto::proto_tag_family_owns(tag, mid) {
+        return None;
+    }
     let recv: AnyValue = match tag {
         0 => crate::nanbox_encode::__torajs_anyv_box_f64(0.0),
         // "" always fits the short-str immediate encoding.

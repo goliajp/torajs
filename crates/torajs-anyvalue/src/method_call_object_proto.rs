@@ -6,7 +6,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ANY_METHOD_HAS_OWN_PROPERTY, AnySlotTag, Tag};
+use torajs_rc::{ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_PROPERTY_IS_ENUMERABLE, AnySlotTag, Tag};
 
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, is_bool, is_double, is_int32, is_null, is_short_str, is_undefined,
@@ -35,6 +35,39 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     /// torajs-throw — typed-tier non-string override boundary.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// The three %Object.prototype% methods no per-tag arm implements,
+/// answered where every other %Object.prototype% method is: at the
+/// END of the walk.
+///
+/// They used to dispatch ahead of everything, on the reasoning that
+/// no arm knows them so nothing could shadow them. Own properties
+/// can: `({ hasOwnProperty: () => "own" }).hasOwnProperty("x")`
+/// answered `false`, and so did a class method, an array expando, a
+/// user prototype's override, and a program's write to
+/// %Object.prototype% itself. §10.1.8.1 resolves the name first and
+/// only then calls what it found; jumping the walk turned six
+/// shadowing shapes into silently wrong answers.
+///
+/// `None` for every other mid, so the callers keep their own miss
+/// exits.
+///
+/// # Safety
+/// Same contract as the dispatcher: `argv` holds `argc` live slots.
+pub(crate) unsafe fn object_proto_universal(
+    recv: AnyValue,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
+        return Some(unsafe { own_prop_probe(recv, mid, argv, argc) });
+    }
+    if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
+        return Some(unsafe { is_prototype_of(recv, argv, argc) });
+    }
+    None
 }
 
 /// chunk D-1 — `hasOwnProperty` / `propertyIsEnumerable` universal
