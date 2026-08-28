@@ -109,6 +109,32 @@ unsafe fn hof_loop(
         let arr_boxed = arr as u64;
         let mut i: u64 = 0;
         while i < len {
+            // §23.1.3.15 step 4.b / §23.1.3.21 step 6.b — the loop
+            // asks HasProperty before it calls anything, so a hole
+            // nothing on the chain supplies is SKIPPED, not visited
+            // with `undefined`. This lane had no such gate: it read
+            // every index and called the callback on it.
+            //
+            // The typed lane has always had one, which is why the
+            // shape only shows through the ANY lane — and a file
+            // reaches that lane just by naming `Object` or `Array`
+            // as a value, which is ordinary enough that
+            // `arr-hole-proto-has-001` was green only because an AST
+            // rewrite happened to erase its `Object.prototype`
+            // mention. `__torajs_arr_has_index` is the same §7.3.11
+            // kernel the `in` lane runs, prototype digit keys
+            // included.
+            //
+            // map (mode 1) is NOT gated here: skipping would shorten
+            // its result, and the spec wants a hole in that position
+            // instead. Recorded rather than half-done — the callback
+            // still runs for a hole there.
+            if mode != 1
+                && crate::define_hole::__torajs_arr_has_index(arr as *mut c_void, i as i64) == 0
+            {
+                i += 1;
+                continue;
+            }
             // Kind-aware boxed read — +1-owned for cells.
             let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
             let mut argv = [undef(); ARGV_SLOTS];
