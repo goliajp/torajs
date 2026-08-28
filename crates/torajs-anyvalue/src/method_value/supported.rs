@@ -13,15 +13,58 @@ use torajs_rc::{ANY_METHOD_NEXT, ANY_METHOD_TO_STRING, Tag};
 
 use crate::method_support::{
     arr_supports, arraybuffer_supports, closure_supports, date_supports, map_supports,
-    num_supports, regexp_supports, set_supports, str_supports, typedarray_supports,
-    weakmap_supports, weakref_supports, weakset_supports,
+    num_supports, proto_tag_family_owns, regexp_supports, set_supports, str_supports,
+    typedarray_supports, weakmap_supports, weakref_supports, weakset_supports,
 };
+use crate::method_value::recv_proto_family;
 use crate::nanbox::{AnyValue, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str};
+
+/// `%Object.prototype%`'s builtin-proto tag — the end of every
+/// builtin prototype's chain, so it is the supplier of last resort
+/// for any name a family does not own.
+const OBJECT_PROTO_TAG: i64 = torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64;
+
+/// Has the prototype that SUPPLIES this name been told to give it up
+/// (`delete <Ctor>.prototype.<m>`, RFC 20260712 chunk 3)?
+///
+/// The supplier is the receiver's own family when that family owns
+/// the name, and `%Object.prototype%` otherwise. That distinction is
+/// the whole answer: after `delete Object.prototype.toString`,
+/// `[].toString` stays a function because `Array.prototype` owns one
+/// of its own, while `[].valueOf` goes undefined with it because
+/// `Array.prototype` owns no valueOf.
+///
+/// Negative direction only. A mid no row in the ownership table
+/// claims — Promise's then / catch / finally, the buffer families —
+/// leaves both legs false and is answered by the arms below exactly
+/// as before; this can turn a true into a false, never the reverse.
+fn supplier_tombstoned(recv: AnyValue, mid: i64) -> bool {
+    let fam = recv_proto_family(recv);
+    let supplier = if proto_tag_family_owns(fam, mid) {
+        fam
+    } else if proto_tag_family_owns(OBJECT_PROTO_TAG, mid) {
+        OBJECT_PROTO_TAG
+    } else {
+        return false;
+    };
+    // SAFETY: pure bitmask read, range-checked inside.
+    unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(supplier, mid) != 0 }
+}
 
 /// Exact per-receiver-shape support table — one arm per
 /// `method_call_*` dispatch module, listing the ids that arm
 /// resolves (extend together when an arm grows a method).
 pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
+    // 521-07 — a `delete <Ctor>.prototype.<m>` tombstone has to clear
+    // the READ as well as the call, and nothing below can see one:
+    // the four universal probes and toString / toLocaleString answer
+    // true before any walk starts, which is exactly what makes them
+    // reachable from every receiver shape and exactly what put them
+    // out of the tombstone's reach. Asked here, once, in front of the
+    // whole table rather than per arm.
+    if supplier_tombstoned(recv, mid) {
+        return false;
+    }
     // chunk D-1 — the universal own-property probes resolve on every
     // receiver shape (Object.prototype methods; primitives coerce
     // through ToObject and simply answer false-valued Bools).
