@@ -333,30 +333,8 @@ pub(crate) unsafe fn proto_patch_slot(
         if fam < 0 {
             return None;
         }
-        // Peek only — a singleton nobody minted cannot carry a
-        // patch, and the miss exit must stay alloc-free.
-        let proto = torajs_rc::builtin_proto::__torajs_peek_builtin_prototype(fam);
-        if proto.is_null() {
-            return None;
-        }
         let (key, minted) = method_name_key(mid, name_str)?;
-        let (tag, value) =
-            crate::method_support_proto::proto_own_probe(proto, key as *const c_void);
-        // ANY_UNDEF is the probe's answer for BOTH an absent key and
-        // an own entry storing undefined, and those are different
-        // properties: `Map.prototype.get = undefined` shadows the
-        // builtin surface with a real entry that happens not to be
-        // callable, where an absent key leaves the surface showing
-        // through. Only the membership probe can tell them apart.
-        let out = if tag == 5 {
-            if crate::method_support_proto::proto_own_has(proto, key as *const c_void) {
-                Some((tag, value))
-            } else {
-                None
-            }
-        } else {
-            Some((tag, value))
-        };
+        let out = crate::member_get_proto_root::patch_slot_chain(fam, key as *const c_void);
         if !minted.is_null() {
             crate::__torajs_str_drop(minted as *mut c_void);
         }
