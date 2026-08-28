@@ -310,6 +310,22 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         // fallback and every use of it after ("no member `.exec` on
         // type Number") went down with it.
         Expr::Regex { .. } => return Some("RegExp".into()),
+        // An index load off an `any`. The shared sniff HAS an `Index`
+        // arm — but it answers by stripping `[]` off the base's
+        // annotation, so a base that reads `any` (a parameter, an
+        // already-lifted `any` field) makes it DECLINE, and declining
+        // here is not "no assertion", it is the `number` fallback.
+        // The everyday shape is a walk over an `any` list:
+        // `let i = st.length - 1; const r = st[i]`, which is how the
+        // injected `__torajs_adstack_walk` is written — and `r.k`
+        // after it reads "no member `.k` on type Number", taking the
+        // whole `using` family down with it. Indexing an `any`
+        // answers `any`, so say so. A base with a real annotation
+        // falls through to the shared arm untouched: this one only
+        // speaks where that one cannot.
+        Expr::Index { obj, .. } => {
+            return (field_ann(ast, *obj, ctx)? == "any").then(|| "any".into());
+        }
         _ => return None,
     };
     let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
