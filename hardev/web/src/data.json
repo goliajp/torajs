@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T19:22:55.759Z",
+  "generatedAt": "2026-08-28T23:31:40.095Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,30 +9,30 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-28T19:10:46Z",
-    "headSha": "0fffd3edb",
-    "elapsedSec": 1253.12,
+    "ranAt": "2026-08-28T23:11:55Z",
+    "headSha": "4129d778b",
+    "elapsedSec": 414.98,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29889,
+    "pass": 29890,
     "passNoOracle": 921,
     "passNegative": 4147,
-    "passTotal": 34957,
-    "bug": 12605,
-    "incompatible": 5612,
+    "passTotal": 34958,
+    "bug": 12603,
+    "incompatible": 5613,
     "bunSkip": 3031,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47562,
+    "trAccepted": 47561,
     "passRateInScope": 65.74,
     "passRateTrAccepted": 73.5,
-    "headShaNote": "mini git HEAD lags the dev tree (push unauthorized); the working tree was rsynced to 0fffd3edb and that is what ran."
+    "headShaNote": "mini git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 4129d778b, so the sweep measured that code. Field corrected by hand at ingest."
   },
   "torajs": {
-    "commit": "0fffd3edb",
-    "commitSubject": "fix: the any lane's iteration loop never asked whether the index is there",
+    "commit": "4129d778b",
+    "commitSubject": "fix: the arms that answer a call natively never asked about the tombstone",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +714,34 @@
   },
   "commits": [
     {
+      "hash": "4129d778b",
+      "subject": "fix: the arms that answer a call natively never asked about the tombstone"
+    },
+    {
+      "hash": "2b41a4b31",
+      "subject": "refactor: split the invoke half out of the builtin-proto patch consult"
+    },
+    {
+      "hash": "d266f6a2b",
+      "subject": "fix: the read channel never asked whether the prototype gave the name up"
+    },
+    {
+      "hash": "25785969f",
+      "subject": "fix: map ran its callback on holes because it was left out of the gate"
+    },
+    {
+      "hash": "cfb6f40a7",
+      "subject": "refactor: split the early-exit predicate walks out of the any-lane hof module"
+    },
+    {
+      "hash": "c8da89525",
+      "subject": "docs: roadmap P-SURF snapshot at rotation 522"
+    },
+    {
+      "hash": "19257bb60",
+      "subject": "docs: rotation 522 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "0fffd3edb",
       "subject": "fix: the any lane's iteration loop never asked whether the index is there"
     },
@@ -732,55 +760,38 @@
     {
       "hash": "3db93396a",
       "subject": "fix: three Object.prototype methods jumped the name lookup"
-    },
-    {
-      "hash": "8ac7416e3",
-      "subject": "fix: the store receiver is read through the cast, not around it"
-    },
-    {
-      "hash": "3e5ecba0b",
-      "subject": "fix: the property-carrying shapes never reach the prototype patch consult"
-    },
-    {
-      "hash": "ef5829aa0",
-      "subject": "docs: rotation 521 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "6e075bab9",
-      "subject": "fix: the call channel's walk does not stop at the family prototype"
-    },
-    {
-      "hash": "2092f1e2c",
-      "subject": "fix: the walk does not end at the family prototype"
-    },
-    {
-      "hash": "9485018bf",
-      "subject": "fix: a captured name is not a value use of the function it spells"
-    },
-    {
-      "hash": "8395cf79f",
-      "subject": "fix: the nested-declaration half reads the same pre-bind"
     }
   ],
-  "headSha": "0fffd3edb",
+  "headSha": "4129d778b",
   "autorun": {
-    "total": 825,
+    "total": 826,
     "baselineTarget": 10,
-    "bySelf": 820,
+    "bySelf": 821,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787933493-33d1",
-      "at": "2026-08-28T16:11:33Z",
-      "ts": 1787933493,
+      "rotationId": "r-1787945016-4c74",
+      "at": "2026-08-28T19:23:36Z",
+      "ts": 1787945016,
       "trigger": "self",
-      "prevHead": "ef5829aa0",
-      "handoffSha": "sha256:ba2947287ae072318c23fbaebd008d80b401fd12141a08206b64cc0a9f827095",
-      "handoffAgeSec": 6,
+      "prevHead": "c8da89525",
+      "handoffSha": "sha256:d00c1a996e30adb1ed3b0eedade7ded259e6e651d68ee54b35384438b7a07b21",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787945016-4c74",
+        "at": "2026-08-28T19:23:36Z",
+        "ts": 1787945016,
+        "trigger": "self",
+        "prevHead": "c8da89525",
+        "handoffSha": "sha256:d00c1a996e30adb1ed3b0eedade7ded259e6e651d68ee54b35384438b7a07b21",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787933493-33d1",
         "at": "2026-08-28T16:11:33Z",
@@ -877,17 +888,6 @@
         "prevHead": "6fd817e95",
         "handoffSha": "sha256:28a41794f567a6cd580f8f06faa1232270d87d7f520346f980fc408bcd22d500",
         "handoffAgeSec": 27,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787846805-3a8b",
-        "at": "2026-08-27T16:06:45Z",
-        "ts": 1787846805,
-        "trigger": "self",
-        "prevHead": "3c73581a0",
-        "handoffSha": "sha256:5c2159417d320b5bc881cb15759538df7ad2d53cb61deedbeafc5a47fcbc6acc",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }

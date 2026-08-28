@@ -1557,6 +1557,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
+**Latest @ `4129d778b`** (2026-08-29, rotation 523 — the answers that
+were given before the walk began). Gate predicate: **157** clusters of
+≥ 4 holding **1197** cases, register 2 · 251, residue 653 · 812
+(35.9%), core **2260**. Against the previous sweep (`0fffd3edb`,
+rotation 522): clusters 157 → **157 (=)**, cases 1196 → **1197 (+1)**,
+core 2259 → **2260 (+1)**. Sweep passTotal 34957 → **34958 (+1)**,
+pass 29889 → **29890 (+1)**, passNoOracle 921 → **921 (=)**,
+passNegative 4147 → **4147 (=)**, bug 12605 → **12603 (−2)**,
+incompatible 5612 → **5613 (+1)**, trAccepted 47562 → **47561 (−1)**;
+conservation exact (−1 = +1 + −2). Verdict diff **3 lines**: two
+forward (`Array/prototype/map/15.4.4.19-8-b-11` is the map-hole knife,
+`Object/prototype/S15.2.4_A1_T2` is the tombstone pair) and **one
+pass → `incompatible:tr-timeout`**, `RegExp/S15.10.2_A1_T1`. That one
+is **not this rotation's**: it is a regex-compilation stress case that
+takes ~22 s solo against the runner's 30 s timeout, so under 10-way
+concurrency it sits on the boundary, and an A/B rebuild of rotation
+522's sources times it at **22.29 / 22.16 / 22.19 s** against this
+rotation's **22.10 / 21.94 / 21.94 s** — the new code is marginally
+faster. Registered as a flaky sweep cell, not a regression. Coverage
+curve: top-100 **50.4%**, top-200 **67.7%**, top-400 **81.0%**.
+Unattributed head by directory: `built-ins/RegExp` 38,
+`built-ins/Promise` 25, `built-ins/BigInt` 21, `built-ins/Uint8Array`
+20, `language/identifiers` 16.
+
 **Latest @ `0fffd3edb`** (2026-08-29, rotation 522 — a lookup that starts
 after the place it should start, in seven spellings). Gate predicate:
 **157** clusters of ≥ 4 holding **1196** cases, register 2 · 251,
