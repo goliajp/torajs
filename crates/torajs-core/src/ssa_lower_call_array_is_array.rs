@@ -76,10 +76,21 @@ pub(crate) fn try_lower(
     {
         return Some(Operand::ConstBool(false));
     }
+    // §7.2.2 step 2 asks for an Array EXOTIC object, and the
+    // arguments object is not one — it is an ordinary object with a
+    // [[ParameterMap]]. tr desugars `arguments` to a plain
+    // `__torajs_arguments` array local, so its static type is
+    // `Arr` and the fold below would answer true. The runtime lane
+    // reads FLAG_ARR_ARGUMENTS for the same reason; this is the
+    // static half of one judgment.
+    let is_arguments_local = matches!(
+        ctx.ast.get_expr(args[0]),
+        Expr::Ident(n) if n == "__torajs_arguments"
+    );
     let arg_op = ctx.lower_expr(args[0]);
     let arg_ty = ctx.operand_ty(&arg_op);
     if matches!(arg_ty, Type::Arr(_)) {
-        return Some(Operand::ConstBool(true));
+        return Some(Operand::ConstBool(!is_arguments_local));
     }
     if matches!(arg_ty, Type::Any) {
         let cur_block = ctx.cur_block;
@@ -89,6 +100,9 @@ pub(crate) fn try_lower(
             Type::Bool,
             None,
         );
+        // §7.2.2 step 3.a — a revoked proxy throws instead of
+        // answering, so this call has a throw channel now.
+        ctx.emit_throw_check(None);
         return Some(Operand::Value(v));
     }
     Some(Operand::ConstBool(false))

@@ -158,51 +158,18 @@ pub(crate) unsafe fn arr_to_string_borrowed(recv: AnyValue) -> AnyValue {
     }
 }
 
-/// §7.2.2 IsArray — an Array exotic object, or a Proxy that wraps one
-/// however deep. `Err(())` = the proxy is revoked and step 3.a's
-/// TypeError is in flight.
+/// §7.2.2 IsArray — `Err(())` when the proxy is revoked and step
+/// 3.a's TypeError is in flight.
 ///
-/// The recursion is the whole point: a Proxy is not an Array cell, so
-/// the tag walk below classifies `new Proxy([1, 2], {})` as an
-/// ordinary object, and `Object.prototype.toString` answered
-/// "[object Object]" where every other engine answers "[object
-/// Array]".
+/// The predicate itself lives in `torajs_rc::is_array`, because
+/// `Array.isArray` asks the same question and the two used to answer
+/// it differently. Everything it has to know (the Proxy layout, the
+/// arguments flag) is header data this crate does not own.
 ///
 /// # Safety
 /// `recv` carries a valid AnyValue bit pattern.
 unsafe fn is_array_spec(recv: AnyValue) -> Result<bool, ()> {
-    let mut cur = recv;
-    // A proxy-of-a-proxy chain is finite (ProxyCreate rejects a
-    // revoked target), but bound the walk anyway rather than trust
-    // that invariant with a stack overflow as the failure mode.
-    for _ in 0..1000 {
-        if !crate::proxy::is_proxy(cur) {
-            let Some((ptr, tag)) = crate::member_get::recv_cell(cur) else {
-                return Ok(false);
-            };
-            if tag != Tag::Arr as u16 {
-                return Ok(false);
-            }
-            // An arguments object is an ORDINARY object carrying a
-            // [[ParameterMap]], not an Array exotic one — §7.2.2 says
-            // false, and step 5 gives it its own badge. tr mints it as
-            // an Arr cell, so only the flag separates them.
-            return Ok(unsafe { __torajs_arr_is_arguments(ptr) } == 0);
-        }
-        let (target, handler) = unsafe { crate::proxy::slots(crate::nanbox::as_void_ptr(cur)) };
-        // §7.2.2 step 3.a — a revoked proxy has a null handler, and
-        // IsArray THROWS on it instead of answering.
-        if is_null(handler) {
-            unsafe {
-                __torajs_throw_type_error(
-                    c"Cannot perform 'IsArray' on a proxy that has been revoked".as_ptr(),
-                )
-            };
-            return Err(());
-        }
-        cur = target;
-    }
-    Ok(false)
+    unsafe { torajs_rc::is_array::is_array_spec(recv as i64) }
 }
 
 pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
