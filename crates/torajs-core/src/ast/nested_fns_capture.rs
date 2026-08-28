@@ -97,7 +97,7 @@ pub fn desugar_capturing_nested_fns(ast: &mut Ast) {
             Expr::ArrowFn { body, .. } => std::mem::take(body),
             _ => unreachable!("matched ArrowFn above"),
         };
-        walk_list(ast, &mut body, &globals);
+        walk_list(ast, &mut body, &globals, &mut Vec::new());
         match &mut ast.exprs[i] {
             Expr::ArrowFn { body: b, .. } => *b = body,
             _ => unreachable!("matched ArrowFn above"),
@@ -105,61 +105,89 @@ pub fn desugar_capturing_nested_fns(ast: &mut Ast) {
     }
     // The module's own statement list is not a routing site — its
     // `function` declarations ARE the globals. Only descend.
+    let mut scope: Vec<String> = Vec::new();
     for s in top.iter_mut() {
-        walk_children(ast, s, &globals);
+        walk_children(ast, s, &globals, &mut scope);
     }
     ast.stmts = top;
 }
 
 /// Route `stmts` after everything nested inside it has routed.
-fn walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, globals: &[String]) {
+///
+/// `scope` carries the bindings the enclosing scopes introduce, so
+/// `route_list` can tell a top-level fn name that is still in scope from
+/// one a local binding has rebound (RFC 20260828 knife 3).
+fn walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, globals: &[String], scope: &mut Vec<String>) {
+    let depth = scope.len();
     for s in stmts.iter_mut() {
-        walk_children(ast, s, globals);
+        walk_children(ast, s, globals, scope);
+        // Visible to the declarations that follow, and to every routing
+        // decision this list makes.
+        if let Stmt::LetDecl { name, .. } | Stmt::UsingDecl { name, .. } = s {
+            scope.push(name.clone());
+        }
     }
-    route_list(ast, stmts, globals);
+    route_list(ast, stmts, globals, scope);
+    scope.truncate(depth);
 }
 
 /// Descend into every statement list `s` owns. A `FnDecl` body is a
 /// scope of its own and routes as one; the block-shaped statements carry
 /// lists that route as blocks do.
-fn walk_children(ast: &mut Ast, s: &mut Stmt, globals: &[String]) {
+fn walk_children(ast: &mut Ast, s: &mut Stmt, globals: &[String], scope: &mut Vec<String>) {
     match s {
-        Stmt::FnDecl { body, .. } => walk_list(ast, body, globals),
-        Stmt::Block(b) | Stmt::Multi(b) => walk_list(ast, b, globals),
+        Stmt::FnDecl { params, body, .. } => {
+            let depth = scope.len();
+            scope.extend(params.iter().map(|p| p.name.clone()));
+            walk_list(ast, body, globals, scope);
+            scope.truncate(depth);
+        }
+        Stmt::Block(b) | Stmt::Multi(b) => walk_list(ast, b, globals, scope),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            walk_children(ast, then_branch, globals);
+            walk_children(ast, then_branch, globals, scope);
             if let Some(eb) = else_branch.as_deref_mut() {
-                walk_children(ast, eb, globals);
+                walk_children(ast, eb, globals, scope);
             }
+        }
+        Stmt::ForOf { var_name, body, .. } => {
+            let depth = scope.len();
+            scope.push(var_name.clone());
+            walk_children(ast, body, globals, scope);
+            scope.truncate(depth);
         }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
         | Stmt::For { body, .. }
-        | Stmt::ForOf { body, .. }
         | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::Labeled { body, .. } => walk_children(ast, body, globals),
+        | Stmt::Labeled { body, .. } => walk_children(ast, body, globals, scope),
         Stmt::Try {
             body,
+            catch_param,
             catch_body,
             finally_body,
             ..
         } => {
-            walk_list(ast, body, globals);
-            walk_list(ast, catch_body, globals);
+            walk_list(ast, body, globals, scope);
+            let depth = scope.len();
+            if let Some(cp) = catch_param {
+                scope.push(cp.clone());
+            }
+            walk_list(ast, catch_body, globals, scope);
+            scope.truncate(depth);
             if let Some(fb) = finally_body {
-                walk_list(ast, fb, globals);
+                walk_list(ast, fb, globals, scope);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases.iter_mut() {
-                walk_list(ast, &mut c.body, globals);
+                walk_list(ast, &mut c.body, globals, scope);
             }
             if let Some(d) = default {
-                walk_list(ast, d, globals);
+                walk_list(ast, d, globals, scope);
             }
         }
         _ => {}
@@ -168,7 +196,7 @@ fn walk_children(ast: &mut Ast, s: &mut Stmt, globals: &[String]) {
 
 /// One statement list: decide which of its `function` declarations route,
 /// then rewrite those in place.
-fn route_list(ast: &mut Ast, stmts: &mut [Stmt], globals: &[String]) {
+fn route_list(ast: &mut Ast, stmts: &mut [Stmt], globals: &[String], scope: &[String]) {
     let sites: Vec<usize> = stmts
         .iter()
         .enumerate()
@@ -196,7 +224,15 @@ fn route_list(ast: &mut Ast, stmts: &mut [Stmt], globals: &[String]) {
         .map(|i| match &stmts[*i] {
             Stmt::FnDecl { params, body, .. } => {
                 let mut prebound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-                prebound.extend(globals.iter().cloned());
+                // A top-level fn name an enclosing scope has rebound is
+                // NOT in scope here — the reference belongs to the local
+                // and has to be captured (RFC 20260828).
+                prebound.extend(
+                    globals
+                        .iter()
+                        .filter(|g| !scope.iter().any(|b| b == *g))
+                        .cloned(),
+                );
                 free_vars_of_body(ast, &prebound, body)
             }
             _ => unreachable!("site is a FnDecl"),
