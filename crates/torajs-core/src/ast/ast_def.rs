@@ -761,6 +761,28 @@ pub struct Ast {
     /// `Any` there instead handed the callee the bare ident's raw
     /// null and `m()` on `m(x, y = 5)` printed `null`.
     pub arity_hole_args: std::collections::HashSet<ExprId>,
+    /// The nested `ObjectLit`s `default_init_for_field` mints when a
+    /// class field's declared type is itself a class or an alias
+    /// with a struct shape — value → the type name it stands for.
+    ///
+    /// Those literals are lowered INSIDE the owning class's factory
+    /// (`__new_<C>`'s `__this` seed), and every per-cell identity the
+    /// cell-construction tail writes — class tag, vtable pointer, the
+    /// Error-derived flag — is taken from the enclosing factory's
+    /// name. That reads "which factory am I lowering in", not "which
+    /// class is this cell", and the two disagree for exactly these
+    /// literals: `__new___Gen_gen` stamped its own tag on the
+    /// three-field `__Gen_rf` cell it built for `__forof_it_0`, so
+    /// the cycle collector — the only reader of `child_offsets` —
+    /// walked a six-field layout off the end of a 56-byte
+    /// allocation.
+    ///
+    /// A cell missing from this table keeps the factory-name
+    /// behaviour, so losing an entry degrades to what the tail did
+    /// before the table existed rather than mis-identifying anything
+    /// new. Monomorph clones carry entries across the id map
+    /// (`check_monomorph_clone_tables`).
+    pub field_default_objlits: std::collections::HashMap<ExprId, String>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a

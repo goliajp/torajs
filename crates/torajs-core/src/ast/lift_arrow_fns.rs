@@ -127,7 +127,14 @@ pub(crate) fn default_init_for_field(
             sub_pairs.push((sfname.clone(), sub_id));
         }
         seen.remove(fty);
-        return ast.add_expr(Expr::ObjectLit { fields: sub_pairs });
+        // The cell this literal mints belongs to `fty`, not to the
+        // factory that will lower it. Record the ExprId so the
+        // cell-construction tail can ask which class it is building
+        // instead of which factory it is inside — see the doc on
+        // `Ast::field_default_objlits`.
+        let lit = ast.add_expr(Expr::ObjectLit { fields: sub_pairs });
+        ast.field_default_objlits.insert(lit, fty.to_string());
+        return lit;
     }
     let init_expr = default_init_for_type(fty);
     ast.add_expr(init_expr)

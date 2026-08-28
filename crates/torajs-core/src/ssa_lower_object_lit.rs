@@ -108,9 +108,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
     );
     let any_refcounted = field_tys.iter().any(|(_, ty)| ty.is_refcounted());
     let obj_ptr = alloc_obj(ctx, sid, field_tys.len(), any_refcounted, stack_hint);
-    init_header(ctx, obj_ptr, sid);
-    write_class_tag(ctx, obj_ptr, sid);
-    write_vtable_ptr(ctx, obj_ptr);
+    // Which class is this cell? Normally the factory being lowered
+    // builds its own instances, but a nested field default is a cell
+    // of the FIELD's class sitting inside someone else's factory
+    // (`Ast::field_default_objlits`) — the identity writes below
+    // would otherwise stamp the factory's tag, vtable and Error flag
+    // onto it.
+    let owner = ctx.ast.field_default_objlits.get(&eid).cloned();
+    let owner = owner.as_deref();
+    init_header(ctx, obj_ptr, sid, owner);
+    write_class_tag(ctx, obj_ptr, sid, owner);
+    write_vtable_ptr(ctx, obj_ptr, owner);
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     for (i, (fname, slot_ty)) in layout.iter().enumerate() {
         if undef_fields.contains(fname)

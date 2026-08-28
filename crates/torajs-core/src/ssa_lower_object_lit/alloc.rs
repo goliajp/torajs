@@ -4,6 +4,14 @@
 //! store and the vtable pointer. Split verbatim at the 500-line
 //! file cap; the phase-5 ordering rationale lives in the parent's
 //! module doc.
+//!
+//! All three identity writes need the same fact — which class this
+//! cell is — and all three used to read it off the enclosing
+//! function's name. That answers "which factory am I inside", which
+//! is the same thing only for the factory's OWN instance. The
+//! `owner` argument carries the answer when it is not: a nested
+//! field default belongs to the field's declared class (see
+//! [`crate::ast::Ast::field_default_objlits`]).
 
 use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE, OBJ_VTABLE_OFF};
@@ -39,10 +47,18 @@ pub(super) fn alloc_obj(
     )
 }
 
-pub(super) fn init_header(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId, _sid: StructId) {
+pub(super) fn init_header(
+    ctx: &mut LowerCtx<'_>,
+    obj_ptr: crate::ssa::ValueId,
+    _sid: StructId,
+    owner: Option<&str>,
+) {
     ctx.emit_obj_header_init(Operand::Value(obj_ptr));
-    let factory_class = ctx.f.name.strip_prefix("__new_").map(str::to_owned);
-    if let Some(cname) = factory_class
+    let cell_class = match owner {
+        Some(cname) => Some(cname.to_owned()),
+        None => ctx.f.name.strip_prefix("__new_").map(str::to_owned),
+    };
+    if let Some(cname) = cell_class
         && ctx.class_is_error_derived(&cname)
     {
         let packed = 1_i32 | ((torajs_rc::FLAG_ERROR as i32) << 16);
@@ -54,7 +70,27 @@ pub(super) fn init_header(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId, 
     }
 }
 
-pub(super) fn write_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId, sid: StructId) {
+pub(super) fn write_class_tag(
+    ctx: &mut LowerCtx<'_>,
+    obj_ptr: crate::ssa::ValueId,
+    sid: StructId,
+    owner: Option<&str>,
+) {
+    // A nested field default names its own class, and neither the
+    // factory tag nor the generic-factory pool applies to it — both
+    // key off the enclosing factory. An owner that is an ALIAS
+    // rather than a class has no tag of its own and falls through to
+    // the sid-keyed anon stamp, which is what the same literal gets
+    // outside a factory.
+    if let Some(cname) = owner {
+        let tag = ctx
+            .class_name_to_tag
+            .get(cname)
+            .copied()
+            .unwrap_or_else(|| ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid));
+        store_class_tag(ctx, obj_ptr, tag);
+        return;
+    }
     let factory_tag = ctx
         .f
         .name
@@ -85,6 +121,10 @@ pub(super) fn write_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::Value
     let tag = factory_tag
         .or_else(generic_tag)
         .unwrap_or_else(|| ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid));
+    store_class_tag(ctx, obj_ptr, tag);
+}
+
+fn store_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId, tag: u32) {
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
@@ -96,7 +136,11 @@ pub(super) fn write_class_tag(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::Value
     );
 }
 
-pub(super) fn write_vtable_ptr(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::ValueId) {
+pub(super) fn write_vtable_ptr(
+    ctx: &mut LowerCtx<'_>,
+    obj_ptr: crate::ssa::ValueId,
+    owner: Option<&str>,
+) {
     // A GENERIC class's mono factory (`__new_Box$$_number`) misses
     // the bare-name tag lookup, but its instances still need a
     // vtable — `populate_vtables` emits one row per mono factory
@@ -104,6 +148,11 @@ pub(super) fn write_vtable_ptr(ctx: &mut LowerCtx<'_>, obj_ptr: crate::ssa::Valu
     // `write_class_tag`'s generic-tag branch above).
     let vtable_class: Option<&str> = if ctx.ast.method_index.is_empty() {
         None
+    } else if let Some(cname) = owner {
+        // Same reasoning as the tag: the cell is the field's class,
+        // so it wants that class's method table. An alias owner has
+        // none and takes the null a non-factory literal takes.
+        Some(cname).filter(|c| ctx.class_name_to_tag.contains_key(*c))
     } else {
         ctx.f.name.strip_prefix("__new_").filter(|c| {
             ctx.class_name_to_tag.contains_key(*c)

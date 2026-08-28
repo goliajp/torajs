@@ -17,6 +17,9 @@
 //! * `arity_hole_args` — the `undefined` that same pad wrote into a
 //!   slot with no default of its own; the mark is what types it
 //!   `Any` instead of `Undefined`.
+//! * `field_default_objlits` — the class a nested field-default
+//!   literal mints a cell of; without it the specialization's copy
+//!   falls back to naming the enclosing factory's class.
 //!
 //! Split from `check_monomorph.rs` at the 500-line file cap.
 
@@ -68,4 +71,18 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         .filter_map(|&(old, new)| owned_ast.arity_hole_args.contains(&old).then_some(new))
         .collect();
     owned_ast.arity_hole_args.extend(holes);
+    // `field_default_objlits` — a generic class's specialization
+    // reproduces its factory's `__this` seed verbatim, nested field
+    // defaults included; a clone that lost the mark stamps the
+    // factory's identity on a cell of another class again.
+    let owners: Vec<(ExprId, String)> = id_map
+        .iter()
+        .filter_map(|&(old, new)| {
+            owned_ast
+                .field_default_objlits
+                .get(&old)
+                .map(|cname| (new, cname.clone()))
+        })
+        .collect();
+    owned_ast.field_default_objlits.extend(owners);
 }
