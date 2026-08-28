@@ -288,16 +288,103 @@ pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64
 /// # Safety
 /// Cell receivers are live heap pointers; `key` is a live Symbol cell.
 #[cfg_attr(test, allow(dead_code))]
-pub(crate) unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> (u64, u64, bool) {
+pub(crate) unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> OwnedPair {
     let (tag, value) = unsafe { symbol_key_pair(recv, key) };
     if tag != crate::struct_probe::ANY_ACCESSOR_TAG {
-        return (tag, value, false);
+        return OwnedPair::borrowed(tag, value);
     }
     let got = unsafe { crate::struct_probe::__torajs_any_accessor_get(recv, key, value) };
     if unsafe { __torajs_throw_check() } != 0 {
-        return (TAG_UNDEF, 0, false);
+        return OwnedPair::borrowed(TAG_UNDEF, 0);
     }
     let t = unsafe { __torajs_anyv_unbox_tag(got) } as u64;
     let v = unsafe { __torajs_anyv_unbox_value(got) } as u64;
-    (t, v, true)
+    OwnedPair {
+        tag: t,
+        payload: v,
+        owned: true,
+    }
+}
+
+/// The answer of a [`symbol_key_get`], releasing the getter's +1 when
+/// it leaves scope.
+///
+/// Every runtime-internal consumer wrote the same three lines by hand:
+/// hold `(tag, payload, owned)`, thread the pair through a call whose
+/// `env` aliases the very cell the pair names, then release on each
+/// exit — four exits in `iter_any_get_method`, five in
+/// `index_any_method_call`. The rule that made those releases
+/// error-prone is a *position* rule ("not before the invoke: `env` IS
+/// that cell"), and a comment is the only thing that used to state it.
+/// Held in this guard the rule becomes the scope, and the count
+/// becomes one drop glue per exit that the compiler writes.
+///
+/// A borrowed pair (a plain data property, a dict entry, a nullish
+/// answer, a getter that threw) carries no +1 and drops to nothing.
+pub(crate) struct OwnedPair {
+    tag: u64,
+    payload: u64,
+    owned: bool,
+}
+
+impl OwnedPair {
+    /// A pair the caller does not own — the dict / prototype-walk
+    /// answer, and the `(undefined, 0)` a thrown getter leaves behind.
+    pub(crate) fn borrowed(tag: u64, payload: u64) -> Self {
+        Self {
+            tag,
+            payload,
+            owned: false,
+        }
+    }
+
+    /// Borrow the pair for the read side. The guard outlives the
+    /// borrow, so a `(tag, payload)` handed to an invoke cannot
+    /// outlive the reference it names.
+    pub(crate) fn pair(&self) -> (u64, u64) {
+        (self.tag, self.payload)
+    }
+
+    /// The value half alone, for the consumers whose tag check already
+    /// pinned it to a cell.
+    pub(crate) fn payload(&self) -> u64 {
+        self.payload
+    }
+
+    /// Hand the +1 out to a longer-lived owner (`Iterator.concat`
+    /// parks the resolved `[[OpenMethod]]`): a getter-produced pair
+    /// transfers the reference it already holds, a borrowed one takes
+    /// its own first. Either way this guard stops releasing.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn into_owned_value(self) -> AnyValue {
+        // SAFETY: the pair came out of `symbol_key_get`, so it is
+        // either an immediate or a live cell.
+        let v = unsafe {
+            crate::nanbox_encode::__torajs_anyv_box_from_pair(self.tag as i64, self.payload as i64)
+        };
+        if !self.owned {
+            crate::payload_rc_inc(self.tag as i64, self.payload as i64);
+        }
+        core::mem::forget(self);
+        v
+    }
+}
+
+impl Drop for OwnedPair {
+    fn drop(&mut self) {
+        if !self.owned {
+            return;
+        }
+        // SAFETY: `owned` means the value came out of a getter and the
+        // +1 is ours. A non-cell answer re-boxes to an immediate,
+        // which `rc_dec` passes over.
+        unsafe {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                    self.tag as i64,
+                    self.payload as i64,
+                ),
+            )
+        };
+    }
 }

@@ -195,7 +195,8 @@ pub(crate) unsafe fn get_iterator_wk(
         // lookup recognises — every accessor spelling threw
         // "Symbol.iterator is not a function" with the getter never
         // running (RFC 20260828 knife 3b).
-        let (tag, payload, owned) = crate::member_get_symbol::symbol_key_get(recv, sym);
+        let method = crate::member_get_symbol::symbol_key_get(recv, sym);
+        let (tag, payload) = method.pair();
         let _ = __torajs_rc_dec(sym);
         // A getter that threw answers undefined with the throw pending;
         // the gate below would read that as "no user method" and ride
@@ -204,17 +205,13 @@ pub(crate) unsafe fn get_iterator_wk(
             return GetIterator::Threw;
         }
         if tag == TAG_UNDEF || (nullish_missing && tag == TAG_NULL) {
-            // Nullish carries no cell, so `owned` needs no release.
+            // Nullish carries no cell, so the guard drops to nothing.
             return GetIterator::NoUserMethod;
         }
-        // A getter-produced method is ours across all four exits below,
-        // and the invoke's `env` aliases its cell — so the dispatch
-        // moves into its own fn and this frame owns the one release.
-        let out = iterator_from_method(recv, tag, payload, not_a_function);
-        if owned {
-            __torajs_anyv_rc_dec(__torajs_anyv_box_from_pair(tag as i64, payload as i64));
-        }
-        out
+        // A getter-produced method is ours across all four exits of
+        // the dispatch below, and the invoke's `env` aliases its cell
+        // — `method` outliving the call is what makes both true.
+        iterator_from_method(recv, tag, payload, not_a_function)
     }
 }
 

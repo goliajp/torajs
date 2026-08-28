@@ -25,6 +25,7 @@ use crate::AnyValue;
 #[cfg(not(test))]
 use torajs_rc::Tag;
 
+use crate::member_get_symbol::OwnedPair;
 #[cfg(not(test))]
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 #[cfg(not(test))]
@@ -40,8 +41,6 @@ unsafe extern "C" {
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     /// torajs-throw — did the step-15 getter leave a pending throw?
     fn __torajs_throw_check() -> i64;
-    /// torajs-rc — release a getter-produced cell (owned answer).
-    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// Index of `Symbol.toStringTag` in torajs-str's alphabetical
@@ -53,15 +52,16 @@ const WK_TO_STRING_TAG: i64 = 13;
 #[cfg(not(test))]
 const SLOT_HEAP: u64 = 4;
 
-/// The receiver's `@@toStringTag`, as a BORROWED Str cell, or `None`
-/// when absent or not a String (step 16's "is not a String" arm, which
-/// covers `undefined`, a number, a symbol — anything the object
-/// happens to have parked there).
+/// The receiver's `@@toStringTag` as a Str cell, guarded so a
+/// getter-produced one releases at the end of its consumer's scope, or
+/// `None` when absent or not a String (step 16's "is not a String"
+/// arm, which covers `undefined`, a number, a symbol — anything the
+/// object happens to have parked there).
 ///
 /// # Safety
 /// `recv` carries a valid AnyValue bit pattern.
 #[cfg(not(test))]
-pub(crate) unsafe fn to_string_tag_cell(recv: AnyValue) -> Option<(*mut c_void, bool)> {
+pub(crate) unsafe fn to_string_tag_cell(recv: AnyValue) -> Option<OwnedPair> {
     unsafe {
         let sym = __torajs_symbol_well_known(WK_TO_STRING_TAG);
         if sym.is_null() {
@@ -73,7 +73,8 @@ pub(crate) unsafe fn to_string_tag_cell(recv: AnyValue) -> Option<(*mut c_void, 
         // the sentinel as "not a heap value" is exactly what made every
         // accessor form answer `[object Object]` with the getter never
         // running, exception forms included (517-01 / 516-03 u4).
-        let (tag, payload, owned) = crate::member_get_symbol::symbol_key_get(recv, sym);
+        let tag_pair = crate::member_get_symbol::symbol_key_get(recv, sym);
+        let (tag, payload) = tag_pair.pair();
         __torajs_rc_dec(sym);
         // A getter that threw answers undefined with the throw pending;
         // falling through to the builtinTag walk would swallow it.
@@ -88,18 +89,16 @@ pub(crate) unsafe fn to_string_tag_cell(recv: AnyValue) -> Option<(*mut c_void, 
         // a Substr shares that tag and reads the same through concat.
         let cell_tag = cell.cast::<u8>().add(4).cast::<u16>().read();
         if cell_tag != Tag::Str as u16 {
-            // A getter's non-String answer is ours to release.
-            if owned {
-                __torajs_value_drop_heap(cell);
-            }
+            // A getter's non-String answer is released by the guard on
+            // the way out.
             return None;
         }
-        Some((cell, owned))
+        Some(tag_pair)
     }
 }
 
 #[cfg(test)]
-pub(crate) unsafe fn to_string_tag_cell(_recv: AnyValue) -> Option<(*mut c_void, bool)> {
+pub(crate) unsafe fn to_string_tag_cell(_recv: AnyValue) -> Option<OwnedPair> {
     None
 }
 
@@ -128,17 +127,6 @@ pub(crate) unsafe fn tag_badge_string(_tag: *mut c_void) -> AnyValue {
     crate::nanbox::VALUE_UNDEFINED
 }
 
-/// Release a getter-produced tag cell. Split by cfg like its
-/// neighbours because the extern block above is `cfg(not(test))` —
-/// `try_tag_badge` itself is shared by both builds.
-#[cfg(not(test))]
-unsafe fn release_owned_tag(cell: *mut c_void) {
-    unsafe { __torajs_value_drop_heap(cell) };
-}
-
-#[cfg(test)]
-unsafe fn release_owned_tag(_cell: *mut c_void) {}
-
 /// Step 15 + 16 as one call: the finished `"[object X]"` box when the
 /// receiver names itself with a String tag, `None` to fall through to
 /// the builtinTag walk.
@@ -149,11 +137,8 @@ pub(crate) unsafe fn try_tag_badge(recv: AnyValue) -> Option<AnyValue> {
     // Steps 1-3 already rejected undefined / null; a primitive still
     // reaches here because ToObject's wrapper inherits from a builtin
     // prototype, and a user monkey-patch there is observable.
-    let (cell, owned) = unsafe { to_string_tag_cell(recv) }?;
-    let badge = unsafe { tag_badge_string(cell) };
-    // The badge copies out of the cell; a getter-produced tag is ours.
-    if owned {
-        unsafe { release_owned_tag(cell) };
-    }
-    Some(badge)
+    let tag_pair = unsafe { to_string_tag_cell(recv) }?;
+    // The badge copies out of the cell, and the guard releases a
+    // getter-produced one when this frame ends.
+    Some(unsafe { tag_badge_string(tag_pair.payload() as *mut c_void) })
 }

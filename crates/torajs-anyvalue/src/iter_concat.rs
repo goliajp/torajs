@@ -34,7 +34,6 @@ use crate::iter_helper::{
 };
 use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_with_this};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
-use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use torajs_rc::Tag;
 
@@ -107,17 +106,16 @@ unsafe fn item_open_method(v: AnyValue) -> Option<AnyValue> {
         // A real Get: an accessor-shaped @@iterator runs its getter
         // here, ONCE — the answer is parked, so the open below never
         // asks again.
-        let (t, payload, owned) = crate::member_get_symbol::symbol_key_get(v, sym);
+        let open_method = crate::member_get_symbol::symbol_key_get(v, sym);
+        let (t, payload) = open_method.pair();
         let _ = __torajs_rc_dec(sym);
         if __torajs_throw_check() != 0 {
             return None;
         }
         if t == TAG_UNDEF || t == TAG_NULL {
-            // Nullish carries no cell, so `owned` needs no release.
             __torajs_throw_type_error(c"Iterator.concat argument is not iterable".as_ptr());
             return None;
         }
-        let method = __torajs_anyv_box_from_pair(t as i64, payload as i64);
         let closure = if t == 4 && payload != 0 {
             let cell = payload as *mut c_void;
             // SAFETY: tag 4 payloads are live heap cells; only a
@@ -138,26 +136,18 @@ unsafe fn item_open_method(v: AnyValue) -> Option<AnyValue> {
         if let Some(cell) = closure
             && crate::method_value::builtin_method_mid(cell).is_some()
         {
-            if owned {
-                __torajs_anyv_rc_dec(method);
-            }
             return Some(VALUE_UNDEFINED);
         }
         // Step 2.c's other half — present but not callable refuses at
         // construction. It used to ride to the first step as a
         // missing-`next` TypeError.
         if closure.is_none_or(|cell| closure_cell_entry(cell).is_none()) {
-            if owned {
-                __torajs_anyv_rc_dec(method);
-            }
             __torajs_throw_type_error(c"Iterator.concat argument is not iterable".as_ptr());
             return None;
         }
-        if !owned {
-            // A dict entry is borrowed; the parked list takes its own.
-            crate::payload_rc_inc(t as i64, payload as i64);
-        }
-        Some(method)
+        // The parked list outlives this frame, so the +1 leaves the
+        // guard with it — a borrowed dict entry takes one of its own.
+        Some(open_method.into_owned_value())
     }
 }
 

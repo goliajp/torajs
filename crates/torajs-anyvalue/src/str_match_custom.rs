@@ -24,7 +24,6 @@ use crate::iter_any_get_method::callable_entry;
 use crate::method_call_closure_dispatch::invoke_with_this;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
-use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
 unsafe extern "C" {
     /// torajs-str — §6.1.5.1 well-known singleton table
@@ -99,7 +98,8 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
         }
         // GetMethod is a real Get, so an accessor-shaped matcher runs
         // its getter — once, here, and its ANSWER decides the branch.
-        let (tag, payload, owned) = crate::member_get_symbol::symbol_key_get(arg, sym);
+        let matcher = crate::member_get_symbol::symbol_key_get(arg, sym);
+        let (tag, payload) = matcher.pair();
         let _ = __torajs_rc_dec(sym);
         // A getter that threw answers undefined with the throw
         // pending; reporting "no custom method" would run the coerce
@@ -127,7 +127,6 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
             if ct == torajs_rc::Tag::Closure as u16
                 && crate::method_value::builtin_method_mid(cell).is_some()
             {
-                release_owned(owned, tag, payload);
                 return 0;
             }
         }
@@ -135,24 +134,13 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
         // is the coerce lane. A getter is what makes this reachable
         // after the walk rather than before it.
         if tag == TAG_UNDEF || tag == TAG_NULL {
-            // Nullish carries no cell, so `owned` needs no release.
             return 0;
         }
-        let r = call_matcher(recv_str, arg, extra, argc, tag, payload, wk_idx);
-        release_owned(owned, tag, payload);
-        *out = r;
+        // The call's `env` aliases a getter-produced matcher's cell, so
+        // `matcher` outliving it is what makes the one release land
+        // after the invoke rather than inside it.
+        *out = call_matcher(recv_str, arg, extra, argc, tag, payload, wk_idx);
         1
-    }
-}
-
-/// Release a getter-produced matcher. A non-cell answer (a number, a
-/// string primitive) carries nothing to drop, which the box handles.
-///
-/// # Safety
-/// `(tag, payload)` is a live member pair.
-unsafe fn release_owned(owned: bool, tag: u64, payload: u64) {
-    if owned {
-        unsafe { __torajs_anyv_rc_dec(__torajs_anyv_box_from_pair(tag as i64, payload as i64)) };
     }
 }
 

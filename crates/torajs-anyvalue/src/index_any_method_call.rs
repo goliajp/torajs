@@ -194,12 +194,13 @@ unsafe fn symbol_keyed_call(
     // A Get, so an accessor-shaped method entry runs its getter: the
     // pair alone answers the sentinel, which this arm read as "not a
     // heap value" and turned into `not_callable` (RFC knife 2b).
-    let (tag, value, owned) = unsafe { crate::member_get_symbol::symbol_key_get(recv, key) };
+    let method = unsafe { crate::member_get_symbol::symbol_key_get(recv, key) };
+    let (tag, value) = method.pair();
     if unsafe { __torajs_throw_check() } != 0 {
         return VALUE_UNDEFINED;
     }
     if tag != TAG_HEAP || value == 0 {
-        // A non-heap answer carries no cell, so `owned` needs no release.
+        // A non-heap answer carries no cell, so the guard drops to nothing.
         if let Some(out) = unsafe { obj_symbol_iterator_call(recv, key) } {
             return out;
         }
@@ -207,13 +208,9 @@ unsafe fn symbol_keyed_call(
     }
     let cell = value as *mut c_void;
     // The call has five exits below; a getter-produced cell has to
-    // outlive all of them and be released once, so the dispatch moves
-    // into its own fn and this one owns the release.
-    let out = unsafe { call_resolved_symbol_method(recv, cell, argv, argc) };
-    if owned {
-        unsafe { __torajs_value_drop_heap(cell) };
-    }
-    out
+    // outlive all of them and be released once — `method` living to
+    // the end of this frame is exactly that.
+    unsafe { call_resolved_symbol_method(recv, cell, argv, argc) }
 }
 
 /// The dispatch half of [`symbol_keyed_call`], split out so the caller
@@ -276,8 +273,6 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     /// torajs-throw — did the symbol getter leave a pending throw?
     fn __torajs_throw_check() -> i64;
-    /// torajs-rc — release a getter-produced method cell.
-    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// `src[Symbol.iterator]()` on a class instance — the symbol dict

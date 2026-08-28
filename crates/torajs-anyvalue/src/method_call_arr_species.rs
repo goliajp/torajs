@@ -278,7 +278,8 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) ->
         // below and got boxed as if it were the species itself — the
         // "array species constructor is not a constructor" TypeError
         // was that sentinel reaching Construct (RFC knife 2c).
-        let (stag, sval, owned) = symbol_key_get(ctor_av, sym as *const c_void);
+        let species_pair = symbol_key_get(ctor_av, sym as *const c_void);
+        let (stag, sval) = species_pair.pair();
         __torajs_value_drop_heap(sym);
         if __torajs_throw_check() != 0 {
             return SpeciesOutcome::Threw;
@@ -299,13 +300,10 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) ->
             return SpeciesOutcome::Default;
         }
         let species = crate::nanbox_encode::__torajs_anyv_box_from_pair(stag as i64, sval as i64);
-        let out = run_species_ctor(ctor_len, species);
-        // A getter-produced species is ours once Construct is done; the
-        // product carries its own +1 and is unaffected.
-        if owned && crate::nanbox::is_cell(species) {
-            __torajs_value_drop_heap(as_void_ptr(species));
-        }
-        out
+        // A getter-produced species is ours once Construct is done —
+        // `species_pair` outliving it says so; the product carries its
+        // own +1 and is unaffected.
+        run_species_ctor(ctor_len, species)
     }
 }
 
