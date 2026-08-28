@@ -104,6 +104,7 @@ panic = "abort"
 # on [profile.test] and [profile.bench] per cargo design; not
 # settable there.)
 [profile.dev]
+debug = 1
 panic = "abort"
 
 # Vanilla-Rust honest baseline. Mirrors mailrs's pattern. Use with
