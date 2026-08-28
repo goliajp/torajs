@@ -203,6 +203,19 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
     // recognised here by pointer identity. Object / RegExp / Date /
     // Error are absent because the spec gives them no tag at all —
     // they keep "Object", matching bun.
+    //
+    // The INSTANCE walk below follows the same rule, and for the same
+    // reason it now says less than it used to: a `Map` cell has no
+    // builtinTag of its own either (steps 4-14 name only Array /
+    // Arguments / Function / Error / Boolean / Number / String / Date
+    // / RegExp), so it must reach its badge through the tag its
+    // prototype carries. Emulating it here answered the same string
+    // by a different route, and the two routes disagreed the moment
+    // the property was deleted — the tag is configurable, and
+    // `delete Map.prototype[Symbol.toStringTag]` left tr still saying
+    // "[object Map]" where bun says "[object Object]"
+    // (`proto_tostringtag_install`'s own module doc recorded this
+    // survival when it installed the real properties).
     let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
     if proto_tag >= 0 {
         return match proto_tag {
@@ -230,23 +243,17 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
         }
         t if t == Tag::Date as u16 => b"Date",
         t if t == Tag::RegExp as u16 => b"RegExp",
-        t if t == Tag::Map as u16 => b"Map",
-        t if t == Tag::Set as u16 => b"Set",
-        t if t == Tag::Promise as u16 => b"Promise",
-        t if t == Tag::Symbol as u16 => b"Symbol",
-        t if t == Tag::BigInt as u16 => b"BigInt",
-        t if t == Tag::WeakMap as u16 => b"WeakMap",
-        t if t == Tag::WeakSet as u16 => b"WeakSet",
-        t if t == Tag::WeakRef as u16 => b"WeakRef",
-        // §25.1.6.5 `ArrayBuffer.prototype[@@toStringTag]`.
-        t if t == Tag::ArrayBuffer as u16 => b"ArrayBuffer",
-        // §23.2.3.32 — a typed array's `@@toStringTag` is its
-        // [[TypedArrayName]], so the badge differs per element type.
+        // §23.2.3.32 — a typed array names itself through an
+        // ACCESSOR on %TypedArray%.prototype, not the data property
+        // the ten collections above carry, and tr's symbol-keyed
+        // [[Get]] is a borrow-shaped slot read that never fires a
+        // getter (`member_get_symbol::probe_dict`). So this one badge
+        // is still emulated here, and it is the only one that has to
+        // be. When the symbol accessor lane lands, this arm goes the
+        // way of the other ten.
         t if t == Tag::TypedArray as u16 => unsafe {
             typedarray_badge(__torajs_typedarray_kind(crate::nanbox::box_void_ptr(ptr)))
         },
-        // §25.3.4.25 `DataView.prototype[@@toStringTag]`.
-        t if t == Tag::DataView as u16 => b"DataView",
         t if t == Tag::Undefined as u16 => b"Undefined",
         // RFC 20260716 刀 2 — primitive-wrapper cells classify by what
         // they wrap.

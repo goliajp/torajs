@@ -144,6 +144,16 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         // that all eleven see the SAME `values` function object,
         // which the family-less mint gets right by construction.
         t if t == Tag::ArrayBuffer as u16 => 19,
+        // §25.3.4 — DataView.prototype is its own singleton too, so
+        // its row is exact for the same reason ArrayBuffer's is. Its
+        // absence was not a recorded boundary like TypedArray's, just
+        // a missing line: `proto_tostringtag_install` put the real
+        // `@@toStringTag` on DataView.prototype, and
+        // `new DataView(buf)[Symbol.toStringTag]` still answered
+        // undefined because this walk had no row to reach it through
+        // — the exact shape the doc above `inherited_dict` describes
+        // for Map, one tag later.
+        t if t == Tag::DataView as u16 => 32,
         // Iterator-protocol cells hang off %Iterator.prototype%
         // (builtin-proto tag 15; the per-family intermediate
         // prototypes are a recorded boundary — RFC
