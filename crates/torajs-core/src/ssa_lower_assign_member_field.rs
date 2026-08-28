@@ -224,7 +224,7 @@ pub(crate) fn lower_struct_field_store(
         // the old consume let a re-assign's drop-old steal the
         // source's only ref (UAF, reuse-window probe-proven). Owned
         // temps keep transferring their fresh reference.
-        let transfers = ctx.expr_transfers_ownership(value);
+        let mut transfers = ctx.expr_transfers_ownership(value);
         // W4 — align the stored value with the field width (mirrors
         // the index-assign site; the reverse direction means the
         // width analysis missed this write).
@@ -259,7 +259,22 @@ pub(crate) fn lower_struct_field_store(
             // established unbox kernel carries their guard story) —
             // the registered S2.26 remainder.
             (Type::F64 | Type::I64, Type::Any) => ctx.coerce_any_to_number(v, field_ty),
-            (Type::Str, Type::Any) => ctx.coerce_to_str(v, Type::Any),
+            (Type::Str, Type::Any) => {
+                // This coercion MINTS: `any_to_str` hands back a
+                // reference of its own (an rc_inc on a plain Str, a
+                // fresh allocation for everything else). What reaches
+                // the slot is therefore not the source expression's
+                // value any more, so the ownership question asked
+                // above — about the SOURCE — is about the wrong
+                // thing. A borrowed `any` ident answered "does not
+                // transfer", the store retained a second time, and
+                // `new Error("x")` stranded one Str per call: 33
+                // bytes per construction, unbounded. The scalar arms
+                // above need no such correction (their results are
+                // Copy) and the boxing arms mint rc-inert immediates.
+                transfers = true;
+                ctx.coerce_to_str(v, Type::Any)
+            }
             _ => v,
         };
         let v_ty = ctx.operand_ty(&v);
