@@ -227,15 +227,23 @@ fn compute_flags_byte(ctx: &LowerCtx, desc_eid: ExprId, value_present: bool) -> 
 }
 
 /// Tag-pack helper — same table the BinOp Any===concrete arm uses for
-/// runtime tag values.
+/// runtime tag values (`torajs_rc::AnySlotTag`).
+///
+/// The tag is an operand rather than a constant because one source
+/// type cannot name it: an `Any` carries its own tag in its NaN box
+/// and only says which at runtime.
+///
+/// Whatever a refcounted arm hands back is `+1`, which is the
+/// kernel's transfer contract; the caller releases the temp's own
+/// stake afterwards.
 fn pack_tagged_value(
     ctx: &mut LowerCtx,
     v_eid: ExprId,
     v_raw: Operand,
     v_ty: Type,
-) -> (i64, Operand) {
+) -> (Operand, Operand) {
     match v_ty {
-        Type::I64 | Type::I32 => (2, v_raw),
+        Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw),
         Type::F64 => {
             let bits = ctx.f.append_inst(
                 ctx.cur_block,
@@ -243,7 +251,7 @@ fn pack_tagged_value(
                 Type::I64,
                 None,
             );
-            (3, Operand::Value(bits))
+            (Operand::ConstI64(3), Operand::Value(bits))
         }
         Type::Bool => {
             let zext = ctx.f.append_inst(
@@ -252,14 +260,43 @@ fn pack_tagged_value(
                 Type::I64,
                 None,
             );
-            (1, Operand::Value(zext))
+            (Operand::ConstI64(1), Operand::Value(zext))
+        }
+        // An `Any` is a NaN box, not a cell pointer. Tagging it
+        // `Heap` handed the kernel the box's BITS as the address to
+        // store, and retaining it through the raw `rc_inc` — which
+        // dereferences unconditionally — read a header out of an
+        // immediate. `var v = 1; Object.defineProperty(a, "p",
+        // { value: v, … })` therefore segfaulted, while the same
+        // define with a literal or a `let` (both of which reach here
+        // already typed) was fine. Ask the box what it holds instead:
+        // `anyv_unbox_tag` answers in this very table, and the
+        // any-aware retain is a no-op on an immediate.
+        Type::Any => {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![v_raw.clone()]),
+            );
+            let tag = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
+                Type::I64,
+                None,
+            );
+            let val = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_unbox_value, vec![v_raw]),
+                Type::I64,
+                None,
+            );
+            (Operand::Value(tag), Operand::Value(val))
         }
         _ if v_ty.is_refcounted() => {
             ctx.f.append_void(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.rc_inc, vec![v_raw.clone()]),
             );
-            (4, v_raw)
+            (Operand::ConstI64(4), v_raw)
         }
         // S127-1 twin — undefined and null both collapse to
         // ConstPtrNull at the value layer; the checker's static type
@@ -271,12 +308,12 @@ fn pack_tagged_value(
                 ctx.expr_types.get(&v_eid),
                 Some(crate::check::Type::Undefined)
             ) {
-                (5, Operand::ConstI64(0))
+                (Operand::ConstI64(5), Operand::ConstI64(0))
             } else {
-                (0, Operand::ConstI64(0))
+                (Operand::ConstI64(0), Operand::ConstI64(0))
             }
         }
-        _ => (0, Operand::ConstI64(0)),
+        _ => (Operand::ConstI64(0), Operand::ConstI64(0)),
     }
 }
 
@@ -309,7 +346,7 @@ fn emit_define_arr_prop(
         }
         pack_tagged_value(ctx, val_eid, v_raw, v_ty)
     } else {
-        (0, Operand::ConstI64(0))
+        (Operand::ConstI64(0), Operand::ConstI64(0))
     };
     ctx.f.append_void(
         ctx.cur_block,
@@ -318,7 +355,7 @@ fn emit_define_arr_prop(
             vec![
                 obj_op,
                 key_op.clone(),
-                Operand::ConstI64(tag),
+                tag,
                 val_op,
                 Operand::ConstI64(flags_byte),
             ],
@@ -358,7 +395,7 @@ fn emit_define_dynobj(
         }
         pack_tagged_value(ctx, val_eid, v_raw, v_ty)
     } else {
-        (0, Operand::ConstI64(0))
+        (Operand::ConstI64(0), Operand::ConstI64(0))
     };
     let dynobj = match obj_ty {
         Type::Any => ctx.any_unbox_value_as_ptr(obj_op),
@@ -381,7 +418,7 @@ fn emit_define_dynobj(
             vec![
                 Operand::Value(slot),
                 key_op.clone(),
-                Operand::ConstI64(tag),
+                tag,
                 val_op,
                 Operand::ConstI64(flags_byte),
             ],
