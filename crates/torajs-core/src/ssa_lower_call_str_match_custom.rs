@@ -3,14 +3,19 @@
 //! argument (rotation 262).
 //!
 //! `"".match(obj)` where `obj[Symbol.match] = fn` (and the search
-//! twin): step 3.a probes GetMethod(regexp, @@sym); when present the
-//! matcher runs with the pattern as `this` and the receiver string
-//! as sole argument (step 3.c), otherwise the step-4
+//! twin): step 3.a runs GetMethod(regexp, @@sym); when it answers a
+//! method the matcher runs with the pattern as `this` and the
+//! receiver string as sole argument (step 3.c), otherwise the step-4
 //! `RegExpCreate(ToString(P), "")` coerce lane answers through the
-//! per-method regex kernel. The probe/invoke pair lives in
-//! torajs-anyvalue `str_match_custom`; the split keeps the SSA
-//! branch keyed off a plain I64 (join through an Any slot — the
-//! alloca-store-load idiom every branch-shaped lowering here uses).
+//! per-method regex kernel. Both steps live in one torajs-anyvalue
+//! call, `str_match_custom`'s `__torajs_any_str_symbol_try` — it was
+//! a presence probe plus a second walk, which an ACCESSOR-shaped
+//! matcher would have run the getter twice for, and which could not
+//! reach the "the getter answered nullish, use the coerce lane"
+//! verdict at all. The SSA branch still keys off a plain I64, now the
+//! single GetMethod's verdict, with the result handed back through
+//! the Any result slot (the alloca-store-load idiom every
+//! branch-shaped lowering here uses).
 //!
 //! The checker mirrors this exact gate
 //! ([`crate::check_type_of_call_string_match`]): a single-arg
@@ -21,6 +26,21 @@
 use crate::ast::ExprId;
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
+
+/// `undefined` as an Any operand — the `extra` slot the «S» faces
+/// pass and the callee never reads (ANY_UNDEF = 5, payload ignored).
+fn undef_any(ctx: &mut LowerCtx<'_>) -> Operand {
+    let u = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_box,
+            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+        ),
+        Type::Any,
+        None,
+    );
+    Operand::Value(u)
+}
 
 /// Which symbol-dispatch method face is lowering — picks the
 /// well-known index operand and the coerce lane's regex kernel.
@@ -54,18 +74,26 @@ pub(crate) fn lower_symbol_dispatch_pattern(
         let _ = ctx.lower_expr(a);
     }
     let result_slot = ctx.alloca(Type::Any, Some("__symdisp_result"));
-    let probe = ctx.f.append_inst(
+    let extra_any = undef_any(ctx);
+    let handled = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.any_str_symbol_probe,
-            vec![raw_arg.clone(), Operand::ConstI64(wk_idx)],
+            ctx.intrinsics.any_str_symbol_try,
+            vec![
+                recv_op.clone(),
+                raw_arg.clone(),
+                extra_any,
+                Operand::ConstI64(1),
+                Operand::ConstI64(wk_idx),
+                Operand::Value(result_slot),
+            ],
         ),
         Type::I64,
         None,
     );
     let hit = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Ne, Operand::Value(probe), Operand::ConstI64(0)),
+        InstKind::ICmp(IPred::Ne, Operand::Value(handled), Operand::ConstI64(0)),
         Type::Bool,
         None,
     );
@@ -80,23 +108,11 @@ pub(crate) fn lower_symbol_dispatch_pattern(
             else_blk: coerce_blk,
         },
     );
-    // Step 3.c — Call(matcher, pattern, «S»); a user throw (or the
-    // GetMethod not-callable TypeError) propagates before the store.
+    // Step 3.c already ran inside the call above and wrote the result
+    // slot; a user throw (or the GetMethod not-callable TypeError)
+    // surfaces here.
     ctx.cur_block = custom_blk;
-    let r = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_str_symbol_invoke,
-            vec![recv_op.clone(), raw_arg.clone(), Operand::ConstI64(wk_idx)],
-        ),
-        Type::Any,
-        None,
-    );
     ctx.emit_throw_check(None);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(r), Operand::Value(result_slot), 0),
-    );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
     // Step 4 — RegExpCreate(ToString(pattern), "") then the
     // per-method regex kernel, boxed to Any so both lanes agree at
@@ -197,18 +213,32 @@ pub(crate) fn lower_replace_any_pattern(
         let _ = ctx.lower_expr(a);
     }
     let result_slot = ctx.alloca(Type::Any, Some("__symdisp_repl_result"));
-    let probe = ctx.f.append_inst(
+    // Step 3.c's replaceValue — the box is borrowed (box_to_any is
+    // rc-neutral, the operand's stake stays with this frame until the
+    // join's release), so building it ahead of the branch is free.
+    let extra_any = match &repl_op {
+        Some(op) => ctx.box_to_any(op.clone()),
+        None => undef_any(ctx),
+    };
+    let handled = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.any_str_symbol_probe,
-            vec![raw_arg.clone(), Operand::ConstI64(8)],
+            ctx.intrinsics.any_str_symbol_try,
+            vec![
+                recv_op.clone(),
+                raw_arg.clone(),
+                extra_any,
+                Operand::ConstI64(2),
+                Operand::ConstI64(8),
+                Operand::Value(result_slot),
+            ],
         ),
         Type::I64,
         None,
     );
     let hit = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Ne, Operand::Value(probe), Operand::ConstI64(0)),
+        InstKind::ICmp(IPred::Ne, Operand::Value(handled), Operand::ConstI64(0)),
         Type::Bool,
         None,
     );
@@ -223,45 +253,10 @@ pub(crate) fn lower_replace_any_pattern(
             else_blk: coerce_blk,
         },
     );
-    // Step 3.c — Call(replacer, searchValue, «O, replaceValue»);
-    // the box is borrowed (box_to_any is rc-neutral, the operand's
-    // stake stays with this frame until the join's release).
+    // Step 3.c — Call(replacer, searchValue, «O, replaceValue») ran
+    // inside the call above and wrote the result slot.
     ctx.cur_block = custom_blk;
-    let extra_any = match &repl_op {
-        Some(op) => ctx.box_to_any(op.clone()),
-        // ANY_UNDEF = 5 (payload ignored).
-        None => {
-            let u = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
-                Type::Any,
-                None,
-            );
-            Operand::Value(u)
-        }
-    };
-    let r = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_str_symbol_invoke2,
-            vec![
-                recv_op.clone(),
-                raw_arg.clone(),
-                extra_any,
-                Operand::ConstI64(8),
-            ],
-        ),
-        Type::Any,
-        None,
-    );
     ctx.emit_throw_check(None);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(r), Operand::Value(result_slot), 0),
-    );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
     // Step 4-onward fallback — ToString(searchValue), then the
     // literal substring kernels the string-pattern spelling uses.
@@ -345,18 +340,25 @@ pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>
             Operand::Value(u)
         }
     };
-    let probe = ctx.f.append_inst(
+    let handled = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.any_str_symbol_probe,
-            vec![argv[1].clone(), Operand::ConstI64(11)],
+            ctx.intrinsics.any_str_symbol_try,
+            vec![
+                argv[0].clone(),
+                argv[1].clone(),
+                limit_any.clone(),
+                Operand::ConstI64(2),
+                Operand::ConstI64(11),
+                Operand::Value(result_slot),
+            ],
         ),
         Type::I64,
         None,
     );
     let hit = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Ne, Operand::Value(probe), Operand::ConstI64(0)),
+        InstKind::ICmp(IPred::Ne, Operand::Value(handled), Operand::ConstI64(0)),
         Type::Bool,
         None,
     );
@@ -371,27 +373,10 @@ pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>
             else_blk: coerce_blk,
         },
     );
-    // Step 2.b — Call(splitter, separator, «O, limit»).
+    // Step 2.b — Call(splitter, separator, «O, limit») ran inside the
+    // call above and wrote the result slot.
     ctx.cur_block = custom_blk;
-    let r = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_str_symbol_invoke2,
-            vec![
-                argv[0].clone(),
-                argv[1].clone(),
-                limit_any.clone(),
-                Operand::ConstI64(11),
-            ],
-        ),
-        Type::Any,
-        None,
-    );
     ctx.emit_throw_check(None);
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(r), Operand::Value(result_slot), 0),
-    );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
     // Step 4-onward fallback — the limit-carrying any-separator
     // kernel (undefined → [S] / RegExp cell → regex split / else

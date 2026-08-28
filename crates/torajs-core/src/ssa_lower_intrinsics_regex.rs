@@ -85,11 +85,9 @@ pub(crate) struct RegexIds {
     /// method under the well-known symbol index operand (6 =
     /// `@@match`, 9 = `@@search`), the invoke leg runs GetMethod +
     /// Call(matcher, pattern, «S»).
-    pub any_str_symbol_probe: FuncId,
-    pub any_str_symbol_invoke: FuncId,
+    pub any_str_symbol_try: FuncId,
     /// Two-extra-argument twin — §22.1.3.19 `@@replace` calls
     /// «O, replaceValue» (8 = `@@replace`).
-    pub any_str_symbol_invoke2: FuncId,
     pub regex_replace: FuncId,
     pub regex_replace_all: FuncId,
     pub regex_replace_fn: FuncId,
@@ -224,26 +222,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[Type::Str, Type::RegExp, Type::I64],
             Type::Ptr,
         ),
-        any_str_symbol_probe: declare_intrinsic(
+        any_str_symbol_try: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_any_str_symbol_probe",
-            &[Type::Any, Type::I64],
+            "__torajs_any_str_symbol_try",
+            // (recv, arg, extra, argc, wk_idx, out) -> handled
+            &[
+                Type::Str,
+                Type::Any,
+                Type::Any,
+                Type::I64,
+                Type::I64,
+                Type::Ptr,
+            ],
             Type::I64,
-        ),
-        any_str_symbol_invoke: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_str_symbol_invoke",
-            &[Type::Str, Type::Any, Type::I64],
-            Type::Any,
-        ),
-        any_str_symbol_invoke2: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_any_str_symbol_invoke2",
-            &[Type::Str, Type::Any, Type::Any, Type::I64],
-            Type::Any,
         ),
         regex_replace: declare_intrinsic(
             module,

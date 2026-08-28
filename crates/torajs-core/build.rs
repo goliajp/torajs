@@ -65,6 +65,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_call_object_integrity.rs",
     "src/ssa_lower_call_class_synth.rs",
     "src/ssa_lower_call_str_regex_methods.rs",
+    "src/ssa_lower_call_str_match_custom.rs",
     "src/ssa_lower_call_object_coerce.rs",
     "src/ssa_lower_new.rs",
     "src/ssa_lower_call_object_keys.rs",

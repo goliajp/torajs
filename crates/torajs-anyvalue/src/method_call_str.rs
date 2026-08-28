@@ -314,17 +314,17 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 // separator misses this probe — its split rides the
                 // dedicated kernel below — unless an own-dict
                 // override shadows it, which is exactly step 2).
-                if crate::str_match_custom::__torajs_any_str_symbol_probe(
+                let mut split_out: AnyValue = VALUE_UNDEFINED;
+                if crate::str_match_custom::__torajs_any_str_symbol_try(
+                    s as *mut c_void,
                     arg_at(0),
+                    arg_at(1),
+                    2,
                     crate::str_match_custom::WK_SPLIT,
+                    &raw mut split_out,
                 ) != 0
                 {
-                    return crate::str_match_custom::__torajs_any_str_symbol_invoke2(
-                        s as *mut c_void,
-                        arg_at(0),
-                        arg_at(1),
-                        crate::str_match_custom::WK_SPLIT,
-                    );
+                    return split_out;
                 }
                 // A present limit argument routes through the
                 // ToUint32 + truncation lane; absent / undefined
