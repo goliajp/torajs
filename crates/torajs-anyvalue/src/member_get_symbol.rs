@@ -35,6 +35,11 @@ unsafe extern "C" {
     /// Disambiguates "absent" from "present, storing undefined" — both
     /// answer tag 5 from `get_tag`.
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-throw — did the getter leave a pending throw?
+    fn __torajs_throw_check() -> i64;
+    /// nanbox decode for the value a getter returned (owned box).
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `torajs_dynobj::layout::TAG_SYMBOL_KEY` mirror — a property-key
@@ -256,4 +261,47 @@ pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64
         return (4, cell as u64);
     }
     (TAG_UNDEF, 0)
+}
+
+/// [`symbol_key_pair`] with the accessor sentinel RESOLVED, for the
+/// runtime-internal protocol lookups (`@@toStringTag`, `@@hasInstance`,
+/// `@@toPrimitive`, …). Answers `(tag, value, owned)`.
+///
+/// Why this may invoke while the pair may not: the SSA GET path asks
+/// for tag and value through two separate externs, so a getter run
+/// inside the probe would run TWICE (`member_get.rs`'s blade-5 note) —
+/// hence the sentinel, which the emitted accessor arm then resolves in
+/// one place. Every caller HERE asks exactly once, so the same sentinel
+/// only ever needs resolving, never deferring.
+///
+/// That asymmetry is what the registered shape of this bug missed: the
+/// probe was never the broken part. It answers `ANY_ACCESSOR` correctly
+/// and the emitted path consumes it correctly (`o[Symbol.toStringTag]`
+/// on an accessor DOES run the getter); it is the runtime-internal
+/// consumers that read the sentinel as either a miss or a value.
+///
+/// `owned` = the value came out of a getter and the caller must drop
+/// it. A getter that threw leaves the pending throw in place and
+/// answers `(TAG_UNDEF, 0, false)` — callers that care must run
+/// `__torajs_throw_check` (nothing is leaked on that path).
+///
+/// # Safety
+/// Cell receivers are live heap pointers; `key` is a live Symbol cell.
+///
+/// `cfg(not(test))` because every consumer is a runtime protocol path
+/// whose own definition is cfg-split the same way (the lib-test build
+/// stubs them out, which would leave this dead).
+#[cfg(not(test))]
+pub(crate) unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> (u64, u64, bool) {
+    let (tag, value) = unsafe { symbol_key_pair(recv, key) };
+    if tag != crate::struct_probe::ANY_ACCESSOR_TAG {
+        return (tag, value, false);
+    }
+    let got = unsafe { crate::struct_probe::__torajs_any_accessor_get(recv, key, value) };
+    if unsafe { __torajs_throw_check() } != 0 {
+        return (TAG_UNDEF, 0, false);
+    }
+    let t = unsafe { __torajs_anyv_unbox_tag(got) } as u64;
+    let v = unsafe { __torajs_anyv_unbox_value(got) } as u64;
+    (t, v, true)
 }

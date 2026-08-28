@@ -38,6 +38,10 @@ unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-rc — release a cell reference (the well-known symbol's).
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    /// torajs-throw — did the step-15 getter leave a pending throw?
+    fn __torajs_throw_check() -> i64;
+    /// torajs-rc — release a getter-produced cell (owned answer).
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// Index of `Symbol.toStringTag` in torajs-str's alphabetical
@@ -57,16 +61,25 @@ const SLOT_HEAP: u64 = 4;
 /// # Safety
 /// `recv` carries a valid AnyValue bit pattern.
 #[cfg(not(test))]
-pub(crate) unsafe fn to_string_tag_cell(recv: AnyValue) -> Option<*mut c_void> {
+pub(crate) unsafe fn to_string_tag_cell(recv: AnyValue) -> Option<(*mut c_void, bool)> {
     unsafe {
         let sym = __torajs_symbol_well_known(WK_TO_STRING_TAG);
         if sym.is_null() {
             return None;
         }
-        // Borrow-shaped pair walk — the receiver keeps its stake, so
-        // the answer needs no retain (to_primitive's pattern).
-        let (tag, payload) = crate::member_get_symbol::symbol_key_pair(recv, sym);
+        // §20.1.3.6 step 15 is a real Get, so an ACCESSOR-shaped
+        // `@@toStringTag` has to run. The pair alone cannot do that
+        // (it answers the sentinel — see `symbol_key_get`), and reading
+        // the sentinel as "not a heap value" is exactly what made every
+        // accessor form answer `[object Object]` with the getter never
+        // running, exception forms included (517-01 / 516-03 u4).
+        let (tag, payload, owned) = crate::member_get_symbol::symbol_key_get(recv, sym);
         __torajs_rc_dec(sym);
+        // A getter that threw answers undefined with the throw pending;
+        // falling through to the builtinTag walk would swallow it.
+        if __torajs_throw_check() != 0 {
+            return None;
+        }
         if tag != SLOT_HEAP || payload == 0 {
             return None;
         }
@@ -75,14 +88,18 @@ pub(crate) unsafe fn to_string_tag_cell(recv: AnyValue) -> Option<*mut c_void> {
         // a Substr shares that tag and reads the same through concat.
         let cell_tag = cell.cast::<u8>().add(4).cast::<u16>().read();
         if cell_tag != Tag::Str as u16 {
+            // A getter's non-String answer is ours to release.
+            if owned {
+                __torajs_value_drop_heap(cell);
+            }
             return None;
         }
-        Some(cell)
+        Some((cell, owned))
     }
 }
 
 #[cfg(test)]
-pub(crate) unsafe fn to_string_tag_cell(_recv: AnyValue) -> Option<*mut c_void> {
+pub(crate) unsafe fn to_string_tag_cell(_recv: AnyValue) -> Option<(*mut c_void, bool)> {
     None
 }
 
@@ -111,6 +128,17 @@ pub(crate) unsafe fn tag_badge_string(_tag: *mut c_void) -> AnyValue {
     crate::nanbox::VALUE_UNDEFINED
 }
 
+/// Release a getter-produced tag cell. Split by cfg like its
+/// neighbours because the extern block above is `cfg(not(test))` —
+/// `try_tag_badge` itself is shared by both builds.
+#[cfg(not(test))]
+unsafe fn release_owned_tag(cell: *mut c_void) {
+    unsafe { __torajs_value_drop_heap(cell) };
+}
+
+#[cfg(test)]
+unsafe fn release_owned_tag(_cell: *mut c_void) {}
+
 /// Step 15 + 16 as one call: the finished `"[object X]"` box when the
 /// receiver names itself with a String tag, `None` to fall through to
 /// the builtinTag walk.
@@ -121,6 +149,11 @@ pub(crate) unsafe fn try_tag_badge(recv: AnyValue) -> Option<AnyValue> {
     // Steps 1-3 already rejected undefined / null; a primitive still
     // reaches here because ToObject's wrapper inherits from a builtin
     // prototype, and a user monkey-patch there is observable.
-    let cell = unsafe { to_string_tag_cell(recv) }?;
-    Some(unsafe { tag_badge_string(cell) })
+    let (cell, owned) = unsafe { to_string_tag_cell(recv) }?;
+    let badge = unsafe { tag_badge_string(cell) };
+    // The badge copies out of the cell; a getter-produced tag is ours.
+    if owned {
+        unsafe { release_owned_tag(cell) };
+    }
+    Some(badge)
 }
