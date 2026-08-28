@@ -255,6 +255,28 @@ impl<'a> FnToClosureCollector<'a> {
                 // body walk; see `shadowed` field doc.
                 let mut frame: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
                 crate::ast_collect_bindings::collect_local_binding_names(body, &mut frame);
+                // A lifted closure's captures are neither params nor
+                // body locals — they ride the env — and the lift only
+                // captures a top-level fn name when some enclosing
+                // scope rebound it (RFC 20260828). So a capture
+                // spelling one hides the declaration here exactly as a
+                // param would; without this the body's reads were
+                // rewritten to `__forward_<name>` and the receiver
+                // became the top-level function instead of the
+                // captured value.
+                if let Some(env) = params.first().filter(|p| p.name == "__env")
+                    && let Some(caps) = env
+                        .type_ann
+                        .as_deref()
+                        .and_then(|a| a.strip_prefix("__env("))
+                        .and_then(|r| r.strip_suffix(')'))
+                {
+                    frame.extend(
+                        caps.split('|')
+                            .filter(|c| !c.is_empty())
+                            .map(str::to_string),
+                    );
+                }
                 self.shadowed.push(frame);
                 self.any_param_frames.push(
                     params
