@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T23:08:36.033Z",
+  "generatedAt": "2026-08-28T03:35:26.735Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-27T22:56:40Z",
-    "headSha": "85a64a7ba",
-    "elapsedSec": 373.77,
+    "ranAt": "2026-08-28T03:12:19Z",
+    "headSha": "22efdf8ee",
+    "elapsedSec": 372.08,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29788,
+    "pass": 29801,
     "passNoOracle": 928,
     "passNegative": 4147,
-    "passTotal": 34863,
-    "bug": 12696,
+    "passTotal": 34876,
+    "bug": 12683,
     "incompatible": 5615,
     "bunSkip": 3041,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47559,
-    "passRateInScope": 65.56,
-    "passRateTrAccepted": 73.3
+    "passRateInScope": 65.59,
+    "passRateTrAccepted": 73.33
   },
   "torajs": {
-    "commit": "85a64a7ba",
-    "commitSubject": "fix: a hole is not on its own proof that a program cannot lower",
+    "commit": "cb6cb453a",
+    "commitSubject": "refactor: two self-inflicted size breaks from this rotation",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "cb6cb453a",
+      "subject": "refactor: two self-inflicted size breaks from this rotation"
+    },
+    {
+      "hash": "22efdf8ee",
+      "subject": "fix: a coerced store holds a value the source expression never had"
+    },
+    {
+      "hash": "e2da4e377",
+      "subject": "fix: only a heap tag names an address, so stop dereferencing the rest"
+    },
+    {
+      "hash": "764c758b3",
+      "subject": "fix: an any-typed descriptor value carries its own tag, so read it"
+    },
+    {
+      "hash": "50ed3407e",
+      "subject": "fix: an observed rejection is decided, so stop holding it until exit"
+    },
+    {
+      "hash": "10bf4f87c",
+      "subject": "fix: a nested field default is a cell of the field's class, not the factory's"
+    },
+    {
+      "hash": "30c80811e",
+      "subject": "docs: rotation 515 test262 sweep ingest + dashboard snapshot"
+    },
+    {
       "hash": "85a64a7ba",
       "subject": "fix: a hole is not on its own proof that a program cannot lower"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "71a09021f",
       "subject": "fix: an argument the program never passed pins no type parameter"
-    },
-    {
-      "hash": "6de391697",
-      "subject": "docs: rotation 514 test262 sweep ingest + dashboard snapshot"
-    },
-    {
-      "hash": "42e040a4b",
-      "subject": "fix: both sides ask the same question about a global's slot type"
-    },
-    {
-      "hash": "9468b8d9c",
-      "subject": "fix: an async generator awaits what it yields"
-    },
-    {
-      "hash": "b5cfd8b15",
-      "subject": "fix: a binding holding a new instance is visible to named functions"
-    },
-    {
-      "hash": "dd1ac5aff",
-      "subject": "fix: a hole in front of a default is undefined, not an arity error"
-    },
-    {
-      "hash": "6fd817e95",
-      "subject": "docs: rotation 513 test262 sweep ingest + dashboard snapshot"
-    },
-    {
-      "hash": "6a7dbc530",
-      "subject": "fix: a chain through a class instance reads what the plain read reads"
     }
   ],
-  "headSha": "85a64a7ba",
+  "headSha": "cb6cb453a",
   "autorun": {
-    "total": 818,
+    "total": 819,
     "baselineTarget": 10,
-    "bySelf": 813,
+    "bySelf": 814,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787861503-7369",
-      "at": "2026-08-27T20:11:43Z",
-      "ts": 1787861503,
+      "rotationId": "r-1787872278-16da",
+      "at": "2026-08-27T23:11:18Z",
+      "ts": 1787872278,
       "trigger": "self",
-      "prevHead": "6de391697",
-      "handoffSha": "sha256:5ec3a904f36fbc193a52674a066ab33ef355d89bd6b28ed827439473745d1fad",
-      "handoffAgeSec": 45,
+      "prevHead": "30c80811e",
+      "handoffSha": "sha256:cab3af963d162bb1c8a2a7b30b8d33ddaccdd3f3e4e48e7846d2c0e4ddb3b56e",
+      "handoffAgeSec": 38,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787872278-16da",
+        "at": "2026-08-27T23:11:18Z",
+        "ts": 1787872278,
+        "trigger": "self",
+        "prevHead": "30c80811e",
+        "handoffSha": "sha256:cab3af963d162bb1c8a2a7b30b8d33ddaccdd3f3e4e48e7846d2c0e4ddb3b56e",
+        "handoffAgeSec": 38,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787861503-7369",
         "at": "2026-08-27T20:11:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "c94ba28a6",
         "handoffSha": "sha256:f3ac35e930e3870a0bc5345629d6df957ffe46df91c1e741e5df661d5b82db47",
         "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787767400-7a05",
-        "at": "2026-08-26T18:03:20Z",
-        "ts": 1787767400,
-        "trigger": "self",
-        "prevHead": "c328af0ee",
-        "handoffSha": "sha256:fea745a7cfa62eb997d94fa53f240e828753eb41130495c4a6b877ddd4b5a814",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
