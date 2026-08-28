@@ -6,7 +6,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ANY_METHOD_HAS_OWN_PROPERTY, Tag};
+use torajs_rc::{ANY_METHOD_HAS_OWN_PROPERTY, AnySlotTag, Tag};
 
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, is_bool, is_double, is_int32, is_null, is_short_str, is_undefined,
@@ -254,7 +254,14 @@ pub(crate) unsafe fn arr_to_string_borrowed(recv: AnyValue) -> AnyValue {
                 let jtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
                 let jval = __torajs_dynobj_get_value(ptr, key as *const c_void);
                 __torajs_str_drop(key as *mut c_void);
-                if jtag != 5
+                // Only a Heap tag makes `jval` an address. Asking
+                // merely that the slot not be `undefined` let every
+                // other tag's PAYLOAD through as a pointer, so
+                // `Array.prototype.toString.call({ join: true })`
+                // dereferenced the boolean 1. Step 3 says a
+                // non-callable join takes the badge, and a
+                // non-cell can never be callable.
+                if jtag == AnySlotTag::Heap as u64
                     && let Some((env, entry)) =
                         crate::method_call::closure_cell_entry(jval as *mut c_void)
                 {

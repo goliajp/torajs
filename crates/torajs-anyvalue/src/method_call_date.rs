@@ -46,7 +46,7 @@ use torajs_rc::{
     ANY_METHOD_TO_GMT_STRING, ANY_METHOD_TO_ISO_STRING, ANY_METHOD_TO_JSON,
     ANY_METHOD_TO_LOCALE_DATE_STRING, ANY_METHOD_TO_LOCALE_STRING,
     ANY_METHOD_TO_LOCALE_TIME_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_TO_TIME_STRING,
-    ANY_METHOD_TO_UTC_STRING, ANY_METHOD_VALUE_OF,
+    ANY_METHOD_TO_UTC_STRING, ANY_METHOD_VALUE_OF, AnySlotTag,
 };
 
 use crate::method_call::method_no_such;
@@ -385,7 +385,12 @@ pub(crate) unsafe fn date_to_json_generic(recv: AnyValue) -> AnyValue {
             let jtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let jval = __torajs_dynobj_get_value(ptr, key as *const c_void);
             crate::__torajs_str_drop(key as *mut c_void);
-            if jtag != 5
+            // Heap-tagged or nothing — see the twin in
+            // `arr_to_string_borrowed`: any other tag's payload is a
+            // value, not an address, and
+            // `Date.prototype.toJSON.call({ toISOString: true })`
+            // dereferenced it.
+            if jtag == AnySlotTag::Heap as u64
                 && let Some((env, entry)) =
                     crate::method_call::closure_cell_entry(jval as *mut c_void)
             {
