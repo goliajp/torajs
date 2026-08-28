@@ -63,20 +63,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
                 &checker.class_structs,
                 &checker.aliases,
                 &checker.generic_alias_decls,
-            ) {
-                heterogeneous = true;
-            }
-            // Hole X (rotation 231) — plain assignability is
-            // REPR-blind for literal unification: `Array<Any>` is
-            // assignable to `Array<Number>` (the M6.3 Any hole),
-            // but the two carry different slot layouts (16-byte
-            // tagged vs 8-byte scalar). `[[1], [undefined, 2]]`
-            // unified to Array<Array<Number>> and the mixed inner
-            // array's slots read back as garbage bits (5e-323). An
-            // Any-ness disagreement between container element types
-            // is a repr disagreement — widen.
-            else if let (Type::Array(first_in), Type::Array(elem_in)) = (&first_ty, &ty)
-                && ((**elem_in == Type::Any) != (**first_in == Type::Any))
+            ) || repr_disagrees(&first_ty, &ty)
             {
                 heterogeneous = true;
             }
@@ -86,6 +73,54 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
         Ok(Type::Array(Box::new(Type::Any)))
     } else {
         Ok(Type::Array(Box::new(first_ty)))
+    }
+}
+
+/// Does the anchor's REPR differ from this element's, in a way plain
+/// assignability cannot see?
+///
+/// The anchor decides the slot, and every reader is generated against
+/// the anchor's type — so a later element that is *assignable* but
+/// laid out (or called) differently is read back through the wrong
+/// machine contract. Two such disagreements exist, and both are
+/// invisible to `is_assignable_to_resolved`:
+///
+/// - **Any-ness of a container element** (Hole X, rotation 231):
+///   `Array<Any>` is assignable to `Array<Number>` (the M6.3 Any
+///   hole), but the two carry different slot layouts — 16-byte tagged
+///   vs 8-byte scalar. `[[1], [undefined, 2]]` unified to
+///   `Array<Array<Number>>` and the mixed inner array's slots read
+///   back as garbage bits (5e-323).
+///
+/// - **A callable's native ABI**: `(any) => boolean` is assignable to
+///   `(any) => any` by return covariance, but the two bodies return
+///   different machine values — a raw i1 vs a NaN box. Every indirect
+///   call site loads the native entry (`CLOSURE_FN_ADDR_OFF`) and
+///   calls it under the ANCHOR's sig, so a later element with another
+///   signature is invoked through the wrong ABI:
+///   `[(x: any) => x, (x: any) => true]` read the bare payload 1 back
+///   as a cell pointer and dereferenced 0x5 (test262 staging/sm
+///   Iterator lazy-methods-reentry, exit 139), while the same
+///   mismatch silently answered `boolean true` for `(x: any) => 7`.
+///   `unify_ternary` already refuses to unify two unequal `Function`
+///   types; this is that same judgment on the literal path.
+///
+/// Widening hands the elements to the any lane, where the slots are
+/// tagged and the call sites go through the boxed entry — the one
+/// uniform ABI that does not need to know the native signature.
+///
+/// The walk RECURSES through `Array`, because both disagreements
+/// survive nesting: `[[(x: any) => x], [(x: any) => true]]` agrees at
+/// the top (both `Array<Function>`, neither `Any`) and crashes on the
+/// inner call.
+fn repr_disagrees(first: &Type, ty: &Type) -> bool {
+    match (first, ty) {
+        (Type::Array(first_in), Type::Array(elem_in)) => {
+            ((**elem_in == Type::Any) != (**first_in == Type::Any))
+                || repr_disagrees(first_in, elem_in)
+        }
+        (Type::Function(..), _) => first != ty,
+        _ => false,
     }
 }
 
