@@ -41,8 +41,12 @@ pub(crate) unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
         return 4;
     }
     // §10.1.8.1 step 4 — the walk does not end at the family
-    // prototype (517-07).
-    unsafe { crate::member_get_proto_root::object_proto_expando_tag(key) }
+    // prototype (517-07), and it does not start at the root either
+    // (525-04): the singletons in between are asked too.
+    match unsafe { crate::member_get_proto_root::proto_chain_expando(recv, key) } {
+        Some((t, _)) => t as u64,
+        None => 5,
+    }
 }
 
 /// DynObj-arm builtin tail (tag channel) — the own-method reify,

@@ -381,8 +381,11 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     if let Some(c) = unsafe { crate::method_value::builtin_method_lookup(recv, key) } {
         return c as u64;
     }
-    // Mirror of the tag channel (517-07).
-    unsafe { crate::member_get_proto_root::object_proto_expando_value(key) }
+    // Mirror of the tag channel (517-07 / 525-04).
+    match unsafe { crate::member_get_proto_root::proto_chain_expando(recv, key) } {
+        Some((_, v)) => v as u64,
+        None => 0,
+    }
 }
 
 /// Own-bag probe on the value channel — twin of

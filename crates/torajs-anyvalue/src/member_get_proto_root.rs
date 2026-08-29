@@ -1,56 +1,61 @@
-//! The %Object.prototype% hop every non-dynobj receiver owes after its
-//! own family prototype misses (§10.1.8.1 OrdinaryGet step 4, 517-07).
+//! The prototype hops every non-dynobj receiver owes after its own
+//! face misses (§10.1.8.1 OrdinaryGet step 4, 517-07 / 525-04).
 //!
-//! The dynobj lane already has it: `member_get_own::implicit_proto_parent`
-//! hands back the root cell and the walk recurses through its full
+//! The dynobj lane already has them: `member_get_own::implicit_proto_parent`
+//! hands back the parent cell and the walk recurses through its full
 //! [[Get]]. The other lanes have no dynobj proto pair to ask — an `Arr`
 //! receiver's family prototype is itself an Arr cell, a wrapper's is a
-//! tag-keyed singleton — and their walk ends at the reify probe, so a
-//! property the program installed on `Object.prototype` had no path to
-//! them at all: `Object.prototype.foo = 5; ([] as any).foo` answered
+//! tag-keyed singleton — and their walk ended at the reify probe, so a
+//! property the program installed on a prototype had no path to them
+//! at all: `Object.prototype.foo = 5; ([] as any).foo` answered
 //! undefined while `({} as any).foo` answered 5.
 //!
-//! Reading the root's own expando and stopping is not a shortcut here.
-//! %Object.prototype% IS the chain root (its own proto pair answers
-//! Null), and the spec-given methods on it were already offered by the
-//! caller's reify probe — what is missing is only what a program put
-//! there.
+//! Closing that with a hop straight to the root was one link too few
+//! the moment a family prototype stopped hanging directly off
+//! %Object.prototype%: `Iterator.prototype.zz = 9` sits between
+//! `[1].values()` and the root, and so does `Map.prototype.zz`
+//! between a Map and it. The walk here is the whole chain
+//! ([`proto_chain_expando`]), and the spec-given methods on each
+//! singleton were already offered by the caller's reify probe — what
+//! is missing is only what a program put there.
 
 use core::ffi::c_void;
 
 use crate::member_get_own::OBJECT_PROTO_TAG;
+use crate::nanbox::AnyValue;
 
-unsafe extern "C" {
-    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
-    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
-}
-
-/// The absent tag, when the root has never been materialized — a
-/// program that never touched `Object.prototype` cannot have installed
-/// anything on it.
+/// §10.1.8.1 step 4, the WHOLE way up: the receiver's own family
+/// prototype, then whatever that hangs off, then the root — each
+/// asked for what the program installed on it.
+///
+/// The two shells above hop straight to the root, which was right
+/// only while every builtin prototype hung directly off
+/// %Object.prototype%. §23.1.5.2 puts %ArrayIteratorPrototype% under
+/// %Iterator.prototype%, so `Iterator.prototype.zz = 9` sits on a
+/// singleton BETWEEN `[1].values()` and the root and the root hop
+/// read straight past it — and the same was true one link up for
+/// every family: `Map.prototype.zz` was unreachable from a Map for
+/// the same reason, just with a shorter chain to skip.
+///
+/// The spec-given faces are NOT this walk's business — the caller's
+/// reify probe already offered them, and it consults the patch
+/// bitmap, so what is left here is only what a program put there.
+/// Peeks rather than materializes: a singleton nobody minted cannot
+/// be carrying a user entry.
 ///
 /// # Safety
 /// `key` is NULL or a live Str cell.
-pub(crate) unsafe fn object_proto_expando_tag(key: *const c_void) -> u64 {
-    let root =
-        unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(OBJECT_PROTO_TAG) };
-    if root.is_null() {
-        return 5;
+pub(crate) unsafe fn proto_chain_expando(recv: AnyValue, key: *const c_void) -> Option<(i64, i64)> {
+    if key.is_null() {
+        return None;
     }
-    unsafe { __torajs_dynobj_get_tag(root as *const c_void, key) }
-}
-
-/// Value twin of [`object_proto_expando_tag`]; 0 is the absent value.
-///
-/// # Safety
-/// `key` is NULL or a live Str cell.
-pub(crate) unsafe fn object_proto_expando_value(key: *const c_void) -> u64 {
-    let root =
-        unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(OBJECT_PROTO_TAG) };
-    if root.is_null() {
-        return 0;
-    }
-    unsafe { __torajs_dynobj_get_value(root as *const c_void, key) }
+    let fam = crate::method_value::family::recv_proto_family(recv);
+    let start = if fam >= 0 {
+        fam
+    } else {
+        OBJECT_PROTO_TAG as i64
+    };
+    unsafe { patch_slot_chain(start, key) }
 }
 
 /// One prototype's own entry for a METHOD name, then the chain root's
