@@ -1549,26 +1549,37 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `380172de` (53174 cases,
-`hardev/test262-latest.json`), then the `incompatible` bucket dumped per
-case (`--incompat-ndjson`) and clustered by
+**Where the numbers come from.** Full sweep @ `c62c820a2` (53174
+cases, `hardev/test262-latest.json`), then the `incompatible` bucket
+dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 0a2fcd56`, never as a constant.
+snapshot stamped `@ c62c820a2`, never as a constant (the two shas this
+paragraph used to carry were four rotations stale, which is exactly
+what "never a constant" is warning about).
 
-**Latest @ `46ccd7dd8`** (2026-08-29, rotation 525 — a prototype chain
-is longer than the code that walked it assumed). Gate predicate:
+**Latest @ `c62c820a2`** (2026-08-29, rotation 526 — the write side
+climbed only the links that were written down). Gate predicate:
 **157** clusters of ≥ 4 holding **1196** cases, register 2 · 251,
 residue 653 · 812 (35.9%), core **2259** — every one unchanged from
-rotation 524. That is expected: all seven commits landed on the
-conformance face (gate 3428 → 3431), and the P-SURF denominator counts
-the `incompatible` bucket, which did not move.
+rotations 524 and 525. Expected for the third round running: all five
+commits landed on the conformance face (gate 3431 → 3435), and the
+P-SURF denominator counts the `incompatible` bucket, which has not
+moved in three rotations.
 
-Sweep passTotal 34973 → **35007 (+34)**, pass 29905 → **29939 (+34)**,
+Sweep passTotal 35007 → **35032 (+25)**, pass 29939 → **29964 (+25)**,
 passNoOracle 921 → **921 (=)**, passNegative 4147 → **4147 (=)**,
-bug 12589 → **12555 (−34)**, incompatible 5612 → **5612 (=)**,
-trAccepted 47562 → **47562 (=)**; conservation exact (0 = +34 + −34).
+bug 12555 → **12530 (−25)**, incompatible 5612 → **5612 (=)**,
+trAccepted 47562 → **47562 (=)**; conservation exact (0 = +25 + −25).
+Verdict diff 25 lines, every one `bug:exit 1` → `pass`, zero
+regressions: five are §20.2.3.6's own directory, the rest are §10.2.4
+`restricted-properties` and the `13.2-*-s` family — both faces of one
+missing chain consult on the write side.
+
+**The previous rotation's去水分 regression is still there and still
+right**: `built-ins/TypedArray/invoked.js` fails because tr has no
+`%TypedArray%` intrinsic, which the same sweep names again.
 
 **Ingest correction.** The verdicts file carried into rotation 524 was
 one sweep older than the json beside it (pass 29890 / bug 12603 —

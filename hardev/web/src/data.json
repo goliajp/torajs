@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T06:35:47.195Z",
+  "generatedAt": "2026-08-29T10:06:04.388Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,30 +9,30 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-29T06:30:05Z",
-    "headSha": "46ccd7dd8",
-    "elapsedSec": 370.17,
-    "workers": 10,
-    "limit": null,
-    "totalCases": 53174,
-    "ran": 53174,
-    "pass": 29939,
-    "passNoOracle": 921,
-    "passNegative": 4147,
-    "passTotal": 35007,
-    "bug": 12555,
-    "incompatible": 5612,
+    "bug": 12530,
     "bunSkip": 3031,
+    "elapsedSec": 374.1,
     "harnessError": 0,
+    "headSha": "c62c820a2",
+    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to c62c820a2, so the sweep measured that code. Field corrected at ingest.",
     "inScope": 53174,
+    "incompatible": 5612,
+    "limit": null,
+    "pass": 29964,
+    "passNegative": 4147,
+    "passNoOracle": 921,
+    "passRateInScope": 65.88,
+    "passRateTrAccepted": 73.66,
+    "passTotal": 35032,
+    "ran": 53174,
+    "ranAt": "2026-08-29T09:52:33Z",
+    "totalCases": 53174,
     "trAccepted": 47562,
-    "passRateInScope": 65.83,
-    "passRateTrAccepted": 73.6,
-    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 46ccd7dd8, so the sweep measured that code. Field corrected at ingest."
+    "workers": 10
   },
   "torajs": {
-    "commit": "46ccd7dd8",
-    "commitSubject": "fix: three ways the callable prototype fell out of the sweep",
+    "commit": "c62c820a2",
+    "commitSubject": "fix: the new method id was booked twice, and only a fixture said so",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +714,30 @@
   },
   "commits": [
     {
+      "hash": "c62c820a2",
+      "subject": "fix: the new method id was booked twice, and only a fixture said so"
+    },
+    {
+      "hash": "98c716748",
+      "subject": "fix: the default instanceof handler existed as a fall-through, not a property"
+    },
+    {
+      "hash": "eb647a086",
+      "subject": "fix: two lanes where knowing the receiver's shape skipped the chain"
+    },
+    {
+      "hash": "df6aeadca",
+      "subject": "fix: five more receivers that answered a write without asking anything above them"
+    },
+    {
+      "hash": "dac74e02f",
+      "subject": "fix: the write side climbed only the links that were written down"
+    },
+    {
+      "hash": "afd29c642",
+      "subject": "docs: rotation 525 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
+    },
+    {
       "hash": "46ccd7dd8",
       "subject": "fix: three ways the callable prototype fell out of the sweep"
     },
@@ -736,51 +760,38 @@
     {
       "hash": "2e4c47ed9",
       "subject": "fix: the symbol lane walked a shorter chain than the string one"
-    },
-    {
-      "hash": "200b37971",
-      "subject": "refactor: own it, or merely reach it, are two questions"
-    },
-    {
-      "hash": "817247bf7",
-      "subject": "docs: rotation 524 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
-    },
-    {
-      "hash": "3d1ae2b7e",
-      "subject": "fix: the computed-name lane ran half the end of the walk"
-    },
-    {
-      "hash": "0dfec7394",
-      "subject": "fix: the inherited toLocaleString is a lookup, not a badge"
-    },
-    {
-      "hash": "63855c694",
-      "subject": "fix: a coercion has no callee to type, so it never stood down"
-    },
-    {
-      "hash": "66fff2692",
-      "subject": "refactor: one home for what an array turns into"
     }
   ],
-  "headSha": "46ccd7dd8",
+  "headSha": "c62c820a2",
   "autorun": {
-    "total": 828,
+    "total": 829,
     "baselineTarget": 10,
-    "bySelf": 823,
+    "bySelf": 824,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787968785-4ca3",
-      "at": "2026-08-29T01:59:45Z",
-      "ts": 1787968785,
+      "rotationId": "r-1787985583-0ab7",
+      "at": "2026-08-29T06:39:43Z",
+      "ts": 1787985583,
       "trigger": "self",
-      "prevHead": "817247bf7",
-      "handoffSha": "sha256:0e7a6cfa9c1679c2b41aeeeb2d357295a24df665db038f30c4db8d5d4aefe43b",
-      "handoffAgeSec": 134,
+      "prevHead": "afd29c642",
+      "handoffSha": "sha256:fcb72e977131add9f0250f4ec21593a75f0c00fb47183747bc9a71a834a46097",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787985583-0ab7",
+        "at": "2026-08-29T06:39:43Z",
+        "ts": 1787985583,
+        "trigger": "self",
+        "prevHead": "afd29c642",
+        "handoffSha": "sha256:fcb72e977131add9f0250f4ec21593a75f0c00fb47183747bc9a71a834a46097",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787968785-4ca3",
         "at": "2026-08-29T01:59:45Z",
@@ -877,17 +888,6 @@
         "prevHead": "1331ee660",
         "handoffSha": "sha256:3270abf8cf891f40377e50a2c1b906c727e7fc9e04e949858ff90ecbc139891d",
         "handoffAgeSec": 96,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787872278-16da",
-        "at": "2026-08-27T23:11:18Z",
-        "ts": 1787872278,
-        "trigger": "self",
-        "prevHead": "30c80811e",
-        "handoffSha": "sha256:cab3af963d162bb1c8a2a7b30b8d33ddaccdd3f3e4e48e7846d2c0e4ddb3b56e",
-        "handoffAgeSec": 38,
         "conformanceBefore": null,
         "commitsInSession": null
       }
