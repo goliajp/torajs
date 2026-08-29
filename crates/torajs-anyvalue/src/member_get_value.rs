@@ -185,6 +185,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             }
         },
         Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe { regexp_arm_value(ptr, key, recv) },
+        // Map / Set / Date own bag — value twin of the tag arm.
+        Some((ptr, t)) if crate::member_get_layout::is_stateful_bag_tag(t) => unsafe {
+            match expando_arm_value(ptr, t, key) {
+                Some(v) => v,
+                None => reify_value(recv, key),
+            }
+        },
         // §10.4.3 heap Str / Substr own face — tag twin.
         Some((_, t)) if t == Tag::Str as u16 => unsafe {
             if let Some((_, val)) = crate::member_get_str::str_own_pair(recv, key) {
@@ -378,6 +385,26 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     unsafe { crate::member_get_proto_root::object_proto_expando_value(key) }
 }
 
+/// Own-bag probe on the value channel — twin of
+/// `member_get::expando_arm_tag`, and the two must agree key for key
+/// (a stored `undefined` claims the key on both).
+///
+/// # Safety
+/// `ptr` is a live cell whose header tag is `cell_tag`; `key` is
+/// NULL or a live Str cell.
+unsafe fn expando_arm_value(ptr: *mut c_void, cell_tag: u16, key: *const c_void) -> Option<u64> {
+    let props = unsafe { crate::member_get_layout::expando_props(ptr, cell_tag) };
+    if props.is_null() {
+        return None;
+    }
+    unsafe {
+        if __torajs_dynobj_get_tag(props, key) != 5 || __torajs_dynobj_has(props, key) != 0 {
+            return Some(__torajs_dynobj_get_value(props, key));
+        }
+    }
+    None
+}
+
 /// §22.2.4.1 `lastIndex` on the value channel — the twin of
 /// `member_get::regexp_arm_tag`, lifted out for the same reason.
 ///
@@ -392,6 +419,9 @@ unsafe fn regexp_arm_value(ptr: *mut c_void, key: *const c_void, recv: AnyValue)
                 return crate::__torajs_anyv_unbox_value(raw) as u64;
             }
             return __torajs_regex_get_last_index(ptr).to_bits();
+        }
+        if let Some(v) = expando_arm_value(ptr, Tag::RegExp as u16, key) {
+            return v;
         }
         reify_value(recv, key)
     }

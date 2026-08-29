@@ -445,6 +445,25 @@ unsafe fn any_member_set_impl(
                 throw_on_refusal,
             );
         }
+        // §24.1.6 / §24.2.6 / §21.4.4 / §22.2.6 — Map / Set / Date /
+        // RegExp. Their entry table, [[DateValue]] and compiled
+        // program are internal state carried in the cell, not
+        // properties, so every name key is an ordinary own property
+        // and lands in the same lazy bag the get channel reads. Below
+        // the `lastIndex` arm above, which owns the one name RegExp
+        // keeps in the cell itself.
+        if crate::member_get_layout::is_stateful_bag_tag(cell_tag)
+            && let Some(off) = crate::member_get_layout::expando_props_off(cell_tag)
+        {
+            return crate::member_set_closure::set_expando_member(
+                ptr,
+                off,
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            );
+        }
         reject(tag, value, throw_on_refusal)
     }
 }

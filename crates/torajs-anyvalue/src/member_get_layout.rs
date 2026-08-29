@@ -93,7 +93,7 @@ const PROMISE_PROPS_OFF: usize = 32;
 /// The promise's `props_dynobj` pointer, NULL when no expando was
 /// ever written (see [`PROMISE_PROPS_OFF`]).
 pub(crate) unsafe fn promise_props(ptr: *mut c_void) -> *const c_void {
-    unsafe { *(ptr.cast::<u8>().add(PROMISE_PROPS_OFF) as *const u64) as *const c_void }
+    unsafe { expando_props(ptr, Tag::Promise as u16) }
 }
 
 /// Buffer-family lazy expando slots — mirrors of torajs-buffer
@@ -108,14 +108,79 @@ pub(crate) const TYPEDARRAY_PROPS_OFF: usize = 40;
 /// The buffer-family cell's `props_dynobj` pointer, NULL when no
 /// own property was ever written. `tag` picks the slot offset.
 pub(crate) unsafe fn buffer_props(ptr: *mut c_void, tag: u16) -> *const c_void {
-    let off = if tag == Tag::TypedArray as u16 {
-        TYPEDARRAY_PROPS_OFF
-    } else {
+    unsafe { expando_props(ptr, tag) }
+}
+
+/// Map / Set cell lazy expando slot — mirror of torajs-collections
+/// `layout::MAP_PROPS_OFF`. Set is layout-identical to Map, so both
+/// tags read the same offset.
+pub(crate) const MAP_PROPS_OFF: usize = 48;
+
+/// Date cell lazy expando slot — mirror of torajs-date's
+/// `DATE_PROPS_OFF`.
+pub(crate) const DATE_PROPS_OFF: usize = 16;
+
+/// RegExp cell lazy expando slot — mirror of torajs-regex's
+/// `regex::REGEX_PROPS_OFF`. It sits directly after the header so
+/// the offset survives any reshuffle of the compiled program below.
+pub(crate) const REGEX_PROPS_OFF: usize = 8;
+
+/// Where a cell shape keeps its lazy own-property bag — `None` when
+/// the shape carries none, and every caller then knows the answer is
+/// "this receiver has no ordinary own face".
+///
+/// One table, read by both get channels, the assign ladder and the
+/// reflection surfaces, so a shape that grows a bag is a single line
+/// here rather than a new `cell_tag ==` arm in each of them. `Tag::Arr`
+/// is deliberately absent: an array's expando lives behind the
+/// `arrprops_*` kernels (index keys share the bucket), not in a bag
+/// the plain `dynobj_*` probes may read.
+pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
+    if tag == Tag::Closure as u16 || tag == Tag::Obj as u16 {
+        Some(CLOSURE_PROPS_OFF)
+    } else if is_wrapper_tag(tag) {
+        Some(WRAPPER_PROPS_OFF)
+    } else if tag == Tag::Promise as u16 {
+        Some(PROMISE_PROPS_OFF)
+    } else if tag == Tag::TypedArray as u16 {
+        Some(TYPEDARRAY_PROPS_OFF)
+    } else if tag == Tag::ArrayBuffer as u16 || tag == Tag::DataView as u16 {
         // ArrayBuffer and DataView deliberately share +32
         // (torajs-buffer keeps the two cells' props slots aligned).
-        ARRAYBUFFER_PROPS_OFF
-    };
-    unsafe { *(ptr.cast::<u8>().add(off) as *const u64) as *const c_void }
+        Some(ARRAYBUFFER_PROPS_OFF)
+    } else if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
+        Some(MAP_PROPS_OFF)
+    } else if tag == Tag::Date as u16 {
+        Some(DATE_PROPS_OFF)
+    } else if tag == Tag::RegExp as u16 {
+        Some(REGEX_PROPS_OFF)
+    } else {
+        None
+    }
+}
+
+/// The four shapes whose ENTIRE ordinary own face is the bag: Map /
+/// Set (§24.1.6 / §24.2.6), Date (§21.4.4) and RegExp (§22.2.6).
+/// Their entry table, [[DateValue]] and compiled program are internal
+/// state carried in the cell, never properties — so apart from
+/// RegExp's own `lastIndex` every name key they answer, and every
+/// name key they accept, is the bag's.
+#[inline]
+pub(crate) fn is_stateful_bag_tag(t: u16) -> bool {
+    t == Tag::Map as u16 || t == Tag::Set as u16 || t == Tag::Date as u16 || t == Tag::RegExp as u16
+}
+
+/// The cell's own-property bag pointer, NULL both when the shape has
+/// no bag at all and when nothing was ever written into it — the two
+/// answer the same way to every probe below.
+///
+/// # Safety
+/// `ptr` is a live heap cell whose header tag is `tag`.
+pub(crate) unsafe fn expando_props(ptr: *const c_void, tag: u16) -> *const c_void {
+    match expando_props_off(tag) {
+        Some(off) => unsafe { *(ptr.cast::<u8>().add(off) as *const u64) as *const c_void },
+        None => core::ptr::null(),
+    }
 }
 
 /// Universal heap-header flags probe — u16 at +6 (RFC 20260711

@@ -47,6 +47,13 @@ pub unsafe extern "C" fn __torajs_regex_drop(re_ptr: *mut c_void) {
         if as_regex(re_ptr).header.flags & FLAG_SUBCLASSED != 0 {
             __torajs_subclass_drop_entry(re_ptr);
         }
+        // Own-property bag (§22.2.6 ordinary-object face) — the
+        // universal dispatcher routes it to the dynobj drop.
+        let props = as_regex(re_ptr).props;
+        if !props.is_null() {
+            (*(re_ptr as *mut RegExp)).props = core::ptr::null_mut();
+            super::__torajs_value_drop_heap(props);
+        }
         let _ = Box::from_raw(re_ptr as *mut RegExp);
     }
 }

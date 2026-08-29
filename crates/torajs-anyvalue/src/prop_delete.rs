@@ -311,62 +311,59 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
             unsafe { tombstone_proto_method(ptr, key) };
             1
         }
-        // Rotation 354 — promise bag delete (the +32 expando the
-        // defineProperty / plain-assign arms write): configurability
-        // gate, then the entry drop. No virtual pair and no ctor
-        // statics on an instance cell; a NULL bag answers 1
-        // idempotently (spec success on a nonexistent key).
-        Some((ptr, t)) if t == Tag::Promise as u16 => unsafe {
-            delete_expando_bag(crate::member_get::promise_props(ptr), key, throw_on_refusal)
-        },
-        // Buffer-family bag delete (body below — promise-arm shape
-        // plus the §10.4.5.4 index gate).
+        // Buffer-family bag delete (body below — bag-arm shape plus
+        // the §10.4.5.4 index gate).
         Some((ptr, t)) if crate::member_get_buffer::is_buffer_family(t) => unsafe {
             delete_buffer_member(ptr, t, recv, key, throw_on_refusal)
         },
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             struct_delete(ptr, key, throw_on_refusal)
         },
-        // RFC 20260716 刀 5 (rotation 121 chunk 5) — wrapper expando
-        // delete (mirror of the closure arm). A NULL props slot
-        // (never any assign) answers 1 idempotently: `delete <expr>`
+        // Every lazy-bag receiver deletes the same way: whatever the
+        // CELL itself owns is {configurable: false} and refuses
+        // ([`cell_owned_key_refuses`]), and everything else is the
+        // bag's. A NULL bag answers 1 idempotently — `delete <expr>`
         // on a nonexistent key is a spec success.
-        Some((ptr, t))
-            if t == Tag::NumberWrapper as u16
-                || t == Tag::StringWrapper as u16
-                || t == Tag::BooleanWrapper as u16 =>
-        {
-            // §10.4.3 — a StringWrapper's inherent own face (every
-            // canonical index in range, plus `length`) is
-            // {configurable: false}, so the module-strict delete
-            // throws. The expando below never owns those keys.
-            if t == Tag::StringWrapper as u16
-                && let Some(inner) =
-                    unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, t) }
-                && unsafe { crate::member_get_str::str_own_pair(inner, key) }.is_some()
-            {
+        Some((ptr, t)) if crate::member_get_layout::expando_props_off(t).is_some() => {
+            if unsafe { cell_owned_key_refuses(ptr, t, key) } {
                 return unsafe { refuse(throw_on_refusal) };
             }
-            let props = unsafe { crate::member_get::wrapper_props(ptr) };
-            if !props.is_null() {
-                if unsafe { refuse_non_configurable(props as *mut c_void, key, throw_on_refusal) } {
-                    return 0;
-                }
-                unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+            unsafe {
+                delete_expando_bag(
+                    crate::member_get_layout::expando_props(ptr, t),
+                    key,
+                    throw_on_refusal,
+                )
             }
-            1
-        }
-        // RFC 20260722 刀 4 — a RegExp instance's `lastIndex` is
-        // {configurable: false} (§22.2.4.1); the module-strict
-        // delete throws. Every other key owns nothing → success.
-        Some((_, t)) if t == Tag::RegExp as u16 => {
-            if unsafe { crate::prop_has::key_is(key, b"lastIndex") } {
-                return unsafe { refuse(throw_on_refusal) };
-            }
-            1
         }
         _ => 1,
     }
+}
+
+/// The names a lazy-bag CELL owns in its own layout rather than in
+/// the bag — all of them {configurable: false}, so a module-strict
+/// delete of one throws instead of reaching the entry table.
+///
+/// §10.4.3: a StringWrapper's inherent own face is every canonical
+/// index in range plus `length`. §22.2.4.1: a RegExp owns
+/// `lastIndex`. Promise / Map / Set / Date / Number / Boolean
+/// wrappers own nothing outside the bag, and the buffer family takes
+/// its own arm (its index gate answers false rather than throwing on
+/// an out-of-bounds key).
+///
+/// # Safety
+/// `ptr` is a live cell whose header tag is `t`; `key` is a live Str
+/// cell.
+unsafe fn cell_owned_key_refuses(ptr: *mut c_void, t: u16, key: *const c_void) -> bool {
+    if t == Tag::RegExp as u16 {
+        return unsafe { crate::prop_has::key_is(key, b"lastIndex") };
+    }
+    if t == Tag::StringWrapper as u16
+        && let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, t) }
+    {
+        return unsafe { crate::member_get_str::str_own_pair(inner, key) }.is_some();
+    }
+    false
 }
 
 /// §10.1.10 over a class-instance cell — the `Tag::Obj` arm.

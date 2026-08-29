@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::member_get::{closure_props, is_wrapper_tag, recv_cell, wrapper_props};
+use crate::member_get::{closure_props, recv_cell};
 use crate::member_get_own::{user_proto_cell, wrapper_proto_props};
 use crate::nanbox::AnyValue;
 
@@ -73,30 +73,17 @@ pub(crate) unsafe fn own_dict(ptr: *mut c_void, t: u16) -> *const c_void {
     if t == Tag::DynObj as u16 {
         return ptr;
     }
-    if t == Tag::Arr as u16 || t == Tag::Closure as u16 {
-        // Both keep the expando dict in the same +24 slot.
+    // An array is the one shape where this lane and the string lane
+    // differ: a symbol key never collides with the index domain, so
+    // it reads straight from the +24 bag instead of going through
+    // the `arrprops_*` kernels. Every other shape — closure, struct,
+    // promise, wrapper, buffer, Map / Set / Date / RegExp — reads the
+    // one shared table, the same one `member_set_symbol` writes
+    // through, so the two never disagree about where a key lives.
+    if t == Tag::Arr as u16 {
         return unsafe { closure_props(ptr) };
     }
-    // Rotation 354 — promise bag at +32 (the +24 slot is the
-    // callback list).
-    if t == Tag::Promise as u16 {
-        return unsafe { crate::member_get::promise_props(ptr) };
-    }
-    // Blade 2 (RFC 20260714-struct-dynamic-props) — a struct cell
-    // carries the same +24 expando slot; a symbol-keyed expando
-    // (`(c as any)[sym] = v`) lives there like any other key.
-    if t == Tag::Obj as u16 {
-        return unsafe { crate::member_get_layout::struct_props(ptr) };
-    }
-    if is_wrapper_tag(t) {
-        return unsafe { wrapper_props(ptr) };
-    }
-    // RFC 20260823 @@species knife — a buffer-family cell's expando
-    // bag holds its symbol-keyed own entries like any other key.
-    if crate::member_get_buffer::is_buffer_family(t) {
-        return unsafe { crate::member_get_layout::buffer_props(ptr, t) };
-    }
-    core::ptr::null()
+    unsafe { crate::member_get_layout::expando_props(ptr, t) }
 }
 
 /// What the receiver INHERITS a symbol key from, as a borrowed cell

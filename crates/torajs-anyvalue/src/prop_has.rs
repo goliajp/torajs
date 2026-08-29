@@ -282,13 +282,6 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             // and fall out at 0.
             unsafe { builtin_proto_method_own(ptr, key) }
         }
-        // Rotation 354 — promise bag own probe (the +32 expando the
-        // defineProperty / plain-assign arms write; `then` / `catch`
-        // stay prototype surface, absent as own).
-        Some((ptr, t)) if t == Tag::Promise as u16 => {
-            let props = unsafe { crate::member_get::promise_props(ptr) };
-            (!props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0) as i64
-        }
         // §10.4.5.2 / §25.1 — buffer-family own face. A typed
         // array's in-bounds canonical indices are own properties
         // (`length` / `byteLength` etc. stay PROTOTYPE accessors,
@@ -308,48 +301,20 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
             unsafe { str_index_has(len, key) }
         }
-        // RFC 20260716 刀 13 — `StringWrapper` receiver: `length`
-        // and numeric indices `[0, len)` are own properties per
-        // §22.1.4 String Exotic Object. View-through the inner Str
-        // cell to read the code-unit count; empty-wrapper (NULL
-        // inner sentinel) has len 0 so only `"length"` matches.
-        //
-        // 2026-07-16 (rotation 121 chunk 5) — after the inherent
-        // §22.1.4 face, also probe the wrapper's lazy expando dynobj
-        // (`new String("x").foo = 1`, chunk 4). Same fall-through
-        // shape as the Arr arm above (inherent index face first,
-        // expando keys after).
-        Some((ptr, t)) if t == Tag::StringWrapper as u16 => {
-            let inner_ptr = unsafe { (ptr.cast::<u8>().add(8) as *const *const c_void).read() };
-            let len = if inner_ptr.is_null() {
-                0
-            } else {
-                unsafe { inner_ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64 }
-            };
-            if unsafe { str_index_has(len, key) } != 0 {
+        // Every remaining lazy-bag receiver answers the same two
+        // questions: does the CELL own this name in its own layout
+        // ([`cell_owns_key`] — a StringWrapper's §22.1.4 index face,
+        // a RegExp's §22.2.4.1 `lastIndex`), else does the bag. A
+        // promise, a Map / Set (§24.1.6 / §24.2.6), a Date (§21.4.4)
+        // and the Number / Boolean wrappers own nothing outside the
+        // bag: their entry table, [[DateValue]] and primitive are
+        // internal state, never properties.
+        Some((ptr, t)) if crate::member_get_layout::expando_props_off(t).is_some() => {
+            if unsafe { cell_owns_key(ptr, t, key) } {
                 return 1;
             }
-            let props = unsafe { crate::member_get::wrapper_props(ptr) };
-            if props.is_null() {
-                0
-            } else {
-                unsafe { __torajs_dynobj_has(props, key) as i64 }
-            }
-        }
-        // RFC 20260722 刀 4 — a RegExp instance owns exactly its
-        // `lastIndex` (§22.2.4.1 RegExpAlloc); the rest of the
-        // surface is prototype accessors, absent as own.
-        Some((_, t)) if t == Tag::RegExp as u16 => unsafe { key_is(key, b"lastIndex") as i64 },
-        // RFC 20260716 刀 5 (rotation 121 chunk 5) — Number/Boolean
-        // wrappers carry no inherent own string keys (§21.1 / §20.3),
-        // so the expando dynobj is the whole answer.
-        Some((ptr, t)) if t == Tag::NumberWrapper as u16 || t == Tag::BooleanWrapper as u16 => {
-            let props = unsafe { crate::member_get::wrapper_props(ptr) };
-            if props.is_null() {
-                0
-            } else {
-                unsafe { __torajs_dynobj_has(props, key) as i64 }
-            }
+            let props = unsafe { crate::member_get_layout::expando_props(ptr, t) };
+            (!props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0) as i64
         }
         _ => 0,
     }
@@ -358,6 +323,33 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
 // Builtin-proto singleton own-face probe — moved to
 // `prop_has_proto.rs` (file-size hard limit, RFC 20260721 刀 11).
 use crate::prop_has_proto::builtin_proto_method_own;
+
+/// The names a lazy-bag CELL owns in its own layout rather than in
+/// the bag. §22.1.4 makes a StringWrapper's `length` and every
+/// canonical index in `[0, len)` own properties (view through the
+/// inner Str cell for the code-unit count; an empty wrapper's NULL
+/// inner is length 0, so only `"length"` matches). §22.2.4.1 gives a
+/// RegExp instance exactly `lastIndex`. Every other bag shape owns
+/// nothing the bag does not hold.
+///
+/// # Safety
+/// `ptr` is a live cell whose header tag is `t`; `key` is a live Str
+/// cell.
+unsafe fn cell_owns_key(ptr: *mut c_void, t: u16, key: *const c_void) -> bool {
+    if t == Tag::RegExp as u16 {
+        return unsafe { key_is(key, b"lastIndex") };
+    }
+    if t == Tag::StringWrapper as u16 {
+        let inner_ptr = unsafe { (ptr.cast::<u8>().add(8) as *const *const c_void).read() };
+        let len = if inner_ptr.is_null() {
+            0
+        } else {
+            unsafe { inner_ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64 }
+        };
+        return unsafe { str_index_has(len, key) } != 0;
+    }
+    false
+}
 
 /// Shared Str-receiver arm: index in `[0, len)` or `"length"` → 1.
 unsafe fn str_index_has(len: u64, key: *const c_void) -> i64 {

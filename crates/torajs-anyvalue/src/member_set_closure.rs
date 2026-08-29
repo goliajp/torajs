@@ -169,8 +169,9 @@ pub(crate) unsafe fn set_buffer_member(
 
 /// Shared plain-assign expando write for cells whose own properties
 /// live in a lazy props dynobj at `props_off` (Promise / ArrayBuffer
-/// / TypedArray). Integrity-gated; first write allocates the table.
-unsafe fn set_expando_member(
+/// / TypedArray / Map / Set / Date / RegExp). Integrity-gated; first
+/// write allocates the table.
+pub(crate) unsafe fn set_expando_member(
     ptr: *mut c_void,
     props_off: usize,
     key: *mut c_void,

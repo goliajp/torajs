@@ -343,16 +343,9 @@ pub(crate) unsafe fn define_apply(
             define_into_closure_expando(obj, key, tag, value, flags_byte, throw_on_refusal)
         };
     }
-    // Promise receiver — §27.2 promise instances are ordinary objects
-    // whose own defines land in a lazy expando (torajs-promise
-    // `Promise::props` @ +32; +24 is the callback list). Same
-    // recursion as the Closure arm, minus the virtual-prop seeding —
-    // a promise cell has no reflected own `name`/`length`. A user
-    // `then` override stored here is the §27.2.4.1.3 step 6.q-s
-    // observation surface the combinators and the any-lane method
-    // dispatch consult.
-    if htag == crate::layout::TAG_PROMISE_HDR {
-        let off = crate::layout::PROMISE_PROPS_OFF;
+    // Promise / Map / Set / Date / RegExp — the lazy-bag receivers
+    // (slot chooser + the one held-out name in [`lazy_bag_props_off`]).
+    if let Some(off) = unsafe { crate::define_bag::lazy_bag_props_off(htag, key) } {
         return unsafe {
             bag_receiver_define(obj, off, key, tag, value, flags_byte, throw_on_refusal)
         };

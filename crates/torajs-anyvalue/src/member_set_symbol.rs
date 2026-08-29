@@ -39,37 +39,21 @@ unsafe extern "C" {
 /// their expando dict in the same `+24` slot.
 const CELL_PROPS_OFF: usize = 24;
 
-/// `torajs-wrapper::WRAPPER_PROPS_OFF` mirror — the primitive
-/// wrappers' expando slot.
-const WRAPPER_PROPS_OFF: usize = 16;
-
-/// Promise-cell lazy expando slot (`torajs_dynobj::layout::
-/// PROMISE_PROPS_OFF` mirror — +24 is the callback list).
-const PROMISE_PROPS_OFF: usize = 32;
-
 /// The in-layout expando-dict slot for a shape that carries one, or
 /// `None` for a shape that cannot hold a symbol-keyed property.
 fn props_slot_off(cell_tag: u16) -> Option<usize> {
-    // Blade 2 (RFC 20260714-struct-dynamic-props) — a struct cell
-    // carries the same +24 expando slot as Arr / Closure: a symbol
-    // key never collides with the string-keyed layout fields, so no
-    // layout probe is needed on this lane.
-    if cell_tag == Tag::Arr as u16 || cell_tag == Tag::Closure as u16 || cell_tag == Tag::Obj as u16
-    {
+    // An array is the one shape this lane and the string lane
+    // disagree about: a symbol key never collides with the index
+    // domain, so it lands in the +24 bag directly, while the string
+    // lane must go through the `arrprops_*` kernels that own that
+    // domain. Every other shape reads the one shared table
+    // (`member_get_layout::expando_props_off`), which is also what
+    // both get channels probe — so a shape that grows a bag becomes
+    // symbol-keyable in the same line that makes it name-keyable.
+    if cell_tag == Tag::Arr as u16 {
         return Some(CELL_PROPS_OFF);
     }
-    if cell_tag == Tag::NumberWrapper as u16
-        || cell_tag == Tag::StringWrapper as u16
-        || cell_tag == Tag::BooleanWrapper as u16
-    {
-        return Some(WRAPPER_PROPS_OFF);
-    }
-    // Rotation 354 — promise bag at +32 (the +24 slot is the
-    // callback list).
-    if cell_tag == Tag::Promise as u16 {
-        return Some(PROMISE_PROPS_OFF);
-    }
-    None
+    crate::member_get_layout::expando_props_off(cell_tag)
 }
 
 /// `o[sym] = v`. Returns without writing (releasing the value stake and

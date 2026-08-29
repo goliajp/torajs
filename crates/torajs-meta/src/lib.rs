@@ -40,6 +40,7 @@ pub mod obj_forin_keys;
 pub mod obj_own_descriptors;
 pub mod obj_own_keys;
 pub(crate) mod obj_own_keys_arr;
+pub(crate) mod obj_own_keys_bag;
 pub(crate) mod obj_own_keys_buffer;
 pub(crate) mod obj_own_keys_key_shape;
 mod obj_own_keys_layout;

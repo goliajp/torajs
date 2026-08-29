@@ -185,6 +185,18 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             }
         },
         Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe { regexp_arm_tag(ptr, key, recv) },
+        // §24.1.6 / §24.2.6 / §21.4.4 — a Map / Set / Date receiver's
+        // entry table and [[DateValue]] are internal state, so its
+        // whole ordinary own face is the lazy bag the assign ladder
+        // writes. A miss falls to the builtin-method reify (`.get` /
+        // `.add` / `.getTime`). RegExp shares the shape but keeps the
+        // arm above, because it also owns `lastIndex`.
+        Some((ptr, t)) if crate::member_get_layout::is_stateful_bag_tag(t) => unsafe {
+            match expando_arm_tag(ptr, t, key) {
+                Some(tag) => tag,
+                None => reify_tag(recv, key),
+            }
+        },
         // Chunk 744 — struct cell: class-layout field probe before
         // the builtin reify (a struct has no builtin methods, so a
         // field miss falling through is exact).
@@ -369,6 +381,32 @@ pub(crate) use crate::member_get_reify_tail::{dynobj_builtin_tail_tag, reify_tag
 // face unchanged.
 pub(crate) use crate::member_get_value::__torajs_any_member_get_value;
 
+/// Own-bag probe shared by every "internal state + lazy bag" arm.
+/// `Some(tag)` when the bag CLAIMS the key — a stored `undefined`
+/// claims it too, so it shadows the builtin reify the same way the
+/// promise / wrapper / buffer arms already let it. `None` = miss,
+/// and the caller falls through to its own tail.
+///
+/// # Safety
+/// `ptr` is a live cell whose header tag is `cell_tag`; `key` is
+/// NULL or a live Str cell.
+unsafe fn expando_arm_tag(ptr: *mut c_void, cell_tag: u16, key: *const c_void) -> Option<u64> {
+    let props = unsafe { crate::member_get_layout::expando_props(ptr, cell_tag) };
+    if props.is_null() {
+        return None;
+    }
+    unsafe {
+        let tag = __torajs_dynobj_get_tag(props, key);
+        if tag != 5 {
+            return Some(tag);
+        }
+        if __torajs_dynobj_has(props, key) != 0 {
+            return Some(5);
+        }
+    }
+    None
+}
+
 /// §22.2.4.1 — a RegExp instance owns exactly `lastIndex`, and the
 /// tag channel answers it from the raw slot. Lifted out of the
 /// dispatch match in the `closure_arm_tag` shape, so the match stays
@@ -385,6 +423,9 @@ unsafe fn regexp_arm_tag(ptr: *mut c_void, key: *const c_void, recv: AnyValue) -
                 return crate::__torajs_anyv_unbox_tag(raw) as u64;
             }
             return AnySlotTag::F64 as u64;
+        }
+        if let Some(t) = expando_arm_tag(ptr, Tag::RegExp as u16, key) {
+            return t;
         }
         reify_tag(recv, key)
     }

@@ -52,6 +52,9 @@ fn alloc_date(ms: i64) -> *mut c_void {
             flags: 0,
         },
         ms,
+        // No own property has been written yet — the bag is minted
+        // by the first `d.zz = 1`, never here.
+        props: core::ptr::null_mut(),
     });
     Box::into_raw(d) as *mut c_void
 }
@@ -181,6 +184,13 @@ pub unsafe extern "C" fn __torajs_date_drop(d_ptr: *mut c_void) {
         // on FLAG_SUBCLASSED so plain dates never call out.
         if (*(d_ptr as *const Date)).header.flags & crate::subclass::FLAG_SUBCLASSED != 0 {
             __torajs_subclass_drop_entry(d_ptr);
+        }
+        // Own-property bag (§21.4.4 ordinary-object face) — the
+        // universal dispatcher routes it to the dynobj drop.
+        let props = (*(d_ptr as *const Date)).props;
+        if !props.is_null() {
+            (*(d_ptr as *mut Date)).props = core::ptr::null_mut();
+            crate::__torajs_value_drop_heap(props);
         }
         let _ = Box::from_raw(d_ptr as *mut Date);
     }

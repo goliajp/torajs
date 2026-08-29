@@ -4,9 +4,11 @@
 //! `runtime_date.c` (590 C LOC). Implements the JS Date class:
 //!
 //! ```text
-//! Date (16 bytes)
+//! Date (24 bytes)
 //!   +0..7   : universal heap header (refcount + type_tag=5 + flags)
 //!   +8..15  : ms since UNIX epoch (i64; signed — pre-1970 negative)
+//!   +16..23 : props (*DynObj) — lazy own-property bag, NULL until
+//!             the first `d.zz = 1`
 //! ```
 //!
 //! ## Module split (each ≤ 500 LOC HARD RULE)
@@ -67,7 +69,19 @@ pub struct Date {
     pub header: HeapHeader,
     /// Milliseconds since UNIX epoch (1970-01-01T00:00:00Z).
     pub ms: i64,
+    /// Lazy own-property bag — a Date instance is an ordinary
+    /// object (§21.4.4) whose [[DateValue]] is INTERNAL state, so
+    /// `d.zz = 1` is an ordinary own property and must land
+    /// somewhere. NULL until the first such write; the same
+    /// lazily-allocated DynObj shape Promise / wrapper / buffer
+    /// cells carry (see [`DATE_PROPS_OFF`]).
+    pub props: *mut c_void,
 }
+
+/// Byte offset of [`Date::props`] — mirrored by torajs-anyvalue
+/// (`member_get_layout::DATE_PROPS_OFF`) and torajs-meta, the same
+/// narrow-ABI constant replication [`STR_HDR_SIZE`] uses.
+pub const DATE_PROPS_OFF: usize = 16;
 
 // ---- Cross-tier extern declarations ----
 // Resolved at `tr build` link time against:
@@ -80,12 +94,21 @@ unsafe extern "C" {
     pub fn __torajs_rc_dec(p: *mut c_void) -> i32;
     pub fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     pub fn __torajs_throw_range_error(msg: *const u8);
+    /// torajs-value-drop — universal tag dispatch; releases the
+    /// own-property bag when a Date dies.
+    pub fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut c_void) -> i32 {
     panic!("torajs-date test stub: __torajs_rc_dec should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut c_void) {
+    panic!("torajs-date test stub: __torajs_value_drop_heap should not be called from cargo test");
 }
 
 #[cfg(test)]
@@ -143,7 +166,8 @@ mod tests {
 
     #[test]
     fn date_layout_matches_c_port() {
-        assert_eq!(core::mem::size_of::<Date>(), 16);
+        assert_eq!(core::mem::size_of::<Date>(), 24);
+        assert_eq!(DATE_PROPS_OFF, 16);
         assert_eq!(TAG_DATE, 5);
         assert_eq!(STR_HDR_SIZE, 16);
     }

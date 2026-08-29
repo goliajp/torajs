@@ -298,7 +298,8 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
         if unsafe { heap_type_tag_local(cell) } == crate::reflect::TAG_PROXY {
             return unsafe { __torajs_proxy_own_keys(v, include_nonenum) } as *mut c_void;
         }
-        return match unsafe { heap_type_tag_local(cell) } {
+        let htag = unsafe { heap_type_tag_local(cell) };
+        return match htag {
             TAG_STR_CELL => {
                 let len =
                     unsafe { (cell.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as i64;
@@ -383,19 +384,16 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             // inherent own keys — `then` / `catch` are prototype
             // surface. The for-in kernel rides this arm through its
             // own_keys call, so all four enumeration spellings agree.
-            TAG_PROMISE_CELL => {
-                let props =
-                    unsafe { (cell.cast::<u8>().add(PROMISE_PROPS_OFF) as *const u64).read() }
-                        as *const c_void;
-                let out = unsafe { __torajs_arr_alloc(0) };
-                if props.is_null() {
-                    out as *mut c_void
-                } else {
-                    unsafe {
-                        dynobj_keys_append(props, include_nonenum, out, false, false) as *mut c_void
-                    }
-                }
-            }
+            // Map / Set / Date ride the same arm (§24.1.6 / §24.2.6 /
+            // §21.4.4): entry table and [[DateValue]] are internal
+            // state, so the bag is the entire own-key surface.
+            TAG_PROMISE_CELL
+            | crate::obj_own_keys_layout::TAG_MAP_CELL
+            | crate::obj_own_keys_layout::TAG_SET_CELL
+            | crate::obj_own_keys_layout::TAG_DATE_CELL
+            | crate::obj_own_keys_layout::TAG_REGEXP_CELL => unsafe {
+                crate::obj_own_keys_bag::bag_cell_keys(cell, htag, include_nonenum)
+            },
             // §10.4.3.3 String exotic OwnPropertyKeys — the
             // [[StringData]] integer indices come first (+ "length"
             // for gOPN, like the bare Str arm), then the expando

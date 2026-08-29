@@ -63,6 +63,10 @@ pub unsafe extern "C" fn __torajs_map_create() -> *mut c_void {
             MAP_ENTRIES_INITIAL as usize,
             core::mem::size_of::<MapEntry>(),
         ) as *mut MapEntry;
+
+        // No own property has been written yet — the bag is minted
+        // by the first `m.zz = 1`, never here.
+        (*m).props = core::ptr::null_mut();
     }
     m as *mut c_void
 }

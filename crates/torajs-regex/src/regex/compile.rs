@@ -202,6 +202,9 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
             type_tag: TAG_REGEX,
             flags: 0,
         },
+        // No own property has been written yet — the bag is
+        // minted by the first `re.zz = 1`, never here.
+        props: core::ptr::null_mut(),
         flags: flag_bits,
         rejected,
         _pad: [0; 2],

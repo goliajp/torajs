@@ -77,6 +77,12 @@ pub unsafe extern "C" fn __torajs_map_drop(p: *mut c_void) {
         if (*m).header.flags & FLAG_SUBCLASSED != 0 {
             __torajs_subclass_drop_entry(p);
         }
+        // Own-property bag (§24.1.6 ordinary-object face) — the
+        // universal dispatcher routes it to the dynobj drop.
+        if !(*m).props.is_null() {
+            __torajs_value_drop_heap((*m).props);
+            (*m).props = core::ptr::null_mut();
+        }
         free((*m).slots as *mut c_void);
         free((*m).entries as *mut c_void);
         free(p);

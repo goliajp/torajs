@@ -7,7 +7,7 @@
 //! progressive P4.3 port (C side deleted at the P4.3-i closer).
 //!
 //! ```text
-//! Map struct (64 bytes, 8-byte aligned):
+//! Map struct (56 bytes, 8-byte aligned):
 //!   offset 0  : universal heap header (8B; refcount + type_tag + flags)
 //!   offset 8  : n_entries    (u32) — live entry count (`size()` returns this)
 //!   offset 12 : n_used       (u32) — entries[] occupied prefix incl. tombstones
@@ -17,6 +17,7 @@
 //!   offset 28 : _pad         (u32)
 //!   offset 32 : slots        (*MapSlot)
 //!   offset 40 : entries      (*MapEntry)
+//!   offset 48 : props        (*DynObj) — lazy own-property bag
 //!
 //! MapSlot — 8 bytes:
 //!   (hash:u32 hi32) | (entry_idx:u32 lo32)
@@ -160,7 +161,20 @@ pub struct Map {
     pub _pad: u32,
     pub slots: *mut MapSlot,
     pub entries: *mut MapEntry,
+    /// Lazy own-property bag — a Map / Set instance is an ordinary
+    /// object (§24.1.6 / §24.2.6) whose entry table is INTERNAL
+    /// state, so `m.zz = 1` is an ordinary own property and must
+    /// land somewhere. NULL until the first non-index write; the
+    /// same lazily-allocated DynObj shape Promise / wrapper /
+    /// buffer cells carry (see [`MAP_PROPS_OFF`]).
+    pub props: *mut c_void,
 }
+
+/// Byte offset of [`Map::props`] — mirrored by torajs-anyvalue
+/// (`member_get_layout::MAP_PROPS_OFF`) and torajs-meta
+/// (`obj_own_keys_layout`), the same narrow-ABI constant
+/// replication [`STR_LEN_OFF`] uses.
+pub const MAP_PROPS_OFF: usize = 48;
 
 /// `STR_LEN_OFF` mirror (Str layout — for hash_bytes / eq in later
 /// sub-steps). Hardcoded duplicate of torajs-str — same dep-avoidance
@@ -183,8 +197,8 @@ mod tests {
         assert_eq!(core::mem::size_of::<HeapHeader>(), 8);
         // MapEntry: hash(4) + _pad(4) + key_anyv(8) + value_anyv(8) = 24.
         assert_eq!(core::mem::size_of::<MapEntry>(), 24);
-        // Map: hdr(8) + 6×u32(24) + 2×ptr(16) = 48; align 8.
-        assert_eq!(core::mem::size_of::<Map>(), 48);
+        // Map: hdr(8) + 6×u32(24) + 2×ptr(16) + props(8) = 56; align 8.
+        assert_eq!(core::mem::size_of::<Map>(), 56);
         assert_eq!(core::mem::align_of::<Map>(), 8);
 
         assert_eq!(core::mem::offset_of!(MapEntry, hash), 0);
@@ -199,6 +213,8 @@ mod tests {
         assert_eq!(core::mem::offset_of!(Map, n_tombstones), 24);
         assert_eq!(core::mem::offset_of!(Map, slots), 32);
         assert_eq!(core::mem::offset_of!(Map, entries), 40);
+        assert_eq!(core::mem::offset_of!(Map, props), MAP_PROPS_OFF);
+        assert_eq!(MAP_PROPS_OFF, 48);
     }
 
     #[test]

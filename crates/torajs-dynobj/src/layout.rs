@@ -142,6 +142,31 @@ pub const TAG_PROMISE_HDR: u16 = 8;
 /// `layout.rs::Promise::props` mirror, lockstep).
 pub const PROMISE_PROPS_OFF: usize = 32;
 
+/// Map / Set heap tags (torajs-rc `Tag::Map` = 15 / `Tag::Set` = 19).
+/// Set is layout-identical to Map, so both keep their lazy expando
+/// props dynobj at +48 ([`MAP_PROPS_OFF`], torajs-collections
+/// `layout::MAP_PROPS_OFF` mirror).
+pub const TAG_MAP_HDR: u16 = 15;
+pub const TAG_SET_HDR: u16 = 19;
+
+/// Map / Set expando slot (torajs-collections mirror).
+pub const MAP_PROPS_OFF: usize = 48;
+
+/// Date heap tag (torajs-rc `Tag::Date` = 5); its lazy expando props
+/// dynobj lives at +16 ([`DATE_PROPS_OFF`], torajs-date mirror).
+pub const TAG_DATE_HDR: u16 = 5;
+
+/// Date expando slot (torajs-date `DATE_PROPS_OFF` mirror).
+pub const DATE_PROPS_OFF: usize = 16;
+
+/// RegExp heap tag (torajs-rc `Tag::RegExp` = 4); its lazy expando
+/// props dynobj sits directly after the header at +8
+/// ([`REGEX_PROPS_OFF`], torajs-regex `regex::REGEX_PROPS_OFF`).
+pub const TAG_REGEXP_HDR: u16 = 4;
+
+/// RegExp expando slot (torajs-regex mirror).
+pub const REGEX_PROPS_OFF: usize = 8;
+
 /// ArrayBuffer heap tag (torajs-rc `Tag::ArrayBuffer` = 27). Its
 /// lazy expando props dynobj lives at +32
 /// ([`ARRAYBUFFER_PROPS_OFF`], torajs-buffer `arraybuffer.rs`
@@ -324,4 +349,21 @@ pub const fn entries_cap_for(cap: u32) -> u32 {
 #[inline]
 pub const fn store_bytes(cap: u32) -> usize {
     cap as usize * 4 + entries_cap_for(cap) as usize * DYNOBJ_ENTRY_SIZE
+}
+
+/// True when a property-key Str cell spells exactly `name`.
+///
+/// The arms that must hold ONE name out of an otherwise generic bag
+/// walk ask this instead of each re-deriving the payload read
+/// (`STR_LEN_OFF` / [`STR_DATA_OFF`]).
+///
+/// # Safety
+/// `key` is a live Str cell.
+pub(crate) unsafe fn key_is(key: *const core::ffi::c_void, name: &[u8]) -> bool {
+    let len = unsafe { (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as usize;
+    if len != name.len() {
+        return false;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len) };
+    bytes == name
 }

@@ -25,10 +25,9 @@ use crate::reflect::{
     __torajs_dynobj_get_flags, __torajs_dynobj_get_tag, __torajs_dynobj_get_value,
     __torajs_dynobj_has, __torajs_dynobj_set, __torajs_rc_inc, __torajs_regex_get_last_index,
     __torajs_regex_last_index_raw, __torajs_str_drop, __torajs_throw_type_error, ANY_ACCESSOR,
-    ANY_BOOL, ANY_HEAP, ANY_UNDEF, TAG_ARR, TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, TAG_PROMISE,
-    TAG_REGEXP, TAG_STRING_WRAPPER, VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, WRAPPER_PROPS_OFF,
-    alloc_str_key, build_accessor_descriptor, build_data_descriptor, heap_type_tag, is_cell_imm,
-    is_wrapper_tag,
+    ANY_BOOL, ANY_HEAP, ANY_UNDEF, TAG_ARR, TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, TAG_REGEXP,
+    TAG_STRING_WRAPPER, VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, WRAPPER_PROPS_OFF, alloc_str_key,
+    build_accessor_descriptor, build_data_descriptor, heap_type_tag, is_cell_imm, is_wrapper_tag,
 };
 
 unsafe extern "C" {
@@ -57,16 +56,6 @@ const SHORT_STR_TOP: u64 = 0x0001;
 /// payload bytes at +16.
 const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
-
-/// Arr / Closure / struct in-layout expando props-dynobj slot
-/// (`torajs_dynobj::layout::CELL_PROPS_OFF` mirror; a `Tag::Obj`
-/// struct cell's dict sits at the same offset — `torajs-core
-/// ssa_lower::OBJ_PROPS_OFF`).
-const CELL_PROPS_OFF: usize = 24;
-
-/// Promise-cell lazy expando slot (`torajs_dynobj::layout::
-/// PROMISE_PROPS_OFF` mirror — +24 is the callback list).
-const PROMISE_PROPS_OFF: usize = 32;
 
 /// Buffer-family cells and their lazy expando slots (torajs-buffer
 /// `arraybuffer.rs` / `typedarray.rs::PROPS_OFF` mirrors).
@@ -105,22 +94,13 @@ unsafe fn symbol_key_descriptor_via_dict(
     htag: u16,
     key: *const c_void,
 ) -> u64 {
-    let props_off = match htag {
-        // A class instance carries expandos in the same +24 dict
-        // (RFC 20260714-struct-dynamic-props), and a symbol-keyed one
-        // has nowhere else it could live — the layout metadata is
-        // name-keyed by construction.
-        TAG_ARR | TAG_CLOSURE | TAG_OBJ => CELL_PROPS_OFF,
-        // Rotation 354 — promise bag at +32 (the +24 slot is the
-        // callback list).
-        TAG_PROMISE => PROMISE_PROPS_OFF,
-        // §25.1 / §23.2 buffer-family expando bags.
-        TAG_ARRAYBUFFER | TAG_DATAVIEW => ARRAYBUFFER_PROPS_OFF,
-        TAG_TYPEDARRAY => TYPEDARRAY_PROPS_OFF,
-        t if is_wrapper_tag(t) => WRAPPER_PROPS_OFF,
-        _ => return VALUE_UNDEFINED_IMM,
-    };
-    let props = unsafe { (dynobj.cast::<u8>().add(props_off) as *const *const c_void).read() };
+    // A class instance carries expandos in the same +24 dict (RFC
+    // 20260714-struct-dynamic-props), and a symbol-keyed one has
+    // nowhere else it could live — the layout metadata is name-keyed
+    // by construction. Every shape reads the one shared table, so a
+    // cell that grows a bag answers gOPD in the same line that makes
+    // it writable.
+    let props = unsafe { crate::obj_own_keys_layout::expando_props(dynobj, htag) };
     if props.is_null() {
         return VALUE_UNDEFINED_IMM;
     }
@@ -263,13 +243,10 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         // below, for the same reason.
         return unsafe { builtin_proto_descriptor(dynobj, key) };
     }
-    // Rotation 354 — promise cell probes the +32 expando bag; no
-    // virtual own pair — `then` / `catch` are prototype surface,
-    // absent as own. Shared bag body in `buffer_reflect.rs`.
-    if htag == TAG_PROMISE {
-        return unsafe {
-            crate::buffer_reflect::expando_bag_descriptor(dynobj, PROMISE_PROPS_OFF, key)
-        };
+    // The shapes whose whole own face is the bag (which ones, and
+    // why, is `obj_own_keys_layout::is_bag_only_tag`).
+    if crate::obj_own_keys_layout::is_bag_only_tag(htag) {
+        return unsafe { bag_only_descriptor(dynobj, htag, key) };
     }
     // §25.1 / §23.2 — buffer-family expando bag (body in
     // `buffer_reflect.rs`, file-size split).
@@ -433,7 +410,9 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
 unsafe fn regexp_cell_descriptor(cell: *const c_void, key: *const c_void) -> u64 {
     unsafe {
         if !crate::closure_reflect::key_is(key, b"lastIndex") {
-            return VALUE_UNDEFINED_IMM;
+            // Every other own name a RegExp carries lives in the bag
+            // the assign ladder writes (§22.2.6 ordinary face).
+            return bag_only_descriptor(cell, TAG_REGEXP, key);
         }
         let raw = __torajs_regex_last_index_raw(cell);
         if raw != 0 {
@@ -447,6 +426,21 @@ unsafe fn regexp_cell_descriptor(cell: *const c_void, key: *const c_void) -> u64
         let li = __torajs_regex_get_last_index(cell);
         build_data_descriptor(3, li.to_bits(), 1, 0, 0)
     }
+}
+
+/// The whole own face of a cell whose properties live only in its
+/// lazy bag — `undefined` for a shape that carries no bag. Shared
+/// body in `buffer_reflect.rs`; also the tail of the RegExp arm,
+/// whose one cell-held name (`lastIndex`) is answered before it.
+///
+/// # Safety
+/// `cell` is a live heap cell whose header tag is `htag`; `key` is a
+/// live Str or Symbol cell.
+unsafe fn bag_only_descriptor(cell: *const c_void, htag: u16, key: *const c_void) -> u64 {
+    let Some(off) = crate::obj_own_keys_layout::expando_props_off(htag) else {
+        return VALUE_UNDEFINED_IMM;
+    };
+    unsafe { crate::buffer_reflect::expando_bag_descriptor(cell, off, key) }
 }
 
 /// The descriptor a builtin `<Ctor>.prototype` singleton owes for a

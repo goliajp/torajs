@@ -130,9 +130,6 @@ pub(crate) const TAG_ARR: u16 = 2;
 pub(crate) const TAG_CLOSURE: u16 = 3;
 /// `Tag::RegExp` (torajs-rc `tag.rs`).
 pub(crate) const TAG_REGEXP: u16 = 4;
-// Tag::Promise — promise cell; gOPD probes the +32 expando bag
-// (rotation 354; `then` / `catch` are prototype surface).
-pub(crate) const TAG_PROMISE: u16 = 8;
 // Primitive-wrapper cells (RFC 20260716 刀 2b / 刀 5). All three
 // share the `[header:8][value:8][props:8]` layout — chunks 4+5
 // (rotation 121) landed the +16 lazy expando dynobj on write and

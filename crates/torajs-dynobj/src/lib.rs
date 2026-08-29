@@ -28,6 +28,7 @@ pub mod alloc;
 pub mod attach_exec;
 pub mod define;
 pub mod define_all;
+mod define_bag;
 pub mod define_entry;
 mod define_from_desc;
 pub mod define_redefine;

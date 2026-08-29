@@ -67,6 +67,11 @@ pub struct HeapHeader {
 /// `__TORAJS_TAG_REGEX` from runtime_regex.c L66.
 pub const TAG_REGEX: u16 = 4;
 
+/// Byte offset of [`RegExp::props`] — mirrored by torajs-anyvalue
+/// (`member_get_layout::REGEX_PROPS_OFF`) and torajs-meta, the same
+/// narrow-ABI constant replication [`STR_HDR_SIZE`] uses.
+pub const REGEX_PROPS_OFF: usize = 8;
+
 /// Str heap layout — must match runtime_str.c.
 pub const STR_HDR_SIZE: usize = 16;
 
@@ -84,6 +89,15 @@ pub const ANY_UNDEF: u64 = 5;
 #[repr(C)]
 pub struct RegExp {
     pub header: HeapHeader,
+    /// Lazy own-property bag — a RegExp instance is an ordinary
+    /// object (§22.2.6) whose compiled program is INTERNAL state,
+    /// so `re.zz = 1` is an ordinary own property and must land
+    /// somewhere. NULL until the first non-`lastIndex` write; the
+    /// same lazily-allocated DynObj shape Promise / wrapper /
+    /// buffer cells carry. Sits directly after the header so the
+    /// offset is a stable [`REGEX_PROPS_OFF`] the anyvalue tier can
+    /// mirror without knowing anything about the rest.
+    pub props: *mut c_void,
     pub flags: u8,
     /// Set when the parser couldn't accept the pattern. test/find
     /// silently return miss; the heavier surface (exec / match /

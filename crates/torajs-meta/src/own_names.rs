@@ -10,10 +10,7 @@
 
 use core::ffi::{c_char, c_void};
 
-use crate::obj_own_keys::{
-    ARR_PROPS_OFF, TAG_ARR_CELL, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE_CELL, TAG_NUMBER_WRAPPER,
-    TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
-};
+use crate::obj_own_keys::{heap_type_tag_local, is_dynobj_imm};
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
@@ -331,12 +328,11 @@ unsafe fn own_symbol_dict_borrowed(obj_any: u64) -> Option<*const c_void> {
         return None;
     }
     let cell = obj_any as *const c_void;
-    let props_off = match unsafe { heap_type_tag_local(cell) } {
-        TAG_ARR_CELL | TAG_CLOSURE_CELL => ARR_PROPS_OFF,
-        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER => WRAPPER_PROPS_OFF,
-        _ => return None,
-    };
-    let dict = unsafe { *(cell.cast::<u8>().add(props_off) as *const *const c_void) };
+    // The one shared table, so every shape that can HOLD a symbol
+    // key also REPORTS it here (`member_set_symbol` writes through
+    // the anyvalue twin of this table).
+    let htag = unsafe { heap_type_tag_local(cell) };
+    let dict = unsafe { crate::obj_own_keys_layout::expando_props(cell, htag) };
     if dict.is_null() { None } else { Some(dict) }
 }
 

@@ -66,6 +66,76 @@ pub(crate) const STR_LEN_OFF: usize = 8;
 /// (mirror `torajs_anyvalue::nanbox` SSO layout).
 pub(crate) const SHORT_STR_TOP16: u64 = 0x0001;
 
+/// Map / Set cells (`torajs_rc::Tag::{Map,Set}`; Set is layout-
+/// identical to Map, so both read the same slot — torajs-collections
+/// `layout::MAP_PROPS_OFF` mirror).
+pub(crate) const TAG_MAP_CELL: u16 = 15;
+pub(crate) const TAG_SET_CELL: u16 = 19;
+pub(crate) const MAP_PROPS_OFF: usize = 48;
+
+/// Date cell (`torajs_rc::Tag::Date`; torajs-date `DATE_PROPS_OFF`
+/// mirror).
+pub(crate) const TAG_DATE_CELL: u16 = 5;
+pub(crate) const DATE_PROPS_OFF: usize = 16;
+
+/// RegExp cell (`torajs_rc::Tag::RegExp`; torajs-regex
+/// `regex::REGEX_PROPS_OFF` mirror — the bag sits directly after the
+/// header).
+pub(crate) const TAG_REGEXP_CELL: u16 = 4;
+pub(crate) const REGEX_PROPS_OFF: usize = 8;
+
+/// Where a cell shape keeps its lazy own-property bag, `None` when
+/// the shape carries none. Twin of torajs-anyvalue's
+/// `member_get_layout::expando_props_off` (the two tiers mirror
+/// constants rather than share a crate, the same narrow-ABI pattern
+/// every layout constant in this file follows) — the enumeration and
+/// descriptor surfaces read it so they answer exactly the keys the
+/// member-get channels do.
+pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
+    match tag {
+        TAG_ARR_CELL | TAG_CLOSURE_CELL | TAG_OBJ_CELL => Some(CLOSURE_PROPS_OFF),
+        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER => Some(WRAPPER_PROPS_OFF),
+        TAG_PROMISE_CELL => Some(PROMISE_PROPS_OFF),
+        TAG_TYPEDARRAY_CELL => Some(TYPEDARRAY_PROPS_OFF),
+        TAG_ARRAYBUFFER_CELL | TAG_DATAVIEW_CELL => Some(ARRAYBUFFER_PROPS_OFF),
+        TAG_MAP_CELL | TAG_SET_CELL => Some(MAP_PROPS_OFF),
+        TAG_DATE_CELL => Some(DATE_PROPS_OFF),
+        TAG_REGEXP_CELL => Some(REGEX_PROPS_OFF),
+        _ => None,
+    }
+}
+
+/// The shapes whose ENTIRE own face is the bag: a promise (§27.2 —
+/// `then` / `catch` are prototype surface), a Map / Set (§24.1.6 /
+/// §24.2.6 — the entry table is internal state) and a Date (§21.4.4
+/// — so is [[DateValue]]). RegExp is deliberately absent: it also
+/// owns `lastIndex` in the cell, so its arms lead with that name.
+#[inline]
+pub(crate) fn is_bag_only_tag(tag: u16) -> bool {
+    matches!(
+        tag,
+        TAG_PROMISE_CELL | TAG_MAP_CELL | TAG_SET_CELL | TAG_DATE_CELL
+    )
+}
+
+/// The cell's own-property bag pointer — NULL both when the shape
+/// has no bag and when nothing was written into it yet.
+///
+/// # Safety
+/// `cell` is a live heap cell whose header tag is `tag`.
+pub(crate) unsafe fn expando_props(
+    cell: *const core::ffi::c_void,
+    tag: u16,
+) -> *const core::ffi::c_void {
+    match expando_props_off(tag) {
+        Some(off) => {
+            let raw = unsafe { (cell.cast::<u8>().add(off) as *const u64).read() };
+            raw as *const core::ffi::c_void
+        }
+        None => core::ptr::null(),
+    }
+}
+
 /// `torajs_dynobj::layout::BUCKET_FLAG_ENUMERABLE` mirror (bit 1).
 pub(crate) const FLAG_ENUMERABLE: u64 = 1 << 1;
 
