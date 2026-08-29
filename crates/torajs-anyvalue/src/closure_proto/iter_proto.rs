@@ -114,7 +114,7 @@ unsafe extern "C" fn iter_proto_dispose_entry(
 /// argv[0] + `name` / `length` own reflection entries (the
 /// `gen_step_method_cell` posture; both spec functions have length 0
 /// and bracketed names that never intern back to a string key).
-unsafe fn mint_symbol_method_cell(
+pub(super) unsafe fn mint_symbol_method_cell(
     entry: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64,
     name: &[u8],
 ) -> *mut u8 {
@@ -175,6 +175,8 @@ pub unsafe extern "C" fn __torajs_iterator_proto_install(proto: *mut c_void) {
             __torajs_dynobj_define_plain(&mut slot, key, ANY_HEAP, cell as u64, METHOD_ENTRY_FLAGS)
         };
     }
+    // §27.1.2's two accessor properties ride the same mint.
+    unsafe { super::iter_proto_accessors::install(proto) };
 }
 
 /// `ANY_I64` slot tag (torajs-dynobj `layout.rs` mirror).

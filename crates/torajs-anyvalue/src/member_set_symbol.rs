@@ -41,7 +41,7 @@ const CELL_PROPS_OFF: usize = 24;
 
 /// The in-layout expando-dict slot for a shape that carries one, or
 /// `None` for a shape that cannot hold a symbol-keyed property.
-fn props_slot_off(cell_tag: u16) -> Option<usize> {
+pub(crate) fn props_slot_off(cell_tag: u16) -> Option<usize> {
     // An array is the one shape this lane and the string lane
     // disagree about: a symbol key never collides with the index
     // domain, so it lands in the +24 bag directly, while the string
@@ -105,6 +105,28 @@ pub(crate) unsafe fn symbol_member_set(
             }
             return 0;
         };
+        bag_write(ptr, cell_tag, off, key, tag, value, throw_on_refusal)
+    }
+}
+
+/// One write into a cell's in-layout expando bag, allocating the bag
+/// on first use. Shared with [`crate::member_set_own_face`], which
+/// needs the same store for a name key.
+///
+/// # Safety
+/// `ptr` is a live cell whose `type_tag` is `cell_tag` and whose
+/// layout carries a props slot at `off`; `key` is a live key cell;
+/// `(tag, value)` carries the caller's +1 on heap payloads.
+pub(crate) unsafe fn bag_write(
+    ptr: *mut c_void,
+    cell_tag: u16,
+    off: usize,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    unsafe {
         let props_slot = ptr.cast::<u8>().add(off) as *mut u64;
         let mut props = *props_slot as *mut c_void;
         let first = props.is_null();

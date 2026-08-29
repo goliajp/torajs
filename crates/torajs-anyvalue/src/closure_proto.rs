@@ -36,6 +36,7 @@ mod gen_step;
 /// entries (RFC 20260809 B6) — a child for the same reach into the
 /// private mint plumbing.
 pub(crate) mod iter_proto;
+mod iter_proto_accessors;
 
 unsafe extern "C" {
     /// torajs-dynobj — fresh empty entry table.

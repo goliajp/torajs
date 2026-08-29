@@ -154,6 +154,7 @@ mod member_set;
 mod member_set_arr;
 mod member_set_closure;
 mod member_set_dynobj;
+mod member_set_own_face;
 mod member_set_private;
 mod member_set_proto_root;
 mod member_set_receiver;
