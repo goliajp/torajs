@@ -126,6 +126,12 @@ pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
         return unsafe { crate::map::map_child_count(p) } > 0;
     }
     // A bagless iterator cell still owns the thing it walks.
-    crate::iter_src::is_iter_cell(header.type_tag)
-        && !unsafe { crate::iter_src::iter_src(p) }.is_null()
+    if crate::iter_src::is_iter_cell(header.type_tag) {
+        return !unsafe { crate::iter_src::iter_src(p) }.is_null();
+    }
+    // A bagless helper still owns its underlying / callback / inner /
+    // next.
+    crate::iter_src::is_iter_helper(header.type_tag)
+        && (0..crate::iter_src::HELPER_CHILD_COUNT)
+            .any(|i| !unsafe { crate::iter_src::helper_child_at(p, i) }.is_null())
 }

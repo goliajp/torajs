@@ -135,6 +135,18 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         // Map and Set own two more references per entry. Key and
         // value are separate edges even when they are the same cell.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
+        if crate::iter_src::is_iter_helper(tag) {
+            // §27.1.4.x helper — four owned AnyValue slots. A helper
+            // whose callback closes over the helper is a ring, and so
+            // is `it.flatMap(f)` where `f` yields something reaching
+            // back; the immediate filter drops `take`/`drop`'s count.
+            for i in 0..crate::iter_src::HELPER_CHILD_COUNT {
+                let child = unsafe { crate::iter_src::helper_child_at(p, i) };
+                if !child.is_null() {
+                    f(i, child);
+                }
+            }
+        }
         if crate::iter_src::is_iter_cell(tag) {
             // A stateful iterator holds a strong reference to what it
             // walks, so that iteration outlives the caller's binding.
@@ -223,6 +235,10 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         && crate::iter_src::is_iter_cell(unsafe { (*(p as *const HeapHeader)).type_tag })
     {
         unsafe { crate::iter_src::iter_src_clear(p) };
+    } else if i != PROPS_SLOT_INDEX
+        && crate::iter_src::is_iter_helper(unsafe { (*(p as *const HeapHeader)).type_tag })
+    {
+        unsafe { crate::iter_src::helper_slot_clear(p, i) };
     } else if i == PROPS_SLOT_INDEX {
         // Wrapper +16 / bag-shape own offset / Arr +24 expando slot.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
