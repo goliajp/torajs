@@ -261,7 +261,8 @@ impl LowerCtx<'_> {
         // one: an array's ToNumber is its join's, a Date's is its
         // time value, and the checker used to reject the rest rather
         // than let them reach here.
-        if matches!(op, UnaryOp::Plus | UnaryOp::Neg) && is_number_coercible_obj(self.operand_ty(&v))
+        if matches!(op, UnaryOp::Plus | UnaryOp::Neg)
+            && is_number_coercible_obj(self.operand_ty(&v))
         {
             let boxed = self.box_to_any(v);
             let n = self.coerce_any_to_number(boxed, Type::F64);
