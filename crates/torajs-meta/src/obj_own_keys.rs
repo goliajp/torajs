@@ -384,6 +384,15 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                         }
                     }
                 }
+                // §20.2.3 makes `Function.prototype` a built-in
+                // FUNCTION object rather than an ordinary one, so its
+                // synthesized method names come through this arm
+                // instead of the dynobj walk — the same "other cell
+                // shape, same surface" hop `arr_cell_keys` makes for
+                // the Array-exotic `Array.prototype`.
+                if include_nonenum != 0 {
+                    out = unsafe { push_synthesized_proto_names(cell, out, true) };
+                }
                 if props.is_null() {
                     out as *mut c_void
                 } else {

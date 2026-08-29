@@ -66,6 +66,32 @@ unsafe fn proto_is_arr(proto: *mut c_void) -> bool {
     cell_tag == torajs_rc::Tag::Arr as u16
 }
 
+/// The entry table a builtin prototype's non-index own properties
+/// live in. Two of the singletons are not ordinary objects and so do
+/// not keep their entries in themselves: §23.1.3 makes
+/// `Array.prototype` an Array exotic (handled by the `proto_is_arr`
+/// branches, which have an index domain to consider as well) and
+/// §20.2.3 makes `Function.prototype` a built-in function object,
+/// whose entries live in the closure expando like any other
+/// function's. Probing the closure cell directly walked `fn_addr` as
+/// an entry count.
+///
+/// # Safety
+/// `proto` is a live builtin-prototype singleton cell.
+unsafe fn proto_dict(proto: *mut c_void) -> *mut c_void {
+    // HeapHeader: type_tag @ +4 (u16); closure expando @ +24.
+    let cell_tag = unsafe { proto.cast::<u8>().add(4).cast::<u16>().read() };
+    if cell_tag == torajs_rc::Tag::Closure as u16 {
+        return unsafe {
+            *(proto
+                .cast::<u8>()
+                .add(crate::member_get_layout::CLOSURE_PROPS_OFF)
+                as *const *mut c_void)
+        };
+    }
+    proto
+}
+
 /// Own-property probe pair against a builtin prototype, whichever
 /// cell shape backs it — `Array.prototype` is an Arr (ES §23.1.3),
 /// the rest are dynobjs. Reading an Arr through the dynobj probe
@@ -80,10 +106,14 @@ pub(crate) unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> 
             )
         }
     } else {
+        let dict = unsafe { proto_dict(proto) };
+        if dict.is_null() {
+            return (5, 0);
+        }
         unsafe {
             (
-                __torajs_dynobj_get_tag(proto, key),
-                __torajs_dynobj_get_value(proto, key),
+                __torajs_dynobj_get_tag(dict, key),
+                __torajs_dynobj_get_value(dict, key),
             )
         }
     };
@@ -102,7 +132,8 @@ pub(crate) unsafe fn proto_own_has(proto: *mut c_void, key: *const c_void) -> bo
     if unsafe { proto_is_arr(proto) } {
         return unsafe { __torajs_arrprops_has(proto, key) } != 0;
     }
-    unsafe { __torajs_dynobj_has(proto, key) != 0 }
+    let dict = unsafe { proto_dict(proto) };
+    !dict.is_null() && unsafe { __torajs_dynobj_has(dict, key) != 0 }
 }
 
 /// 1 = `<proto tag>`'s virtual `constructor` own face has not been
@@ -393,7 +424,8 @@ unsafe fn chain_expando_owns(family_tag: i64, key: *const c_void) -> bool {
         }
         return unsafe { __torajs_arrprops_has(proto, key) } != 0;
     }
-    unsafe { __torajs_dynobj_has(proto, key) != 0 }
+    let dict = unsafe { proto_dict(proto) };
+    !dict.is_null() && unsafe { __torajs_dynobj_has(dict, key) != 0 }
 }
 
 #[cfg(test)]

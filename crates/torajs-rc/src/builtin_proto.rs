@@ -37,6 +37,11 @@ unsafe extern "C" {
     fn __torajs_iterator_proto_install(proto: *mut c_void);
     fn __torajs_proto_tostringtag_install(proto: *mut c_void, idx: i64);
     fn __torajs_proto_symbol_keys_install(proto: *mut c_void, idx: i64);
+    /// torajs-anyvalue — %Function.prototype%'s cell. §20.2.3 makes it
+    /// a built-in FUNCTION object, so its slot holds a callable
+    /// Closure rather than an ordinary dynobj (the `Array.prototype`
+    /// posture, one clause over).
+    fn __torajs_function_proto_alloc() -> *mut c_void;
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
@@ -283,6 +288,8 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     // stubs below.
     let fresh = if idx == ARRAY_PROTO_TAG {
         unsafe { __torajs_arr_alloc_any(0) as *mut c_void }
+    } else if idx == FUNCTION_PROTO_TAG {
+        unsafe { __torajs_function_proto_alloc() }
     } else {
         unsafe { __torajs_dynobj_alloc() }
     };
@@ -464,6 +471,14 @@ unsafe fn __torajs_object_proto_install(_proto: *mut c_void) {}
 
 #[cfg(test)]
 unsafe fn __torajs_function_proto_install(_proto: *mut c_void) {}
+
+// %Function.prototype%'s callable cell is minted in torajs-anyvalue
+// (linked into `tr`); the singleton logic under test only needs
+// distinct addresses, which the dynobj stub already supplies.
+#[cfg(test)]
+unsafe fn __torajs_function_proto_alloc() -> *mut c_void {
+    unsafe { __torajs_dynobj_alloc() }
+}
 
 // The @@toStringTag install lives in torajs-meta (linked into `tr`);
 // same posture as the stubs above.

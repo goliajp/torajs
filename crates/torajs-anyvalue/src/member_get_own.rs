@@ -215,9 +215,20 @@ pub(crate) unsafe fn implicit_proto_parent(ptr: *const c_void) -> Option<u64> {
 /// tag 13) — the inheritance table a closure receiver reads through
 /// after its own expando and virtual pair miss (`Function.prototype
 /// .writable = true; funObj.writable` answers true). NULL until the
-/// singleton is first materialized.
+/// singleton is first materialized, or until something defines on it.
+///
+/// The singleton is itself a Closure cell (§20.2.3 makes
+/// %Function.prototype% a built-in function object), so its own
+/// entries live in the +24 expando like any other function's — the
+/// same indirection `array_proto_props` does for the Arr-cell
+/// `Array.prototype`. Handing back the CELL here made every closure
+/// receiver read `fn_addr` as an entry count.
 pub(crate) fn function_proto_props() -> *const c_void {
-    unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) as *const c_void }
+    let fp = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) };
+    if fp.is_null() {
+        return core::ptr::null();
+    }
+    unsafe { (fp.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const *const c_void).read() }
 }
 
 /// A primitive wrapper's prototype expando dynobj — the tag-0/3/4/5

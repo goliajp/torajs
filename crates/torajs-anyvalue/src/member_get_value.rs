@@ -232,6 +232,14 @@ unsafe fn closure_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void
             None => {}
         }
         // Inherited Function.prototype expando — tag twin.
+        // §20.2.3 makes `Function.prototype` a built-in FUNCTION
+        // object, so its own virtual `length` / `name` pair is
+        // reached through this arm rather than the dynobj one. The
+        // probe answers None for every ordinary closure.
+        if let Some((_, mval)) = crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key)
+        {
+            return mval;
+        }
         let fp = function_proto_props();
         if !fp.is_null() {
             if __torajs_dynobj_get_tag(fp, key) != 5 {

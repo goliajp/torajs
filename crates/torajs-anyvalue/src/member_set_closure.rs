@@ -56,6 +56,34 @@ unsafe fn expando_integrity_refuses(
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
 
+/// `torajs_rc::Tag::Str` — a property key cell is a Str or a Symbol.
+const TAG_STR_KEY: u16 = 0;
+
+/// torajs-str Str layout mirrors — u32 length at +8, bytes at +16.
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+
+/// Mark a write to a builtin-prototype singleton's expando against
+/// the CELL, so the patch bitmap sees it. A no-op for every ordinary
+/// closure (the address scan answers -1 inside) and for a symbol key
+/// (the bitmap is mid-keyed, and mids are string names).
+///
+/// # Safety
+/// `cell` is a live Closure cell; `key` is a live key cell.
+unsafe fn note_builtin_proto_write(cell: *mut c_void, key: *const c_void) {
+    unsafe {
+        if key.is_null() || key.cast::<u8>().add(4).cast::<u16>().read() != TAG_STR_KEY {
+            return;
+        }
+        let len = key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read();
+        torajs_rc::builtin_proto::__torajs_builtin_proto_note_own_write(
+            cell,
+            key.cast::<u8>().add(STR_DATA_OFF),
+            len as i64,
+        );
+    }
+}
+
 /// Promise-cell lazy props slot — mirror of torajs-dynobj
 /// `layout.rs::PROMISE_PROPS_OFF` (+24 is the callback list).
 const MEMBER_SET_PROMISE_PROPS_OFF: usize = 32;
@@ -238,6 +266,17 @@ pub(crate) unsafe fn set_closure_member(
             props = __torajs_dynobj_alloc();
         }
         let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
+        // §20.2.3 makes `Function.prototype` a built-in FUNCTION
+        // object, so a `Function.prototype.call = f` patch lands in
+        // THIS expando — and the note hook inside the dynobj set sees
+        // only the expando, which is not the singleton, so the patch
+        // bit stayed clear and every dispatcher kept answering the
+        // native arm. torajs-arr notes the Arr-backed
+        // `Array.prototype`'s writes the same way, for the same
+        // reason: the cell is what carries the identity.
+        if wrote != 0 {
+            note_builtin_proto_write(ptr, key);
+        }
         // First-write alloc and resize relocation both land the
         // fresh table back in the +24 slot; the closure cell
         // itself never moves. The first attach is the link-judged

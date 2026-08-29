@@ -22,6 +22,14 @@ unsafe extern "C" {
     fn __torajs_arrprops_has(arr: *mut c_void, key: *const c_void) -> i32;
 }
 
+/// `torajs_rc::Tag::Closure` mirror — the cell shape §20.2.3 gives
+/// `Function.prototype`.
+const TAG_CLOSURE_CELL: u16 = 3;
+
+/// Closure expando slot — `member_get_layout::CLOSURE_PROPS_OFF`
+/// mirror.
+const CLOSURE_PROPS_OFF: usize = 24;
+
 /// Append a builtin prototype's synthesized own method / accessor /
 /// `constructor` names to the key array being built.
 ///
@@ -48,11 +56,23 @@ pub(crate) unsafe fn push_synthesized_proto_names(
     }
     let mut names = vec![0u64; n as usize];
     unsafe { __torajs_builtin_proto_own_names(obj, names.as_mut_ptr(), n) };
+    // §20.2.3 makes `Function.prototype` a built-in FUNCTION object,
+    // so its own entries live in the closure expando rather than in
+    // the cell (`torajs_anyvalue::method_support_proto::proto_dict`
+    // mirror — torajs-meta keeps zero Cargo deps). Probing the
+    // closure cell walked `fn_addr` as an entry count.
+    let dict = if is_arr {
+        obj
+    } else if unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() } == TAG_CLOSURE_CELL {
+        unsafe { *(obj.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const *const c_void) }
+    } else {
+        obj
+    };
     for cell in names {
         let present = if is_arr {
             unsafe { __torajs_arrprops_has(obj as *mut c_void, cell as *const c_void) != 0 }
         } else {
-            unsafe { __torajs_dynobj_has(obj, cell as *const u8) }
+            !dict.is_null() && unsafe { __torajs_dynobj_has(dict, cell as *const u8) }
         };
         if present {
             continue;

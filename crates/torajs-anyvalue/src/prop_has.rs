@@ -271,7 +271,16 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             // statics, `prototype`, and (Number) data constants; the
             // gOPD arm already answers them, so HasOwnProperty must
             // agree.
-            (unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }.is_some()) as i64
+            if unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }.is_some() {
+                return 1;
+            }
+            // `Function.prototype` is itself a Closure (§20.2.3 makes
+            // it a built-in FUNCTION object), so the interned-method
+            // probe the DynObj and Arr arms run has to reach it here
+            // too — `Object.hasOwn(Function.prototype, "call")`.
+            // Ordinary closures answer -1 from the tag lookup inside
+            // and fall out at 0.
+            unsafe { builtin_proto_method_own(ptr, key) }
         }
         // Rotation 354 — promise bag own probe (the +32 expando the
         // defineProperty / plain-assign arms write; `then` / `catch`

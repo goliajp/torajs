@@ -44,6 +44,9 @@ const DEFINE_PRESENT_GET: u64 = 1 << 7;
 const DEFINE_PRESENT_SET: u64 = 1 << 8;
 
 unsafe extern "C" {
+    /// torajs-anyvalue — %Function.prototype%'s expando dynobj (the
+    /// singleton is a Closure cell, §20.2.3).
+    fn __torajs_function_proto_props(proto: *mut c_void) -> *mut c_void;
     /// torajs-anyvalue — interned immortal cell for a method id.
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-dynobj — fresh `+1`-rc AccessorPair (faces transfer;
@@ -88,9 +91,16 @@ const ANY_METHOD_THROW_TYPE_ERROR_MID: i64 = 155;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_function_proto_install(proto: *mut c_void) {
     unsafe {
+        // §20.2.3 makes %Function.prototype% a built-in FUNCTION
+        // object, so the singleton is a Closure cell and its own
+        // entries live in the expando the mint pre-allocated. The
+        // narrow define kernel below contracts for a plain dynobj
+        // receiver; handing it the closure cell wrote entry records
+        // over `fn_addr`.
+        let props = __torajs_function_proto_props(proto);
         let thrower = __torajs_builtin_method_cell(ANY_METHOD_THROW_TYPE_ERROR_MID);
-        install_accessor_entry(proto, b"caller", thrower, thrower);
-        install_accessor_entry(proto, b"arguments", thrower, thrower);
+        install_accessor_entry(props, b"caller", thrower, thrower);
+        install_accessor_entry(props, b"arguments", thrower, thrower);
     }
 }
 

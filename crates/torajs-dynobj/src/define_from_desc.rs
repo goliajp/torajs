@@ -275,14 +275,28 @@ unsafe fn define_from_desc_impl(
             // A closure descriptor inherits through
             // Function.prototype's expando dynobj (tag 13 in the
             // builtin-proto registry) — even with no expando of its
-            // own.
+            // own. §20.2.3 makes that singleton a built-in FUNCTION
+            // object, so its entries live in the same +24 expando any
+            // other closure keeps them in; the Arr arm below reaches
+            // `Array.prototype`'s the same way, for the same reason.
             let expando = unsafe {
                 desc.cast::<u8>()
                     .add(CELL_PROPS_OFF)
                     .cast::<*const c_void>()
                     .read()
             };
-            let fp = unsafe { __torajs_get_builtin_prototype(13) };
+            let fp_cell = unsafe { __torajs_get_builtin_prototype(13) };
+            let fp = if fp_cell.is_null() {
+                core::ptr::null()
+            } else {
+                unsafe {
+                    fp_cell
+                        .cast::<u8>()
+                        .add(CELL_PROPS_OFF)
+                        .cast::<*const c_void>()
+                        .read()
+                }
+            };
             if expando.is_null() && fp.is_null() {
                 None
             } else {

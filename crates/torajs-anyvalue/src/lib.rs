@@ -111,6 +111,7 @@ mod date_from_value;
 pub mod dispatch_arms;
 pub(crate) mod dispatch_seam;
 mod error_cause;
+mod function_proto_cell;
 mod function_subclass;
 pub(crate) mod index_any;
 mod index_any_iter_len;

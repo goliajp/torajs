@@ -302,6 +302,13 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
             if let Some(id) = unsafe { crate::method_value::ctor_static_table_id(ptr, key) } {
                 torajs_rc::ns_static_mark_deleted(id);
             }
+            // `Function.prototype` is itself a Closure (§20.2.3 makes
+            // it a built-in FUNCTION object), so the tombstone the
+            // dynobj and Arr arms leave has to be left here too —
+            // `delete Function.prototype.bind` otherwise removed a
+            // monkey-patch shadow that was not there and left the
+            // interned surface showing through.
+            unsafe { tombstone_proto_method(ptr, key) };
             1
         }
         // Rotation 354 — promise bag delete (the +32 expando the
@@ -410,8 +417,10 @@ unsafe fn struct_delete(ptr: *mut c_void, key: *const c_void, throw_on_refusal: 
 /// the entry delete the callers run first only removes a monkey-patch
 /// shadow, if any. No-op on every other receiver. Idempotent.
 ///
-/// Shared by the dynobj arm and the Arr one, since `Array.prototype`
-/// is an Arr cell rather than a dynobj (ES §23.1.3).
+/// Shared by all three arms that can hold a singleton: §23.1.3 makes
+/// `Array.prototype` an Arr cell and §20.2.3 makes
+/// `Function.prototype` a Closure, so "is a builtin prototype" and
+/// "is a dynobj" are different questions.
 ///
 /// # Safety
 /// `ptr` is a live heap cell (compared, not dereferenced); `key` is a

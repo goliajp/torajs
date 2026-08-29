@@ -252,7 +252,16 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // §20.2.4 name/length descriptors (expando entries win). SAFETY:
     // `dynobj` is a live Tag::Closure cell; `key` non-NULL (above).
     if htag == TAG_CLOSURE {
-        return unsafe { crate::closure_reflect::closure_cell_descriptor(dynobj, key) };
+        let d = unsafe { crate::closure_reflect::closure_cell_descriptor(dynobj, key) };
+        if d != VALUE_UNDEFINED_IMM {
+            return d;
+        }
+        // `Function.prototype` is a Closure cell too (§20.2.3 makes it
+        // a built-in FUNCTION object), and its interned family
+        // methods are own properties that live in no entry table —
+        // the same synthesis the `Array.prototype` Arr cell gets
+        // below, for the same reason.
+        return unsafe { builtin_proto_descriptor(dynobj, key) };
     }
     // Rotation 354 — promise cell probes the +32 expando bag; no
     // virtual own pair — `then` / `catch` are prototype surface,

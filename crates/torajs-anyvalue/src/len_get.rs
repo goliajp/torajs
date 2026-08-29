@@ -286,6 +286,18 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             if let Some(l) = closure_length_of(ptr) {
                 return crate::nanbox_encode::__torajs_anyv_box_i64(l);
             }
+            // %Function.prototype% is a Closure cell (§20.2.3) and
+            // registers no fn-decl arity, so the walk above finds
+            // nothing — its own virtual `length` 0 comes from the
+            // builtin-prototype meta face, the same one the dynobj
+            // arm above consults.
+            let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+            let meta =
+                crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key as *const c_void);
+            __torajs_str_drop(key as *mut c_void);
+            if let Some((mtag, mval)) = meta {
+                return crate::nanbox_encode::__torajs_anyv_box_from_pair(mtag as i64, mval as i64);
+            }
         }
     }
     VALUE_UNDEFINED
