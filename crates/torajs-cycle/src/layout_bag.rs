@@ -131,7 +131,10 @@ pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
     }
     // A bagless helper still owns its underlying / callback / inner /
     // next.
-    crate::iter_src::is_iter_helper(header.type_tag)
-        && (0..crate::iter_src::HELPER_CHILD_COUNT)
-            .any(|i| !unsafe { crate::iter_src::helper_child_at(p, i) }.is_null())
+    if crate::iter_src::is_iter_helper(header.type_tag) {
+        return (0..crate::iter_src::HELPER_CHILD_COUNT)
+            .any(|i| !unsafe { crate::iter_src::helper_child_at(p, i) }.is_null());
+    }
+    // A bagless promise still owns whatever it settled with.
+    header.type_tag == TAG_PROMISE && !unsafe { crate::promise::promise_value(p) }.is_null()
 }

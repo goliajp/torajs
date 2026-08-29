@@ -76,6 +76,7 @@ pub mod layout;
 pub mod layout_bag;
 pub mod map;
 pub mod obj_drop;
+pub(crate) mod promise;
 pub mod proxy;
 
 pub use buffer::{__torajs_cycle_buffer, __torajs_cycle_unbuffer};

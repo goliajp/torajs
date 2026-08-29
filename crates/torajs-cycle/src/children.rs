@@ -135,6 +135,16 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         // Map and Set own two more references per entry. Key and
         // value are separate edges even when they are the same cell.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
+        if tag == crate::layout_bag::TAG_PROMISE {
+            // A settled promise owns its value, and `o.p = p` on a
+            // promise resolved with `o` closes the ring. The pending
+            // callback records are NOT walked — their `arg` word is
+            // opaque to the runtime (see `promise.rs`).
+            let v = unsafe { crate::promise::promise_value(p) };
+            if !v.is_null() {
+                f(crate::promise::PROMISE_VALUE_SLOT, v);
+            }
+        }
         if crate::iter_src::is_iter_helper(tag) {
             // §27.1.4.x helper — four owned AnyValue slots. A helper
             // whose callback closes over the helper is a ring, and so
@@ -239,6 +249,10 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         && crate::iter_src::is_iter_helper(unsafe { (*(p as *const HeapHeader)).type_tag })
     {
         unsafe { crate::iter_src::helper_slot_clear(p, i) };
+    } else if i == crate::promise::PROMISE_VALUE_SLOT
+        && unsafe { (*(p as *const HeapHeader)).type_tag } == crate::layout_bag::TAG_PROMISE
+    {
+        unsafe { crate::promise::promise_value_clear(p) };
     } else if i == PROPS_SLOT_INDEX {
         // Wrapper +16 / bag-shape own offset / Arr +24 expando slot.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
