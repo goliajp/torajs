@@ -139,6 +139,20 @@ unsafe fn has_fn_proto_flag(ptr: *const c_void) -> bool {
 /// call comes from; the member-get pre-probes stay as fast paths.
 pub(crate) unsafe fn fn_prototype_pair(ptr: *mut c_void) -> Option<(u64, u64)> {
     if !unsafe { has_fn_proto_flag(ptr) } {
+        // A builtin constructor reached as a VALUE (`const O: any =
+        // Object`) is a closure cell too, and its `.prototype` is the
+        // registry singleton rather than a lazily minted twin — there
+        // is nothing to stamp the flag on, because nothing about the
+        // cell records which family it interned as. Without this,
+        // `({} as any) instanceof O` threw "Function has non-object
+        // prototype" for Object / Array / Map and every other builtin
+        // whose ctor is not a real class (526-05).
+        if let Some(tag) = crate::method_value::ctor_tag_of_cell(ptr) {
+            let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) };
+            if !proto.is_null() {
+                return Some((ANY_HEAP, proto as u64));
+            }
+        }
         return None;
     }
     unsafe {
