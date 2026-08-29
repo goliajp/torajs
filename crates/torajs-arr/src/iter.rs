@@ -50,7 +50,7 @@ const ANY_UNDEF: u8 = 5;
 pub const ARR_ITER_FAMILY_ARRAY: u32 = 0;
 pub const ARR_ITER_FAMILY_STRING: u32 = 1;
 
-/// ArrIter heap block — 32 bytes, ABI-shared with the C-side
+/// ArrIter heap block — 40 bytes, ABI-shared with the C-side
 /// definition we just deleted.
 #[repr(C)]
 struct ArrIter {
@@ -59,7 +59,18 @@ struct ArrIter {
     cursor: i64,
     kind: u32,
     family: u32,
+    /// Lazy own-property bag — §23.1.5.1 mints an ORDINARY object,
+    /// so `it.zz = 1` is an ordinary own property and the cursor /
+    /// kind / family above are internal state, not properties. NULL
+    /// until the first such write; same shape Promise / Map / Date /
+    /// the wrappers carry (see [`ARR_ITER_PROPS_OFF`]).
+    props: *mut c_void,
 }
+
+/// Byte offset of `ArrIter::props` — mirrored by torajs-anyvalue
+/// (`member_get_layout::ITER_PROPS_OFF`) and torajs-meta, the same
+/// narrow-ABI constant replication the tag constants use.
+pub const ARR_ITER_PROPS_OFF: usize = 32;
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
@@ -134,6 +145,9 @@ unsafe fn create_with_kind(arr_p: *mut c_void, kind: u32) -> *mut c_void {
         (*it).cursor = 0;
         (*it).kind = kind;
         (*it).family = ARR_ITER_FAMILY_ARRAY;
+        // No own property written yet — the bag is minted by the
+        // first `it.zz = 1`, never here.
+        (*it).props = core::ptr::null_mut();
         if !arr_p.is_null() {
             __torajs_rc_inc(arr_p);
         }
@@ -364,6 +378,13 @@ pub unsafe extern "C" fn __torajs_arr_iter_drop(iter_p: *mut c_void) {
         let arr = (*it).arr;
         if !arr.is_null() {
             __torajs_value_drop_heap(arr);
+        }
+        // Own-property bag — the universal dispatcher routes it to
+        // the dynobj drop.
+        let props = (*it).props;
+        if !props.is_null() {
+            (*it).props = core::ptr::null_mut();
+            __torajs_value_drop_heap(props);
         }
         free(iter_p);
     }

@@ -125,6 +125,17 @@ pub(crate) const DATE_PROPS_OFF: usize = 16;
 /// the offset survives any reshuffle of the compiled program below.
 pub(crate) const REGEX_PROPS_OFF: usize = 8;
 
+/// ArrIter / MapIter cell lazy expando slot — mirrors of
+/// `torajs_arr::iter::ARR_ITER_PROPS_OFF` and
+/// `torajs_collections::iter::MAP_ITER_PROPS_OFF`. The two layouts
+/// are the same shape (header, source, cursor, two words), so both
+/// bags sit at the same offset.
+pub(crate) const ITER_PROPS_OFF: usize = 32;
+
+/// IterHelper cell lazy expando slot — mirror of
+/// `crate::iter_helper::PROPS_OFF`.
+pub(crate) const ITER_HELPER_PROPS_OFF: usize = 56;
+
 /// Where a cell shape keeps its lazy own-property bag — `None` when
 /// the shape carries none, and every caller then knows the answer is
 /// "this receiver has no ordinary own face".
@@ -154,20 +165,40 @@ pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
         Some(DATE_PROPS_OFF)
     } else if tag == Tag::RegExp as u16 {
         Some(REGEX_PROPS_OFF)
+    } else if tag == Tag::ArrIter as u16 || tag == Tag::MapIter as u16 {
+        Some(ITER_PROPS_OFF)
+    } else if tag == Tag::IterHelper as u16 {
+        Some(ITER_HELPER_PROPS_OFF)
     } else {
         None
     }
 }
 
-/// The four shapes whose ENTIRE ordinary own face is the bag: Map /
-/// Set (§24.1.6 / §24.2.6), Date (§21.4.4) and RegExp (§22.2.6).
-/// Their entry table, [[DateValue]] and compiled program are internal
+/// The shapes whose ENTIRE ordinary own face is the bag: Map / Set
+/// (§24.1.6 / §24.2.6), Date (§21.4.4), RegExp (§22.2.6) and the
+/// three iterator cells ([`is_iter_cell_tag`]). Their entry table,
+/// [[DateValue]], compiled program and iteration cursor are internal
 /// state carried in the cell, never properties — so apart from
 /// RegExp's own `lastIndex` every name key they answer, and every
 /// name key they accept, is the bag's.
 #[inline]
 pub(crate) fn is_stateful_bag_tag(t: u16) -> bool {
-    t == Tag::Map as u16 || t == Tag::Set as u16 || t == Tag::Date as u16 || t == Tag::RegExp as u16
+    t == Tag::Map as u16
+        || t == Tag::Set as u16
+        || t == Tag::Date as u16
+        || t == Tag::RegExp as u16
+        || is_iter_cell_tag(t)
+}
+
+/// The three iterator cell shapes. §23.1.5.1 / §22.1.5.1 / §24.1.5.1
+/// / §24.2.5.1 / §27.1.4.x all mint ORDINARY objects: the source, the
+/// cursor, the captured callback and the alive flag are internal
+/// state, so like the four above their whole property face is the
+/// bag. They were the last receivers in the language that answered
+/// every assign with the boundary TypeError.
+#[inline]
+pub(crate) fn is_iter_cell_tag(t: u16) -> bool {
+    t == Tag::ArrIter as u16 || t == Tag::MapIter as u16 || t == Tag::IterHelper as u16
 }
 
 /// The cell's own-property bag pointer, NULL both when the shape has

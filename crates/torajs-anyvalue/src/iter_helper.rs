@@ -9,7 +9,7 @@
 //!
 //! ```text
 //! { header:8 | underlying:8 | fn:8 | counter:8 | kind:1 alive:1
-//!   pad:6 | inner:8 | next:8 }                           (56 B)
+//!   pad:6 | inner:8 | next:8 | props:8 }                 (64 B)
 //! ```
 //!
 //! `inner` is the flatMap current-inner-iterator slot (undefined for
@@ -71,7 +71,13 @@ const RUNNING_OFF: usize = 34;
 pub(crate) const INNER_OFF: usize = 40;
 /// The GetIteratorDirect next-method cache.
 pub(crate) const NEXT_OFF: usize = 48;
-const CELL_SIZE: usize = 56;
+/// Lazy own-property bag — §27.1.4.x mints an ORDINARY object, so
+/// `h.zz = 1` is an ordinary own property while the underlying /
+/// callback / counter above are internal state. NULL until the first
+/// such write (`alloc_zeroed` starts it there). Mirrored by
+/// `member_get_layout::ITER_HELPER_PROPS_OFF`.
+pub(crate) const PROPS_OFF: usize = 56;
+const CELL_SIZE: usize = 64;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
@@ -465,6 +471,14 @@ pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(FN_OFF) as *const u64).read());
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(INNER_OFF) as *const u64).read());
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(NEXT_OFF) as *const u64).read());
+        // Own-property bag — a raw cell pointer, not an AnyValue, so
+        // it takes the universal dispatcher rather than the nan-box
+        // release above.
+        let props = (p.add(PROPS_OFF) as *const u64).read() as *mut c_void;
+        if !props.is_null() {
+            (p.add(PROPS_OFF) as *mut u64).write(0);
+            crate::__torajs_value_drop_heap(props);
+        }
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(p, layout);
     }

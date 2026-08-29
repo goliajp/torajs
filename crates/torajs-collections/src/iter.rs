@@ -72,7 +72,17 @@ struct MapIter {
     cursor: i64,
     kind: u32,
     _pad: u32,
+    /// Lazy own-property bag — §24.1.5.1 / §24.2.5.1 mint an
+    /// ORDINARY object, so `it.zz = 1` is an ordinary own property
+    /// and the cursor / kind above are internal state. NULL until
+    /// the first such write (see [`MAP_ITER_PROPS_OFF`]).
+    props: *mut c_void,
 }
+
+/// Byte offset of `MapIter::props` — mirrored by torajs-anyvalue
+/// (`member_get_layout::ITER_PROPS_OFF`, shared with ArrIter, whose
+/// layout puts its bag at the same offset) and torajs-meta.
+pub const MAP_ITER_PROPS_OFF: usize = 32;
 
 /// `__torajs_map_iter_next(m, &cursor, *out_*)` — caller-managed
 /// cursor (entries[] index). `*cursor = -1` signals first call (→ 0);
@@ -134,6 +144,9 @@ unsafe fn create_with_kind(map_p: *mut c_void, kind: u32) -> *mut c_void {
         (*it).cursor = 0;
         (*it).kind = kind;
         (*it)._pad = 0;
+        // No own property written yet — the bag is minted by the
+        // first `it.zz = 1`, never here.
+        (*it).props = core::ptr::null_mut();
         if !map_p.is_null() {
             __torajs_rc_inc(map_p);
         }
@@ -316,6 +329,13 @@ pub unsafe extern "C" fn __torajs_map_iter_drop(iter_p: *mut c_void) {
         let map = (*it).map;
         if !map.is_null() {
             __torajs_value_drop_heap(map as *mut c_void);
+        }
+        // Own-property bag — the universal dispatcher routes it to
+        // the dynobj drop.
+        let props = (*it).props;
+        if !props.is_null() {
+            (*it).props = core::ptr::null_mut();
+            __torajs_value_drop_heap(props);
         }
         free(iter_p);
     }

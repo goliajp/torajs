@@ -167,6 +167,19 @@ pub const TAG_REGEXP_HDR: u16 = 4;
 /// RegExp expando slot (torajs-regex mirror).
 pub const REGEX_PROPS_OFF: usize = 8;
 
+/// The three iterator cell tags (torajs-rc `Tag::{MapIter, ArrIter,
+/// IterHelper}`). ArrIter and MapIter share a layout shape so their
+/// bags sit at [`ITER_PROPS_OFF`]; the helper cell carries more state
+/// and keeps its bag past it ([`ITER_HELPER_PROPS_OFF`]).
+pub const TAG_MAP_ITER_HDR: u16 = 16;
+pub const TAG_ARR_ITER_HDR: u16 = 17;
+pub const TAG_ITER_HELPER_HDR: u16 = 25;
+
+/// Iterator-cell expando slots (torajs-arr / torajs-collections /
+/// torajs-anyvalue mirrors).
+pub const ITER_PROPS_OFF: usize = 32;
+pub const ITER_HELPER_PROPS_OFF: usize = 56;
+
 /// ArrayBuffer heap tag (torajs-rc `Tag::ArrayBuffer` = 27). Its
 /// lazy expando props dynobj lives at +32
 /// ([`ARRAYBUFFER_PROPS_OFF`], torajs-buffer `arraybuffer.rs`

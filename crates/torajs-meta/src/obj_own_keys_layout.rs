@@ -84,6 +84,18 @@ pub(crate) const DATE_PROPS_OFF: usize = 16;
 pub(crate) const TAG_REGEXP_CELL: u16 = 4;
 pub(crate) const REGEX_PROPS_OFF: usize = 8;
 
+/// The three iterator cell tags (`torajs_rc::Tag::{MapIter, ArrIter,
+/// IterHelper}`). ArrIter and MapIter share a layout shape, so their
+/// bags sit at the same offset (`torajs_arr::iter::ARR_ITER_PROPS_OFF`
+/// / `torajs_collections::iter::MAP_ITER_PROPS_OFF`); the helper cell
+/// carries more state and keeps its bag past it
+/// (`torajs_anyvalue::iter_helper::PROPS_OFF`).
+pub(crate) const TAG_MAP_ITER_CELL: u16 = 16;
+pub(crate) const TAG_ARR_ITER_CELL: u16 = 17;
+pub(crate) const TAG_ITER_HELPER_CELL: u16 = 25;
+pub(crate) const ITER_PROPS_OFF: usize = 32;
+pub(crate) const ITER_HELPER_PROPS_OFF: usize = 56;
+
 /// Where a cell shape keeps its lazy own-property bag, `None` when
 /// the shape carries none. Twin of torajs-anyvalue's
 /// `member_get_layout::expando_props_off` (the two tiers mirror
@@ -101,20 +113,30 @@ pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
         TAG_MAP_CELL | TAG_SET_CELL => Some(MAP_PROPS_OFF),
         TAG_DATE_CELL => Some(DATE_PROPS_OFF),
         TAG_REGEXP_CELL => Some(REGEX_PROPS_OFF),
+        TAG_MAP_ITER_CELL | TAG_ARR_ITER_CELL => Some(ITER_PROPS_OFF),
+        TAG_ITER_HELPER_CELL => Some(ITER_HELPER_PROPS_OFF),
         _ => None,
     }
 }
 
 /// The shapes whose ENTIRE own face is the bag: a promise (§27.2 —
 /// `then` / `catch` are prototype surface), a Map / Set (§24.1.6 /
-/// §24.2.6 — the entry table is internal state) and a Date (§21.4.4
-/// — so is [[DateValue]]). RegExp is deliberately absent: it also
-/// owns `lastIndex` in the cell, so its arms lead with that name.
+/// §24.2.6 — the entry table is internal state), a Date (§21.4.4 —
+/// so is [[DateValue]]) and the three iterator cells (§23.1.5.1 /
+/// §24.1.5.1 / §27.1.4.x — so is the cursor). RegExp is deliberately
+/// absent: it also owns `lastIndex` in the cell, so its arms lead
+/// with that name.
 #[inline]
 pub(crate) fn is_bag_only_tag(tag: u16) -> bool {
     matches!(
         tag,
-        TAG_PROMISE_CELL | TAG_MAP_CELL | TAG_SET_CELL | TAG_DATE_CELL
+        TAG_PROMISE_CELL
+            | TAG_MAP_CELL
+            | TAG_SET_CELL
+            | TAG_DATE_CELL
+            | TAG_MAP_ITER_CELL
+            | TAG_ARR_ITER_CELL
+            | TAG_ITER_HELPER_CELL
     )
 }
 

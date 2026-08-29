@@ -15,10 +15,11 @@ use core::ffi::c_void;
 /// override stored there is the §27.2.4.1.3 step 6.q-s observation
 /// surface the combinators and the any-lane method dispatch consult.
 ///
-/// Map / Set / Date / RegExp are the same shape: their entry table,
-/// [[DateValue]] and compiled program are internal state carried in
-/// the cell, so §24.1.6 / §21.4.4 / §22.2.6 leave them ordinary
-/// objects whose whole own face is the bag. `lastIndex` is held out —
+/// Map / Set / Date / RegExp and the three iterator cells are the
+/// same shape: their entry table, [[DateValue]], compiled program
+/// and iteration cursor are internal state carried in the cell, so
+/// §24.1.6 / §21.4.4 / §22.2.6 / §23.1.5.1 / §27.1.4.x leave them
+/// ordinary objects whose whole own face is the bag. `lastIndex` is held out —
 /// §22.2.4.1 keeps it in the RegExp cell itself, so a bag entry of
 /// that name would be a second own property nothing reads and the
 /// enumeration surfaces would list it twice. Defining it keeps the
@@ -34,6 +35,10 @@ pub(crate) unsafe fn lazy_bag_props_off(htag: u16, key: *mut c_void) -> Option<u
             Some(crate::layout::MAP_PROPS_OFF)
         }
         crate::layout::TAG_DATE_HDR => Some(crate::layout::DATE_PROPS_OFF),
+        crate::layout::TAG_MAP_ITER_HDR | crate::layout::TAG_ARR_ITER_HDR => {
+            Some(crate::layout::ITER_PROPS_OFF)
+        }
+        crate::layout::TAG_ITER_HELPER_HDR => Some(crate::layout::ITER_HELPER_PROPS_OFF),
         crate::layout::TAG_REGEXP_HDR if !unsafe { crate::layout::key_is(key, b"lastIndex") } => {
             Some(crate::layout::REGEX_PROPS_OFF)
         }

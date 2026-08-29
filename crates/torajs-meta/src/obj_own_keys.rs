@@ -391,7 +391,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             | crate::obj_own_keys_layout::TAG_MAP_CELL
             | crate::obj_own_keys_layout::TAG_SET_CELL
             | crate::obj_own_keys_layout::TAG_DATE_CELL
-            | crate::obj_own_keys_layout::TAG_REGEXP_CELL => unsafe {
+            | crate::obj_own_keys_layout::TAG_REGEXP_CELL
+            | crate::obj_own_keys_layout::TAG_MAP_ITER_CELL
+            | crate::obj_own_keys_layout::TAG_ARR_ITER_CELL
+            | crate::obj_own_keys_layout::TAG_ITER_HELPER_CELL => unsafe {
                 crate::obj_own_keys_bag::bag_cell_keys(cell, htag, include_nonenum)
             },
             // §10.4.3.3 String exotic OwnPropertyKeys — the

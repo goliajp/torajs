@@ -339,7 +339,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
             | crate::obj_own_keys_layout::TAG_MAP_CELL
             | crate::obj_own_keys_layout::TAG_SET_CELL
             | crate::obj_own_keys_layout::TAG_DATE_CELL
-            | crate::obj_own_keys_layout::TAG_REGEXP_CELL => {
+            | crate::obj_own_keys_layout::TAG_REGEXP_CELL
+            | crate::obj_own_keys_layout::TAG_MAP_ITER_CELL
+            | crate::obj_own_keys_layout::TAG_ARR_ITER_CELL
+            | crate::obj_own_keys_layout::TAG_ITER_HELPER_CELL => {
                 let props = unsafe { crate::obj_own_keys_layout::expando_props(cell, htag) };
                 let arr = unsafe { __torajs_arr_alloc_any(0) };
                 if props.is_null() {
@@ -445,7 +448,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
             | crate::obj_own_keys_layout::TAG_MAP_CELL
             | crate::obj_own_keys_layout::TAG_SET_CELL
             | crate::obj_own_keys_layout::TAG_DATE_CELL
-            | crate::obj_own_keys_layout::TAG_REGEXP_CELL => {
+            | crate::obj_own_keys_layout::TAG_REGEXP_CELL
+            | crate::obj_own_keys_layout::TAG_MAP_ITER_CELL
+            | crate::obj_own_keys_layout::TAG_ARR_ITER_CELL
+            | crate::obj_own_keys_layout::TAG_ITER_HELPER_CELL => {
                 let props = unsafe { crate::obj_own_keys_layout::expando_props(cell, htag) };
                 let outer = unsafe { __torajs_arr_alloc(0) };
                 let outer = if props.is_null() {
