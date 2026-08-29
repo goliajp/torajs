@@ -194,6 +194,35 @@ pub(crate) fn lower_with_val(
     {
         return op;
     }
+    // Knowing the receiver's SHAPE is not a licence to answer the
+    // read here. `(new Map() as any).zz` is an ordinary property read
+    // on an ordinary object (§24.1.6), and every one of these cells
+    // now HAS a property face — own bag, then the prototype chain,
+    // then the builtin reify — so the any lane can answer it. The
+    // Promise and Closure arms above are the same routing; this is
+    // the rest of the heap-cell shapes, which used to reach the panic
+    // below and surface as a COMPILE error on a program bun runs.
+    // `box_to_any` is rc-neutral, so the receiver binding keeps its
+    // stake exactly as it does on those two arms.
+    if matches!(
+        obj_ty,
+        Type::Map
+            | Type::Set
+            | Type::Date
+            | Type::RegExp
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::Symbol
+            | Type::BigInt
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::Str
+            | Type::Substr
+    ) {
+        let boxed = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, name);
+    }
     let sid = match obj_ty {
         Type::Obj(sid) => sid,
         _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
