@@ -40,6 +40,16 @@ const ANY_I64: u8 = 2;
 const ANY_HEAP: u8 = 4;
 const ANY_UNDEF: u8 = 5;
 
+/// Which spec mint produced this cell, and so which prototype it
+/// answers. §22.1.5.1 CreateStringIterator and §23.1.5.1
+/// CreateArrayIterator give their objects DIFFERENT [[Prototype]]s,
+/// and tr materializes a string iteration as an ArrIter over a
+/// character array — so the source cannot tell them apart and the
+/// cell has to say so itself. Lives in the word that used to be
+/// padding, which keeps the block 32 bytes.
+pub const ARR_ITER_FAMILY_ARRAY: u32 = 0;
+pub const ARR_ITER_FAMILY_STRING: u32 = 1;
+
 /// ArrIter heap block — 32 bytes, ABI-shared with the C-side
 /// definition we just deleted.
 #[repr(C)]
@@ -48,7 +58,7 @@ struct ArrIter {
     arr: *mut c_void,
     cursor: i64,
     kind: u32,
-    _pad: u32,
+    family: u32,
 }
 
 unsafe extern "C" {
@@ -123,7 +133,7 @@ unsafe fn create_with_kind(arr_p: *mut c_void, kind: u32) -> *mut c_void {
         (*it).arr = arr_p;
         (*it).cursor = 0;
         (*it).kind = kind;
-        (*it)._pad = 0;
+        (*it).family = ARR_ITER_FAMILY_ARRAY;
         if !arr_p.is_null() {
             __torajs_rc_inc(arr_p);
         }
@@ -157,6 +167,32 @@ pub unsafe extern "C" fn __torajs_arr_iter_create_values(arr_p: *mut c_void) -> 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_iter_create_entries(arr_p: *mut c_void) -> *mut c_void {
     unsafe { create_with_kind(arr_p, ARR_ITER_ENTRIES) }
+}
+
+/// `__torajs_arr_iter_create_values_string(arr)` — the §22.1.5.1
+/// mint. The same VALUES cell over the same character array; it
+/// differs only in naming %StringIteratorPrototype% when asked what
+/// it inherits from, which is what makes the badge "[object String
+/// Iterator]".
+///
+/// # Safety
+/// Same as keys.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_iter_create_values_string(arr_p: *mut c_void) -> *mut c_void {
+    let it = unsafe { create_with_kind(arr_p, ARR_ITER_VALUES) };
+    unsafe { (*(it as *mut ArrIter)).family = ARR_ITER_FAMILY_STRING };
+    it
+}
+
+/// `__torajs_arr_iter_family(iter)` — [`ARR_ITER_FAMILY_ARRAY`] or
+/// [`ARR_ITER_FAMILY_STRING`], for the consumers that have to name
+/// the cell's prototype (`getPrototypeOf`, the `@@toStringTag` walk).
+///
+/// # Safety
+/// `iter_p` is a live ArrIter heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_iter_family(iter_p: *const c_void) -> u32 {
+    unsafe { (*(iter_p as *const ArrIter)).family }
 }
 
 /// `__torajs_arr_iter_step(iter, *out_tag, *out_payload)` — advance

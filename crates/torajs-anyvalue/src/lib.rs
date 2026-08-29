@@ -1841,6 +1841,8 @@ mod tests {
         __torajs_arr_iter_create_entries,
         __torajs_arr_iter_create_keys,
         __torajs_arr_iter_create_values,
+        __torajs_arr_iter_create_values_string,
+        __torajs_arr_iter_family,
         __torajs_arr_iter_step,
         __torajs_arr_push_any,
         __torajs_arr_reverse,

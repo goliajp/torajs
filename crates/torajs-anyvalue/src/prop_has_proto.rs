@@ -39,16 +39,13 @@ pub(crate) unsafe fn builtin_proto_method_own(ptr: *const c_void, key: *const c_
     let mid = unsafe { crate::method_value::key_method_id(key) };
     if mid == torajs_rc::ANY_METHOD_UNKNOWN {
         // `constructor` is an own data property of every builtin
-        // prototype (§20.x.3.1 — RFC 20260721 刀 11 G11), virtual
-        // like the method families; shaded by its tombstone slot.
+        // prototype that HAS a constructor (§20.x.3.1 — RFC 20260721
+        // 刀 11 G11), virtual like the method families and shaded by
+        // its tombstone slot. `constructor_live` is the one home for
+        // both halves; asking the tombstone here directly is what let
+        // this face and the read one drift.
         if unsafe { key_is(key, b"constructor") } {
-            let deleted = unsafe {
-                torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(
-                    tag,
-                    torajs_rc::ANY_METHOD_CONSTRUCTOR_SLOT,
-                )
-            };
-            return (deleted == 0) as i64;
+            return crate::method_support_proto::constructor_live(tag) as i64;
         }
         // The Map/Set `size` accessor is an own property too — it
         // deliberately doesn't intern (C2-size), so probe it here

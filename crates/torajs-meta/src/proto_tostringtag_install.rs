@@ -1,12 +1,14 @@
 //! `@@toStringTag` own entries on the builtin prototypes that the
 //! spec gives one.
 //!
-//! Nine prototypes carry the tag as a plain data property with
+//! Fifteen prototypes carry the tag as a plain data property with
 //! `{ [[Writable]]: false, [[Enumerable]]: false,
 //! [[Configurable]]: true }` — Symbol §20.4.3.5, BigInt §21.2.3.5,
 //! Promise §27.2.5.5, Map §24.1.3.14, Set §24.2.3.13, WeakMap
 //! §24.3.3.4, WeakSet §24.4.3.5, WeakRef §26.1.3.3, ArrayBuffer
-//! §25.1.6.5. Everything else
+//! §25.1.6.5, DataView §25.3.4.25, and the five per-family iterator
+//! prototypes §23.1.5.2 / §22.1.5.1 / §24.1.5.2 / §24.2.5.2 /
+//! §27.1.5. Everything else
 //! (Object / Array / String / Number / Boolean / Function / Date /
 //! RegExp / Error) has NO tag: its badge comes from the builtinTag
 //! walk instead, which is why installing one there would be wrong
@@ -85,6 +87,16 @@ fn tag_for_proto(idx: i64) -> Option<&'static [u8]> {
         16 => Some(b"WeakMap"),
         17 => Some(b"WeakSet"),
         18 => Some(b"WeakRef"),
+        // The five per-family iterator prototypes. Same plain data
+        // property as the ones above, and the reason those objects
+        // exist at all: the badge of `[1].values()` is "[object Array
+        // Iterator]", and a badge tr cannot read off a real property
+        // is one that survives its own deletion.
+        33 => Some(b"Array Iterator"),
+        34 => Some(b"String Iterator"),
+        35 => Some(b"Map Iterator"),
+        36 => Some(b"Set Iterator"),
+        37 => Some(b"Iterator Helper"),
         _ => None,
     }
 }

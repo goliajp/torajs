@@ -154,17 +154,16 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         // — the exact shape the doc above `inherited_dict` describes
         // for Map, one tag later.
         t if t == Tag::DataView as u16 => 32,
-        // Iterator-protocol cells hang off %Iterator.prototype%
-        // (builtin-proto tag 15; the per-family intermediate
-        // prototypes are a recorded boundary — RFC
-        // 20260730-iterator-global §5), so their method reads
-        // intern on the Iterator row.
+        // Iterator-protocol cells hang off their PER-FAMILY prototype
+        // (%ArrayIteratorPrototype% et al), which in turn hangs off
+        // %Iterator.prototype%. They used to answer 15 flatly, which
+        // is where the `@@toStringTag` walk ran out of chain to look
+        // at — and why each family's `next` had no prototype to be an
+        // own property of.
         t if t == Tag::MapIter as u16
             || t == Tag::ArrIter as u16
             || t == Tag::IterHelper as u16 =>
-        {
-            15
-        }
+        unsafe { torajs_rc::builtin_proto::iter_proto::iter_cell_proto_tag(ptr, t) },
         t if t == Tag::NumberWrapper as u16 => 0,
         t if t == Tag::StringWrapper as u16 => STR_PROTO_FAMILY,
         t if t == Tag::BooleanWrapper as u16 => 4,

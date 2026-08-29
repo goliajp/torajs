@@ -163,12 +163,23 @@ pub(crate) unsafe fn dynobj_proto_pair(ptr: *const c_void) -> (u64, u64) {
     if let Some(cell) = unsafe { user_proto_cell(ptr) } {
         return (AnySlotTag::Heap as u64, cell);
     }
-    if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) } == OBJECT_PROTO_TAG {
+    // A builtin prototype answers the parent its own clause gives it,
+    // which is %Object.prototype% for all but the five per-family
+    // iterator prototypes (§23.1.5.2 puts those under
+    // %Iterator.prototype%). Reading the root flatly here skipped that
+    // middle link on the string lane, so `[1].values()`'s prototype
+    // answered `Object` for `constructor` instead of `Iterator`.
+    let bp_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
+    let parent_tag = if bp_tag >= 0 {
+        torajs_rc::builtin_proto::proto_parent_tag(bp_tag)
+    } else {
+        OBJECT_PROTO_TAG
+    };
+    if parent_tag < 0 {
         return (AnySlotTag::Null as u64, 0);
     }
-    let root =
-        unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(OBJECT_PROTO_TAG) };
-    (AnySlotTag::Heap as u64, root as u64)
+    let parent = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(parent_tag) };
+    (AnySlotTag::Heap as u64, parent as u64)
 }
 
 /// The implicit %Object.prototype% hop for a dynobj whose own probe

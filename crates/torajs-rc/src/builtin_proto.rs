@@ -51,8 +51,11 @@ unsafe extern "C" {
 /// twelve are in `torajs_buffer::typedarray::Kind` order after the
 /// buffer, because that is the order the discriminant already
 /// fixes and a second ordering would be a second thing to keep in
-/// step).
-pub const NUM_BUILTIN_PROTOS: usize = 33;
+/// step. The five per-family ITERATOR prototypes joined as 33-37 —
+/// they are the first slots whose [[Prototype]] is not
+/// %Object.prototype%, which is what [`proto_parent_tag`] was made
+/// for).
+pub const NUM_BUILTIN_PROTOS: usize = 38;
 
 /// ES `name` / ctor-clause `length` of the builtin constructor
 /// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
@@ -155,11 +158,70 @@ pub const ITERATOR_PROTO_TAG: usize = 15;
 /// layout), the next free one.
 pub const DATAVIEW_PROTO_TAG: usize = 32;
 
+/// `%ArrayIteratorPrototype%`'s slot (§23.1.5.2) — what
+/// `[1].values()` inherits from, one link BELOW %Iterator.prototype%.
+/// Its `@@toStringTag` is what makes the badge "[object Array
+/// Iterator]"; a typed array's iterator lands here too, because
+/// §23.2.5.1 hands out the same Array Iterator.
+pub const ARRAY_ITER_PROTO_TAG: usize = 33;
+
+/// `%StringIteratorPrototype%`'s slot (§22.1.5.1). tr materializes a
+/// string iteration as an ArrIter over a character array, so the cell
+/// tag alone cannot tell the two apart — see
+/// [`iter_proto::iter_cell_proto_tag`].
+pub const STRING_ITER_PROTO_TAG: usize = 34;
+
+/// `%MapIteratorPrototype%`'s slot (§24.1.5.2).
+pub const MAP_ITER_PROTO_TAG: usize = 35;
+
+/// `%SetIteratorPrototype%`'s slot (§24.2.5.2).
+pub const SET_ITER_PROTO_TAG: usize = 36;
+
+/// `%IteratorHelperPrototype%`'s slot (§27.1.5) — the only one of the
+/// five that owns a `return` as well as a `next`.
+pub const ITER_HELPER_PROTO_TAG: usize = 37;
+
+/// Does this prototype own a `constructor` property (§20.x.3.1)?
+///
+/// Every named builtin's prototype does, and that used to be the same
+/// thing as being a builtin prototype at all. The five iterator
+/// prototypes are the exception the spec makes: no clause gives them
+/// a `constructor`, and there is no constructor for one to name.
+pub fn proto_owns_constructor(tag: i64) -> bool {
+    !(ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag)
+}
+
+/// A builtin prototype's own [[Prototype]] — the ONE home for the
+/// fact, read by `getPrototypeOf` (`torajs_meta::reflect_proto`), by
+/// the symbol-key chain walk, by the monkey-patch slot lookup and by
+/// the delete-tombstone supplier walk.
+///
+/// Every consumer used to spell this out inline as "the receiver's
+/// own family, else the root", which was right only while every
+/// builtin prototype hung straight off %Object.prototype%. The five
+/// iterator prototypes are the first that do not: §23.1.5.2 puts
+/// %ArrayIteratorPrototype% under %Iterator.prototype%, so
+/// `[1].values()`'s chain is three links, and a walk that flattened
+/// it lost every %Iterator.prototype% face on the way past.
+///
+/// `-1` for %Object.prototype% itself — the chain's null root, and
+/// what terminates every walk built on this.
 pub fn proto_parent_tag(tag: i64) -> i64 {
     if tag == OBJECT_PROTO_TAG as i64 {
         return -1;
     }
+    if (ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag) {
+        return ITERATOR_PROTO_TAG as i64;
+    }
     OBJECT_PROTO_TAG as i64
+}
+
+/// [`proto_parent_tag`]'s extern face — torajs-meta keeps zero Cargo
+/// deps (vision §2) and reaches torajs-rc across the staticlib
+/// boundary.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_proto_parent_tag(tag: i64) -> i64 {
+    proto_parent_tag(tag)
 }
 
 // One AtomicUsize slot per builtin tag. Initialized to 0 (= "not yet
@@ -317,6 +379,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64 
 /// fill's loud MISSING_KNOWN posture. The classes live in
 /// module-scope let bindings (process lifetime), so the slot holds a
 /// borrowed immediate like `CLASSES_BY_TAG_IMM` does.
+pub mod iter_proto;
 mod patch_bits;
 
 use patch_bits::ANY_MINTED;

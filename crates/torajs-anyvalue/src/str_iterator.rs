@@ -13,7 +13,9 @@
 //! tr has no StringIterator substrate; the mint materializes the
 //! character array (one fresh Str per UTF-16 code unit — the
 //! any-lane for-of tier's documented deviation from §22.1.5.1's
-//! per-code-point walk) and answers a VALUES-kind ArrIter over it,
+//! per-code-point walk) and answers a VALUES-kind ArrIter over it
+//! carrying the string family word, so it still names
+//! %StringIteratorPrototype% when asked what it inherits from,
 //! whose `next()` / for-of step faces the any lane already serves.
 //! The iterator holds the array's only reference; exhaustion latches
 //! per §23.1.5.2.1 and frees it.
@@ -37,8 +39,11 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     /// torajs-arr — append one NaN-box slot pair (transfer: no inc).
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
-    /// torajs-arr — VALUES-kind ArrIter mint (rc-incs the source).
-    fn __torajs_arr_iter_create_values(arr: *mut c_void) -> *mut c_void;
+    /// torajs-arr — §22.1.5.1 VALUES-kind ArrIter mint (rc-incs the
+    /// source). The `_string` face is the same cell with its family
+    /// word set, which is what makes it answer
+    /// %StringIteratorPrototype% rather than %ArrayIteratorPrototype%.
+    fn __torajs_arr_iter_create_values_string(arr: *mut c_void) -> *mut c_void;
     /// torajs-rc — universal heap-header decrement.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_str_drop(s: *mut c_void);
@@ -66,7 +71,7 @@ pub(crate) unsafe fn str_iterator_mint(recv: AnyValue) -> AnyValue {
         arr = unsafe { __torajs_arr_push_any(arr.cast::<c_void>(), TAG_HEAP, ch as u64) };
     }
     unsafe { __torajs_str_drop(s) };
-    let it = unsafe { __torajs_arr_iter_create_values(arr.cast::<c_void>()) };
+    let it = unsafe { __torajs_arr_iter_create_values_string(arr.cast::<c_void>()) };
     // create rc-inc'd the source (1 → 2); hand our mint reference
     // over so the iterator is the array's only owner. Cannot reach
     // zero — no drop walk needed.

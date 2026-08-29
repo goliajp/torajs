@@ -111,6 +111,9 @@ pub(crate) unsafe fn proto_own_has(proto: *mut c_void, key: *const c_void) -> bo
 /// chain; a defineProperty / set restore lands in the singleton's
 /// expando, which every path probes first).
 pub(crate) fn constructor_live(tag: i64) -> bool {
+    if !torajs_rc::builtin_proto::proto_owns_constructor(tag) {
+        return false;
+    }
     unsafe {
         torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(
             tag,

@@ -256,6 +256,13 @@ fn iter_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         m if m == it::ANY_METHOD_TAKE => ("take", 1),
         m if m == it::ANY_METHOD_DROP => ("drop", 1),
         m if m == it::ANY_METHOD_TO_ARRAY => ("toArray", 0),
+        // §27.1.5.1.2 — %IteratorHelperPrototype%'s own `return`. It
+        // needed no row while nothing claimed to OWN the mid; now
+        // that slot 37 does, the enumeration face has to be able to
+        // name it or `getOwnPropertyNames` and `hasOwnProperty`
+        // disagree (the invariant `every_owned_mid_has_a_name`
+        // guards).
+        m if m == crate::any_method::ANY_METHOD_ITER_RETURN => ("return", 0),
         _ => return None,
     })
 }
@@ -296,7 +303,13 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_STR_ITERATOR + 1).is_none());
+        // A tombstone-slot id: it lives in the mid numbering but names
+        // no method, so the table must not answer for it. It used to
+        // be spelled `ANY_METHOD_STR_ITERATOR + 1`, which stopped
+        // being unnamed the moment §27.1.5.1.2's `return` got its row
+        // — naming a neighbour by arithmetic made this a tripwire for
+        // the next row anyone adds, which is not what it is for.
+        assert!(any_method_meta(ANY_METHOD_CONSTRUCTOR_SLOT).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 

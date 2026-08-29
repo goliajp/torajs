@@ -44,6 +44,10 @@ unsafe extern "C" {
     // the reverse pointer→tag probe (compared, never dereferenced).
     fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
     fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64;
+    // torajs-rc — a builtin prototype's own [[Prototype]] slot (-1 =
+    // the null root), and the slot an iterator cell inherits from.
+    fn __torajs_proto_parent_tag(tag: i64) -> i64;
+    fn __torajs_iter_cell_proto_tag(ptr: *const c_void, tag: i64) -> i64;
     // torajs-dynobj — DefineOwnProperty kernel (resize relocates
     // through the slot; the create-link insert is the fresh dict's
     // first entry, so the block cannot grow) + the
@@ -246,11 +250,16 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
     // table instead would send `Array.prototype` — an Arr cell —
     // through the TAG_ARR arm below and hand back *itself*.
     let bp_tag = unsafe { __torajs_builtin_proto_tag_of(dynobj) };
-    if bp_tag == OBJECT_PROTO_TAG {
-        return VALUE_NULL_IMM;
-    }
     if bp_tag >= 0 {
-        return unsafe { proto_singleton(OBJECT_PROTO_TAG) };
+        // Not %Object.prototype% flatly any more: the five per-family
+        // iterator prototypes sit UNDER %Iterator.prototype%
+        // (§23.1.5.2 et al). `proto_parent_tag` is the one home for
+        // which parent each slot has, and `-1` is the null root.
+        let parent = unsafe { __torajs_proto_parent_tag(bp_tag) };
+        if parent < 0 {
+            return VALUE_NULL_IMM;
+        }
+        return unsafe { proto_singleton(parent) };
     }
     // SAFETY: cell pointer to valid heap object per invariant.
     let tag = unsafe { heap_type_tag(dynobj) };
@@ -357,18 +366,14 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             21 => 0, // NumberWrapper  → Number.prototype
             22 => 3, // StringWrapper  → String.prototype
             23 => 4, // BooleanWrapper → Boolean.prototype
-            // RFC 20260730-iterator-global 刀 1 — iterator cells
-            // answer %Iterator.prototype% directly. Recorded
-            // boundary: tr has no per-family intermediate
-            // (%ArrayIteratorPrototype% / %MapIteratorPrototype%)
-            // singletons, so the one-hop-shorter chain differs from
-            // bun on getPrototypeOf identity while `instanceof
-            // Iterator` agrees.
-            16 => 15, // MapIter → Iterator.prototype
-            17 => 15, // ArrIter → Iterator.prototype
-            25 => 15, // IterHelper → Iterator.prototype (刀 2; the
-            // %IteratorHelperPrototype% intermediate is the same
-            // recorded boundary as the per-family iterator protos)
+            // The five per-family iterator prototypes, one link below
+            // %Iterator.prototype% — `iter_cell_proto_tag` is what
+            // knows how to get from three cell tags to five slots.
+            // This used to answer %Iterator.prototype% flatly, a
+            // recorded one-hop-shorter chain; the missing link is also
+            // where §23.1.5.2 keeps `@@toStringTag`, so `[1].values()`
+            // badged "[object Object]".
+            16 | 17 | 25 => unsafe { __torajs_iter_cell_proto_tag(dynobj, tag as i64) },
             // RFC 20260823-typedarray-substrate — the buffer family:
             // ArrayBuffer at 19, DataView after the per-kind block,
             // and a typed array at 20 + its element kind (the 刀 4

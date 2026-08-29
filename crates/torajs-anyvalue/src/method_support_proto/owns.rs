@@ -123,6 +123,17 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         11 => map_supports(mid),
         12 => set_supports(mid),
         13 => closure_supports(mid),
+        // §23.1.5.2 / §22.1.5.1 / §24.1.5.2 / §24.2.5.2 — each
+        // per-family iterator prototype owns exactly its `next`. The
+        // helper family is INHERITED from %Iterator.prototype% one
+        // link out, which is why those mids are not listed here.
+        33 | 34 | 35 | 36 => mid == torajs_rc::ANY_METHOD_NEXT,
+        // §27.1.5.1-2 — %IteratorHelperPrototype% is the only one
+        // that owns a `return` as well.
+        37 => {
+            mid == torajs_rc::ANY_METHOD_NEXT
+                || mid == torajs_rc::any_method::ANY_METHOD_ITER_RETURN
+        }
         // %Iterator.prototype% (§27.1.4) owns the lazy helpers and
         // the eager consumers — one predicate shared with the dynobj
         // chain re-dispatch (`iter_helper::iter_proto_owns_mid`).
