@@ -122,6 +122,19 @@ pub(crate) fn try_lower(
         obj_op = ctx.box_to_any(obj_op);
         obj_ty = Type::Any;
     }
+    // Every other shape takes the same route. `"get" in new Map()` is
+    // HasProperty on an ordinary object (§7.3.12) and the Any kernel
+    // answers it — own face, then the whole prototype chain — while
+    // `"a" in 42` is §13.10.1 step 5's TypeError, which that same
+    // kernel arms. Knowing the shape statically used to REJECT the
+    // program in both cases. Boxing is a borrow, like the Closure and
+    // struct arms above. `FnSig` stays out: a bare function-pointer
+    // value has no cell to box, and the fn-as-value collector wraps
+    // the spellings that reach here into closures.
+    if !matches!(obj_ty, Type::Any | Type::FnSig(_)) {
+        obj_op = ctx.box_to_any(obj_op);
+        obj_ty = Type::Any;
+    }
     if matches!(obj_ty, Type::Any) {
         let key_ty = ctx.operand_ty(&key_op);
         if matches!(key_ty, Type::I64 | Type::F64) {

@@ -8,17 +8,15 @@
 //! type checker sees a uniform `Expr::Call` and ssa_lower
 //! can intercept by name to emit the type-dispatched
 //! membership check. This wedge gates the 2-arg shape, runs
-//! `type_of` on both operands for side effects, validates
-//! that the rhs is one of `Array | Struct | Any`, and
-//! returns `Type::Boolean` unconditionally.
+//! `type_of` on both operands for side effects and returns
+//! `Type::Boolean` unconditionally. What the rhs may BE is not
+//! this wedge's question: §13.10.1 step 5 makes a non-Object rhs a
+//! runtime TypeError.
 //!
 //! Returns:
 //! - `Some(Ok(Type::Boolean))` — the synthetic call typechecks
-//!   (both operand `type_of` calls succeed, rhs ∈
-//!   {Array, Struct, Any})
-//! - `Some(Err(_))` on either operand `type_of` failure, or
-//!   on rhs type outside the allowed set (`\`in\` rhs must
-//!   be Array, Struct, or any (subset stub); got T`)
+//!   (both operand `type_of` calls succeed)
+//! - `Some(Err(_))` on either operand `type_of` failure
 //! - `None` otherwise (non-Ident callee, callee name not
 //!   `__torajs_in_op`, or args.len() != 2 — cascade falls
 //!   through to the Promise.then / global-ctor siblings)
@@ -53,17 +51,15 @@ pub(crate) fn try_match(
         ),
         Err(e) => return Some(Err(e)),
     };
-    // A function value is an Object per §13.10.1 ("call" in f runs
-    // under bun); the lowering boxes the closure cell and takes the
-    // Any kernels' full own + prototype-chain face.
-    if !matches!(
-        obj_ty,
-        Type::Array(_) | Type::Any | Type::Struct(_) | Type::Function(..)
-    ) {
-        return Some(Err(format!(
-            "`in` rhs must be Array, Struct, Function, or any (subset stub); got {obj_ty:?}"
-        )));
-    }
+    // §13.10.1 step 5 makes a non-Object rhs a RUNTIME TypeError, not
+    // a compile reject — `"a" in 42` must throw, not fail to build,
+    // which is exactly the posture [`try_match_priv`] below has
+    // always had. The whitelist that used to sit here (Array /
+    // Struct / Function / any) rejected `"get" in new Map()`, a
+    // program bun runs, while the identical receiver through an `any`
+    // binding answered; the resolve above is kept because `in` asks a
+    // STRUCTURAL question and a class instance answers as its struct.
+    let _ = obj_ty;
     Some(Ok(Type::Boolean))
 }
 
