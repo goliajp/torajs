@@ -58,12 +58,16 @@ pub(crate) unsafe fn object_proto_expando_value(key: *const c_void) -> u64 {
 /// call channel's miss exit has to stay allocation-free and a
 /// singleton nobody minted cannot be carrying a patch.
 ///
-/// The root leg is not reachable by checking the family leg first and
-/// returning early on a miss: a program that patches
+/// The outer legs are not reachable by checking the family leg first
+/// and returning early on a miss: a program that patches
 /// `Object.prototype` and never touches `Array.prototype` leaves the
 /// family singleton unminted, so the family peek answers NULL and an
 /// early return would skip the root entirely — which is exactly the
 /// shape that was broken (`Object.prototype.mm = …; arr.mm()`).
+///
+/// A walk, not a pair: `proto_parent_tag` is what knows how many
+/// links there are, and spelling "family, else root" inline made
+/// every consumer of that fact a place it could go stale.
 ///
 /// An own entry storing `undefined` is NOT an absence —
 /// `Map.prototype.get = undefined` shadows the surface with a real,
@@ -73,13 +77,14 @@ pub(crate) unsafe fn object_proto_expando_value(key: *const c_void) -> u64 {
 /// # Safety
 /// `key` is a live Str cell.
 pub(crate) unsafe fn patch_slot_chain(fam: i64, key: *const c_void) -> Option<(i64, i64)> {
-    if let Some(hit) = unsafe { peek_own(fam, key) } {
-        return Some(hit);
+    let mut tag = fam;
+    while tag >= 0 {
+        if let Some(hit) = unsafe { peek_own(tag, key) } {
+            return Some(hit);
+        }
+        tag = torajs_rc::builtin_proto::proto_parent_tag(tag);
     }
-    if fam == OBJECT_PROTO_TAG {
-        return None;
-    }
-    unsafe { peek_own(OBJECT_PROTO_TAG, key) }
+    None
 }
 
 /// One level: the builtin-prototype singleton for `tag`, peeked, and

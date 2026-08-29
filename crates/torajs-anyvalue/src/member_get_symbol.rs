@@ -175,16 +175,17 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
         return InheritedFrom::Nothing;
     }
     let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(family) };
-    if proto.is_null() || core::ptr::eq(proto, ptr) {
+    if proto.is_null() {
         return InheritedFrom::Nothing;
     }
+    // A NULL dict is still a Dict answer, and the singleton BEING the
+    // receiver still counts as one: both say "the family prototype has
+    // been looked at", which is what tells [`chain_next`] to move on to
+    // that prototype's own parent instead of to the prototype itself.
+    // Answering `Nothing` for either left `Array.prototype` — an Arr
+    // cell, its own family prototype — pointing at itself.
     let proto_tag = unsafe { (proto.cast::<u8>().add(4) as *const u16).read() };
-    let proto_props = unsafe { own_dict(proto, proto_tag) };
-    if proto_props.is_null() {
-        InheritedFrom::Nothing
-    } else {
-        InheritedFrom::Dict(proto_props)
-    }
+    InheritedFrom::Dict(unsafe { own_dict(proto, proto_tag) })
 }
 
 /// Where [`symbol_key_pair`] looks next on an own miss.
@@ -192,7 +193,7 @@ enum InheritedFrom {
     /// Another receiver — recurse (covers grandparents).
     Receiver(AnyValue),
     /// A prototype's property dict — one more probe, then the
-    /// receiver's own reified faces, then [`builtin_root_parent`].
+    /// receiver's own reified faces, then [`chain_next`].
     /// Not a recursion, because the singleton reached this way can BE
     /// the receiver.
     Dict(*const c_void),
@@ -221,12 +222,15 @@ unsafe fn probe_dict(dict: *const c_void, key: *const c_void) -> Option<(u64, u6
     None
 }
 
-/// The chain hop a builtin cell owes after its family prototype has
-/// answered nothing: §10.1.8.1 step 4 continues through THAT
-/// prototype's own [[Prototype]], which is %Object.prototype% for
-/// every builtin (`torajs_meta::reflect_proto` states the same rule
-/// for `getPrototypeOf`). `None` when the receiver IS the root, so
-/// the walk terminates.
+/// The next link after everything the walk has already probed.
+///
+/// `probed` = the family prototype's own dict has been looked at, so
+/// the chain continues through THAT prototype's parent
+/// (`proto_parent_tag` — the one home for which parent each builtin
+/// prototype has). When it has not been looked at — a struct cell with
+/// no registered class, a tag the family map does not name — the
+/// family prototype itself is the next link, and the ordinary root
+/// stands in when there is no family at all.
 ///
 /// Without this hop the symbol lane was strictly shorter than the
 /// string one: `Object.prototype.foo = 5; [1].foo` answered 5 while
@@ -237,16 +241,23 @@ unsafe fn probe_dict(dict: *const c_void, key: *const c_void) -> Option<(u64, u6
 ///
 /// # Safety
 /// `ptr` is NULL or a live heap cell.
-unsafe fn builtin_root_parent(ptr: *const c_void) -> Option<AnyValue> {
-    let root = unsafe {
-        torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
-            torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64,
-        )
+unsafe fn chain_next(ptr: *const c_void, family: i64, probed: bool) -> Option<AnyValue> {
+    let root = torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64;
+    let tag = if family < 0 {
+        root
+    } else if probed {
+        torajs_rc::builtin_proto::proto_parent_tag(family)
+    } else {
+        family
     };
-    if root.is_null() || core::ptr::eq(root.cast_const(), ptr) {
+    if tag < 0 {
         return None;
     }
-    Some(crate::nanbox::box_void_ptr(root))
+    let cell = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) };
+    if cell.is_null() || core::ptr::eq(cell.cast_const(), ptr) {
+        return None;
+    }
+    Some(crate::nanbox::box_void_ptr(cell))
 }
 
 /// §10.1.8.1 OrdinaryGet for a symbol key, with "absent" kept apart
@@ -287,21 +298,22 @@ unsafe fn symbol_key_probe(recv: AnyValue, key: *const c_void) -> Option<(u64, u
         {
             return Some((4, cell as u64));
         }
-        let root = unsafe { builtin_root_parent(proto) }?;
-        return unsafe { symbol_key_probe(root, key) };
+        let next = unsafe { chain_next(proto, family, true) }?;
+        return unsafe { symbol_key_probe(next, key) };
     };
     if let Some(pair) = unsafe { probe_dict(own_dict(ptr, t), key) } {
         return Some(pair);
     }
-    match unsafe { inherited_dict(ptr, t) } {
+    let probed = match unsafe { inherited_dict(ptr, t) } {
         InheritedFrom::Receiver(parent) => return unsafe { symbol_key_probe(parent, key) },
         InheritedFrom::Dict(dict) => {
             if let Some(pair) = unsafe { probe_dict(dict, key) } {
                 return Some(pair);
             }
+            true
         }
-        InheritedFrom::Nothing => {}
-    }
+        InheritedFrom::Nothing => false,
+    };
     // RFC 20260728-gen-forof-yieldstar F0 — a native iterable tag's
     // `[Symbol.iterator]` reifies its aliased prototype method (a
     // monkey-patch in the dicts above shadows it, per the probes'
@@ -323,8 +335,9 @@ unsafe fn symbol_key_probe(recv: AnyValue, key: *const c_void) -> Option<(u64, u
     if t == Tag::DynObj as u16 {
         return None;
     }
-    let root = unsafe { builtin_root_parent(ptr) }?;
-    unsafe { symbol_key_probe(root, key) }
+    let family = crate::method_value::family::recv_proto_family(recv);
+    let next = unsafe { chain_next(ptr, family, probed) }?;
+    unsafe { symbol_key_probe(next, key) }
 }
 
 /// `(tag, value)` for a symbol-keyed read — `(5, 0)` when absent.

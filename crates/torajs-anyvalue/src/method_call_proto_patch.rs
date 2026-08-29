@@ -311,12 +311,28 @@ pub(crate) unsafe fn primitive_patch_pregate(
 /// a family method the program removed stops being an answer and the
 /// root's shows through.
 fn root_shadows_inherited(fam: i64, mid: i64) -> bool {
-    fam != OBJECT_PROTO_FAMILY
+    // A prototype that owns the name supplies it itself; nothing
+    // further out can shadow what it already answers.
+    if fam < 0 || crate::method_support_proto::proto_tag_owns(fam, mid) {
+        return false;
+    }
+    // Walk outward rather than jumping straight to the root: the
+    // nearest ANCESTOR that either was patched or owns the name is the
+    // one that decides. Spelled as a single hop to
+    // %Object.prototype% this was right only because every builtin
+    // prototype's parent happens to be the root today.
+    let mut tag = torajs_rc::builtin_proto::proto_parent_tag(fam);
+    while tag >= 0 {
         // SAFETY: pure bitmask read, range-checked inside.
-        && unsafe {
-            torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(OBJECT_PROTO_FAMILY, mid)
-        } != 0
-        && !crate::method_support_proto::proto_tag_owns(fam, mid)
+        if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_shadowed(tag, mid) } != 0 {
+            return true;
+        }
+        if crate::method_support_proto::proto_tag_owns(tag, mid) {
+            return false;
+        }
+        tag = torajs_rc::builtin_proto::proto_parent_tag(tag);
+    }
+    false
 }
 
 /// The Str cell to probe a property under for `mid`: the call site's

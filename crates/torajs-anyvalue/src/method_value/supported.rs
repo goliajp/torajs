@@ -19,11 +19,6 @@ use crate::method_support::{
 use crate::method_value::recv_proto_family;
 use crate::nanbox::{AnyValue, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str};
 
-/// `%Object.prototype%`'s builtin-proto tag — the end of every
-/// builtin prototype's chain, so it is the supplier of last resort
-/// for any name a family does not own.
-const OBJECT_PROTO_TAG: i64 = torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64;
-
 /// Has the prototype that SUPPLIES this name been told to give it up
 /// (`delete <Ctor>.prototype.<m>`, RFC 20260712 chunk 3)?
 ///
@@ -39,16 +34,24 @@ const OBJECT_PROTO_TAG: i64 = torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64;
 /// leaves both legs false and is answered by the arms below exactly
 /// as before; this can turn a true into a false, never the reverse.
 fn supplier_tombstoned(recv: AnyValue, mid: i64) -> bool {
-    let fam = recv_proto_family(recv);
-    let supplier = if proto_tag_family_owns(fam, mid) {
-        fam
-    } else if proto_tag_family_owns(OBJECT_PROTO_TAG, mid) {
-        OBJECT_PROTO_TAG
-    } else {
-        return false;
-    };
-    // SAFETY: pure bitmask read, range-checked inside.
-    unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(supplier, mid) != 0 }
+    // §10.1.8.1 — the supplier is the NEAREST prototype ON THE CHAIN
+    // that owns the name. This used to be "own family, else the root",
+    // which was the whole chain while every builtin prototype hung
+    // straight off %Object.prototype%. The five per-family iterator
+    // prototypes sit between their cells and %Iterator.prototype%, so
+    // `delete Iterator.prototype.map` reaches `[1].values().map`
+    // only if the walk actually takes that middle link.
+    let mut tag = recv_proto_family(recv);
+    while tag >= 0 {
+        if proto_tag_family_owns(tag, mid) {
+            // SAFETY: pure bitmask read, range-checked inside.
+            return unsafe {
+                torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) != 0
+            };
+        }
+        tag = torajs_rc::builtin_proto::proto_parent_tag(tag);
+    }
+    false
 }
 
 /// Exact per-receiver-shape support table — one arm per

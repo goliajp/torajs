@@ -155,6 +155,13 @@ pub const ITERATOR_PROTO_TAG: usize = 15;
 /// layout), the next free one.
 pub const DATAVIEW_PROTO_TAG: usize = 32;
 
+pub fn proto_parent_tag(tag: i64) -> i64 {
+    if tag == OBJECT_PROTO_TAG as i64 {
+        return -1;
+    }
+    OBJECT_PROTO_TAG as i64
+}
+
 // One AtomicUsize slot per builtin tag. Initialized to 0 (= "not yet
 // allocated"); `__torajs_get_builtin_prototype` CAS-installs the
 // first non-null pointer.
