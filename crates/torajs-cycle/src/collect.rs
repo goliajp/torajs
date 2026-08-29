@@ -137,6 +137,19 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         if !props.is_null() {
             f(PROPS_SLOT_INDEX, props);
         }
+    } else if let Some(off) =
+        crate::layout_bag::bag_only_props_off(unsafe { (*(p as *const HeapHeader)).type_tag })
+    {
+        // The bag-only shapes (Map / Set / Date / RegExp / Promise /
+        // buffer family / the three iterator cells) — one walkable
+        // child, the lazy expando dict at the shape's own offset.
+        // Their internal state (entry table, compiled program, buffer
+        // data, iteration source) is the destructor's, which
+        // `defer::finalize_all` runs on the corpse.
+        let props = unsafe { *((p as *const u8).add(off) as *const *mut c_void) };
+        if !props.is_null() {
+            f(PROPS_SLOT_INDEX, props);
+        }
     } else {
         // TAG_ARR — element slots only when the kind guarantees
         // walkable bits (a scalar-kind array reaches here for its
@@ -193,14 +206,15 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
             unsafe { trace(p, trace_clear_tramp, &target as *const u64 as *mut c_void) };
         }
     } else if i == PROPS_SLOT_INDEX {
-        // Wrapper +16 / Arr +24 expando slot (per-shape offset).
+        // Wrapper +16 / bag-shape own offset / Arr +24 expando slot.
+        let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
         let off = if matches!(
-            unsafe { (*(p as *const HeapHeader)).type_tag },
+            tag,
             TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
         ) {
             WRAPPER_PROPS_OFF
         } else {
-            ARR_PROPS_OFF
+            crate::layout_bag::bag_only_props_off(tag).unwrap_or(ARR_PROPS_OFF)
         };
         unsafe { *((p as *mut u8).add(off) as *mut *mut c_void) = core::ptr::null_mut() };
     } else {

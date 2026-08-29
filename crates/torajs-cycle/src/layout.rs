@@ -384,7 +384,8 @@ pub unsafe fn is_visitable_dynobj(p: *mut c_void) -> bool {
 }
 
 /// True iff any cycle-collector phase can descend into `p`. Today =
-/// declared-class instances + arrays + dynobj dicts.
+/// declared-class instances + arrays + dynobj dicts + closures +
+/// primitive wrappers + the [`bag_only_props_off`] shapes.
 ///
 /// The cell-like gate is load-bearing, not defensive: an `any`-typed
 /// class field is a cycle child (`Type::Any` is refcounted, so the
@@ -408,6 +409,7 @@ pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
             || is_visitable_dynobj(p)
             || is_visitable_wrapper(p)
             || is_visitable_closure(p)
+            || crate::layout_bag::is_visitable_bag(p)
     }
 }
 

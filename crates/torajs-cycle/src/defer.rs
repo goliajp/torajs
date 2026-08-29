@@ -96,7 +96,7 @@ pub(crate) unsafe fn finalize_all() {
     for i in 0..len as usize {
         let p = unsafe { *buf.add(i) };
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
-        if tag == TAG_CLOSURE {
+        if tag == TAG_CLOSURE || crate::layout_bag::bag_only_props_off(tag).is_some() {
             // Zero every slot the cycle machinery already accounted:
             // fellow corpses (rc == 0 — drop_fn has no rc gate and
             // would re-drop a block this drain is about to free) and
@@ -110,6 +110,13 @@ pub(crate) unsafe fn finalize_all() {
             // drop_fn. Truthful only in pass A: a freed sibling's
             // header word gets overwritten by the allocator (the
             // exact bug this module exists for).
+            //
+            // A bag-only shape runs the same rule for the same
+            // reason: its destructor in pass B drops the expando bag,
+            // and a bag is always walkable, so this always clears the
+            // slot — either the bag is a fellow corpse (re-dropping
+            // underflows) or a BLACK survivor whose unrestored
+            // trial-dec already was this parent's release.
             unsafe {
                 for_each_child(p, |i2, child| {
                     if (*(child as *const HeapHeader)).refcount == 0
@@ -160,6 +167,20 @@ pub(crate) unsafe fn finalize_all() {
             unsafe {
                 free_sized(dynobj_store_ptr(p), dynobj_store_bytes(p));
                 free_sized(p, DYNOBJ_HEADER_BYTES);
+            }
+        } else if crate::layout_bag::bag_only_props_off(tag).is_some() {
+            // The shape's own destructor owns everything the walk
+            // never reached — a Map's entry table, a RegExp's
+            // compiled program, an ArrayBuffer's data, an iterator's
+            // source — and the free of the block itself. It is
+            // rc-gated and this corpse sits at rc 0, so hand it the
+            // one reference it is written to consume. Routing through
+            // the universal dispatcher keeps each teardown in the
+            // crate that owns the layout; the `else` below would
+            // otherwise have read a Map at the Arr spill offset.
+            unsafe {
+                (*(p as *mut HeapHeader)).refcount = 1;
+                __torajs_value_drop_heap(p);
             }
         } else {
             if !matches!(
