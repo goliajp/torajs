@@ -21,10 +21,18 @@
 //! out, because "what does the root's own method answer" has one
 //! answer per mid regardless of who asks.
 
+use core::ffi::c_void;
+
 use torajs_rc::{ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF};
 
 use crate::method_call::{ANY_METHOD_NO_SUCH, not_callable};
 use crate::nanbox::AnyValue;
+
+unsafe extern "C" {
+    /// torajs-str — allocate / release the §20.1.3.5 hop's name key.
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut c_void);
+}
 
 /// `%Object.prototype%`'s own answer for `mid` against `recv`, or
 /// `None` when the root owns no method under that mid and the caller
@@ -62,14 +70,21 @@ pub(crate) unsafe fn root_own_answer(
         // alone therefore still reads "5" — the family's toString is
         // right there — and only deleting both reaches the badge.
         if mid == ANY_METHOD_TO_LOCALE_STRING {
+            // The key is not optional: a struct or dynobj receiver's
+            // own-property and chain probes are keyed by NAME, and a
+            // NULL one makes those arms skip them. Cold either way —
+            // nothing reaches here unless a prototype was touched or
+            // the family has no toLocaleString of its own.
+            let key = __torajs_str_alloc(b"toString".as_ptr(), 8);
             let out = crate::method_call::any_method_call_inner(
                 recv,
                 ANY_METHOD_TO_STRING,
-                core::ptr::null(),
+                key as *const u8,
                 core::ptr::null_mut(),
                 core::ptr::null(),
                 0,
             );
+            __torajs_str_drop(key as *mut c_void);
             // Nothing on the chain resolves toString either (the root
             // gave that up too) — §20.1.3.5's Invoke is a Call on a
             // non-callable, not a quiet undefined.

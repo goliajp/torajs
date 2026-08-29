@@ -185,12 +185,25 @@ pub(crate) unsafe fn cell_method_inheriting(
             skip_wrapper_expando,
         )
     }?;
-    if out == crate::method_call::ANY_METHOD_NO_SUCH
-        && (mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING)
-    {
-        return Some(unsafe {
-            crate::method_call_object_proto::cell_badge_string(as_void_ptr(recv))
-        });
+    if out == crate::method_call::ANY_METHOD_NO_SUCH {
+        // §20.1.3.5 — the root's toLocaleString is not a badge, it is
+        // `Invoke(this, "toString")`, and the two only look alike for
+        // a receiver whose toString IS the badge. A RegExp's is not:
+        // `(/a/).toLocaleString()` is "/a/" in every engine, and
+        // answering the badge here is what made it "[object RegExp]".
+        // Where the two do agree — Map, Set, Promise — the hop lands
+        // on the same arm the badge came from and says the same
+        // thing.
+        if mid == ANY_METHOD_TO_LOCALE_STRING {
+            return unsafe {
+                crate::method_call_object_proto_own::root_own_answer(recv, mid, argv, argc)
+            };
+        }
+        if mid == ANY_METHOD_TO_STRING {
+            return Some(unsafe {
+                crate::method_call_object_proto::cell_badge_string(as_void_ptr(recv))
+            });
+        }
     }
     Some(out)
 }
