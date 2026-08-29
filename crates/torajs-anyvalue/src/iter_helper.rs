@@ -464,6 +464,10 @@ pub(crate) use chain::try_helper_chain;
 pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
     unsafe {
         if torajs_rc::__torajs_rc_dec(cell) == 0 {
+            // Still referenced. A live own-property bag makes this cell a
+            // potential cycle root — the shape rotation 528 taught the
+            // collector to walk, and the reason it can now be reached.
+            crate::__torajs_cycle_buffer(cell);
             return;
         }
         let p = cell.cast::<u8>();
@@ -479,6 +483,10 @@ pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
             (p.add(PROPS_OFF) as *mut u64).write(0);
             crate::__torajs_value_drop_heap(props);
         }
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. No-op when never buffered.
+        crate::__torajs_cycle_unbuffer(cell);
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(p, layout);
     }

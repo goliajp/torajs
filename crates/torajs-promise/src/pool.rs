@@ -73,6 +73,11 @@ unsafe extern "C" {
     /// Universal-drop dispatcher in runtime_str.c. Routes the heap
     /// pointer to its type-specific drop helper.
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-cycle — cycle-root buffer push / scrub (rationale in
+    /// `torajs-cycle::buffer`). The push is gated on
+    /// `has_walkable_children`, so a bagless cell pays a tag test.
+    fn __torajs_cycle_buffer(p: *mut c_void);
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
     /// torajs-meta — scrub a dying exotic-subclass instance's
     /// identity entry (RFC 20260730 blade 0); gated on
     /// `FLAG_SUBCLASSED` so plain promises never call out.
@@ -279,6 +284,10 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         return;
     }
     if unsafe { __torajs_rc_dec(p) } == 0 {
+        // Still referenced. A live own-property bag makes this cell a
+        // potential cycle root — the shape rotation 528 taught the
+        // collector to walk, and the reason it can now be reached.
+        unsafe { __torajs_cycle_buffer(p) };
         return;
     }
     let pp = as_promise(p);
@@ -312,6 +321,10 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
             __torajs_value_drop_heap((*pp).props);
             (*pp).props = ptr::null_mut();
         }
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. No-op when never buffered.
+        __torajs_cycle_unbuffer(p);
         promise_release_(pp);
     }
 }

@@ -176,6 +176,10 @@ pub unsafe extern "C" fn __torajs_date_drop(d_ptr: *mut c_void) {
         return;
     }
     if unsafe { __torajs_rc_dec(d_ptr) } == 0 {
+        // Still referenced. A live own-property bag makes this cell a
+        // potential cycle root — the shape rotation 528 taught the
+        // collector to walk, and the reason it can now be reached.
+        unsafe { crate::__torajs_cycle_buffer(d_ptr) };
         return;
     }
     unsafe {
@@ -192,6 +196,10 @@ pub unsafe extern "C" fn __torajs_date_drop(d_ptr: *mut c_void) {
             (*(d_ptr as *mut Date)).props = core::ptr::null_mut();
             crate::__torajs_value_drop_heap(props);
         }
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. No-op when never buffered.
+        crate::__torajs_cycle_unbuffer(d_ptr);
         let _ = Box::from_raw(d_ptr as *mut Date);
     }
 }

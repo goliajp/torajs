@@ -9,6 +9,11 @@ use super::{
 };
 
 unsafe extern "C" {
+    /// torajs-cycle — cycle-root buffer push / scrub (rationale in
+    /// `torajs-cycle::buffer`). The push is gated on
+    /// `has_walkable_children`, so a bagless cell pays a tag test.
+    fn __torajs_cycle_buffer(p: *mut c_void);
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
     /// torajs-meta — scrub a dying exotic-subclass instance's
     /// identity entry (RFC 20260730 blade 0); gated on
     /// `FLAG_SUBCLASSED` so plain regexes never call out.
@@ -32,6 +37,10 @@ pub unsafe extern "C" fn __torajs_regex_drop(re_ptr: *mut c_void) {
     // torajs-rc contract; matches the C port's `if
     // (!__torajs_rc_dec(re_ptr)) return;`).
     if unsafe { __torajs_rc_dec(re_ptr) } == 0 {
+        // Still referenced. A live own-property bag makes this cell a
+        // potential cycle root — the shape rotation 528 taught the
+        // collector to walk, and the reason it can now be reached.
+        unsafe { __torajs_cycle_buffer(re_ptr) };
         return;
     }
     // Last ref — release a boxed-form lastIndex's heap stake (any-
@@ -54,6 +63,10 @@ pub unsafe extern "C" fn __torajs_regex_drop(re_ptr: *mut c_void) {
             (*(re_ptr as *mut RegExp)).props = core::ptr::null_mut();
             super::__torajs_value_drop_heap(props);
         }
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. No-op when never buffered.
+        __torajs_cycle_unbuffer(re_ptr);
         let _ = Box::from_raw(re_ptr as *mut RegExp);
     }
 }

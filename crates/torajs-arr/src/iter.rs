@@ -81,6 +81,11 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-cycle — cycle-root buffer push / scrub (rationale in
+    /// `torajs-cycle::buffer`). The push is gated on
+    /// `has_walkable_children`, so a bagless cell pays a tag test.
+    fn __torajs_cycle_buffer(p: *mut c_void);
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
     /// Cross-tier — same crate, but the IR emission uses an `extern
     /// "C"` call so we keep the boundary explicit for consistency
     /// with the rest of the iter externs.
@@ -371,6 +376,10 @@ pub unsafe extern "C" fn __torajs_arr_iter_drop(iter_p: *mut c_void) {
         return;
     }
     if unsafe { __torajs_rc_dec(iter_p) } == 0 {
+        // Still referenced. A live own-property bag makes this cell a
+        // potential cycle root — the shape rotation 528 taught the
+        // collector to walk, and the reason it can now be reached.
+        unsafe { __torajs_cycle_buffer(iter_p) };
         return;
     }
     let it = iter_p as *mut ArrIter;
@@ -386,6 +395,10 @@ pub unsafe extern "C" fn __torajs_arr_iter_drop(iter_p: *mut c_void) {
             (*it).props = core::ptr::null_mut();
             __torajs_value_drop_heap(props);
         }
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. No-op when never buffered.
+        __torajs_cycle_unbuffer(iter_p);
         free(iter_p);
     }
 }

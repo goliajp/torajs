@@ -29,6 +29,11 @@ use crate::typedarray::{
 };
 
 unsafe extern "C" {
+    /// torajs-cycle — cycle-root buffer push / scrub (rationale in
+    /// `torajs-cycle::buffer`). The push is gated on
+    /// `has_walkable_children`, so a bagless cell pays a tag test.
+    fn __torajs_cycle_buffer(p: *mut c_void);
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_throw_range_error(msg: *const u8);
     fn __torajs_throw_check() -> i64;
@@ -77,6 +82,10 @@ pub(crate) unsafe fn mint(
 pub unsafe extern "C" fn __torajs_typedarray_drop(cell: *mut c_void) {
     unsafe {
         if torajs_rc::__torajs_rc_dec(cell) == 0 {
+            // Still referenced. A live own-property bag makes this cell a
+            // potential cycle root — the shape rotation 528 taught the
+            // collector to walk, and the reason it can now be reached.
+            __torajs_cycle_buffer(cell);
             return;
         }
         // Subclass instances carry a blade-0 side-table entry —
@@ -90,6 +99,10 @@ pub unsafe extern "C" fn __torajs_typedarray_drop(cell: *mut c_void) {
         if !props.is_null() {
             __torajs_value_drop_heap(props);
         }
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. No-op when never buffered.
+        __torajs_cycle_unbuffer(cell);
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(cell.cast::<u8>(), layout);
     }

@@ -350,6 +350,11 @@ pub fn payload_rc_inc(tag: i64, value: i64) {
 
 unsafe extern "C" {
     fn __torajs_value_drop_heap(child: *mut c_void);
+    /// torajs-cycle — cycle-root buffer push / scrub (rationale in
+    /// `torajs-cycle::buffer`). The push is gated on
+    /// `has_walkable_children`, so a bagless cell pays a tag test.
+    pub(crate) fn __torajs_cycle_buffer(p: *mut c_void);
+    pub(crate) fn __torajs_cycle_unbuffer(p: *mut c_void);
     fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
     // P2.3-c — Str-formatting helpers used by `AnyView::to_str` /
     // `__torajs_anyv_to_str`. Each returns a freshly-owned Str
@@ -1864,6 +1869,7 @@ mod tests {
         __torajs_bigint_to_string_radix,
         __torajs_bigint_to_string,
         __torajs_boolean_wrapper_new,
+        __torajs_cycle_buffer,
         __torajs_cycle_unbuffer,
         __torajs_date_get_date,
         __torajs_date_get_day,

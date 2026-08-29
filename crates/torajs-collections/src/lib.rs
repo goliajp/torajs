@@ -109,6 +109,22 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_cycle_buffer should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_cycle_unbuffer should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     panic!(
         "torajs-collections unit-test stub: __torajs_rc_dec should not be called from cargo test paths"

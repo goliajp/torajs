@@ -97,6 +97,11 @@ unsafe extern "C" {
     /// torajs-value-drop — universal tag dispatch; releases the
     /// own-property bag when a Date dies.
     pub fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-cycle — cycle-root buffer push / scrub (rationale in
+    /// `torajs-cycle::buffer`). The push is gated on
+    /// `has_walkable_children`, so a bagless cell pays a tag test.
+    pub fn __torajs_cycle_buffer(p: *mut c_void);
+    pub fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
 
 #[cfg(test)]
@@ -109,6 +114,18 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut c_void) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut c_void) {
     panic!("torajs-date test stub: __torajs_value_drop_heap should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut c_void) {
+    panic!("torajs-date test stub: __torajs_cycle_buffer should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut c_void) {
+    panic!("torajs-date test stub: __torajs_cycle_unbuffer should not be called from cargo test");
 }
 
 #[cfg(test)]

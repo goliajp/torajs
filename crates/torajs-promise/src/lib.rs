@@ -117,6 +117,18 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
+    panic!("torajs-promise test stub: cycle_buffer should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
+    panic!("torajs-promise test stub: cycle_unbuffer should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_enqueue(_fn_: layout::MicrotaskFn, _arg: i64) {
     panic!("torajs-promise test stub: microtask_enqueue should not be called from cargo test");
 }
