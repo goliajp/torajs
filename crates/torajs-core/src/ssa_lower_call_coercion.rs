@@ -188,39 +188,8 @@ pub(crate) fn emit_to_number(
             ctx.release_owned_temp(arg_eid, &arg_op);
             v
         }
-        // S172 — `Number(Array<T>)` per ES §7.1.4 ToNumber(Array) =
-        // ToNumber(ToString(Array)) = ToNumber(arr.join(",")). Mirrors
-        // String(Arr) join path below; the resulting Str feeds
-        // str_to_number (NaN on non-numeric join result).
         Type::Arr(elem_arr_id) => {
-            let elem_ty = ctx.arr_layouts[elem_arr_id.0 as usize];
-            let join_fid = match elem_ty {
-                Type::Substr => ctx.intrinsics.arr_join_substr,
-                Type::I64 => ctx.intrinsics.arr_join_i64,
-                Type::F64 => ctx.intrinsics.arr_join_f64,
-                Type::Bool => ctx.intrinsics.arr_join_bool,
-                Type::Any => ctx.intrinsics.arr_join_any,
-                _ => ctx.intrinsics.arr_join,
-            };
-            let sep = ctx.intern_string_literal(",");
-            let s = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(join_fid, vec![arg_op.clone(), Operand::Value(sep)]),
-                Type::Str,
-                None,
-            );
-            ctx.release_owned_temp(arg_eid, &arg_op);
-            let n = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_to_number, vec![Operand::Value(s)]),
-                Type::F64,
-                None,
-            );
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_drop, vec![Operand::Value(s)]),
-            );
-            Operand::Value(n)
+            crate::ssa_lower_coerce_arr::emit_to_number(ctx, arg_eid, arg_op, elem_arr_id)
         }
         // §7.1.4 step 8 — ToNumber(object) is ToNumber of what
         // OrdinaryToPrimitive answers with the NUMBER hint, so the
@@ -385,29 +354,8 @@ pub(crate) fn emit_to_string(
             ctx.release_owned_temp(arg_eid, &arg_op);
             Operand::Value(v)
         }
-        // S137 — `String(arr)` per ES §22.1.3.30 ToString of Array =
-        // `arr.join(",")`. Element type picks the matching arr_join
-        // intrinsic (same dispatch table as `arr.toString()` in
-        // ssa_lower_str).
         Type::Arr(elem_arr_id) => {
-            let elem_ty = ctx.arr_layouts[elem_arr_id.0 as usize];
-            let join_fid = match elem_ty {
-                Type::Substr => ctx.intrinsics.arr_join_substr,
-                Type::I64 => ctx.intrinsics.arr_join_i64,
-                Type::F64 => ctx.intrinsics.arr_join_f64,
-                Type::Bool => ctx.intrinsics.arr_join_bool,
-                Type::Any => ctx.intrinsics.arr_join_any,
-                _ => ctx.intrinsics.arr_join,
-            };
-            let sep = ctx.intern_string_literal(",");
-            let s = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(join_fid, vec![arg_op.clone(), Operand::Value(sep)]),
-                Type::Str,
-                None,
-            );
-            ctx.release_owned_temp(arg_eid, &arg_op);
-            Operand::Value(s)
+            crate::ssa_lower_coerce_arr::emit_to_string(ctx, arg_eid, arg_op, elem_arr_id)
         }
         Type::Obj(_) => emit_struct_to_string(ctx, arg_eid, arg_op),
         // RFC 20260719-fn-tostring-source B5 — ToString(fn) is its

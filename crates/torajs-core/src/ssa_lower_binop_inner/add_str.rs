@@ -421,25 +421,11 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
             );
             (Operand::Value(s), true)
         }
-        // S138 — Arr / Obj sides reuse the S137 dispatch.
+        // S138 — the Obj side below runs OrdinaryToPrimitive; the Arr
+        // side is the S137 dispatch, shared with the two `String` /
+        // `Number` coercion sites.
         Type::Arr(elem_arr_id) => {
-            let elem_ty = ctx.arr_layouts[elem_arr_id.0 as usize];
-            let join_fid = match elem_ty {
-                Type::Substr => ctx.intrinsics.arr_join_substr,
-                Type::I64 => ctx.intrinsics.arr_join_i64,
-                Type::F64 => ctx.intrinsics.arr_join_f64,
-                Type::Bool => ctx.intrinsics.arr_join_bool,
-                Type::Any => ctx.intrinsics.arr_join_any,
-                _ => ctx.intrinsics.arr_join,
-            };
-            let sep = ctx.intern_string_literal(",");
-            let r = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(join_fid, vec![v, Operand::Value(sep)]),
-                Type::Str,
-                None,
-            );
-            (Operand::Value(r), true)
+            crate::ssa_lower_coerce_arr::emit_concat_side(ctx, v, elem_arr_id)
         }
         // An object side runs OrdinaryToPrimitive at runtime (RFC
         // 20260712 chunk C — mirror of the String(struct) S137 emit),
