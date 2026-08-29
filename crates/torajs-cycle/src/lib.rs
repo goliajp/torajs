@@ -71,6 +71,7 @@ pub(crate) mod closure_walk;
 pub mod collect;
 pub(crate) mod defer;
 pub mod dynobj;
+pub(crate) mod iter_src;
 pub mod layout;
 pub mod layout_bag;
 pub mod map;

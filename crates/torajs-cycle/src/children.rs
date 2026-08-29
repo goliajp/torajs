@@ -123,9 +123,9 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         crate::layout_bag::bag_only_props_off(unsafe { (*(p as *const HeapHeader)).type_tag })
     {
         // Date / RegExp / Promise / the buffer family / the three
-        // iterator cells — one walkable child, the lazy expando dict
-        // at the shape's own offset. The rest of their internal state
-        // (compiled program, buffer data, iteration source) is the
+        // iterator cells — the lazy expando dict at the shape's own
+        // offset. What is left after the arms below (compiled
+        // program, buffer bytes, a promise's callback list) is the
         // destructor's, which `defer::finalize_all` runs on the
         // corpse.
         let props = unsafe { *((p as *const u8).add(off) as *const *mut c_void) };
@@ -135,6 +135,15 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         // Map and Set own two more references per entry. Key and
         // value are separate edges even when they are the same cell.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
+        if crate::iter_src::is_iter_cell(tag) {
+            // A stateful iterator holds a strong reference to what it
+            // walks, so that iteration outlives the caller's binding.
+            // `const it = a.values(); a.push(it)` is a two-cell ring.
+            let src = unsafe { crate::iter_src::iter_src(p) };
+            if !src.is_null() {
+                f(crate::iter_src::ITER_SRC_SLOT, src);
+            }
+        }
         if matches!(tag, TAG_MAP | TAG_SET) {
             let n = unsafe { crate::map::map_child_count(p) };
             for i in 0..n {
@@ -210,6 +219,10 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         // A Map / Set entry slot — the bag sentinel is handled by the
         // arm below, which is why this one tests for it first.
         unsafe { crate::map::map_slot_clear(p, i) };
+    } else if i == crate::iter_src::ITER_SRC_SLOT
+        && crate::iter_src::is_iter_cell(unsafe { (*(p as *const HeapHeader)).type_tag })
+    {
+        unsafe { crate::iter_src::iter_src_clear(p) };
     } else if i == PROPS_SLOT_INDEX {
         // Wrapper +16 / bag-shape own offset / Arr +24 expando slot.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
