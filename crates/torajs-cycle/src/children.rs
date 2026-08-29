@@ -166,6 +166,16 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
                 f(crate::iter_src::ITER_SRC_SLOT, src);
             }
         }
+        if crate::view_buffer::is_view_cell(tag) {
+            // A TypedArray or DataView owns the ArrayBuffer it reads
+            // through, and an expando on that buffer naming the view
+            // closes the ring. The buffer's own bytes are not a cell
+            // and stay the destructor's.
+            let buf = unsafe { crate::view_buffer::view_buffer(p) };
+            if !buf.is_null() {
+                f(crate::view_buffer::VIEW_BUFFER_SLOT, buf);
+            }
+        }
         if matches!(tag, TAG_MAP | TAG_SET) {
             let n = unsafe { crate::map::map_child_count(p) };
             for i in 0..n {
@@ -253,6 +263,10 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         && unsafe { (*(p as *const HeapHeader)).type_tag } == crate::layout_bag::TAG_PROMISE
     {
         unsafe { crate::promise::promise_value_clear(p) };
+    } else if i == crate::view_buffer::VIEW_BUFFER_SLOT
+        && crate::view_buffer::is_view_cell(unsafe { (*(p as *const HeapHeader)).type_tag })
+    {
+        unsafe { crate::view_buffer::view_buffer_clear(p) };
     } else if i == PROPS_SLOT_INDEX {
         // Wrapper +16 / bag-shape own offset / Arr +24 expando slot.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };

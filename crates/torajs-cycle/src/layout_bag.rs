@@ -20,12 +20,16 @@ use crate::layout::{FLAG_STATIC_LITERAL, HeapHeader};
 /// their bag lives, which is what `clear_child_slot` and
 /// [`crate::defer`]'s teardown route ask it for.
 ///
-/// What is still NOT walked: a TypedArray's buffer, a Promise's
-/// callback list, an iterator's source. Those are owned by the
-/// shape's own destructor, which [`crate::defer`] runs on the corpse
-/// — and a missed descent under-collects a cycle, never corrupts
-/// (the `arr_elems_walkable` posture). Reaching them takes each
-/// crate's layout mirror, the way [`crate::map`] is one.
+/// The same has since happened to four more slots: an iterator's
+/// source ([`crate::iter_src`]), a helper's four
+/// ([`crate::iter_src`] again), a promise's settled value
+/// ([`crate::promise`]) and a view's buffer
+/// ([`crate::view_buffer`]). What is still NOT walked is a
+/// Promise's callback list, whose `arg` word the runtime cannot
+/// read — it stays the shape's own destructor's, which
+/// [`crate::defer`] runs on the corpse, and a missed descent
+/// under-collects a cycle, never corrupts (the
+/// `arr_elems_walkable` posture).
 ///
 /// The four primitive wrappers stay on their own arm: a
 /// StringWrapper's corpse needs its `[[StringData]]` released before
@@ -134,6 +138,10 @@ pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
     if crate::iter_src::is_iter_helper(header.type_tag) {
         return (0..crate::iter_src::HELPER_CHILD_COUNT)
             .any(|i| !unsafe { crate::iter_src::helper_child_at(p, i) }.is_null());
+    }
+    // A bagless view still owns the buffer it reads through.
+    if crate::view_buffer::is_view_cell(header.type_tag) {
+        return !unsafe { crate::view_buffer::view_buffer(p) }.is_null();
     }
     // A bagless promise still owns whatever it settled with.
     header.type_tag == TAG_PROMISE && !unsafe { crate::promise::promise_value(p) }.is_null()

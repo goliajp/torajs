@@ -78,6 +78,7 @@ pub mod map;
 pub mod obj_drop;
 pub(crate) mod promise;
 pub mod proxy;
+pub(crate) mod view_buffer;
 
 pub use buffer::{__torajs_cycle_buffer, __torajs_cycle_unbuffer};
 pub use collect::{__torajs_cycle_at_exit_drain, __torajs_cycle_collect};
