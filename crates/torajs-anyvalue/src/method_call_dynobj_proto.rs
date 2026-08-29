@@ -167,7 +167,7 @@ pub(crate) unsafe fn object_proto_fallback(
             // prototypes carry a well-known `Symbol.toStringTag`, so
             // `Map.prototype.toString()` is "[object Map]".
             if !root_gone {
-                return crate::method_call_object_proto::cell_badge_string(obj, is_struct);
+                return crate::method_call_object_proto::cell_badge_string(obj);
             }
         }
         // The end of THIS walk: the dynobj and struct arms claim

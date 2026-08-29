@@ -189,7 +189,7 @@ pub(crate) unsafe fn cell_method_inheriting(
         && (mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING)
     {
         return Some(unsafe {
-            crate::method_call_object_proto::cell_badge_string(as_void_ptr(recv), false)
+            crate::method_call_object_proto::cell_badge_string(as_void_ptr(recv))
         });
     }
     Some(out)

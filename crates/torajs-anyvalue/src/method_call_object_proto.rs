@@ -394,12 +394,20 @@ fn typedarray_badge(kind: i64) -> &'static [u8] {
 }
 
 /// The badge a receiver reaching the `Object.prototype` fallback
-/// answers with. A struct receiver has no badge of its own; every
-/// cell classifies through [`cell_badge`].
+/// answers with. Every cell classifies through [`cell_badge`],
+/// structs included.
+///
+/// A struct used to be hardcoded to "Object" on the reasoning that
+/// it has no badge of its own. It does: §20.1.3.6 step 12 names a
+/// receiver with an [[ErrorData]] slot "Error", which is the very
+/// arm `cell_badge` keeps for `Tag::Obj`. Answering here instead of
+/// asking it left `[object Object]` for an error instance whose
+/// §20.5.3.4 the program had deleted — the one state that reaches
+/// this line with an error in hand.
 ///
 /// # Safety
 /// `obj` is a live heap cell.
-pub(crate) unsafe fn cell_badge_string(obj: *mut c_void, is_struct: bool) -> AnyValue {
+pub(crate) unsafe fn cell_badge_string(obj: *mut c_void) -> AnyValue {
     // Same steps 15-16 as `object_proto_to_string` — this is the entry
     // a builtin prototype's own `toString()` reaches, and the tag it
     // carries is exactly what that call is asking about.
@@ -408,14 +416,9 @@ pub(crate) unsafe fn cell_badge_string(obj: *mut c_void, is_struct: bool) -> Any
     } {
         return tagged;
     }
-    let badge: &'static [u8] = if is_struct {
-        b"Object"
-    } else {
-        // HeapHeader: type_tag @ +4 (u16).
-        let tag = unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() };
-        unsafe { cell_badge(obj, tag) }
-    };
-    unsafe { badge_string(badge) }
+    // HeapHeader: type_tag @ +4 (u16).
+    let tag = unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() };
+    unsafe { badge_string(cell_badge(obj, tag)) }
 }
 
 /// `"[object " + badge + "]"` as an owned Str box.
