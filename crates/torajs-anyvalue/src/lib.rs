@@ -145,6 +145,7 @@ pub(crate) mod member_get_private;
 pub(crate) mod member_get_probe;
 mod member_get_proto_root;
 mod member_get_receiver;
+mod member_get_reify_tail;
 pub(crate) mod member_get_str;
 pub(crate) mod member_get_symbol;
 pub(crate) mod member_get_value;

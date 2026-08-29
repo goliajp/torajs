@@ -256,47 +256,6 @@ unsafe fn strip_key(arr: *mut c_void, name: &[u8]) {
     }
 }
 
-/// Index-key list `["0", ..., "<len-1>"]`, plus a trailing
-/// `"length"` on the gOPN surface (`include_nonenum = 1`) — shared by
-/// the Str and Arr ToObject arms.
-unsafe fn index_keys(len: i64, include_nonenum: i64) -> *mut c_void {
-    if include_nonenum == 0 {
-        unsafe { crate::own_names::__torajs_arr_keys_only(len) }
-    } else {
-        unsafe { crate::own_names::__torajs_arr_index_strs(len) }
-    }
-}
-
-/// Arr-cell own keys: index keys (+ `"length"` for gOPN, §10.4.2)
-/// followed by expando keys from the inline props dynobj (insertion
-/// order — `length` predates any expando write, matching the ES
-/// OrdinaryOwnPropertyKeys creation-order tail).
-unsafe fn arr_cell_keys(cell: *const c_void, include_nonenum: i64) -> *mut c_void {
-    // RFC 20260712-arr-exotic-define chunk C — both surfaces ride
-    // exotic-aware helpers: keys filters per-index enumerable, gOPN
-    // keeps non-enumerable indices but skips deleted (hole) ones
-    // (RFC 20260713 chunk C).
-    let mut out = if include_nonenum == 0 {
-        unsafe { crate::own_names::__torajs_arr_keys_only_of(cell) }
-    } else {
-        unsafe { crate::own_names::__torajs_arr_index_strs_of(cell) }
-    };
-    // §23.1.3 makes `Array.prototype` an Arr cell rather than a
-    // dynobj, so its synthesized method names come through here
-    // instead of the walk above — same surface, other cell shape.
-    if include_nonenum != 0 {
-        out = unsafe { push_synthesized_proto_names(cell, out as *mut u8, true) as *mut c_void };
-    }
-    let props =
-        unsafe { (cell.cast::<u8>().add(ARR_PROPS_OFF) as *const u64).read() } as *const c_void;
-    if props.is_null() {
-        return out;
-    }
-    unsafe {
-        dynobj_keys_append(props, include_nonenum, out as *mut u8, true, false) as *mut c_void
-    }
-}
-
 /// `Object.keys` / `getOwnPropertyNames` / `Reflect.ownKeys` arm for
 /// an `any`-typed receiver — full ES §20.1.2.17 ToObject dispatch
 /// (chunk B1, for-in RFC):
@@ -329,7 +288,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
     // ShortStr imm — len lives in bits 47..40 (SSO layout).
     if v >> 48 == SHORT_STR_TOP16 {
         let len = ((v >> 40) & 0xFF) as i64;
-        return unsafe { index_keys(len, include_nonenum) };
+        return unsafe { crate::obj_own_keys_arr::index_keys(len, include_nonenum) };
     }
     if crate::reflect::is_cell_imm(v) {
         let cell = v as *const c_void;
@@ -343,9 +302,11 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             TAG_STR_CELL => {
                 let len =
                     unsafe { (cell.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as i64;
-                unsafe { index_keys(len, include_nonenum) }
+                unsafe { crate::obj_own_keys_arr::index_keys(len, include_nonenum) }
             }
-            TAG_ARR_CELL => unsafe { arr_cell_keys(cell, include_nonenum) },
+            TAG_ARR_CELL => unsafe {
+                crate::obj_own_keys_arr::arr_cell_keys(cell, include_nonenum)
+            },
             TAG_CLOSURE_CELL => {
                 let props =
                     unsafe { (cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64).read() }
@@ -451,7 +412,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                         unsafe { (inner.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() };
                     units as i64
                 };
-                let out = unsafe { index_keys(len, include_nonenum) };
+                let out = unsafe { crate::obj_own_keys_arr::index_keys(len, include_nonenum) };
                 let props =
                     unsafe { (cell.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() }
                         as *const c_void;
