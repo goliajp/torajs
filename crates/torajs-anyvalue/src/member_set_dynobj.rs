@@ -13,7 +13,6 @@ use crate::member_set::{
 };
 use crate::nanbox::AnyValue;
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
-use torajs_rc::Tag;
 
 unsafe extern "C" {
     /// torajs-meta — the Annex B `__proto__` setter core (knife 3).
@@ -27,9 +26,6 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
-    /// torajs-meta — borrow read of `PROTOS_BY_TAG_IMM[tag]` (the
-    /// struct seed's chain root; 0 = unregistered tag).
-    fn __torajs_proto_cell_raw(tag: i64) -> u64;
 }
 
 /// `DYNOBJ_HDR_FLAG_NULL_PROTO` mirror (torajs-dynobj layout, header
@@ -50,7 +46,11 @@ const MEMBER_SET_ANY_ACCESSOR: u64 = 6;
 /// (flavored — the strict flavor records the TypeError first), and
 /// `None` for the own-create fall-through. The common fresh create
 /// on an implicit-chain dynobj pays one own-has probe plus one
-/// interned proto-slot lookup.
+/// interned proto-slot lookup, and then — since 525-01 — the
+/// %Object.prototype% link that slot's absence used to be read as
+/// the end of: an accessor a program installed on the root was
+/// simply unreachable from every receiver that had never been
+/// re-parented.
 ///
 /// Key-kind agnostic, which is why both the string lane and the
 /// §6.1.7 symbol lane in [`crate::member_set_symbol`] share it —
@@ -69,7 +69,7 @@ pub(crate) unsafe fn inherited_set_handled(
     throw_on_refusal: bool,
 ) -> Option<i64> {
     unsafe {
-        let level = crate::member_get_own::user_proto_cell(ptr);
+        let level = crate::member_set_proto_root::chain_parent(ptr as u64);
         inherited_set_walk(level, recv, key, tag, value, throw_on_refusal)
     }
 }
@@ -77,10 +77,12 @@ pub(crate) unsafe fn inherited_set_handled(
 /// Rotation 441 (3c) — the STRUCT receiver's seed of the same
 /// §10.1.9.2 walk. A struct cell carries no user [[Prototype]] slot;
 /// its chain root is the class prototype (`__proto_<C>`, where
-/// runtime-computed accessors reify). Pre-entry a keyed write whose
-/// key a proto AccessorPair owned fell straight to the +24 expando
-/// create — the own entry then shadowed the getter, so
-/// `c[k] = v; c[k]` answered `v` instead of the getter's result.
+/// runtime-computed accessors reify) — which is one of the shapes
+/// [`crate::member_set_proto_root::chain_parent`] answers, so the
+/// seed is now the same call the walk advances with. Pre-entry a
+/// keyed write whose key a proto AccessorPair owned fell straight to
+/// the +24 expando create — the own entry then shadowed the getter,
+/// so `c[k] = v; c[k]` answered `v` instead of the getter's result.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` cell that `recv` boxes; `key` is a live
@@ -94,14 +96,8 @@ pub(crate) unsafe fn inherited_set_from_class_proto(
     throw_on_refusal: bool,
 ) -> Option<i64> {
     unsafe {
-        let class_tag = ptr.cast::<u8>().add(8).cast::<u32>().read();
-        // Borrow read of the registry slot (process-lifetime); 0 =
-        // unregistered tag, no chain.
-        let root = __torajs_proto_cell_raw(class_tag as i64);
-        if !crate::nanbox::is_cell(root) {
-            return None;
-        }
-        inherited_set_walk(Some(root), recv, key, tag, value, throw_on_refusal)
+        let level = crate::member_set_proto_root::chain_parent(ptr as u64);
+        inherited_set_walk(level, recv, key, tag, value, throw_on_refusal)
     }
 }
 
@@ -153,27 +149,24 @@ unsafe fn inherited_set_walk(
             if depth > 64 {
                 break;
             }
-            let cptr = cell as *const c_void;
-            let ctag = (cptr.cast::<u8>().add(4) as *const u16).read();
-            // A Closure parent keeps its entries in the +24 expando.
-            // %Function.prototype% is one (§20.2.3 makes it a built-in
-            // FUNCTION object), and §10.2.4's restricted-property
-            // accessors living there are exactly what a receiver one
-            // link down has to write through: `Object.create(
-            // Function.prototype).caller = {}` throws, and a class
-            // constructor — whose [[Prototype]] link IS that
-            // singleton — throws for the same reason.
-            let dict = if ctag == Tag::Closure as u16 {
-                crate::member_get_layout::closure_props(cell as *mut c_void)
-            } else if ctag == Tag::DynObj as u16 {
-                cptr
-            } else {
-                // A struct parent keeps the own-create fall-through
-                // (its accessor face is a recorded boundary).
+            // %Function.prototype% is a Closure (§20.2.3 makes it a
+            // built-in FUNCTION object), and §10.2.4's
+            // restricted-property accessors living there are exactly
+            // what a receiver one link down has to write through:
+            // `Object.create(Function.prototype).caller = {}` throws,
+            // and a class constructor — whose [[Prototype]] link IS
+            // that singleton — throws for the same reason.
+            let Some(dict) = crate::member_set_proto_root::entry_dict(cell) else {
+                // A shape whose property face this walk does not model
+                // (a struct parent's accessors are a recorded
+                // boundary) — the own-create fall-through stands.
                 break;
             };
             if dict.is_null() {
-                break;
+                // Modeled but empty: nothing owns the key HERE, which
+                // is not the same as the chain ending.
+                level = crate::member_set_proto_root::chain_parent(cell);
+                continue;
             }
             if __torajs_dynobj_has(dict, key as *const c_void) != 0 {
                 let etag = __torajs_dynobj_get_tag(dict, key as *const c_void);
@@ -205,11 +198,7 @@ unsafe fn inherited_set_walk(
                 }
                 break;
             }
-            level = if ctag == Tag::Closure as u16 {
-                crate::member_get_own::closure_user_proto(cell as *mut c_void).flatten()
-            } else {
-                crate::member_get_own::user_proto_cell(cptr)
-            };
+            level = crate::member_set_proto_root::chain_parent(cell);
         }
     }
     None
