@@ -439,7 +439,7 @@ unsafe fn regexp_arm_tag(ptr: *mut c_void, key: *const c_void, recv: AnyValue) -
 /// # Safety
 /// `ptr` is a live DynObj cell; `key` is NULL or a live Str cell;
 /// `recv` boxes `ptr`.
-unsafe fn dynobj_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
+pub(crate) unsafe fn dynobj_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
     unsafe {
         let tag = __torajs_dynobj_get_tag(ptr, key);
         if tag != 5 {

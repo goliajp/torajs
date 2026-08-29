@@ -69,7 +69,18 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
     let non_nullish = |tag: u64| (tag != 0 && tag != 5) as i64;
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => {
-            return non_nullish(unsafe { __torajs_dynobj_get_tag(ptr, key) });
+            // The whole GetV, not just the own slot. `dynobj_arm_tag`
+            // is the read the dispatcher itself performs — own entry,
+            // stored-undefined shadow, `__proto__`, the user
+            // [[Prototype]] chain, a null-proto cut, and finally the
+            // builtin reify surface. Answering from
+            // `__torajs_dynobj_get_tag` alone was exact only while a
+            // dynobj had nothing above it; once %Object.prototype%
+            // was on the chain (521 knives 4-5), `o.hasOwnProperty?.()`
+            // and every method reached through `Object.create(p)`
+            // short-circuited to undefined here, in front of a
+            // dispatcher that would have resolved them.
+            return non_nullish(unsafe { crate::member_get::dynobj_arm_tag(ptr, recv, key) });
         }
         Some((ptr, t)) if t == Tag::Arr as u16 => {
             let tag = unsafe { __torajs_arrprops_get_tag(ptr, key) };
