@@ -208,6 +208,50 @@ pub fn any_method_families(mid: i64) -> u16 {
 mod tests {
     use super::*;
 
+    /// No two method ids may share a number, and the check has to
+    /// read the SOURCE because Rust cannot enumerate constants.
+    ///
+    /// The ids live in three sibling files that grow one id space,
+    /// and the mistake is always the same one: take the number after
+    /// THIS file's tail. `ANY_METHOD_TAKE` was re-homed to 205 after
+    /// a double-booking made a Map's `getOrInsertComputed` run
+    /// `take`, and §20.2.3.6's handler was then written at 205 for
+    /// exactly the same reason — caught by a conformance fixture,
+    /// which is seven fixtures and one gate later than here.
+    #[test]
+    fn mid_ids_are_unique() {
+        let sources = [
+            ("any_method.rs", include_str!("any_method.rs")),
+            ("any_method_iter.rs", include_str!("any_method_iter.rs")),
+            ("any_method_date.rs", include_str!("any_method_date.rs")),
+        ];
+        let mut seen: Vec<(i64, String, &str)> = Vec::new();
+        for (file, src) in sources {
+            for line in src.lines() {
+                let line = line.trim();
+                let Some(rest) = line.strip_prefix("pub const ANY_METHOD_") else {
+                    continue;
+                };
+                let Some((name, tail)) = rest.split_once(": i64 = ") else {
+                    continue;
+                };
+                let Some(num) = tail.split(';').next() else {
+                    continue;
+                };
+                let Ok(id) = num.trim().parse::<i64>() else {
+                    continue;
+                };
+                if let Some((_, other, other_file)) = seen.iter().find(|(n, _, _)| *n == id) {
+                    panic!(
+                        "method id {id} is booked twice: {other} ({other_file}) and {name} ({file})"
+                    );
+                }
+                seen.push((id, name.to_string(), file));
+            }
+        }
+        assert!(seen.len() > 150, "the scan found only {} ids", seen.len());
+    }
+
     /// Every mid the reflection table names must belong somewhere,
     /// and the pinned single-family rows must not have drifted onto
     /// a wrong family (spot checks on both halves of the r492

@@ -137,7 +137,7 @@ pub unsafe extern "C" fn __torajs_function_proto_install(proto: *mut c_void) {
 }
 
 /// Mirror of `torajs_rc::ANY_METHOD_FN_HAS_INSTANCE`.
-const ANY_METHOD_FN_HAS_INSTANCE_MID: i64 = 205;
+const ANY_METHOD_FN_HAS_INSTANCE_MID: i64 = 206;
 
 /// §6.1.5.1 well-known index of `@@hasInstance` — the table is
 /// alphabetical (`method_value::symbol_static` mirror).

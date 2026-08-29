@@ -441,7 +441,14 @@ pub const ANY_METHOD_GET_RESIZABLE: i64 = 204;
 /// `instanceof` handler, as a real own entry rather than a shape the
 /// operator falls through to. Own id, never interned by name (the
 /// spec function name has brackets, like `ANY_METHOD_STR_ITERATOR`).
-pub const ANY_METHOD_FN_HAS_INSTANCE: i64 = 205;
+///
+/// 206, not 205: the `any_method_iter` sibling grows the SAME id
+/// space and `ANY_METHOD_TAKE` already sits at 205 — which is itself
+/// where it was re-homed after a double-booking. Taking the number
+/// after this file's own tail is the mistake to avoid; the tail of
+/// BOTH files is what matters, and `mid_ids_are_unique` now says so
+/// mechanically.
+pub const ANY_METHOD_FN_HAS_INSTANCE: i64 = 206;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
