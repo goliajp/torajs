@@ -14,12 +14,18 @@ use crate::layout::{FLAG_STATIC_LITERAL, HeapHeader};
 /// rather than a call so the collector takes no dependency on that
 /// crate (the same reason `nan_box_is_cell_like` is duplicated).
 ///
-/// What is deliberately NOT walked: a Map / Set entry table, a
-/// TypedArray's buffer, a Promise's callback list, an iterator's
-/// source. Those are owned by the shape's own destructor, which
-/// [`crate::defer`] runs on the corpse — and a missed descent
-/// under-collects a cycle, never corrupts (the `arr_elems_walkable`
-/// posture). Reaching them takes each crate's layout mirror.
+/// Map and Set have outgrown the name: [`crate::map`] walks their
+/// entry table too, so for those two the bag is one child among
+/// many. The table stays here because the offset is still where
+/// their bag lives, which is what `clear_child_slot` and
+/// [`crate::defer`]'s teardown route ask it for.
+///
+/// What is still NOT walked: a TypedArray's buffer, a Promise's
+/// callback list, an iterator's source. Those are owned by the
+/// shape's own destructor, which [`crate::defer`] runs on the corpse
+/// — and a missed descent under-collects a cycle, never corrupts
+/// (the `arr_elems_walkable` posture). Reaching them takes each
+/// crate's layout mirror, the way [`crate::map`] is one.
 ///
 /// The four primitive wrappers stay on their own arm: a
 /// StringWrapper's corpse needs its `[[StringData]]` released before
@@ -68,9 +74,9 @@ pub const TAG_TYPEDARRAY: u16 = 28;
 /// See [`TAG_REGEXP`].
 pub const TAG_DATAVIEW: u16 = 29;
 
-/// True when `p` is one of the [`bag_only_props_off`] shapes AND
-/// that bag is live — the bag is the shape's one walkable child, so
-/// without it there is nothing to walk and nothing to cycle through.
+/// True when `p` is one of the [`bag_only_props_off`] shapes and has
+/// something to walk: a live bag, or — for Map and Set — a non-empty
+/// entry table.
 ///
 /// The bag read is what `is_visitable_arr` and `is_visitable_closure`
 /// already do for their own expando slots, and it is what lets a
@@ -93,5 +99,9 @@ pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
         return false;
     };
     let props = unsafe { *((p as *const u8).add(off) as *const *mut c_void) };
-    !props.is_null()
+    if !props.is_null() {
+        return true;
+    }
+    // A Map or Set with no bag still owns two references per entry.
+    matches!(header.type_tag, TAG_MAP | TAG_SET) && unsafe { crate::map::map_child_count(p) } > 0
 }

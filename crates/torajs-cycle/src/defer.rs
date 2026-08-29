@@ -113,10 +113,14 @@ pub(crate) unsafe fn finalize_all() {
             //
             // A bag-only shape runs the same rule for the same
             // reason: its destructor in pass B drops the expando bag,
-            // and a bag is always walkable, so this always clears the
-            // slot — either the bag is a fellow corpse (re-dropping
+            // and a bag is always walkable, so the bag slot always
+            // clears — either it is a fellow corpse (re-dropping
             // underflows) or a BLACK survivor whose unrestored
-            // trial-dec already was this parent's release.
+            // trial-dec already was this parent's release. A Map's
+            // entry slots take the same test one at a time; the ones
+            // that fail it — a Str key, a boxed number — are left to
+            // the destructor, which is the only thing that ever
+            // released them.
             unsafe {
                 for_each_child(p, |i2, child| {
                     if (*(child as *const HeapHeader)).refcount == 0

@@ -67,6 +67,7 @@ pub(crate) mod defer;
 pub mod dynobj;
 pub mod layout;
 pub mod layout_bag;
+pub mod map;
 pub mod obj_drop;
 
 pub use buffer::{__torajs_cycle_buffer, __torajs_cycle_unbuffer};

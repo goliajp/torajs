@@ -39,6 +39,7 @@ use crate::layout::{
     arr_elems_walkable, color_of, has_walkable_children, is_class_obj, layout_for_class_obj,
     nan_box_is_cell_like, set_color,
 };
+use crate::layout_bag::{TAG_MAP, TAG_SET};
 
 /// Sentinel child index for a cell's out-of-band expando / props
 /// slot (Arr +24, wrapper +16) — element indices are dense from 0,
@@ -140,15 +141,27 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
     } else if let Some(off) =
         crate::layout_bag::bag_only_props_off(unsafe { (*(p as *const HeapHeader)).type_tag })
     {
-        // The bag-only shapes (Map / Set / Date / RegExp / Promise /
-        // buffer family / the three iterator cells) — one walkable
-        // child, the lazy expando dict at the shape's own offset.
-        // Their internal state (entry table, compiled program, buffer
-        // data, iteration source) is the destructor's, which
-        // `defer::finalize_all` runs on the corpse.
+        // Date / RegExp / Promise / the buffer family / the three
+        // iterator cells — one walkable child, the lazy expando dict
+        // at the shape's own offset. The rest of their internal state
+        // (compiled program, buffer data, iteration source) is the
+        // destructor's, which `defer::finalize_all` runs on the
+        // corpse.
         let props = unsafe { *((p as *const u8).add(off) as *const *mut c_void) };
         if !props.is_null() {
             f(PROPS_SLOT_INDEX, props);
+        }
+        // Map and Set own two more references per entry. Key and
+        // value are separate edges even when they are the same cell.
+        let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
+        if matches!(tag, TAG_MAP | TAG_SET) {
+            let n = unsafe { crate::map::map_child_count(p) };
+            for i in 0..n {
+                let child = unsafe { crate::map::map_child_at(p, i) };
+                if !child.is_null() {
+                    f(i, child);
+                }
+            }
         }
     } else {
         // TAG_ARR — element slots only when the kind guarantees
@@ -205,6 +218,15 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
             let target: u64 = i;
             unsafe { trace(p, trace_clear_tramp, &target as *const u64 as *mut c_void) };
         }
+    } else if i != PROPS_SLOT_INDEX
+        && matches!(
+            unsafe { (*(p as *const HeapHeader)).type_tag },
+            TAG_MAP | TAG_SET
+        )
+    {
+        // A Map / Set entry slot — the bag sentinel is handled by the
+        // arm below, which is why this one tests for it first.
+        unsafe { crate::map::map_slot_clear(p, i) };
     } else if i == PROPS_SLOT_INDEX {
         // Wrapper +16 / bag-shape own offset / Arr +24 expando slot.
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
@@ -365,7 +387,17 @@ unsafe fn collect_white(p: *mut c_void) {
     // owns the per-slot release semantics (capture-box rc vs owned
     // cell vs Any NaN-box vs Substr view) and runs in the deferred
     // Free step, with the walkable slots pre-cleared by pass A.
-    if unsafe { (*(p as *const HeapHeader)).type_tag } != TAG_CLOSURE {
+    //
+    // The bag-only shapes skip it for the same reason, and with the
+    // entry table in the walk it now matters: `defer` pass B hands
+    // each of them back to its own destructor, and a Map's
+    // destructor releases every heap-tagged entry it still holds. A
+    // non-walkable key — a Str, a BigInt — would be released here
+    // AND there, the double release the closure carve-out exists to
+    // prevent. Pass A clears exactly the slots this collect already
+    // accounted for; whatever is left is the destructor's.
+    let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
+    if tag != TAG_CLOSURE && crate::layout_bag::bag_only_props_off(tag).is_none() {
         unsafe {
             for_each_child(p, |_, child| {
                 if (*(child as *const HeapHeader)).refcount > 0 && !has_walkable_children(child) {
