@@ -15,6 +15,8 @@ unsafe extern "C" {
     /// torajs-arr — expando write through the lazily-allocated
     /// props dynobj.
     fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *const c_void, tag: i64, value: i64);
+    /// torajs-arr — own-key membership over that same bag.
+    fn __torajs_arrprops_has(arr_ptr: *mut c_void, key: *const c_void) -> i32;
     /// torajs-arr — §10.4.2.4 length setter (ToUint32 validate +
     /// real resize) for the dynamic-string-key `o[k] = v` form.
     fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
@@ -113,6 +115,23 @@ pub(crate) unsafe fn set_arr_member(
             // behave exactly as `__torajs_arr_index_set` did.
             __torajs_arr_set_any_grow(ptr, idx, tag, value);
             return 1;
+        }
+        // §10.1.9.2 — an own miss consults the [[Prototype]] chain
+        // before the own create. Ahead of the integrity gate: freezing
+        // bars the create, not the walk.
+        // The own faces above (index domain, `length`) have already
+        // returned; what is left is the expando bag.
+        if __torajs_arrprops_has(ptr, key) == 0
+            && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
+                ptr,
+                crate::nanbox::box_void_ptr(ptr),
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            )
+        {
+            return handled;
         }
         __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
         1

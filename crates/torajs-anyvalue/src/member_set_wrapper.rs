@@ -55,6 +55,22 @@ pub(crate) unsafe fn set_wrapper_member(
         }
         let props_slot = ptr.cast::<u8>().add(MEMBER_SET_WRAPPER_PROPS_OFF) as *mut u64;
         let mut props = *props_slot as *mut c_void;
+        // §10.1.9.2 — an own miss consults the [[Prototype]] chain
+        // before the own create. Ahead of the integrity gate: freezing
+        // bars the create, not the walk.
+        if (props.is_null()
+            || __torajs_dynobj_has(props as *const c_void, key as *const c_void) == 0)
+            && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
+                ptr,
+                crate::nanbox::box_void_ptr(ptr),
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            )
+        {
+            return handled;
+        }
         // §10.1.5.1 [[Set]] on a non-extensible wrapper rejects new
         // keys. The wrapper cell owns the `FLAG_NON_EXTENSIBLE`
         // bit (set by `Object.preventExtensions(w)`), not the

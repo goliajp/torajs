@@ -181,6 +181,21 @@ unsafe fn set_expando_member(
     unsafe {
         let props_slot = ptr.cast::<u8>().add(props_off) as *mut u64;
         let mut props = *props_slot as *mut c_void;
+        // §10.1.9.2 — an own miss consults the [[Prototype]] chain
+        // before the own create. Ahead of the integrity gate: freezing
+        // bars the create, not the walk.
+        if (props.is_null() || __torajs_dynobj_has(props, key as *const c_void) == 0)
+            && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
+                ptr,
+                crate::nanbox::box_void_ptr(ptr),
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            )
+        {
+            return handled;
+        }
         if expando_integrity_refuses(ptr, props, key) {
             drop_payload(tag, value);
             if throw_on_refusal {
@@ -254,6 +269,26 @@ pub(crate) unsafe fn set_closure_member(
         }
         let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
         let mut props = *props_slot as *mut c_void;
+        // §10.1.9.2 — an own miss consults the [[Prototype]] chain
+        // before the own create. Ahead of the integrity gate: freezing
+        // bars the create, not the walk.
+        // A function's own faces here are the expando and the virtual
+        // `prototype` pair; `name` / `length` never reach this far.
+        let own = (!props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0)
+            || (crate::prop_has::key_is(key, b"prototype")
+                && crate::closure_proto::fn_prototype_pair(ptr).is_some());
+        if !own
+            && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
+                ptr,
+                crate::nanbox::box_void_ptr(ptr),
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            )
+        {
+            return handled;
+        }
         if expando_integrity_refuses(ptr, props, key) {
             drop_payload(tag, value);
             if throw_on_refusal {

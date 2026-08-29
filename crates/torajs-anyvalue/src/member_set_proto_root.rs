@@ -86,9 +86,25 @@ pub(crate) unsafe fn chain_parent(cell: u64) -> Option<u64> {
 unsafe fn implicit_parent(ptr: *mut c_void) -> Option<u64> {
     let bp_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
     let tag = if bp_tag >= 0 {
+        // The one home for which parent each builtin prototype's own
+        // clause gives it; `-1` is %Object.prototype%, where the
+        // chain genuinely ends.
         torajs_rc::builtin_proto::proto_parent_tag(bp_tag)
     } else {
-        crate::method_value::family::recv_proto_family(crate::nanbox::box_void_ptr(ptr))
+        // A shape the family map does not name still inherits from
+        // the ordinary root — the typed arrays are the standing case,
+        // because the %TypedArray%.prototype link between them and it
+        // is a recorded gap. Standing in the root is what every read
+        // lane already does for them (`member_get_symbol::chain_next`,
+        // `member_get_proto_root`), so the two sides keep answering
+        // the same chain instead of inventing a third.
+        let family =
+            crate::method_value::family::recv_proto_family(crate::nanbox::box_void_ptr(ptr));
+        if family < 0 {
+            torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64
+        } else {
+            family
+        }
     };
     if tag < 0 {
         return None;

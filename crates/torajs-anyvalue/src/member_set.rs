@@ -152,7 +152,7 @@ unsafe fn set_obj_member(
                 as *mut *mut c_void;
             // Rotation 441 (3c) — §10.1.9.2: an own miss (layout,
             // own accessor, expando dict all silent) consults the
-            // CLASS prototype chain before the own create — a
+            // prototype chain before the own create — a
             // runtime-computed accessor reified on `__proto_<C>`
             // writes through its setter with this receiver (or
             // refuses get-only), instead of minting an own expando
@@ -162,7 +162,7 @@ unsafe fn set_obj_member(
             let own_expando = !(*props_slot).is_null()
                 && __torajs_dynobj_has(*props_slot, key as *const c_void) != 0;
             if !own_expando
-                && let Some(r) = crate::member_set_dynobj::inherited_set_from_class_proto(
+                && let Some(r) = crate::member_set_dynobj::inherited_set_handled(
                     ptr,
                     recv,
                     key,

@@ -37,57 +37,36 @@ const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 /// (`torajs_dynobj::layout::ANY_ACCESSOR` mirror).
 const MEMBER_SET_ANY_ACCESSOR: u64 = 6;
 
-/// §10.1.9.2 OrdinarySet — an own miss consults the user
-/// [[Prototype]] chain (RFC 20260721 候补刀): an inherited accessor
-/// writes through its setter with the ORIGINAL receiver; an inherited
-/// non-writable data property rejects; a writable (or absent) chain
-/// answer falls through to the caller's ordinary own create. Returns
-/// `Some(1)` when the setter ran, `Some(0)` when the chain refused
-/// (flavored — the strict flavor records the TypeError first), and
-/// `None` for the own-create fall-through. The common fresh create
-/// on an implicit-chain dynobj pays one own-has probe plus one
-/// interned proto-slot lookup, and then — since 525-01 — the
-/// %Object.prototype% link that slot's absence used to be read as
-/// the end of: an accessor a program installed on the root was
-/// simply unreachable from every receiver that had never been
-/// re-parented.
+/// §10.1.9.2 OrdinarySet — an own miss consults the [[Prototype]]
+/// chain: an inherited accessor writes through its setter with the
+/// ORIGINAL receiver; an inherited non-writable data property
+/// rejects; a writable (or absent) chain answer falls through to the
+/// caller's ordinary own create. Returns `Some(1)` when the setter
+/// ran, `Some(0)` when the chain refused (flavored — the strict
+/// flavor records the TypeError first), and `None` for the
+/// own-create fall-through.
 ///
-/// Key-kind agnostic, which is why both the string lane and the
-/// §6.1.7 symbol lane in [`crate::member_set_symbol`] share it —
-/// OrdinarySet does not care how the key is spelled.
+/// Receiver-shape agnostic, and that is the point: what a receiver's
+/// [[Prototype]] is has ONE answer
+/// ([`crate::member_set_proto_root::chain_parent`]), so a dynobj, a
+/// closure, an array, a struct and a wrapper all reach the chain
+/// through this call rather than each lane deciding for itself
+/// whether it has one. Key-kind agnostic too — the string lane and
+/// the §6.1.7 symbol lane in [`crate::member_set_symbol`] share it,
+/// because OrdinarySet does not care how the key is spelled.
+///
+/// The consult belongs BEFORE the receiver's own integrity gate, not
+/// after: a frozen receiver still runs an inherited setter (bun
+/// agrees), because freezing bars the own CREATE, not the walk.
+///
+/// The common fresh create on an implicit-chain dynobj pays one
+/// own-has probe plus one interned proto-slot lookup, and then the
+/// %Object.prototype% link.
 ///
 /// # Safety
-/// `ptr` is a live `Tag::DynObj` cell that `recv` boxes; `key` is a
-/// live key cell; `(tag, value)` carries the caller's +1 on heap
-/// payloads.
+/// `ptr` is a live cell that `recv` boxes; `key` is a live key cell;
+/// `(tag, value)` carries the caller's +1 on heap payloads.
 pub(crate) unsafe fn inherited_set_handled(
-    ptr: *mut c_void,
-    recv: AnyValue,
-    key: *mut c_void,
-    tag: u64,
-    value: u64,
-    throw_on_refusal: bool,
-) -> Option<i64> {
-    unsafe {
-        let level = crate::member_set_proto_root::chain_parent(ptr as u64);
-        inherited_set_walk(level, recv, key, tag, value, throw_on_refusal)
-    }
-}
-
-/// Rotation 441 (3c) — the STRUCT receiver's seed of the same
-/// §10.1.9.2 walk. A struct cell carries no user [[Prototype]] slot;
-/// its chain root is the class prototype (`__proto_<C>`, where
-/// runtime-computed accessors reify) — which is one of the shapes
-/// [`crate::member_set_proto_root::chain_parent`] answers, so the
-/// seed is now the same call the walk advances with. Pre-entry a
-/// keyed write whose key a proto AccessorPair owned fell straight to
-/// the +24 expando create — the own entry then shadowed the getter,
-/// so `c[k] = v; c[k]` answered `v` instead of the getter's result.
-///
-/// # Safety
-/// `ptr` is a live `Tag::Obj` cell that `recv` boxes; `key` is a live
-/// key cell; `(tag, value)` carries the caller's +1 on heap payloads.
-pub(crate) unsafe fn inherited_set_from_class_proto(
     ptr: *mut c_void,
     recv: AnyValue,
     key: *mut c_void,
