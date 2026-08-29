@@ -218,6 +218,23 @@ impl ShadowSet {
 ///
 /// `Any` answers `None` on purpose: such a receiver already reaches the
 /// dispatcher, which does its own consult.
+/// Might this module have changed what turning an ARRAY into a string
+/// does?
+///
+/// The gate above serves method calls, which the checker stands down
+/// by typing the callee `any`. A COERCION has no callee to type:
+/// `String(xs)`, `xs + ""`, a template substitution and `Number(xs)`
+/// fold straight to the join kernel, so they kept answering "1,2"
+/// while `xs.toString()` right next to them answered the patch.
+///
+/// Two names, because §7.1.17 resolves `toString` on the receiver and
+/// §23.1.3.36 then resolves `join` — the direct kernel is that whole
+/// program only while neither has been touched. `Object` counts for
+/// both through `reaches`, since the walk ends there.
+pub(crate) fn arr_to_string_shadowed(set: &ShadowSet) -> bool {
+    !set.is_empty() && (set.shadows("Array", "toString") || set.shadows("Array", "join"))
+}
+
 pub(crate) fn family_of(ty: &crate::check::Type) -> Option<Family> {
     use crate::check::Type;
     Some(match ty {

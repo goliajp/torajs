@@ -354,9 +354,13 @@ pub(crate) fn emit_to_string(
             ctx.release_owned_temp(arg_eid, &arg_op);
             Operand::Value(v)
         }
-        Type::Arr(elem_arr_id) => {
-            crate::ssa_lower_coerce_arr::emit_to_string(ctx, arg_eid, arg_op, elem_arr_id)
-        }
+        Type::Arr(elem_arr_id) => crate::ssa_lower_coerce_arr::emit_to_string(
+            ctx,
+            arg_eid,
+            arg_op,
+            elem_arr_id,
+            implicit_tostring,
+        ),
         Type::Obj(_) => emit_struct_to_string(ctx, arg_eid, arg_op),
         // RFC 20260719-fn-tostring-source B5 — ToString(fn) is its
         // toString(): the registry erased-source kernel keyed on the
