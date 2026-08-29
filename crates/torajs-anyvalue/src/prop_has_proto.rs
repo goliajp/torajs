@@ -23,7 +23,7 @@ use crate::prop_has::key_is;
 pub unsafe extern "C" fn __torajs_arr_forin_key_live(arr: *mut c_void, key: *const c_void) -> i64 {
     unsafe {
         let boxed = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, arr as i64);
-        crate::prop_has::__torajs_any_has_property(boxed, key)
+        crate::prop_has_chain::__torajs_any_has_property(boxed, key)
     }
 }
 

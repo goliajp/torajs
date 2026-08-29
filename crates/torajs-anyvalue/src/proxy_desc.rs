@@ -45,7 +45,8 @@ pub(crate) unsafe fn complete_descriptor(desc: AnyValue) -> AnyValue {
 unsafe fn has_field(desc: AnyValue, name: &[u8]) -> bool {
     unsafe {
         let key = __torajs_str_alloc(name.as_ptr(), name.len() as i64);
-        let r = crate::prop_has::__torajs_any_has_property(desc, key as *const core::ffi::c_void);
+        let r =
+            crate::prop_has_chain::__torajs_any_has_property(desc, key as *const core::ffi::c_void);
         __torajs_str_drop(key as *mut core::ffi::c_void);
         r != 0
     }

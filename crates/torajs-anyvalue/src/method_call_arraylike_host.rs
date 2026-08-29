@@ -218,7 +218,7 @@ pub(crate) unsafe fn arraylike_has(obj: *mut c_void, k: i64) -> bool {
         // §7.3.11 HasProperty — the chain-walking kernel (an
         // inherited index prop is present; RFC 20260721 G2d), not the
         // own-only probe.
-        let hit = crate::prop_has::__torajs_any_has_property(
+        let hit = crate::prop_has_chain::__torajs_any_has_property(
             __torajs_anyv_box_pointer(obj),
             key as *const c_void,
         );

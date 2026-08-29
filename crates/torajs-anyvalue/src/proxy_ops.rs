@@ -128,7 +128,7 @@ pub(crate) unsafe fn has(cell: *mut c_void, key: *const c_void) -> Result<bool, 
         let __s = live_slots(cell)?;
         let (target, handler) = (__s.target, __s.handler);
         let Some(t) = trap(handler, b"has")? else {
-            let r = crate::prop_has::__torajs_any_has_property(target, key);
+            let r = crate::prop_has_chain::__torajs_any_has_property(target, key);
             if __torajs_throw_check() != 0 {
                 return Err(());
             }
