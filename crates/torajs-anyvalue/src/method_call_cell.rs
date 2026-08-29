@@ -225,17 +225,19 @@ pub(crate) unsafe fn cell_method(
 ) -> Option<AnyValue> {
     let ptr = as_void_ptr(recv);
     let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
-    // ES own-property order — a wrapper EXPANDO entry wins over
-    // the view-through surface (`__instance.charAt =
+    // ES own-property order (§10.1.8.1) — an own BAG entry wins
+    // over every inherited surface below (`__instance.charAt =
     // String.prototype.charAt` stores the reified cell; the call
     // must run it against the wrapper receiver — the §22.1.3
     // generic ToString(this) coerce — not fall to the inner
-    // primitive's arm, which knows no such method).
+    // primitive's arm, which knows no such method). The gate reads
+    // the one bag table, so the shapes that grew a bag in rotation
+    // 527 answer a stored function here too.
     if !skip_wrapper_expando
-        && crate::member_get::is_wrapper_tag(tag)
+        && crate::method_call_bag_expando::bag_probed_tag(tag)
         && let Some(out) = unsafe {
-            crate::method_call_wrapper_expando::wrapper_expando_method(
-                recv, ptr, mid, name_str, argv, argc,
+            crate::method_call_bag_expando::bag_expando_method(
+                recv, ptr, tag, mid, name_str, argv, argc,
             )
         }
     {
