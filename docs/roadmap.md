@@ -1555,9 +1555,46 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ c62c820a2`, never as a constant (the two shas this
+snapshot stamped `@ 87b7b0d8d`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about).
+
+**Latest @ `87b7b0d8d`** (2026-08-29, rotation 527 — things with
+internal state need a property face too). Gate predicate: **156**
+clusters of ≥ 4 holding **1187** cases, register 2 · 251, residue
+587 · 746 (34.2%), core **2184**. Against rotation 526: clusters
+157 → **156 (−1)**, cases 1196 → **1187 (−9)**, core 2259 → **2184
+(−75)** — **the first movement in four rotations**, and the reason is
+that two of this rotation's six commits are compile-error removals:
+`(new Map() as any).zz` and `"get" in new Map()` were programs bun
+runs that tr rejected, so the cases carrying them sat in the
+`incompatible` bucket the P-SURF denominator counts.
+
+Sweep passTotal 35032 → **35163 (+131)**, pass 29964 → **30032
+(+68)**, passNoOracle 921 → **984 (+63)**, passNegative 4147 →
+**4147 (=)**, bug 12530 → **12474 (−56)**, incompatible 5612 →
+**5537 (−75)**, trAccepted 47562 → **47637 (+75)**; conservation
+exact (+75 = +131 + −56). Verdict diff 139 lines: 63
+`incompatible:no-oracle:not yet supported` → `pass-no-oracle` (the
+`not-a-constructor` family, which the member-read compile error used
+to stop before its first assert — spot-checked against bun, the
+substance matches), 60 `bug:exit 1` → `pass`, 9 more forward, 6
+sideways between failing buckets, **1 backward**.
+
+**That one backward verdict is de-watering, and is recorded as such.**
+`built-ins/Boolean/prototype/valueOf/S15.6.4.3_A2_T3.js` asserts that
+`Boolean.prototype.valueOf` transferred onto a Date throws. It used to
+pass because the ASSIGNMENT threw — a Date had no property face at all
+— which is not what the case is testing. The assignment now succeeds
+(correctly), the call runs, and tr answers the Date's time value where
+bun brand-check-throws. The case fails honestly and names the gap it
+was standing on: transferred builtin prototype methods do not
+brand-check their receiver.
+
+Unattributed head by directory: `language/expressions` 660,
+`language/statements` 327, `staging/sm` 296, `built-ins/Array` 172,
+`language/module-code` 127. Coverage curve: top-100 **51.9%**,
+top-200 **69.7%**, top-400 **83.4%**.
 
 **Latest @ `c62c820a2`** (2026-08-29, rotation 526 — the write side
 climbed only the links that were written down). Gate predicate:

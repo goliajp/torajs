@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T10:06:04.388Z",
+  "generatedAt": "2026-08-29T12:19:23.649Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,30 +9,30 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "bug": 12530,
+    "bug": 12474,
     "bunSkip": 3031,
-    "elapsedSec": 374.1,
+    "elapsedSec": 368.73,
     "harnessError": 0,
-    "headSha": "c62c820a2",
-    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to c62c820a2, so the sweep measured that code. Field corrected at ingest.",
+    "headSha": "87b7b0d8d",
+    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 87b7b0d8d, so the sweep measured that code. Field corrected at ingest.",
     "inScope": 53174,
-    "incompatible": 5612,
+    "incompatible": 5537,
     "limit": null,
-    "pass": 29964,
+    "pass": 30032,
     "passNegative": 4147,
-    "passNoOracle": 921,
-    "passRateInScope": 65.88,
-    "passRateTrAccepted": 73.66,
-    "passTotal": 35032,
+    "passNoOracle": 984,
+    "passRateInScope": 66.13,
+    "passRateTrAccepted": 73.81,
+    "passTotal": 35163,
     "ran": 53174,
-    "ranAt": "2026-08-29T09:52:33Z",
+    "ranAt": "2026-08-29T12:06:01Z",
     "totalCases": 53174,
-    "trAccepted": 47562,
+    "trAccepted": 47637,
     "workers": 10
   },
   "torajs": {
-    "commit": "c62c820a2",
-    "commitSubject": "fix: the new method id was booked twice, and only a fixture said so",
+    "commit": "87b7b0d8d",
+    "commitSubject": "fix: `in` refused to compile against a receiver whose shape it knew",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +714,34 @@
   },
   "commits": [
     {
+      "hash": "87b7b0d8d",
+      "subject": "fix: `in` refused to compile against a receiver whose shape it knew"
+    },
+    {
+      "hash": "35d51413c",
+      "subject": "fix: two links was one too few once a prototype stopped hanging off the root"
+    },
+    {
+      "hash": "d7917706d",
+      "subject": "fix: a receiver whose shape was known at compile time got a compile error instead of a read"
+    },
+    {
+      "hash": "f12566a68",
+      "subject": "fix: the chain walk skipped every prototype between the receiver and the root"
+    },
+    {
+      "hash": "893b8bfc3",
+      "subject": "fix: an iterator was the one object left that could not hold a property"
+    },
+    {
+      "hash": "d5f1824f2",
+      "subject": "fix: four receivers kept internal state where their property face should be"
+    },
+    {
+      "hash": "1b7c45432",
+      "subject": "docs: rotation 526 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
+    },
+    {
       "hash": "c62c820a2",
       "subject": "fix: the new method id was booked twice, and only a fixture said so"
     },
@@ -732,55 +760,38 @@
     {
       "hash": "dac74e02f",
       "subject": "fix: the write side climbed only the links that were written down"
-    },
-    {
-      "hash": "afd29c642",
-      "subject": "docs: rotation 525 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
-    },
-    {
-      "hash": "46ccd7dd8",
-      "subject": "fix: three ways the callable prototype fell out of the sweep"
-    },
-    {
-      "hash": "d999be664",
-      "subject": "refactor: two files the callable-prototype knife pushed over the line"
-    },
-    {
-      "hash": "1d12b878c",
-      "subject": "fix: %Function.prototype% is a function, and one tag said otherwise"
-    },
-    {
-      "hash": "2edaa1aac",
-      "subject": "fix: an iterator's badge needs a prototype to keep it on"
-    },
-    {
-      "hash": "50df2f19d",
-      "subject": "refactor: a prototype chain is a walk, not a pair"
-    },
-    {
-      "hash": "2e4c47ed9",
-      "subject": "fix: the symbol lane walked a shorter chain than the string one"
     }
   ],
-  "headSha": "c62c820a2",
+  "headSha": "87b7b0d8d",
   "autorun": {
-    "total": 829,
+    "total": 830,
     "baselineTarget": 10,
-    "bySelf": 824,
+    "bySelf": 825,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787985583-0ab7",
-      "at": "2026-08-29T06:39:43Z",
-      "ts": 1787985583,
+      "rotationId": "r-1787998299-2b28",
+      "at": "2026-08-29T10:11:39Z",
+      "ts": 1787998299,
       "trigger": "self",
-      "prevHead": "afd29c642",
-      "handoffSha": "sha256:fcb72e977131add9f0250f4ec21593a75f0c00fb47183747bc9a71a834a46097",
-      "handoffAgeSec": 1,
+      "prevHead": "1b7c45432",
+      "handoffSha": "sha256:0823cb6f2c4794d03be122086c7ab8ac2c259a541a470c0aa5a3926b7715a390",
+      "handoffAgeSec": 24,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787998299-2b28",
+        "at": "2026-08-29T10:11:39Z",
+        "ts": 1787998299,
+        "trigger": "self",
+        "prevHead": "1b7c45432",
+        "handoffSha": "sha256:0823cb6f2c4794d03be122086c7ab8ac2c259a541a470c0aa5a3926b7715a390",
+        "handoffAgeSec": 24,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787985583-0ab7",
         "at": "2026-08-29T06:39:43Z",
@@ -877,17 +888,6 @@
         "prevHead": "c74575467",
         "handoffSha": "sha256:881e391bf9d53d4c0e7e0ad149c6cb1b0d2854242c98ef575a04d587ab94f4d0",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787888473-5a77",
-        "at": "2026-08-28T03:41:13Z",
-        "ts": 1787888473,
-        "trigger": "self",
-        "prevHead": "1331ee660",
-        "handoffSha": "sha256:3270abf8cf891f40377e50a2c1b906c727e7fc9e04e949858ff90ecbc139891d",
-        "handoffAgeSec": 96,
         "conformanceBefore": null,
         "commitsInSession": null
       }
