@@ -88,10 +88,19 @@ pub unsafe extern "C" fn __torajs_any_index_method_call(
 }
 
 /// The string-key leg — intern the name and re-enter the by-name
-/// dispatch. A mid-miss gets the builtin-proto patch consult (the
-/// named form's §10.1.9.2 chain step); a full miss floats
+/// dispatch. A mid-miss takes the same end-of-walk tail the two named
+/// dispatcher exits take (the §10.1.9.2 chain step, then
+/// %Object.prototype%'s own three); a full miss floats
 /// `ANY_METHOD_NO_SUCH` back so the entry runs the value-call
 /// fallback with the ORIGINAL key.
+///
+/// The tail used to be only its first half here, and the second half
+/// is what the three universals resolve through: `xs[k]("0")` with `k`
+/// holding "hasOwnProperty" walked past them into that fallback, which
+/// read the inherited function off the chain and bare-called it — the
+/// this-undefined TypeError, on an Array, a String, a Map and a
+/// Number alike. Nothing was wrong with the fallback: the walk simply
+/// had not finished.
 unsafe fn str_keyed_call(
     recv: AnyValue,
     name_cell: *const u8,
@@ -102,11 +111,8 @@ unsafe fn str_keyed_call(
     let mid = unsafe { crate::method_value::key_method_id(name_cell as *const c_void) };
     let r = unsafe { any_method_call_inner(recv, mid, name_cell, recv_slot, argv, argc) };
     if r == crate::method_call::ANY_METHOD_NO_SUCH
-        && let Some(out) = unsafe {
-            crate::method_call_proto_patch::builtin_proto_patch_method(
-                recv, mid, name_cell, argv, argc,
-            )
-        }
+        && let Some(out) =
+            unsafe { crate::method_call::miss_tail(recv, mid, name_cell, argv, argc) }
     {
         return out;
     }

@@ -133,30 +133,47 @@ pub unsafe extern "C" fn __torajs_any_method_call(
 ) -> AnyValue {
     let r = unsafe { any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc) };
     if r == ANY_METHOD_NO_SUCH {
-        // A per-arm mid-miss skipped the dispatch tail — give the
-        // builtin-proto patch consult its §10.1.9.2 chain step
-        // before the TypeError (RFC 20260721 刀 3).
-        if let Some(out) = unsafe {
-            crate::method_call_proto_patch::builtin_proto_patch_method(
-                recv, mid, name_str, argv, argc,
-            )
-        } {
-            return out;
-        }
-        // The end of the walk — %Object.prototype%'s own three, after
-        // the patch consult so a program's write to the same name
-        // still wins, and not at all once the root has given the name
-        // up (521-07's tombstone, call side).
-        if !crate::method_call_object_proto::root_gave_up(mid)
-            && let Some(out) = unsafe {
-                crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
-            }
-        {
+        if let Some(out) = unsafe { miss_tail(recv, mid, name_str, argv, argc) } {
             return out;
         }
         return unsafe { not_callable() };
     }
     r
+}
+
+/// The end of a walk that floated [`ANY_METHOD_NO_SUCH`]: the
+/// builtin-proto patch consult's §10.1.9.2 chain step, and then
+/// %Object.prototype%'s own three — the patch first, so a program's
+/// write to the same name still wins, and neither once the root has
+/// given the name up (521-07's tombstone, call side).
+///
+/// `None` is a true miss, which each caller answers in its own way: a
+/// TypeError, `?.()`'s undefined, or the keyed-property fallback. It
+/// is one function because it was three copies, and the third — the
+/// `recv[key](…)` lane — was missing the second half: `xs[k]("0")`
+/// with `k` holding "hasOwnProperty" fell past the walk into that
+/// fallback, read the inherited function off the chain and bare-called
+/// it, which is the this-undefined TypeError. The literal-key spelling
+/// of the same call was fine, because it never came this way.
+///
+/// # Safety
+/// Same contract as the dispatcher: `argv` holds `argc` live slots.
+pub(crate) unsafe fn miss_tail(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if let Some(out) = unsafe {
+        crate::method_call_proto_patch::builtin_proto_patch_method(recv, mid, name_str, argv, argc)
+    } {
+        return Some(out);
+    }
+    if crate::method_call_object_proto::root_gave_up(mid) {
+        return None;
+    }
+    unsafe { crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc) }
 }
 
 /// `o.m?.(args…)` flavor of the dispatcher (chunk 709) — a method
@@ -177,20 +194,9 @@ pub unsafe extern "C" fn __torajs_any_method_call_opt(
 ) -> AnyValue {
     let r = unsafe { any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc) };
     if r == ANY_METHOD_NO_SUCH {
-        // Same chain step as the throwing flavor — a live patch
-        // resolves; only a true miss keeps the `?.()` undefined.
-        if let Some(out) = unsafe {
-            crate::method_call_proto_patch::builtin_proto_patch_method(
-                recv, mid, name_str, argv, argc,
-            )
-        } {
-            return out;
-        }
-        if !crate::method_call_object_proto::root_gave_up(mid)
-            && let Some(out) = unsafe {
-                crate::method_call_object_proto::object_proto_universal(recv, mid, argv, argc)
-            }
-        {
+        // Same tail as the throwing flavor — a live patch resolves;
+        // only a true miss keeps the `?.()` undefined.
+        if let Some(out) = unsafe { miss_tail(recv, mid, name_str, argv, argc) } {
             return out;
         }
         return VALUE_UNDEFINED;
