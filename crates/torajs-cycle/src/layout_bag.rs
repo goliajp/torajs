@@ -68,14 +68,30 @@ pub const TAG_TYPEDARRAY: u16 = 28;
 /// See [`TAG_REGEXP`].
 pub const TAG_DATAVIEW: u16 = 29;
 
-/// True when `p` is one of the [`bag_only_props_off`] shapes — its
-/// lazy expando bag is its one walkable child. Tag-only, like
-/// `layout::is_visitable_wrapper`: a NULL bag walks as zero children.
+/// True when `p` is one of the [`bag_only_props_off`] shapes AND
+/// that bag is live — the bag is the shape's one walkable child, so
+/// without it there is nothing to walk and nothing to cycle through.
+///
+/// The bag read is what `is_visitable_arr` and `is_visitable_closure`
+/// already do for their own expando slots, and it is what lets a
+/// drop kernel hand every rc-survivor to `cycle_buffer` unconditionally
+/// (the closure arm's shape) without the buffer filling with bagless
+/// Maps and Dates. Like those two, the answer can flip to false after
+/// a corpse's slot is cleared; `collect_white`'s second sweep and
+/// `defer`'s pass A both already carry the `rc > 0` gate that makes
+/// that safe.
 #[inline]
 pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
     if p.is_null() {
         return false;
     }
     let header = unsafe { &*(p as *const HeapHeader) };
-    header.flags & FLAG_STATIC_LITERAL == 0 && bag_only_props_off(header.type_tag).is_some()
+    if header.flags & FLAG_STATIC_LITERAL != 0 {
+        return false;
+    }
+    let Some(off) = bag_only_props_off(header.type_tag) else {
+        return false;
+    };
+    let props = unsafe { *((p as *const u8).add(off) as *const *mut c_void) };
+    !props.is_null()
 }
