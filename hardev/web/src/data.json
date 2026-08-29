@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T01:55:33.747Z",
+  "generatedAt": "2026-08-29T06:35:47.195Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,30 +9,30 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-29T01:42:17Z",
-    "headSha": "3d1ae2b7e",
-    "elapsedSec": 369.79,
+    "ranAt": "2026-08-29T06:30:05Z",
+    "headSha": "46ccd7dd8",
+    "elapsedSec": 370.17,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 29905,
+    "pass": 29939,
     "passNoOracle": 921,
     "passNegative": 4147,
-    "passTotal": 34973,
-    "bug": 12589,
+    "passTotal": 35007,
+    "bug": 12555,
     "incompatible": 5612,
     "bunSkip": 3031,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47562,
-    "passRateInScope": 65.77,
-    "passRateTrAccepted": 73.53,
-    "headShaNote": "mini git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 3d1ae2b7e, so the sweep measured that code. Field corrected by hand at ingest."
+    "passRateInScope": 65.83,
+    "passRateTrAccepted": 73.6,
+    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 46ccd7dd8, so the sweep measured that code. Field corrected at ingest."
   },
   "torajs": {
-    "commit": "3d1ae2b7e",
-    "commitSubject": "fix: the computed-name lane ran half the end of the walk",
+    "commit": "46ccd7dd8",
+    "commitSubject": "fix: three ways the callable prototype fell out of the sweep",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +714,38 @@
   },
   "commits": [
     {
+      "hash": "46ccd7dd8",
+      "subject": "fix: three ways the callable prototype fell out of the sweep"
+    },
+    {
+      "hash": "d999be664",
+      "subject": "refactor: two files the callable-prototype knife pushed over the line"
+    },
+    {
+      "hash": "1d12b878c",
+      "subject": "fix: %Function.prototype% is a function, and one tag said otherwise"
+    },
+    {
+      "hash": "2edaa1aac",
+      "subject": "fix: an iterator's badge needs a prototype to keep it on"
+    },
+    {
+      "hash": "50df2f19d",
+      "subject": "refactor: a prototype chain is a walk, not a pair"
+    },
+    {
+      "hash": "2e4c47ed9",
+      "subject": "fix: the symbol lane walked a shorter chain than the string one"
+    },
+    {
+      "hash": "200b37971",
+      "subject": "refactor: own it, or merely reach it, are two questions"
+    },
+    {
+      "hash": "817247bf7",
+      "subject": "docs: rotation 524 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
+    },
+    {
       "hash": "3d1ae2b7e",
       "subject": "fix: the computed-name lane ran half the end of the walk"
     },
@@ -728,59 +760,38 @@
     {
       "hash": "66fff2692",
       "subject": "refactor: one home for what an array turns into"
-    },
-    {
-      "hash": "3035c28bb",
-      "subject": "fix: an absent chain entry and the builtin entry are not the same answer"
-    },
-    {
-      "hash": "70524ea16",
-      "subject": "fix: a family giving a name up hands the call to the root, not to the arm"
-    },
-    {
-      "hash": "fefccde55",
-      "subject": "docs: rotation 523 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
-    },
-    {
-      "hash": "4129d778b",
-      "subject": "fix: the arms that answer a call natively never asked about the tombstone"
-    },
-    {
-      "hash": "2b41a4b31",
-      "subject": "refactor: split the invoke half out of the builtin-proto patch consult"
-    },
-    {
-      "hash": "d266f6a2b",
-      "subject": "fix: the read channel never asked whether the prototype gave the name up"
-    },
-    {
-      "hash": "25785969f",
-      "subject": "fix: map ran its callback on holes because it was left out of the gate"
-    },
-    {
-      "hash": "cfb6f40a7",
-      "subject": "refactor: split the early-exit predicate walks out of the any-lane hof module"
     }
   ],
-  "headSha": "3d1ae2b7e",
+  "headSha": "46ccd7dd8",
   "autorun": {
-    "total": 827,
+    "total": 828,
     "baselineTarget": 10,
-    "bySelf": 822,
+    "bySelf": 823,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787960004-0027",
-      "at": "2026-08-28T23:33:24Z",
-      "ts": 1787960004,
+      "rotationId": "r-1787968785-4ca3",
+      "at": "2026-08-29T01:59:45Z",
+      "ts": 1787968785,
       "trigger": "self",
-      "prevHead": "fefccde55",
-      "handoffSha": "sha256:c0de58dcff13b659862625e79ed8f45bae4eefe86a4a0fffd1b3e0436b6982f7",
-      "handoffAgeSec": 13,
+      "prevHead": "817247bf7",
+      "handoffSha": "sha256:0e7a6cfa9c1679c2b41aeeeb2d357295a24df665db038f30c4db8d5d4aefe43b",
+      "handoffAgeSec": 134,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1787968785-4ca3",
+        "at": "2026-08-29T01:59:45Z",
+        "ts": 1787968785,
+        "trigger": "self",
+        "prevHead": "817247bf7",
+        "handoffSha": "sha256:0e7a6cfa9c1679c2b41aeeeb2d357295a24df665db038f30c4db8d5d4aefe43b",
+        "handoffAgeSec": 134,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787960004-0027",
         "at": "2026-08-28T23:33:24Z",
@@ -877,17 +888,6 @@
         "prevHead": "30c80811e",
         "handoffSha": "sha256:cab3af963d162bb1c8a2a7b30b8d33ddaccdd3f3e4e48e7846d2c0e4ddb3b56e",
         "handoffAgeSec": 38,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787861503-7369",
-        "at": "2026-08-27T20:11:43Z",
-        "ts": 1787861503,
-        "trigger": "self",
-        "prevHead": "6de391697",
-        "handoffSha": "sha256:5ec3a904f36fbc193a52674a066ab33ef355d89bd6b28ed827439473745d1fad",
-        "handoffAgeSec": 45,
         "conformanceBefore": null,
         "commitsInSession": null
       }
