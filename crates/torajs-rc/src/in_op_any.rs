@@ -64,6 +64,11 @@ unsafe extern "C" {
     // torajs-anyvalue — the shared own-property predicate (see
     // module doc). Link-time-resolved, zero-Cargo-dep pattern.
     fn __torajs_any_prop_has(recv: u64, key: *const c_void) -> i64;
+    // torajs-anyvalue — §7.3.11 HasProperty. Asked only for a SYMBOL
+    // key: `member_get_symbol` owns that key domain end to end, and
+    // routing here is what keeps `sym in o` and `o[sym]` answering
+    // the same chain.
+    fn __torajs_any_has_property(recv: u64, key: *const c_void) -> i64;
     // torajs-anyvalue — borrowed user-[[Prototype]] cell of a DynObj
     // (NULL = null-proto / implicit chain / non-cell).
     fn __torajs_dynobj_user_proto(dynobj: *const c_void) -> *mut c_void;
@@ -303,6 +308,18 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
     let Some((ptr, type_tag)) = (unsafe { require_object_rhs(v) }) else {
         return false;
     };
+    // §6.1.7 — a symbol key is a wholly separate key domain, and every
+    // face below this line is name-keyed (index decode, class-proto
+    // members, interned family methods, buffer names). torajs-anyvalue
+    // owns the symbol chain for the READ face; asking it here is what
+    // makes `sym in o` and `o[sym]` agree. This used to be a `return
+    // false` further down, past the user-[[Prototype]] walk, so
+    // `Symbol.iterator in [1]` was false while `[1][Symbol.iterator]`
+    // was a function, and a `Object.defineProperty(Array.prototype,
+    // sym, …)` patch was invisible to `in`.
+    if unsafe { key_cell_is_symbol(key) } {
+        return unsafe { __torajs_any_has_property(v as u64, key as *const c_void) } != 0;
+    }
     if unsafe { __torajs_any_prop_has(v as u64, key as *const c_void) } != 0 {
         return true;
     }
@@ -343,13 +360,6 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
                 return false;
             }
         }
-    }
-    // §6.1.7 — the two faces below are name-keyed: a class prototype's
-    // members and a builtin prototype's interned family methods are all
-    // spelled with strings, and both probes read the key's Str payload.
-    // A symbol key's chain ends with the user [[Prototype]] walk above.
-    if unsafe { key_cell_is_symbol(key) } {
-        return false;
     }
     // Class-prototype link — a struct receiver's methods / accessor
     // halves live on its class prototype, not on the instance
@@ -412,6 +422,11 @@ unsafe fn __torajs_dynobj_entry_is_hole(_obj: *const c_void, _key: *const u8) ->
 
 #[cfg(test)]
 unsafe fn __torajs_any_prop_has(_recv: u64, _key: *const c_void) -> i64 {
+    PROP_HAS_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
+unsafe fn __torajs_any_has_property(_recv: u64, _key: *const c_void) -> i64 {
     PROP_HAS_RESULT.with(|r| r.get())
 }
 

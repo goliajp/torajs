@@ -191,8 +191,10 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
 enum InheritedFrom {
     /// Another receiver — recurse (covers grandparents).
     Receiver(AnyValue),
-    /// A prototype's property dict — one more probe, no recursion
-    /// (the builtin prototypes are chain roots).
+    /// A prototype's property dict — one more probe, then the
+    /// receiver's own reified faces, then [`builtin_root_parent`].
+    /// Not a recursion, because the singleton reached this way can BE
+    /// the receiver.
     Dict(*const c_void),
     Nothing,
 }
@@ -219,35 +221,83 @@ unsafe fn probe_dict(dict: *const c_void, key: *const c_void) -> Option<(u64, u6
     None
 }
 
-/// `(tag, value)` for a symbol-keyed read — `(5, 0)` when absent.
+/// The chain hop a builtin cell owes after its family prototype has
+/// answered nothing: §10.1.8.1 step 4 continues through THAT
+/// prototype's own [[Prototype]], which is %Object.prototype% for
+/// every builtin (`torajs_meta::reflect_proto` states the same rule
+/// for `getPrototypeOf`). `None` when the receiver IS the root, so
+/// the walk terminates.
+///
+/// Without this hop the symbol lane was strictly shorter than the
+/// string one: `Object.prototype.foo = 5; [1].foo` answered 5 while
+/// `Object.defineProperty(Object.prototype, sym, …); [1][sym]`
+/// answered undefined — the entry was installed and unreachable from
+/// every non-dynobj receiver, the same shape `implicit_proto_parent`
+/// closed for dynobjs.
+///
+/// # Safety
+/// `ptr` is NULL or a live heap cell.
+unsafe fn builtin_root_parent(ptr: *const c_void) -> Option<AnyValue> {
+    let root = unsafe {
+        torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
+            torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64,
+        )
+    };
+    if root.is_null() || core::ptr::eq(root.cast_const(), ptr) {
+        return None;
+    }
+    Some(crate::nanbox::box_void_ptr(root))
+}
+
+/// §10.1.8.1 OrdinaryGet for a symbol key, with "absent" kept apart
+/// from "present, storing undefined" — `None` is the genuine miss the
+/// `in` face needs, `Some(pair)` is the read one.
+///
 /// Borrow-shaped like the string-key pair helpers: no rc traffic, the
 /// dict keeps its own share of the value.
 ///
 /// # Safety
 /// Cell receivers are live heap pointers; `key` is a live Symbol cell.
-pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64, u64) {
+unsafe fn symbol_key_probe(recv: AnyValue, key: *const c_void) -> Option<(u64, u64)> {
     // A primitive receiver boxes to a wrapper with no own symbol-keyed
-    // property, and tr's builtin prototypes carry none either — the
-    // only inherited symbol face a primitive CAN see is the F0
-    // builtin `@@iterator` reify. A ShortStr is not a cell, so it
-    // consults the reify table directly under its Str family.
+    // property, but everything ABOVE that wrapper is reachable: its
+    // family prototype's dict, the F0 `@@iterator` reify, and the
+    // root. A ShortStr is not a cell, so it enters the shared tail
+    // below under its Str family rather than through a dict probe.
     let Some((ptr, t)) = recv_cell(recv) else {
+        let family = crate::method_value::family::recv_proto_family(recv);
+        if family < 0 {
+            return None;
+        }
+        let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(family) }
+            as *const c_void;
+        let proto_tag = if proto.is_null() {
+            0
+        } else {
+            unsafe { proto.cast::<u8>().add(4).cast::<u16>().read() }
+        };
+        if !proto.is_null()
+            && let Some(pair) = unsafe { probe_dict(own_dict(proto.cast_mut(), proto_tag), key) }
+        {
+            return Some(pair);
+        }
         if crate::nanbox::is_short_str(recv)
             && let Some(cell) =
                 unsafe { crate::method_value::builtin_symbol_method_lookup(Tag::Str as u16, key) }
         {
-            return (4, cell as u64);
+            return Some((4, cell as u64));
         }
-        return (TAG_UNDEF, 0);
+        let root = unsafe { builtin_root_parent(proto) }?;
+        return unsafe { symbol_key_probe(root, key) };
     };
     if let Some(pair) = unsafe { probe_dict(own_dict(ptr, t), key) } {
-        return pair;
+        return Some(pair);
     }
     match unsafe { inherited_dict(ptr, t) } {
-        InheritedFrom::Receiver(parent) => return unsafe { symbol_key_pair(parent, key) },
+        InheritedFrom::Receiver(parent) => return unsafe { symbol_key_probe(parent, key) },
         InheritedFrom::Dict(dict) => {
             if let Some(pair) = unsafe { probe_dict(dict, key) } {
-                return pair;
+                return Some(pair);
             }
         }
         InheritedFrom::Nothing => {}
@@ -256,11 +306,44 @@ pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64
     // `[Symbol.iterator]` reifies its aliased prototype method (a
     // monkey-patch in the dicts above shadows it, per the probes'
     // order). Tag 4 = Heap; the cell is immortal, borrow-shaped.
+    //
+    // BEFORE the root hop, not after: the reified faces are what the
+    // family prototype OWNS, and %Object.prototype% is one link
+    // further out.
     // SAFETY: key is a live Symbol cell per the caller contract.
     if let Some(cell) = unsafe { crate::method_value::builtin_symbol_method_lookup(t, key) } {
-        return (4, cell as u64);
+        return Some((4, cell as u64));
     }
-    (TAG_UNDEF, 0)
+    // NOT for a DynObj: that arm's `Nothing` is the genuine end of the
+    // chain — the root itself, or an `Object.create(null)` receiver
+    // whose [[Prototype]] IS null. Hopping there anyway made
+    // `Object.create(null)[sym]` answer the root's entry. For every
+    // other shape `Nothing` only means the family prototype held
+    // nothing, and the chain goes on.
+    if t == Tag::DynObj as u16 {
+        return None;
+    }
+    let root = unsafe { builtin_root_parent(ptr) }?;
+    unsafe { symbol_key_probe(root, key) }
+}
+
+/// `(tag, value)` for a symbol-keyed read — `(5, 0)` when absent.
+///
+/// # Safety
+/// Cell receivers are live heap pointers; `key` is a live Symbol cell.
+pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64, u64) {
+    unsafe { symbol_key_probe(recv, key) }.unwrap_or((TAG_UNDEF, 0))
+}
+
+/// §7.3.11 HasProperty for a symbol key — the same walk, asking only
+/// whether anything on the chain claims the key. An entry storing
+/// `undefined` is present, which is why this cannot be spelled as
+/// `symbol_key_pair(..) != (TAG_UNDEF, 0)`.
+///
+/// # Safety
+/// Cell receivers are live heap pointers; `key` is a live Symbol cell.
+pub(crate) unsafe fn symbol_key_has(recv: AnyValue, key: *const c_void) -> bool {
+    unsafe { symbol_key_probe(recv, key) }.is_some()
 }
 
 /// [`symbol_key_pair`] with the accessor sentinel RESOLVED, for the

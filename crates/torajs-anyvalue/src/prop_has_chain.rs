@@ -44,6 +44,17 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
         return unsafe { crate::proxy_ops::has(crate::nanbox::as_void_ptr(recv), key) }
             .unwrap_or(false) as i64;
     }
+    // §6.1.7 — a symbol key is a wholly separate key domain, and every
+    // face past the own probe below is name-keyed (index decode,
+    // interned method names, buffer names, ctor statics).
+    // `member_get_symbol` owns the symbol chain for the READ face;
+    // asking it here is what makes `in` and `[sym]` answer the same
+    // walk. Before this hop the own probe answered and the arms below
+    // answered 0 for every non-dynobj receiver, so `Symbol.iterator in
+    // [1]` was false while `[1][Symbol.iterator]` was a function.
+    if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
+        return unsafe { crate::member_get_symbol::symbol_key_has(recv, key) } as i64;
+    }
     if unsafe { crate::prop_has::__torajs_any_prop_has(recv, key) } != 0 {
         return 1;
     }
