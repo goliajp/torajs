@@ -1549,17 +1549,43 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `c62c820a2` (53174
+**Where the numbers come from.** Full sweep @ `a33f6cb50` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 87b7b0d8d`, never as a constant (the two shas this
+snapshot stamped `@ a33f6cb50`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about).
 
-**Latest @ `87b7b0d8d`** (2026-08-29, rotation 527 — things with
+**Latest @ `a33f6cb50`** (2026-08-29, rotation 528 — the property face
+528 found nobody reading). Gate predicate: **151** clusters of ≥ 4
+holding **1165** cases, register 2 · 251, residue 577 · 736 (34.2%),
+core **2152**. Against rotation 527: clusters 156 → **151 (−5)**,
+cases 1187 → **1165 (−22)**, core 2184 → **2152 (−32)** — a second
+consecutive move, from the same cause as the first: two of this
+rotation's five commits remove compile errors. `(new Map() as any).zz
+= 1` and `+xs` on a `number[]` were programs bun runs that tr refused
+to build, so the cases carrying them sat in the `incompatible` bucket
+the P-SURF denominator counts.
+
+Sweep passTotal 35163 → **35213 (+50)**, pass 30032 → **30081 (+49)**,
+passNoOracle 984 → **985 (+1)**, passNegative 4147 → **4147 (=)**,
+bug 12474 → **12456 (−18)**, incompatible 5537 → **5505 (−32)**,
+trAccepted 47637 → **47669 (+32)**; conservation exact
+(+32 = +50 + −18). Verdict diff 74 changed: 26 `incompatible:type
+error` → `pass`, 21 `bug:exit 1` → `pass`, 2 `bug:exit 3` → `pass`,
+1 no-oracle forward, 24 sideways between failing buckets, and
+**0 backward**. `built-ins/TypedArray/invoked.js` (registered 524)
+is still failing and still correctly so.
+
+Unattributed head by directory: `language/expressions` 630,
+`language/statements` 327, `staging/sm` 295, `built-ins/Array` 172,
+`language/module-code` 127. Coverage curve: top-100 **52.7%**,
+top-200 **70.2%**, top-400 **83.9%**.
+
+**Prior @ `87b7b0d8d`** (2026-08-29, rotation 527 — things with
 internal state need a property face too). Gate predicate: **156**
 clusters of ≥ 4 holding **1187** cases, register 2 · 251, residue
 587 · 746 (34.2%), core **2184**. Against rotation 526: clusters

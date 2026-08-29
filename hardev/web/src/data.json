@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T12:19:23.649Z",
+  "generatedAt": "2026-08-29T14:07:22.444Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,30 +9,30 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "bug": 12474,
-    "bunSkip": 3031,
-    "elapsedSec": 368.73,
-    "harnessError": 0,
-    "headSha": "87b7b0d8d",
-    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 87b7b0d8d, so the sweep measured that code. Field corrected at ingest.",
-    "inScope": 53174,
-    "incompatible": 5537,
+    "ranAt": "2026-08-29T13:56:42Z",
+    "headSha": "a33f6cb50",
+    "elapsedSec": 367.8,
+    "workers": 10,
     "limit": null,
-    "pass": 30032,
-    "passNegative": 4147,
-    "passNoOracle": 984,
-    "passRateInScope": 66.13,
-    "passRateTrAccepted": 73.81,
-    "passTotal": 35163,
-    "ran": 53174,
-    "ranAt": "2026-08-29T12:06:01Z",
     "totalCases": 53174,
-    "trAccepted": 47637,
-    "workers": 10
+    "ran": 53174,
+    "pass": 30081,
+    "passNoOracle": 985,
+    "passNegative": 4147,
+    "passTotal": 35213,
+    "bug": 12456,
+    "incompatible": 5505,
+    "bunSkip": 3031,
+    "harnessError": 0,
+    "inScope": 53174,
+    "trAccepted": 47669,
+    "passRateInScope": 66.22,
+    "passRateTrAccepted": 73.87,
+    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to a33f6cb50, so the sweep measured that code. Field corrected at ingest."
   },
   "torajs": {
-    "commit": "87b7b0d8d",
-    "commitSubject": "fix: `in` refused to compile against a receiver whose shape it knew",
+    "commit": "a33f6cb50",
+    "commitSubject": "fix: the collector stopped at every receiver that carries internal state",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +714,30 @@
   },
   "commits": [
     {
+      "hash": "a33f6cb50",
+      "subject": "fix: the collector stopped at every receiver that carries internal state"
+    },
+    {
+      "hash": "d90faf3df",
+      "subject": "fix: ToNumber was defined for these operands and the checker said no"
+    },
+    {
+      "hash": "ef2a7bf8b",
+      "subject": "fix: a builtin constructor reached as a value had no prototype to walk"
+    },
+    {
+      "hash": "db8783f4d",
+      "subject": "fix: a store refused to compile against a receiver whose shape it knew"
+    },
+    {
+      "hash": "ec88e3de3",
+      "subject": "fix: a call looked for the own property everywhere except where it was kept"
+    },
+    {
+      "hash": "8192bf303",
+      "subject": "docs: rotation 527 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
+    },
+    {
       "hash": "87b7b0d8d",
       "subject": "fix: `in` refused to compile against a receiver whose shape it knew"
     },
@@ -736,51 +760,38 @@
     {
       "hash": "d5f1824f2",
       "subject": "fix: four receivers kept internal state where their property face should be"
-    },
-    {
-      "hash": "1b7c45432",
-      "subject": "docs: rotation 526 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
-    },
-    {
-      "hash": "c62c820a2",
-      "subject": "fix: the new method id was booked twice, and only a fixture said so"
-    },
-    {
-      "hash": "98c716748",
-      "subject": "fix: the default instanceof handler existed as a fall-through, not a property"
-    },
-    {
-      "hash": "eb647a086",
-      "subject": "fix: two lanes where knowing the receiver's shape skipped the chain"
-    },
-    {
-      "hash": "df6aeadca",
-      "subject": "fix: five more receivers that answered a write without asking anything above them"
-    },
-    {
-      "hash": "dac74e02f",
-      "subject": "fix: the write side climbed only the links that were written down"
     }
   ],
-  "headSha": "87b7b0d8d",
+  "headSha": "a33f6cb50",
   "autorun": {
-    "total": 830,
+    "total": 831,
     "baselineTarget": 10,
-    "bySelf": 825,
+    "bySelf": 826,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1787998299-2b28",
-      "at": "2026-08-29T10:11:39Z",
-      "ts": 1787998299,
+      "rotationId": "r-1788005977-706c",
+      "at": "2026-08-29T12:19:37Z",
+      "ts": 1788005977,
       "trigger": "self",
-      "prevHead": "1b7c45432",
-      "handoffSha": "sha256:0823cb6f2c4794d03be122086c7ab8ac2c259a541a470c0aa5a3926b7715a390",
-      "handoffAgeSec": 24,
+      "prevHead": "8192bf303",
+      "handoffSha": "sha256:356b1cf2267f4dc94f64d25c145bc505cbd54a285df0e8b765bb57ff49cbd2a1",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788005977-706c",
+        "at": "2026-08-29T12:19:37Z",
+        "ts": 1788005977,
+        "trigger": "self",
+        "prevHead": "8192bf303",
+        "handoffSha": "sha256:356b1cf2267f4dc94f64d25c145bc505cbd54a285df0e8b765bb57ff49cbd2a1",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1787998299-2b28",
         "at": "2026-08-29T10:11:39Z",
@@ -877,17 +888,6 @@
         "prevHead": "78509df3a",
         "handoffSha": "sha256:4d467555d8a74cd0f564509558878b5aa2891ea9eb5f46df9d69d61c8e738f9f",
         "handoffAgeSec": 2,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787901021-3352",
-        "at": "2026-08-28T07:10:21Z",
-        "ts": 1787901021,
-        "trigger": "self",
-        "prevHead": "c74575467",
-        "handoffSha": "sha256:881e391bf9d53d4c0e7e0ad149c6cb1b0d2854242c98ef575a04d587ab94f4d0",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
