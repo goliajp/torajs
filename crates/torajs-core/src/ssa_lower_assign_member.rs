@@ -15,17 +15,20 @@
 //!    write throws via `emit_throw_check`. Post-resize relocation
 //!    write-back rides the AnyValue slot, re-stored to a plain-Ident
 //!    receiver's local.
-//! 2. **Type::Closure** (`T-27`) — `f.x = v` writes to the closure's
-//!    lazy `props_dynobj` at `CLOSURE_PROPS_OFF` via `fn_props_set`.
+//! 2. **Type::Closure** (`T-27`) — boxed into lane 1. It used to
+//!    write the closure's lazy `props_dynobj` at `CLOSURE_PROPS_OFF`
+//!    directly, which is the same write minus §10.1.9.2's chain
+//!    consult; knowing the receiver's shape at compile time is not a
+//!    licence to skip it.
 //! 3. **Type::FnSig** (`T-27.b`) — top-level FnDecl routes through
 //!    the `fnprops` side table keyed by fn pointer.
 //! 4. **Type::Arr + field=="length"** (`S133-3`) — spec §9.4.2.4 length
 //!    setter: route to `arr_set_length_validate` (refcount elem types)
 //!    or `arr_set_length_truncate_scalar` (i64/f64/bool elements).
-//! 5. **Type::Arr** (other field, `T-29`) — `arr.x = v` writes to the
-//!    array's side-table `props_dynobj` (keyed by ptr) via
-//!    `arrprops_set`. `arr_drop` / `arr_drop_any` drop_entry hook
-//!    cleans the bucket at refcount == 0.
+//! 5. **Type::Arr** (other field, `T-29`) — boxed into lane 1, for
+//!    the same reason lane 2 is. Only a NAME key arrives here (an
+//!    index is `Expr::Index`, `length` is lane 4), so the element and
+//!    length fast paths are untouched.
 //! 6. **Type::RegExp + field=="lastIndex"** (`P9.4`) — coerce RHS to
 //!    f64 (uncoerced-store spec shape; ToLength happens where the
 //!    regex kernels consume it), call `regex_set_last_index`, return
@@ -81,7 +84,20 @@ pub(crate) fn lower(
         );
     }
     if matches!(obj_ty, Type::Closure(_)) {
-        return lower_closure_props_assign(ctx, eid, obj_val, &field, value);
+        // A statically known function is still an object, and
+        // §10.1.9.2 does not care that the compiler knew its shape:
+        // the direct props write skipped the [[Prototype]] chain
+        // entirely, so `f.caller = {}` minted an own key where
+        // %Function.prototype% has a %ThrowTypeError% setter — while
+        // the SAME program spelled through an `any` binding threw.
+        // Boxing to take the any lane is the Promise arm's move, for
+        // the Promise arm's reason: the cell never relocates (its bag
+        // lives in its own slot), so there is no write-back, and the
+        // box is a pure bit-encode borrow.
+        let boxed = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
+            ctx, eid, boxed, &field, value, &None, false,
+        );
     }
     if matches!(obj_ty, Type::FnSig(_)) {
         return lower_fnsig_props_assign(ctx, eid, obj_val, &field, value);
@@ -90,7 +106,14 @@ pub(crate) fn lower(
         return lower_arr_length_assign(ctx, eid, obj_val, obj_ty, value);
     }
     if matches!(obj_ty, Type::Arr(_)) {
-        return lower_arr_props_assign(ctx, eid, obj_val, &field, value);
+        // Same fact, same fix — and reachable only for a NAME key:
+        // an index is an `Expr::Index` node and `length` was claimed
+        // one arm up, so nothing on the element or length fast paths
+        // comes through here.
+        let boxed = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
+            ctx, eid, boxed, &field, value, &None, false,
+        );
     }
     if obj_ty == Type::RegExp && field == "lastIndex" {
         return lower_regex_last_index_assign(ctx, obj_val, value);
@@ -136,25 +159,6 @@ fn finish_assign_value(
         ctx.owned_member_reads.insert(eid);
     }
     v
-}
-
-fn lower_closure_props_assign(
-    ctx: &mut LowerCtx<'_>,
-    eid: ExprId,
-    obj_val: Operand,
-    field: &str,
-    value: ExprId,
-) -> Operand {
-    let v_raw = ctx.lower_expr(value);
-    // Chunk 566 — storing into closure props is a SHARE: no consume.
-    // box_to_tag_value mints the bucket's +1; a borrow-shape rhs
-    // keeps the source binding's stake, an owned temp releases its
-    // surplus reference after the store.
-    let transfers = ctx.expr_transfers_ownership(value);
-    let v_ty = ctx.operand_ty(&v_raw);
-    let (tag, val_op) = ctx.box_to_tag_value(v_raw.clone());
-    ctx.fn_props_set(obj_val, field, tag, val_op);
-    finish_assign_value(ctx, eid, v_raw, v_ty, transfers)
 }
 
 fn lower_fnsig_props_assign(
@@ -216,31 +220,6 @@ fn lower_arr_length_assign(
     ctx.f.append_void(cur_block, InstKind::Call(helper, argv));
     ctx.emit_throw_check(None);
     finish_assign_value(ctx, eid, v_raw, v_ty, false)
-}
-
-fn lower_arr_props_assign(
-    ctx: &mut LowerCtx<'_>,
-    eid: ExprId,
-    obj_val: Operand,
-    field: &str,
-    value: ExprId,
-) -> Operand {
-    // lower_to_tag_value keeps `undefined` ANY_UNDEF (plain pair
-    // would collapse to null). Chunk 566 — SHARE: the bucket's +1
-    // comes from box_to_tag_value inside; no consume, and an owned
-    // temp releases its surplus reference after the store.
-    let (tag, val_op, v_raw, v_ty) = ctx.lower_to_tag_value_raw(value);
-    let transfers = ctx.expr_transfers_ownership(value);
-    let key_str = ctx.intern_string_literal(field);
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arrprops_set,
-            vec![obj_val, Operand::Value(key_str), tag, val_op],
-        ),
-    );
-    finish_assign_value(ctx, eid, v_raw, v_ty, transfers)
 }
 
 fn lower_regex_last_index_assign(

@@ -180,7 +180,7 @@ impl<'a> LowerCtx<'a> {
 
     /// Extract `(tag_op, value_op)` for a freshly-lowered value, matching
     /// `box_to_any`'s tag scheme. Used by sites that need the unboxed
-    /// pair instead of an Any-box (e.g. dynobj_set / fn_props_set
+    /// pair instead of an Any-box (e.g. dynobj_set / arrprops_set
     /// which take tag + value as separate args). For statically-typed
     /// values the tag is `ConstI64(literal)`; for already-boxed Any
     /// it's a Load extracting the box's runtime tag at +8 — callers

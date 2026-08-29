@@ -426,7 +426,6 @@ pub(crate) mod ssa_lower_expr_inner;
 pub(crate) mod ssa_lower_fn;
 pub(crate) mod ssa_lower_fn_ctx_methods;
 pub(crate) mod ssa_lower_fn_meta;
-pub(crate) mod ssa_lower_fn_props;
 pub(crate) mod ssa_lower_for_of_any_iter;
 pub(crate) mod ssa_lower_for_of_iter_protocol;
 pub(crate) mod ssa_lower_for_of_iter_protocol_await;
