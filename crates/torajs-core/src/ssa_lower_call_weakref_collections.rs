@@ -73,10 +73,10 @@ fn try_lower_weakref_deref(
     if name != "deref" {
         return None;
     }
-    if !matches!(ctx.expr_types.get(obj), Some(check_mod::Type::WeakRef)) {
+    let recv_id = *obj;
+    if crate::ssa_lower_recv_face::static_ty(ctx, recv_id) != Some(Type::WeakRef) {
         return None;
     }
-    let recv_id = *obj;
     let recv_op = ctx.lower_expr(recv_id);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
     let cur_block = ctx.cur_block;
@@ -117,17 +117,10 @@ fn try_lower_weak_collection_method(
     }
 
     let recv_id = *obj;
-    let recv_ty_hint = match ctx.ast.get_expr(recv_id) {
-        Expr::Ident(n) => ctx.locals.get(n).map(|info| info.ty),
-        Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
-            match ctx.expr_types.get(&recv_id) {
-                Some(check_mod::Type::WeakMap) => Some(Type::WeakMap),
-                Some(check_mod::Type::WeakSet) => Some(Type::WeakSet),
-                _ => None,
-            }
-        }
-        _ => None,
-    };
+    // Every spelling, through the shared face resolver — the private
+    // table this replaces did not list `Expr::As`
+    // (`ssa_lower_recv_face`).
+    let recv_ty_hint = crate::ssa_lower_recv_face::static_ty(ctx, recv_id);
     let do_weakmap = weakmap_method && recv_ty_hint == Some(Type::WeakMap);
     let do_weakset = weakset_method && recv_ty_hint == Some(Type::WeakSet);
     if !do_weakmap && !do_weakset {

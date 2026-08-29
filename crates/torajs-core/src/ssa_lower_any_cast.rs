@@ -10,10 +10,10 @@
 //! for number-tagged boxes, which is the only well-typed case).
 
 use crate::ast::ExprId;
-use crate::ssa::{Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 
 impl crate::ssa_lower::LowerCtx<'_> {
-    pub(crate) fn lower_as_cast(&mut self, inner: ExprId, ty_ann: &str) -> Operand {
+    pub(crate) fn lower_as_cast(&mut self, eid: ExprId, inner: ExprId, ty_ann: &str) -> Operand {
         // An object literal cast to `any` promotes to the dynobj
         // lane (twin of the empty-[] → Arr<Any> promote and of the
         // direct-ObjectLit call-arg route in
@@ -76,6 +76,42 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 "boolean" => return self.coerce_to_bool(inner_op),
                 "bigint" => return self.coerce_any_to_bigint(inner_op),
                 _ => {}
+            }
+            // The same materialization for the annotations that name
+            // ONE heap layout — `Map<K, V>`, `Set<T>`, `Date`,
+            // `RegExp`, the weak collections, the iterator cells, a
+            // `Promise<T>`. Without it a cast out of `any` stayed a
+            // NaN-box while the checker had already answered the
+            // annotated type, so every typed lane that dispatches on
+            // the operand — a Map method call, a `const m: Map<…> =
+            // o.m as Map<…>` binding — either declined the receiver
+            // it was written for or would have read a header off a
+            // boxed word.
+            //
+            // The decode BORROWS (`any_cell_ptr` materializes
+            // nothing), so ownership still follows the inner
+            // expression, which is what the `As`-peeling done at the
+            // return / throw / field-store / let-share sites reads.
+            // Dropping the cell through its `Map` face is the same
+            // decrement dropping the box would have made.
+            if let Some(face) = self
+                .expr_types
+                .get(&eid)
+                .and_then(crate::ssa_lower_recv_face::monomorphic_face)
+            {
+                let raw = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_cell_ptr, vec![inner_op]),
+                    Type::I64,
+                    None,
+                );
+                let cell = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::IntToPtr(Operand::Value(raw)),
+                    face,
+                    None,
+                );
+                return Operand::Value(cell);
             }
         }
         inner_op

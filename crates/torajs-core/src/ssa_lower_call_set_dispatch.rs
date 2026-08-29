@@ -31,7 +31,6 @@
 //! method dispatch arms below.
 
 use crate::ast::{Expr, ExprId};
-use crate::check as check_mod;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -69,20 +68,9 @@ pub(crate) fn try_lower(
     ) {
         return None;
     }
-    // Receiver Set detection — mirror Map: class-field / index / call
-    // receivers (Expr::Member / Index / Call) fall back to the checked type.
-    let recv_ty_hint = match ctx.ast.get_expr(obj) {
-        Expr::Ident(n) => ctx.locals.get(n).map(|info| info.ty),
-        Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } | Expr::New { .. } => {
-            match ctx.expr_types.get(&obj) {
-                Some(check_mod::Type::Map) => Some(Type::Map),
-                Some(check_mod::Type::Set) => Some(Type::Set),
-                _ => None,
-            }
-        }
-        _ => None,
-    };
-    if recv_ty_hint != Some(Type::Set) {
+    // Receiver Set detection — mirror Map, through the shared face
+    // resolver (`ssa_lower_recv_face`).
+    if crate::ssa_lower_recv_face::static_ty(ctx, obj) != Some(Type::Set) {
         return None;
     }
     let recv_op = ctx.lower_expr(obj);

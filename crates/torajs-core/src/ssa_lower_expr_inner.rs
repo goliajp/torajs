@@ -402,7 +402,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // accessor, this carve-out can shrink.
         Expr::As { expr, ty_ann } => {
             let (inner, ann) = (*expr, ty_ann.clone());
-            ctx.lower_as_cast(inner, &ann)
+            ctx.lower_as_cast(eid, inner, &ann)
         }
         // V3-18 m1.h.6 — comma operator; see [`lower_sequence`].
         Expr::Sequence { left, right } => lower_sequence(ctx, *left, *right),

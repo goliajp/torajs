@@ -20,7 +20,6 @@
 //! method dispatch arms below.
 
 use crate::ast::{Expr, ExprId};
-use crate::check as check_mod;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -51,23 +50,12 @@ pub(crate) fn try_lower(
     ) {
         return None;
     }
-    // Receiver Map detection — local Ident is the common shape; class-field
-    // receiver (`new W().m.set(...)` where `m: Map<K,V>`) is an Expr::Member
-    // whose checked type is `check::Type::Map`. Without the second branch
-    // the Member receiver falls through to the module.method dispatch below
-    // and panics "unsupported member call shape: set".
-    let recv_ty_hint = match ctx.ast.get_expr(obj) {
-        Expr::Ident(n) => ctx.locals.get(n).map(|info| info.ty),
-        Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } | Expr::New { .. } => {
-            match ctx.expr_types.get(&obj) {
-                Some(check_mod::Type::Map) => Some(Type::Map),
-                Some(check_mod::Type::Set) => Some(Type::Set),
-                _ => None,
-            }
-        }
-        _ => None,
-    };
-    if recv_ty_hint != Some(Type::Map) {
+    // Receiver Map detection — every spelling, through the shared
+    // face resolver. This used to be a private table of AST shapes
+    // that did not list `Expr::As`, so a cast receiver reached the
+    // cascade's terminal panic ("unsupported member call shape:
+    // set"); see `ssa_lower_recv_face`.
+    if crate::ssa_lower_recv_face::static_ty(ctx, obj) != Some(Type::Map) {
         return None;
     }
     let recv_op = ctx.lower_expr(obj);

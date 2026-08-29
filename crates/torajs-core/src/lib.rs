@@ -553,6 +553,7 @@ pub(crate) mod ssa_lower_promise_repr_mark;
 pub(crate) mod ssa_lower_promise_thunk;
 pub mod ssa_lower_push_loop_detect;
 pub(crate) mod ssa_lower_rc_emit;
+mod ssa_lower_recv_face;
 pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_relative_index;
 pub(crate) mod ssa_lower_resolve_callee;
