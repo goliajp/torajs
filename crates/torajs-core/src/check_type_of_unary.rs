@@ -58,17 +58,7 @@ fn check_neg(t: Type) -> Result<Type, String> {
         Ok(Type::Number)
     } else if t == Type::BigInt {
         Ok(Type::BigInt)
-    } else if matches!(
-        t,
-        Type::Boolean
-            | Type::Null
-            | Type::String
-            | Type::Undefined
-            // §13.5.5 negates ToNumber of the operand, which reaches
-            // an object's `valueOf` (NaN when it has none).
-            | Type::Struct(_)
-            | Type::ClassRef(_)
-    ) {
+    } else if is_number_coercible(&t) {
         Ok(Type::Number)
     } else if matches!(t, Type::Any) {
         Ok(Type::Any)
@@ -77,19 +67,54 @@ fn check_neg(t: Type) -> Result<Type, String> {
     }
 }
 
-fn check_plus(t: Type) -> Result<Type, String> {
-    if matches!(
+/// §7.1.4 ToNumber has an answer for every one of these — a
+/// primitive's own rule, or OrdinaryToPrimitive reaching the object's
+/// `valueOf` / `toString` (NaN when neither says a number). So `+x`
+/// and `-x` are legal source over all of them and the coercion is the
+/// runtime's to do.
+///
+/// Only Symbol and BigInt are left out, where ToNumber THROWS
+/// (§7.1.4 steps 2 and 5) — a compile error there matches TypeScript,
+/// which rejects the same two. Every other object shape used to be
+/// rejected as well, so `+xs` on a `number[]` did not build while
+/// `+({} as any)` did; §7.1.4 defines both.
+fn is_number_coercible(t: &Type) -> bool {
+    matches!(
         t,
-        Type::Number
-            | Type::Boolean
-            | Type::Null
-            | Type::String
-            | Type::Undefined
-            // §13.5.4 is ToNumber, which reaches an object's `valueOf`
-            // and answers NaN when it has none.
-            | Type::Struct(_)
+        Type::Boolean | Type::Null | Type::String | Type::Undefined
+    ) || is_object_shaped(t)
+}
+
+/// The object half of [`is_number_coercible`] — every shape whose
+/// ToNumber is OrdinaryToPrimitive over the receiver rather than a
+/// primitive's own rule.
+///
+/// The binary lanes ask the same question (`objectish` in
+/// `check_type_of_binop`), so it is one list: a shape admitted here
+/// and forgotten there is how `+xs` and `xs * 1` came to disagree.
+pub(crate) fn is_object_shaped(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::Struct(_)
             | Type::ClassRef(_)
-    ) {
+            | Type::Array(_)
+            | Type::Function(_, _)
+            | Type::Object(_)
+            | Type::Map
+            | Type::Set
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+            | Type::RegExp
+            | Type::Date
+            | Type::Promise(_)
+    )
+}
+
+fn check_plus(t: Type) -> Result<Type, String> {
+    if t == Type::Number || is_number_coercible(&t) {
         Ok(Type::Number)
     } else if t == Type::BigInt {
         Err("`+` on bigint is a TypeError per spec; use Number(x) for explicit coercion".into())

@@ -142,7 +142,7 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
 /// rather than a numeric one, which is a different question and stays
 /// a loud reject until someone answers it.
 fn objectish_numeric_pair(l: &Type, r: &Type) -> bool {
-    let objectish = |t: &Type| matches!(t, Type::Struct(_) | Type::ClassRef(_));
+    let objectish = crate::check_type_of_unary::is_object_shaped;
     (objectish(l) || objectish(r))
         && (objectish(l) || *l == Type::Number)
         && (objectish(r) || *r == Type::Number)

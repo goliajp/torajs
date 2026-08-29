@@ -257,7 +257,11 @@ impl LowerCtx<'_> {
         // none). Both signs share this, and both want the f64 the
         // runtime kernel answers with, so it sits ahead of the
         // per-sign coercions below. A user `valueOf` can throw.
-        if matches!(op, UnaryOp::Plus | UnaryOp::Neg) && matches!(self.operand_ty(&v), Type::Obj(_))
+        // Every object shape takes this route, not just the struct
+        // one: an array's ToNumber is its join's, a Date's is its
+        // time value, and the checker used to reject the rest rather
+        // than let them reach here.
+        if matches!(op, UnaryOp::Plus | UnaryOp::Neg) && is_number_coercible_obj(self.operand_ty(&v))
         {
             let boxed = self.box_to_any(v);
             let n = self.coerce_any_to_number(boxed, Type::F64);
@@ -418,4 +422,35 @@ impl LowerCtx<'_> {
             }
         }
     }
+}
+
+/// The object-shaped SSA types whose ToNumber (§7.1.4 step 9) is
+/// OrdinaryToPrimitive over the receiver — every one reaches the
+/// runtime's any-lane coercion, and the answer is the receiver's
+/// `valueOf` / `toString`, NaN when neither says a number.
+///
+/// `Symbol` and `BigInt` are absent because ToNumber throws for them;
+/// the checker rejects those two at compile time, as TypeScript does.
+///
+/// Shared with the binary lanes (`ssa_lower_binop_inner`), which box
+/// the same shapes for the same kernel — one list, so a shape the
+/// checker starts admitting cannot reach only half of them.
+pub(crate) fn is_number_coercible_obj(t: Type) -> bool {
+    matches!(
+        t,
+        Type::Obj(_)
+            | Type::Arr(_)
+            | Type::Closure(_)
+            | Type::FnSig(_)
+            | Type::RegExp
+            | Type::Date
+            | Type::Promise
+            | Type::Map
+            | Type::Set
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+    )
 }

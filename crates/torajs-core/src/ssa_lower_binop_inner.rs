@@ -237,8 +237,8 @@ fn box_object_operands_for_any_lane(
     ) {
         return (a, b);
     }
-    let a_obj = matches!(ctx.operand_ty(&a), Type::Obj(_));
-    let b_obj = matches!(ctx.operand_ty(&b), Type::Obj(_));
+    let a_obj = crate::ssa_lower_unary::is_number_coercible_obj(ctx.operand_ty(&a));
+    let b_obj = crate::ssa_lower_unary::is_number_coercible_obj(ctx.operand_ty(&b));
     if !a_obj && !b_obj {
         return (a, b);
     }
@@ -264,8 +264,8 @@ fn coerce_object_operands(
     ) {
         return (a, b);
     }
-    let a_obj = matches!(ctx.operand_ty(&a), Type::Obj(_));
-    let b_obj = matches!(ctx.operand_ty(&b), Type::Obj(_));
+    let a_obj = crate::ssa_lower_unary::is_number_coercible_obj(ctx.operand_ty(&a));
+    let b_obj = crate::ssa_lower_unary::is_number_coercible_obj(ctx.operand_ty(&b));
     if !a_obj && !b_obj {
         return (a, b);
     }
