@@ -1557,6 +1557,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 0a2fcd56`, never as a constant.
 
+**Latest @ `3d1ae2b7e`** (2026-08-29, rotation 524 — the answer given
+without finishing the walk). Gate predicate: **157** clusters of ≥ 4
+holding **1196** cases, register 2 · 251, residue 653 · 812 (35.9%),
+core **2259**. Against the previous sweep (`4129d778b`, rotation 523):
+clusters 157 → **157 (=)**, cases 1197 → **1196 (−1)**, core 2260 →
+**2259 (−1)**. Sweep passTotal 34958 → **34973 (+15)**, pass 29890 →
+**29905 (+15)**, passNoOracle 921 → **921 (=)**, passNegative 4147 →
+**4147 (=)**, bug 12603 → **12589 (−14)**, incompatible 5613 →
+**5612 (−1)**, trAccepted 47561 → **47562 (+1)**; conservation exact
+(+1 = +15 + −14). Verdict diff **15 lines, every one forward, zero
+regressions**: eleven are `TypedArray/prototype/toLocaleString` (ten
+plus the intl402 one) and one is
+`Array/prototype/toLocaleString/user-provided-tolocalestring-grow`,
+all from the §20.1.3.5 hop; `Boolean/S15.6.2.1_A4`,
+`Number/S15.7.2.1_A4`, `String/S15.5.1.1_A1_T8` and
+`String/prototype/constructor/S15.5.4.1_A1_T2` are the family-delete
+redirect. The fifteenth is `RegExp/S15.10.2_A1_T1` returning to `pass`
+from `incompatible:tr-timeout`, which confirms rotation 523's reading
+of it as a boundary-timing cell rather than a regression.
+
+Two corrections to the previous entry, both from reading the stored
+sweep json rather than the handoff prose: its pass / passTotal / bug
+were each off by one (29890 / 34958 / 12603 are the recorded values),
+and its "unattributed head by directory" listed the **tail** of the
+layer-3 section. The real head, this sweep: `language/expressions`
+666, `language/statements` 327, `staging/sm` 300, `built-ins/Array`
+172, `language/module-code` 127. Coverage curve: top-100 **50.4%**,
+top-200 **67.7%**, top-400 **81.0%**.
+
 **Latest @ `4129d778b`** (2026-08-29, rotation 523 — the answers that
 were given before the walk began). Gate predicate: **157** clusters of
 ≥ 4 holding **1197** cases, register 2 · 251, residue 653 · 812
