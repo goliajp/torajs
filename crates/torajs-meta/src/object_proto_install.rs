@@ -37,6 +37,7 @@ const ACC_KINDS_BOXED_BOTH: u64 = 5 | (5 << 8);
 /// §B.2.2.1 descriptor is `{ enumerable: false, configurable:
 /// true }` with both accessor faces present.
 const DEFINE_FLAG_CONFIGURABLE: u64 = 1 << 2;
+const DEFINE_PRESENT_WRITABLE: u64 = 1 << 3;
 const DEFINE_PRESENT_ENUMERABLE: u64 = 1 << 4;
 const DEFINE_PRESENT_CONFIGURABLE: u64 = 1 << 5;
 const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
@@ -51,6 +52,9 @@ unsafe extern "C" {
     fn __torajs_function_proto_props_slot(proto: *mut c_void) -> *mut *mut c_void;
     /// torajs-anyvalue — interned immortal cell for a method id.
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
+    /// torajs-str — the idx-th well-known symbol singleton (immortal;
+    /// the define's stake on it is never given back).
+    fn __torajs_symbol_well_known(idx: i64) -> *mut c_void;
     /// torajs-dynobj — fresh `+1`-rc AccessorPair (faces transfer;
     /// the immortal cells' rc traffic no-ops on the static flag).
     fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
@@ -109,8 +113,35 @@ pub unsafe extern "C" fn __torajs_function_proto_install(proto: *mut c_void) {
         let thrower = __torajs_builtin_method_cell(ANY_METHOD_THROW_TYPE_ERROR_MID);
         install_accessor_entry(slot, b"caller", thrower, thrower);
         install_accessor_entry(slot, b"arguments", thrower, thrower);
+        // §20.2.3.6 — the default `instanceof` handler, and the one
+        // own property here the spec locks down completely
+        // ({W,E,C} all false). It was the operator's fall-through
+        // shape before, which is a different thing from an entry:
+        // `f[Symbol.hasInstance]` answered undefined and
+        // `getOwnPropertySymbols(Function.prototype)` was empty,
+        // while the behaviour it stands for worked.
+        let key = __torajs_symbol_well_known(WK_HAS_INSTANCE);
+        if !key.is_null() {
+            __torajs_dynobj_define_plain(
+                slot,
+                key.cast::<u8>(),
+                ANY_HEAP as u64,
+                __torajs_builtin_method_cell(ANY_METHOD_FN_HAS_INSTANCE_MID) as u64,
+                DEFINE_PRESENT_VALUE
+                    | DEFINE_PRESENT_WRITABLE
+                    | DEFINE_PRESENT_ENUMERABLE
+                    | DEFINE_PRESENT_CONFIGURABLE,
+            );
+        }
     }
 }
+
+/// Mirror of `torajs_rc::ANY_METHOD_FN_HAS_INSTANCE`.
+const ANY_METHOD_FN_HAS_INSTANCE_MID: i64 = 205;
+
+/// §6.1.5.1 well-known index of `@@hasInstance` — the table is
+/// alphabetical (`method_value::symbol_static` mirror).
+const WK_HAS_INSTANCE: i64 = 3;
 
 /// One `{get, set, enumerable: false, configurable: true}` accessor
 /// own entry from interned immortal faces (each pair takes its own

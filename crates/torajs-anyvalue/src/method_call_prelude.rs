@@ -43,6 +43,19 @@ pub(crate) unsafe fn pre_nullish_arm(
         }
         return Some(VALUE_UNDEFINED);
     }
+    // §20.2.3.6 — the DEFAULT `instanceof` handler's body. Its step 1
+    // is IsCallable(this), so a null / undefined receiver is `false`
+    // and not a ToObject throw:
+    // `Function.prototype[Symbol.hasInstance].call(null, x)` is false.
+    if mid == torajs_rc::ANY_METHOD_FN_HAS_INSTANCE {
+        let v = if argc > 0 {
+            unsafe { *argv }
+        } else {
+            VALUE_UNDEFINED
+        };
+        let r = unsafe { crate::instanceof_dynamic::ordinary_has_instance(v, recv, false) };
+        return Some(crate::nanbox::box_bool(r));
+    }
     // §20.1.3.3 is an ORDINARY %Object.prototype% method, so an own
     // / class / chain / patched `isPrototypeOf` has to win over it —
     // it is answered at the end of the walk with the other two

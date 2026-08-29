@@ -206,6 +206,9 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §22.1.3.36 — String.prototype[Symbol.iterator] (own id,
         // never interns back; the spec function name has brackets).
         ANY_METHOD_STR_ITERATOR => ("[Symbol.iterator]", 0),
+        // §20.2.3.6 — Function.prototype[Symbol.hasInstance] (own id,
+        // never interns back; `length` 1 for the single V argument).
+        ANY_METHOD_FN_HAS_INSTANCE => ("[Symbol.hasInstance]", 1),
         // Annex B §B.2.4.1 — RegExp.prototype.compile(pattern, flags).
         ANY_METHOD_COMPILE => ("compile", 2),
         // The buffer family's rows live in [`buffer_method_meta`]

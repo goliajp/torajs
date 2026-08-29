@@ -437,6 +437,12 @@ pub const ANY_METHOD_DV_SET_BIGUINT64: i64 = 203; // `setBigUint64`
 /// carried-mid re-dispatch, the GET_SIZE posture).
 pub const ANY_METHOD_GET_RESIZABLE: i64 = 204;
 
+/// §20.2.3.6 `Function.prototype[Symbol.hasInstance]` — the DEFAULT
+/// `instanceof` handler, as a real own entry rather than a shape the
+/// operator falls through to. Own id, never interned by name (the
+/// spec function name has brackets, like `ANY_METHOD_STR_ITERATOR`).
+pub const ANY_METHOD_FN_HAS_INSTANCE: i64 = 205;
+
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
 /// receiver. ssa-lower interns the member NAME into one of these at

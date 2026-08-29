@@ -42,7 +42,6 @@ use torajs_rc::Tag;
 
 use crate::construct::is_heap_object;
 use crate::member_get_symbol::symbol_key_get;
-use crate::method_call_closure_dispatch::invoke_with_this;
 use crate::method_value::symbol_static::well_known_singleton;
 use crate::nanbox::{AnyValue, as_void_ptr};
 
@@ -87,8 +86,44 @@ pub unsafe extern "C" fn __torajs_instanceof_dynamic(v: AnyValue, target: AnyVal
             // which is what `handler` outliving the call says.
             return call_has_instance(v, target, value as *mut c_void);
         }
-        // Steps 4-5 — no handler: the target must itself be callable,
-        // and then the answer is the ordinary prototype walk.
+        // Steps 4-5 — no handler found anywhere on the chain, which
+        // since §20.2.3.6 landed means the target is not a function
+        // at all (%Function.prototype% owns the default one, and
+        // every function reaches it). A non-callable right-hand side
+        // is the step-5 TypeError; the walk itself is the handler's
+        // body now.
+        ordinary_has_instance(v, target, true)
+    }
+}
+
+/// §13.10.2 steps 4-5 / §20.2.3.6 OrdinaryHasInstance — "is V's
+/// prototype chain reachable from C's `prototype`", for a C that is
+/// callable.
+///
+/// One body, two callers, and the second is why it moved out of the
+/// operator: %Function.prototype% now OWNS `[Symbol.hasInstance]`
+/// (§20.2.3.6), so an ordinary `x instanceof f` finds a handler at
+/// step 2 and this runs as that handler's body. Leaving a copy in the
+/// operator's tail would have made the two paths two implementations
+/// of one rule, free to drift.
+///
+/// `strict` is the difference between them: the operator throws on a
+/// non-callable right-hand side (§13.10.2 step 5), while
+/// OrdinaryHasInstance step 1 answers `false` — which is what
+/// `Function.prototype[Symbol.hasInstance].call({}, x)` must do.
+///
+/// # Safety
+/// `v` and `target` are live AnyValues.
+pub(crate) unsafe fn ordinary_has_instance(v: AnyValue, target: AnyValue, strict: bool) -> bool {
+    unsafe {
+        if !is_heap_object(target) {
+            if strict {
+                __torajs_throw_type_error(
+                    c"Right-hand side of 'instanceof' is not an object".as_ptr(),
+                );
+            }
+            return false;
+        }
         let cell = as_void_ptr(target);
         if cell_tag(cell) == Tag::Closure as u16 {
             return crate::construct::__torajs_instanceof_fn_value(v, cell);
@@ -102,7 +137,9 @@ pub unsafe extern "C" fn __torajs_instanceof_dynamic(v: AnyValue, target: AnyVal
         if let Some(r) = crate::construct::class_ctor_has_instance(v, cell) {
             return r;
         }
-        __torajs_throw_type_error(c"Right-hand side of 'instanceof' is not callable".as_ptr());
+        if strict {
+            __torajs_throw_type_error(c"Right-hand side of 'instanceof' is not callable".as_ptr());
+        }
         false
     }
 }
@@ -116,13 +153,19 @@ unsafe fn call_has_instance(v: AnyValue, target: AnyValue, cell: *mut c_void) ->
             __torajs_throw_type_error(c"Symbol.hasInstance handler is not callable".as_ptr());
             return false;
         }
-        let entry = crate::method_call_closure_dispatch::boxed_entry_of(cell.cast::<u8>());
-        if entry == 0 {
+        // Classify rather than jump: a REIFIED builtin cell's boxed
+        // entry is the bare-receiver throw, so jumping into it is how
+        // `x instanceof A` started reporting "this is undefined" the
+        // moment %Function.prototype% owned a real §20.2.3.6 entry —
+        // the handler the lookup now finds for every function is one
+        // of those cells. `call_target` is what the `.call` lane
+        // already uses to tell the two shapes apart.
+        let Some(target_kind) = crate::method_call_closure::call_target(cell) else {
             __torajs_throw_type_error(c"Symbol.hasInstance handler is not callable".as_ptr());
             return false;
-        }
+        };
         let argv = [v];
-        let raw = invoke_with_this(cell, entry, target, argv.as_ptr(), 1);
+        let raw = crate::method_call_closure::dispatch(&target_kind, target, argv.as_ptr(), 1);
         // The dispatch sentinel means the adapter declined; a body
         // that threw leaves the pending throw for the call site.
         if raw == crate::method_call::ANY_METHOD_NO_SUCH {
