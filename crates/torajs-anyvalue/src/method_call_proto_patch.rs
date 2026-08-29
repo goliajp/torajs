@@ -238,10 +238,35 @@ pub(crate) unsafe fn primitive_patch_pregate(
                 || crate::method_support_proto::proto_tag_family_owns(OBJECT_PROTO_FAMILY, mid);
             if claimed
                 && !crate::method_support_proto::proto_tag_owns(fam, mid)
-                && !crate::method_support_proto::proto_tag_owns(OBJECT_PROTO_FAMILY, mid)
                 && proto_patch_slot(recv, mid, name_str).is_none()
             {
-                return Some(not_callable());
+                if !crate::method_support_proto::proto_tag_owns(OBJECT_PROTO_FAMILY, mid) {
+                    return Some(not_callable());
+                }
+                // The family gave the name up and the ROOT still owns
+                // one — the walk does not end at the tombstone, it
+                // steps past it, and %Object.prototype%'s own method
+                // is what gets called. Declining here instead left the
+                // per-tag arm to answer natively, which is the same
+                // shape of bug the refusal above fixes read from the
+                // other side: `delete Array.prototype.toString` left
+                // `[1,2].toString()` at "1,2" where `[object Array]`
+                // is due, and `delete Number.prototype.valueOf` left
+                // `(5).valueOf()` a number where ToObject's wrapper
+                // is due.
+                //
+                // Only a family that OWNED the name can redirect.
+                // Without that clause every receiver whose family
+                // never had it — a Map has no `toString` — would be
+                // pulled off its arm the moment anything else on the
+                // chain was touched, and a Map's arm answers the same
+                // badge the root would.
+                if crate::method_support_proto::proto_tag_family_owns(fam, mid)
+                    && let Some(out) =
+                        crate::method_call_object_proto_own::root_own_answer(recv, mid, argv, argc)
+                {
+                    return Some(out);
+                }
             }
         }
         if mid == ANY_METHOD_TO_LOCALE_STRING

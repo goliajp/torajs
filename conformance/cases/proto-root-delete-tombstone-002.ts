@@ -8,16 +8,18 @@
 // tombstone is consulted.
 //
 // WHICH function answers after a family-only delete is the call
-// channel's half of the same question and is NOT pinned here — the
-// fast arms answer natively before the walk, so `[1,2].toString()`
-// still says "1,2" where the root's badge is due. Registered as the
-// next knife rather than asserted green.
+// channel's half of the same question, and the row below now pins it:
+// the walk steps past the tombstone and %Object.prototype%'s own
+// toString is what runs. The three names a family can both own and
+// share with the root get the wider matrix in
+// `proto-root-family-delete-redirect-001`.
 const anchor: any = Object
 const A: any = Array.prototype
 console.log("pre  typeof :", typeof ([] as any).toString)
 console.log("pre  value  :", ([1, 2] as any).toString())
 delete A.toString
 console.log("fam  typeof :", typeof ([] as any).toString)
+console.log("fam  value  :", ([1, 2] as any).toString())
 console.log("fam  obj    :", typeof ({} as any).toString, ({} as any).toString())
 console.log("fam  join    :", typeof ([] as any).join)
 delete (Object.prototype as any).toString

@@ -197,6 +197,7 @@ mod method_call_legacy_accessor;
 mod method_call_mapset;
 mod method_call_num;
 mod method_call_object_proto;
+mod method_call_object_proto_own;
 mod method_call_object_proto_tag;
 mod method_call_prelude;
 mod method_call_promise;
