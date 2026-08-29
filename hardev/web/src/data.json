@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T14:07:22.444Z",
+  "generatedAt": "2026-08-29T16:15:30.457Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-29T13:56:42Z",
-    "headSha": "a33f6cb50",
-    "elapsedSec": 367.8,
+    "ranAt": "2026-08-29T16:08:30Z",
+    "headSha": "773e3266b",
+    "elapsedSec": 386.95,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -28,11 +28,11 @@
     "trAccepted": 47669,
     "passRateInScope": 66.22,
     "passRateTrAccepted": 73.87,
-    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to a33f6cb50, so the sweep measured that code. Field corrected at ingest."
+    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 773e3266b and force-touched before the release build, so the sweep measured that code. Field corrected at ingest."
   },
   "torajs": {
-    "commit": "a33f6cb50",
-    "commitSubject": "fix: the collector stopped at every receiver that carries internal state",
+    "commit": "773e3266b",
+    "commitSubject": "fix: a Proxy was not a place the collector could go, or start from",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +714,30 @@
   },
   "commits": [
     {
+      "hash": "773e3266b",
+      "subject": "fix: a Proxy was not a place the collector could go, or start from"
+    },
+    {
+      "hash": "6c183552b",
+      "subject": "fix: Object(Symbol()) was the one wrapper you could not assign to"
+    },
+    {
+      "hash": "c39d4621c",
+      "subject": "fix: the collector saw a Map's properties but not what it stores"
+    },
+    {
+      "hash": "4f995b31c",
+      "subject": "fix: a Map holding only itself was never offered to the collector"
+    },
+    {
+      "hash": "5776a6b67",
+      "subject": "fix: a bagless Map answered the collector as if it had children"
+    },
+    {
+      "hash": "fde118fc7",
+      "subject": "docs: rotation 528 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
+    },
+    {
       "hash": "a33f6cb50",
       "subject": "fix: the collector stopped at every receiver that carries internal state"
     },
@@ -736,51 +760,38 @@
     {
       "hash": "8192bf303",
       "subject": "docs: rotation 527 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
-    },
-    {
-      "hash": "87b7b0d8d",
-      "subject": "fix: `in` refused to compile against a receiver whose shape it knew"
-    },
-    {
-      "hash": "35d51413c",
-      "subject": "fix: two links was one too few once a prototype stopped hanging off the root"
-    },
-    {
-      "hash": "d7917706d",
-      "subject": "fix: a receiver whose shape was known at compile time got a compile error instead of a read"
-    },
-    {
-      "hash": "f12566a68",
-      "subject": "fix: the chain walk skipped every prototype between the receiver and the root"
-    },
-    {
-      "hash": "893b8bfc3",
-      "subject": "fix: an iterator was the one object left that could not hold a property"
-    },
-    {
-      "hash": "d5f1824f2",
-      "subject": "fix: four receivers kept internal state where their property face should be"
     }
   ],
-  "headSha": "a33f6cb50",
+  "headSha": "773e3266b",
   "autorun": {
-    "total": 831,
+    "total": 832,
     "baselineTarget": 10,
-    "bySelf": 826,
+    "bySelf": 827,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788005977-706c",
-      "at": "2026-08-29T12:19:37Z",
-      "ts": 1788005977,
+      "rotationId": "r-1788012755-1c62",
+      "at": "2026-08-29T14:12:35Z",
+      "ts": 1788012755,
       "trigger": "self",
-      "prevHead": "8192bf303",
-      "handoffSha": "sha256:356b1cf2267f4dc94f64d25c145bc505cbd54a285df0e8b765bb57ff49cbd2a1",
+      "prevHead": "fde118fc7",
+      "handoffSha": "sha256:a5793b368ed89d17f29ea9d0bc8dafd94719b6ca85cdc115c394d0999b9a4144",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788012755-1c62",
+        "at": "2026-08-29T14:12:35Z",
+        "ts": 1788012755,
+        "trigger": "self",
+        "prevHead": "fde118fc7",
+        "handoffSha": "sha256:a5793b368ed89d17f29ea9d0bc8dafd94719b6ca85cdc115c394d0999b9a4144",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788005977-706c",
         "at": "2026-08-29T12:19:37Z",
@@ -877,17 +888,6 @@
         "prevHead": "ed2ae8822",
         "handoffSha": "sha256:7db7d1841270a481ab056edad9ffb09884ca5213dee92f370938124768bc5578",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787909698-258b",
-        "at": "2026-08-28T09:34:59Z",
-        "ts": 1787909699,
-        "trigger": "self",
-        "prevHead": "78509df3a",
-        "handoffSha": "sha256:4d467555d8a74cd0f564509558878b5aa2891ea9eb5f46df9d69d61c8e738f9f",
-        "handoffAgeSec": 2,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1,7 +1,7 @@
 {
-  "ranAt": "2026-08-29T13:56:42Z",
-  "headSha": "a33f6cb50",
-  "elapsedSec": 367.8,
+  "ranAt": "2026-08-29T16:08:30Z",
+  "headSha": "773e3266b",
+  "elapsedSec": 386.95,
   "workers": 10,
   "limit": null,
   "totalCases": 53174,
@@ -18,5 +18,5 @@
   "trAccepted": 47669,
   "passRateInScope": 66.22,
   "passRateTrAccepted": 73.87,
-  "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to a33f6cb50, so the sweep measured that code. Field corrected at ingest."
+  "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to 773e3266b and force-touched before the release build, so the sweep measured that code. Field corrected at ingest."
 }
