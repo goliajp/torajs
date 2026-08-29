@@ -29,6 +29,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{ANY_RPROP_LAST_INDEX, Tag};
 
+use crate::member_get_layout::is_wrapper_tag;
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
@@ -430,12 +431,14 @@ unsafe fn any_member_set_impl(
         }
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — a primitive-
         // wrapper receiver (`new Number()` / `new String()` /
-        // `new Boolean()`) grew a `+16` lazy props slot; arm body in
+        // `new Boolean()` / `Object(Symbol())`) grew a `+16` lazy
+        // props slot; arm body in
         // [`crate::member_set_wrapper::set_wrapper_member`].
-        if cell_tag == Tag::NumberWrapper as u16
-            || cell_tag == Tag::StringWrapper as u16
-            || cell_tag == Tag::BooleanWrapper as u16
-        {
+        // SymbolWrapper shares that layout and the get channel has
+        // always read it (`member_get_layout::is_wrapper_tag`), so
+        // leaving it off this list made `Object(sym).z = 1` the only
+        // wrapper assignment that threw.
+        if is_wrapper_tag(cell_tag) {
             return crate::member_set_wrapper::set_wrapper_member(
                 ptr,
                 cell_tag,

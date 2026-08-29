@@ -35,7 +35,7 @@ use crate::dynobj::{
 };
 use crate::layout::{
     CLOSURE_DROP_FN_OFF, HeapHeader, STRING_WRAPPER_CELL_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE,
-    TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, is_class_obj,
+    TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, TAG_SYMBOL_WRAPPER, is_class_obj,
 };
 
 unsafe extern "C" {
@@ -140,9 +140,11 @@ pub(crate) unsafe fn finalize_all() {
                     unsafe { __torajs_str_drop(key) };
                 }
             }
-        } else if tag == TAG_STRING_WRAPPER {
-            // The [[StringData]] Str cell is a leaf the walk never
-            // touched — release it like __torajs_string_wrapper_drop.
+        } else if matches!(tag, TAG_STRING_WRAPPER | TAG_SYMBOL_WRAPPER) {
+            // The [[StringData]] Str cell — and the [[SymbolData]]
+            // Symbol cell, which sits at the same offset — is a leaf
+            // the walk never touched. Release it the way
+            // __torajs_string_wrapper_drop does.
             let cell =
                 unsafe { *((p as *const u8).add(STRING_WRAPPER_CELL_OFF) as *const *mut c_void) };
             if !cell.is_null() {
@@ -189,7 +191,7 @@ pub(crate) unsafe fn finalize_all() {
         } else {
             if !matches!(
                 tag,
-                TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
+                TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER
             ) && !unsafe { is_class_obj(p) }
             {
                 // TAG_ARR — a grown array spilled its slots to an

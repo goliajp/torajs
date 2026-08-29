@@ -51,6 +51,10 @@ pub const TAG_NUMBER_WRAPPER: u16 = 21;
 pub const TAG_STRING_WRAPPER: u16 = 22;
 /// See [`TAG_NUMBER_WRAPPER`].
 pub const TAG_BOOLEAN_WRAPPER: u16 = 23;
+/// See [`TAG_NUMBER_WRAPPER`]. `Object(Symbol())` carries an expando
+/// bag at the same offset its three siblings do and an owning `+1`
+/// on the inner Symbol cell, exactly like a StringWrapper.
+pub const TAG_SYMBOL_WRAPPER: u16 = 24;
 
 /// `Tag::Closure = 3` — env-first closure cell (RFC 20260717
 /// closure-env-cycle knife 3). Layout mirror of torajs-core
@@ -328,7 +332,7 @@ pub unsafe fn is_visitable_wrapper(p: *mut c_void) -> bool {
     header.flags & FLAG_STATIC_LITERAL == 0
         && matches!(
             header.type_tag,
-            TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
+            TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER
         )
 }
 
