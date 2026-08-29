@@ -414,6 +414,10 @@ unsafe fn regexp_cell_descriptor(cell: *const c_void, key: *const c_void) -> u64
             // the assign ladder writes (§22.2.6 ordinary face).
             return bag_only_descriptor(cell, TAG_REGEXP, key);
         }
+        // Writable until a `defineProperty` freezes it — the one
+        // attribute of this property that can move (§10.1.6.3 step 4
+        // lets a non-configurable data property go read-only once).
+        let w = crate::reflect::__torajs_regex_last_index_writable(cell) as u64;
         let raw = __torajs_regex_last_index_raw(cell);
         if raw != 0 {
             if is_cell_imm(raw) {
@@ -421,10 +425,10 @@ unsafe fn regexp_cell_descriptor(cell: *const c_void, key: *const c_void) -> u64
             }
             let t = __torajs_anyv_unbox_tag(raw) as u64;
             let v = __torajs_anyv_unbox_value(raw) as u64;
-            return build_data_descriptor(t, v, 1, 0, 0);
+            return build_data_descriptor(t, v, w, 0, 0);
         }
         let li = __torajs_regex_get_last_index(cell);
-        build_data_descriptor(3, li.to_bits(), 1, 0, 0)
+        build_data_descriptor(3, li.to_bits(), w, 0, 0)
     }
 }
 

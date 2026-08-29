@@ -105,7 +105,15 @@ pub struct RegExp {
     /// [`abort_unsupported`] to land in the test262 runner's
     /// "incompatible" bucket rather than producing wrong matches.
     pub rejected: u8,
-    pub _pad: [u8; 2],
+    /// Set once `Object.defineProperty(re, "lastIndex", {writable:
+    /// false})` has run. §22.2.4.1 mints `lastIndex` as `{writable:
+    /// true, enumerable: false, configurable: false}`, and a
+    /// non-configurable data property may still be made read-only
+    /// once — after which its value is frozen too (§10.1.6.3 step
+    /// 4). One byte out of the padding that was already here; the
+    /// cell's size and every other offset are unchanged.
+    pub last_index_frozen: u8,
+    pub _pad: [u8; 1],
     pub n_captures: i32,
     pub prog: Program,
     /// Original pattern bytes — `re.source` returns these wrapped

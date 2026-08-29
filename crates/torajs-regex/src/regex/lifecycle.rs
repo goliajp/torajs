@@ -130,7 +130,31 @@ pub unsafe extern "C" fn __torajs_regex_set_last_index(re_ptr: *mut c_void, idx:
     if re_ptr.is_null() {
         return;
     }
+    if unsafe { refuse_frozen(re_ptr) } {
+        return;
+    }
     unsafe { as_regex_mut(re_ptr) }.set_last_index_num(idx);
+}
+
+/// A `lastIndex` frozen by `defineProperty` refuses every further
+/// assignment — §10.1.9.1 step 3.b answers false, and a strict-mode
+/// assignment turns that into a TypeError. Only the EXTERNAL faces
+/// ask: exec / test / the sticky advance write through
+/// `set_last_index_num` directly, because §22.2.7.2's stores are
+/// internal-slot writes, not property assignments.
+///
+/// # Safety
+/// `re_ptr` is a live `*RegExp`.
+unsafe fn refuse_frozen(re_ptr: *mut c_void) -> bool {
+    if unsafe { as_regex(re_ptr) }.last_index_frozen == 0 {
+        return false;
+    }
+    unsafe {
+        super::__torajs_throw_type_error(
+            c"cannot assign to read only property 'lastIndex'".as_ptr() as *const u8,
+        )
+    };
+    true
 }
 
 /// Boxed-form `lastIndex` peek (RFC 20260722 any-slot 刀) — the raw
@@ -164,12 +188,161 @@ pub unsafe extern "C" fn __torajs_regex_last_index_store_boxed(re_ptr: *mut c_vo
     if re_ptr.is_null() {
         return;
     }
+    if unsafe { refuse_frozen(re_ptr) } {
+        return;
+    }
     let re = unsafe { as_regex_mut(re_ptr) };
     if re.last_index_boxed != 0 {
         unsafe { super::__torajs_value_drop_heap(re.last_index_boxed as *mut c_void) };
     }
     re.last_index_boxed = v;
 }
+
+/// §22.2.4.1's `lastIndex` is the ONE own property a RegExp keeps
+/// in its cell rather than in the lazy bag, and it is minted
+/// `{writable: true, enumerable: false, configurable: false}`. This
+/// is its [[DefineOwnProperty]]: §10.1.6.3 against that descriptor,
+/// then the store. Before it existed, a define naming `lastIndex`
+/// reached the "no expando define storage" arm and was dropped in
+/// silence — `Object.defineProperty(re, "lastIndex", {value: 3})`
+/// left the old value in place and answered as if it had worked.
+///
+/// `flags_byte` is torajs-dynobj's `DEFINE_*` encoding. Answers 1
+/// when the define is accepted, 0 when §10.1.6.3 rejects it (the
+/// caller flavors the TypeError). The `(tag, value)` pair transfers
+/// on acceptance; on a rejection the caller keeps it and releases.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`; `value` carries the
+/// caller's +1 on a heap payload.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_last_index_define(
+    re_ptr: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+) -> i64 {
+    if re_ptr.is_null() {
+        return 0;
+    }
+    let re = unsafe { as_regex_mut(re_ptr) };
+    let writable = re.last_index_frozen == 0;
+    // An accessor descriptor against a data property whose
+    // [[Configurable]] is false — §10.1.6.3 step 3.
+    if flags_byte & (DEFINE_PRESENT_GET | DEFINE_PRESENT_SET) != 0 {
+        return 0;
+    }
+    // Step 4.a — [[Configurable]] and [[Enumerable]] are fixed, so
+    // asking for anything but what they already are is a refusal.
+    if flags_byte & DEFINE_PRESENT_CONFIGURABLE != 0 && flags_byte & DEFINE_FLAG_CONFIGURABLE != 0 {
+        return 0;
+    }
+    if flags_byte & DEFINE_PRESENT_ENUMERABLE != 0 && flags_byte & DEFINE_FLAG_ENUMERABLE != 0 {
+        return 0;
+    }
+    // §10.1.6.3 compares only the fields the descriptor HAS. A
+    // descriptor with no [[Writable]] is not a request for
+    // `writable: true`.
+    let asks_writable_true =
+        flags_byte & DEFINE_PRESENT_WRITABLE != 0 && flags_byte & DEFINE_FLAG_WRITABLE != 0;
+    let asks_writable_false =
+        flags_byte & DEFINE_PRESENT_WRITABLE != 0 && flags_byte & DEFINE_FLAG_WRITABLE == 0;
+    if !writable {
+        // Step 4.b — a non-configurable, non-writable property takes
+        // neither its writability back nor a DIFFERENT value.
+        // Redefining it with the value it already holds is a no-op
+        // the spec accepts (SameValue), and test262 leans on that.
+        if asks_writable_true {
+            return 0;
+        }
+        if flags_byte & DEFINE_PRESENT_VALUE != 0 && !unsafe { holds_same_value(re, tag, value) } {
+            return 0;
+        }
+        return 1;
+    }
+    if flags_byte & DEFINE_PRESENT_VALUE != 0 {
+        if tag == ANY_I64 || tag == ANY_F64 {
+            let n = if tag == ANY_I64 {
+                value as i64 as f64
+            } else {
+                f64::from_bits(value)
+            };
+            re.set_last_index_num(n);
+        } else {
+            // Verbatim, like the any-lane assignment: ToLength runs
+            // at the §22.2.7.2 exec entry, not here. Spelled against
+            // the field rather than through the extern store so the
+            // freeze below is not ordering-sensitive.
+            if re.last_index_boxed != 0 {
+                unsafe { super::__torajs_value_drop_heap(re.last_index_boxed as *mut c_void) };
+            }
+            re.last_index_boxed = value;
+        }
+    }
+    if asks_writable_false {
+        unsafe { as_regex_mut(re_ptr) }.last_index_frozen = 1;
+    }
+    1
+}
+
+/// SameValue between the stored `lastIndex` and an incoming
+/// `(tag, value)` — §10.1.6.3 step 4's escape hatch for redefining
+/// a frozen property with the value it already holds. NaN equals
+/// NaN here and `+0` does not equal `-0`, which is SameValue and
+/// not `===`.
+///
+/// # Safety
+/// `re` is a live `RegExp`.
+unsafe fn holds_same_value(re: &super::RegExp, tag: u64, value: u64) -> bool {
+    let incoming_num = match tag {
+        ANY_I64 => Some(value as i64 as f64),
+        ANY_F64 => Some(f64::from_bits(value)),
+        _ => None,
+    };
+    if re.last_index_boxed != 0 {
+        // A boxed store is compared verbatim: the same NaN-box bits
+        // are the same value, and a numeric request against a boxed
+        // slot is a different value by construction (the numeric
+        // form would have reset the box).
+        return incoming_num.is_none() && re.last_index_boxed == value;
+    }
+    let Some(n) = incoming_num else {
+        return false;
+    };
+    let cur = re.last_index;
+    (cur.is_nan() && n.is_nan()) || cur.to_bits() == n.to_bits()
+}
+
+/// Whether `lastIndex` is still writable — the bit
+/// `getOwnPropertyDescriptor` reports and the assignment kernels
+/// refuse on.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_last_index_writable(re_ptr: *const c_void) -> i64 {
+    if re_ptr.is_null() {
+        return 1;
+    }
+    (unsafe { as_regex(re_ptr) }.last_index_frozen == 0) as i64
+}
+
+/// `DEFINE_*` mirrors — torajs-dynobj `layout.rs` is the source.
+const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
+const DEFINE_FLAG_ENUMERABLE: u64 = 1 << 1;
+const DEFINE_FLAG_CONFIGURABLE: u64 = 1 << 2;
+const DEFINE_PRESENT_WRITABLE: u64 = 1 << 3;
+const DEFINE_PRESENT_ENUMERABLE: u64 = 1 << 4;
+const DEFINE_PRESENT_CONFIGURABLE: u64 = 1 << 5;
+const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
+const DEFINE_PRESENT_GET: u64 = 1 << 7;
+const DEFINE_PRESENT_SET: u64 = 1 << 8;
+
+/// `ANY_TAG` mirrors for the numeric fast slot.
+const ANY_I64: u64 = 2;
+const ANY_F64: u64 = 3;
 
 /// `re.flags` — returns the spec-ordered flag string ("g" / "im" /
 /// "dgimsuy" / etc.) per ES §22.2.6.4. Order is fixed: d, g, i, m,

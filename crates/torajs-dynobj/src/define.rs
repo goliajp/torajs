@@ -35,6 +35,15 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(child: *mut c_void);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
+    /// torajs-regex — §22.2.4.1's `lastIndex` lives in the RegExp
+    /// cell, so its [[DefineOwnProperty]] belongs to the crate that
+    /// owns that layout. 1 = accepted, 0 = §10.1.6.3 refusal.
+    fn __torajs_regex_last_index_define(
+        re: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    ) -> i64;
     /// torajs-arr — Array DefineOwnProperty kernel (RFC
     /// 20260712-arr-exotic-define chunk B receiver dispatch).
     fn __torajs_arr_define(
@@ -342,6 +351,26 @@ pub(crate) unsafe fn define_apply(
         return unsafe {
             define_into_closure_expando(obj, key, tag, value, flags_byte, throw_on_refusal)
         };
+    }
+    // The one name a RegExp keeps in its cell rather than in the bag
+    // (§22.2.4.1) — routed to the crate that owns that layout. It
+    // used to fall past every arm to the "no expando define storage"
+    // release below, so a define naming it was dropped in silence.
+    if htag == crate::layout::TAG_REGEXP_HDR && unsafe { crate::layout::key_is(key, b"lastIndex") }
+    {
+        let accepted = unsafe { __torajs_regex_last_index_define(obj, tag, value, flags_byte) };
+        if accepted == 0 {
+            return unsafe {
+                refuse(
+                    throw_on_refusal,
+                    c"cannot redefine property: lastIndex".as_ptr() as *const u8,
+                    flags_byte & DEFINE_PRESENT_VALUE != 0,
+                    tag,
+                    value,
+                )
+            };
+        }
+        return 1;
     }
     // Promise / Map / Set / Date / RegExp — the lazy-bag receivers
     // (slot chooser + the one held-out name in [`lazy_bag_props_off`]).

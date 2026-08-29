@@ -57,6 +57,9 @@ unsafe extern "C" {
     /// torajs-regex — boxed-form lastIndex peek (BORROW; 0 = numeric
     /// form).
     pub(crate) fn __torajs_regex_last_index_raw(re: *const c_void) -> u64;
+    /// torajs-regex — 1 while `lastIndex` is still writable
+    /// (`defineProperty` can freeze it once, §10.1.6.3 step 4).
+    pub(crate) fn __torajs_regex_last_index_writable(re: *const c_void) -> i64;
     /// torajs-anyvalue — NaN-box → (tag, value) pair decode for the
     /// descriptor builder.
     pub(crate) fn __torajs_anyv_unbox_tag(v: u64) -> i64;

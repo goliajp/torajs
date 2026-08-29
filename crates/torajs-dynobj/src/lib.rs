@@ -88,6 +88,19 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_last_index_define(
+    _re: *mut core::ffi::c_void,
+    _tag: u64,
+    _value: u64,
+    _flags: u64,
+) -> i64 {
+    panic!(
+        "torajs-dynobj test stub: __torajs_regex_last_index_define should not be called from cargo test (no RegExp receiver is built there)"
+    )
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
     panic!(
         "torajs-dynobj unit-test stub: __torajs_throw_type_error should not be called from cargo test paths"
