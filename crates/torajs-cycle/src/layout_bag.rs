@@ -50,6 +50,25 @@ pub fn bag_only_props_off(type_tag: u16) -> Option<usize> {
     })
 }
 
+/// True when a corpse of this shape must be torn down by the crate
+/// that owns its layout rather than by a bare `free`. Two things
+/// follow from it, and they are the same thing said twice:
+/// [`crate::defer`]'s pass B routes the corpse through the universal
+/// dispatcher so the destructor releases what the walk never reached,
+/// and `collect_white`'s second sweep must therefore NOT release
+/// those same children itself.
+///
+/// The bag shapes qualify because their entry table / compiled
+/// program / byte store is the destructor's. A Proxy qualifies for a
+/// different reason: it has no bag at all, but both of its slots are
+/// owned AnyValues and its cell is a sized `std::alloc` block, so the
+/// array-spill fallthrough would read it at the wrong offset and free
+/// it with the wrong shape.
+#[inline]
+pub fn corpse_takes_own_destructor(type_tag: u16) -> bool {
+    bag_only_props_off(type_tag).is_some() || type_tag == crate::proxy::TAG_PROXY
+}
+
 /// `torajs_rc::Tag` mirrors for [`bag_only_props_off`]. Values are
 /// the stable wire format in `torajs-rc/src/tag.rs`; do not renumber.
 pub const TAG_REGEXP: u16 = 4;

@@ -96,7 +96,7 @@ pub(crate) unsafe fn finalize_all() {
     for i in 0..len as usize {
         let p = unsafe { *buf.add(i) };
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
-        if tag == TAG_CLOSURE || crate::layout_bag::bag_only_props_off(tag).is_some() {
+        if tag == TAG_CLOSURE || crate::layout_bag::corpse_takes_own_destructor(tag) {
             // Zero every slot the cycle machinery already accounted:
             // fellow corpses (rc == 0 — drop_fn has no rc gate and
             // would re-drop a block this drain is about to free) and
@@ -174,7 +174,7 @@ pub(crate) unsafe fn finalize_all() {
                 free_sized(dynobj_store_ptr(p), dynobj_store_bytes(p));
                 free_sized(p, DYNOBJ_HEADER_BYTES);
             }
-        } else if crate::layout_bag::bag_only_props_off(tag).is_some() {
+        } else if crate::layout_bag::corpse_takes_own_destructor(tag) {
             // The shape's own destructor owns everything the walk
             // never reached — a Map's entry table, a RegExp's
             // compiled program, an ArrayBuffer's data, an iterator's

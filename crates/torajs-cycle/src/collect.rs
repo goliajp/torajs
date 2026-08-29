@@ -139,6 +139,16 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         if !props.is_null() {
             f(PROPS_SLOT_INDEX, props);
         }
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == crate::proxy::TAG_PROXY {
+        // §10.5 — [[ProxyTarget]] and [[ProxyHandler]], both owned,
+        // both ordinary objects. A handler that refers back to the
+        // proxy it serves is a two-cell ring.
+        for i in 0..crate::proxy::PROXY_CHILD_COUNT {
+            let child = unsafe { crate::proxy::proxy_child_at(p, i) };
+            if !child.is_null() {
+                f(i, child);
+            }
+        }
     } else if let Some(off) =
         crate::layout_bag::bag_only_props_off(unsafe { (*(p as *const HeapHeader)).type_tag })
     {
@@ -219,6 +229,8 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
             let target: u64 = i;
             unsafe { trace(p, trace_clear_tramp, &target as *const u64 as *mut c_void) };
         }
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == crate::proxy::TAG_PROXY {
+        unsafe { crate::proxy::proxy_slot_clear(p, i) };
     } else if i != PROPS_SLOT_INDEX
         && matches!(
             unsafe { (*(p as *const HeapHeader)).type_tag },
@@ -398,7 +410,7 @@ unsafe fn collect_white(p: *mut c_void) {
     // prevent. Pass A clears exactly the slots this collect already
     // accounted for; whatever is left is the destructor's.
     let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
-    if tag != TAG_CLOSURE && crate::layout_bag::bag_only_props_off(tag).is_none() {
+    if tag != TAG_CLOSURE && !crate::layout_bag::corpse_takes_own_destructor(tag) {
         unsafe {
             for_each_child(p, |_, child| {
                 if (*(child as *const HeapHeader)).refcount > 0 && !has_walkable_children(child) {

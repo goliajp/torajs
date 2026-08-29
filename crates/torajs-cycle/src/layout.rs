@@ -414,6 +414,7 @@ pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
             || is_visitable_wrapper(p)
             || is_visitable_closure(p)
             || crate::layout_bag::is_visitable_bag(p)
+            || crate::proxy::is_visitable_proxy(p)
     }
 }
 

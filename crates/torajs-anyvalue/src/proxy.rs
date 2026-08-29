@@ -120,11 +120,18 @@ pub unsafe extern "C" fn __torajs_proxy_create(target: AnyValue, handler: AnyVal
 pub unsafe extern "C" fn __torajs_proxy_drop(cell: *mut c_void) {
     unsafe {
         if torajs_rc::__torajs_rc_dec(cell) == 0 {
+            // Still referenced. Both slots are owned and both are
+            // ordinary objects, so a handler that refers back to the
+            // proxy it serves makes this cell a cycle root.
+            crate::__torajs_cycle_buffer(cell);
             return;
         }
         let p = cell.cast::<u8>();
         __torajs_anyv_rc_dec((p.add(TARGET_OFF) as *const u64).read());
         __torajs_anyv_rc_dec((p.add(HANDLER_OFF) as *const u64).read());
+        // Scrub from the root buffer before the memory goes away.
+        // No-op when never buffered.
+        crate::__torajs_cycle_unbuffer(cell);
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(p, layout);
     }

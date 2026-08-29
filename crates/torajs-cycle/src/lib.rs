@@ -69,6 +69,7 @@ pub mod layout;
 pub mod layout_bag;
 pub mod map;
 pub mod obj_drop;
+pub mod proxy;
 
 pub use buffer::{__torajs_cycle_buffer, __torajs_cycle_unbuffer};
 pub use collect::{__torajs_cycle_at_exit_drain, __torajs_cycle_collect};
