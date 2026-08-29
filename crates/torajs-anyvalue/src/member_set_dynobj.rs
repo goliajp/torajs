@@ -154,16 +154,32 @@ unsafe fn inherited_set_walk(
                 break;
             }
             let cptr = cell as *const c_void;
-            if (cptr.cast::<u8>().add(4) as *const u16).read() != Tag::DynObj as u16 {
+            let ctag = (cptr.cast::<u8>().add(4) as *const u16).read();
+            // A Closure parent keeps its entries in the +24 expando.
+            // %Function.prototype% is one (§20.2.3 makes it a built-in
+            // FUNCTION object), and §10.2.4's restricted-property
+            // accessors living there are exactly what a receiver one
+            // link down has to write through: `Object.create(
+            // Function.prototype).caller = {}` throws, and a class
+            // constructor — whose [[Prototype]] link IS that
+            // singleton — throws for the same reason.
+            let dict = if ctag == Tag::Closure as u16 {
+                crate::member_get_layout::closure_props(cell as *mut c_void)
+            } else if ctag == Tag::DynObj as u16 {
+                cptr
+            } else {
                 // A struct parent keeps the own-create fall-through
                 // (its accessor face is a recorded boundary).
                 break;
+            };
+            if dict.is_null() {
+                break;
             }
-            if __torajs_dynobj_has(cptr, key as *const c_void) != 0 {
-                let etag = __torajs_dynobj_get_tag(cptr, key as *const c_void);
+            if __torajs_dynobj_has(dict, key as *const c_void) != 0 {
+                let etag = __torajs_dynobj_get_tag(dict, key as *const c_void);
                 if etag == MEMBER_SET_ANY_ACCESSOR {
                     let pair =
-                        __torajs_dynobj_get_value(cptr, key as *const c_void) as *const c_void;
+                        __torajs_dynobj_get_value(dict, key as *const c_void) as *const c_void;
                     let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
                     // The setter consumes the value stake (the arr
                     // accessor arm's ledger); a getter-only pair
@@ -178,7 +194,7 @@ unsafe fn inherited_set_walk(
                     }
                     return Some(1);
                 }
-                if __torajs_dynobj_get_flags(cptr, key as *const c_void) & 0x1 == 0 {
+                if __torajs_dynobj_get_flags(dict, key as *const c_void) & 0x1 == 0 {
                     drop_payload(tag, value);
                     if throw_on_refusal {
                         __torajs_throw_type_error(
@@ -189,7 +205,11 @@ unsafe fn inherited_set_walk(
                 }
                 break;
             }
-            level = crate::member_get_own::user_proto_cell(cptr);
+            level = if ctag == Tag::Closure as u16 {
+                crate::member_get_own::closure_user_proto(cell as *mut c_void).flatten()
+            } else {
+                crate::member_get_own::user_proto_cell(cptr)
+            };
         }
     }
     None

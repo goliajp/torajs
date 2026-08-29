@@ -44,9 +44,11 @@ const DEFINE_PRESENT_GET: u64 = 1 << 7;
 const DEFINE_PRESENT_SET: u64 = 1 << 8;
 
 unsafe extern "C" {
-    /// torajs-anyvalue — %Function.prototype%'s expando dynobj (the
-    /// singleton is a Closure cell, §20.2.3).
-    fn __torajs_function_proto_props(proto: *mut c_void) -> *mut c_void;
+    /// torajs-anyvalue — the IN-CELL slot holding
+    /// %Function.prototype%'s expando dynobj (the singleton is a
+    /// Closure cell, §20.2.3). A slot pointer, so the define kernel's
+    /// relocation lands back in the cell.
+    fn __torajs_function_proto_props_slot(proto: *mut c_void) -> *mut *mut c_void;
     /// torajs-anyvalue — interned immortal cell for a method id.
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-dynobj — fresh `+1`-rc AccessorPair (faces transfer;
@@ -74,7 +76,13 @@ pub unsafe extern "C" fn __torajs_object_proto_install(proto: *mut c_void) {
     unsafe {
         let get_cell = __torajs_builtin_method_cell(ANY_METHOD_PROTO_GET_MID);
         let set_cell = __torajs_builtin_method_cell(ANY_METHOD_PROTO_SET_MID);
-        install_accessor_entry(proto, b"__proto__", get_cell, set_cell);
+        // The singleton IS its own entry table here, and it is
+        // registered by address, so a relocation would strand it —
+        // one entry into a fresh dynobj does not grow, which is why a
+        // local slot was ever sound. Spelled as a slot anyway, so the
+        // helper has one contract.
+        let mut slot = proto;
+        install_accessor_entry(&mut slot, b"__proto__", get_cell, set_cell);
     }
 }
 
@@ -97,10 +105,10 @@ pub unsafe extern "C" fn __torajs_function_proto_install(proto: *mut c_void) {
         // narrow define kernel below contracts for a plain dynobj
         // receiver; handing it the closure cell wrote entry records
         // over `fn_addr`.
-        let props = __torajs_function_proto_props(proto);
+        let slot = __torajs_function_proto_props_slot(proto);
         let thrower = __torajs_builtin_method_cell(ANY_METHOD_THROW_TYPE_ERROR_MID);
-        install_accessor_entry(props, b"caller", thrower, thrower);
-        install_accessor_entry(props, b"arguments", thrower, thrower);
+        install_accessor_entry(slot, b"caller", thrower, thrower);
+        install_accessor_entry(slot, b"arguments", thrower, thrower);
     }
 }
 
@@ -108,7 +116,7 @@ pub unsafe extern "C" fn __torajs_function_proto_install(proto: *mut c_void) {
 /// own entry from interned immortal faces (each pair takes its own
 /// fresh AccessorPair; the faces' rc traffic no-ops).
 unsafe fn install_accessor_entry(
-    proto: *mut c_void,
+    obj_slot: *mut *mut c_void,
     key_bytes: &[u8],
     get_cell: *mut u8,
     set_cell: *mut u8,
@@ -126,8 +134,7 @@ unsafe fn install_accessor_entry(
             | DEFINE_PRESENT_CONFIGURABLE
             | DEFINE_FLAG_CONFIGURABLE;
         let key = alloc_str_key(key_bytes);
-        let mut slot = proto;
-        __torajs_dynobj_define_plain(&mut slot, key, ANY_HEAP as u64, pair as u64, flags);
+        __torajs_dynobj_define_plain(obj_slot, key, ANY_HEAP as u64, pair as u64, flags);
         __torajs_str_drop(key);
     }
 }

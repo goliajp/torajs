@@ -217,7 +217,14 @@ unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> Spe
             }
             _ => {
                 let s = crate::nanbox_encode::__torajs_anyv_box_from_pair(stag as i64, sval as i64);
-                if is_constructor(s) || crate::method_call::closure_boxed_entry(s).is_some() {
+                // §7.3.22 step 9 is IsConstructor, not IsCallable. The
+                // `|| callable` widening was invisible while every
+                // callable cell tr could reach here also had
+                // [[Construct]]; §20.2.3's %Function.prototype% is the
+                // counter-example the spec's own test names —
+                // callable, no [[Construct]], and step 10's TypeError
+                // is the whole point of the case.
+                if is_constructor(s) {
                     crate::nanbox_ffi::__torajs_anyv_rc_inc(s);
                     return SpeciesResolved::Ctor(s);
                 }

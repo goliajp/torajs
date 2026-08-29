@@ -50,3 +50,21 @@ console.log("after delete:", typeof (function () {}).bind, "bind" in FP)
 console.log("chain:", Object.getPrototypeOf(FP) === Object.prototype,
             Object.getPrototypeOf(function () {}) === FP,
             Object.getPrototypeOf(Function) === FP)
+
+// §10.2.4's restricted-property accessors are reached from a receiver
+// one link down, which is what a class constructor is: `classmeta`
+// links its [[Prototype]] straight at this singleton.
+const child: any = Object.create(FP)
+try { child.caller } catch (e: any) { console.log("inherited caller get throws:", e instanceof TypeError) }
+try { child.caller = {} } catch (e: any) { console.log("inherited caller set throws:", e instanceof TypeError) }
+class K {}
+try { (K as any).caller = {} } catch (e: any) { console.log("class ctor caller set throws:", e instanceof TypeError) }
+
+// §7.3.22 SpeciesConstructor step 9 is IsConstructor, not IsCallable —
+// and %Function.prototype% is the counter-example the spec's own test
+// names: callable, with no [[Construct]] behind it.
+const buf: any = new ArrayBuffer(8)
+const species: any = {}
+buf.constructor = species
+species[Symbol.species] = FP
+try { buf.slice() } catch (e: any) { console.log("callable non-constructor species throws:", e instanceof TypeError) }

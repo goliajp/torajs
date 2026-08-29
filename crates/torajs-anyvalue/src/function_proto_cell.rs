@@ -69,12 +69,21 @@ pub extern "C" fn __torajs_function_proto_alloc() -> *mut c_void {
     cell as *mut c_void
 }
 
-/// The expando the §10.2.4 install writes into — the slot above,
-/// read back for `torajs-meta`'s side of the boundary.
+/// The IN-CELL expando slot the §10.2.4 install writes through, for
+/// `torajs-meta`'s side of the boundary.
+///
+/// A pointer to the slot, not the table it holds: the define kernel
+/// relocates a growing entry table and writes the new address back
+/// through the slot it was handed. Handed a local copy, the second
+/// accessor's growth left the cell pointing at the freed table — and
+/// `f.caller` stopped throwing, because the entries it has to find
+/// were no longer where the cell said they were.
 ///
 /// # Safety
 /// `proto` is the %Function.prototype% cell.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_function_proto_props(proto: *mut c_void) -> *mut c_void {
-    unsafe { *(proto.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const *mut c_void) }
+pub unsafe extern "C" fn __torajs_function_proto_props_slot(
+    proto: *mut c_void,
+) -> *mut *mut c_void {
+    unsafe { proto.cast::<u8>().add(CLOSURE_PROPS_OFF) as *mut *mut c_void }
 }
