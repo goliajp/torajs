@@ -319,21 +319,39 @@ pub fn arr_elems_walkable(header: &HeapHeader) -> bool {
     (header.flags & ARR_ELEM_KIND_MASK) >> ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP
 }
 
-/// True when `p` is a primitive wrapper (Number / String / Boolean)
-/// — its only walkable child is the +16 expando props dict (RFC
-/// 20260717 blade 3). Tag-only: a wrapper with a NULL expando walks
-/// as zero children.
+/// True when `p` is a primitive wrapper (Number / String / Boolean /
+/// Symbol) that has something to walk: the +16 expando props dict
+/// (RFC 20260717 blade 3), its only walkable child. The inner Str or
+/// Symbol cell is a leaf the teardown owns, never a walk target.
+///
+/// Reading that slot rather than answering on the tag alone is the
+/// same honesty `is_visitable_arr`, `is_visitable_closure` and
+/// `is_visitable_bag` already carry. Almost no wrapper ever grows an
+/// expando — `new Number(1)` is the whole shape — so a tag-only
+/// answer sent every rc-survivor of the four wrapper tags through
+/// `cycle_buffer`: PURPLE, a buffer slot, a mark/scan walk that
+/// enumerates nothing, and an unbuffer, all to learn it had no
+/// children, plus its share of the 1024-candidate auto-collect
+/// threshold it helped reach. Like those three, the answer can flip
+/// to false once a corpse's slot is cleared; the `rc > 0` gates in
+/// `collect_white`'s second sweep and `defer`'s pass A are what make
+/// that safe.
 #[inline]
 pub unsafe fn is_visitable_wrapper(p: *mut c_void) -> bool {
     if p.is_null() {
         return false;
     }
     let header = unsafe { &*(p as *const HeapHeader) };
-    header.flags & FLAG_STATIC_LITERAL == 0
-        && matches!(
+    if header.flags & FLAG_STATIC_LITERAL != 0
+        || !matches!(
             header.type_tag,
             TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER
         )
+    {
+        return false;
+    }
+    let props = unsafe { *((p as *const u8).add(WRAPPER_PROPS_OFF) as *const *mut c_void) };
+    !props.is_null()
 }
 
 /// True when `p` is a closure env cell with potential walkable
