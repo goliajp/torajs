@@ -12,6 +12,11 @@
 //! Answer is OWNED on every arm: an own-expando hit incs the payload
 //! before boxing (the probe pair is a borrow), the proto face already
 //! answers owned (interned cells are rc-immortal).
+//!
+//! The Array.prototype face is the whole prototype CHAIN as of the
+//! knife that made `__torajs_builtin_proto_method_value` walk — it
+//! stopped at the family before, so a typed array could not see
+//! `Object.prototype.foo` while `const a: any = []` could.
 
 use core::ffi::c_void;
 
@@ -47,5 +52,9 @@ pub unsafe extern "C" fn __torajs_arr_member_value(
         crate::payload_rc_inc(tag, value);
         return unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(tag, value) };
     }
+    // §10.1.8.1 step 4 — the walk continues past `Array.prototype`:
+    // the kernel below is the whole chain now, so a program's
+    // `Object.prototype.foo = 5` reaches a TYPED array the same way
+    // 517-07 made it reach an `any`-bound one.
     unsafe { __torajs_builtin_proto_method_value(ARRAY_PROTO_TAG, key) }
 }

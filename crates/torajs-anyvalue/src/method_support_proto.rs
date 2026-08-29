@@ -60,7 +60,7 @@ const ARR_LEN_OFF: usize = 8;
 ///
 /// # Safety
 /// `proto` is a live heap cell.
-unsafe fn proto_is_arr(proto: *mut c_void) -> bool {
+pub(crate) unsafe fn proto_is_arr(proto: *mut c_void) -> bool {
     // HeapHeader: rc @ +0 (u32), type_tag @ +4 (u16).
     let cell_tag = unsafe { proto.cast::<u8>().add(4).cast::<u16>().read() };
     cell_tag == torajs_rc::Tag::Arr as u16
@@ -78,7 +78,7 @@ unsafe fn proto_is_arr(proto: *mut c_void) -> bool {
 ///
 /// # Safety
 /// `proto` is a live builtin-prototype singleton cell.
-unsafe fn proto_dict(proto: *mut c_void) -> *mut c_void {
+pub(crate) unsafe fn proto_dict(proto: *mut c_void) -> *mut c_void {
     // HeapHeader: type_tag @ +4 (u16); closure expando @ +24.
     let cell_tag = unsafe { proto.cast::<u8>().add(4).cast::<u16>().read() };
     if cell_tag == torajs_rc::Tag::Closure as u16 {
@@ -263,24 +263,25 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
     crate::method_value::proto_accessor_getter_cell(tag) as u64
 }
 
-/// `<Ctor>.prototype.<m>` static member read (chunk A). Own-entry
-/// probe on the builtin-proto singleton dynobj first — a user
+/// ONE level of the walk in [`crate::method_support_proto_chain`] —
+/// what a single builtin-proto singleton answers for `key`.
+/// `None` = this level has nothing to say and the walk continues to
+/// its [[Prototype]]; `Some(v)` = it answers, and a `Some` holding
+/// undefined is a real answer (an own entry storing undefined
+/// shadows everything above it).
+///
+/// Own-entry probe on the singleton dynobj first — a user
 /// monkey-patch (`String.prototype.foo = …`) wins over the interned
 /// builtin cell, matching ES own-property-before-intrinsic order.
 /// Data-tagged hits (null/bool/i64/f64/heap) box out under the
 /// owned protocol; absent (5, 0) and accessor-sentinel entries fall
-/// through to the method-cell table. Unknown / unsupported names
-/// answer undefined (bun's wrong-arm shape).
+/// through to the method-cell table.
 ///
 /// # Safety
 /// `key` is NULL or a live Str cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
-    tag: i64,
-    key: *const c_void,
-) -> AnyValue {
+pub(crate) unsafe fn proto_level_value(tag: i64, key: *const c_void) -> Option<AnyValue> {
     if key.is_null() {
-        return VALUE_UNDEFINED;
+        return Some(VALUE_UNDEFINED);
     }
     let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) };
     if !proto.is_null() {
@@ -289,7 +290,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
             // The probe pair is a borrow — the returned box owns
             // its own reference.
             crate::payload_rc_inc(dtag, dval);
-            return unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag, dval) };
+            return Some(unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag, dval) });
         }
         // ANY_UNDEF is the probe's answer for BOTH an absent key and
         // an own entry holding undefined, and only the membership
@@ -299,14 +300,16 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
         // tag alone handed back the interned `join` cell for a
         // property whose value is undefined.
         if dtag == 5 && unsafe { proto_own_has(proto, key) } {
-            return VALUE_UNDEFINED;
+            return Some(VALUE_UNDEFINED);
         }
         // Accessor own entry (RFC 20260718-accessor-reify 刀 1 —
         // e.g. `Object.prototype.__proto__`): §10.1.8.1 [[Get]]
         // invokes the getter with the singleton itself as receiver.
         if dtag == ANY_ACCESSOR_TAG as i64 {
             let recv = unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(proto) };
-            return unsafe { __torajs_accessor_invoke_getter(dval as u64 as *const c_void, recv) };
+            return Some(unsafe {
+                __torajs_accessor_invoke_getter(dval as u64 as *const c_void, recv)
+            });
         }
         // `Array.prototype.length` is the Arr cell's own length, not a
         // method name — and it moves (`Array.prototype[0] = false`
@@ -315,7 +318,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
         // method table.
         if unsafe { proto_is_arr(proto) } && unsafe { crate::prop_has::key_is(key, b"length") } {
             let len = unsafe { proto.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
-            return crate::nanbox_encode::__torajs_anyv_box_i64(len as i64);
+            return Some(crate::nanbox_encode::__torajs_anyv_box_i64(len as i64));
         }
     }
     // A virtual accessor entry read DIRECTLY off its prototype
@@ -328,7 +331,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
                 c"builtin prototype accessor requires |this| to match its brand".as_ptr(),
             );
         }
-        return VALUE_UNDEFINED;
+        return Some(VALUE_UNDEFINED);
     }
     // `constructor` is an own property of every builtin prototype
     // (§20.x.3.1 family) — the same interned identity the gOPD
@@ -340,18 +343,34 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
         && constructor_live(tag)
     {
         let cell = crate::method_value::builtin_ctor_cell(tag);
-        return unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(cell.cast()) };
+        return Some(unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(cell.cast()) });
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };
     if mid == ANY_METHOD_UNKNOWN
         || (mid as usize) >= crate::method_value::TABLE_SIZE
         || !proto_tag_supports(tag, mid)
     {
-        return VALUE_UNDEFINED;
+        return None;
     }
     // Immortal interned cell — rc traffic no-ops, hand out as-is.
     let (fam, cell_mid) = proto_cell_key(tag, mid);
-    crate::method_value::builtin_method_cell(fam, cell_mid) as AnyValue
+    Some(crate::method_value::builtin_method_cell(fam, cell_mid) as AnyValue)
+}
+
+/// `<Ctor>.prototype.<m>` static member read (chunk A) and the
+/// family face of every typed receiver's member read — the WHOLE
+/// chain, one level at a time (`method_support_proto_chain`).
+/// Unknown / unsupported names answer undefined (bun's wrong-arm
+/// shape).
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
+    tag: i64,
+    key: *const c_void,
+) -> AnyValue {
+    unsafe { crate::method_support_proto_chain::proto_chain_value(tag, key) }
 }
 
 /// `in` is HasProperty (§7.3.12): after the receiver's own face
@@ -385,47 +404,21 @@ pub unsafe extern "C" fn __torajs_proto_chain_key_owned(
         // Not a method name — the singleton's expando dynobj face
         // still owns user-installed keys (`Object.prototype[1] = …`,
         // RFC 20260721 G2d digit keys ride HasProperty through here).
-        return (unsafe { chain_expando_owns(family_tag, key) }
-            || (family_tag != 1 && unsafe { chain_expando_owns(1, key) })) as i64;
+        return unsafe {
+            crate::method_support_proto_chain::proto_chain_expando_owns(family_tag, key)
+        } as i64;
     }
-    if proto_tag_owns(family_tag, mid) {
-        return 1;
-    }
-    // Chain root — every builtin prototype's [[Prototype]] is
-    // Object.prototype; skip the re-probe when it was the immediate
-    // link already.
-    (family_tag != 1 && proto_tag_owns(1, mid)) as i64
-}
-
-/// Singleton expando own-key probe for the chain face — the interned
-/// method tables only cover mid-named entries; anything else a user
-/// installed on `<Ctor>.prototype` lives in the singleton's expando
-/// storage (the side-props table for the Arr-backed
-/// `Array.prototype`, the dynobj itself everywhere else).
-unsafe fn chain_expando_owns(family_tag: i64, key: *const c_void) -> bool {
-    let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(family_tag) };
-    if proto.is_null() {
-        return false;
-    }
-    if unsafe { proto_is_arr(proto) } {
-        // 刀 5 G3 — the index domain is owned by the singleton's
-        // element storage (`Array.prototype[1] = v` grows it): a
-        // canonical in-bounds index is present unless its slot is a
-        // hole tombstone. The side-props table only holds SHADOW
-        // entries for indices (attributes / tombstones), so a
-        // canonical key never consults `arrprops_has` — a deleted
-        // index's tombstone entry would read as present.
-        if let Some(i) = unsafe { crate::prop_has::canonical_index(key) } {
-            let len = unsafe { proto.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
-            return i < len
-                && unsafe { __torajs_arr_index_flags(proto as *const c_void, i) }
-                    & crate::prop_has::ARR_F_HOLE
-                    == 0;
+    // The interned face, one link at a time. Two links were enough
+    // while every builtin prototype hung straight off
+    // %Object.prototype%; §23.1.5.2 gives an array iterator three.
+    let mut t = family_tag;
+    while t >= 0 {
+        if proto_tag_owns(t, mid) {
+            return 1;
         }
-        return unsafe { __torajs_arrprops_has(proto, key) } != 0;
+        t = torajs_rc::builtin_proto::proto_parent_tag(t);
     }
-    let dict = unsafe { proto_dict(proto) };
-    !dict.is_null() && unsafe { __torajs_dynobj_has(dict, key) != 0 }
+    0
 }
 
 #[cfg(test)]

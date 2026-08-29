@@ -214,6 +214,7 @@ pub(crate) mod method_call_wrapper_expando;
 mod method_support;
 mod method_support_proto;
 mod method_support_proto_alias;
+mod method_support_proto_chain;
 mod method_support_proto_meta;
 mod method_support_proto_names;
 mod method_value;

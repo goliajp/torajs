@@ -135,46 +135,6 @@ unsafe fn key_cell_is_symbol(key: *const u8) -> bool {
     unsafe { *(key.add(4) as *const u16) == TAG_SYMBOL }
 }
 
-/// Heap `Tag` → builtin-proto family tag (`torajs-rc/builtin_proto.rs`
-/// order: Number=0 Object=1 Array=2 String=3 Boolean=4 … RegExp=7
-/// Date=8 Promise=10 Map=11 Set=12 Function=13). `None` for cells
-/// with no builtin prototype on their chain (iterators, weak
-/// collections, accessor pairs) — the chain face answers false.
-fn proto_family_of(type_tag: u16) -> Option<i64> {
-    use crate::Tag;
-    use crate::builtin_proto::{ARRAY_PROTO_TAG, FUNCTION_PROTO_TAG, OBJECT_PROTO_TAG};
-    let t = type_tag;
-    let family = if t == Tag::Obj as u16 || t == Tag::DynObj as u16 {
-        // A struct's own-class prototype face is a recorded boundary
-        // (module doc); the Object root still answers the universal
-        // names.
-        OBJECT_PROTO_TAG as i64
-    } else if t == Tag::Arr as u16 {
-        ARRAY_PROTO_TAG as i64
-    } else if t == Tag::Closure as u16 {
-        FUNCTION_PROTO_TAG as i64
-    } else if t == Tag::RegExp as u16 {
-        7
-    } else if t == Tag::Date as u16 {
-        8
-    } else if t == Tag::Promise as u16 {
-        10
-    } else if t == Tag::Map as u16 {
-        11
-    } else if t == Tag::Set as u16 {
-        12
-    } else if t == Tag::NumberWrapper as u16 {
-        0
-    } else if t == Tag::StringWrapper as u16 {
-        3
-    } else if t == Tag::BooleanWrapper as u16 {
-        4
-    } else {
-        return None;
-    };
-    Some(family)
-}
-
 /// ES §13.10.1 step 5 — `in` demands an Object on the right; every
 /// other rhs is a TypeError, not a `false` answer.
 ///
@@ -384,7 +344,7 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         let root = crate::builtin_proto::OBJECT_PROTO_TAG as i64;
         return (unsafe { __torajs_proto_chain_key_owned(root, key as *const c_void) }) != 0;
     }
-    match proto_family_of(type_tag) {
+    match crate::in_op_family::proto_family_of(ptr, type_tag) {
         Some(family) => {
             (unsafe { __torajs_proto_chain_key_owned(family, key as *const c_void) }) != 0
         }
@@ -634,10 +594,15 @@ mod tests {
 
     #[test]
     fn str_no_family_receiver_skips_chain() {
-        // A WeakRef cell has no builtin prototype on its chain face —
-        // even a chain stub primed to answer true must not be asked.
+        // A shape with no row in the family table has no builtin
+        // prototype on its chain face — even a chain stub primed to
+        // answer true must not be asked. `Tag::Response` is the
+        // stand-in: a `fetch` result is an object, and the prototype
+        // it should answer from is a recorded gap. (WeakRef used to
+        // sit here and now HAS a row — `"deref" in new WeakRef({})`
+        // is true.)
         set_faces(0, 1);
-        let block = make_heap_block(Tag::WeakRef as u16);
+        let block = make_heap_block(Tag::Response as u16);
         let boxed = boxed_cell(&block);
         assert!(!unsafe { __torajs_in_op_any_str(boxed, b"foo\0".as_ptr()) });
         assert_eq!(CHAIN_SEEN_FAMILY.with(|f| f.get()), -1);

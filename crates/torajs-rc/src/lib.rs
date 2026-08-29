@@ -108,6 +108,7 @@ pub mod builtin_proto;
 pub mod extensible;
 pub mod freeze;
 pub mod in_op_any;
+mod in_op_family;
 pub mod instanceof_any;
 pub mod is_array;
 
