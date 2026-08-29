@@ -3,40 +3,33 @@
 //! `Expr::Assign` match arm as chunk-80 of the decomp.
 //!
 //! Dispatch ladder (each path returns the assigned value as the
-//! expression result, modulo the dynobj / Closure / Arr-prop paths
-//! that return `ConstI64(0)` to match the legacy in-line emit shape):
+//! expression result, modulo the dynobj / Arr-prop paths that return
+//! `ConstI64(0)` to match the legacy in-line emit shape):
 //!
 //! 1. **Type::Any** (`P3.2`, tag-gated per RFC 20260704 C4+) — pack
 //!    RHS as `(tag, value)` and call `__torajs_any_member_set`, which
-//!    dispatches on the receiver's heap tag (DynObj set / RegExp
-//!    lastIndex / Arr expando; anything else a catchable TypeError —
-//!    never a blind dynobj-layout write). Nested Type::Any payload
+//!    dispatches on the receiver's heap tag. Nested Type::Any payload
 //!    routes through `any_payload_rc_inc`. Frozen / non-writable
 //!    write throws via `emit_throw_check`. Post-resize relocation
 //!    write-back rides the AnyValue slot, re-stored to a plain-Ident
 //!    receiver's local.
-//! 2. **Type::Closure** (`T-27`) — boxed into lane 1. It used to
-//!    write the closure's lazy `props_dynobj` at `CLOSURE_PROPS_OFF`
-//!    directly, which is the same write minus §10.1.9.2's chain
-//!    consult; knowing the receiver's shape at compile time is not a
-//!    licence to skip it.
-//! 3. **Type::FnSig** (`T-27.b`) — top-level FnDecl routes through
+//! 2. **Type::FnSig** (`T-27.b`) — top-level FnDecl routes through
 //!    the `fnprops` side table keyed by fn pointer.
-//! 4. **Type::Arr + field=="length"** (`S133-3`) — spec §9.4.2.4 length
+//! 3. **Type::Arr + field=="length"** (`S133-3`) — spec §9.4.2.4 length
 //!    setter: route to `arr_set_length_validate` (refcount elem types)
 //!    or `arr_set_length_truncate_scalar` (i64/f64/bool elements).
-//! 5. **Type::Arr** (other field, `T-29`) — boxed into lane 1, for
-//!    the same reason lane 2 is. Only a NAME key arrives here (an
-//!    index is `Expr::Index`, `length` is lane 4), so the element and
-//!    length fast paths are untouched.
-//! 6. **Type::RegExp + field=="lastIndex"** (`P9.4`) — coerce RHS to
+//! 4. **Type::RegExp + field=="lastIndex"** (`P9.4`) — coerce RHS to
 //!    f64 (uncoerced-store spec shape; ToLength happens where the
 //!    regex kernels consume it), call `regex_set_last_index`, return
 //!    the value as the expression result (mirrors a field store).
-//! 7. **Type::Obj** (struct receiver) — the accessor-setter direct
+//! 5. **Type::Obj** (struct receiver) — the accessor-setter direct
 //!    call (`P8.2`, args through the `arg_conv` contract) and the
 //!    direct struct field store both live in
 //!    [`crate::ssa_lower_assign_member_field`].
+//! 6. **Everything else** — box the receiver and take lane 1.
+//!    Knowing the shape at compile time is not a licence to skip
+//!    §10.1.9.2's chain consult, and the shapes without an arm used
+//!    to be a compile error rather than a store.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, StructId, Type};
@@ -70,59 +63,43 @@ pub(crate) fn lower(
             ctx, eid, obj_val, &field, value, &obj_ident, recv_owned,
         );
     }
-    if obj_ty == Type::Promise {
-        // Promise receiver — box the cell as a heap AnyValue and take
-        // the any-lane member set; the runtime dispatch lands in
-        // member_set's Tag::Promise arm (the +32 expando bag the get
-        // channel probes). No write-back: the cell never relocates
-        // (the bag lives in its own slot), and the binding's Promise
-        // repr must not be replaced by a box. The box is a pure
-        // bit-encode borrow (+0), so no release rides the tail.
-        let boxed = ctx.box_to_any(obj_val);
-        return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
-            ctx, eid, boxed, &field, value, &None, false,
-        );
-    }
-    if matches!(obj_ty, Type::Closure(_)) {
-        // A statically known function is still an object, and
-        // §10.1.9.2 does not care that the compiler knew its shape:
-        // the direct props write skipped the [[Prototype]] chain
-        // entirely, so `f.caller = {}` minted an own key where
-        // %Function.prototype% has a %ThrowTypeError% setter — while
-        // the SAME program spelled through an `any` binding threw.
-        // Boxing to take the any lane is the Promise arm's move, for
-        // the Promise arm's reason: the cell never relocates (its bag
-        // lives in its own slot), so there is no write-back, and the
-        // box is a pure bit-encode borrow.
-        let boxed = ctx.box_to_any(obj_val);
-        return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
-            ctx, eid, boxed, &field, value, &None, false,
-        );
-    }
     if matches!(obj_ty, Type::FnSig(_)) {
         return lower_fnsig_props_assign(ctx, eid, obj_val, &field, value);
     }
     if matches!(obj_ty, Type::Arr(_)) && field == "length" {
         return lower_arr_length_assign(ctx, eid, obj_val, obj_ty, value);
     }
-    if matches!(obj_ty, Type::Arr(_)) {
-        // Same fact, same fix — and reachable only for a NAME key:
-        // an index is an `Expr::Index` node and `length` was claimed
-        // one arm up, so nothing on the element or length fast paths
-        // comes through here.
-        let boxed = ctx.box_to_any(obj_val);
-        return crate::ssa_lower_assign_member_any::lower_dynobj_assign(
-            ctx, eid, boxed, &field, value, &None, false,
-        );
-    }
     if obj_ty == Type::RegExp && field == "lastIndex" {
         return lower_regex_last_index_assign(ctx, obj_val, value);
     }
-    let sid = match obj_ty {
-        Type::Obj(sid) => sid,
-        other => panic!("ssa-lower: field assign on non-obj {other:?}"),
-    };
-    lower_obj_assign(ctx, eid, obj, obj_val, sid, &field, value)
+    if let Type::Obj(sid) = obj_ty {
+        return lower_obj_assign(ctx, eid, obj, obj_val, sid, &field, value);
+    }
+    // Every other receiver: box the cell and take the any lane.
+    //
+    // §10.1.9.2 OrdinarySet does not care that the compiler knew the
+    // receiver's shape — the chain consult, the frozen check and the
+    // §10.1.8.1 own-first order are the same whether the program
+    // spelled `m` or an `any` binding holding it. Promise, Closure
+    // and Arr each arrived at that one at a time (a direct props
+    // write skipped the chain, so `f.caller = {}` minted an own key
+    // where %Function.prototype% has a %ThrowTypeError% setter,
+    // while the SAME program through an `any` binding threw); this
+    // is the rest of the language arriving at it together. Before,
+    // a shape the ladder had no arm for was a COMPILE error —
+    // `(new Map() as any).zz = 1` did not build, and neither did the
+    // Set / Date / RegExp / Str / Symbol / BigInt spelling, while
+    // every one of them worked through an `any` binding. It is the
+    // write-side twin of rotation 527's read-side `d7917706d`.
+    //
+    // No write-back and no release ride the tail: these cells never
+    // relocate (their bag lives in its own slot, unlike a dynobj
+    // whose store can move), and `box_to_any` on a typed operand is
+    // a pure bit-encode borrow.
+    let boxed = ctx.box_to_any(obj_val);
+    crate::ssa_lower_assign_member_any::lower_dynobj_assign(
+        ctx, eid, boxed, &field, value, &None, false,
+    )
 }
 
 /// The assignment expression's value is its rhs (§13.15.2 step 8 —
