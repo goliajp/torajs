@@ -29,7 +29,7 @@ use core::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
 use crate::arr::arr_spilled_data;
-use crate::collect::{clear_child_slot, for_each_child};
+use crate::children::{clear_child_slot, for_each_child};
 use crate::dynobj::{
     DYNOBJ_HEADER_BYTES, dynobj_entries_len, dynobj_key_at, dynobj_store_bytes, dynobj_store_ptr,
 };

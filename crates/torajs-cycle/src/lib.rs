@@ -30,6 +30,11 @@
 //! - [`buffer`] — global candidate buffer + `cycle_buffer` /
 //!   `cycle_unbuffer` extern fns. AtomicPtr-static pattern (same as
 //!   `torajs-weak::registry` + `torajs-arr::pool`).
+//! - `children` — per-shape child enumeration + slot clearing
+//!   (`for_each_child` / `clear_child_slot`). The layout half the
+//!   three phases keep asking for: every cyclic shape's "where are
+//!   my children" lives there, so teaching the walk a new shape is
+//!   an arm in that file, not an edit to the algorithm.
 //! - [`collect`] — the three phases (`mark_gray` / `scan` /
 //!   `scan_black` / `collect_white`) + the public `cycle_collect` /
 //!   `cycle_at_exit_drain` entry points.
@@ -61,6 +66,7 @@ extern crate torajs_mmalloc as _;
 
 pub mod arr;
 pub mod buffer;
+pub(crate) mod children;
 pub(crate) mod closure_walk;
 pub mod collect;
 pub(crate) mod defer;
