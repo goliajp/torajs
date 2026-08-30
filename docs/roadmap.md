@@ -1,6 +1,7 @@
 # torajs roadmap
 
-> **v5 — 三轴并行 trunk.** Rewritten 2026-05-17 (HEAD `a65e51f`, curated
+> **v5 — 多轴并行 trunk.**（立时三轴；轴 D 2026-06-08、轴 E
+> 2026-08-30 追加，现为五轴 —— 见 Foundation。）Rewritten 2026-05-17 (HEAD `a65e51f`, curated
 > conformance 590/0/1, 5k diagnostic 152/15/2975). Supersedes v4
 > (test262-100% trunk, 2026-05-14). The v4 trunk treated test262
 > in-scope pass rate as the per-phase acceptance metric; v5 replaces
@@ -27,11 +28,14 @@
 
 ## Foundation
 
-### Goal — three axes
+### Goal — five axes
 
 torajs 是 AOT 编译型 TypeScript runtime，差异化是 native binary + 小
-artifact + fast startup。Long-arc 终态由三轴定义，**三轴并行推进，不接受
-为某一轴妥协另一轴**。每 phase 同时推三轴；任一轴失败 = phase 不收口。
+artifact + fast startup。Long-arc 终态由五轴定义，**五轴并行推进，不接受
+为某一轴妥协另一轴**。每 phase 同时推，任一轴失败 = phase 不收口。
+
+（标题此前写着 "three axes" 而正文已列四轴 —— 轴 D 2026-06-08 追加时
+没改标题。2026-08-30 轴 E 追加时一并订正。）
 
 **轴 A — spec completeness（正统）**
 
@@ -84,7 +88,7 @@ single thread cost 对齐 Rust native thread（几十 KB stack + 极小 TLS）�
 stop-the-world）。**ceiling 目标比 bun "<2MB / thread + 1 GC" 高得多**。
 
 **v1.0 期间（现在 ~ P13）该轴的接受形态**：substrate 按 multi-thread-
-ready shape 长，**真切换不做**。每 phase 接受时除三轴外加审：
+ready shape 长，**真切换不做**。每 phase 接受时除其余四轴外加审：
 
 - refcount inc/dec emit 必走 `emit_rc_inc(op)` / `emit_rc_dec(op)` helper，
   禁止直接 emit `InstKind::Call(intrinsics.rc_inc, ...)` 等原始 site
@@ -97,11 +101,70 @@ ready shape 长，**真切换不做**。每 phase 接受时除三轴外加审：
 切换在 v1.0 后），但**早期 framing 不落 = 后期 50-100 处 site-by-site
 retrofit**。这是 ceiling-first early framing 实践 — vision 现在落，实施推迟。
 
+**轴 E — platform reach（全平台，2026-08-30 takagi 立）**
+
+takagi：「全平台也必须拉入 v1」。
+
+终态：v1.0 在**五个 ISA × 格式 × ABI 组合**上产出可运行的 native
+binary，不是单一 `aarch64-apple-darwin`。差异化叙事本身要求这一条 ——
+「AOT 出 native 小产物」如果只在一种机器上成立，那它不是一个 runtime
+的属性，是一次移植的属性。
+
+**当前面（2026-08-30 实测）**：三个维度各自只走了一格。
+
+| 维度 | 已有 | 缺 |
+|---|---|---|
+| ISA | AArch64 | x86-64 |
+| 对象 / 可执行格式 | Mach-O | ELF64、PE-COFF |
+| 系统调用与 ABI | XNU BSD | Linux、Windows |
+
+**绑定面实测**（行数为 `wc -l`，命中为 grep）：
+
+- `torajs-codegen` **10,995 行** — `enc/*` **1,257 行**是纯 AArch64 指令
+  编码（ISA 专有，x86-64 变长编码需全新写）；`compile/*` **4,930 行**
+  是指令选择（ISA 专有）；`reg` / `regalloc` / `linear_scan*` /
+  `liveness` / `spill_weight` / `frame` **4,096 行**是寄存器分配与帧布局
+  —— **算法可复用**，需把寄存器集与调用约定参数化。
+- `torajs-obj` **2,464 行** — `macho/*` **1,285 行**格式专有；
+  `object.rs` 1,013 行是中间层。
+- `torajs-link` **25,536 行 / 78 文件** — **56 个文件命中 Mach-O 专有
+  符号**（`LC_*` / `MH_*` / `__TEXT` / `dyld` / chained fixups）。
+  **这是最重的一面**，也是唯一一处需要先做格式抽象才能动的地方。
+- `torajs-syscall` **1,066 行** — 好消息：`arch_aarch64_macos.rs` 已经把
+  XNU 的 carry-flag 错误约定**归一化成 Linux 风格**（`raw < 0 → -errno`），
+  所以 `safe.rs` 那层是**格式无关的**。换平台只换 trampoline 与号表。
+
+**顺序 — 每步只动一个维度**，这样任何回归都能归因到那一个变量：
+
+1. **E1 `aarch64-unknown-linux-gnu`** — ISA 不变，只换格式（ELF64）与
+   syscall（`svc #0`，号走 `x8`）。这一步真正做的是**把格式抽象做对**，
+   后面每一步都吃它的红利。
+2. **E2 `x86_64-unknown-linux-gnu`** — 只加 ISA（x86-64 变长编码 +
+   SysV AMD64 调用约定）。格式已由 E1 抽象。
+3. **E3 `x86_64-apple-darwin`** — 格式与 syscall 都已有，复用 E2 的 ISA。
+   这一步的成本应该接近零；**它不接近零就说明 E1/E2 的抽象没做对**，
+   是一条免费的架构自检。
+4. **E4 `x86_64-pc-windows-msvc`** — PE-COFF + Microsoft x64 ABI +
+   **没有稳定 syscall 面**（必须走 ntdll / kernel32 的 import table）。
+   三者全新，最重的一步。
+5. **E5 `aarch64-pc-windows-msvc`** — ISA 已有、ABI 与 E4 共用。
+
+**v1.0 gate 取 E1–E4**（五组合中的四个，覆盖 macOS / Linux 双 ISA +
+Windows x64）。E5 post-v1.0。按第五设计原则，这里没有「先做一个看看」
+的中间态可选 —— 「全平台」就是全平台，取哪一步不是可议价的 scope。
+
+**与其它轴的关系**：轴 E 与轴 B 有真冲突风险 —— 为跨平台做的抽象
+（trait object / 间接分派）可能吃掉 codegen 的热路径收益。**冲突时按
+下方优先级：轴 B 让位于轴 A，但不让位于轴 E** —— 平台抽象必须是
+**编译期单态化**的（泛型 + `cfg`），不是运行期分派。这条是硬约束，
+不是偏好：一个为了可移植而变慢的后端，违反第一设计原则。
+
 ---
 
-四轴的硬冲突时：质量优先（轴 A 正确性）> 性能优先（轴 B）> 自研优先
-（轴 C）> multi-thread-ready 形态（轴 D framing 优先级最低，因 framing
-本身 0 代价；真冲突极罕见，通常四轴同向）。
+五轴的硬冲突时：质量优先（轴 A 正确性）> 性能优先（轴 B）> 平台覆盖
+（轴 E）> 自研优先（轴 C）> multi-thread-ready 形态（轴 D framing 优先级
+最低，因 framing 本身 0 代价；真冲突极罕见，通常同向）。**轴 E 排在轴 B
+之后是刻意的**：跨平台不得以热路径变慢为代价换取，见上。
 
 ### Hard requirements (kept from v1)
 
@@ -1522,8 +1585,10 @@ exactly, incl. the long-tail rounding cases.
   ImportDecl + the wrapper struct; downstream typecheck + ssa-lower
   reuse the P13-S2 namespace path)
 
-**P13 phase close ≠ v1.0**. Per the three-axes definition above, v1.0
-requires all three axes closed:
+**P13 phase close ≠ v1.0**. Per the axes definition above, v1.0
+requires every axis closed (**as written at P13 close there were three;
+轴 D was added 2026-06-08 and 轴 E 2026-08-30 — the live gate is the
+five-axis one under "v1.0 release gate" below, not this snapshot**):
 - 轴 A (spec) — P13 close ✓ (this phase)
 - 轴 B (perf, bench-tr 0 regression) — held across the chain ✓
   (3-run compare @ `79865f4` shows 32/32 byte-identical artifacts)
@@ -7456,19 +7521,39 @@ measured the substrate we planned; it never measured the surface. A
 gate that a runtime can satisfy while failing half its corpus is not a
 gate.
 
-**Current definition**: **P0–P13 closed ✓ *and* P-SURF closed**. The
-three axes are unchanged —
+**Current definition** (2026-08-30, after takagi raised 轴 B's target
+and added 轴 E): **P0–P13 closed ✓ *and* P-SURF closed *and* 轴 B at
+target *and* 轴 E through E4**. The axes, with what each still owes —
 
-- 轴 A (spec) — P13 close ✓, **P-SURF open** ← the live axis
-- 轴 B (perf, bench-tr 0 regression on typed-tier) — holding; @
-  `24c156b7` the AOT tier is 0.502× bun-aot median across 44 cells with
-  no cell slower than bun
-- 轴 C (implementation purity / metal) — v0.7 Metal closed @ `0d5a8b0`
+- **轴 A (spec)** — P13 close ✓, **P-SURF open** ← S7.2's predicate:
+  unattributed ≥ 4 clusters **149** (drives to 0), holding 1163 cases,
+  register 2 · 251. Sweep @ `45121d4ff`.
+- **轴 B (perf)** — **target raised 2026-08-24**: no longer "0
+  regression" (that lower bound was met at r470 and is now table
+  stakes) but **bench-tr full-matrix median tr/bun-aot ≤ 0.33 (3×),
+  chasing 0.25 (4×)**. Measured @ `9325f1914` (2026-08-29, runs=3):
+  median **0.502** across 44 cells, **0 cells slower than bun**, best
+  `popcount` 0.047×, worst `prime_count` 0.987×. **Open by 1.52×.**
+  P-PERF's own projection for S1-A2 + S2 + S6 + S7 all landing is
+  **0.442 — still short**, which is why decomposition (not polish) is
+  the standing mode on this axis.
+- **轴 C (implementation purity / metal)** — **closed** @ `0d5a8b0`
   (0 LLVM, 0 inkwell, self-researched AArch64 backend + Mach-O writer +
-  linker)
+  linker). The only axis that is done.
+- **轴 D (multi-thread-ready)** — framing only during v1.0; the
+  acceptance form is the four shape rules in Foundation, not an
+  implementation. Real biased-ARC switch is P16, post-v1.0.
+- **轴 E (platform reach)** — **open, newly on the gate**: E1
+  linux-aarch64 / E2 linux-x86_64 / E3 macos-x86_64 / E4 windows-x86_64.
+  Today: one combination of the five. Tracked as `P-PLAT`.
 
 — and no new external dependencies, conformance gate green, per the
 standing contract.
+
+**Two of the five axes are closed or framing-only; three are open.**
+轴 A has a countdown with a defined zero. 轴 B has a number and a known
+shortfall. 轴 E has four named steps and no work started. That is the
+honest shape of the distance to v1.0.
 
 **test262 pass rate remains an observation, not the gate.** This is
 unchanged and deliberate: the gate is S7.2's predicate — every core
@@ -7833,6 +7918,96 @@ tr 2.09 / bun-aot 3.97 / rust 1.12 ms）：
 
 本 track 是轴 B 的当前执行面。轴 A（P-SURF）与本 track **并行**，
 按 CLAUDE.md 的顺序执行计划取 L3a 顶项，不开二选一。
+
+---
+
+## P-PLAT — 全平台（cross-cutting track，2026-08-30 立）
+
+> takagi 2026-08-30：「全平台也必须拉入 v1」。本 track 是轴 E 的执行面。
+> 立项调查见本节「绑定面」；轴 E 的终态与顺序定义在 Foundation。
+
+### 为什么这不是「一次移植」
+
+tr 的差异化是「AOT 出 native 小产物、启动快」。这三条如果只在
+`aarch64-apple-darwin` 上成立，它们就不是这个 runtime 的属性。更实际
+的一面：**服务端几乎全是 Linux**，而 tr 今天在服务端一行都跑不了 ——
+一个 TS runtime 缺席 Linux，等于缺席它最大的使用场景。
+
+### 一个别人没有的结构优势：交叉编译几乎是白拿的
+
+tr 是 AOT 编译器 + **自研链接器**（`torajs-link`，不调用系统 `ld`）。
+这意味着：**产出目标平台的二进制不需要目标平台的 toolchain，也不需要
+在目标平台上跑**。host 上的 `tr build --target x86_64-unknown-linux-gnu`
+应该直接出可运行的 ELF —— 我们自己发指令字节、自己排段、自己写重定位。
+
+需要的只有目标平台的 runtime staticlib，而那些由
+`scripts/release-build.sh` 的 `-Z build-std` 路径按 target 生成，本来
+就已经是 cross-target 形态（当前显式 target 是
+`aarch64-apple-darwin`，见 `scripts/release-build.sh:46`）。
+
+**判据**：E1 收口时，mac 上 `tr build --target aarch64-unknown-linux-gnu`
+出的 ELF 在 Linux 上直接跑通，全程没有 Linux 机器参与构建。做不到就说明
+链接器里还藏着对 host 的隐式依赖，那本身是要修的债。
+
+### 绑定面（2026-08-30 实测，`wc -l` + grep）
+
+| crate | 行数 | 平台绑定的部分 | 可复用的部分 |
+|---|---|---|---|
+| `torajs-codegen` | 10,995 | `enc/*` 1,257（AArch64 指令编码）+ `compile/*` 4,930（指令选择） | `reg`/`regalloc`/`linear_scan*`/`liveness`/`spill_weight`/`frame` **4,096 行算法层**，需参数化寄存器集与调用约定 |
+| `torajs-obj` | 2,464 | `macho/*` 1,285 | `object.rs` 1,013 中间层 |
+| `torajs-link` | 25,536 / 78 文件 | **56 文件命中** `LC_*` / `MH_*` / `__TEXT` / `dyld` / chained fixups | 22 文件 |
+| `torajs-syscall` | 1,066 | `arch_aarch64_macos.rs` trampoline + `sysno.rs` 191 行号表 | **`safe.rs` 已格式无关** —— XNU 的 carry-flag 错误约定已被归一化成 Linux 风格 `raw < 0 → -errno` |
+
+`torajs-link` 是唯一一处**必须先做抽象才能动**的地方。其余三处是
+「并列加一个实现」，抽象成本低。
+
+### 硬设计约束（不可议价）
+
+1. **平台分派必须是编译期单态化**（泛型 + `cfg` + const generics），
+   **不是运行期 `dyn` 分派**。理由是第一设计原则：一个为可移植而在热
+   路径上多一次间接跳转的后端，把轴 E 的收益从轴 B 身上扣了出来。
+   Foundation 的五轴优先级明写轴 B 不让位于轴 E。
+2. **ELF64 / PE-COFF writer 自研**，与现有 Mach-O writer 同等地位。
+   **不引入 `object` / `goblin` / `gimli`** —— 轴 C 是 0 外部 dep，
+   且我们已经自研了更难的那一半（链接器）。
+3. **libc 仍是唯一允许的 runtime 外部接口**（设计原则轴 C）。Windows
+   上的对应物是 ucrt；`torajs-syscall` 在 Windows 上退化为对
+   ntdll/kernel32 的 import，因为 Windows **没有稳定的 syscall 号面**
+   —— 这是 E4 最大的形态差异，不是可以照抄 E1/E2 的。
+4. **每一步单变量**（Foundation 的 E1→E5 顺序）。E3 的成本应该接近零；
+   **它不接近零就是 E1/E2 抽象没做对的信号**，当作免费的架构自检。
+
+### 执行项（顺序执行，不是候选清单）
+
+- **E0 — 格式抽象 + target triple 贯通（前置，E1 的一部分）**。
+  今天 `aarch64-apple-darwin` 在 5 处硬编码
+  （`torajs-link/src/archive.rs:590,690`、`archives_merge.rs:548,552`、
+  `scripts/release-build.sh:46`）。把 target 变成一等参数，
+  `torajs-obj` 抽出 `ObjectFormat` trait（编译期单态化），
+  `torajs-link` 的 56 个 Mach-O 文件按「格式相关 / 格式无关」重新划线。
+  **这一步不产出新平台，产出的是后面四步的地基** —— 也是唯一一步
+  值得先写 RFC 的。
+- **E1 — `aarch64-unknown-linux-gnu`**。ELF64 writer + Linux syscall
+  trampoline（`svc #0`，号走 `x8`）+ Linux 号表。ISA 不变。
+  acceptance：mac 上 cross-build 出的 ELF 在 Linux 上跑通 conformance
+  gate 全量。
+- **E2 — `x86_64-unknown-linux-gnu`**。x86-64 变长指令编码器 + 指令
+  选择 + SysV AMD64 调用约定 + 寄存器集参数化。**这是五步里 codegen
+  工作量最大的一步**（`enc/*` + `compile/*` 的对应物）。
+- **E3 — `x86_64-apple-darwin`**。格式（Mach-O）与 syscall（XNU）都
+  已有，ISA 复用 E2。**成本应接近零，是 E0 抽象质量的验收。**
+- **E4 — `x86_64-pc-windows-msvc`**。PE-COFF writer + Microsoft x64
+  ABI（不同的参数寄存器、shadow space、不同的 unwind 形态）+ import
+  table 驱动的系统调用。三者全新。
+- **E5 — `aarch64-pc-windows-msvc`**（post-v1.0）。ISA 已有，ABI 与
+  E4 共用。
+
+### 与轴 A / 轴 B 的关系
+
+三条 cross-cutting track（P-SURF / P-PERF / P-PLAT）**并行**，按
+CLAUDE.md 的顺序执行计划取 L3a 顶项，不开二选一。
+**bench 与 conformance 的对位在每个新平台上重新成立才算该步收口** ——
+一个跑得起来但慢一倍的 Linux 产物不是 E1 收口。
 
 ---
 
