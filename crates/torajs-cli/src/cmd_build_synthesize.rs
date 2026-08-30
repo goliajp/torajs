@@ -43,7 +43,7 @@ pub(crate) const USER_MAIN_SYM: &str = "_main_user";
 /// FPCR.DN (bit 25) — "default NaN" mode. With it clear, an AArch64
 /// FP operation with a NaN operand returns *that operand's payload*
 /// (ARM ARM A1.4.5), which is how the F64 `undefined` sentinel
-/// (`ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS`, a quiet NaN
+/// (`ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS`, a quiet NaN
 /// with a chosen payload) came back out of `xs[oob] * 2` bit-for-bit
 /// intact and made a plain `NaN` answer `undefined`.
 ///

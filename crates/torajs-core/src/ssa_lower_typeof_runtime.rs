@@ -244,7 +244,7 @@ pub(crate) fn emit_f64_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> Ope
         InstKind::ICmp(
             IPred::Eq,
             Operand::Value(bits),
-            Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+            Operand::ConstI64(crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64),
         ),
         Type::Bool,
         None,

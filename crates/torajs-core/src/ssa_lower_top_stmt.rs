@@ -112,7 +112,7 @@ impl<'a> LowerCtx<'a> {
             // immortal "undefined" cell (mirror of the in-expr
             // console lane's gate).
             if arg_ty == Type::F64
-                && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, args[0])
+                && crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, args[0])
             {
                 crate::ssa_lower_call_console::lower_print_f64_or_undef(self, method, arg);
                 return;

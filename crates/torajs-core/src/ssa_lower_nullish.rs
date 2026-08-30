@@ -84,7 +84,7 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
     // undefined-NaN bits instead of the non-nullable short-circuit;
     // gated to a Number-typed rhs so the merged slot stays F64.
     if lhs_ty == Type::F64
-        && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, lhs)
+        && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, lhs)
         && matches!(ctx.expr_types.get(&rhs), Some(check_mod::Type::Number))
     {
         return lower_f64_undefable_lhs(ctx, lhs_op, rhs);
@@ -406,7 +406,7 @@ fn lower_f64_undefable_lhs(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs: ExprId)
         InstKind::ICmp(
             IPred::Eq,
             Operand::Value(bits),
-            Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+            Operand::ConstI64(crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64),
         ),
         Type::Bool,
         None,

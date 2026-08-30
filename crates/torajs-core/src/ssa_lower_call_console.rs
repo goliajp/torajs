@@ -121,7 +121,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     // number[] index may hold the undefined-NaN sentinel; branch to
     // the Str printer with the immortal sentinel cell (payload
     // "undefined") instead of printing the raw NaN.
-    if arg_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, arg_id) {
+    if arg_ty == Type::F64 && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, arg_id) {
         return lower_print_f64_or_undef(ctx, method, arg);
     }
     let is_str = arg_ty == Type::Str;
@@ -224,7 +224,7 @@ pub(crate) fn lower_print_f64_or_undef(
         InstKind::ICmp(
             IPred::Eq,
             Operand::Value(bits),
-            Operand::ConstI64(crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64),
+            Operand::ConstI64(crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64),
         ),
         Type::Bool,
         None,

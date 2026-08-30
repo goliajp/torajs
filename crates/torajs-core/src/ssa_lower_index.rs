@@ -293,7 +293,7 @@ pub(crate) fn lower_typed_index_checked(
     use crate::ssa_lower::ARR_LEN_OFF;
     use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
     use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
-    use crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS;
+    use crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS;
     let len = (!upper_proven).then(|| {
         ctx.f.append_inst(
             ctx.cur_block,

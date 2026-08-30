@@ -4,16 +4,16 @@
 //! file past the 500-line limit.
 //!
 //! A `number[]` OOB index read answers the sentinel bits
-//! ([`crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS`]);
+//! ([`crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS`]);
 //! when such a possibly-sentinel F64 (statically gated by
-//! [`crate::ssa_lower_nullable_guard::is_undef_f64_source`])
+//! [`crate::ssa_lower_undef_f64_source::is_undef_f64_source`])
 //! crosses into the boxed-Any or (tag, value) world, these two
 //! helpers branch on the bits so the any world sees a real
 //! `undefined` instead of a NaN with our payload.
 
 use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
-use crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS;
+use crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS;
 
 impl<'a> LowerCtx<'a> {
     /// RFC 20260708-typed-arr-oob-read chunk 2 — branch on the

@@ -223,7 +223,7 @@ fn try_async_tail_undefined(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operan
     // width.
     if ann == "number" {
         return Some(Operand::ConstF64(f64::from_bits(
-            crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+            crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS,
         )));
     }
     let ty = ctx.try_resolve_type_ann(Some(ann))?;

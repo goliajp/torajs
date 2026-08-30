@@ -172,7 +172,7 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
             // value); typeof / eq / print / box consumers route
             // through `is_undef_f64_source`'s find arm.
             Type::F64 => Operand::ConstF64(f64::from_bits(
-                crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+                crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS,
             )),
             // The promoted bool result spells a miss with the tag
             // every tagged value already uses for `undefined` (was

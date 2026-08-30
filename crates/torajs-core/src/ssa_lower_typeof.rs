@@ -176,7 +176,7 @@ fn lower_by_ssa_type_inner(ctx: &mut LowerCtx<'_>, expr: ExprId, v: Operand, ty:
         // a number[] index (or its let alias) may hold the
         // undefined-NaN sentinel; take the two-state runtime branch
         // instead of the static "number" fold.
-        Type::F64 if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, expr) => {
+        Type::F64 if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, expr) => {
             return crate::ssa_lower_typeof_runtime::emit_f64_typeof_runtime(ctx, v);
         }
         Type::I64 | Type::F64 | Type::I32 => "number",

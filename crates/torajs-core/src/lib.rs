@@ -623,6 +623,7 @@ pub(crate) mod ssa_lower_typeof;
 pub(crate) mod ssa_lower_typeof_ns;
 pub(crate) mod ssa_lower_typeof_runtime;
 pub(crate) mod ssa_lower_unary;
+pub(crate) mod ssa_lower_undef_f64_source;
 pub mod ssa_lower_while_push_fast;
 pub mod staticlibs;
 pub(crate) mod undef_f64_fields;

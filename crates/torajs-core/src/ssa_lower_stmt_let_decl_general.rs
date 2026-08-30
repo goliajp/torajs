@@ -211,7 +211,7 @@ pub(crate) fn record_binding_flags(
     // index-read let-inits (`const x = a[i]`) so typeof / strict-eq
     // / nullish / print / box consumers treat the binding as
     // possibly holding the undefined-NaN sentinel.
-    if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, init) {
+    if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, init) {
         ctx.undefable_f64_lets.insert(name.to_string());
     }
     // RFC 20260708-variadic — a rest-tail fn-type annotation

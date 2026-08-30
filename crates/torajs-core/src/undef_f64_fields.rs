@@ -1,9 +1,9 @@
 //! Which object fields can hold the F64 `undefined` sentinel.
 //!
 //! A `number[]` read past the end answers the sentinel
-//! ([`crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS`]),
+//! ([`crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS`]),
 //! and every consumer that has to tell `undefined` from a number
-//! asks [`crate::ssa_lower_nullable_guard::is_undef_f64_source`]
+//! asks [`crate::ssa_lower_undef_f64_source::is_undef_f64_source`]
 //! whether the expression in front of it is one. A field read was
 //! not on that list, so storing an out-of-range read into a field
 //! and reading it back lost the answer:
@@ -46,14 +46,14 @@ pub(crate) fn collect(ctx: &LowerCtx<'_>) -> HashSet<String> {
         match ctx.ast.get_expr(eid) {
             Expr::ObjectLit { fields } => {
                 for (name, value) in fields {
-                    if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, *value) {
+                    if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, *value) {
                         out.insert(name.clone());
                     }
                 }
             }
             Expr::Assign { target, value } => {
                 if let Expr::Member { name, .. } = ctx.ast.get_expr(*target) {
-                    if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, *value) {
+                    if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, *value) {
                         out.insert(name.clone());
                     }
                 }

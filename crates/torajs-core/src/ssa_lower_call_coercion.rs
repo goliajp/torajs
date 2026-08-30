@@ -255,7 +255,7 @@ pub(crate) fn emit_to_string(
             // its aliases) stringifies the sentinel as "undefined",
             // not "NaN" (same branch the concat lane takes; the
             // template String(...) wrap routes substitutions here).
-            if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, arg_eid) {
+            if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, arg_eid) {
                 return crate::ssa_lower_binop_inner::add_str::coerce_undefable_f64(ctx, arg_op).0;
             }
             Operand::Value(ctx.f.append_inst(

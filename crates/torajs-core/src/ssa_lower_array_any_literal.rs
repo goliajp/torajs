@@ -255,7 +255,7 @@ impl<'a> LowerCtx<'a> {
                 // z = (bits == SENTINEL); tag = 3 + 2z (3→5);
                 // value = bits & (z - 1) (bits→0 on the sentinel).
                 if let Some(e) = eid
-                    && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, e)
+                    && crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, e)
                 {
                     let is_undef = self.f.append_inst(
                         self.cur_block,
@@ -263,7 +263,7 @@ impl<'a> LowerCtx<'a> {
                             crate::ssa::IPred::Eq,
                             Operand::Value(bits),
                             Operand::ConstI64(
-                                crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64,
+                                crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64,
                             ),
                         ),
                         Type::Bool,

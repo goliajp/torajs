@@ -166,7 +166,7 @@ impl<'a> LowerCtx<'a> {
             // better with (an I64 `number` slot included, which is the
             // narrower-than-JS form, not a decision about this exit).
             Type::F64 => Operand::ConstF64(f64::from_bits(
-                crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+                crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS,
             )),
             // A bool slot is exactly two states, so the promoted read
             // answers with the tag every tagged value uses for

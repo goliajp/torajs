@@ -68,7 +68,8 @@ impl<'a> LowerCtx<'a> {
         // sentinel F64 (number[] index read / alias) boxes to
         // ANY_UNDEF when the bits match, so the any world sees a
         // real `undefined` instead of a NaN with our payload.
-        if val_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid) {
+        if val_ty == Type::F64 && crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, eid)
+        {
             return self.box_f64_or_undef(val);
         }
         // RFC 20260710 C2b + 20260722 chunk B — an undefable heap
@@ -133,7 +134,8 @@ impl<'a> LowerCtx<'a> {
         // family) resolves to ANY_UNDEF when the bits match, so
         // `m.get(k)` round-trips a real `undefined` instead of a
         // NaN with our payload.
-        if val_ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid) {
+        if val_ty == Type::F64 && crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, eid)
+        {
             let (tag, v) = self.tag_value_f64_or_undef(val.clone());
             return (tag, v, val, val_ty);
         }

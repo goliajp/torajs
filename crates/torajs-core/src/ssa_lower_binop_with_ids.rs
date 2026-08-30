@@ -56,11 +56,13 @@ impl<'a> LowerCtx<'a> {
         let left_plain = std::mem::take(&mut self.binop.left_lowered_plain);
         let right_plain = std::mem::take(&mut self.binop.right_lowered_plain);
         self.binop.left_f64_undefable = !left_plain
-            && left_id
-                .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
+            && left_id.is_some_and(|eid| {
+                crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, eid)
+            });
         self.binop.right_f64_undefable = !right_plain
-            && right_id
-                .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
+            && right_id.is_some_and(|eid| {
+                crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, eid)
+            });
         let saved_left_na = self.binop.left_nullable_arr;
         let saved_right_na = self.binop.right_nullable_arr;
         self.binop.left_nullable_arr = left_id

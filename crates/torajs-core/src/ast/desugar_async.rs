@@ -323,7 +323,7 @@ fn fallthrough_undefined_for(inner_ty: &str) -> Expr {
         // evidence the slot is F64 and widens the promise's value field
         // to match, which a marker ident would not do.
         "number" => Expr::Number(f64::from_bits(
-            crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+            crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS,
         )),
         _ => Expr::Ident(format!("{UNDEF_SLOT_MARKER}{inner_ty}")),
     }

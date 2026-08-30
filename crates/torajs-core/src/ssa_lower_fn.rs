@@ -355,7 +355,7 @@ fn close_fallthrough_path(ctx: &mut LowerCtx<'_>, cb: ssa::BlockId) {
     let term = match ctx.f.ret {
         Type::Void => Terminator::Ret(None),
         Type::F64 => Terminator::Ret(Some(Operand::ConstF64(f64::from_bits(
-            crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+            crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS,
         )))),
         // An `any` return spells its undefined as the immediate
         // ANY_UNDEF box (tag 5, payload 0), not a heap cell — the

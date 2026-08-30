@@ -285,7 +285,7 @@ pub(crate) fn pad_undef_n(ctx: &mut LowerCtx<'_>, n: usize, argv: &mut Vec<Opera
 /// carry a sentinel.
 fn canon_math_arg(ctx: &mut LowerCtx<'_>, v: Operand, arg: Option<ExprId>) -> Operand {
     if ctx.operand_ty(&v) == Type::F64
-        && arg.is_some_and(|e| crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, e))
+        && arg.is_some_and(|e| crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, e))
     {
         return ctx.canon_f64_away_from_sentinel(v);
     }

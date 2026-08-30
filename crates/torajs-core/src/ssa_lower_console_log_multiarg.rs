@@ -240,7 +240,7 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
     let typed_inline = match ty {
         Type::I64 => Some(ctx.intrinsics.print_i64_inline),
         Type::Bool => Some(ctx.intrinsics.print_bool_inline),
-        Type::F64 if !crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, aid) => {
+        Type::F64 if !crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, aid) => {
             Some(ctx.intrinsics.print_f64_inline)
         }
         Type::Str => Some(ctx.intrinsics.str_print_inline),
@@ -288,18 +288,19 @@ fn print_one(ctx: &mut LowerCtx, la: LoweredArg) {
         // sentinel F64 arg (number[] index read / alias) boxes
         // to ANY_UNDEF when the bits match so this prints
         // "undefined", not "NaN".
-        let boxed =
-            if ty == Type::F64 && crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, aid) {
-                ctx.box_f64_or_undef(arg)
-            } else {
-                // RFC 20260710 C2b — expr-aware box: a Nullable
-                // Obj/Arr/Closure arg may carry the generic
-                // undefined cell, which must re-encode as ANY_UNDEF
-                // (the tag-aware printer has no arm for the oddball
-                // header). All other shapes take box_to_any's arms
-                // unchanged.
-                ctx.box_to_any_from_expr(aid, arg)
-            };
+        let boxed = if ty == Type::F64
+            && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, aid)
+        {
+            ctx.box_f64_or_undef(arg)
+        } else {
+            // RFC 20260710 C2b — expr-aware box: a Nullable
+            // Obj/Arr/Closure arg may carry the generic
+            // undefined cell, which must re-encode as ANY_UNDEF
+            // (the tag-aware printer has no arm for the oddball
+            // header). All other shapes take box_to_any's arms
+            // unchanged.
+            ctx.box_to_any_from_expr(aid, arg)
+        };
         (boxed, true)
     };
     ctx.f.append_void(

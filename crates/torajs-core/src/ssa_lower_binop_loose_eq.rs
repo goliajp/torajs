@@ -83,7 +83,7 @@ pub(crate) fn try_lower(
                         IPred::Eq,
                         Operand::Value(bits),
                         Operand::ConstI64(
-                            crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS as i64,
+                            crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64,
                         ),
                     ),
                     Type::Bool,
