@@ -36,7 +36,21 @@ pub fn stage(slot_dir: &Path, case_path: &Path, case_src: &str) -> Vec<u8> {
             }
         }
     }
-    if !case_src.contains("_FIXTURE") {
+    // Two ways a case needs its directory staged, and only the first
+    // was asked about. A case can reference a `_FIXTURE.js` sibling —
+    // or it can reference ITSELF by corpus filename, which is what
+    // §16.2 self-import cases do (`import f from
+    // './instn-named-bndng-dflt-fun-anon.js'` IS that case). The
+    // alias write below has handled the second kind since it was
+    // added, but it sat behind this gate, so a case with no `_FIXTURE`
+    // string returned here and never reached it: 32 of the 75
+    // `import error` verdicts under `language/module-code` were this
+    // gate, not a gap in tr.
+    let self_name = case_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned());
+    let refs_self = self_name.as_deref().is_some_and(|n| case_src.contains(n));
+    if !case_src.contains("_FIXTURE") && !refs_self {
         return Vec::new();
     }
     let Some(dir) = case_path.parent() else {
@@ -84,7 +98,14 @@ pub fn stage(slot_dir: &Path, case_path: &Path, case_src: &str) -> Vec<u8> {
     // Pull every same-directory `.js` a staged fixture mentions, to a
     // fixpoint — chains are short, and anything already staged (the
     // fixtures, the case alias) is skipped by the existence check.
+    // The case's OWN alias seeds the scan alongside the fixtures: a
+    // case that names a sibling directly is the same chain one link
+    // shorter, and seeding only from `_FIXTURE` files could not see
+    // it.
     let mut scan: Vec<String> = names;
+    if let Some(n) = self_name {
+        scan.push(n);
+    }
     while !scan.is_empty() {
         let mut next: Vec<String> = Vec::new();
         for n in &scan {
