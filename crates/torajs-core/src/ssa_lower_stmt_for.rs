@@ -384,8 +384,9 @@ fn emit_push_loop_reserve(
     let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
     let mut reserve_emitted: Vec<String> = Vec::new();
     if let Some((bound_eid, names)) = &pushed_arrays {
-        // The bound is read once here and trusted for the whole loop;
-        // only some bounds may be. See `lower_reserve_bound`.
+        // The install gate: the bound is read once here and trusted
+        // for the whole loop, and each array is reserved on its own
+        // length. See `lower_reserve_bound` for both obligations.
         let Some(bound_op) =
             crate::ssa_lower_push_loop_detect::lower_reserve_bound(ctx, *bound_eid, names)
         else {

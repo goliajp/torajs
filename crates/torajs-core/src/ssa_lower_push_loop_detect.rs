@@ -165,7 +165,9 @@ fn is_inert_binop(op: crate::ast::BinOp) -> bool {
 }
 
 /// Lower the loop bound for a pre-reserve install, or answer `None`
-/// when this bound may not be treated as a loop invariant.
+/// when the install may not be made at all.
+///
+/// # The bound must be invariant
 ///
 /// Both installs read `bound` once, above the loop, and then trust
 /// that value for the rest of it: the reserved capacity is
@@ -193,6 +195,22 @@ fn is_inert_binop(op: crate::ast::BinOp) -> bool {
 /// local, so inert here really is invariant. The width is checked on
 /// the lowered operand rather than the source expression because
 /// `number` says nothing about which one it landed in.
+///
+/// # The reserved arrays must be distinct
+///
+/// A body may fill several arrays in lockstep, and the install serves
+/// each one separately: `reserve(xs, len(xs) + bound)` per name. Two
+/// names for one array make that half of what the loop writes —
+/// `f(a, a)` with `p.push(i); q.push(i * 10)` reserved eight slots and
+/// wrote sixteen, past the end of the buffer, answering length 8 where
+/// the answer is 16. So a multi-array install additionally needs each
+/// name proved to be this body's alone, which is exactly the question
+/// [`PreReserve::owns_alone`] already answers: two fresh literals
+/// neither of which ever escaped are two cells. A single name needs no
+/// such proof — it is reserved against its own length, whoever else
+/// can reach it, and nothing but this loop writes it.
+///
+/// [`PreReserve::owns_alone`]: crate::ssa_lower_arr_prereserve::PreReserve::owns_alone
 pub(crate) fn lower_reserve_bound(
     ctx: &mut LowerCtx<'_>,
     bound: ExprId,
@@ -206,6 +224,9 @@ pub(crate) fn lower_reserve_bound(
         ctx.prereserve
             .owns_alone(ctx.ast, &ctx.deque_arrs, n.as_str())
     });
+    if names.len() > 1 && !all_owned {
+        return None;
+    }
     if !bound_is_invariant(ctx, bound, names, all_owned) {
         return None;
     }
