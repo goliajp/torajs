@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T18:00:19.736Z",
+  "generatedAt": "2026-08-30T00:59:21.565Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,30 +9,31 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-29T17:47:21Z",
-    "headSha": "c092a9131",
-    "elapsedSec": 367.59,
+    "ranAt": "2026-08-30T00:43:23Z",
+    "headSha": "1c36ce9e5",
+    "elapsedSec": 368.62,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30081,
-    "passNoOracle": 985,
+    "pass": 30090,
+    "passNoOracle": 1011,
     "passNegative": 4147,
-    "passTotal": 35213,
-    "bug": 12456,
-    "incompatible": 5505,
-    "bunSkip": 3031,
+    "passTotal": 35248,
+    "bug": 12480,
+    "incompatible": 5446,
+    "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47669,
-    "passRateInScope": 66.22,
-    "passRateTrAccepted": 73.87,
-    "headShaNote": "mini's git HEAD lags the dev tree (push not authorised); the working tree was rsync-synced to c092a9131 and force-touched before the release build, so the sweep measured that code. Field corrected at ingest."
+    "trAccepted": 47728,
+    "passRateInScope": 66.29,
+    "passRateTrAccepted": 73.85,
+    "git_sha_actual": "7ee9697d3",
+    "headShaNote": "mini's git HEAD lags the dev tree (this rotation's 6 commits were rsynced, not pushed), so headSha/filename carry 1c36ce9e5 while the measured code is 7ee9697d3"
   },
   "torajs": {
-    "commit": "c092a9131",
-    "commitSubject": "fix: a promise did not lead back to what it settled with",
+    "commit": "7ee9697d3",
+    "commitSubject": "fix: a self-importing module case never got its own directory staged",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -714,6 +715,38 @@
   },
   "commits": [
     {
+      "hash": "7ee9697d3",
+      "subject": "fix: a self-importing module case never got its own directory staged"
+    },
+    {
+      "hash": "f8e977e65",
+      "subject": "fix: the one property a RegExp keeps outside its bag had no define"
+    },
+    {
+      "hash": "e93114be0",
+      "subject": "fix: a cast out of any never grew the face it named"
+    },
+    {
+      "hash": "47543a0a9",
+      "subject": "fix: the optional call decided a plain object had nothing above it"
+    },
+    {
+      "hash": "6b6923e2f",
+      "subject": "fix: the one prototype whose constructor must not be writable"
+    },
+    {
+      "hash": "d8353f3e4",
+      "subject": "fix: a view was not a way back to the buffer it reads through"
+    },
+    {
+      "hash": "1c36ce9e5",
+      "subject": "style: restore the rustfmt-clean invariant"
+    },
+    {
+      "hash": "eb9d1dc52",
+      "subject": "docs: rotation 530 test262 sweep ingest, bench run and dashboard snapshot"
+    },
+    {
       "hash": "c092a9131",
       "subject": "fix: a promise did not lead back to what it settled with"
     },
@@ -728,59 +761,38 @@
     {
       "hash": "e9ebe1f0e",
       "subject": "refactor: the collector's layout knowledge moves out of its algorithm"
-    },
-    {
-      "hash": "0ec051063",
-      "subject": "perf: a wrapper with no expando answered the collector as if it had children"
-    },
-    {
-      "hash": "9325f1914",
-      "subject": "docs: rotation 529 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "773e3266b",
-      "subject": "fix: a Proxy was not a place the collector could go, or start from"
-    },
-    {
-      "hash": "6c183552b",
-      "subject": "fix: Object(Symbol()) was the one wrapper you could not assign to"
-    },
-    {
-      "hash": "c39d4621c",
-      "subject": "fix: the collector saw a Map's properties but not what it stores"
-    },
-    {
-      "hash": "4f995b31c",
-      "subject": "fix: a Map holding only itself was never offered to the collector"
-    },
-    {
-      "hash": "5776a6b67",
-      "subject": "fix: a bagless Map answered the collector as if it had children"
-    },
-    {
-      "hash": "fde118fc7",
-      "subject": "docs: rotation 528 test262 sweep ingest, roadmap P-SURF snapshot and dashboard"
     }
   ],
-  "headSha": "c092a9131",
+  "headSha": "7ee9697d3",
   "autorun": {
-    "total": 833,
+    "total": 834,
     "baselineTarget": 10,
-    "bySelf": 828,
+    "bySelf": 829,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788020508-3330",
-      "at": "2026-08-29T16:21:48Z",
-      "ts": 1788020508,
+      "rotationId": "r-1788026471-6bb3",
+      "at": "2026-08-29T18:01:11Z",
+      "ts": 1788026471,
       "trigger": "self",
-      "prevHead": "9325f1914",
-      "handoffSha": "sha256:fa4bfa73a8325b4542a29087a97e7551635fabb802edffe4091573beb165b1c5",
-      "handoffAgeSec": 26,
+      "prevHead": "eb9d1dc52",
+      "handoffSha": "sha256:02f67be77ca95305d9a8b81ceebb4d342f207b8e13c5fe368c63d4a8a1f5ecd4",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788026471-6bb3",
+        "at": "2026-08-29T18:01:11Z",
+        "ts": 1788026471,
+        "trigger": "self",
+        "prevHead": "eb9d1dc52",
+        "handoffSha": "sha256:02f67be77ca95305d9a8b81ceebb4d342f207b8e13c5fe368c63d4a8a1f5ecd4",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788020508-3330",
         "at": "2026-08-29T16:21:48Z",
@@ -877,17 +889,6 @@
         "prevHead": "ef5829aa0",
         "handoffSha": "sha256:ba2947287ae072318c23fbaebd008d80b401fd12141a08206b64cc0a9f827095",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787923664-7bb4",
-        "at": "2026-08-28T13:27:44Z",
-        "ts": 1787923664,
-        "trigger": "self",
-        "prevHead": "c75b40331",
-        "handoffSha": "sha256:3f076e344adc7fbec38aae5e13f1d07e1b889a0580f571191c21554169c3a39d",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
