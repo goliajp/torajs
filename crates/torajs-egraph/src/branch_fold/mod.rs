@@ -14,6 +14,20 @@
 //! * [`accum`] — SCEV-lite add-recurrence bound over a counted loop
 //!   (the total-cell guard).
 //!
+//! The flow-insensitive lattice is the third source, and the blind
+//! spot is mutual: `point_eval` gives up on a loop counter, because
+//! the preheader def and the latch def both reach the read and there
+//! is no unique last one, while the lattice answers exactly that
+//! shape — a cell's fact is the join over its defs, so it holds at
+//! every point the value is live. `i < 0` on a counter that starts at
+//! zero is the case that needs it, and it is what the guarded index
+//! read leaves behind: the length guard settles the upper bound of
+//! `xs[i]` and never the lower, so that compare is emitted and is
+//! always false. It is recomputed here rather than reused from the
+//! pipeline's earlier run — the passes in between rewrite
+//! instructions, and a fact keyed by a ValueId that has since been
+//! reused is evidence for the wrong value.
+//!
 //! Folding is generic: any always-true/false ICmp-fed CondBr folds,
 //! guard or not. `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate),
 //! `TORAJS_BRANCH_FOLD_STATS=1` dumps counters.
@@ -21,6 +35,7 @@
 pub(crate) mod accum;
 pub(crate) mod point_eval;
 
+use std::cell::OnceCell;
 use std::collections::HashMap;
 
 use torajs_core::ssa::{
@@ -58,6 +73,9 @@ fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let pe = PointEval::new(func, &dom);
+    // Lazily: most functions carry no ICmp-fed CondBr at all, and the
+    // lattice is a fixpoint per function.
+    let flow: OnceCell<HashMap<ValueId, NumFact>> = OnceCell::new();
 
     // Decide every foldable CondBr against the unmutated CFG (edge
     // removal only shrinks the path set, so the evidence stays valid
@@ -78,8 +96,8 @@ fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
         let InstKind::ICmp(pred, a, b) = &func.blocks[cd.0].insts[cd.1].kind else {
             continue;
         };
-        let fa = eval_side(func, &la, &pe, a, cd);
-        let fb = eval_side(func, &la, &pe, b, cd);
+        let fa = eval_side(func, &la, &pe, &flow, a, cd);
+        let fb = eval_side(func, &la, &pe, &flow, b, cd);
         if let (Some(fa), Some(fb)) = (fa, fb)
             && let Some(taken) = decide(*pred, fa, fb)
         {
@@ -97,21 +115,22 @@ fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
     stats.blocks_removed += sweep_unreachable_blocks(func);
 }
 
-/// Evaluate one compare side: point evaluation first, then the
-/// add-recurrence bound for a single-def `add` over an accumulator
-/// cell (the value whose flow-insensitive fact widened to a
-/// sentinel).
+/// Evaluate one compare side against all three sources: point
+/// evaluation, the add-recurrence bound for a single-def `add` over
+/// an accumulator cell, and the flow-insensitive lattice. Each is
+/// sound on its own, so the answer is their meet.
 fn eval_side(
     func: &Function,
     la: &LoopAnalysis,
     pe: &PointEval,
+    flow: &OnceCell<HashMap<ValueId, NumFact>>,
     op: &Operand,
     at: (usize, usize),
 ) -> Option<NumFact> {
     // Point evaluation resolves opaque i64 defs to the vacuous
-    // full-i64 fact, so the recurrence bound must always get its
-    // shot; both facts are sound → meet (disjoint cannot arise from
-    // two sound facts, but fall back to the recurrence side).
+    // full-i64 fact, so the other two must always get their shot;
+    // all are sound → meet (disjoint cannot arise among sound facts,
+    // but fall back to the other side).
     let pf = pe.eval_operand(op, at);
     let af = match op {
         Operand::Value(v) => {
@@ -119,11 +138,17 @@ fn eval_side(
         }
         _ => None,
     };
-    match (pf, af) {
-        (Some(a), Some(b)) => Some(a.meet(b).unwrap_or(b)),
-        (a, None) => a,
-        (None, b) => b,
-    }
+    let ff = match op {
+        Operand::Value(v) => flow
+            .get_or_init(|| crate::interval::analyze_function(func))
+            .get(v)
+            .copied(),
+        _ => None,
+    };
+    [pf, af, ff]
+        .into_iter()
+        .flatten()
+        .reduce(|a, b| a.meet(b).unwrap_or(b))
 }
 
 fn decide(pred: IPred, a: NumFact, b: NumFact) -> Option<bool> {
