@@ -26,11 +26,20 @@
 //!    integer>` or `i++` — the guard re-establishes the upper bound
 //!    on every iteration, but nothing re-establishes the lower one,
 //!    so it rides on induction over the steps;
-//! 3. the loop holds EVERY write to that name in the module. A call
-//!    in the body reaching a function that assigns the same global,
-//!    or a closure that captured it, would drive it negative behind
-//!    the induction's back. The write-site census reads the whole
-//!    expression arena rather than a walk, so no shape can hide one.
+//! 3. no write to it can happen anywhere the induction cannot see. A
+//!    call in the body reaching a function that assigns the same
+//!    global, or a closure that captured it, would drive it negative
+//!    behind the induction's back.
+//!
+//! The third is answered two ways. A `for (let i = …; …)` counter is
+//! bound BY the loop, so nothing outside it can name that binding and
+//! the induction already sees every write there is. Otherwise — a
+//! `while` over a counter declared before it — the loop has to hold
+//! every write to that NAME in the module, which is coarse (a sibling
+//! loop's own `let i` blocks it) but sound. That census reads the
+//! whole expression arena rather than walking, because a walk would
+//! have to know every statement and expression shape to be complete,
+//! and being incomplete here is silent-wrong.
 //!
 //! Miss any of them and the guard is simply not settled: the element
 //! keeps its F64 seed and the program keeps answering `undefined`.
@@ -126,7 +135,7 @@ fn scan_stmt(ast: &Ast, s: &Stmt, env: &mut Env, w: &Writes, out: &mut HashSet<E
         }
         Stmt::Labeled { body, .. } => scan_stmt(ast, body, env, w, out),
         Stmt::While { cond, body } => {
-            if settled(ast, *cond, env, None, body, w) {
+            if settled(ast, *cond, env, None, body, w, &|_| false) {
                 out.insert(*cond);
             }
             scan_stmt(ast, body, &mut env.clone(), w, out);
@@ -144,8 +153,12 @@ fn scan_stmt(ast: &Ast, s: &Stmt, env: &mut Env, w: &Writes, out: &mut HashSet<E
             if let Some(i) = init {
                 scan_seq(ast, std::slice::from_ref(&**i), &mut inner, w, out);
             }
+            // A counter the loop's own `let` binds cannot be written
+            // from outside the loop — the binding is not in scope
+            // there. `var` hoists out of it, so it does not count.
+            let own = |name: &str| matches!(init.as_deref(), Some(Stmt::LetDecl { name: n, is_var: false, .. }) if n == name);
             if let Some(c) = cond
-                && settled(ast, *c, &inner, *step, body, w)
+                && settled(ast, *c, &inner, *step, body, w, &own)
             {
                 out.insert(*c);
             }
@@ -181,6 +194,7 @@ fn settled(
     step: Option<ExprId>,
     body: &Stmt,
     w: &Writes,
+    loop_owns: &dyn Fn(&str) -> bool,
 ) -> bool {
     let Some((i, _xs)) = guard_pair(ast, cond) else {
         return false;
@@ -197,11 +211,13 @@ fn settled(
     if !stmt_steps(ast, body, &i, &mut seen) {
         return false;
     }
-    // Every write to this name in the module has to be one of the
-    // steps just checked.
-    w.sites
-        .get(&i)
-        .is_none_or(|all| all.iter().all(|e| seen.contains(e)))
+    // A binding the loop owns is out of everyone else's reach; any
+    // other one has to have all of its writes among the steps just
+    // checked.
+    loop_owns(&i)
+        || w.sites
+            .get(&i)
+            .is_none_or(|all| all.iter().all(|e| seen.contains(e)))
 }
 
 /// A non-negative integer literal.

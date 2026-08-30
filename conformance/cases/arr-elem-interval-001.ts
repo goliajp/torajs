@@ -117,3 +117,32 @@ while (e < vs.length) {
   e = e + 1;
 }
 console.log(vout);
+
+// a counter the loop's own `let` binds is out of everyone else's
+// reach, so a sibling loop reusing the name does not block it
+function twice(n: number): number {
+  const src: number[] = [];
+  for (let i: number = 0; i < n; i = i + 1) {
+    src.push(i);
+  }
+  let acc: number = 0;
+  for (let i: number = 0; i < src.length; i = i + 1) {
+    acc = acc + src[i];
+  }
+  return acc;
+}
+console.log(twice(50));
+
+// and one unguarded read on the same array still widens its class
+function twiceOob(n: number): string {
+  const src2: number[] = [];
+  for (let i: number = 0; i < n; i = i + 1) {
+    src2.push(i * 2);
+  }
+  let acc: number = 0;
+  for (let i: number = 0; i < src2.length; i = i + 1) {
+    acc = acc + src2[i];
+  }
+  return String(acc) + " " + String(src2[999]);
+}
+console.log(twiceOob(4));
