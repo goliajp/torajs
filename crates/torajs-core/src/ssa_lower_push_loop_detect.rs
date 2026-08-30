@@ -241,21 +241,51 @@ pub(crate) fn lower_reserve_bound(
 /// one array by the length of another is how a copy is written — and
 /// it is a genuine loop invariant whenever `A` is not among the
 /// arrays being filled and cannot be a second name for one of them.
-/// `PreReserve::owns_alone` settles the second half; the first is a
-/// name comparison. Reading a length cannot call, throw, or write, so
-/// nothing else about the bound changes: the extra read above the
-/// loop stays unobservable, and the value still has to land in i64.
-fn bound_is_invariant(ctx: &LowerCtx<'_>, eid: ExprId, names: &[String], all_owned: bool) -> bool {
+/// The first half is a name comparison. The second is answered by
+/// [`PreReserve::owns_alone`], and it takes *either* side to answer
+/// it, which is the whole reason to ask twice:
+///
+/// - every filled array is this body's alone — then no `A`, whatever
+///   it is, can be a second name for one of them; or
+/// - `A` itself is this body's alone — then `A` is a cell made here
+///   and handed to nobody, so no filled array can be a second name
+///   for *it*, and it does not matter where the filled arrays came
+///   from.
+///
+/// Only the first was asked before, so `function fill(dst, src)` —
+/// the way a library writes this — was refused whole, for want of a
+/// question about `src`. Asking the second admits the half where the
+/// bound array is the body's own; `f(a, a)` with both sides handed in
+/// still fails both, and needs interprocedural information.
+///
+/// A string is unconditional: its length cannot move at all, and a
+/// body of nothing but pushes cannot rebind the name.
+///
+/// Reading a length cannot call, throw, or write, so nothing else
+/// about the bound changes: the extra read above the loop stays
+/// unobservable, and the value still has to land in i64.
+///
+/// [`PreReserve::owns_alone`]: crate::ssa_lower_arr_prereserve::PreReserve::owns_alone
+fn bound_is_invariant(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    names: &[String],
+    all_owned: bool,
+) -> bool {
     if let Expr::Member { obj, name } = ctx.ast.get_expr(eid)
         && name == "length"
         && let Expr::Ident(a) = ctx.ast.get_expr(*obj)
     {
-        return all_owned
-            && !names.iter().any(|n| n == a)
-            && matches!(
-                ctx.expr_types.get(obj),
-                Some(crate::check::Type::Array(_)) | Some(crate::check::Type::String)
-            );
+        if names.iter().any(|n| n == a) {
+            return false;
+        }
+        if matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String)) {
+            return true;
+        }
+        if !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_))) {
+            return false;
+        }
+        return all_owned || ctx.prereserve.owns_alone(ctx.ast, &ctx.deque_arrs, a);
     }
     if let Expr::BinOp { op, left, right } = ctx.ast.get_expr(eid)
         && is_inert_binop(*op)

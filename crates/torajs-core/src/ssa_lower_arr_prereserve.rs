@@ -107,6 +107,13 @@ impl PreReserve {
     /// can be reaching — so its length cannot move except through
     /// this very name.
     ///
+    /// Asked of both sides of a pre-reserve install: of every array
+    /// the loop fills, and of the array a `A.length` bound reads.
+    /// Either side answering yes settles the aliasing question for
+    /// the pair — see [`bound_is_invariant`].
+    ///
+    /// [`bound_is_invariant`]: crate::ssa_lower_push_loop_detect
+    ///
     /// Three questions, and the interesting one is answered already.
     /// The 11-A1 escape visitor marks a binding the moment it is
     /// aliased (`let y = xs` marks both), passed to a call, stored
