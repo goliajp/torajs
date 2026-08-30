@@ -76,11 +76,34 @@ enum Resolution {
 /// `ssa_lower_fn` / `ssa_lower_synthesize_main` (init-lane routing)
 /// so the two sides can't drift.
 pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
-    collect_degraded_inits(DegradeView {
+    let mut out = collect_degraded_inits(DegradeView {
         stmts: &ast.stmts,
         exprs: &ast.exprs,
         objlit_computed_keys: &ast.objlit_computed_keys,
-    })
+    });
+    // §10.4.6 — a module namespace is an EXOTIC object, and the only
+    // representation that can carry the exotic attributes is the
+    // dynobj one: a struct-typed namespace answers `isExtensible`
+    // true, `configurable` true and a non-null prototype off its
+    // layout, with no place to say otherwise. It joins the set
+    // unconditionally rather than waiting for a trigger, because the
+    // triggers are a LIST of introspection calls and the namespace
+    // surface is wider than any list (`Reflect.set` / `delete ns.x` /
+    // `Object.isExtensible` all read the exotic attributes without
+    // appearing in it).
+    //
+    // The static reads have already left: `ast::module_ns_members`
+    // retargeted every `ns.<export>` at the injected declaration, so
+    // what pays for the dynobj lane here is the namespace used as a
+    // VALUE — which is the only user that can observe the difference.
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && ast.namespace_bindings.contains_key(name)
+        {
+            out.insert(*init);
+        }
+    }
+    out
 }
 
 /// The slice-level surface this walker reads. `&Ast` is the shape the

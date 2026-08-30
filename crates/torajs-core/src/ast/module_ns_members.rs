@@ -126,6 +126,29 @@ pub fn desugar_module_ns_members(ast: &mut Ast) {
         };
         ast.exprs[i] = Expr::Ident(local.clone());
     }
+
+    // A namespace whose every use was a member read has no reader
+    // left: drop the binding so `import * as ns` costs nothing at run
+    // time — no allocation, no per-export store, no exotic
+    // finalization. The count is exact because the synthetic object
+    // literal's own field Idents name the LOCALS, never the alias.
+    let mut used: HashSet<&String> = HashSet::new();
+    for e in &ast.exprs {
+        if let Expr::Ident(n) = e
+            && retarget.contains_key(n)
+        {
+            used.insert(n);
+        }
+    }
+    let dead: HashSet<String> = retarget
+        .keys()
+        .filter(|a| !used.contains(*a))
+        .cloned()
+        .collect();
+    if !dead.is_empty() {
+        ast.stmts
+            .retain(|s| !matches!(s, Stmt::LetDecl { name, .. } if dead.contains(name)));
+    }
 }
 
 fn bump(count: &mut HashMap<String, u32>, name: &str) {

@@ -180,6 +180,22 @@ pub(crate) fn lower(
             ctx.emit_rc_inc(init_val.clone());
         }
     }
+    // §10.4.6 — a module namespace binding always lowers through the
+    // dynobj lane (`dynobj_degrade` puts its init there unconditionally
+    // for exactly this), so the fresh object can be given the exotic
+    // attributes right here, before anything is able to read them:
+    // null prototype, non-extensible, non-configurable entries, and
+    // the `@@toStringTag` own entry. An importer whose every use was
+    // a static member read never reaches this — `module_ns_members`
+    // retargeted those, and the elision drops the binding entirely.
+    if ty == Type::Any && ctx.ast.namespace_bindings.contains_key(name) {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.module_ns_finalize, vec![init_val.clone()]),
+            Type::Void,
+            None,
+        );
+    }
     finalize_and_bind(
         ctx,
         name,

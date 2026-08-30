@@ -37,21 +37,20 @@ pub(super) fn materialize_pending_namespaces(
         let Some(accum) = accums.get(alias) else {
             continue;
         };
+        let sorted = sorted_exports(accum.fields());
         if alias.starts_with("__dyn_ns_") {
-            dyn_ns_inline.push((alias.clone(), accum.fields().to_vec()));
+            dyn_ns_inline.push((alias.clone(), sorted));
             continue;
         }
-        let mut fields: Vec<(String, crate::ast::ExprId)> =
-            Vec::with_capacity(accum.fields().len());
-        for (name, local) in accum.fields() {
+        let mut fields: Vec<(String, crate::ast::ExprId)> = Vec::with_capacity(sorted.len());
+        for (name, local) in &sorted {
             let id = ast.add_expr(Expr::Ident(local.clone()));
             fields.push((name.clone(), id));
         }
         let obj_id = ast.add_expr(Expr::ObjectLit { fields });
         // §10.4.6.8 — mark the binding so a member miss on it answers
         // undefined instead of the anonymous-struct typo reject.
-        ast.namespace_bindings
-            .insert(alias.clone(), accum.fields().to_vec());
+        ast.namespace_bindings.insert(alias.clone(), sorted);
         injections.push(Stmt::LetDecl {
             mutable: false,
             name: alias.clone(),
@@ -60,6 +59,22 @@ pub(super) fn materialize_pending_namespaces(
             is_var: false,
         });
     }
+}
+
+/// §10.4.6.12 step 7 — the exports the object literal is built from,
+/// sorted by CODE UNIT. The resolver discovers them in walk order,
+/// but `[[OwnPropertyKeys]]` (§10.4.6.11) answers a SORTED copy and a
+/// dynobj answers own-keys in insertion order, so the sort belongs at
+/// the mint: one comparison per export at compile time, nothing at
+/// run time.
+///
+/// Code unit, not `str`'s byte order. They agree across the BMP and
+/// disagree above it — a supplementary character sorts before U+E000
+/// as a surrogate pair and after it as UTF-8.
+fn sorted_exports(fields: &[(String, String)]) -> Vec<(String, String)> {
+    let mut out = fields.to_vec();
+    out.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+    out
 }
 
 /// Dynamic-import namespaces skip the `let` above: the use site may

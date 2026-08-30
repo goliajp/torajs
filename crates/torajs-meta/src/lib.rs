@@ -35,6 +35,7 @@ pub mod genfn;
 pub mod instanceof_generic;
 pub mod iterator_proto;
 pub mod map_group_by;
+pub mod module_ns;
 pub mod obj_assign;
 pub mod obj_forin_keys;
 pub mod obj_own_descriptors;
