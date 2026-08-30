@@ -280,6 +280,18 @@ pub(crate) fn pad_undef_n(ctx: &mut LowerCtx<'_>, n: usize, argv: &mut Vec<Opera
     }
 }
 
+/// Clean the F64 `undefined` sentinel out of a Math argument. The
+/// arg ExprId is absent only for synthesized calls, which never
+/// carry a sentinel.
+fn canon_math_arg(ctx: &mut LowerCtx<'_>, v: Operand, arg: Option<ExprId>) -> Operand {
+    if ctx.operand_ty(&v) == Type::F64
+        && arg.is_some_and(|e| crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, e))
+    {
+        return ctx.canon_f64_away_from_sentinel(v);
+    }
+    v
+}
+
 fn coerce_args(
     ctx: &mut LowerCtx<'_>,
     target: FuncId,
@@ -287,15 +299,21 @@ fn coerce_args(
     args: &[ExprId],
     argv: &mut [Operand],
 ) -> Vec<(Operand, Type)> {
+    // ToNumber(undefined) is NaN — the F64 `undefined` sentinel must
+    // not reach a Math kernel, which would hand its payload back out
+    // (`Math.abs` clears the sign bit and returns the pattern
+    // unchanged). See [`crate::ssa_lower_f64_sentinel_canon`].
     if ctx.is_math_unary(target) {
         debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
         argv[0] = coerce_to_f64_or_any_to_number(ctx, argv[0]);
+        argv[0] = canon_math_arg(ctx, argv[0].clone(), args.first().copied());
         return Vec::new();
     }
     if ctx.is_math_binary(target) {
         debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
         for i in 0..2 {
             argv[i] = coerce_to_f64_or_any_to_number(ctx, argv[i]);
+            argv[i] = canon_math_arg(ctx, argv[i].clone(), args.get(i).copied());
         }
         return Vec::new();
     }

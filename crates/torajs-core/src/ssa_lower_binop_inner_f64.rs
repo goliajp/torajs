@@ -49,6 +49,25 @@ pub(crate) fn lower_float_path(
     }
     let af = ctx.coerce_to_f64(a);
     let bf = ctx.coerce_to_f64(b);
+    // ToNumber(undefined) is NaN (§7.1.4) — spell that step here,
+    // because AArch64 hands a NaN operand's payload to the result
+    // and the F64 `undefined` sentinel would come back out of the
+    // arithmetic bit-for-bit. See
+    // [`crate::ssa_lower_f64_sentinel_canon`] for why the operand
+    // rather than the result is the side that has to be clean.
+    // Comparisons are indifferent (NaN answers the same either way)
+    // and the bitwise family left through ToInt32 further up, so
+    // doing it once here covers every arm below.
+    let af = if ctx.binop.left_f64_undefable {
+        ctx.canon_f64_away_from_sentinel(af)
+    } else {
+        af
+    };
+    let bf = if ctx.binop.right_f64_undefable {
+        ctx.canon_f64_away_from_sentinel(bf)
+    } else {
+        bf
+    };
     match op {
         AstBinOp::Add => ctx.bin(SsaBinOp::FAdd, af, bf, Type::F64),
         AstBinOp::Sub => ctx.bin(SsaBinOp::FSub, af, bf, Type::F64),

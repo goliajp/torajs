@@ -67,6 +67,20 @@ impl LowerCtx<'_> {
         // V3-18 m1.f / m1.h.4 — coerce Bool / null / Str before
         // unary `-`, `~`, `+`. See [`Self::coerce_unary_operand`].
         let v = self.coerce_unary_operand(op, v);
+        // ToNumber(undefined) is NaN — the F64 `undefined` sentinel
+        // has to be a plain NaN before it enters `-` or `+`, or
+        // negation carries its payload back out. `-` flips the sign
+        // bit, which the sentinel compare misses, so `-(-xs[oob])`
+        // restored the exact pattern and read back as `undefined`.
+        // See [`crate::ssa_lower_f64_sentinel_canon`].
+        let v = if matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus)
+            && self.operand_ty(&v) == Type::F64
+            && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, expr)
+        {
+            self.canon_f64_away_from_sentinel(v)
+        } else {
+            v
+        };
         match op {
             crate::ast::UnaryOp::Not => {
                 // V3-18 m1.h.2 — coerce truthy first; the
