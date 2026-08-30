@@ -193,7 +193,7 @@ fn collect_bindings(
 
 /// Depth-first stmt walk over every body shape (the
 /// `globalthis_member` gate's coverage, callback form).
-fn walk_stmts(stmts: &[Stmt], f: &mut impl FnMut(&Stmt)) {
+pub(super) fn walk_stmts(stmts: &[Stmt], f: &mut impl FnMut(&Stmt)) {
     for s in stmts {
         f(s);
         match s {

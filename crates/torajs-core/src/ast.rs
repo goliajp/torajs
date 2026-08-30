@@ -153,6 +153,7 @@ mod inject_builtin_classes_reach;
 mod inject_disposable_stack;
 mod let_owned_elems;
 mod lift_arrow_fns;
+mod module_ns_members;
 mod module_passes;
 mod named_eval;
 mod namedfn_recv_cb;
@@ -255,6 +256,7 @@ pub(crate) use lift_arrow_fns::{
     default_init_for_field, default_init_for_type, is_fn_arr_ann, is_fn_like_ann,
     method_owner_is_in_chain, retag_field_fn_ann, rewrite_this_in_ann,
 };
+pub use module_ns_members::desugar_module_ns_members;
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
 pub(crate) use named_eval::collect_named_eval_positions;
 pub use namedfn_recv_cb::synthesize_recv_cb_forwarders;

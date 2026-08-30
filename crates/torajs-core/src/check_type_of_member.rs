@@ -254,7 +254,7 @@ fn answer_terminal_miss(
     }
     if matches!(obj_ty, Type::Struct(_))
         && let crate::ast::Expr::Ident(n) = ast.get_expr(*obj)
-        && ast.namespace_bindings.contains(n)
+        && ast.namespace_bindings.contains_key(n)
     {
         return Ok(Type::Undefined);
     }

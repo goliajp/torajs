@@ -207,6 +207,13 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // `const m = globalThis.Math`), before anything consumes member
     // shapes.
     ast::desugar_ns_alias_members(ast);
+    // Module-namespace member direct-connect — a static
+    // `ns.<export>` read goes straight at the top-level declaration
+    // the resolver injected, leaving the synthetic namespace object
+    // to the value uses §10.4.6 is about. Same neighbourhood as the
+    // alias rewrite above and for the same reason: before anything
+    // consumes member shapes.
+    ast::desugar_module_ns_members(ast);
     // §13.3.9 — an optional chain that ENDS IN A CALL is an ordinary
     // member call under a nullish guard. The callee flattens to
     // `Member` here, before any pass or the checker reads a callee

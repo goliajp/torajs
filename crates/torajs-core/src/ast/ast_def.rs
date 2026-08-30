@@ -829,7 +829,14 @@ pub struct Ast {
     /// are not extensible, so the checker's anonymous-struct
     /// typo reject does not apply to a member miss on one of these:
     /// it answers Undefined statically instead.
-    pub namespace_bindings: std::collections::HashSet<String>,
+    ///
+    /// The value is the namespace's export list in resolver order:
+    /// `(importer-visible export spelling, injected top-level local
+    /// binding)`, the two differing when the deconflict pass mangled
+    /// a colliding decl. `desugar_module_ns_members` reads it to
+    /// retarget a static `ns.<export>` read straight at the local,
+    /// leaving the object itself to the value uses §10.4.6 is about.
+    pub namespace_bindings: std::collections::HashMap<String, Vec<(String, String)>>,
     /// True when the parser saw at least one dynamic `import(...)`
     /// expression (any argument shape — §13.3.10 takes a full
     /// AssignmentExpression). Gates the module resolver's speculative

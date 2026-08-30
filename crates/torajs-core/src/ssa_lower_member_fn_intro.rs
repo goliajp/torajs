@@ -119,9 +119,16 @@ fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) 
         n.clone()
     } else {
         // ES SetFunctionName — a static-method mangled ident answers
-        // the property key (same strip as the fn-addr registry rows).
-        crate::ssa_lower_inner::strip_static_method_name(&fn_name_owned, &ctx.ast.class_parents)
-            .unwrap_or(&fn_name_owned)
+        // the property key (same strip as the fn-addr registry rows),
+        // and so does a 423-01 module-deconflict one: `B.tag.name`
+        // says "tag" whether the read reached the body through the
+        // namespace object's FIELD or straight at the mangled
+        // declaration. The registry rows already strip both; this
+        // compile-time fold saw only the first until the namespace
+        // member direct-connect started handing it the second.
+        let base = crate::ssa_lower_inner::body_passes::strip_module_mangle(&fn_name_owned);
+        crate::ssa_lower_inner::strip_static_method_name(base, &ctx.ast.class_parents)
+            .unwrap_or(base)
             .to_string()
     };
     let s = ctx.intern_string_literal(&visible_name);
