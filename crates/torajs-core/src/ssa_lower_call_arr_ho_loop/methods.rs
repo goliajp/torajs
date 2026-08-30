@@ -1,10 +1,11 @@
 //! Per-method body emitters (`map` / `filter` / `reduce`) for the
 //! M6.2 higher-order loop — moved verbatim from the parent module
 //! (file-size split, rotation 161; the parent had drifted to 506).
-//! Child-module placement reaches the parent's private `emit_do_call`
-//! / `cb_args` / `emit_undef_any_box` with zero visibility changes.
+//! The call side (`emit_do_call` / `cb_args` / `emit_undef_any_box`)
+//! moved on to the [`super::dispatch`] sibling in rotation 534 — same
+//! parent, so reaching it stays a `use`, not a visibility widening.
 
-use super::{cb_args, emit_do_call, emit_undef_any_box};
+use super::dispatch::{cb_args, emit_do_call, emit_undef_any_box};
 use crate::ssa::{BlockId, FuncId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
