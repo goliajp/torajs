@@ -298,12 +298,22 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 // T-13.5: head-aware byte offset for arr.pop()'s
-                // last-element load.
+                // last-element load — head-aware only when the receiver
+                // can actually have a head. An array that is never
+                // `shift`ed keeps head at 0, so the fold is a no-op
+                // that still costs a chained load of the head word plus
+                // four ALU ops, and its trailing `Add` blocks
+                // SCALED_ADDR from folding the element load into the
+                // AGU. This is the predicate the Index read lane has
+                // always passed (`ssa_lower_index.rs:65`); pop was
+                // pinned to `false`. The `shift` twin stays `false` —
+                // it is the operation that creates a head.
+                let recv_non_deque = self.arr_expr_is_non_deque(recv_id);
                 let (off_base, off) = self.emit_arr_slot_byte_offset(
                     Operand::Value(cur_arr),
                     Operand::Value(new_len),
                     3,
-                    false,
+                    recv_non_deque,
                 );
                 let elem = self.f.append_inst(
                     self.cur_block,
