@@ -72,13 +72,90 @@ pub(crate) struct PreReserve {
     /// own state entry. Conservative: only fires when the for-loop's
     /// full body shape matches the detector.
     pub(crate) unchecked_for: std::collections::HashMap<String, crate::ssa_lower::PreReserveState>,
+    /// Array bindings this body made for itself — filled as the
+    /// lowering walks past each `let xs = [ ... ]`. A name declared
+    /// twice moves to `shadowed` instead: one set keyed by name
+    /// cannot tell two same-named bindings apart.
+    fresh: std::collections::HashSet<String>,
+    /// Names that must never be answered for: declared more than once
+    /// in this body, or a parameter, whose cell belongs to the caller
+    /// and may have been handed in twice.
+    shadowed: std::collections::HashSet<String>,
+    /// Names assigned to anywhere in the program. Filled on the first
+    /// ask — most bodies never ask, and the ones that do ask once.
+    reassigned: Option<std::collections::HashSet<String>>,
 }
 
 impl PreReserve {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(params: &[crate::ast::Param]) -> Self {
         Self {
             unchecked_for: std::collections::HashMap::new(),
+            fresh: std::collections::HashSet::new(),
+            shadowed: params.iter().map(|p| p.name.clone()).collect(),
+            reassigned: None,
         }
+    }
+
+    /// Note a `let name = <array literal>` the lowering just walked past.
+    pub(crate) fn note_array_literal_let(&mut self, name: &str) {
+        if !self.fresh.insert(name.to_string()) {
+            self.shadowed.insert(name.to_string());
+        }
+    }
+
+    /// True when `name` is an array this body built and nothing else
+    /// can be reaching — so its length cannot move except through
+    /// this very name.
+    ///
+    /// Three questions, and the interesting one is answered already.
+    /// The 11-A1 escape visitor marks a binding the moment it is
+    /// aliased (`let y = xs` marks both), passed to a call, stored
+    /// into a heap cell, returned, or captured — every way a second
+    /// name could come to denote the same array. So a name absent
+    /// from `deque_arrs` has no second name, with one gap: two
+    /// *parameters* can be one array (`f(a, a)`) and neither is
+    /// marked, because nothing escaped. Requiring the array to be a
+    /// literal this body wrote closes it — a cell made here is not a
+    /// cell the caller could have passed in twice.
+    ///
+    /// The third question is reassignment. `xs = getArr()` leaves the
+    /// escape visitor silent: the value flowing in is a call, and no
+    /// binding name flows with it, so the name stays `fresh` from its
+    /// declaration while denoting something else. A name assigned
+    /// anywhere in the program is refused outright — coarse, since a
+    /// same-named local in an unrelated function costs this one its
+    /// answer, and cheap, and wrong only in the direction that loses
+    /// a reservation.
+    pub(crate) fn owns_alone(
+        &mut self,
+        ast: &crate::ast::Ast,
+        deque_arrs: &std::collections::HashSet<String>,
+        name: &str,
+    ) -> bool {
+        if self.shadowed.contains(name) || !self.fresh.contains(name) {
+            return false;
+        }
+        if deque_arrs.contains(name) {
+            return false;
+        }
+        !self.reassigned_names(ast).contains(name)
+    }
+
+    fn reassigned_names(&mut self, ast: &crate::ast::Ast) -> &std::collections::HashSet<String> {
+        self.reassigned.get_or_insert_with(|| {
+            let mut out = std::collections::HashSet::new();
+            for e in &ast.exprs {
+                let target = match e {
+                    crate::ast::Expr::Assign { target, .. } => *target,
+                    crate::ast::Expr::PostIncr { target, .. } => *target,
+                    _ => continue,
+                };
+                if let crate::ast::Expr::Ident(n) = ast.get_expr(target) {
+                    out.insert(n.clone());
+                }
+            }
+            out
+        })
     }
 }
 

@@ -60,6 +60,12 @@ impl<'a> LowerCtx<'a> {
                 init,
                 is_var: false,
             } => {
+                // An array this body wrote out itself, which is what
+                // `PreReserve::owns_alone` needs to rule out the
+                // caller having passed the same one in twice.
+                if matches!(self.ast.get_expr(*init), crate::ast::Expr::Array(_)) {
+                    self.prereserve.note_array_literal_let(name);
+                }
                 crate::ssa_lower_stmt_let_decl::lower(
                     self,
                     name,

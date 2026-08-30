@@ -165,7 +165,7 @@ pub(crate) fn lower_fn(
         boxed_noncopy_lets: std::collections::HashSet::new(),
         hoisted_closure_lets: std::collections::HashSet::new(),
         forward_capture_boxes: std::collections::HashMap::new(),
-        prereserve: crate::ssa_lower_arr_prereserve::PreReserve::new(),
+        prereserve: crate::ssa_lower_arr_prereserve::PreReserve::new(params),
         regex_lit_cache: std::collections::HashMap::new(),
         binop: Default::default(),
         proto_shadow: Default::default(),

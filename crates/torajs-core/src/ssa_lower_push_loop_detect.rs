@@ -134,29 +134,34 @@ fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     match ctx.ast.get_expr(eid) {
         Expr::Number(_) | Expr::Bool(_) | Expr::Ident(_) => true,
         Expr::BinOp { op, left, right } => {
-            use crate::ast::BinOp as B;
-            matches!(
-                op,
-                B::Add
-                    | B::Sub
-                    | B::Mul
-                    | B::Div
-                    | B::Mod
-                    | B::Lt
-                    | B::Gt
-                    | B::Le
-                    | B::Ge
-                    | B::BitAnd
-                    | B::BitOr
-                    | B::BitXor
-                    | B::Shl
-                    | B::Shr
-                    | B::UShr
-            ) && expr_is_inert(ctx, *left)
-                && expr_is_inert(ctx, *right)
+            is_inert_binop(*op) && expr_is_inert(ctx, *left) && expr_is_inert(ctx, *right)
         }
         _ => false,
     }
+}
+
+/// Arithmetic and comparison that cannot call, read a heap cell, or
+/// throw. Shared by the push-argument allowlist and the bound's.
+fn is_inert_binop(op: crate::ast::BinOp) -> bool {
+    use crate::ast::BinOp as B;
+    matches!(
+        op,
+        B::Add
+            | B::Sub
+            | B::Mul
+            | B::Div
+            | B::Mod
+            | B::Lt
+            | B::Gt
+            | B::Le
+            | B::Ge
+            | B::BitAnd
+            | B::BitOr
+            | B::BitXor
+            | B::Shl
+            | B::Shr
+            | B::UShr
+    )
 }
 
 /// Lower the loop bound for a pre-reserve install, or answer `None`
@@ -188,12 +193,56 @@ fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// local, so inert here really is invariant. The width is checked on
 /// the lowered operand rather than the source expression because
 /// `number` says nothing about which one it landed in.
-pub(crate) fn lower_reserve_bound(ctx: &mut LowerCtx<'_>, bound: ExprId) -> Option<Operand> {
-    if !expr_is_inert(ctx, bound) {
+pub(crate) fn lower_reserve_bound(
+    ctx: &mut LowerCtx<'_>,
+    bound: ExprId,
+    names: &[String],
+) -> Option<Operand> {
+    // `xs.length` may be read as a bound only when nothing the body
+    // does can move it, which needs each filled array proved to be
+    // this body's alone. Ask before the `&self` predicate below —
+    // the proof memoises, so it wants `&mut`.
+    let all_owned = names.iter().all(|n| {
+        ctx.prereserve
+            .owns_alone(ctx.ast, &ctx.deque_arrs, n.as_str())
+    });
+    if !bound_is_invariant(ctx, bound, names, all_owned) {
         return None;
     }
     let op = ctx.lower_expr(bound);
     matches!(ctx.operand_ty(&op), Type::I64).then_some(op)
+}
+
+/// The bound's allowlist: inert, plus `A.length` for an `A` that the
+/// loop provably does not write.
+///
+/// `A.length` is the shape this whole path exists to serve — filling
+/// one array by the length of another is how a copy is written — and
+/// it is a genuine loop invariant whenever `A` is not among the
+/// arrays being filled and cannot be a second name for one of them.
+/// `PreReserve::owns_alone` settles the second half; the first is a
+/// name comparison. Reading a length cannot call, throw, or write, so
+/// nothing else about the bound changes: the extra read above the
+/// loop stays unobservable, and the value still has to land in i64.
+fn bound_is_invariant(ctx: &LowerCtx<'_>, eid: ExprId, names: &[String], all_owned: bool) -> bool {
+    if let Expr::Member { obj, name } = ctx.ast.get_expr(eid)
+        && name == "length"
+        && let Expr::Ident(a) = ctx.ast.get_expr(*obj)
+    {
+        return all_owned
+            && !names.iter().any(|n| n == a)
+            && matches!(
+                ctx.expr_types.get(obj),
+                Some(crate::check::Type::Array(_)) | Some(crate::check::Type::String)
+            );
+    }
+    if let Expr::BinOp { op, left, right } = ctx.ast.get_expr(eid)
+        && is_inert_binop(*op)
+    {
+        return bound_is_invariant(ctx, *left, names, all_owned)
+            && bound_is_invariant(ctx, *right, names, all_owned);
+    }
+    expr_is_inert(ctx, eid)
 }
 
 /// Walk `s` and collect ident names of arrays that are the receiver
