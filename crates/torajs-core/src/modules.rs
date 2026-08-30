@@ -377,6 +377,7 @@ mod dyn_import;
 mod graph;
 mod inject_export;
 mod lib_walk;
+mod namespace_objlit;
 mod repeat_request;
 mod resolve_helpers;
 mod splice;

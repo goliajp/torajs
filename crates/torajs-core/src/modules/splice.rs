@@ -8,7 +8,8 @@ use std::path::PathBuf;
 
 use super::dyn_import;
 use super::graph::ModuleGraph;
-use super::resolve_helpers::{NsAccum, inline_dyn_ns_objlits, materialize_pending_namespaces};
+use super::namespace_objlit::{inline_dyn_ns_objlits, materialize_pending_namespaces};
+use super::resolve_helpers::NsAccum;
 use super::{dead_lib_exprs, static_resolution};
 
 /// The resolver's whole tail in one call, extracted so

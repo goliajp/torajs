@@ -1,10 +1,10 @@
 //! BFS-resolver helpers carved out of [`super::resolve_imports`]:
 //! request filtering against per-path injected state, nested-import
-//! queueing, `export <decl>` injection, P13-S4 re-export translation,
-//! the §16.2.3 star re-export translation and the P13-S2
-//! namespace-object materialization.
+//! queueing, `export <decl>` injection, P13-S4 re-export translation
+//! and the §16.2.3 star re-export translation. What a namespace alias
+//! BECOMES lives in the `namespace_objlit` sibling.
 
-use crate::ast::{Ast, ExportStar, Expr, Stmt};
+use crate::ast::{ExportStar, Stmt};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
@@ -387,54 +387,6 @@ pub(super) fn collect_own_export_names(lib_section: &[Stmt]) -> HashSet<String> 
     names
 }
 
-/// P13-S2 — materialize each namespace alias as a synthetic
-/// `let <alias> = { name1: name1, name2: name2, ... }`. Each field's
-/// value is an `Ident(name)` referencing an already-injected lib decl,
-/// so member access (`<alias>.<name>`) resolves through the struct's
-/// field type.
-///
-/// Emission waits until the BFS has drained — that is what lets a
-/// star re-export contribute to a namespace whose own lib was walked
-/// several work items earlier. Order is REVERSE discovery: a namespace
-/// can only name another that was discovered while walking it
-/// (`export * as inner from "m"`), so the later-discovered one has to
-/// bind first.
-pub(super) fn materialize_pending_namespaces(
-    ast: &mut Ast,
-    injections: &mut Vec<Stmt>,
-    order: &[String],
-    accums: &HashMap<String, NsAccum>,
-    dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
-) {
-    for alias in order.iter().rev() {
-        let Some(accum) = accums.get(alias) else {
-            continue;
-        };
-        if alias.starts_with("__dyn_ns_") {
-            dyn_ns_inline.push((alias.clone(), accum.fields().to_vec()));
-            continue;
-        }
-        let mut fields: Vec<(String, crate::ast::ExprId)> =
-            Vec::with_capacity(accum.fields().len());
-        for (name, local) in accum.fields() {
-            let id = ast.add_expr(Expr::Ident(local.clone()));
-            fields.push((name.clone(), id));
-        }
-        let obj_id = ast.add_expr(Expr::ObjectLit { fields });
-        // §10.4.6.8 — mark the binding so a member miss on it answers
-        // undefined instead of the anonymous-struct typo reject.
-        ast.namespace_bindings
-            .insert(alias.clone(), accum.fields().to_vec());
-        injections.push(Stmt::LetDecl {
-            mutable: false,
-            name: alias.clone(),
-            type_ann: None,
-            init: obj_id,
-            is_var: false,
-        });
-    }
-}
-
 /// P13-S4b — bare named exports (`export { a, b as c }`, no `from`)
 /// alias top-level decls declared elsewhere in the lib. Collected
 /// orig → exported up front so the decl statements (previously
@@ -456,36 +408,4 @@ pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, Stri
         }
     }
     bare_exports
-}
-
-/// Dynamic-import namespaces skip the `let` above: the use site may
-/// sit inside a (lifted) fn body where a main-local top-level binding
-/// is invisible, so each `Ident(__dyn_ns_<n>)` becomes the namespace
-/// object literal in place. Field Idents reference the injected lib
-/// decls, which named-fn bodies resolve (FnDecls via the pass-1
-/// signature hoist, literal consts via the pass-2 pre-pass). The
-/// arena scan is name-keyed — sound because `__dyn_ns_<n>` names are
-/// parser-minted and arena-offset-seeded, so no other Ident can
-/// spell one.
-pub(super) fn inline_dyn_ns_objlits(ast: &mut Ast, rewrites: &[(String, Vec<(String, String)>)]) {
-    for (ns_name, field_names) in rewrites {
-        let hits: Vec<usize> = ast
-            .exprs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, e)| match e {
-                Expr::Ident(n) if n == ns_name => Some(i),
-                _ => None,
-            })
-            .collect();
-        for idx in hits {
-            let mut fields: Vec<(String, crate::ast::ExprId)> =
-                Vec::with_capacity(field_names.len());
-            for (name, local) in field_names {
-                let id = ast.add_expr(Expr::Ident(local.clone()));
-                fields.push((name.clone(), id));
-            }
-            ast.exprs[idx] = Expr::ObjectLit { fields };
-        }
-    }
 }
