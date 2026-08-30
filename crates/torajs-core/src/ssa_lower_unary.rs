@@ -50,16 +50,7 @@ impl LowerCtx<'_> {
                 _ => {}
             }
         }
-        // ToNumber(undefined) is NaN, spelled where it is free — the
-        // read's own out-of-range exit. `-` flips the sign bit, which
-        // the sentinel compare misses, so `-(-xs[oob])` used to
-        // restore the exact pattern and read back as `undefined`.
-        let neg_or_plus = matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus);
-        self.binop.f64_oob_plain_for = (neg_or_plus
-            && crate::ssa_lower_binop::is_direct_number_index(self, expr))
-        .then_some(expr);
         let v = self.lower_expr(expr);
-        self.binop.f64_oob_plain_for = None;
         // P0.9 — Any operand on unary `-` / `+`: route through
         // any_arith. See [`Self::lower_unary_any_arith`].
         if matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus)

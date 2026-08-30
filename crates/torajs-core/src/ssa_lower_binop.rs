@@ -83,30 +83,8 @@ pub(crate) fn lower(
         }
         ctx.lower_expr(eid)
     };
-    // ToNumber(undefined) is NaN — for an operand that IS the index
-    // read, the cheapest place to say so is the read's own
-    // out-of-range exit (`f64_oob_plain_for`): the branch already
-    // exists, only the constant in it changes, so the value stays
-    // exactly the shape `float_demote` was demoting. Undoing the
-    // payload afterwards instead cost `array-sum-1m` 54% by putting a
-    // branch in the middle of a demotable chain.
-    let plain_ok = numeric_only(ctx, op, left, right);
-    let a = {
-        let hit = plain_ok && is_direct_number_index(ctx, left);
-        ctx.binop.f64_oob_plain_for = hit.then_some(left);
-        let v = lower_operand(ctx, left);
-        ctx.binop.f64_oob_plain_for = None;
-        ctx.binop.left_lowered_plain = hit;
-        v
-    };
-    let b = {
-        let hit = plain_ok && is_direct_number_index(ctx, right);
-        ctx.binop.f64_oob_plain_for = hit.then_some(right);
-        let v = lower_operand(ctx, right);
-        ctx.binop.f64_oob_plain_for = None;
-        ctx.binop.right_lowered_plain = hit;
-        v
-    };
+    let a = lower_operand(ctx, left);
+    let b = lower_operand(ctx, right);
     // TS-shape: `a + b` (string concat) does NOT consume the
     // operands — both `a` and `b` keep their heaps and remain
     // readable + droppable afterwards. The concat runtime produces
@@ -140,41 +118,6 @@ pub(crate) fn lower(
         ctx.emit_throw_check(None);
     }
     result
-}
-
-/// True when the operator can only be numeric, so an `undefined`
-/// operand is ToNumber'd rather than shown. `+` is excluded whenever
-/// either side could be a string or an `any`, because concatenation
-/// spells `undefined` out (`xs[oob] + "!"` is `"undefined!"`) and
-/// wants the sentinel intact. Comparisons and `===` are excluded for
-/// the same reason: they read the bits to answer the question.
-fn numeric_only(ctx: &LowerCtx<'_>, op: AstBinOp, left: ExprId, right: ExprId) -> bool {
-    match op {
-        AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod | AstBinOp::Pow => true,
-        AstBinOp::Add => [left, right].iter().all(|e| {
-            matches!(
-                ctx.expr_types.get(e),
-                Some(crate::check::Type::Number) | Some(crate::check::Type::Boolean)
-            )
-        }),
-        _ => false,
-    }
-}
-
-/// True when this expression *is* the `number[]` index read, so the
-/// out-of-range exit about to be emitted for it is the one that
-/// should answer a plain NaN. Deliberately not
-/// `is_undef_f64_source`: an alias (`const u = xs[oob]; u * 2`) has
-/// already been materialised as the sentinel, and `at` / `find` /
-/// `pop` reach the exit through paths this hook does not cover —
-/// both keep the general
-/// [`crate::ssa_lower_f64_sentinel_canon`] route.
-pub(crate) fn is_direct_number_index(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
-    matches!(ctx.ast.get_expr(eid), Expr::Index { obj, .. }
-    if matches!(
-        ctx.expr_types.get(obj),
-        Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
-    ))
 }
 
 fn try_fold_undef_null_eq(

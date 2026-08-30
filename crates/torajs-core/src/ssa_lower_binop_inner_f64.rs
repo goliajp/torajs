@@ -49,14 +49,13 @@ pub(crate) fn lower_float_path(
     }
     let af = ctx.coerce_to_f64(a);
     let bf = ctx.coerce_to_f64(b);
-    // ToNumber(undefined) already happened where it is free: the
-    // index read's own out-of-range exit answered a plain NaN
-    // (`f64_oob_plain_for`, set in [`crate::ssa_lower_binop`]).
-    // Undoing the payload here instead — after the value exists —
-    // means a branch in the middle of a chain `float_demote` was
-    // demoting, and that measured 54% on `array-sum-1m`. What the
-    // free path cannot reach is recorded in
-    // [`crate::ssa_lower_f64_sentinel_canon`].
+    // Nothing here has to spell ToNumber(undefined): the instructions
+    // below perform it. The program entry selects FPCR.DN, so an FP
+    // operation returns the default quiet NaN whatever payload its
+    // operands carried, and the `undefined` sentinel is a payload
+    // (`torajs-cli::cmd_build_synthesize::FPCR_DN_BIT`). The two
+    // instructions outside that guarantee are the sign-bit writes —
+    // see [`crate::ssa_lower_f64_sentinel_canon`].
     match op {
         AstBinOp::Add => ctx.bin(SsaBinOp::FAdd, af, bf, Type::F64),
         AstBinOp::Sub => ctx.bin(SsaBinOp::FSub, af, bf, Type::F64),
