@@ -341,11 +341,6 @@ pub(crate) struct LowerCtx<'a> {
     /// its own struct rather than as seven sibling fields here (RFC
     /// 20260806 blade 0).
     pub(crate) binop: crate::ssa_lower_binop_scratch::BinopScratch,
-    /// Guard-dominated bounds-check elision — `(i, xs)` pairs
-    /// proven in-bounds by an enclosing `i < xs.length` loop guard
-    /// (see [`crate::ssa_lower_bounds_proven`]). Loop lowerers push
-    /// / pop; the Block arm evicts tainted pairs per statement.
-    pub(crate) bounds_proven: Vec<(String, String)>,
     /// P7.4-a-b — set by `lower_binop_inner` when a bigint
     /// Div/Mod/Pow/Shl/Shr is dispatched (those runtime helpers can
     /// call `__torajs_throw_range_error`). The enclosing `Expr::BinOp`

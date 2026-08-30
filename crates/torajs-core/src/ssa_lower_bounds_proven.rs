@@ -16,23 +16,34 @@
 //! ```
 //!
 //! - `guard_pair` recognizes the `Ident(i) < Ident(xs).length`
-//!   condition; the loop lowerers push the pair around the body.
-//! - `evict_tainted` runs per top-level body statement (Block arm):
-//!   a statement whose subtree writes `i` (assign / post-incr),
-//!   rebinds `xs`, or lets `xs` escape as a value (call argument,
-//!   method receiver, store — anything but an `xs[…]` read or
-//!   `xs.length`) evicts the pair BEFORE the statement lowers, so
-//!   every later read keeps the checked branch. `xs[…] = v` elem
-//!   writes stay safe (grow-only: length never shrinks through the
-//!   index-assign lane), and the guard re-proves on every
-//!   iteration, so `i` writes AFTER the reads (the loop step) are
-//!   fine — the eviction is positional within the body sequence.
-//! - `is_proven` answers the index lane's elision query for the
-//!   exact `xs[i]` shape.
+//!   condition, which a loop pushes around its body.
+//! - `stmt_taints` answers, per statement in a sequence: does this
+//!   subtree write `i` (assign / post-incr), rebind `xs`, or let
+//!   `xs` escape as a value (call argument, method receiver, store
+//!   — anything but an `xs[…]` read or `xs.length`)? A tainting
+//!   statement evicts the pair BEFORE it is reached, so every later
+//!   read keeps the checked branch. `xs[…] = v` elem writes stay
+//!   safe (grow-only: length never shrinks through the index-assign
+//!   lane), and the guard re-proves on every iteration, so `i`
+//!   writes AFTER the reads (the loop step) are fine — the eviction
+//!   is positional within the body sequence.
+//! - `is_proven` answers the index lane's elision query.
 //!
 //! Unknown statement / expression shapes taint conservatively —
 //! a missed elision costs one predictable branch, never
 //! correctness.
+//!
+//! **The walk that applies all this lives in `num_width::walk`, and
+//! the answer rides on the width table.** The element-width decision
+//! and this elision have to be one judgment, not two that agree:
+//! `container_walk::seed_index_read_elem` widens a `number` element
+//! slot to F64 precisely because an index read can go out of bounds
+//! and owe `undefined`, which an I64 slot has no bit pattern for. A
+//! table that narrowed an element on the strength of a proof this
+//! lane did not share would leave the lane emitting an OOB branch
+//! that has to produce that answer from that slot. Two independent
+//! implementations agreeing by luck is not that guarantee; one
+//! producer with the table carrying its own proof is.
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ssa_lower::LowerCtx;
@@ -62,34 +73,16 @@ pub(crate) fn guard_pair(ast: &Ast, cond: ExprId) -> Option<(String, String)> {
     Some((i.clone(), xs.clone()))
 }
 
-/// True when `obj[index]` is exactly `xs[i]` for a pair on the
-/// proven stack.
-pub(crate) fn is_proven(ctx: &LowerCtx<'_>, obj: ExprId, index: ExprId) -> bool {
-    if ctx.bounds_proven.is_empty() {
-        return false;
-    }
-    let Expr::Ident(xs) = ctx.ast.get_expr(obj) else {
-        return false;
-    };
-    let Expr::Ident(i) = ctx.ast.get_expr(index) else {
-        return false;
-    };
-    ctx.bounds_proven
-        .iter()
-        .any(|(pi, pxs)| pi == i && pxs == xs)
+/// True when this index read is one the proof admits — the width
+/// walk recorded it while the guard pair for it stood.
+pub(crate) fn is_proven(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    ctx.num_f64_slots.index_read_proven(eid)
 }
 
-/// Evict every proven pair the statement's subtree taints. Runs
-/// before the statement lowers (Block arm) so reads inside a
-/// tainting statement are NOT elided.
-pub(crate) fn evict_tainted(ctx: &mut LowerCtx<'_>, s: &Stmt) {
-    ctx.bounds_proven = std::mem::take(&mut ctx.bounds_proven)
-        .into_iter()
-        .filter(|(i, xs)| !stmt_taints(ctx.ast, s, i, xs))
-        .collect();
-}
-
-fn stmt_taints(ast: &Ast, s: &Stmt, i: &str, xs: &str) -> bool {
+/// Does this statement's subtree taint the `(i, xs)` pair? Applied
+/// before each statement of a sequence, so a read inside a tainting
+/// statement is not admitted.
+pub(crate) fn stmt_taints(ast: &Ast, s: &Stmt, i: &str, xs: &str) -> bool {
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => expr_taints(ast, *e, i, xs),
         Stmt::Return(opt) => opt.is_some_and(|e| expr_taints(ast, e, i, xs)),

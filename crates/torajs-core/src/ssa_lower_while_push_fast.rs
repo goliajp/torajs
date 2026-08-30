@@ -158,17 +158,7 @@ pub(crate) fn lower_while_inner(
      * body so nested break/continue resolve correctly. */
     ctx.loop_stack.push((header, after));
     ctx.cur_block = body_blk;
-    // Guard-dominated bounds elision — the loop guard re-proves
-    // `i < xs.length` every iteration; body reads of `xs[i]` skip
-    // the OOB branch until a statement taints the pair.
-    let proven = crate::ssa_lower_bounds_proven::guard_pair(ctx.ast, cond);
-    if let Some(pair) = proven.clone() {
-        ctx.bounds_proven.push(pair);
-    }
     ctx.lower_stmt(body);
-    if let Some(pair) = proven {
-        ctx.bounds_proven.retain(|p| *p != pair);
-    }
     if ctx.cur_open() {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
     }

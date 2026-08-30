@@ -139,16 +139,7 @@ pub(crate) fn lower(
     ctx.loop_stack.push((step_blk, after));
     ctx.cur_block = body_blk;
     mint_per_iter_boxes(ctx, &mut per_iter);
-    // Guard-dominated bounds elision — the step lowers after the
-    // pop, so its `i` write never taints the body window.
-    let proven = cond.and_then(|c| crate::ssa_lower_bounds_proven::guard_pair(ctx.ast, c));
-    if let Some(pair) = proven.clone() {
-        ctx.bounds_proven.push(pair);
-    }
     ctx.lower_stmt(body);
-    if let Some(pair) = proven {
-        ctx.bounds_proven.retain(|p| *p != pair);
-    }
     if ctx.cur_open() {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(step_blk));
     }

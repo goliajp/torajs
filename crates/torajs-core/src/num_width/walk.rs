@@ -13,34 +13,7 @@ impl<'a> Analysis<'a> {
                 type_ann,
                 init,
                 ..
-            } => {
-                let w = self.width_of(*init, scope);
-                let key = if scope.fn_name.is_empty() {
-                    SlotKey::Global(name.clone())
-                } else {
-                    SlotKey::Local(scope.fn_name.to_string(), name.clone())
-                };
-                // D5 — a binding annotated with a cyclic alias joins
-                // the alias's nominal field-width point; F1 — one
-                // annotated with a fn-type joins the spelling's
-                // signature class.
-                if let Some(ann) = type_ann {
-                    self.alias_ann_union(&key, ann);
-                    self.fnsig_ann_union(&key, ann);
-                    // W-ESC — any-annotated binding is an escape
-                    // sink (escape.rs).
-                    self.seed_any_face(&key, ann);
-                }
-                // ②.7 — JSON.parse targets: runtime data, every
-                // number-domain face seeds F64 (see json_seed.rs).
-                if self.is_json_parse(*init) {
-                    self.json_parse_seed(&key, type_ann.as_deref());
-                }
-                self.add_constraint(key.clone(), w);
-                self.alias_guarded(key.clone(), *init, scope);
-                self.fn_value_flow(&key, *init, scope);
-                self.walk_expr(*init, scope);
-            }
+            } => self.walk_let_decl(name, type_ann.as_deref(), *init, scope),
             Stmt::Return(maybe) => {
                 if let Some(e) = maybe {
                     if !scope.fn_name.is_empty() {
@@ -77,7 +50,14 @@ impl<'a> Analysis<'a> {
             Stmt::Labeled { body, .. } => {
                 self.walk_stmt(body, scope);
             }
-            Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
+            Stmt::While { cond, body } => {
+                self.walk_expr(*cond, scope);
+                self.bounds_guarded(Some(*cond), |a| a.walk_stmt(body, scope));
+            }
+            // A do-while's guard runs AFTER the body, so the first
+            // iteration is unguarded — no pair, whatever the
+            // condition spells. Lowering agrees by never pushing one.
+            Stmt::DoWhile { body, cond } => {
                 self.walk_expr(*cond, scope);
                 self.walk_stmt(body, scope);
             }
@@ -96,7 +76,10 @@ impl<'a> Analysis<'a> {
                 if let Some(st) = step {
                     self.walk_expr(*st, scope);
                 }
-                self.walk_stmt(body, scope);
+                // The step is walked above, outside the window — the
+                // lowerer likewise lowers it after the pop, so its
+                // `i` write never taints the body.
+                self.bounds_guarded(*cond, |a| a.walk_stmt(body, scope));
             }
             Stmt::ForOf {
                 var_name,
@@ -178,6 +161,7 @@ impl<'a> Analysis<'a> {
             }
             Stmt::Block(v) | Stmt::Multi(v) => {
                 for bs in v {
+                    self.bounds_evict(bs);
                     self.walk_stmt(bs, scope);
                 }
             }
@@ -199,6 +183,38 @@ impl<'a> Analysis<'a> {
             // machinery the lowerer rejects separately.
             _ => {}
         }
+    }
+
+    /// What a binding declaration contributes: the slot's own width
+    /// constraint plus every hookup its annotation and initializer
+    /// imply. Split out of `walk_stmt` — it is the one arm that
+    /// touches five of the analysis's channels at once.
+    fn walk_let_decl(&mut self, name: &str, type_ann: Option<&str>, init: ExprId, scope: &Scope) {
+        let w = self.width_of(init, scope);
+        let key = if scope.fn_name.is_empty() {
+            SlotKey::Global(name.to_string())
+        } else {
+            SlotKey::Local(scope.fn_name.to_string(), name.to_string())
+        };
+        // D5 — a binding annotated with a cyclic alias joins the
+        // alias's nominal field-width point; F1 — one annotated with
+        // a fn-type joins the spelling's signature class.
+        if let Some(ann) = type_ann {
+            self.alias_ann_union(&key, ann);
+            self.fnsig_ann_union(&key, ann);
+            // W-ESC — any-annotated binding is an escape sink
+            // (escape.rs).
+            self.seed_any_face(&key, ann);
+        }
+        // ②.7 — JSON.parse targets: runtime data, every number-domain
+        // face seeds F64 (see json_seed.rs).
+        if self.is_json_parse(init) {
+            self.json_parse_seed(&key, type_ann);
+        }
+        self.add_constraint(key.clone(), w);
+        self.alias_guarded(key.clone(), init, scope);
+        self.fn_value_flow(&key, init, scope);
+        self.walk_expr(init, scope);
     }
 
     /// Recurse into an expression collecting Assign / Call constraint
@@ -296,6 +312,7 @@ impl<'a> Analysis<'a> {
             }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj, scope),
             Expr::OptIndex { obj, index } | Expr::Index { obj, index } => {
+                self.bounds_record(eid, *obj, *index);
                 self.seed_index_read_elem(*obj, scope);
                 self.walk_expr(*obj, scope);
                 self.walk_expr(*index, scope);
@@ -376,9 +393,15 @@ impl<'a> Analysis<'a> {
                         .collect(),
                     locals: scope.locals.clone(),
                 };
+                // The pairs standing here were proven at the site
+                // that BUILDS the closure, not the one that calls it;
+                // the body must not see them. Lowering agrees by
+                // giving every function body a fresh stack.
+                let outer = std::mem::take(&mut self.bounds_stack);
                 for s in body {
                     self.walk_stmt(s, &inner);
                 }
+                self.bounds_stack = outer;
             }
             // Closure construction sites carry no inline body (the
             // lifted `__closure_N` FnDecl walks as a top-level stmt).

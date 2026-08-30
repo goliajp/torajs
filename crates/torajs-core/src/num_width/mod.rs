@@ -27,6 +27,7 @@
 
 mod alias;
 mod analyze_tables;
+mod bounds_walk;
 mod container;
 mod container_lookup;
 mod container_methods;
@@ -245,6 +246,16 @@ pub(super) struct Analysis<'a> {
     /// every elem/field query answers F64 — conservative, loud in
     /// STATS, never silent-wrong.
     pub(super) container_poison: bool,
+    /// The `(i, xs)` guard pairs standing at the walk's current point
+    /// — pushed by a loop whose condition is `i < xs.length`, evicted
+    /// by a statement that taints them, popped at the loop's end. See
+    /// [`crate::ssa_lower_bounds_proven`] for what taints one.
+    pub(super) bounds_stack: Vec<(String, String)>,
+    /// Where that stack held while walking an index read: the reads
+    /// proven in-bounds. Handed to the frozen table, because the
+    /// element widths below are only sound under this proof (the
+    /// field's doc on `WidthTable` says why).
+    pub(super) proven_reads: HashSet<ExprId>,
 }
 
 /// Every generic `type` declaration by name, as `(type params, fields)`
@@ -307,6 +318,8 @@ pub(crate) fn analyze(
         nominal_aliases,
         generic_decls,
         container_poison: false,
+        bounds_stack: Vec::new(),
+        proven_reads: HashSet::new(),
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -420,6 +433,7 @@ pub(crate) fn analyze(
         fallthrough_fns,
         undef_sentinel_params,
         objlit_shape_f64,
+        a.proven_reads,
     )
 }
 

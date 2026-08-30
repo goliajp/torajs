@@ -37,12 +37,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx, stmts: &[Stmt]) {
     let mut early_exit = false;
     let mut prev: Option<&Stmt> = None;
     for s in stmts {
-        // Guard-dominated bounds elision — a statement that writes
-        // the guard index, rebinds the array, or lets it escape
-        // evicts the proven pair before it lowers.
-        if !ctx.bounds_proven.is_empty() {
-            crate::ssa_lower_bounds_proven::evict_tainted(ctx, s);
-        }
         if !ctx.try_lower_while_fast(prev, s) {
             ctx.lower_stmt(s);
         }

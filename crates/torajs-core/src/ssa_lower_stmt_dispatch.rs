@@ -41,9 +41,6 @@ impl<'a> LowerCtx<'a> {
                 // in a child block.
                 let mut prev: Option<&Stmt> = None;
                 for s in stmts {
-                    if !self.bounds_proven.is_empty() {
-                        crate::ssa_lower_bounds_proven::evict_tainted(self, s);
-                    }
                     if !self.try_lower_while_fast(prev, s) {
                         self.lower_stmt(s);
                     }

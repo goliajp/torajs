@@ -21,6 +21,7 @@
 //!   glue the copy's width back onto the source class.
 
 use super::{Analysis, SlotKey};
+use crate::ast::ExprId;
 use std::collections::{HashMap, HashSet};
 
 /// Union-find over slot keys. Walk-time access goes through the
@@ -136,6 +137,16 @@ pub(crate) struct WidthTable {
     /// a layout through the coercible first-match); operation width
     /// stays per-binding through the keys above.
     objlit_shape_f64: HashMap<Vec<String>, HashSet<String>>,
+    /// The index reads the walk proved in-bounds — `xs[i]` under an
+    /// enclosing, untainted `i < xs.length` guard (see
+    /// [`crate::ssa_lower_bounds_proven`]). It rides here rather than
+    /// beside the table because the element-width verdicts above are
+    /// only sound under this very proof: the reason a `number`
+    /// element widens to F64 is that an unproven read owes
+    /// `undefined`, which an I64 slot cannot spell. A consumer that
+    /// can reach the widths can therefore always reach the proof they
+    /// were taken under, and cannot substitute another.
+    index_read_proven: HashSet<ExprId>,
 }
 
 impl WidthTable {
@@ -149,6 +160,7 @@ impl WidthTable {
         fallthrough_fns: HashSet<String>,
         undef_sentinel_params: HashSet<(String, String)>,
         objlit_shape_f64: HashMap<Vec<String>, HashSet<String>>,
+        index_read_proven: HashSet<ExprId>,
     ) -> Self {
         WidthTable {
             canon,
@@ -159,7 +171,14 @@ impl WidthTable {
             fallthrough_fns,
             undef_sentinel_params,
             objlit_shape_f64,
+            index_read_proven,
         }
+    }
+
+    /// See the field's doc — the guard-dominated bounds proof the
+    /// element widths were decided under.
+    pub(crate) fn index_read_proven(&self, eid: ExprId) -> bool {
+        self.index_read_proven.contains(&eid)
     }
 
     /// W4 shape-join query — true when `name` floats on any literal

@@ -241,7 +241,7 @@ pub(crate) fn lower_from_value(
     // Guard-dominated bounds elision — `xs[i]` under an enclosing
     // `i < xs.length` guard (untainted window) keeps the direct
     // load; see [`crate::ssa_lower_bounds_proven`].
-    if crate::ssa_lower_bounds_proven::is_proven(ctx, obj, index) {
+    if crate::ssa_lower_bounds_proven::is_proven(ctx, eid) {
         let (offset_base, offset) =
             ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
         let cur_block = ctx.cur_block;
