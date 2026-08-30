@@ -62,6 +62,10 @@ impl<'a> LowerCtx<'a> {
         if !self.escape_captured_lets.is_empty() {
             self.mutated_captured_lets = assigned.clone();
         }
+        // The pre-reserve proof asks the same question of array
+        // bindings: a name this body writes may denote a different
+        // array by the time the loop runs.
+        self.prereserve.prime_reassigned(&assigned);
         for s in body.clone() {
             crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt(
                 self.ast,

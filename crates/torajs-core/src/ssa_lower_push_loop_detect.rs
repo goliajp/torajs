@@ -218,12 +218,10 @@ pub(crate) fn lower_reserve_bound(
 ) -> Option<Operand> {
     // `xs.length` may be read as a bound only when nothing the body
     // does can move it, which needs each filled array proved to be
-    // this body's alone. Ask before the `&self` predicate below —
-    // the proof memoises, so it wants `&mut`.
-    let all_owned = names.iter().all(|n| {
-        ctx.prereserve
-            .owns_alone(ctx.ast, &ctx.deque_arrs, n.as_str())
-    });
+    // this body's alone.
+    let all_owned = names
+        .iter()
+        .all(|n| ctx.prereserve.owns_alone(&ctx.deque_arrs, n.as_str()));
     if names.len() > 1 && !all_owned {
         return None;
     }
@@ -266,12 +264,7 @@ pub(crate) fn lower_reserve_bound(
 /// unobservable, and the value still has to land in i64.
 ///
 /// [`PreReserve::owns_alone`]: crate::ssa_lower_arr_prereserve::PreReserve::owns_alone
-fn bound_is_invariant(
-    ctx: &mut LowerCtx<'_>,
-    eid: ExprId,
-    names: &[String],
-    all_owned: bool,
-) -> bool {
+fn bound_is_invariant(ctx: &LowerCtx<'_>, eid: ExprId, names: &[String], all_owned: bool) -> bool {
     if let Expr::Member { obj, name } = ctx.ast.get_expr(eid)
         && name == "length"
         && let Expr::Ident(a) = ctx.ast.get_expr(*obj)
@@ -285,7 +278,7 @@ fn bound_is_invariant(
         if !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_))) {
             return false;
         }
-        return all_owned || ctx.prereserve.owns_alone(ctx.ast, &ctx.deque_arrs, a);
+        return all_owned || ctx.prereserve.owns_alone(&ctx.deque_arrs, a);
     }
     if let Expr::BinOp { op, left, right } = ctx.ast.get_expr(eid)
         && is_inert_binop(*op)

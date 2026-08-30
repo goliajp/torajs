@@ -81,9 +81,12 @@ pub(crate) struct PreReserve {
     /// in this body, or a parameter, whose cell belongs to the caller
     /// and may have been handed in twice.
     shadowed: std::collections::HashSet<String>,
-    /// Names assigned to anywhere in the program. Filled on the first
-    /// ask — most bodies never ask, and the ones that do ask once.
-    reassigned: Option<std::collections::HashSet<String>>,
+    /// Names this body writes: its own assignments plus those of
+    /// every lifted closure it constructs, which are the only bodies
+    /// that can write its bindings. Primed by
+    /// `LowerCtx::prime_body_binding_sets`, which already computes
+    /// exactly this set for the capture-box decision.
+    reassigned: std::collections::HashSet<String>,
 }
 
 impl PreReserve {
@@ -92,8 +95,14 @@ impl PreReserve {
             unchecked_for: std::collections::HashMap::new(),
             fresh: std::collections::HashSet::new(),
             shadowed: params.iter().map(|p| p.name.clone()).collect(),
-            reassigned: None,
+            reassigned: std::collections::HashSet::new(),
         }
+    }
+
+    /// Hand over the body-scoped assigned-name set. Primed once per
+    /// body, before any statement lowers.
+    pub(crate) fn prime_reassigned(&mut self, assigned: &std::collections::HashSet<String>) {
+        self.reassigned.clone_from(assigned);
     }
 
     /// Note a `let name = <array literal>` the lowering just walked past.
@@ -128,14 +137,15 @@ impl PreReserve {
     /// The third question is reassignment. `xs = getArr()` leaves the
     /// escape visitor silent: the value flowing in is a call, and no
     /// binding name flows with it, so the name stays `fresh` from its
-    /// declaration while denoting something else. A name assigned
-    /// anywhere in the program is refused outright — coarse, since a
-    /// same-named local in an unrelated function costs this one its
-    /// answer, and cheap, and wrong only in the direction that loses
-    /// a reservation.
+    /// declaration while denoting something else. So a name this body
+    /// writes is refused. Only this body and the closures it builds
+    /// can write its bindings, which is the scope
+    /// `prime_body_binding_sets` already collects for the capture-box
+    /// decision; asking the whole program instead let a `dst = …` in
+    /// an unrelated function cost every `dst` in the program its
+    /// reservation, measured at 3.5x on a 10M copy.
     pub(crate) fn owns_alone(
-        &mut self,
-        ast: &crate::ast::Ast,
+        &self,
         deque_arrs: &std::collections::HashSet<String>,
         name: &str,
     ) -> bool {
@@ -145,24 +155,7 @@ impl PreReserve {
         if deque_arrs.contains(name) {
             return false;
         }
-        !self.reassigned_names(ast).contains(name)
-    }
-
-    fn reassigned_names(&mut self, ast: &crate::ast::Ast) -> &std::collections::HashSet<String> {
-        self.reassigned.get_or_insert_with(|| {
-            let mut out = std::collections::HashSet::new();
-            for e in &ast.exprs {
-                let target = match e {
-                    crate::ast::Expr::Assign { target, .. } => *target,
-                    crate::ast::Expr::PostIncr { target, .. } => *target,
-                    _ => continue,
-                };
-                if let crate::ast::Expr::Ident(n) = ast.get_expr(target) {
-                    out.insert(n.clone());
-                }
-            }
-            out
-        })
+        !self.reassigned.contains(name)
     }
 }
 
