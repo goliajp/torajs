@@ -1,0 +1,47 @@
+{
+  "started_at": "2026-08-30T11:59:16Z",
+  "host": "mini",
+  "git_sha": "bea96681762dec45a6b0a81b1784fc7558d58079",
+  "runs": 5,
+  "rows": [
+    {
+      "case": "array-sum-1m",
+      "runtime": "bun-aot",
+      "runtime_version": "1.4.0",
+      "status": "ok",
+      "compile_ms": 74.914458,
+      "run_ms": 39.847083000000005,
+      "run_stddev_ms": 0.11595800000000622,
+      "artifact_bytes": 63910514,
+      "artifact_sha256": "3865c4c9ff91b448e6b5ef66a895bc8b2f430e4d28de0f7af236822a58180b82",
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "array-sum-1m",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.99.0-nightly (af3d95584 2026-07-09)",
+      "status": "ok",
+      "compile_ms": 76.788167,
+      "run_ms": 11.523042,
+      "run_stddev_ms": 0.05137500000000017,
+      "artifact_bytes": 470000,
+      "artifact_sha256": "7169918ceb8e0ac2aafd8344787dc7f89f76744b2343b5db865e7acdb3317fd7",
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "array-sum-1m",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 51.205167,
+      "run_ms": 12.488249999999999,
+      "run_stddev_ms": 0.03508399999999767,
+      "artifact_bytes": 51617,
+      "artifact_sha256": "e486f6b365067898ffc9eb0956383982de1214fa27ba4dbd24ff758bbe3fcf90",
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}

@@ -7846,24 +7846,35 @@ vs bun 3.21 —— 领先 10.7×**。**不要动它**;任何破坏该检测的�
   3. **真链条**:`main` 的六个 f64 值 dump 显示 `LoadDyn`(即 `xs[j]`)
      **没有 interval fact** → 消费它的 `FAdd` 没有 → 累加器没有 →
      连进候选集的资格都没有(候选集 = `facts.keys()` 过滤 F64)。
-- **S7-d 按数组聚合的元素区间** —— **RFC 已写**:
-  `.claude/rfcs/20260830-array-elem-interval/`。rotation 535 的 Phase A
-  把 S7-d 与 S7-e 的关系整个换掉了 —— 它们**不是先后两项,是缺一不可的
-  两半**:
-  - 只给元素区间(强制 `LoadDyn` 带 fact)= **0%**,IR 一字未动。
-    `float_demote/fit.rs` 的 `def_fit` 对 `LoadDyn` 落 `_ => Fit::No`,
-    值在成为 growth site 之前就被逐出候选集 —— **上面那段旧描述的链条
-    是错的**(它写的是「拿到区间后 FAdd 成为 growth site」)。
-  - 只窄存储(S7-e)= **+2.3%**(rotation 534 实测)。
-  - 两半一起 = **tr/rust 1.686 → 1.222**(强制两个旋钮实测),
-    再加上折掉 `i < 0` 那条恒假比较可达 **1.03 = rust 平价**。
-  RFC 分四期:P0(用流不敏感 fact 折 ICmp)/ P1 ✅ / P2(条件 seed)/
-  P3(SSA 元素区间,allowlist 而非 blocklist)。
-- **S7-e 已并入 S7-d 的 P2**(见上:单独落地只值 2.3%,必须与 P3 同期)。
-  **P1 已 ship** `be49aa268`:界内证明从 lowering 搬进 width walk,
-  一份真源两个消费者 —— 那是**正确性要求**,不是整洁:表若按一份 lowering
-  不共享的证明窄化了元素,lowering 那侧仍会发出一条要从 I64 槽产出
-  `undefined` 的越界分支。验收 = 43/43 bench 产物与 HEAD 逐字相同。
+- ~~**S7-d 按数组聚合的元素区间**~~ **SHIPPED**(rotation 536)——
+  `.claude/rfcs/20260830-array-elem-interval/`,四期全落地。
+  **`array-sum-1m` 同轮 A/B:19.61 → 12.49 ms(−36.3%),
+  tr/rust 1.693 → 1.084**;对照 bun −0.08% / rust −0.5%(机器没漂)。
+  内循环从 `fadd` 变成 `add` + 一条溢出 guard。
+  - P0 `8be8dfdb2` —— 用流不敏感的 fact 折掉恒假的 `i < 0`。
+  - P1 `be49aa268` —— 界内证明搬进 width walk(一份真源两个消费者)。
+  - **P2 `5d5ab0769`** —— 元素 seed 变成有条件的。**RFC 写的条件不够**:
+    它只写「在证明集里就不 seed」,而那个证明集是单端的。元素宽度问的是
+    「这个读会不会越界」= 两端的问题,所以 seed 的条件用了一份新的两端
+    证明(`num_width/bounds_lower.rs`):起点是非负整数字面量、循环内每处
+    写都是非负步长、且**这个名字在整个模块里的每处写都在这个循环里**
+    (体内一次调用打到赋值同名全局的函数,或一个捕获了它的闭包,都会绕过
+    归纳;这条查表达式 arena 而非走一趟 —— 走漏一个就是 silent-wrong)。
+    判别是精确的:`array-sum-1m` 的 `j` 从 0 起只 `+1` → 窄化;
+    `arr-index-read-negative-guarded-001` 的 `i` 从 −2 起 → 保留 seed。
+  - **P3 `bea966817`** —— SSA `interval` 的 key 从「一个 SSA 值」扩到
+    「一个 SSA 值 ∪ 分配点的元素」(Cousot 分配点抽象堆),元素点作为
+    「defs 是 store 的多 def cell」走同一条 Kleene 上升 / widen / narrow。
+    **写入面是 allowlist 不是 blocklist**:`torajs-arr` 导出 ~135 个入口,
+    逐个判「写不写元素」是漏一个就 silent-wrong 的形状;反过来,只有当
+    一个分配的**每一处**使用都落在那张小表里才产生事实,明天新加的 runtime
+    函数会让分析退化而不是出错。
+  - 顺带 `8b96db55e` —— `float_demote::merge` 的写回块按 hash 序编号。
+    **自这个 pass 写下来就潜伏着**,要 versioned region + merge bridge 带
+    cell + 慢侧多出口才现形,而在元素点让这条循环可 demote 之前没有任何
+    bench case 走到。`build_determinism.sh` 报 `array-sum-1m,ok,2`(N=12)
+    —— gate / nextest / fmt / warning 计数**全部**看不见只在字节上的差异。
+- **S7-e 已并入 S7-d 的 P2**,随 P2 一同 ship。
 
 **ceiling 是实测的,不是投影的**:`array-sum-1m` 手写成 torajs 自己的
 `i64` 标注(`let xs: i64[]` / `let sum: i64`)后跑 **11.3 ms**,而
