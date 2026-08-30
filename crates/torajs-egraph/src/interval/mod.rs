@@ -22,6 +22,7 @@
 //! sweep re-tightens bounds the refinement can recover (the
 //! `i <= 1e6` loop-counter shape).
 
+mod elem;
 pub mod refine;
 pub mod transfer;
 
@@ -56,6 +57,7 @@ pub struct IntervalStats {
 
 /// Analyze every function body. Index-aligned with `module.funcs`.
 pub fn analyze_module(module: &Module) -> Vec<HashMap<ValueId, NumFact>> {
+    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
     module
         .funcs
         .iter()
@@ -63,7 +65,7 @@ pub fn analyze_module(module: &Module) -> Vec<HashMap<ValueId, NumFact>> {
             if f.is_declaration() {
                 HashMap::new()
             } else {
-                analyze_function(f)
+                analyze_function_with(f, &names)
             }
         })
         .collect()
@@ -95,7 +97,19 @@ pub fn stats_for(facts: &HashMap<ValueId, NumFact>, func: &Function) -> Interval
     s
 }
 
+/// Analyze one function with no way to name its callees, so no array
+/// element point is tracked — the facts are the same ones this pass
+/// gave before [`elem`] existed, and still sound.
 pub fn analyze_function(func: &Function) -> HashMap<ValueId, NumFact> {
+    analyze_function_with(func, &[])
+}
+
+/// `callee_names` is index-aligned with `Module::funcs`; it is what
+/// lets [`elem`] recognize the array runtime by name.
+pub fn analyze_function_with(
+    func: &Function,
+    callee_names: &[String],
+) -> HashMap<ValueId, NumFact> {
     // def shapes: single-def map for constraint pattern-matching,
     // cell def-site sets for constraint kills.
     let mut single: HashMap<ValueId, InstKind> = HashMap::new();
@@ -126,6 +140,10 @@ pub fn analyze_function(func: &Function) -> HashMap<ValueId, NumFact> {
     let dom = DominatorTree::compute(func);
     let constraints = Constraints::compute(func, &single);
     let thresholds = collect_thresholds(func);
+    // An allocation's elements are one more multi-def cell whose defs
+    // happen to be stores; it rides the same ascent below.
+    let elems = elem::collect(func, callee_names);
+    let mut elem_state: HashMap<ValueId, AbsVal> = HashMap::new();
 
     let mut state: HashMap<ValueId, AbsVal> = HashMap::new();
     for p in &func.params {
@@ -165,6 +183,16 @@ pub fn analyze_function(func: &Function) -> HashMap<ValueId, NumFact> {
                 } else {
                     ev
                 };
+                // The load of a tracked element answers with the
+                // element point rather than the opaque default. Only
+                // for numeric results — a pointer element carries no
+                // interval and no consumer wants one.
+                let ev = match elems.reads.get(&r) {
+                    Some(root) if matches!(ty, Type::I64 | Type::F64) => {
+                        elem_state.get(root).copied().unwrap_or(AbsVal::Bottom)
+                    }
+                    _ => ev,
+                };
                 if cells.contains(&r) {
                     let e = contrib.entry(r).or_insert(AbsVal::Bottom);
                     *e = e.join(ev);
@@ -179,6 +207,23 @@ pub fn analyze_function(func: &Function) -> HashMap<ValueId, NumFact> {
         }
 
         let mut moved_cells: Vec<ValueId> = Vec::new();
+        let mut moved_elems: Vec<ValueId> = Vec::new();
+        for (root, ws) in &elems.writes {
+            let new = ws
+                .iter()
+                .fold(AbsVal::Bottom, |acc, op| acc.join(lookup(op, &state, &[])));
+            let old = elem_state.get(root).copied().unwrap_or(AbsVal::Bottom);
+            let next = if narrowing {
+                narrow(old, new)
+            } else {
+                widen(old, old.join(new), round, &thresholds)
+            };
+            if next != old {
+                elem_state.insert(*root, next);
+                changed = true;
+                moved_elems.push(*root);
+            }
+        }
         for (&cell, &new) in &contrib {
             let old = state.get(&cell).copied().unwrap_or(AbsVal::Bottom);
             let next = if narrowing {
@@ -200,6 +245,11 @@ pub fn analyze_function(func: &Function) -> HashMap<ValueId, NumFact> {
                 // join stays sound; int-valuedness survives).
                 for cell in moved_cells {
                     if let Some(AbsVal::Fact(f)) = state.get_mut(&cell) {
+                        *f = NumFact::new(transfer::NEG_INF, transfer::POS_INF);
+                    }
+                }
+                for root in moved_elems {
+                    if let Some(AbsVal::Fact(f)) = elem_state.get_mut(&root) {
                         *f = NumFact::new(transfer::NEG_INF, transfer::POS_INF);
                     }
                 }
