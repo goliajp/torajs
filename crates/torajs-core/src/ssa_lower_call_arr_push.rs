@@ -34,7 +34,7 @@
 //! and the generic method dispatch arms below.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE};
 
 /// Try to lower `<recv>.push(v)`. Returns `Some(new_len)` when one of the
@@ -153,46 +153,7 @@ fn try_lower_ident_local(
     // slot at data_ptr + head_off + len*8, bump len_slot (B1: base is
     // the hoisted data pointer; the reserve guarantees it stays valid).
     if let Some(state) = ctx.push_unchecked_for.get(recv_name).copied() {
-        let len_now = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(state.len_slot), 0),
-            Type::I64,
-            None,
-        );
-        let len_x8 = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(SsaBinOp::Mul, Operand::Value(len_now), Operand::ConstI64(8)),
-            Type::I64,
-            None,
-        );
-        let byte_off = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(state.head_off),
-                Operand::Value(len_x8),
-            ),
-            Type::I64,
-            None,
-        );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::StoreDyn(
-                val.clone(),
-                Operand::Value(state.data_ptr),
-                Operand::Value(byte_off),
-            ),
-        );
-        let len_next = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(len_now), Operand::ConstI64(1)),
-            Type::I64,
-            None,
-        );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(len_next), Operand::Value(state.len_slot), 0),
-        );
+        let len_next = ctx.emit_prereserved_push(state, val.clone());
         if elem_ty.is_refcounted() && !val_owned_from_substr {
             ctx.emit_rc_inc(val);
             // Chunk 733 — owned-shape arg hand-off (see try_lower_index).

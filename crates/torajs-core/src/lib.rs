@@ -266,6 +266,7 @@ pub(crate) mod ssa_lower_arr_hole_gate;
 pub(crate) mod ssa_lower_arr_kind_mark;
 pub(crate) mod ssa_lower_arr_layout;
 pub(crate) mod ssa_lower_arr_mutators;
+pub(crate) mod ssa_lower_arr_prereserve;
 pub(crate) mod ssa_lower_array;
 pub(crate) mod ssa_lower_array_alloc;
 pub(crate) mod ssa_lower_array_any_literal;

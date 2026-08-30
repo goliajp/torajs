@@ -28,7 +28,7 @@
 
 use crate::ast::{ExprId, Stmt};
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::{ARR_LEN_OFF, LocalInfo, LowerCtx, PreReserveState};
+use crate::ssa_lower::{ARR_LEN_OFF, LocalInfo, LowerCtx};
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays;
 
 /// Chunk 725 — per-iteration state for a `for (let i ...)` binding
@@ -167,20 +167,7 @@ pub(crate) fn lower(
     release_broken_iter_boxes(ctx, &per_iter);
     for name in &reserve_emitted {
         if let Some(state) = ctx.push_unchecked_for.get(name).copied() {
-            let final_len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(state.len_slot), 0),
-                Type::I64,
-                None,
-            );
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(
-                    Operand::Value(final_len),
-                    Operand::Value(state.arr_ptr),
-                    ARR_LEN_OFF,
-                ),
-            );
+            ctx.emit_prereserved_len_writeback(state);
         }
     }
     for name in &reserve_emitted {
@@ -456,36 +443,8 @@ fn emit_push_loop_reserve(
                 None,
             );
             // B1 — reserve never moves the cell; write-back retired.
-            let head_x8 = ctx.emit_arr_head_x8(Operand::Value(reserved));
-            let head_off = match head_x8 {
-                Operand::Value(v) => v,
-                _ => unreachable!("emit_arr_head_x8 returns a value"),
-            };
-            let data_op = ctx.emit_arr_data_ptr(Operand::Value(reserved));
-            let data_ptr = match data_op {
-                Operand::Value(v) => v,
-                _ => unreachable!("emit_arr_data_ptr returns a value"),
-            };
-            let len_after = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(reserved), ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            let len_slot = ctx.alloca(Type::I64, Some("__push_len"));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(len_after), Operand::Value(len_slot), 0),
-            );
-            ctx.push_unchecked_for.insert(
-                name.clone(),
-                PreReserveState {
-                    arr_ptr: reserved,
-                    data_ptr,
-                    head_off,
-                    len_slot,
-                },
-            );
+            let state = ctx.emit_prereserved_state(reserved);
+            ctx.push_unchecked_for.insert(name.clone(), state);
             reserve_emitted.push(name.clone());
         }
     }
