@@ -238,6 +238,17 @@ pub const DYNOBJ_HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 /// the bit position ever moves.
 pub const DYNOBJ_HDR_FLAG_CLASS_CTOR: u16 = 1 << 10;
 
+/// Heap-header `flags` bit (u16 @6) mirror of
+/// `torajs_rc::FLAG_DYNOBJ_MODULE_NS` (bit 12, Tag::DynObj-private —
+/// disjoint-by-tag reuse of Closure's `RECV_FIRST` / Obj's `EXPANDO` /
+/// Arr's element-kind field). Marks a §10.4.6 module namespace so the
+/// write paths can refuse. The entries cannot carry this: an export is
+/// `{ writable: true, configurable: false }`, which an ordinary object
+/// would happily let you assign to — the refusal belongs to the
+/// receiver's identity, not to any one entry. Update both sides if the
+/// bit position ever moves.
+pub const DYNOBJ_HDR_FLAG_MODULE_NS: u16 = 1 << 12;
+
 /// Offset of the `count` u32 within the heap block.
 pub const DYNOBJ_COUNT_OFF: usize = HEAP_HEADER_SIZE;
 

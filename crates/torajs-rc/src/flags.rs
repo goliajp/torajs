@@ -23,6 +23,7 @@
 //! | 12    | [`FLAG_CLOSURE_RECV_FIRST`] (Closure) / [`FLAG_OBJ_EXPANDO`] (Obj) | disjoint-by-tag with Arr kind |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
+//! | 12    | [`FLAG_DYNOBJ_MODULE_NS`] | DynObj (disjoint-by-tag with Closure / Obj / Arr) |
 //! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] (DynObj) / `STR_FLAG_HAS_CAPACITY` (torajs-str private, Str) | disjoint-by-tag with Closure / Arr |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
 //! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) / [`FLAG_OBJ_EXOTIC_FIELD`] (Obj) | disjoint-by-tag |
@@ -117,6 +118,18 @@ pub const FLAG_SEALED: u16 = 1 << 9;
 pub const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
 /// `delete fn.length` tombstone — see [`FLAG_FN_NAME_DELETED`].
 pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
+
+/// `Tag::DynObj` cell that is a §10.4.6 module namespace. The write
+/// paths gate on this bit rather than on any entry attribute, because
+/// an export is `{ writable: true, configurable: false }` — attributes
+/// an ordinary object would let you assign to. §10.4.6.9 `[[Set]]`
+/// returns false regardless, and §10.4.6.6 refuses a redefine of an
+/// existing key that the ordinary path would accept. Bit 12 is free on
+/// DynObj (Closure has [`FLAG_CLOSURE_RECV_FIRST`], Obj has
+/// [`FLAG_OBJ_EXPANDO`], Arr's element-kind field spans 10-12 — all
+/// disjoint by tag). Mirrored in torajs-dynobj's
+/// `layout::DYNOBJ_HDR_FLAG_MODULE_NS`.
+pub const FLAG_DYNOBJ_MODULE_NS: u16 = 1 << 12;
 /// `Tag::DynObj` cell that is a class-constructor object — the
 /// `__class_<C>` singleton dynobj, marked by
 /// `__torajs_anyv_class_register` at module init (RFC

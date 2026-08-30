@@ -107,6 +107,24 @@ pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(obj: *mut c_void) {
     }
 }
 
+/// `__torajs_dynobj_mark_module_ns(obj)` — set the module-namespace
+/// flag bit (see [`crate::layout::DYNOBJ_HDR_FLAG_MODULE_NS`]) on a
+/// namespace object right after its §10.4.6 attributes land. The write
+/// paths read it to refuse; nothing else changes about the cell.
+///
+/// # Safety
+/// `obj` is null (no-op) or a live dynobj heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_mark_module_ns(obj: *mut c_void) {
+    if obj.is_null() {
+        return;
+    }
+    unsafe {
+        let flags = (obj as *mut u8).add(6) as *mut u16;
+        *flags |= crate::layout::DYNOBJ_HDR_FLAG_MODULE_NS;
+    }
+}
+
 /// `__torajs_dynobj_clear_null_proto(obj)` — clear the null-prototype
 /// bit (the `Object.setPrototypeOf(o, cell)` re-parent face — RFC
 /// 20260717-user-proto-chain knife 3).

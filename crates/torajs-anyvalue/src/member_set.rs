@@ -335,6 +335,21 @@ unsafe fn any_member_set_impl(
                 throw_on_refusal,
             );
         }
+        // §10.4.6.9 — a module namespace refuses every [[Set]]. Its
+        // exports are `{ writable: true, configurable: false }`, which
+        // the ordinary dynobj path below would happily write, so the
+        // refusal has to come off the receiver's header bit rather than
+        // off any entry attribute. §13.15.2 makes the strict-mode
+        // assignment throw; `Reflect.set` (§28.1.13) just answers 0.
+        if cell_tag == Tag::DynObj as u16
+            && (ptr.cast::<u8>().add(6) as *const u16).read() & torajs_rc::FLAG_DYNOBJ_MODULE_NS
+                != 0
+        {
+            if throw_on_refusal {
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            }
+            return 0;
+        }
         if cell_tag == Tag::DynObj as u16 {
             return crate::member_set_dynobj::set_dynobj_member(
                 recv_slot,

@@ -17,12 +17,13 @@
 //!   `{ w: false, e: false, c: false }` data property per §10.4.6.12
 //!   step 8.
 //!
-//! What is NOT here is the half that has no ordinary spelling:
-//! §10.4.6.9 `[[Set]]` returns false even though the exports are
-//! writable, and §10.4.6.6 refuses a redefine of an EXISTING key that
-//! an ordinary non-configurable-but-writable entry would accept. Those
-//! need the receiver to be recognizable as a namespace at the write,
-//! which is a flag bit rather than an attribute — a separate knife.
+//! The other half has no ordinary spelling: §10.4.6.9 `[[Set]]`
+//! returns false even though the exports are writable, and §10.4.6.6
+//! refuses a redefine of an EXISTING key that an ordinary
+//! non-configurable-but-writable entry would accept. That half needs
+//! the receiver to be recognizable as a namespace at the write, which
+//! is a flag bit rather than an attribute — `DYNOBJ_HDR_FLAG_MODULE_NS`,
+//! set at the end of `finalize` and read by the write paths.
 //!
 //! Called once per namespace right after its object literal lowers
 //! (`ssa_lower_stmt_let_decl`), so an importer that never uses the
@@ -67,6 +68,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_seal_entries(obj: *mut c_void);
     /// torajs-dynobj — set the null-prototype header bit.
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
+    /// torajs-dynobj — set the module-namespace header bit, which is
+    /// what the write paths recognize a namespace by (the SET half).
+    fn __torajs_dynobj_mark_module_ns(obj: *mut c_void);
     /// torajs-rc — set the non-extensible header bit.
     fn __torajs_obj_prevent_extensions(p: *mut c_void) -> *mut c_void;
     /// torajs-anyvalue — NaN-box readers.
@@ -123,5 +127,10 @@ pub unsafe extern "C" fn __torajs_module_ns_finalize(ns: u64) {
         __torajs_dynobj_seal_entries(obj);
         __torajs_dynobj_mark_null_proto(obj);
         __torajs_obj_prevent_extensions(obj);
+        // The write half (§10.4.6.9 / §10.4.6.6). Last, because it is
+        // the only one of the five that is not an attribute — the
+        // entries stay `{ writable: true }` and an ordinary receiver
+        // would accept the assignment; the refusal is the receiver's.
+        __torajs_dynobj_mark_module_ns(obj);
     }
 }
