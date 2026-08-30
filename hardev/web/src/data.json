@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T18:45:35.452Z",
+  "generatedAt": "2026-08-30T20:54:21.956Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-30T18:28:29Z",
-    "headSha": "9d5092644",
-    "elapsedSec": 395.75,
+    "ranAt": "2026-08-30T20:45:48Z",
+    "headSha": "cdca96be4",
+    "elapsedSec": 716.6,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "9d5092644",
-    "commitSubject": "refactor: give LICM its own file, out of the GVN walk",
+    "commit": "cdca96be4",
+    "commitSubject": "test: reach the push-loop detector through the parser, per step spelling",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "cdca96be4",
+      "subject": "test: reach the push-loop detector through the parser, per step spelling"
+    },
+    {
+      "hash": "e3f3de2c5",
+      "subject": "perf: the push-loop fast path never recognised i++, at 7.7x"
+    },
+    {
+      "hash": "0c817ad70",
+      "subject": "fix: a filling array is the length it is, unless nothing can look"
+    },
+    {
+      "hash": "ad76fc11b",
+      "subject": "refactor: drop the ToNumber hook the hardware mode made redundant"
+    },
+    {
+      "hash": "17dde52a8",
+      "subject": "refactor: give the f64 sentinel question its own file, and a true doc"
+    },
+    {
+      "hash": "9467bbf96",
+      "subject": "fix: select default-NaN mode so the sentinel cannot ride arithmetic"
+    },
+    {
+      "hash": "9db52cd3f",
+      "subject": "chore: dashboard snapshot for rotation 537 final head"
+    },
+    {
       "hash": "9d5092644",
       "subject": "refactor: give LICM its own file, out of the GVN walk"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "276e4a5a0",
       "subject": "fix: ToNumber(undefined) is NaN — keep the sentinel out of arithmetic"
-    },
-    {
-      "hash": "f9692bb71",
-      "subject": "chore: dashboard snapshot for rotation 536"
-    },
-    {
-      "hash": "00f2754e3",
-      "subject": "docs: the final matrix — three cells moved, and every plus sign is the same binary"
-    },
-    {
-      "hash": "3551c2715",
-      "subject": "docs: what the full-matrix A/B found that the single cell could not"
-    },
-    {
-      "hash": "ea112112e",
-      "subject": "perf: a counter the loop's own `let` binds is out of everyone else's reach"
-    },
-    {
-      "hash": "ed56df1ab",
-      "subject": "docs: the full-matrix A/B says one cell moved, and says which one did not"
-    },
-    {
-      "hash": "45f17534d",
-      "subject": "docs: rotation 536 accounting, RFC period B, sweep ingest"
-    },
-    {
-      "hash": "bea966817",
-      "subject": "perf: the interval lattice gains a point per allocation site"
     }
   ],
-  "headSha": "9d5092644",
+  "headSha": "cdca96be4",
   "autorun": {
-    "total": 840,
+    "total": 841,
     "baselineTarget": 10,
-    "bySelf": 835,
+    "bySelf": 836,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788095914-5429",
-      "at": "2026-08-30T13:18:34Z",
-      "ts": 1788095914,
+      "rotationId": "r-1788115593-6704",
+      "at": "2026-08-30T18:46:33Z",
+      "ts": 1788115593,
       "trigger": "self",
-      "prevHead": "f9692bb71",
-      "handoffSha": "sha256:49e5fcef8e414fc49fb05a49906236287427fc98ab690f84498dcd5c3885019e",
-      "handoffAgeSec": 7,
+      "prevHead": "9db52cd3f",
+      "handoffSha": "sha256:7fbc46b58e0bdc7ca422566b4dd33584a85cb986fde99248c071e0a77cd6a535",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788115593-6704",
+        "at": "2026-08-30T18:46:33Z",
+        "ts": 1788115593,
+        "trigger": "self",
+        "prevHead": "9db52cd3f",
+        "handoffSha": "sha256:7fbc46b58e0bdc7ca422566b4dd33584a85cb986fde99248c071e0a77cd6a535",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788095914-5429",
         "at": "2026-08-30T13:18:34Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "fde118fc7",
         "handoffSha": "sha256:a5793b368ed89d17f29ea9d0bc8dafd94719b6ca85cdc115c394d0999b9a4144",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788005977-706c",
-        "at": "2026-08-29T12:19:37Z",
-        "ts": 1788005977,
-        "trigger": "self",
-        "prevHead": "8192bf303",
-        "handoffSha": "sha256:356b1cf2267f4dc94f64d25c145bc505cbd54a285df0e8b765bb57ff49cbd2a1",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
