@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T09:29:24.715Z",
+  "generatedAt": "2026-08-30T10:09:48.739Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-30T09:15:24Z",
-    "headSha": "85a93c254",
-    "elapsedSec": 525.03,
+    "ranAt": "2026-08-30T10:01:07Z",
+    "headSha": "8be8dfdb2",
+    "elapsedSec": 376.37,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "85a93c254",
-    "commitSubject": "fix: a length guard settles the upper bound of an index, not the lower",
+    "commit": "8be8dfdb2",
+    "commitSubject": "perf: the branch folder gains the evidence its two evaluators cannot see",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "8be8dfdb2",
+      "subject": "perf: the branch folder gains the evidence its two evaluators cannot see"
+    },
+    {
+      "hash": "d4daf5f08",
+      "subject": "docs: the two halves of the element attack are not two items in sequence"
+    },
+    {
       "hash": "85a93c254",
       "subject": "fix: a length guard settles the upper bound of an index, not the lower"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "b95524303",
       "subject": "docs: rotation 533 dashboard snapshot"
-    },
-    {
-      "hash": "29603123f",
-      "subject": "refactor: where a define lands moves out of what the define does"
-    },
-    {
-      "hash": "d5d05bba9",
-      "subject": "perf: pop stops folding a head that a never-shifted array does not have"
     }
   ],
-  "headSha": "85a93c254",
+  "headSha": "8be8dfdb2",
   "autorun": {
     "total": 838,
     "baselineTarget": 10,
