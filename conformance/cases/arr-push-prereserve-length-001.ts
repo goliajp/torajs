@@ -65,3 +65,54 @@ function plain(): string {
   return xs.length + "|" + xs.join(",");
 }
 console.log(plain());
+
+// The same shapes written `i++`. That spelling stopped matching the
+// detector when postfix increment became its own AST node, so until
+// now none of these took the fast lowering at all.
+function selfReadPostfix(): string {
+  const xs: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    xs.push(xs.length);
+  }
+  return xs.join(",");
+}
+console.log(selfReadPostfix());
+
+function thrownOutPostfix(): string {
+  const xs: number[] = [];
+  const stop = (i: number): number => {
+    if (i === 3) {
+      throw new Error("stop");
+    }
+    return i;
+  };
+  try {
+    for (let i = 0; i < 9; i++) {
+      xs.push(stop(i));
+    }
+  } catch (e) {
+    /* swallow */
+  }
+  return xs.length + "|" + xs.join(",");
+}
+console.log(thrownOutPostfix());
+
+function whilePostfix(): string {
+  const xs: number[] = [];
+  let i = 0;
+  while (i < 5) {
+    xs.push(xs.length);
+    i++;
+  }
+  return xs.join(",");
+}
+console.log(whilePostfix());
+
+function plainPostfix(): string {
+  const xs: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    xs.push(i * 2);
+  }
+  return xs.length + "|" + xs.join(",");
+}
+console.log(plainPostfix());

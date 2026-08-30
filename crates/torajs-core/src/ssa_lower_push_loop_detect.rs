@@ -3,7 +3,7 @@
 //! Recognises the canonical "fill loop"
 //!
 //! ```ignore
-//!   for (let i = 0; i < N; i = i + 1) {
+//!   for (let i = 0; i < N; i++) {   // `i = i + 1` / `i += 1` too
 //!     xs.push(_)                  // OR a block/multi of pure xs.push(_) calls
 //!   }
 //! ```
@@ -13,8 +13,9 @@
 //! then route each per-iter push through `arr_push_unchecked`. The
 //! detector is conservative on the false-positive side: anything not
 //! matching the exact shape returns `None` and the regular cap-checked
-//! push path runs unchanged. False negatives stay safe (merely
-//! slower).
+//! push path runs unchanged. False negatives stay safe, but they are
+//! not cheap: not recognising `i++` cost a 10M-append loop 7.7x for
+//! as long as nobody noticed.
 //!
 //! Lives in its own file (not collocated with the other AST visitors
 //! in `ssa_lower.rs`) so `ssa_lower.rs` stays on the known-debt
@@ -58,22 +59,9 @@ pub(crate) fn detect_push_loop_arrays(
         },
         _ => return None,
     };
-    /* step: `i = i + 1` shape (parser desugars i++ / i+=1 to this). */
-    let step_eid = step?;
-    match ast.get_expr(step_eid) {
-        Expr::Assign { target, value } => {
-            let target_is_i = matches!(ast.get_expr(*target), Expr::Ident(n) if n == &i_name);
-            let value_is_i_plus_1 = matches!(
-                ast.get_expr(*value),
-                Expr::BinOp { op: crate::ast::BinOp::Add, left, right }
-                    if matches!(ast.get_expr(*left), Expr::Ident(n) if n == &i_name)
-                        && matches!(ast.get_expr(*right), Expr::Number(v) if *v == 1.0)
-            );
-            if !(target_is_i && value_is_i_plus_1) {
-                return None;
-            }
-        }
-        _ => return None,
+    /* step: the `+1` step on `i`, in any of its spellings. */
+    if !is_counter_step_expr(ast, step?, &i_name) {
+        return None;
     }
     /* body: must be Stmt::Expr(push) or Stmt::Block / Multi of
      * push-only stmts (no conditionals, no other method calls).
@@ -116,11 +104,14 @@ pub(crate) fn push_args_all_inert(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
     match s {
         Stmt::Expr(eid) => match ctx.ast.get_expr(*eid) {
             Expr::Call { args, .. } => args.iter().all(|a| expr_is_inert(ctx, *a)),
-            // The `while` lane's body carries its `i = i + 1` step as
-            // the last statement. Writing an inert value into a local
-            // cannot look at the array either.
+            // The `while` lane's body carries its counter step as the
+            // last statement. Bumping a local cannot look at the array
+            // either, in either spelling.
             Expr::Assign { target, value } => {
                 matches!(ctx.ast.get_expr(*target), Expr::Ident(_)) && expr_is_inert(ctx, *value)
+            }
+            Expr::PostIncr { target, .. } => {
+                matches!(ctx.ast.get_expr(*target), Expr::Ident(_))
             }
             _ => false,
         },
@@ -205,7 +196,7 @@ fn collect_push_targets_only(ast: &Ast, s: &Stmt, out: &mut Vec<String>) -> bool
 ///   while (i < N) {
 ///     xs.push(_);                 // any number of xs.push(_) stmts, single- or multi-array
 ///     // ...
-///     i = i + 1;                  // MUST be the last stmt; parser desugars i++ / i+=1 here
+///     i++;                        // MUST be the last stmt; `i = i + 1` / `i += 1` too
 ///   }
 /// ```
 ///
@@ -283,17 +274,39 @@ fn is_counter_step_stmt(ast: &Ast, s: &Stmt, counter_name: &str) -> bool {
     let Stmt::Expr(eid) = s else {
         return false;
     };
-    let Expr::Assign { target, value } = ast.get_expr(*eid) else {
-        return false;
-    };
-    let target_is_counter = matches!(ast.get_expr(*target), Expr::Ident(n) if n == counter_name);
-    let value_is_counter_plus_1 = matches!(
-        ast.get_expr(*value),
-        Expr::BinOp { op: crate::ast::BinOp::Add, left, right }
-            if matches!(ast.get_expr(*left), Expr::Ident(n) if n == counter_name)
-                && matches!(ast.get_expr(*right), Expr::Number(v) if *v == 1.0)
-    );
-    target_is_counter && value_is_counter_plus_1
+    is_counter_step_expr(ast, *eid, counter_name)
+}
+
+/// The `+1` step on `counter`, in either spelling.
+///
+/// `i = i + 1` is what the module doc has always described, and what
+/// `i += 1` parses to. `i++` used to join them — the doc says "parser
+/// desugars i++ / i+=1 here" — but postfix increment became its own
+/// node (`Expr::PostIncr`, so that `x++` can answer the old value)
+/// and this matcher was not told. The whole pre-reserve fast path
+/// then quietly stopped firing for the spelling almost every loop
+/// uses: the same 10M-append program is 7.7x slower written `i++`
+/// than written `i = i + 1`.
+///
+/// As a for-step or as the last statement of a while body the answer
+/// `i++` produces is discarded, so the two spellings are the same
+/// step. `i--` is not, hence the `is_inc` test.
+fn is_counter_step_expr(ast: &Ast, eid: ExprId, counter_name: &str) -> bool {
+    match ast.get_expr(eid) {
+        Expr::PostIncr { target, is_inc } => {
+            *is_inc && matches!(ast.get_expr(*target), Expr::Ident(n) if n == counter_name)
+        }
+        Expr::Assign { target, value } => {
+            matches!(ast.get_expr(*target), Expr::Ident(n) if n == counter_name)
+                && matches!(
+                    ast.get_expr(*value),
+                    Expr::BinOp { op: crate::ast::BinOp::Add, left, right }
+                        if matches!(ast.get_expr(*left), Expr::Ident(n) if n == counter_name)
+                            && matches!(ast.get_expr(*right), Expr::Number(v) if *v == 1.0)
+                )
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
