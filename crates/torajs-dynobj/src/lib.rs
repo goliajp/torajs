@@ -30,6 +30,7 @@ pub mod define;
 pub mod define_all;
 mod define_bag;
 pub mod define_entry;
+pub mod define_expando;
 mod define_from_desc;
 pub mod define_redefine;
 pub mod define_struct;

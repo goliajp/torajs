@@ -170,43 +170,6 @@ pub(crate) unsafe fn drop_rejected_value(tag: u64, value: u64) {
     }
 }
 
-/// Lazy-expando receiver arm (Closure / Promise) — the cell's own
-/// defines land in the props dynobj at `props_off`, allocated on
-/// first touch; recursing with that slot runs the full §10.1.6.3
-/// validate/apply against the entry table. `seed_virtual` is the
-/// Closure receiver's reflected own `name`/`length` seeding — a
-/// Promise cell has none.
-#[allow(clippy::too_many_arguments)]
-unsafe fn define_into_expando(
-    obj: *mut c_void,
-    props_off: usize,
-    seed_virtual: bool,
-    key: *mut c_void,
-    tag: u64,
-    value: u64,
-    flags_byte: u64,
-    throw_on_refusal: bool,
-    attach: Option<unsafe extern "C" fn(*mut u8, *mut c_void)>,
-) -> i64 {
-    let props_slot = unsafe { obj.cast::<u8>().add(props_off) } as *mut *mut c_void;
-    unsafe {
-        if (*props_slot).is_null() {
-            // r502 — a receiver whose drop legs sit behind link seams
-            // (closure: A5) attaches through the rc entry the seams
-            // are guarded on; the others write the slot directly.
-            let fresh = crate::alloc::__torajs_dynobj_alloc();
-            match attach {
-                Some(attach) => attach(obj.cast::<u8>(), fresh),
-                None => *props_slot = fresh,
-            }
-        }
-        if seed_virtual {
-            crate::define_entry::seed_virtual_fn_prop(obj, props_slot, key);
-        }
-        define_apply(props_slot, key, tag, value, flags_byte, throw_on_refusal)
-    }
-}
-
 /// Seedless expando-arm define shared by Promise (§27.2 — its own
 /// defines land at +32) and the buffer family (§25.1 / §23.2 — a
 /// view is an ordinary object off its index face; the species cases
@@ -214,32 +177,6 @@ unsafe fn define_into_expando(
 /// Numeric-index defines on a typed array (§10.4.5.3) are a
 /// recorded follow-up — the element face is the index kernel's, not
 /// this bag's.
-/// The closure receiver's expando define: virtual `name` / `length`
-/// seeded, the first attach through torajs-rc's
-/// `__torajs_closure_props_attach` (the env-drop seams' guard, A5).
-unsafe fn define_into_closure_expando(
-    obj: *mut c_void,
-    key: *mut c_void,
-    tag: u64,
-    value: u64,
-    flags_byte: u64,
-    throw_on_refusal: bool,
-) -> i64 {
-    unsafe {
-        define_into_expando(
-            obj,
-            crate::layout::CELL_PROPS_OFF,
-            true,
-            key,
-            tag,
-            value,
-            flags_byte,
-            throw_on_refusal,
-            Some(__torajs_closure_props_attach),
-        )
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn bag_receiver_define(
     obj: *mut c_void,
@@ -251,7 +188,7 @@ pub(crate) unsafe fn bag_receiver_define(
     throw_on_refusal: bool,
 ) -> i64 {
     unsafe {
-        define_into_expando(
+        crate::define_expando::define_into_expando(
             obj,
             props_off,
             false,
@@ -349,7 +286,14 @@ pub(crate) unsafe fn define_apply(
     // first defineProperty against an any-typed function.
     if htag == crate::layout::TAG_CLOSURE_HDR {
         return unsafe {
-            define_into_closure_expando(obj, key, tag, value, flags_byte, throw_on_refusal)
+            crate::define_expando::define_into_closure_expando(
+                obj,
+                key,
+                tag,
+                value,
+                flags_byte,
+                throw_on_refusal,
+            )
         };
     }
     // The one name a RegExp keeps in its cell rather than in the bag
