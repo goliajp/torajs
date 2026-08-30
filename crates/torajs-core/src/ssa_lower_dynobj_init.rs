@@ -170,6 +170,17 @@ impl<'a> LowerCtx<'a> {
                 (4, v_raw)
             }
             Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
+            // The same `null` arriving through a SLOT rather than as
+            // the folded constant above — `var x = null; export { x
+            // as default }` reads the local, and the namespace object
+            // literal stores what it read. This is `box_to_any`'s
+            // decision for a non-constant Ptr, and the any-lane
+            // readers have answered `null` for a null payload since
+            // P3.2 (`o.d = x` goes through it). No stake to take:
+            // every heap type with an owner has its own refcounted
+            // arm above, and a nested literal boxed to Any before
+            // reaching here.
+            Type::Ptr => (4, v_raw),
             _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
         };
         self.emit_dynobj_set_for(
