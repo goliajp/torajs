@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T13:16:53.219Z",
+  "generatedAt": "2026-08-30T17:17:02.619Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-30T13:05:26Z",
-    "headSha": "bea966817",
-    "elapsedSec": 384.73,
+    "ranAt": "2026-08-30T17:03:54Z",
+    "headSha": "1d3e92563",
+    "elapsedSec": 378.87,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "00f2754e3",
-    "commitSubject": "docs: the final matrix — three cells moved, and every plus sign is the same binary",
+    "commit": "1d3e92563",
+    "commitSubject": "fix: spell ToNumber(undefined) at the read's own exit, not after it",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "1d3e92563",
+      "subject": "fix: spell ToNumber(undefined) at the read's own exit, not after it"
+    },
+    {
+      "hash": "276e4a5a0",
+      "subject": "fix: ToNumber(undefined) is NaN — keep the sentinel out of arithmetic"
+    },
+    {
+      "hash": "f9692bb71",
+      "subject": "chore: dashboard snapshot for rotation 536"
+    },
+    {
       "hash": "00f2754e3",
       "subject": "docs: the final matrix — three cells moved, and every plus sign is the same binary"
     },
@@ -747,39 +759,38 @@
     {
       "hash": "3763f4d81",
       "subject": "docs: rotation 535 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "8be8dfdb2",
-      "subject": "perf: the branch folder gains the evidence its two evaluators cannot see"
-    },
-    {
-      "hash": "d4daf5f08",
-      "subject": "docs: the two halves of the element attack are not two items in sequence"
-    },
-    {
-      "hash": "85a93c254",
-      "subject": "fix: a length guard settles the upper bound of an index, not the lower"
     }
   ],
-  "headSha": "00f2754e3",
+  "headSha": "1d3e92563",
   "autorun": {
-    "total": 839,
+    "total": 840,
     "baselineTarget": 10,
-    "bySelf": 834,
+    "bySelf": 835,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788084737-3716",
-      "at": "2026-08-30T10:12:17Z",
-      "ts": 1788084737,
+      "rotationId": "r-1788095914-5429",
+      "at": "2026-08-30T13:18:34Z",
+      "ts": 1788095914,
       "trigger": "self",
-      "prevHead": "3763f4d81",
-      "handoffSha": "sha256:89068215324ae103ae4d0f4301c27867f55576e2bfec9a6fb5ed87e2812d9d35",
-      "handoffAgeSec": 18,
+      "prevHead": "f9692bb71",
+      "handoffSha": "sha256:49e5fcef8e414fc49fb05a49906236287427fc98ab690f84498dcd5c3885019e",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788095914-5429",
+        "at": "2026-08-30T13:18:34Z",
+        "ts": 1788095914,
+        "trigger": "self",
+        "prevHead": "f9692bb71",
+        "handoffSha": "sha256:49e5fcef8e414fc49fb05a49906236287427fc98ab690f84498dcd5c3885019e",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788084737-3716",
         "at": "2026-08-30T10:12:17Z",
@@ -876,17 +887,6 @@
         "prevHead": "8192bf303",
         "handoffSha": "sha256:356b1cf2267f4dc94f64d25c145bc505cbd54a285df0e8b765bb57ff49cbd2a1",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787998299-2b28",
-        "at": "2026-08-29T10:11:39Z",
-        "ts": 1787998299,
-        "trigger": "self",
-        "prevHead": "1b7c45432",
-        "handoffSha": "sha256:0823cb6f2c4794d03be122086c7ab8ac2c259a541a470c0aa5a3926b7715a390",
-        "handoffAgeSec": 24,
         "conformanceBefore": null,
         "commitsInSession": null
       }
