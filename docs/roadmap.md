@@ -7807,6 +7807,11 @@ rotation 533 对 `number[]` 热路径跑了完整两步舞的 Phase A(实测半 
 累加器是 1-cycle `add`。实测锚 `arrread` = 1.30 ns/iter = 5.7 cyc,
 rust ~2.1 cyc。**这一项占 `array-sum-1m` 全部 gap 的 83%。**
 
+> **rotation 534 修正**:这一条的**量级**成立(手写 i64 版实测 −47%),
+> 但**成分**分错了 —— 强制关掉元素那一半的 seed 只值 **2.3%**,
+> 钱全在累加器那一半。而且 rust 那 12.1 ms 是 `Vec<i64>` 的**另一个
+> 程序**,不是同题竞品。详见下面 S7-c / S7-d 与「报数必须带语义列」。
+
 **结论三:`xs.push` 不是问题,它是我们的优势。** push-loop 检测
 (`ssa_lower_push_loop_detect.rs`)把 runtime 调用整个消掉,per-iter
 是 4 条内联指令 + 一次 exact-fit `mmap`。消融实测 **0.30 ns/iter
@@ -7815,24 +7820,57 @@ vs bun 3.21 —— 领先 10.7×**。**不要动它**;任何破坏该检测的�
 
 **执行顺序(替代此前 S7 的笼统表述)**:
 
-- **S7-a `arr_mutators` 的 deque 判据(1 LOC)** ——
-  `ssa_lower_arr_mutators.rs:302-306` 硬编码 `false`,而 Index 读
-  lane 一直传 `arr_expr_is_non_deque(recv_id)`。改成同一个判据:
+- ~~**S7-a `arr_mutators` 的 deque 判据(1 LOC)**~~ **SHIPPED**
+  `d5d05bba9`(rotation 533)。`ssa_lower_arr_mutators.rs` 的硬编码
+  `false` 换成 Index 读 lane 一直在用的 `arr_expr_is_non_deque`:
   省 1 条链上 load + 4 ALU,并解锁 `SCALED_ADDR` 折叠。
-  `stack-pop-1m` −8%。**全表最佳 gain/LOC。**
-- **S7-b `map`/`filter` 的每元素跨归档调用(~90 LOC)** ——
-  `ssa_lower_call_arr_ho_loop/methods.rs:88-95` 每元素发一个真
-  `bl __torajs_arr_push_unchecked`。**这是立项事实第 4 条(退役
-  inkwell 后不再有跨边界内联)唯一真正兑现成 ns 的地方**;其余场景
-  该调用早已被消除。改用 push 快路径同款内联 store,`array-map-1m` −15%。
-- **S7-c 累加器的 i64 表示(需设计)** —— `float_demote`
-  (RFC `20260611-int-range-float-demotion`)本是为此建的,但
-  `FLOAT_DEMOTE_STATS` 全零,而**全零不能区分「建了又被 profitability
-  逐出」与「根本没建」**(rotation 321 的教训:stats 记产出不记副作用)。
-  且元素实测为 F64,守卫降级需要**整数性**证明而非量级窗口。真正的
-  上游问题是:**数组只被 `xs.push(i)`(I64 循环变量)写过,W5 为什么
-  把 `Elem` 也毒化了** —— 若 `Elem` 能留 I64,push 侧省 SCVTF、读侧变
-  1-cycle i64 链,比守卫降级更彻底。**下一轮 Phase A 的入口。**
+- ~~**S7-b `map`/`filter` 的每元素跨归档调用(~90 LOC)**~~ **SHIPPED**
+  `95c62e083`(rotation 534),实测 **−21.6%**(投影 −15%)。
+  同轮 A/B、各五趟交错:torajs 37.95(σ0.26)→ **29.76**(σ0.03);
+  对照 bun-aot +0.7% / rust −0.8%(机器没漂),未触及的 `array-sum-1m`
+  20.74 → 20.77。内循环现在是 **13 条、零调用**。形状抽成
+  `ssa_lower_arr_prereserve` 的三个 emit,`for`/`while` 的 push 快路径
+  与它共用同一份契约。**立项事实第 4 条在这里兑现完毕。**
+- **S7-c 累加器的 i64 表示** —— **rotation 534 的 Phase A 换掉了这条的
+  问题**(全文 `.claude/tasks/2026-08-30/perf-w5-accumulator-decomposition.md`)。
+  上一轮留的入口「W5 为什么把 `Elem` 也毒化了」已答,而且答案不是攻击面:
+  1. **`Elem` 被判 F64 是对的,而且不值钱。** 原因写在
+     `num_width/container_walk.rs:188-211`:一次 index 读可以越界,
+     ES §10.4.2.1 那时答 `undefined`,I64 槽没有位模式表达它。
+     **把那条 seed 强制关掉实测只快 2.3%**(20.77 → 20.29,同轮
+     bun/rust 对照 < 0.5%)。上一轮「narrow `Elem` 是 83% 的 gap」被推翻。
+  2. **`float_demote` 的 rescue 不存在。** 上一轮读码结论是它把两个 def
+     判成 `Fit::Guarded` 后被 `profitable()` 的 `checks=4 > savings=3`
+     扔掉,只差一个比较。实测:`profitable()` 在两个 bench case 上
+     **零次调用**,候选集里只有 **1** 个值且是 `Fit::Exact`。
+  3. **真链条**:`main` 的六个 f64 值 dump 显示 `LoadDyn`(即 `xs[j]`)
+     **没有 interval fact** → 消费它的 `FAdd` 没有 → 累加器没有 →
+     连进候选集的资格都没有(候选集 = `facts.keys()` 过滤 F64)。
+- **S7-d(新,替代 S7-c 的攻击面)按数组聚合的元素区间** ——
+  把 `num_width` 已经在**宽度**域上做的同构聚合(`SlotKey::Elem` +
+  push 臂)跑在 **interval** 域上。`xs.push(i)` 里 `i ∈ [0, 9999999]`
+  这个事实已经在手上。拿到 `Elem` 的区间后 `FAdd` 成为 growth site →
+  `Fit::Guarded` → region planner 与 `profitable()` **第一次真的会跑**
+  (S7-c 那条 window 计数的比较到那时才有意义,现在是无效不是错)。
+  **RFC 级,不是一刀**:`LoadDyn` 的 base 是 data ptr 要回溯到数组 SSA
+  值;写入点必须**穷举**(push 快路径的 StoreDyn / `arr_push` /
+  index-assign lane),漏一个就是 silent-wrong,所以先要一个「该数组在
+  本函数内不逃逸且写入点可枚举」的判据。
+- **S7-e guard 支配时不给 `Elem` 加 F64 seed(2.3%,实测)** ——
+  把 `ssa_lower_bounds_proven` 的证明搬进 width walker;每一次读都被
+  guard 支配时 `undefined` 不可达,narrow 才是可靠的。排在 S7-d 之后。
+
+**ceiling 是实测的,不是投影的**:`array-sum-1m` 手写成 torajs 自己的
+`i64` 标注(`let xs: i64[]` / `let sum: i64`)后跑 **11.3 ms**,而
+`number` 版 21.3 —— **−47%**,且**快过同机 rust 的 12.1**。
+**这条 cell 上不存在抽象税。**
+
+**报数必须带语义列(2026-08-30 起)**:`array-sum-1m` 的 `main.rs` 用
+`Vec<i64>`、`main.go` 用 `[]int64`,而 `.ts` 用 `number`(f64)——
+**不是同一个程序**(此处和数恰好 < 2^53 所以输出相同)。数值型 cell 上
+**同语义的对手是 bun**(该 cell tr 20.8 vs bun 41.1 = 快 1.98×);
+rust/go 是**另一个程序的硬件天花板**,不是同题竞品。与
+methodology §1「计时比较的是不同的工作」同族。
 
 **明确不要攻**(已在 parity,或归因错误 —— 记在此防重复):
 `xs[j]` 的元素访问(已是一条 AGU-scaled `ldr`,与 rust 同形)/
