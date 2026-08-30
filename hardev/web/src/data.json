@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T17:17:02.619Z",
+  "generatedAt": "2026-08-30T18:45:35.452Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-30T17:03:54Z",
-    "headSha": "1d3e92563",
-    "elapsedSec": 378.87,
+    "ranAt": "2026-08-30T18:28:29Z",
+    "headSha": "9d5092644",
+    "elapsedSec": 395.75,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "1d3e92563",
-    "commitSubject": "fix: spell ToNumber(undefined) at the read's own exit, not after it",
+    "commit": "9d5092644",
+    "commitSubject": "refactor: give LICM its own file, out of the GVN walk",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "9d5092644",
+      "subject": "refactor: give LICM its own file, out of the GVN walk"
+    },
+    {
+      "hash": "feca92d38",
+      "subject": "refactor: split the arguments scan walk out of the question layer"
+    },
+    {
+      "hash": "2cdcf3e51",
+      "subject": "chore: dashboard snapshot for rotation 537"
+    },
+    {
       "hash": "1d3e92563",
       "subject": "fix: spell ToNumber(undefined) at the read's own exit, not after it"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "bea966817",
       "subject": "perf: the interval lattice gains a point per allocation site"
-    },
-    {
-      "hash": "8b96db55e",
-      "subject": "fix: the slow-side writeback blocks were numbered in hash order"
-    },
-    {
-      "hash": "5d5ab0769",
-      "subject": "perf: an element stops asking to be widened only when both ends are proven"
-    },
-    {
-      "hash": "3763f4d81",
-      "subject": "docs: rotation 535 sweep ingest and dashboard snapshot"
     }
   ],
-  "headSha": "1d3e92563",
+  "headSha": "9d5092644",
   "autorun": {
     "total": 840,
     "baselineTarget": 10,
