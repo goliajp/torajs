@@ -67,6 +67,11 @@ pub(crate) fn lower_while_inner(
         && let Some((bound_eid, names)) =
             detect_push_loop_arrays_while(ctx.ast, counter_name, cond, body)
     {
+        // Only a body whose every push argument is inert may keep the
+        // length word in a register until the loop ends — see
+        // `PreReserveState::defer_len`. The trailing counter step is
+        // inert by the same reading.
+        let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
         /* Lower the bound expression once before the loop entry —
          * guaranteed loop-invariant since the cond reads it on every
          * iter unchanged. Same pattern as for-loop install. */
@@ -126,7 +131,7 @@ pub(crate) fn lower_while_inner(
                 None,
             );
             // B1 — reserve never moves the cell; write-back retired.
-            let state = ctx.emit_prereserved_state(reserved);
+            let state = ctx.emit_prereserved_state(reserved, defer_len);
             ctx.push_unchecked_for.insert(name.clone(), state);
             reserve_emitted.push(name.clone());
         }
@@ -166,9 +171,8 @@ pub(crate) fn lower_while_inner(
 
     ctx.cur_block = after;
 
-    /* Sync hoisted len_slot back to the array header before any
-     * post-loop code reads `arr.length`, then remove the
-     * push_unchecked_for entry so a follow-up while/for on the
+    /* Settle the length word for a lane that deferred it, then remove
+     * the push_unchecked_for entry so a follow-up while/for on the
      * same array doesn't accidentally inherit it. */
     for name in &reserve_emitted {
         if let Some(state) = ctx.push_unchecked_for.get(name).copied() {

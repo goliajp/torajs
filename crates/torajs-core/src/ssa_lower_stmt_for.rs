@@ -378,6 +378,10 @@ fn emit_push_loop_reserve(
     body: &Stmt,
 ) -> Vec<String> {
     let pushed_arrays = detect_push_loop_arrays(ctx.ast, init, cond, step, body);
+    // Only a body whose every push argument is inert may keep the
+    // length word in a register until the loop ends — see
+    // `PreReserveState::defer_len`.
+    let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
     let mut reserve_emitted: Vec<String> = Vec::new();
     if let Some((bound_eid, names)) = &pushed_arrays {
         let bound_op = ctx.lower_expr(*bound_eid);
@@ -433,8 +437,8 @@ fn emit_push_loop_reserve(
                 info.ty,
                 None,
             );
-            // B1 — reserve never moves the cell; write-back retired.
-            let state = ctx.emit_prereserved_state(reserved);
+            // B1 — reserve never moves the cell.
+            let state = ctx.emit_prereserved_state(reserved, defer_len);
             ctx.push_unchecked_for.insert(name.clone(), state);
             reserve_emitted.push(name.clone());
         }

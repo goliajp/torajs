@@ -135,7 +135,11 @@ pub(crate) fn begin_loop(
         let dst_can_hole = method == "map"
             && matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::Any);
         if !dst_can_hole {
-            dst_fast = Some(ctx.emit_prereserved_state(reserved));
+            // The destination is a fresh array this lowering owns and
+            // no user code can name until `map` / `filter` answers it,
+            // so the length word may stay in a register until then —
+            // see `PreReserveState::defer_len`.
+            dst_fast = Some(ctx.emit_prereserved_state(reserved, true));
         }
     }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
@@ -366,7 +370,7 @@ pub(crate) fn end_loop_and_produce(
     ctx.cur_block = frame.after_blk;
     match method {
         "map" | "filter" => {
-            // S7-b — the running length has been in a register since the
+            // The running length has been in a register since the
             // preheader; settle the cell's word before anyone reads it.
             if let Some(state) = frame.dst_fast {
                 ctx.emit_prereserved_len_writeback(state);

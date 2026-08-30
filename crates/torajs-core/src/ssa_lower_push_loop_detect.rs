@@ -22,6 +22,7 @@
 //! 11-A1 deque-escape visitor and 11-A2-a obj-escape visitor.
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ssa_lower::LowerCtx;
 
 /// v0.6+1 perf checkpoint — see module-level doc for the pattern this
 /// recognises.
@@ -86,6 +87,84 @@ pub(crate) fn detect_push_loop_arrays(
         return None;
     }
     Some((bound_eid, names))
+}
+
+/// True when every `xs.push(arg)` in `s` has an argument that cannot
+/// look at the array being filled, and cannot leave the loop by any
+/// edge but its normal exit.
+///
+/// This is what buys the deferred length word (see
+/// [`crate::ssa_lower::PreReserveState::defer_len`]). The body shape
+/// the detectors above accept says the loop contains nothing but
+/// pushes; it says nothing about what is being pushed, and an
+/// argument is an arbitrary expression. `xs.push(xs.length)` reads
+/// the very word the loop is holding back, and `xs.push(f(i))` hands
+/// control to a function that may read the array or throw out of the
+/// loop entirely.
+///
+/// An allowlist, because the safe direction is to answer no: a shape
+/// this does not recognise gets the length word written on every
+/// append instead, which costs a store rather than an answer.
+/// Literals, numeric locals, and arithmetic over them are the whole
+/// list — none of those can call, read a heap cell, or throw. Two
+/// absences are deliberate. A member or index read is out: `xs.length`
+/// is the case that started this, and an out-of-range index read on a
+/// non-`number[]` throws. And the operand types are checked, not just
+/// the operator: `a + b` over `any` runs `valueOf`, which is user code
+/// with the array in scope.
+pub(crate) fn push_args_all_inert(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
+    match s {
+        Stmt::Expr(eid) => match ctx.ast.get_expr(*eid) {
+            Expr::Call { args, .. } => args.iter().all(|a| expr_is_inert(ctx, *a)),
+            // The `while` lane's body carries its `i = i + 1` step as
+            // the last statement. Writing an inert value into a local
+            // cannot look at the array either.
+            Expr::Assign { target, value } => {
+                matches!(ctx.ast.get_expr(*target), Expr::Ident(_)) && expr_is_inert(ctx, *value)
+            }
+            _ => false,
+        },
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().all(|s| push_args_all_inert(ctx, s))
+        }
+        _ => false,
+    }
+}
+
+/// The allowlist itself. See [`push_args_all_inert`].
+fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    if !matches!(
+        ctx.expr_types.get(&eid),
+        Some(crate::check::Type::Number) | Some(crate::check::Type::Boolean)
+    ) {
+        return false;
+    }
+    match ctx.ast.get_expr(eid) {
+        Expr::Number(_) | Expr::Bool(_) | Expr::Ident(_) => true,
+        Expr::BinOp { op, left, right } => {
+            use crate::ast::BinOp as B;
+            matches!(
+                op,
+                B::Add
+                    | B::Sub
+                    | B::Mul
+                    | B::Div
+                    | B::Mod
+                    | B::Lt
+                    | B::Gt
+                    | B::Le
+                    | B::Ge
+                    | B::BitAnd
+                    | B::BitOr
+                    | B::BitXor
+                    | B::Shl
+                    | B::Shr
+                    | B::UShr
+            ) && expr_is_inert(ctx, *left)
+                && expr_is_inert(ctx, *right)
+        }
+        _ => false,
+    }
 }
 
 /// Walk `s` and collect ident names of arrays that are the receiver

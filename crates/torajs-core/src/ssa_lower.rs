@@ -222,4 +222,23 @@ pub(crate) struct PreReserveState {
     /// back to the array's len field at loop exit. mem2reg promotes
     /// this to a phi-register at -O1+.
     pub(crate) len_slot: ValueId,
+    /// Whether the cell's own length word may stay behind the running
+    /// count until the loop's normal exit.
+    ///
+    /// True needs a proof that nothing can look at the array while the
+    /// loop runs, and the shape detectors do not supply one: they
+    /// constrain the push *statement*, leaving the push *argument*
+    /// free to read the array (`xs.push(xs.length)`) or to call
+    /// something that does — or that throws, taking an exit the
+    /// settlement does not sit on. So the lanes decide: the
+    /// `map` / `filter` destination is a temporary no user code can
+    /// name, and the `for` / `while` lanes ask whether every push
+    /// argument in the body is inert
+    /// ([`crate::ssa_lower_push_loop_detect::push_args_all_inert`]).
+    ///
+    /// When false, each append writes the length word too, and there
+    /// is nothing left to settle. That store costs about half the run
+    /// of a push-dominated loop (measured: 10M `xs.push(i)` appends,
+    /// +55%), which is why it is not simply always on.
+    pub(crate) defer_len: bool,
 }
