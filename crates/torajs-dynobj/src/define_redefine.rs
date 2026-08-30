@@ -34,6 +34,57 @@ unsafe extern "C" {
 /// # Safety
 /// `e` points at a live entry of the probed dynobj; same `tag` /
 /// `value` ownership contract as `define_apply`.
+/// §10.4.6.6 — a module namespace's [[DefineOwnProperty]] on an
+/// EXISTING key. The ordinary path below accepts several descriptors
+/// that the exotic one must reject: an export is
+/// `{ writable: true, enumerable: true, configurable: false }`, and an
+/// ordinary non-configurable-but-writable entry legitimately takes a
+/// value change. Through a namespace nothing may change — the
+/// descriptor is allowed only to restate what is already there.
+///
+/// Steps 4-8 of the spec text, in order. Step 3 (`current` is
+/// undefined) never reaches here: a fresh key is already refused by
+/// the non-extensible bit `__torajs_module_ns_finalize` sets.
+///
+/// # Safety
+/// `e` is a live entry in the receiver's table.
+pub(crate) unsafe fn module_ns_refuses(
+    e: *mut Entry,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+) -> bool {
+    // 4. Desc has [[Configurable]] and it is true.
+    if flags_byte & DEFINE_PRESENT_CONFIGURABLE != 0 && flags_byte & DEFINE_FLAG_CONFIGURABLE != 0 {
+        return true;
+    }
+    // 5. Desc has [[Enumerable]] and it is false.
+    if flags_byte & DEFINE_PRESENT_ENUMERABLE != 0 && flags_byte & DEFINE_FLAG_ENUMERABLE == 0 {
+        return true;
+    }
+    // 6. IsAccessorDescriptor(Desc).
+    if flags_byte & (crate::layout::DEFINE_PRESENT_GET | crate::layout::DEFINE_PRESENT_SET) != 0 {
+        return true;
+    }
+    // 7. Desc has [[Writable]] and it is false.
+    if flags_byte & DEFINE_PRESENT_WRITABLE != 0 && flags_byte & DEFINE_FLAG_WRITABLE == 0 {
+        return true;
+    }
+    // 8. Desc has [[Value]] — SameValue against the current one.
+    //    Bit-pattern equality IS SameValue on this lane: NaN matches
+    //    NaN (same bits) and +0 does not match -0 (different bits),
+    //    which is precisely what SameValue asks for and what `===`
+    //    would get wrong in both directions.
+    if flags_byte & DEFINE_PRESENT_VALUE != 0 {
+        let cur_anyv = unsafe { (*e).value_anyv };
+        let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_anyv) } as u64;
+        let cur_val = unsafe { __torajs_anyv_unbox_value(cur_anyv) } as u64;
+        return cur_tag != (tag & BUCKET_TAG_MASK) || cur_val != value;
+    }
+    // 9. Nothing was asked to change.
+    false
+}
+
 pub(crate) unsafe fn redefine_entry(
     e: *mut Entry,
     tag: u64,

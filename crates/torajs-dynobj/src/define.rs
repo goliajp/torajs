@@ -404,6 +404,34 @@ pub(crate) unsafe fn define_apply(
     let ent = unsafe { entries(obj) };
 
     if pr.found {
+        // §10.4.6.6 — a module namespace refuses a redefine of an
+        // existing key unless the descriptor restates exactly what is
+        // there. Gated on the receiver's header bit, not on the
+        // entry's attributes: the entry looks like an ordinary
+        // non-configurable-but-writable one, which the path below
+        // would let take a new value.
+        if unsafe { obj.cast::<u8>().add(6).cast::<u16>().read() }
+            & crate::layout::DYNOBJ_HDR_FLAG_MODULE_NS
+            != 0
+            && unsafe {
+                crate::define_redefine::module_ns_refuses(
+                    ent.add(pr.entry as usize),
+                    tag,
+                    value,
+                    flags_byte,
+                )
+            }
+        {
+            return unsafe {
+                refuse(
+                    throw_on_refusal,
+                    c"Cannot redefine property of a module namespace".as_ptr() as *const u8,
+                    flags_byte & DEFINE_PRESENT_VALUE != 0,
+                    tag,
+                    value,
+                )
+            };
+        }
         // Existing entry — §10.1.6.3 validate + apply, split out to
         // keep this dispatcher under the 200-line fn hard limit.
         unsafe {
