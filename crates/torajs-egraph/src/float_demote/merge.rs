@@ -98,8 +98,14 @@ pub(crate) fn install_exits(
             retarget_edge(&mut func.blocks[b.0 as usize].term, s, m);
         }
     }
-    // slow exits: the cloned value is already f64
-    for &cb in clone.block_map.values() {
+    // slow exits: the cloned value is already f64. Walked through
+    // `plan.region` rather than `block_map.values()` — the map's keys
+    // ARE the region, and iterating the map would hand the writeback
+    // blocks their ids in hash order (rotation 536: `array-sum-1m`
+    // built two distinct artifacts once it became versionable, with
+    // nothing but two block numbers swapped).
+    for &b in &plan.region {
+        let cb = clone.block_map[&b];
         for s in exit_targets(func, cb, |s| !slow.contains(&s) && !region.contains(&s)) {
             let insts = bridge
                 .cells
