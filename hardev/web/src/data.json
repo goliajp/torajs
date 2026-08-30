@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T03:33:31.357Z",
+  "generatedAt": "2026-08-30T04:56:08.434Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "45121d4ff",
-    "commitSubject": "fix: a null export refused to become a namespace field",
+    "commit": "29603123f",
+    "commitSubject": "refactor: where a define lands moves out of what the define does",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "29603123f",
+      "subject": "refactor: where a define lands moves out of what the define does"
+    },
+    {
+      "hash": "d5d05bba9",
+      "subject": "perf: pop stops folding a head that a never-shifted array does not have"
+    },
+    {
+      "hash": "61b69f37f",
+      "subject": "docs: the perf judgement changes from instruction count to dependency chain"
+    },
+    {
+      "hash": "4d6472afb",
+      "subject": "feat: a module namespace refuses every write, even to a mutable export"
+    },
+    {
+      "hash": "121ea118a",
+      "subject": "docs: platform reach becomes the fifth axis of the v1.0 gate"
+    },
+    {
+      "hash": "0eb93399c",
+      "subject": "docs: rotation 532 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "45121d4ff",
       "subject": "fix: a null export refused to become a namespace field"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "a6da830b7",
       "subject": "feat: a namespace member read never needed the namespace object"
-    },
-    {
-      "hash": "f5c24f110",
-      "subject": "docs: rotation 531 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "7ee9697d3",
-      "subject": "fix: a self-importing module case never got its own directory staged"
-    },
-    {
-      "hash": "f8e977e65",
-      "subject": "fix: the one property a RegExp keeps outside its bag had no define"
-    },
-    {
-      "hash": "e93114be0",
-      "subject": "fix: a cast out of any never grew the face it named"
-    },
-    {
-      "hash": "47543a0a9",
-      "subject": "fix: the optional call decided a plain object had nothing above it"
-    },
-    {
-      "hash": "6b6923e2f",
-      "subject": "fix: the one prototype whose constructor must not be writable"
     }
   ],
-  "headSha": "45121d4ff",
+  "headSha": "29603123f",
   "autorun": {
-    "total": 835,
+    "total": 836,
     "baselineTarget": 10,
-    "bySelf": 830,
+    "bySelf": 831,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788051683-1baf",
-      "at": "2026-08-30T01:01:23Z",
-      "ts": 1788051683,
+      "rotationId": "r-1788060835-7a74",
+      "at": "2026-08-30T03:33:55Z",
+      "ts": 1788060835,
       "trigger": "self",
-      "prevHead": "f5c24f110",
-      "handoffSha": "sha256:269b0237428a63b15c22ae9f8e70684a48a0372cc4ef9a3e6db945395da30c86",
-      "handoffAgeSec": 4,
+      "prevHead": "0eb93399c",
+      "handoffSha": "sha256:61995f3ff76572f3486cbf1c1dcfc5d516342a8b0c0f3b09c376a8e16d8809b8",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788060835-7a74",
+        "at": "2026-08-30T03:33:55Z",
+        "ts": 1788060835,
+        "trigger": "self",
+        "prevHead": "0eb93399c",
+        "handoffSha": "sha256:61995f3ff76572f3486cbf1c1dcfc5d516342a8b0c0f3b09c376a8e16d8809b8",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788051683-1baf",
         "at": "2026-08-30T01:01:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "fefccde55",
         "handoffSha": "sha256:c0de58dcff13b659862625e79ed8f45bae4eefe86a4a0fffd1b3e0436b6982f7",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787945016-4c74",
-        "at": "2026-08-28T19:23:36Z",
-        "ts": 1787945016,
-        "trigger": "self",
-        "prevHead": "c8da89525",
-        "handoffSha": "sha256:d00c1a996e30adb1ed3b0eedade7ded259e6e651d68ee54b35384438b7a07b21",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
