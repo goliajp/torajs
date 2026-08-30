@@ -15,6 +15,13 @@
 //! }                             }
 //! ```
 //!
+//! **Only the upper half.** The guard says `i < xs.length` and
+//! nothing whatever about `i >= 0`, so the negative compare stays
+//! (rotation 535: eliding it read before the data pointer and printed
+//! a denormal where bun printed `undefined`). What the proof buys is
+//! the `>= len` compare AND the length load feeding it, which is the
+//! part LLVM cannot hoist.
+//!
 //! - `guard_pair` recognizes the `Ident(i) < Ident(xs).length`
 //!   condition, which a loop pushes around its body.
 //! - `stmt_taints` answers, per statement in a sequence: does this

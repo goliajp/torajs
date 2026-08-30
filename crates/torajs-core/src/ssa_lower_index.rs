@@ -238,22 +238,12 @@ pub(crate) fn lower_from_value(
     if elem_ty == Type::Any {
         return lower_array_any_index(ctx, arr_val, idx_val);
     }
-    // Guard-dominated bounds elision — `xs[i]` under an enclosing
-    // `i < xs.length` guard (untainted window) keeps the direct
-    // load; see [`crate::ssa_lower_bounds_proven`].
-    if crate::ssa_lower_bounds_proven::is_proven(ctx, eid) {
-        let (offset_base, offset) =
-            ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::LoadDyn(elem_ty, offset_base, offset),
-            elem_ty,
-            None,
-        );
-        return Operand::Value(v);
-    }
-    lower_typed_index_checked(ctx, arr_val, idx_val, is_non_deque, elem_ty)
+    // Guard-dominated bounds elision — an enclosing `i < xs.length`
+    // guard settles the upper compare, so it and the length load it
+    // needs (the aliasing wall LLVM cannot hoist past the raw-pointer
+    // LoadDyn) drop out. See [`crate::ssa_lower_bounds_proven`].
+    let upper_proven = crate::ssa_lower_bounds_proven::is_proven(ctx, eid);
+    lower_typed_index_checked(ctx, arr_val, idx_val, is_non_deque, elem_ty, upper_proven)
 }
 
 /// Typed-array indexed read with the OOB bounds branch (RFC
@@ -273,31 +263,37 @@ pub(crate) fn lower_from_value(
 ///   records a catchable RangeError (loud, never garbage) and the
 ///   merge tail propagates it via the throw check.
 ///
-/// In-bounds reads keep the direct LoadDyn; the two dominated
-/// compares are loop-eliminable under `i < arr.length` guards.
+/// In-bounds reads keep the direct LoadDyn. `upper_proven` drops the
+/// `>= len` compare and the length load it needs, for a read an
+/// enclosing `i < arr.length` guard settles — the negative compare
+/// stays, because that guard says nothing about `i >= 0` and a
+/// negative index reads before the data pointer.
 pub(crate) fn lower_typed_index_checked(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,
     idx_val: Operand,
     is_non_deque: bool,
     elem_ty: Type,
+    upper_proven: bool,
 ) -> Operand {
     use crate::ssa::{IPred, Terminator};
     use crate::ssa_lower::ARR_LEN_OFF;
     use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
     use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
     use crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS;
-    let len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
+    let len = (!upper_proven).then(|| {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
+            Type::I64,
+            None,
+        )
+    });
     let slot_ty = crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty);
     let promote_bool = slot_ty != elem_ty;
     let slot = ctx.alloca_in_entry(slot_ty, Some("__oob_elem"));
     let oob_blk = ctx.f.add_block();
-    let chk2_blk = ctx.f.add_block();
+    let chk2_blk = len.map(|_| ctx.f.add_block());
     let in_blk = ctx.f.add_block();
     let merge = ctx.f.add_block();
     let neg = ctx.cmp(IPred::Slt, idx_val.clone(), Operand::ConstI64(0));
@@ -307,19 +303,21 @@ pub(crate) fn lower_typed_index_checked(
         Terminator::CondBr {
             cond: neg,
             then_blk: oob_blk,
-            else_blk: chk2_blk,
+            else_blk: chk2_blk.unwrap_or(in_blk),
         },
     );
-    ctx.cur_block = chk2_blk;
-    let over = ctx.cmp(IPred::Sge, idx_val.clone(), Operand::Value(len));
-    ctx.f.set_term(
-        chk2_blk,
-        Terminator::CondBr {
-            cond: over,
-            then_blk: oob_blk,
-            else_blk: in_blk,
-        },
-    );
+    if let (Some(chk2_blk), Some(len)) = (chk2_blk, len) {
+        ctx.cur_block = chk2_blk;
+        let over = ctx.cmp(IPred::Sge, idx_val.clone(), Operand::Value(len));
+        ctx.f.set_term(
+            chk2_blk,
+            Terminator::CondBr {
+                cond: over,
+                then_blk: oob_blk,
+                else_blk: in_blk,
+            },
+        );
+    }
     let mut oob_throws = false;
     let oob_val: Operand = match elem_ty {
         Type::Str => {
