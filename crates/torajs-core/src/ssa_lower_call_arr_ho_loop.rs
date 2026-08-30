@@ -12,7 +12,7 @@
 use crate::ssa::{
     BinOp as SsaBinOp, BlockId, FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId,
 };
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 
 mod dispatch;
 mod methods;
@@ -35,6 +35,12 @@ pub(crate) struct LoopFrame {
     /// absent?" — read once, before the loop, so the body's hole gate
     /// is a register test on a loop-invariant value.
     pub(crate) sparse: Option<ValueId>,
+    /// S7-b — the product's pre-reserved append state, when this loop
+    /// can take it. `Some` puts the per-element append inline (a slot
+    /// store plus an add); `None` leaves it on the `arr_push_unchecked`
+    /// call. `begin_loop` decides, `end_loop_and_produce` settles the
+    /// length word it left stale.
+    pub(crate) dst_fast: Option<PreReserveState>,
 }
 
 /// Set up i_slot + init_i, fast-path `arr_reserve(dst, len)` for
@@ -97,6 +103,7 @@ pub(crate) fn begin_loop(
     // per-element push doesn't have to grow. filter worst case allocates
     // the full src length; shrinking to actual count would save memory
     // but add a second pass — deferred.
+    let mut dst_fast = None;
     if let Some(slot) = dst_slot {
         let cur_dst = ctx.f.append_inst(
             ctx.cur_block,
@@ -114,7 +121,22 @@ pub(crate) fn begin_loop(
             None,
         );
         // B1 — reserve never moves the cell; write-back retired.
-        let _ = reserved;
+        //
+        // S7-b — the reservation is exactly the proof the inline append
+        // wants, so take it: no per-element cross-archive `bl`, and the
+        // running length lives in a register instead of the cell's own
+        // length word. `ssa_lower_arr_prereserve` carries the shape.
+        //
+        // The one loop that cannot have it is the `map` whose product is
+        // boxed: that is the only shape `emit_map_hole_block` exists for,
+        // and marking a hole goes through `arr_mark_last_hole`, which
+        // reads the cell's length — the very word this shape leaves
+        // stale until the exit. Same predicate as that block's own gate.
+        let dst_can_hole = method == "map"
+            && matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::Any);
+        if !dst_can_hole {
+            dst_fast = Some(ctx.emit_prereserved_state(reserved));
+        }
     }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
     ctx.cur_block = header_blk;
@@ -154,6 +176,7 @@ pub(crate) fn begin_loop(
         step_blk,
         after_blk,
         sparse,
+        dst_fast,
     }
 }
 
@@ -250,12 +273,35 @@ pub(crate) fn emit_per_method_body(
     };
     match method {
         "map" => emit_map(
-            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, this_arg, i_now2, src_arr,
-            cb_arity, argv_face,
+            ctx,
+            dst_slot,
+            dst_arr_ty,
+            frame.dst_fast,
+            elem,
+            known_fid,
+            fn_val,
+            fn_ty,
+            this_arg,
+            i_now2,
+            src_arr,
+            cb_arity,
+            argv_face,
         ),
         "filter" => emit_filter(
-            ctx, dst_slot, dst_arr_ty, elem, elem_ty, known_fid, fn_val, fn_ty, this_arg, i_now2,
-            src_arr, cb_arity, argv_face,
+            ctx,
+            dst_slot,
+            dst_arr_ty,
+            frame.dst_fast,
+            elem,
+            elem_ty,
+            known_fid,
+            fn_val,
+            fn_ty,
+            this_arg,
+            i_now2,
+            src_arr,
+            cb_arity,
+            argv_face,
         ),
         "reduce" | "reduceRight" => emit_reduce(
             ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, i_now2, src_arr, cb_arity,
@@ -320,6 +366,11 @@ pub(crate) fn end_loop_and_produce(
     ctx.cur_block = frame.after_blk;
     match method {
         "map" | "filter" => {
+            // S7-b — the running length has been in a register since the
+            // preheader; settle the cell's word before anyone reads it.
+            if let Some(state) = frame.dst_fast {
+                ctx.emit_prereserved_len_writeback(state);
+            }
             let v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),

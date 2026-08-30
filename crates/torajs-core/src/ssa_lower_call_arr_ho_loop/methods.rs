@@ -7,13 +7,14 @@
 
 use super::dispatch::{cb_args, emit_do_call, emit_undef_any_box};
 use crate::ssa::{BlockId, FuncId, InstKind, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower::{LowerCtx, PreReserveState};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_map(
     ctx: &mut LowerCtx<'_>,
     dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
+    dst_fast: Option<PreReserveState>,
     elem: ValueId,
     known_fid: Option<FuncId>,
     fn_val: &Operand,
@@ -28,7 +29,7 @@ pub(super) fn emit_map(
     // returns `undefined`: emit the call for side effects, push a
     // boxed ANY_UNDEF per element (dst is Arr<Any> — the dispatch
     // entry maps a Void callback ret to an Any dst elem).
-    let mapped_arg = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
+    let mapped_val = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
         let _ = emit_do_call(
             ctx,
             known_fid,
@@ -76,10 +77,18 @@ pub(super) fn emit_map(
         } else {
             mapped
         };
-        ctx.raw_slot_arg(mapped)
+        mapped
     };
-    // M6.2 fast-path — dst was reserve'd above the loop, so the unchecked
-    // push elides the per-call capacity check.
+    // S7-b — `begin_loop` reserved the product, so the append is a slot
+    // store and an add, with the running length in a register.
+    if let Some(state) = dst_fast {
+        let _ = ctx.emit_prereserved_push(state, mapped_val);
+        return;
+    }
+    // The call lane — a boxed product, which `map` can mark a hole in
+    // and so must keep its length word live. M6.2: dst was reserve'd
+    // above the loop, so the call is the unchecked one.
+    let mapped_arg = ctx.raw_slot_arg(mapped_val);
     let cur_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
@@ -100,6 +109,7 @@ pub(super) fn emit_filter(
     ctx: &mut LowerCtx<'_>,
     dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
+    dst_fast: Option<PreReserveState>,
     elem: ValueId,
     elem_ty: Type,
     known_fid: Option<FuncId>,
@@ -160,12 +170,15 @@ pub(super) fn emit_filter(
         },
     );
     ctx.cur_block = push_blk;
-    let cur_dst = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
-        dst_arr_ty,
-        None,
-    );
+    // S7-b — the product's cell is only needed by the call lane.
+    let cur_dst = dst_fast.is_none().then(|| {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
+            dst_arr_ty,
+            None,
+        )
+    });
     // P0 chained-Array<Any>-temp bug fix (2026-07-23): the outer walker
     // loads `elem` via a borrowed read — `arr_get_any_boxed` for
     // Type::Any or a raw LoadDyn for typed heap kinds. Pushing that
@@ -179,25 +192,33 @@ pub(super) fn emit_filter(
     // filtered-out elements don't inflate anyone's rc.
     // A kept VIEW is copied out as an owned string (a view does not
     // leave its split block — rotation 468; the product is `Arr<Str>`).
-    let elem_arg = if elem_ty == Type::Substr {
+    let elem_val = if elem_ty == Type::Substr {
         let owned = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.substr_to_owned, vec![Operand::Value(elem)]),
             Type::Str,
             None,
         );
-        ctx.raw_slot_arg(Operand::Value(owned))
+        Operand::Value(owned)
     } else {
         ctx.emit_owned_result_inc(Operand::Value(elem), elem_ty);
-        ctx.raw_slot_arg(Operand::Value(elem))
+        Operand::Value(elem)
     };
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_push_unchecked,
-            vec![Operand::Value(cur_dst), elem_arg],
-        ),
-    );
+    if let Some(state) = dst_fast {
+        let _ = ctx.emit_prereserved_push(state, elem_val);
+    } else {
+        let elem_arg = ctx.raw_slot_arg(elem_val);
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_push_unchecked,
+                vec![
+                    Operand::Value(cur_dst.expect("call lane loaded the cell")),
+                    elem_arg,
+                ],
+            ),
+        );
+    }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(next_blk));
     ctx.cur_block = next_blk;
 }

@@ -16,6 +16,17 @@
 //! it. A throw out of the body skips that settlement — the shape is only
 //! taken where the loop's own preheader owns the reservation, and the
 //! `for` / `while` lanes accepted that boundary when they opened it.
+//!
+//! What the stale word means for a REFCOUNTED slot is worth stating,
+//! because it is the question this shape invites and the answer is not
+//! "don't do that". Every runtime walker bounds an array by its `len`
+//! (`torajs_cycle::arr::arr_len_of`), so the slots written so far are
+//! invisible to a collection that runs mid-loop. Invisibility can only
+//! cost collection, never soundness: each slot's stake is counted the
+//! moment it is stored, so a cell reachable only through one of them
+//! carries an rc the trial deletion never finds a reason to decrement,
+//! and is kept. The window where a dead cycle survives one collection
+//! closes at the writeback.
 
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
