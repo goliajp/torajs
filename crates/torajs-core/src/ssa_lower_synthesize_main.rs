@@ -117,7 +117,7 @@ pub(crate) fn synthesize_main(
             boxed_noncopy_lets: std::collections::HashSet::new(),
             hoisted_closure_lets: std::collections::HashSet::new(),
             forward_capture_boxes: std::collections::HashMap::new(),
-            push_unchecked_for: std::collections::HashMap::new(),
+            prereserve: crate::ssa_lower_arr_prereserve::PreReserve::new(),
             regex_lit_cache: std::collections::HashMap::new(),
             binop: Default::default(),
             proto_shadow: crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast),

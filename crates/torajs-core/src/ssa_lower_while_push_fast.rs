@@ -42,7 +42,7 @@ use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays_while;
 /// on `(cond, body)`, and if the shape matches, emits an
 /// `arr_reserve(xs, len + bound)` once before the loop, hoists a
 /// per-array `len_slot`, and installs each detected `xs` into
-/// `ctx.push_unchecked_for` so the inner `xs.push(_)` lower-site
+/// `ctx.prereserve.unchecked_for` so the inner `xs.push(_)` lower-site
 /// emits the inline fast-push (StoreDyn + len bump, no realloc / no
 /// per-iter cap-check) — same as the canonical-for path.
 /// `counter_name_opt = None` falls through to the plain while.
@@ -132,7 +132,7 @@ pub(crate) fn lower_while_inner(
             );
             // B1 — reserve never moves the cell; write-back retired.
             let state = ctx.emit_prereserved_state(reserved, defer_len);
-            ctx.push_unchecked_for.insert(name.clone(), state);
+            ctx.prereserve.unchecked_for.insert(name.clone(), state);
             reserve_emitted.push(name.clone());
         }
     }
@@ -172,14 +172,14 @@ pub(crate) fn lower_while_inner(
     ctx.cur_block = after;
 
     /* Settle the length word for a lane that deferred it, then remove
-     * the push_unchecked_for entry so a follow-up while/for on the
+     * the PreReserve entry so a follow-up while/for on the
      * same array doesn't accidentally inherit it. */
     for name in &reserve_emitted {
-        if let Some(state) = ctx.push_unchecked_for.get(name).copied() {
+        if let Some(state) = ctx.prereserve.unchecked_for.get(name).copied() {
             ctx.emit_prereserved_len_writeback(state);
         }
     }
     for name in &reserve_emitted {
-        ctx.push_unchecked_for.remove(name);
+        ctx.prereserve.unchecked_for.remove(name);
     }
 }

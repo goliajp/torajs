@@ -23,7 +23,7 @@
 //!   body or after.
 //! - After-block syncs the hoisted len_slot back to the array
 //!   header so post-loop reads of `arr.length` see the final
-//!   count. Restores `push_unchecked_for` to its pre-loop state.
+//!   count. Restores `PreReserve::unchecked_for` to its pre-loop state.
 //! - Drop init-scope locals + restore shadowed bindings.
 
 use crate::ast::{ExprId, Stmt};
@@ -157,12 +157,12 @@ pub(crate) fn lower(
     ctx.cur_block = after;
     release_broken_iter_boxes(ctx, &per_iter);
     for name in &reserve_emitted {
-        if let Some(state) = ctx.push_unchecked_for.get(name).copied() {
+        if let Some(state) = ctx.prereserve.unchecked_for.get(name).copied() {
             ctx.emit_prereserved_len_writeback(state);
         }
     }
     for name in &reserve_emitted {
-        ctx.push_unchecked_for.remove(name);
+        ctx.prereserve.unchecked_for.remove(name);
     }
     let frame = ctx.scope_stack.pop().expect("for-init scope");
     let shadows = ctx.shadow_stack.pop().expect("shadow frame");
@@ -445,7 +445,7 @@ fn emit_push_loop_reserve(
             );
             // B1 — reserve never moves the cell.
             let state = ctx.emit_prereserved_state(reserved, defer_len);
-            ctx.push_unchecked_for.insert(name.clone(), state);
+            ctx.prereserve.unchecked_for.insert(name.clone(), state);
             reserve_emitted.push(name.clone());
         }
     }

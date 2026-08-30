@@ -152,7 +152,7 @@ fn try_lower_ident_local(
     // a buffer grow. Inline the fast-path: read hoisted len, write the
     // slot at data_ptr + head_off + len*8, bump len_slot (B1: base is
     // the hoisted data pointer; the reserve guarantees it stays valid).
-    if let Some(state) = ctx.push_unchecked_for.get(recv_name).copied() {
+    if let Some(state) = ctx.prereserve.unchecked_for.get(recv_name).copied() {
         let len_next = ctx.emit_prereserved_push(state, val.clone());
         if elem_ty.is_refcounted() && !val_owned_from_substr {
             ctx.emit_rc_inc(val);

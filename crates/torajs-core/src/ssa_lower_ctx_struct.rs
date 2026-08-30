@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId};
 use crate::ssa::{self, BakedRegexEntry, BlockId, FuncId, Operand, Type, ValueId};
-use crate::ssa_lower::{CallRetargets, Intrinsics, LocalInfo, PreReserveState};
+use crate::ssa_lower::{CallRetargets, Intrinsics, LocalInfo};
 use crate::ssa_lower_stmt_break_continue::LabelFrame;
 
 pub(crate) struct LowerCtx<'a> {
@@ -293,27 +293,9 @@ pub(crate) struct LowerCtx<'a> {
     /// the declaration to correct. See
     /// [`crate::ssa_lower_stmt_let_decl_general::bind_let_slot`].
     pub(crate) forward_capture_boxes: std::collections::HashMap<String, Vec<(String, usize)>>,
-    /// v0.6+1 perf checkpoint — push-loop pre-reserve fast-push state.
-    ///
-    /// When the for-loop lowerer detects a canonical fill loop
-    /// (`for (let i = 0; i < N; i++) xs.push(_)`), it:
-    ///   1. Emits `arr_reserve(xs, len + N)` once before the loop.
-    ///   2. Hoists `head_x8 + 24` (the byte offset of slot[0] from
-    ///      arr_ptr) into a loop-invariant register; allocas an i64
-    ///      `len_slot` initialized to the array's len.
-    ///   3. Inside the loop, arr.push lower emits inline IR:
-    ///      `StoreDyn val at (arr_ptr + head_off + len*8)` plus
-    ///      `len_slot++`. NO call to arr_push_unchecked, NO per-iter
-    ///      head load — head_off is hoisted, len lives in the
-    ///      mem2reg-promotable alloca.
-    ///   4. After the loop, the final len is written back to the
-    ///      array's len field at +8.
-    ///
-    /// Multi-array support deliberate: a body that pushes to two
-    /// distinct arrays in lockstep still benefits — each gets its
-    /// own state entry. Conservative: only fires when the for-loop's
-    /// full body shape matches the detector.
-    pub(crate) push_unchecked_for: std::collections::HashMap<String, PreReserveState>,
+    /// Push-loop pre-reserve state — see
+    /// [`crate::ssa_lower_arr_prereserve::PreReserve`].
+    pub(crate) prereserve: crate::ssa_lower_arr_prereserve::PreReserve,
     /// V0.2 perf — fn-scope const RegExp LICM cache. Keyed by
     /// `(pattern, flags)` literal pair; populated lazily at the
     /// first `Expr::Regex { pattern, flags }` site within the fn.

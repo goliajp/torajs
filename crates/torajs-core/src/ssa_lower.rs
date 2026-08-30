@@ -201,7 +201,7 @@ pub(crate) use crate::ssa_lower_parse_type::parse_type;
 // ssa/module_methods.rs.
 
 /// v0.6+1 perf checkpoint — per-array hoisted state for the push-loop
-/// pre-reserve fast-push. See `LowerCtx::push_unchecked_for`.
+/// pre-reserve fast-push. See `ssa_lower_arr_prereserve::PreReserve`.
 #[derive(Clone, Copy)]
 pub(crate) struct PreReserveState {
     /// The array's cell pointer at loop entry. B1: the cell is fixed
