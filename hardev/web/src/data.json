@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T07:33:22.167Z",
+  "generatedAt": "2026-08-30T09:29:24.715Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-30T03:17:53Z",
-    "headSha": "45121d4ff",
-    "elapsedSec": 375.49,
+    "ranAt": "2026-08-30T09:15:24Z",
+    "headSha": "85a93c254",
+    "elapsedSec": 525.03,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "e54af0dff",
-    "commitSubject": "docs: P-PERF records what the accumulator finding turned into",
+    "commit": "85a93c254",
+    "commitSubject": "fix: a length guard settles the upper bound of an index, not the lower",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "85a93c254",
+      "subject": "fix: a length guard settles the upper bound of an index, not the lower"
+    },
+    {
+      "hash": "be49aa268",
+      "subject": "refactor: the bounds proof moves to the walk that decides element width"
+    },
+    {
+      "hash": "fa6058fa6",
+      "subject": "docs: rotation 534 dashboard snapshot"
+    },
+    {
       "hash": "e54af0dff",
       "subject": "docs: P-PERF records what the accumulator finding turned into"
     },
@@ -747,39 +759,38 @@
     {
       "hash": "d5d05bba9",
       "subject": "perf: pop stops folding a head that a never-shifted array does not have"
-    },
-    {
-      "hash": "61b69f37f",
-      "subject": "docs: the perf judgement changes from instruction count to dependency chain"
-    },
-    {
-      "hash": "4d6472afb",
-      "subject": "feat: a module namespace refuses every write, even to a mutable export"
-    },
-    {
-      "hash": "121ea118a",
-      "subject": "docs: platform reach becomes the fifth axis of the v1.0 gate"
     }
   ],
-  "headSha": "e54af0dff",
+  "headSha": "85a93c254",
   "autorun": {
-    "total": 837,
+    "total": 838,
     "baselineTarget": 10,
-    "bySelf": 832,
+    "bySelf": 833,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788067019-3ae9",
-      "at": "2026-08-30T05:16:59Z",
-      "ts": 1788067019,
+      "rotationId": "r-1788075295-6cb9",
+      "at": "2026-08-30T07:34:55Z",
+      "ts": 1788075295,
       "trigger": "self",
-      "prevHead": "7ad7f26f9",
-      "handoffSha": "sha256:f697e2a25b3e861e4cbcfd707ff80783c8f9351ff82254d7d5753f89592d3134",
-      "handoffAgeSec": 14,
+      "prevHead": "fa6058fa6",
+      "handoffSha": "sha256:38b316f21913c39c9733cdaeed82c7ed983fe4e7ef6fd7ec2bc48b0f5e5e93cc",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788075295-6cb9",
+        "at": "2026-08-30T07:34:55Z",
+        "ts": 1788075295,
+        "trigger": "self",
+        "prevHead": "fa6058fa6",
+        "handoffSha": "sha256:38b316f21913c39c9733cdaeed82c7ed983fe4e7ef6fd7ec2bc48b0f5e5e93cc",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788067019-3ae9",
         "at": "2026-08-30T05:16:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "afd29c642",
         "handoffSha": "sha256:fcb72e977131add9f0250f4ec21593a75f0c00fb47183747bc9a71a834a46097",
         "handoffAgeSec": 1,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787968785-4ca3",
-        "at": "2026-08-29T01:59:45Z",
-        "ts": 1787968785,
-        "trigger": "self",
-        "prevHead": "817247bf7",
-        "handoffSha": "sha256:0e7a6cfa9c1679c2b41aeeeb2d357295a24df665db038f30c4db8d5d4aefe43b",
-        "handoffAgeSec": 134,
         "conformanceBefore": null,
         "commitsInSession": null
       }

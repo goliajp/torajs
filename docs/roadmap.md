@@ -7846,24 +7846,38 @@ vs bun 3.21 —— 领先 10.7×**。**不要动它**;任何破坏该检测的�
   3. **真链条**:`main` 的六个 f64 值 dump 显示 `LoadDyn`(即 `xs[j]`)
      **没有 interval fact** → 消费它的 `FAdd` 没有 → 累加器没有 →
      连进候选集的资格都没有(候选集 = `facts.keys()` 过滤 F64)。
-- **S7-d(新,替代 S7-c 的攻击面)按数组聚合的元素区间** ——
-  把 `num_width` 已经在**宽度**域上做的同构聚合(`SlotKey::Elem` +
-  push 臂)跑在 **interval** 域上。`xs.push(i)` 里 `i ∈ [0, 9999999]`
-  这个事实已经在手上。拿到 `Elem` 的区间后 `FAdd` 成为 growth site →
-  `Fit::Guarded` → region planner 与 `profitable()` **第一次真的会跑**
-  (S7-c 那条 window 计数的比较到那时才有意义,现在是无效不是错)。
-  **RFC 级,不是一刀**:`LoadDyn` 的 base 是 data ptr 要回溯到数组 SSA
-  值;写入点必须**穷举**(push 快路径的 StoreDyn / `arr_push` /
-  index-assign lane),漏一个就是 silent-wrong,所以先要一个「该数组在
-  本函数内不逃逸且写入点可枚举」的判据。
-- **S7-e guard 支配时不给 `Elem` 加 F64 seed(2.3%,实测)** ——
-  把 `ssa_lower_bounds_proven` 的证明搬进 width walker;每一次读都被
-  guard 支配时 `undefined` 不可达,narrow 才是可靠的。排在 S7-d 之后。
+- **S7-d 按数组聚合的元素区间** —— **RFC 已写**:
+  `.claude/rfcs/20260830-array-elem-interval/`。rotation 535 的 Phase A
+  把 S7-d 与 S7-e 的关系整个换掉了 —— 它们**不是先后两项,是缺一不可的
+  两半**:
+  - 只给元素区间(强制 `LoadDyn` 带 fact)= **0%**,IR 一字未动。
+    `float_demote/fit.rs` 的 `def_fit` 对 `LoadDyn` 落 `_ => Fit::No`,
+    值在成为 growth site 之前就被逐出候选集 —— **上面那段旧描述的链条
+    是错的**(它写的是「拿到区间后 FAdd 成为 growth site」)。
+  - 只窄存储(S7-e)= **+2.3%**(rotation 534 实测)。
+  - 两半一起 = **tr/rust 1.686 → 1.222**(强制两个旋钮实测),
+    再加上折掉 `i < 0` 那条恒假比较可达 **1.03 = rust 平价**。
+  RFC 分四期:P0(用流不敏感 fact 折 ICmp)/ P1 ✅ / P2(条件 seed)/
+  P3(SSA 元素区间,allowlist 而非 blocklist)。
+- **S7-e 已并入 S7-d 的 P2**(见上:单独落地只值 2.3%,必须与 P3 同期)。
+  **P1 已 ship** `be49aa268`:界内证明从 lowering 搬进 width walk,
+  一份真源两个消费者 —— 那是**正确性要求**,不是整洁:表若按一份 lowering
+  不共享的证明窄化了元素,lowering 那侧仍会发出一条要从 I64 槽产出
+  `undefined` 的越界分支。验收 = 43/43 bench 产物与 HEAD 逐字相同。
 
 **ceiling 是实测的,不是投影的**:`array-sum-1m` 手写成 torajs 自己的
 `i64` 标注(`let xs: i64[]` / `let sum: i64`)后跑 **11.3 ms**,而
 `number` 版 21.3 —— **−47%**,且**快过同机 rust 的 12.1**。
 **这条 cell 上不存在抽象税。**
+
+**下面这条守卫省略,rotation 535 发现是错的并已修(`85a93c254`)**:
+`i < xs.length` 只 settle 上界,对 `i >= 0` 一个字都没说,而省掉的是
+**两条**比较。`i` 从负数走上来时读到 data 指针之前的内存 ——
+`0 3.0266414627e-314 10 20 30`,而答案是 `undefined undefined 10 20 30`。
+一次静默的越界堆读,gate 3467/0/4 与 Guard Malloc 全量扫描**都没看见**
+(套件里每个带下标的循环都从 0 向前走)。修法保留 `i < 0`、仍省掉
+`>= len` 与它的长度载入。今天代价测不出来(不在循环携带依赖链上),
+**demote 之后值 18%** —— 那就是 RFC 的 P0。
 
 **报数必须带语义列(2026-08-30 起)**:`array-sum-1m` 的 `main.rs` 用
 `Vec<i64>`、`main.go` 用 `[]int64`,而 `.ts` 用 `number`(f64)——
