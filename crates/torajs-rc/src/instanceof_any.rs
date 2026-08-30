@@ -69,11 +69,34 @@ pub unsafe extern "C" fn __torajs_instanceof_object_any(v: i64) -> bool {
         return false;
     }
     let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
-    // Tag values mirror `torajs_rc::Tag` (Str=0, Symbol=7, BigInt=10).
-    // Cannot import the enum here without a circular-dep — the
-    // values are stable ABI per the assert_eq! suite in lib.rs.
-    !matches!(type_tag, 0 | 7 | 10)
+    // Tag values mirror `torajs_rc::Tag` (Str=0, Symbol=7, BigInt=10,
+    // DynObj=14). Cannot import the enum here without a circular-dep
+    // — the values are stable ABI per the assert_eq! suite in lib.rs.
+    if matches!(type_tag, 0 | 7 | 10) {
+        return false;
+    }
+    // §7.3.20 OrdinaryHasInstance walks the receiver's prototype
+    // chain, and a null-prototype object has none to walk:
+    // `Object.create(null) instanceof Object` is false, and so is a
+    // module namespace's (§10.4.6.1 answers null). Everything else
+    // reaches %Object.prototype% eventually, which is why the blanket
+    // `true` was right for every other shape.
+    //
+    // The tag gate has to come FIRST: bit 6 is disjoint-by-tag (see
+    // torajs-rc's flag table) and means the this-free marker on a
+    // Closure and the sparse-tail marker on an Arr.
+    if type_tag == 14 {
+        let flags = unsafe { *((ptr as *const u8).add(6) as *const u16) };
+        return flags & DYNOBJ_NULL_PROTO == 0;
+    }
+    true
 }
+
+/// torajs-dynobj's `DYNOBJ_HDR_FLAG_NULL_PROTO` — bit 6 of the heap
+/// header's `flags` u16, DynObj-private. Mirrored rather than
+/// imported (torajs-rc is below torajs-dynobj); update both sides if
+/// the bit ever moves.
+const DYNOBJ_NULL_PROTO: u16 = 1 << 6;
 
 /// Built-in `instanceof` for `Type::Any` operands — compares the
 /// universal `HeapHeader::type_tag` (u16 at +4) to `expected_type_tag`.
