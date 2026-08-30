@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T04:56:08.434Z",
+  "generatedAt": "2026-08-30T07:33:22.167Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "29603123f",
-    "commitSubject": "refactor: where a define lands moves out of what the define does",
+    "commit": "e54af0dff",
+    "commitSubject": "docs: P-PERF records what the accumulator finding turned into",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "e54af0dff",
+      "subject": "docs: P-PERF records what the accumulator finding turned into"
+    },
+    {
+      "hash": "c71d27ded",
+      "subject": "docs: the two array bench cases record what they actually measure now"
+    },
+    {
+      "hash": "95c62e083",
+      "subject": "perf: a map's product is appended to without leaving the function"
+    },
+    {
+      "hash": "56ee9b13b",
+      "subject": "refactor: the pre-reserved append becomes one shape instead of three"
+    },
+    {
+      "hash": "adfa93b7c",
+      "subject": "refactor: how a callback is called moves out of how the loop is shaped"
+    },
+    {
+      "hash": "7ad7f26f9",
+      "subject": "feat: a namespace redefine may only restate what is already there"
+    },
+    {
+      "hash": "b95524303",
+      "subject": "docs: rotation 533 dashboard snapshot"
+    },
+    {
       "hash": "29603123f",
       "subject": "refactor: where a define lands moves out of what the define does"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "121ea118a",
       "subject": "docs: platform reach becomes the fifth axis of the v1.0 gate"
-    },
-    {
-      "hash": "0eb93399c",
-      "subject": "docs: rotation 532 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "45121d4ff",
-      "subject": "fix: a null export refused to become a namespace field"
-    },
-    {
-      "hash": "164cc4b1f",
-      "subject": "refactor: the one key in an object literal that is not a field moves out"
-    },
-    {
-      "hash": "7fba9930f",
-      "subject": "fix: instanceof Object said yes to an object with no prototype chain"
-    },
-    {
-      "hash": "6b3bcf6ae",
-      "subject": "feat: a module namespace answered every question about itself as an ordinary object"
-    },
-    {
-      "hash": "e9fa2961e",
-      "subject": "refactor: what a namespace alias becomes moves to its own sibling"
-    },
-    {
-      "hash": "a6da830b7",
-      "subject": "feat: a namespace member read never needed the namespace object"
     }
   ],
-  "headSha": "29603123f",
+  "headSha": "e54af0dff",
   "autorun": {
-    "total": 836,
+    "total": 837,
     "baselineTarget": 10,
-    "bySelf": 831,
+    "bySelf": 832,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788060835-7a74",
-      "at": "2026-08-30T03:33:55Z",
-      "ts": 1788060835,
+      "rotationId": "r-1788067019-3ae9",
+      "at": "2026-08-30T05:16:59Z",
+      "ts": 1788067019,
       "trigger": "self",
-      "prevHead": "0eb93399c",
-      "handoffSha": "sha256:61995f3ff76572f3486cbf1c1dcfc5d516342a8b0c0f3b09c376a8e16d8809b8",
-      "handoffAgeSec": 8,
+      "prevHead": "7ad7f26f9",
+      "handoffSha": "sha256:f697e2a25b3e861e4cbcfd707ff80783c8f9351ff82254d7d5753f89592d3134",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788067019-3ae9",
+        "at": "2026-08-30T05:16:59Z",
+        "ts": 1788067019,
+        "trigger": "self",
+        "prevHead": "7ad7f26f9",
+        "handoffSha": "sha256:f697e2a25b3e861e4cbcfd707ff80783c8f9351ff82254d7d5753f89592d3134",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788060835-7a74",
         "at": "2026-08-30T03:33:55Z",
@@ -876,17 +887,6 @@
         "prevHead": "817247bf7",
         "handoffSha": "sha256:0e7a6cfa9c1679c2b41aeeeb2d357295a24df665db038f30c4db8d5d4aefe43b",
         "handoffAgeSec": 134,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787960004-0027",
-        "at": "2026-08-28T23:33:24Z",
-        "ts": 1787960004,
-        "trigger": "self",
-        "prevHead": "fefccde55",
-        "handoffSha": "sha256:c0de58dcff13b659862625e79ed8f45bae4eefe86a4a0fffd1b3e0436b6982f7",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
