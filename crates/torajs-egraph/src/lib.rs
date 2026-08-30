@@ -37,6 +37,7 @@ pub mod late_gvn;
 pub mod loop_analysis;
 pub mod mem2reg;
 pub mod optimize;
+pub mod optimize_licm;
 pub mod phi_promote;
 pub mod print_narrow;
 pub mod rc_dec_immediate;
