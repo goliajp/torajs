@@ -24,11 +24,15 @@
 //!     index, STP/LDP pre/post-index for prologue/epilogue.
 //!   - [`ctrl`]: control flow + immediate — RET, B/BL/BLR, B.cond,
 //!     CBZ/CBNZ, BRK, ADRP, CSET, the 4-bit `cond::*` table.
+//!   - [`sys`]: system registers — the FPCR MRS/MSR pair the program
+//!     entry uses to select default-NaN mode, and the single-bit
+//!     logical immediate that sets its bit.
 
 mod ctrl;
 mod fp;
 mod int;
 mod mem;
+mod sys;
 
 pub use ctrl::{
     adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, brk_imm16, cbnz_x, cbz_x, cond, csel_cond,
@@ -50,3 +54,4 @@ pub use mem::{
     ldp_post_index, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3, ldrb_w_reg, ldur_x_imm9, stp_pre_index,
     str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_x_imm9,
 };
+pub use sys::{mrs_fpcr, msr_fpcr, orr_imm_bit};

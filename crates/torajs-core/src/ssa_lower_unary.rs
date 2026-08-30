@@ -132,7 +132,31 @@ impl LowerCtx<'_> {
                 // mirror here). The result type is Number
                 // (i64 here, since the operand is now i64
                 // after coerce).
-                v
+                //
+                // An f64 is the one case where passing through is
+                // not ToNumber. Every other numeric operator emits
+                // a real FP instruction, and FPCR.DN (see
+                // `cmd_build_synthesize::FPCR_DN_BIT`) makes those
+                // hand back a plain NaN whatever payload the
+                // operand wore — which is what turns the
+                // `undefined` sentinel into the `NaN` the spec
+                // asks for. `+x` alone emits nothing, so `+u` on an
+                // out-of-range read still read back as `undefined`.
+                // Multiplying by one is the identity on every
+                // Number, ±0 and ±∞ included, and is an FP
+                // instruction, so it performs the conversion the
+                // operator names.
+                if matches!(self.operand_ty(&v), Type::F64) {
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::FMul, v, Operand::ConstF64(1.0)),
+                        Type::F64,
+                        None,
+                    );
+                    Operand::Value(r)
+                } else {
+                    v
+                }
             }
         }
     }
