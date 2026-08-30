@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T00:59:21.565Z",
+  "generatedAt": "2026-08-30T03:33:31.357Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,31 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-30T00:43:23Z",
-    "headSha": "1c36ce9e5",
-    "elapsedSec": 368.62,
+    "ranAt": "2026-08-30T03:17:53Z",
+    "headSha": "45121d4ff",
+    "elapsedSec": 375.49,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30090,
-    "passNoOracle": 1011,
+    "pass": 30096,
+    "passNoOracle": 1026,
     "passNegative": 4147,
-    "passTotal": 35248,
-    "bug": 12480,
-    "incompatible": 5446,
+    "passTotal": 35269,
+    "bug": 12476,
+    "incompatible": 5429,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47728,
-    "passRateInScope": 66.29,
-    "passRateTrAccepted": 73.85,
-    "git_sha_actual": "7ee9697d3",
-    "headShaNote": "mini's git HEAD lags the dev tree (this rotation's 6 commits were rsynced, not pushed), so headSha/filename carry 1c36ce9e5 while the measured code is 7ee9697d3"
+    "trAccepted": 47745,
+    "passRateInScope": 66.33,
+    "passRateTrAccepted": 73.87
   },
   "torajs": {
-    "commit": "7ee9697d3",
-    "commitSubject": "fix: a self-importing module case never got its own directory staged",
+    "commit": "45121d4ff",
+    "commitSubject": "fix: a null export refused to become a namespace field",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -715,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "45121d4ff",
+      "subject": "fix: a null export refused to become a namespace field"
+    },
+    {
+      "hash": "164cc4b1f",
+      "subject": "refactor: the one key in an object literal that is not a field moves out"
+    },
+    {
+      "hash": "7fba9930f",
+      "subject": "fix: instanceof Object said yes to an object with no prototype chain"
+    },
+    {
+      "hash": "6b3bcf6ae",
+      "subject": "feat: a module namespace answered every question about itself as an ordinary object"
+    },
+    {
+      "hash": "e9fa2961e",
+      "subject": "refactor: what a namespace alias becomes moves to its own sibling"
+    },
+    {
+      "hash": "a6da830b7",
+      "subject": "feat: a namespace member read never needed the namespace object"
+    },
+    {
+      "hash": "f5c24f110",
+      "subject": "docs: rotation 531 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "7ee9697d3",
       "subject": "fix: a self-importing module case never got its own directory staged"
     },
@@ -733,55 +759,38 @@
     {
       "hash": "6b6923e2f",
       "subject": "fix: the one prototype whose constructor must not be writable"
-    },
-    {
-      "hash": "d8353f3e4",
-      "subject": "fix: a view was not a way back to the buffer it reads through"
-    },
-    {
-      "hash": "1c36ce9e5",
-      "subject": "style: restore the rustfmt-clean invariant"
-    },
-    {
-      "hash": "eb9d1dc52",
-      "subject": "docs: rotation 530 test262 sweep ingest, bench run and dashboard snapshot"
-    },
-    {
-      "hash": "c092a9131",
-      "subject": "fix: a promise did not lead back to what it settled with"
-    },
-    {
-      "hash": "0eccdb32b",
-      "subject": "fix: a helper answered the collector with its property bag and nothing else"
-    },
-    {
-      "hash": "1137f8313",
-      "subject": "fix: an iterator was never a way back to the thing it iterates"
-    },
-    {
-      "hash": "e9ebe1f0e",
-      "subject": "refactor: the collector's layout knowledge moves out of its algorithm"
     }
   ],
-  "headSha": "7ee9697d3",
+  "headSha": "45121d4ff",
   "autorun": {
-    "total": 834,
+    "total": 835,
     "baselineTarget": 10,
-    "bySelf": 829,
+    "bySelf": 830,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788026471-6bb3",
-      "at": "2026-08-29T18:01:11Z",
-      "ts": 1788026471,
+      "rotationId": "r-1788051683-1baf",
+      "at": "2026-08-30T01:01:23Z",
+      "ts": 1788051683,
       "trigger": "self",
-      "prevHead": "eb9d1dc52",
-      "handoffSha": "sha256:02f67be77ca95305d9a8b81ceebb4d342f207b8e13c5fe368c63d4a8a1f5ecd4",
-      "handoffAgeSec": 29,
+      "prevHead": "f5c24f110",
+      "handoffSha": "sha256:269b0237428a63b15c22ae9f8e70684a48a0372cc4ef9a3e6db945395da30c86",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788051683-1baf",
+        "at": "2026-08-30T01:01:23Z",
+        "ts": 1788051683,
+        "trigger": "self",
+        "prevHead": "f5c24f110",
+        "handoffSha": "sha256:269b0237428a63b15c22ae9f8e70684a48a0372cc4ef9a3e6db945395da30c86",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788026471-6bb3",
         "at": "2026-08-29T18:01:11Z",
@@ -878,17 +887,6 @@
         "prevHead": "c8da89525",
         "handoffSha": "sha256:d00c1a996e30adb1ed3b0eedade7ded259e6e651d68ee54b35384438b7a07b21",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1787933493-33d1",
-        "at": "2026-08-28T16:11:33Z",
-        "ts": 1787933493,
-        "trigger": "self",
-        "prevHead": "ef5829aa0",
-        "handoffSha": "sha256:ba2947287ae072318c23fbaebd008d80b401fd12141a08206b64cc0a9f827095",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
