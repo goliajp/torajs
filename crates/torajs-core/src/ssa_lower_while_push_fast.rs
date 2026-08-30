@@ -66,16 +66,16 @@ pub(crate) fn lower_while_inner(
     if let Some(counter_name) = counter_name_opt
         && let Some((bound_eid, names)) =
             detect_push_loop_arrays_while(ctx.ast, counter_name, cond, body)
+        // The bound is read once here and trusted for the whole loop;
+        // only some bounds may be. See `lower_reserve_bound`.
+        && let Some(bound_op) =
+            crate::ssa_lower_push_loop_detect::lower_reserve_bound(ctx, bound_eid)
     {
         // Only a body whose every push argument is inert may keep the
         // length word in a register until the loop ends — see
         // `PreReserveState::defer_len`. The trailing counter step is
         // inert by the same reading.
         let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
-        /* Lower the bound expression once before the loop entry —
-         * guaranteed loop-invariant since the cond reads it on every
-         * iter unchanged. Same pattern as for-loop install. */
-        let bound_op = ctx.lower_expr(bound_eid);
         for name in &names {
             let Some(info) = ctx.locals.get(name).copied() else {
                 continue;

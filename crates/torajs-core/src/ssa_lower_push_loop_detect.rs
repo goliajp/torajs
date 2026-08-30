@@ -23,6 +23,7 @@
 //! 11-A1 deque-escape visitor and 11-A2-a obj-escape visitor.
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// v0.6+1 perf checkpoint — see module-level doc for the pattern this
@@ -156,6 +157,43 @@ fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         }
         _ => false,
     }
+}
+
+/// Lower the loop bound for a pre-reserve install, or answer `None`
+/// when this bound may not be treated as a loop invariant.
+///
+/// Both installs read `bound` once, above the loop, and then trust
+/// that value for the rest of it: the reserved capacity is
+/// `len + bound`, and every push in the body becomes an unchecked
+/// inline store against it. Both justified that with "the cond reads
+/// it on every iter unchanged" — which is true of the *expression*
+/// and says nothing about its *value*. Three ways that was wrong,
+/// each measured against bun:
+///
+/// - `i < bnd()` — the read above the loop is a call the program
+///   never wrote. A `bnd` that bumps a counter answered 5 where the
+///   answer is 4, and it fired even when no array qualified for a
+///   reserve at all, because the lowering ran ahead of the filter.
+/// - `i < (xs.length >> 1)` — with the length word deferred to a
+///   register the cond reads a stale length and the loop stops early:
+///   15 where the answer is 19. With it not deferred the trip count
+///   is right and the reserve is four elements short, so the
+///   unchecked stores run past the end of the buffer.
+/// - `i < n / 2` — an f64 bound reaches the I64 `len + bound` add and
+///   the backend refuses to materialise it.
+///
+/// So the bound has to be inert in the same sense a push argument has
+/// to be ([`push_args_all_inert`]): literals, numeric locals, and
+/// arithmetic over them. A body of nothing but pushes cannot write a
+/// local, so inert here really is invariant. The width is checked on
+/// the lowered operand rather than the source expression because
+/// `number` says nothing about which one it landed in.
+pub(crate) fn lower_reserve_bound(ctx: &mut LowerCtx<'_>, bound: ExprId) -> Option<Operand> {
+    if !expr_is_inert(ctx, bound) {
+        return None;
+    }
+    let op = ctx.lower_expr(bound);
+    matches!(ctx.operand_ty(&op), Type::I64).then_some(op)
 }
 
 /// Walk `s` and collect ident names of arrays that are the receiver
