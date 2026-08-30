@@ -312,8 +312,8 @@ impl<'a> Analysis<'a> {
             }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj, scope),
             Expr::OptIndex { obj, index } | Expr::Index { obj, index } => {
-                self.bounds_record(eid, *obj, *index);
-                self.seed_index_read_elem(*obj, scope);
+                let in_bounds = self.bounds_record(eid, *obj, *index);
+                self.seed_index_read_elem(*obj, scope, in_bounds);
                 self.walk_expr(*obj, scope);
                 self.walk_expr(*index, scope);
             }

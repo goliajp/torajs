@@ -197,7 +197,7 @@ impl<'a> Analysis<'a> {
     /// has the sentinel, and the consuming side already assumes it:
     /// `is_undef_f64_source` routes every `number[]` index read through
     /// the sentinel compare.
-    pub(super) fn seed_index_read_elem(&mut self, obj: ExprId, scope: &Scope) {
+    pub(super) fn seed_index_read_elem(&mut self, obj: ExprId, scope: &Scope, in_bounds: bool) {
         if !matches!(
             self.expr_types.get(&obj),
             Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
@@ -206,7 +206,9 @@ impl<'a> Analysis<'a> {
         }
         if let Some(rk) = self.container_key_of(obj, scope) {
             self.mark_containerish(&rk);
-            self.c_seeds.push(SlotKey::Elem(Box::new(rk)));
+            if !in_bounds {
+                self.c_seeds.push(SlotKey::Elem(Box::new(rk)));
+            }
         }
     }
 

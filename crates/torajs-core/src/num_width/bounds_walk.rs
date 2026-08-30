@@ -14,10 +14,16 @@ use crate::ast::{Expr, ExprId, Stmt};
 
 impl Analysis<'_> {
     /// Walk something with the pair `cond` proves — if it proves one
-    /// — standing, then drop it again.
+    /// — standing, then drop it again. The third component is the
+    /// lower half of the proof ([`super::bounds_lower`]): whether the
+    /// counter is also provably non-negative here, which the elision
+    /// does not need and the element width does.
     pub(super) fn bounds_guarded(&mut self, cond: Option<ExprId>, inner: impl FnOnce(&mut Self)) {
         let ast = self.ast;
-        let pair = cond.and_then(|c| crate::ssa_lower_bounds_proven::guard_pair(ast, c));
+        let lower = cond.is_some_and(|c| self.lower_settled.contains(&c));
+        let pair = cond
+            .and_then(|c| crate::ssa_lower_bounds_proven::guard_pair(ast, c))
+            .map(|(i, xs)| (i, xs, lower));
         if let Some(p) = pair.clone() {
             self.bounds_stack.push(p);
         }
@@ -37,28 +43,35 @@ impl Analysis<'_> {
         }
         let ast = self.ast;
         self.bounds_stack
-            .retain(|(i, xs)| !crate::ssa_lower_bounds_proven::stmt_taints(ast, s, i, xs));
+            .retain(|(i, xs, _)| !crate::ssa_lower_bounds_proven::stmt_taints(ast, s, i, xs));
     }
 
     /// Record `obj[index]` as proven when it is exactly the `xs[i]`
-    /// of a standing pair.
-    pub(super) fn bounds_record(&mut self, eid: ExprId, obj: ExprId, index: ExprId) {
+    /// of a standing pair. Answers whether the pair that admitted it
+    /// settles BOTH ends — the element seed's question, which the
+    /// elision's is not (module doc on [`super::bounds_lower`]).
+    pub(super) fn bounds_record(&mut self, eid: ExprId, obj: ExprId, index: ExprId) -> bool {
         if self.bounds_stack.is_empty() {
-            return;
+            return false;
         }
         let ast = self.ast;
         let Expr::Ident(xs) = ast.get_expr(obj) else {
-            return;
+            return false;
         };
         let Expr::Ident(i) = ast.get_expr(index) else {
-            return;
+            return false;
         };
-        if self
-            .bounds_stack
-            .iter()
-            .any(|(pi, pxs)| pi == i && pxs == xs)
-        {
+        let mut both = false;
+        let mut any = false;
+        for (pi, pxs, lower) in &self.bounds_stack {
+            if pi == i && pxs == xs {
+                any = true;
+                both |= *lower;
+            }
+        }
+        if any {
             self.proven_reads.insert(eid);
         }
+        both
     }
 }

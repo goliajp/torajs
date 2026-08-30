@@ -27,6 +27,7 @@
 
 mod alias;
 mod analyze_tables;
+mod bounds_lower;
 mod bounds_walk;
 mod container;
 mod container_lookup;
@@ -250,7 +251,11 @@ pub(super) struct Analysis<'a> {
     /// — pushed by a loop whose condition is `i < xs.length`, evicted
     /// by a statement that taints them, popped at the loop's end. See
     /// [`crate::ssa_lower_bounds_proven`] for what taints one.
-    pub(super) bounds_stack: Vec<(String, String)>,
+    pub(super) bounds_stack: Vec<(String, String, bool)>,
+    /// Guard conditions whose counter is also provably non-negative
+    /// ([`bounds_lower`]) — the half the element seed needs and the
+    /// bounds-check elision does not.
+    pub(super) lower_settled: HashSet<ExprId>,
     /// Where that stack held while walking an index read: the reads
     /// proven in-bounds. Handed to the frozen table, because the
     /// element widths below are only sound under this proof (the
@@ -319,6 +324,7 @@ pub(crate) fn analyze(
         generic_decls,
         container_poison: false,
         bounds_stack: Vec::new(),
+        lower_settled: bounds_lower::settled_guards(ast),
         proven_reads: HashSet::new(),
     };
 
