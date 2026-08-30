@@ -1,0 +1,11 @@
+runs = 5
+warmup = 2
+
+# Two fill loops in the `for (let i = 0; i < N; i++)` spelling the whole
+# rest of the suite avoids — every other cell writes `i = i + 1`, and the
+# push-loop fast path went 7.7x slower on `i++` for as long as nobody
+# noticed. The second loop's bound is `src.length`: a real loop invariant
+# (nothing in the body writes `src`) that the pre-reserve lanes cannot
+# currently prove, so it runs the cap-checked push path. Measured at 7x
+# against the same loop with a literal bound.
+torajs_opt = "O3"
