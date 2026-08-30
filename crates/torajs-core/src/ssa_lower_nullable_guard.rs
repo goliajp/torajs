@@ -258,6 +258,15 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
                     )
             )
         }
+        // A field read. Unlike the pointer-shaped families a `number`
+        // field has no type-level tell — it is seeded with 0 — so the
+        // question is whether some write put a sentinel-shaped value
+        // in a field of this name (`crate::undef_f64_fields`). Over-
+        // broad across two structs sharing a field name, which costs
+        // one bits compare; blanket-true for every `number` field
+        // would instead arm the ToNumber step on arithmetic that can
+        // never see a sentinel.
+        Expr::Member { name, .. } => ctx.undefable_f64_fields.contains(name),
         Expr::As { expr, .. } => is_undef_f64_source(ctx, *expr),
         _ => false,
     }

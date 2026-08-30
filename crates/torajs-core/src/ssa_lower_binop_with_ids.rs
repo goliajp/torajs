@@ -51,10 +51,16 @@ impl<'a> LowerCtx<'a> {
     ) -> Operand {
         let saved_left_f64u = self.binop.left_f64_undefable;
         let saved_right_f64u = self.binop.right_f64_undefable;
-        self.binop.left_f64_undefable = left_id
-            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
-        self.binop.right_f64_undefable = right_id
-            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
+        // An operand the caller lowered with a plain-NaN out-of-range
+        // exit is not a sentinel source, whatever its shape says.
+        let left_plain = std::mem::take(&mut self.binop.left_lowered_plain);
+        let right_plain = std::mem::take(&mut self.binop.right_lowered_plain);
+        self.binop.left_f64_undefable = !left_plain
+            && left_id
+                .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
+        self.binop.right_f64_undefable = !right_plain
+            && right_id
+                .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_undef_f64_source(self, eid));
         let saved_left_na = self.binop.left_nullable_arr;
         let saved_right_na = self.binop.right_nullable_arr;
         self.binop.left_nullable_arr = left_id

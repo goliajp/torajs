@@ -132,6 +132,7 @@ pub(crate) fn synthesize_main(
             nullable_arr_lets: std::collections::HashSet::new(),
             nullable_str_lets: std::collections::HashSet::new(),
             undefable_f64_lets: std::collections::HashSet::new(),
+            undefable_f64_fields: std::collections::HashSet::new(),
             undefable_substr_lets: std::collections::HashSet::new(),
             undefable_heap_lets: std::collections::HashSet::new(),
             stack_alloced_locals: std::collections::HashSet::new(),
@@ -142,6 +143,7 @@ pub(crate) fn synthesize_main(
             owned_member_reads: std::collections::HashSet::new(),
             compound_key_memo: None,
         };
+        ctx.undefable_f64_fields = crate::undef_f64_fields::collect(&ctx);
         // T-15.g.5 — prime the binding sets BEFORE lowering any
         // top-level let-decl (an unprimed escape-captured `let`
         // stack-allocs and SIGABRTs at env_drop; see the helper doc).

@@ -50,7 +50,16 @@ impl LowerCtx<'_> {
                 _ => {}
             }
         }
+        // ToNumber(undefined) is NaN, spelled where it is free — the
+        // read's own out-of-range exit. `-` flips the sign bit, which
+        // the sentinel compare misses, so `-(-xs[oob])` used to
+        // restore the exact pattern and read back as `undefined`.
+        let neg_or_plus = matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus);
+        self.binop.f64_oob_plain_for = (neg_or_plus
+            && crate::ssa_lower_binop::is_direct_number_index(self, expr))
+        .then_some(expr);
         let v = self.lower_expr(expr);
+        self.binop.f64_oob_plain_for = None;
         // P0.9 — Any operand on unary `-` / `+`: route through
         // any_arith. See [`Self::lower_unary_any_arith`].
         if matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus)
@@ -67,20 +76,6 @@ impl LowerCtx<'_> {
         // V3-18 m1.f / m1.h.4 — coerce Bool / null / Str before
         // unary `-`, `~`, `+`. See [`Self::coerce_unary_operand`].
         let v = self.coerce_unary_operand(op, v);
-        // ToNumber(undefined) is NaN — the F64 `undefined` sentinel
-        // has to be a plain NaN before it enters `-` or `+`, or
-        // negation carries its payload back out. `-` flips the sign
-        // bit, which the sentinel compare misses, so `-(-xs[oob])`
-        // restored the exact pattern and read back as `undefined`.
-        // See [`crate::ssa_lower_f64_sentinel_canon`].
-        let v = if matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus)
-            && self.operand_ty(&v) == Type::F64
-            && crate::ssa_lower_nullable_guard::is_undef_f64_source(self, expr)
-        {
-            self.canon_f64_away_from_sentinel(v)
-        } else {
-            v
-        };
         match op {
             crate::ast::UnaryOp::Not => {
                 // V3-18 m1.h.2 — coerce truthy first; the

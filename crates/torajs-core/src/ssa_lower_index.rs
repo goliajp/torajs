@@ -243,7 +243,16 @@ pub(crate) fn lower_from_value(
     // needs (the aliasing wall LLVM cannot hoist past the raw-pointer
     // LoadDyn) drop out. See [`crate::ssa_lower_bounds_proven`].
     let upper_proven = crate::ssa_lower_bounds_proven::is_proven(ctx, eid);
-    lower_typed_index_checked(ctx, arr_val, idx_val, is_non_deque, elem_ty, upper_proven)
+    let oob_plain = ctx.binop.f64_oob_plain_for == Some(eid);
+    lower_typed_index_checked(
+        ctx,
+        arr_val,
+        idx_val,
+        is_non_deque,
+        elem_ty,
+        upper_proven,
+        oob_plain,
+    )
 }
 
 /// Typed-array indexed read with the OOB bounds branch (RFC
@@ -254,8 +263,11 @@ pub(crate) fn lower_from_value(
 /// - `Str` — the immortal `undefined` Str sentinel (chunk 1); every
 ///   consumer rides the chunk 649-667 family, and the sentinel's
 ///   FLAG_STATIC_LITERAL keeps the borrow-shaped read convention.
-/// - `F64` — the undefined-NaN sentinel bits (chunk 2); arithmetic
-///   propagates it as a plain NaN, while typeof / strict-eq /
+/// - `F64` — the undefined-NaN sentinel bits (chunk 2), or a plain
+///   NaN under `oob_plain` when the reader is a numeric-only
+///   operator (ToNumber(undefined); the hardware propagates NaN
+///   payloads, so arithmetic does NOT plain it for us — see
+///   [`crate::ssa_lower_f64_sentinel_canon`]). typeof / strict-eq /
 ///   nullish / print / box consumers gate STATICALLY on
 ///   `is_undef_f64_source` and re-check the bits at runtime.
 /// - everything else (I64 / Bool / nested heap) — no `undefined`
@@ -275,6 +287,7 @@ pub(crate) fn lower_typed_index_checked(
     is_non_deque: bool,
     elem_ty: Type,
     upper_proven: bool,
+    oob_plain: bool,
 ) -> Operand {
     use crate::ssa::{IPred, Terminator};
     use crate::ssa_lower::ARR_LEN_OFF;
@@ -329,6 +342,13 @@ pub(crate) fn lower_typed_index_checked(
             );
             Operand::Value(sentinel)
         }
+        // ToNumber(undefined) is NaN (§7.1.4). When this read is the
+        // operand of a numeric-only operator the conversion is free
+        // here — the exit already exists, only the constant in it
+        // changes — and nothing downstream has to undo a payload the
+        // hardware would otherwise propagate. Every other consumer
+        // gets the sentinel and re-checks the bits as before.
+        Type::F64 if oob_plain => Operand::ConstF64(f64::NAN),
         Type::F64 => Operand::ConstF64(f64::from_bits(F64_UNDEF_SENTINEL_BITS)),
         // A pointer-shaped element spells `undefined` with the generic
         // immortal cell, which is how a `find` / `pop` miss on the same

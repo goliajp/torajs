@@ -416,6 +416,9 @@ pub(crate) struct LowerCtx<'a> {
     /// sentinel); typeof / strict-eq / nullish / print / box
     /// consumers gate on membership.
     pub(crate) undefable_f64_lets: std::collections::HashSet<String>,
+    /// Field names some write fills with a value the F64 sentinel
+    /// gate recognises — see [`crate::undef_f64_fields`].
+    pub(crate) undefable_f64_fields: std::collections::HashSet<String>,
     /// RFC 20260707 residual chunk — binding names whose let-init
     /// is a string INDEX read (`const c = s[i]`) or an alias of
     /// such a binding. The Substr slot may hold the Substr-shaped
