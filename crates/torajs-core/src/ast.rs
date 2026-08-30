@@ -24,6 +24,7 @@ mod arguments_object_rewrite;
 mod arguments_object_rewrite_recurse;
 mod arguments_object_rewrite_spread;
 mod arguments_object_rewrite_stmt;
+mod arguments_object_scan;
 mod arguments_object_sloppy;
 mod arguments_object_stages;
 mod arguments_object_static_argv;
