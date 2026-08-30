@@ -316,8 +316,12 @@ mod tests {
 
     /* Helpers — construct the AST fragments by hand. We bypass the
      * parser so the tests stay sensitive to the detector's exact
-     * shape contract; any future parser desugar that breaks the
-     * canonical shape will be caught by the call-site, not here. */
+     * shape contract. That sensitivity has a blind spot, and it cost
+     * a 7.7x: a hand-built `i = i + 1` keeps matching no matter what
+     * the parser does with `i++`, and when postfix increment became
+     * its own node the whole fast path went off with every test still
+     * green. `step_spellings_all_parse_to_a_match` below closes it by
+     * going through the parser for each spelling. */
 
     fn mk_ident(ast: &mut Ast, name: &str) -> ExprId {
         ast.add_expr(Expr::Ident(name.to_string()))
@@ -607,5 +611,34 @@ mod tests {
         let body = Stmt::Multi(vec![push, step]);
 
         assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_some());
+    }
+
+    /// Every spelling of the `+1` step reaches the detector as one.
+    ///
+    /// The hand-built tests above cannot see a parser change, which is
+    /// how `i++` stopped matching without anything going red. This one
+    /// starts from source, so a future desugar that moves a spelling
+    /// out from under the matcher fails here instead of silently
+    /// turning the optimisation off.
+    #[test]
+    fn step_spellings_all_parse_to_a_match() {
+        for step in ["i++", "i = i + 1", "i += 1"] {
+            let src = format!(
+                "let xs: number[] = [];\nfor (let i = 0; i < 10; {step}) {{ xs.push(i); }}\n"
+            );
+            let tokens = crate::lexer::tokenize(&src).expect("lex");
+            let ast = crate::parser::parse(&src, &tokens).expect("parse");
+            let found = ast.stmts.iter().any(|s| match s {
+                Stmt::For {
+                    init,
+                    cond,
+                    step,
+                    body,
+                } => detect_push_loop_arrays(&ast, init.as_deref(), *cond, *step, body)
+                    .is_some_and(|(_, names)| names == vec!["xs".to_string()]),
+                _ => false,
+            });
+            assert!(found, "step spelling `{step}` did not reach the detector");
+        }
     }
 }
