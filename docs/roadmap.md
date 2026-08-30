@@ -7787,6 +7787,63 @@ tr 2.09 / bun-aot 3.97 / rust 1.12 ms）：
 4. **3-4× 是 S1-A2 + S2 + S6 + S7 的合取，无单点银弹。** 各族分头
    走两步舞（Phase A decomposition → Phase B attack），禁 polish。
 
+### Phase A @ 2026-08-30 — 判据从「指令条数」改成「依赖链」
+
+rotation 533 对 `number[]` 热路径跑了完整两步舞的 Phase A(实测半 =
+反汇编 + 消融 + `*_STATS`;源码半 = read-only agent 的 18 段拆解,
+预算对账 **−0.2% / +0.3%**,两个独立锚)。产出改变了这条轴的攻击方式。
+
+**结论一:在 M4 Pro 上,链外指令接近免费。** 反汇编数出「9 条里 5 条
+浪费」(循环内重建整数立即数 ×2、φ 没合并的纯 `mov` ×3)听起来是 56%
+的税,**实际接近 0%** —— 它们全在循环携带依赖链之外,被 8-wide 发射槽
+吃掉。2026-08-24 那一轮的两把刀(c2 / r0)已经各实测中性一次,这是第
+三次确认。**判据不是条数,是哪几条在链上。**
+
+**结论二:真正的成本是一条被强制成 f64 的累加器。** `sum = sum + xs[j]`
+经 W5 growth-cycle 规则(`num_width/width.rs:243-249` →
+`cycle.rs:52-66`)把 **`Global("sum")` 与 `Elem(Global("xs"))` 双双**
+判成 F64(`TORAJS_NUM_WIDTH_STATS=1` 实测,元素那一半推翻了源码半的
+静态推导)。于是链上是 3-cycle `FADD` + FP φ-copy,而 rust 的 i64
+累加器是 1-cycle `add`。实测锚 `arrread` = 1.30 ns/iter = 5.7 cyc,
+rust ~2.1 cyc。**这一项占 `array-sum-1m` 全部 gap 的 83%。**
+
+**结论三:`xs.push` 不是问题,它是我们的优势。** push-loop 检测
+(`ssa_lower_push_loop_detect.rs`)把 runtime 调用整个消掉,per-iter
+是 4 条内联指令 + 一次 exact-fit `mmap`。消融实测 **0.30 ns/iter
+vs bun 3.21 —— 领先 10.7×**。**不要动它**;任何破坏该检测的改动在这
+条 workload 上是 13 ms 的悬崖。
+
+**执行顺序(替代此前 S7 的笼统表述)**:
+
+- **S7-a `arr_mutators` 的 deque 判据(1 LOC)** ——
+  `ssa_lower_arr_mutators.rs:302-306` 硬编码 `false`,而 Index 读
+  lane 一直传 `arr_expr_is_non_deque(recv_id)`。改成同一个判据:
+  省 1 条链上 load + 4 ALU,并解锁 `SCALED_ADDR` 折叠。
+  `stack-pop-1m` −8%。**全表最佳 gain/LOC。**
+- **S7-b `map`/`filter` 的每元素跨归档调用(~90 LOC)** ——
+  `ssa_lower_call_arr_ho_loop/methods.rs:88-95` 每元素发一个真
+  `bl __torajs_arr_push_unchecked`。**这是立项事实第 4 条(退役
+  inkwell 后不再有跨边界内联)唯一真正兑现成 ns 的地方**;其余场景
+  该调用早已被消除。改用 push 快路径同款内联 store,`array-map-1m` −15%。
+- **S7-c 累加器的 i64 表示(需设计)** —— `float_demote`
+  (RFC `20260611-int-range-float-demotion`)本是为此建的,但
+  `FLOAT_DEMOTE_STATS` 全零,而**全零不能区分「建了又被 profitability
+  逐出」与「根本没建」**(rotation 321 的教训:stats 记产出不记副作用)。
+  且元素实测为 F64,守卫降级需要**整数性**证明而非量级窗口。真正的
+  上游问题是:**数组只被 `xs.push(i)`(I64 循环变量)写过,W5 为什么
+  把 `Elem` 也毒化了** —— 若 `Elem` 能留 I64,push 侧省 SCVTF、读侧变
+  1-cycle i64 链,比守卫降级更彻底。**下一轮 Phase A 的入口。**
+
+**明确不要攻**(已在 parity,或归因错误 —— 记在此防重复):
+`xs[j]` 的元素访问(已是一条 AGU-scaled `ldr`,与 rust 同形)/
+边界检查(guard-dominated elision 已消除)/ push 的 RC(`I64`/`F64`
+不 `is_refcounted()`,静态为零)/ `generic-id-1m` 的 2.15×
+(**是 rust 在自动向量化,不是 tr 退步**)/ 整数常量提升与 move
+coalescing(链外,估中性)。
+
+完整拆解与两次翻盘记录:
+`.claude/tasks/2026-08-30/perf-loop-codegen-decomposition.md`。
+
 ### 立项事实（全部 2026-08-21 实测，两轮互证）
 
 1. **总口径领先 39/44，work-only 口径输 17/41。** 差别是我们的固定
