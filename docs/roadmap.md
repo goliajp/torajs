@@ -1614,7 +1614,7 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `a33f6cb50` (53174
+**Where the numbers come from.** Full sweep @ `f64638442` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
@@ -1623,6 +1623,34 @@ re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ a33f6cb50`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about).
+
+**Latest @ `f64638442`** (2026-09-01, rotation 544 — the slots that
+refused by name). Gate predicate: **149** clusters of ≥ 4 holding
+**1162** cases, register 2 · 251, residue 482 · 643 (31.3%), core
+**2056**. Against rotation 543: clusters 149 → **149 (=)**, cases
+1163 → **1162 (−1)**, core 2077 → **2056 (−21)**. The core drop is
+the whole of the `incompatible` movement: a 41-lane sweep of the
+ToNumber / ToIntegerOrInfinity family found eleven slots that admitted
+`Number` (and sometimes `Undefined`) by name and refused every other
+shape, and each refusal was a program bun runs that tr would not
+build — so its cases sat in the `incompatible` bucket the P-SURF
+denominator counts. Ten of the eleven are now closed; the eleventh,
+`new Array(x)`, is not a coercion at all (§23.1.1.1 branches on
+whether the argument IS a Number) and still refuses.
+
+Sweep passTotal 35268 → **35287 (+19)**, pass 30095 → **30114 (+19)**,
+passNoOracle 1026 → **1026 (=)**, passNegative 4147 → **4147 (=)**,
+bug 12477 → **12479 (+2)**, incompatible 5429 → **5408 (−21)**,
+trAccepted 47745 → **47766 (+21)**; conservation exact
+(+21 = +19 + +2). Verdict diff 23 changed: 18 `incompatible:type
+error` → `pass`, 1 `bug:exit 1` → `pass` (the rotation-543 regression
+this rotation was sent to close), 3 `incompatible` → `bug` (accepted
+now, still failing), 1 sideways inside `bug`, and **0 backward**.
+
+Unattributed head by directory: `built-ins/String` 50,
+`built-ins/Function` 40, `built-ins/Iterator` 38, `built-ins/RegExp`
+33, `language/import` 29. Coverage curve: top-100 **55.4%**,
+top-200 **73.7%**, top-400 **87.8%**.
 
 **Latest @ `a33f6cb50`** (2026-08-29, rotation 528 — the property face
 528 found nobody reading). Gate predicate: **151** clusters of ≥ 4
