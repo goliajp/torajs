@@ -327,7 +327,22 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
                 // it through an env-first indirect call is a SIGBUS.
                 crate::ast::retag_field_fn_ann(&canon)
             }
-            _ => return None,
+            // A computed field whose shape has no width question:
+            // `{ msg: "a" + b }` and `{ ok: x > y }` are as certainly
+            // a string and a boolean as the literal arms above, and
+            // without this one such field kept the whole binding
+            // main-local — so a named fn reading ANY field of it got
+            // "unknown identifier". The numeric shapes stay out on
+            // purpose: at the binding level their width is settled by
+            // `num_width`'s global slot, and a struct FIELD is a
+            // different key, so claiming `number` here could park f64
+            // bits in an i64 field — silent garbage rather than the
+            // loud failure it is today.
+            _ => match infer_slot_shape(ast, *val, 0) {
+                Some(GlobalSlotShape::Str) => "string".to_string(),
+                Some(GlobalSlotShape::Bool) => "boolean".to_string(),
+                _ => return None,
+            },
         };
         parts.push(format!("{fname}:{ann}"));
     }
