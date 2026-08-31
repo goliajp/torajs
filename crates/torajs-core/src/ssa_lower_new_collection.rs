@@ -119,8 +119,16 @@ fn try_map_static_pair_init(ctx: &mut LowerCtx<'_>, map_op: &Operand, args: &[Ex
         if let Expr::Array(pair) = ctx.ast.get_expr(*pair_eid).clone()
             && pair.len() == 2
         {
-            let (k_tag, k_val) = ctx.lower_to_tag_value(pair[0]);
-            let (v_tag, v_val) = ctx.lower_to_tag_value(pair[1]);
+            // Rotation 543 — `box_to_tag_value`'s heap arms take the
+            // SLOT's stake (the rc_inc lives inside the shim), so an
+            // owned element temp still holds its own, and this lane
+            // never gave it back: 200k of
+            // `new Map([["k" + i, "v" + i]])` peaked at 14.63 MB RSS.
+            // The same spelling with literal elements measured 1.79 MB
+            // — a static Str's rc traffic is a no-op, so the control
+            // that would have caught this hid it instead.
+            let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(pair[0]);
+            let (v_tag, v_val, v_raw, _) = ctx.lower_to_tag_value_raw(pair[1]);
             emit_static_add(
                 ctx,
                 map_op,
@@ -128,6 +136,8 @@ fn try_map_static_pair_init(ctx: &mut LowerCtx<'_>, map_op: &Operand, args: &[Ex
                 torajs_rc::collection_kind::COLLECTION_MAP,
                 [k_tag, k_val, v_tag, v_val],
             );
+            ctx.release_owned_temp(pair[0], &k_raw);
+            ctx.release_owned_temp(pair[1], &v_raw);
         }
     }
     finish_static_adder(ctx, adder);
@@ -206,7 +216,10 @@ fn try_set_static_init(ctx: &mut LowerCtx<'_>, set_op: &Operand, args: &[ExprId]
     }
     let adder = lower_static_adder(ctx, set_op, torajs_rc::collection_kind::COLLECTION_SET);
     for elem in &elems {
-        let (k_tag, k_val) = ctx.lower_to_tag_value(*elem);
+        // Rotation 543 — the element temp's own stake, as in the Map
+        // twin above: `new Set(["s" + i])` peaked at 8.19 MB against
+        // 1.79 MB for `new Set(["s"])`.
+        let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(*elem);
         emit_static_add(
             ctx,
             set_op,
@@ -214,6 +227,7 @@ fn try_set_static_init(ctx: &mut LowerCtx<'_>, set_op: &Operand, args: &[ExprId]
             torajs_rc::collection_kind::COLLECTION_SET,
             [k_tag, k_val, Operand::ConstI64(5), Operand::ConstI64(0)],
         );
+        ctx.release_owned_temp(*elem, &k_raw);
     }
     finish_static_adder(ctx, adder);
     true
