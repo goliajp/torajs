@@ -38,15 +38,16 @@ pub(crate) fn arrlit_literal_elem_ann(ast: &Ast, init: ExprId) -> Option<String>
     }
     // Typed synthesis failed (mixed shapes / null / undefined /
     // object-literal elems — `var a = [1, "two", null]`, the test262
-    // mixed-fixture idiom). Elements that are still pure DATA
-    // literals promote under the wide `any[]` slot: the init lane
-    // boxes each elem (`lower_array_any_literal`), reads are
-    // kind-aware. A runtime-expression element keeps the binding
-    // main-local — it could evaluate to a closure and re-open the
-    // tb2 method hole through an any-index call.
+    // mixed-fixture idiom). Any-slot-safe elements promote under the
+    // wide `any[]` slot: the init lane boxes each elem
+    // (`lower_array_any_literal`), reads are kind-aware. Since
+    // rotation 546 that verdict admits runtime expressions too (call
+    // results, shaped operators) — the tb2 any-index-call hazard the
+    // old data-literal-only gate guarded is closed; see the shared
+    // fn's doc.
     if elems
         .iter()
-        .all(|e| crate::ast_refs_any_promote::data_literal_value(ast, *e))
+        .all(|e| crate::ast_refs_any_promote::any_slot_safe_value(ast, *e))
     {
         return Some("any[]".to_string());
     }
