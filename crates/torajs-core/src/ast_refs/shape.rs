@@ -214,6 +214,19 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
             }
             Expr::String(_) => "string".to_string(),
             Expr::Bool(_) => "boolean".to_string(),
+            // A METHOD field (`{ next() { this.count } }`): the lifted
+            // fn carries the hidden `__this` receiver as its first
+            // declared param (`objlit_nominal::apply_patches`,
+            // recorded in `fnexpr_recv_fns`), so the canon below
+            // would spell the receiver INTO the signature and every
+            // `o.next()` through the promoted slot failed arity
+            // ("expected 1 argument(s), got 0" — rotation 546). The
+            // field ann is the receiver-less `__mth(` spelling the
+            // nominal lane already mints — the field-call arm is what
+            // pushes the receiver back.
+            Expr::Closure { fn_name, .. } if ast.fnexpr_recv_fns.contains(fn_name) => {
+                mth_field_ann(ast, fn_name)?
+            }
             Expr::Closure { fn_name, .. } => {
                 let canon = lifted_closure_fn_canon(ast, fn_name)?;
                 if canon.contains("__rest(") {
@@ -259,6 +272,36 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
         parts.push(format!("{fname}:{ann}"));
     }
     Some(format!("__inlobj({})", parts.join("|")))
+}
+
+/// The receiver-less `__mth(P|..)->R` spelling of a METHOD's lifted
+/// FnDecl — the same string `objlit_nominal::apply_patches`
+/// publishes into `fn_sigs`, reassembled from the decl (this module
+/// only holds `&Ast`). Mirrors that fn's filter exactly: `__env` and
+/// `__this` stay out of the signature; a missing param ann spells
+/// `any`; a missing return spells `void`. Variadic sigs answer
+/// `None` for the same reason the `__fn(` canon keeps them out.
+fn mth_field_ann(ast: &Ast, fn_name: &str) -> Option<String> {
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } if name == fn_name => {
+            let anns: Vec<String> = params
+                .iter()
+                .filter(|q| q.name != "__env" && q.name != "__this")
+                .map(|q| q.type_ann.clone().unwrap_or_else(|| "any".to_string()))
+                .collect();
+            if anns.iter().any(|a| a.contains("__rest(")) {
+                return None;
+            }
+            let ret = return_type.clone().unwrap_or_else(|| "void".to_string());
+            Some(format!("__mth({})->{}", anns.join("|"), ret))
+        }
+        _ => None,
+    })
 }
 
 /// The class spelling of an un-annotated `new C(...)` init — the
