@@ -215,12 +215,16 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue, keyed: 
             let iter_av = __torajs_arr_get_any_boxed(iters, i);
             if iter_av == VALUE_UNDEFINED {
                 // Longest — exhausted column reads its padding.
+                // AnyValue-shaped inc (546-02): the pair-shaped
+                // payload_rc_inc double-staked a ShortStr's
+                // materialized Str; no-op inc + the put's single
+                // transfer balance the materialization.
                 let pad = __torajs_arr_get_any_boxed(as_void_ptr(padding_av), i);
+                crate::nanbox_ffi::__torajs_anyv_rc_inc(pad);
                 let (t, v) = (
                     crate::__torajs_anyv_unbox_tag(pad),
                     crate::__torajs_anyv_unbox_value(pad),
                 );
-                crate::payload_rc_inc(t, v);
                 sink.put(i, t as u64, v as u64);
                 continue;
             }
@@ -319,12 +323,14 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue, keyed: 
                         return 0;
                     }
                     // Substitute the retired column's padding.
+                    // Same AnyValue-shaped inc as the longest arm
+                    // above (546-02).
                     let pad = __torajs_arr_get_any_boxed(as_void_ptr(padding_av), i);
+                    crate::nanbox_ffi::__torajs_anyv_rc_inc(pad);
                     let (t, v) = (
                         crate::__torajs_anyv_unbox_tag(pad),
                         crate::__torajs_anyv_unbox_value(pad),
                     );
-                    crate::payload_rc_inc(t, v);
                     sink.put(i, t as u64, v as u64);
                 }
             }

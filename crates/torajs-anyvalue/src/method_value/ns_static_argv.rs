@@ -78,9 +78,14 @@ pub(super) unsafe fn iterator_concat_pack(argv: *const u64, argc: i64) -> u64 {
         let mut items = __torajs_arr_alloc_any(n as u64);
         for i in 0..n {
             let v = arg_at(argv, argc, i);
+            // AnyValue-shaped inc, not payload_rc_inc: unbox_tag lies
+            // Heap for a ShortStr, whose unbox_value materializes a
+            // fresh rc=1 Str — the pair-shaped inc double-staked it
+            // (546-02 leak family). The no-op inc + the push's single
+            // transfer balance the materialization exactly.
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
             let t = crate::__torajs_anyv_unbox_tag(v);
             let p = crate::__torajs_anyv_unbox_value(v);
-            crate::payload_rc_inc(t, p);
             items = __torajs_arr_push_any(items as *mut c_void, t as u64, p as u64);
         }
         crate::iter_concat::__torajs_iterator_concat(items as *mut c_void)

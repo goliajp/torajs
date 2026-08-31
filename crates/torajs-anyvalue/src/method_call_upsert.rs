@@ -99,10 +99,14 @@ pub(crate) unsafe fn map_get_or_insert_computed(
             return VALUE_UNDEFINED;
         }
         // One stake for the map (set consumes it), and the callback's
-        // own +1 rides out as the answer.
+        // own +1 rides out as the answer. AnyValue-shaped inc
+        // (546-02): a ShortStr answer is an immediate — the pair-
+        // shaped payload_rc_inc pinned its materialized Str at rc=2
+        // with the map holding the only stake; the no-op inc lets the
+        // materialization itself be the map's stake.
+        crate::nanbox_ffi::__torajs_anyv_rc_inc(r);
         let rt = __torajs_anyv_unbox_tag(r);
         let rp = __torajs_anyv_unbox_value(r);
-        crate::payload_rc_inc(rt, rp);
         __torajs_map_set(p, key_tag, key_payload, rt, rp);
         r
     }

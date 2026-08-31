@@ -189,9 +189,13 @@ pub(super) unsafe fn array_of_pack(argv: *const u64, argc: i64) -> u64 {
         let mut items = __torajs_arr_alloc_any(n as u64);
         for i in 0..n {
             let v = arg_at(argv, argc, i + 1);
+            // AnyValue-shaped inc (546-02): the pair-shaped
+            // payload_rc_inc double-staked a ShortStr's materialized
+            // Str (unbox_tag lies Heap); no-op inc + the push's
+            // transfer balance the materialization.
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
             let t = crate::__torajs_anyv_unbox_tag(v);
             let p = crate::__torajs_anyv_unbox_value(v);
-            crate::payload_rc_inc(t, p);
             items = __torajs_arr_push_any(items as *mut c_void, t as u64, p as u64);
         }
         crate::nanbox::box_void_ptr(items as *mut c_void)
@@ -214,9 +218,12 @@ unsafe fn array_of_construct(this_c: u64, argv: *const u64, argc: i64, n: i64) -
         }
         for k in 0..n {
             let v = arg_at(argv, argc, k + 1);
-            let t = crate::__torajs_anyv_unbox_tag(v);
-            let p = crate::__torajs_anyv_unbox_value(v);
-            crate::payload_rc_inc(t, p);
+            // AnyValue-shaped inc (546-02): store_elem re-unboxes `v`
+            // itself, so the old outer unbox_value + payload_rc_inc
+            // minted a SECOND, fully orphaned rc=2 Str for a ShortStr
+            // argument. The no-op inc leaves store_elem's own
+            // materialization as the single balanced stake.
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
             if !crate::method_call_arr_species::store_elem(&mut product, k, v) {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(product);
                 return VALUE_UNDEFINED;

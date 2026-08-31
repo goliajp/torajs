@@ -319,11 +319,14 @@ pub(super) unsafe fn apply_root(st: &St, v: AnyValue, owned: bool) -> (AnyValue,
     unsafe {
         let mut holder = __torajs_dynobj_alloc();
         let key = __torajs_str_alloc(b"".as_ptr(), 0);
+        // AnyValue-shaped inc (546-02): the pair-shaped
+        // payload_rc_inc double-staked a ShortStr root's materialized
+        // Str; no-op inc + the set's single transfer balance it.
+        crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
         let (t, val) = (
             crate::__torajs_anyv_unbox_tag(v),
             crate::__torajs_anyv_unbox_value(v),
         );
-        crate::payload_rc_inc(t, val);
         __torajs_dynobj_set(&mut holder, key.cast(), t as u64, val as u64);
         let out = apply(st, box_void_ptr(holder), key.cast(), v, owned);
         __torajs_str_drop(key.cast());

@@ -57,11 +57,15 @@ unsafe fn args_array(argv: *const u64, argc: i64) -> *mut u8 {
         let mut arr = __torajs_arr_alloc_any(n);
         for i in 0..n {
             let v = *argv.add(i as usize);
+            // AnyValue-shaped inc (546-02): the pair-shaped
+            // payload_rc_inc double-staked a ShortStr's materialized
+            // Str (unbox_tag lies Heap); no-op inc + the push's
+            // transfer balance the materialization.
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
             let (tag, payload) = (
                 crate::__torajs_anyv_unbox_tag(v),
                 crate::__torajs_anyv_unbox_value(v),
             );
-            crate::payload_rc_inc(tag, payload);
             arr = __torajs_arr_push_any(arr as *mut c_void, tag as u64, payload as u64);
         }
         arr

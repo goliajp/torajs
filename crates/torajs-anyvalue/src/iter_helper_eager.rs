@@ -101,10 +101,12 @@ pub(crate) unsafe fn iter_eager(
         if mid == torajs_rc::ANY_METHOD_REDUCE && argc >= 2 {
             acc = argv.add(1).read();
             // argv is borrowed — the accumulator takes its own stake.
-            crate::payload_rc_inc(
-                crate::__torajs_anyv_unbox_tag(acc),
-                crate::__torajs_anyv_unbox_value(acc),
-            );
+            // AnyValue-shaped inc (546-02): the pair-shaped
+            // payload_rc_inc materialized a ShortStr seed into a
+            // fully orphaned rc=2 Str (the later anyv_rc_dec(acc) is
+            // a no-op on the immediate); a ShortStr acc needs no
+            // stake at all.
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(acc);
             has_acc = true;
         }
         let mut counter: i64 = 0;

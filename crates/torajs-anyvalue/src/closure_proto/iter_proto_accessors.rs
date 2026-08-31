@@ -138,10 +138,14 @@ unsafe fn setter_ignoring_prototype(argv: *const u64, argc: i64, key: *mut c_voi
         return crate::nanbox::VALUE_UNDEFINED;
     }
     // Steps 3-5, as one own-face write. The value arrives borrowed;
-    // the store takes a stake of its own.
+    // the store takes a stake of its own — AnyValue-shaped inc
+    // (546-02): the pair-shaped payload_rc_inc double-staked a
+    // ShortStr's materialized Str (unbox_tag lies Heap); the no-op
+    // inc + the write's single transfer balance the materialization.
+    // SAFETY: `value` is a live AnyValue per the fn contract.
+    unsafe { crate::nanbox_ffi::__torajs_anyv_rc_inc(value) };
     let vtag = __torajs_anyv_unbox_tag(value) as u64;
     let vval = __torajs_anyv_unbox_value(value) as u64;
-    crate::payload_rc_inc(vtag as i64, vval as i64);
     if !unsafe { crate::member_set_own_face::own_face_write(recv, ptr, key, vtag, vval) } {
         unsafe {
             __torajs_throw_type_error(c"this value cannot hold the assigned property".as_ptr())
