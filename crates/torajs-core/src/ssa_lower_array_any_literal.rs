@@ -61,15 +61,20 @@ impl<'a> LowerCtx<'a> {
                 // S141 — `[...set]` inside Array<Any> literal: route
                 // through the shared Array.from(set) helper to land an
                 // Arr<Any> the existing arr_extend_any path can splice.
+                let mut src_is_owned_temp = false;
                 if matches!(src_ty, Type::Set) {
+                    let set_src = src_op.clone();
                     src_op = crate::ssa_lower_arr_from_set::emit(self, src_op);
+                    self.release_owned_temp(inner_eid, &set_src);
                     src_ty = self.operand_ty(&src_op);
+                    // Rotation 543 — the walk mints a fresh array with
+                    // no other owner, exactly like the `any` arm below.
+                    src_is_owned_temp = true;
                 }
                 // RFC 20260704 S5+ — `[...anyval]`: materialize the
                 // runtime-dispatched iterable through the unified
                 // iteration protocol. The result is an owned temp —
                 // extend copies + rc_incs the slots, so drop after.
-                let mut src_is_owned_temp = false;
                 if matches!(src_ty, Type::Any) {
                     let any_src = src_op.clone();
                     src_op = crate::ssa_lower_arr_from_any::emit(self, any_src.clone());
@@ -89,9 +94,23 @@ impl<'a> LowerCtx<'a> {
                     _ => false,
                 };
                 if !inner_is_any_arr {
-                    panic!(
-                        "ssa-lower: spread of {src_ty:?} into Array<Any> literal not yet supported (P5.6 subset — Array<Any> spread only; typed-Array spread into Any requires per-elem box, follow-up)"
-                    );
+                    // Rotation 543 — see the twin arm in
+                    // `ssa_lower_arr_from_any::assemble_any_spread`:
+                    // the runtime bridge this reject deferred to has
+                    // been in place; all it needs is the kind mark.
+                    let chain = match src_ty {
+                        Type::Arr(id) => {
+                            let elem = self.arr_layouts[id.0 as usize];
+                            self.arr_kind_chain(&elem, 0)
+                        }
+                        _ => 0,
+                    };
+                    if chain == 0 {
+                        panic!(
+                            "ssa-lower: spread of {src_ty:?} into Array<Any> literal has no element kind to mark — the runtime bridge needs one to box per slot"
+                        );
+                    }
+                    self.emit_arr_mark_kind(&src_op);
                 }
                 let new_arr = self.f.append_inst(
                     self.cur_block,
@@ -104,6 +123,8 @@ impl<'a> LowerCtx<'a> {
                 );
                 if src_is_owned_temp {
                     self.emit_drop_value(src_op, src_ty);
+                } else {
+                    self.release_owned_temp(inner_eid, &src_op);
                 }
                 arr = new_arr;
                 continue;

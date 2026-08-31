@@ -98,6 +98,11 @@ fn lower_spread_elements(
     let mut lowered: Vec<LoweredItem> = Vec::with_capacity(element_ids.len());
     let mut elem_ty: Option<Type> = None;
     let mut literal_count: i64 = 0;
+    // Rotation 543 — what each item says the literal's element type
+    // should be. `elem_ty` below still records the FIRST answer, which
+    // is what the typed assembler has always used; this records ALL of
+    // them so a disagreement can be seen at the end.
+    let mut contributed: Vec<Type> = Vec::new();
     for eid in element_ids {
         if let Expr::Spread { expr } = ctx.ast.get_expr(*eid) {
             let inner = *expr;
@@ -106,15 +111,17 @@ fn lower_spread_elements(
                 // Materialized Arr<Any> — force the Any assembly path
                 // regardless of what earlier items anchored.
                 elem_ty = Some(Type::Any);
-            }
-            if let Type::Arr(arr_id) = v_ty
-                && elem_ty.is_none()
-            {
+                contributed.push(Type::Any);
+            } else if let Type::Arr(arr_id) = v_ty {
                 // A spread of an `Arr<Substr>` lands as owned strings
                 // (a view does not leave its split block — rotation
                 // 468), so the literal is `Arr<Str>`, never `Arr<Substr>`.
                 let out_id = ctx.copied_arr_layout(arr_id);
-                elem_ty = Some(ctx.arr_layouts[out_id.0 as usize]);
+                let t = ctx.arr_layouts[out_id.0 as usize];
+                contributed.push(t);
+                if elem_ty.is_none() {
+                    elem_ty = Some(t);
+                }
             }
             lowered.push(LoweredItem {
                 op,
@@ -145,6 +152,7 @@ fn lower_spread_elements(
             } else {
                 (v, v_ty)
             };
+            contributed.push(v_ty);
             if elem_ty.is_none() {
                 elem_ty = Some(v_ty);
             }
@@ -158,7 +166,40 @@ fn lower_spread_elements(
             });
         }
     }
+    // Rotation 543 — the first item used to decide the element type
+    // for ALL of them, and nothing ever asked the rest whether they
+    // agreed. `[...[1, 2], ...["a"]]` printed `4309125696`, a Str
+    // pointer read through an I64 slot; `[...[1, 2], ..."ab"]` printed
+    // `2.14e-314`, the same pointer read as an f64; and the reverse
+    // orders, which read a small integer as a pointer, were
+    // **exit 139** — `[...["a"], ...[1, 2]]` is three tokens long.
+    // A plain literal element counts too: `[...[1, 2], "a"]` has only
+    // one spread in it and printed a pointer.
+    //
+    // When the items disagree the literal is an `Array<Any>`, which is
+    // what the spelling means and what the any assembler builds.
+    if !elem_types_agree(&contributed) {
+        elem_ty = Some(Type::Any);
+    }
     (lowered, elem_ty, literal_count)
+}
+
+/// Whether every item can live in one typed array. Numbers are one
+/// bucket on purpose: `[...[1, 2], ...[3.5]]` has always worked
+/// because `num_width` widens the anon slots together, and routing it
+/// through the any lane would tax a path that is fast precisely
+/// because it is not boxed.
+fn elem_types_agree(tys: &[Type]) -> bool {
+    let Some(first) = tys.first() else {
+        return true;
+    };
+    if tys
+        .iter()
+        .all(|t| matches!(t, Type::I64 | Type::I32 | Type::F64))
+    {
+        return true;
+    }
+    tys.iter().all(|t| t == first)
 }
 
 fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type, bool, bool) {

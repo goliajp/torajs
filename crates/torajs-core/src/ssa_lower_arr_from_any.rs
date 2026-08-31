@@ -198,13 +198,30 @@ pub(crate) fn assemble_any_spread(
                 _ => false,
             };
             if !src_is_any_arr {
-                // Same subset boundary as lower_array_any_literal's
-                // Spread arm — extend_any reads 16-byte tagged slots,
-                // a typed Array<T> spread would mis-stride.
-                panic!(
-                    "ssa-lower: spread of {:?} into Array<Any> literal not yet supported (P5.6 subset — Array<Any> spread only; typed-Array spread into Any requires per-elem box, follow-up)",
-                    ctx.operand_ty(&li.op)
-                );
+                // Rotation 543 — this used to be a loud reject citing
+                // a follow-up ("typed-Array spread into Any requires
+                // per-elem box"). That follow-up landed on the runtime
+                // side and nobody came back for the reject:
+                // `__torajs_arr_extend_any` reads the source header's
+                // element kind and routes a typed block through
+                // `__torajs_arr_extend_typed_into_any`, which boxes
+                // per slot, honours Bool's 1-byte stride, rc_incs each
+                // heap cell and materializes an inline Substr view.
+                // All this arm owes it is the kind mark.
+                let src_ty = ctx.operand_ty(&li.op);
+                let chain = match src_ty {
+                    Type::Arr(id) => {
+                        let elem = ctx.arr_layouts[id.0 as usize];
+                        ctx.arr_kind_chain(&elem, 0)
+                    }
+                    _ => 0,
+                };
+                if chain == 0 {
+                    panic!(
+                        "ssa-lower: spread of {src_ty:?} into Array<Any> literal has no element kind to mark — the runtime bridge needs one to box per slot"
+                    );
+                }
+                ctx.emit_arr_mark_kind(&li.op);
             }
             let new_arr = ctx.f.append_inst(
                 ctx.cur_block,
@@ -222,6 +239,13 @@ pub(crate) fn assemble_any_spread(
             if li.was_any || li.minted {
                 let src_ty = ctx.operand_ty(&li.op);
                 ctx.emit_drop_value(li.op, src_ty);
+            } else {
+                // Rotation 543 — the extend copies the slots and takes
+                // its own +1 per heap cell, so a source the program can
+                // still name owes the same account the typed assembler
+                // now keeps: released when it was an owned temp,
+                // untouched when it was a borrow.
+                ctx.release_owned_temp(li.src_eid, &li.op);
             }
             arr = new_arr;
         } else {
