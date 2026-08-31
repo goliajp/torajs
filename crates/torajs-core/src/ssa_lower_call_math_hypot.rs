@@ -65,7 +65,10 @@ pub(crate) fn try_lower(
     let arg_ids: Vec<ExprId> = args.to_vec();
     let mut acc: Option<Operand> = None;
     for aid in arg_ids.iter() {
-        let raw = ctx.lower_expr(*aid);
+        // §21.3.2.18 step 2 ToNumber — `lower_to_number_operand`
+        // passes an already-numeric operand straight through, so the
+        // typed tier keeps its shape and nothing boxes.
+        let raw = ctx.lower_to_number_operand(*aid);
         let v = ctx.coerce_to_f64(raw);
         let cur_block = ctx.cur_block;
         let sq = ctx.f.append_inst(

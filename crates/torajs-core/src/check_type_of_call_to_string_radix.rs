@@ -74,14 +74,15 @@ pub(crate) fn try_match(
             if args.is_empty() {
                 return Some(Ok(Type::String));
             }
-            let r_ty = match checker.type_of(ast, args[0]) {
-                Ok(t) => t,
-                Err(e) => return Some(Err(e)),
-            };
-            if !matches!(r_ty, Type::Number | Type::Undefined) {
-                return Some(Err(format!(
-                    "Number.toString radix must be number, got {r_ty:?}"
-                )));
+            // Rotation 544 — §21.1.3.6 step 2 is
+            // ToIntegerOrInfinity(radix), which reaches every value:
+            // `(255).toString('16')` is "ff". The gate that stood
+            // here admitted Number and Undefined and refused the
+            // rest. `undefined` is NOT that coercion's NaN — it means
+            // radix 10, while `toString(NaN)` is a RangeError — so
+            // ssa_lower asks the any TAG rather than the number.
+            if let Err(e) = checker.type_of(ast, args[0]) {
+                return Some(Err(e));
             }
             for &aid in &args[1..] {
                 if let Err(e) = checker.type_of(ast, aid) {

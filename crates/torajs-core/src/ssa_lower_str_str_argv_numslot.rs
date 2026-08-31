@@ -29,7 +29,7 @@
 //! coerces it.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Terminator, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Lower `args[i]` if it is one of the numeric slots; `None` if this
@@ -80,7 +80,7 @@ pub(crate) fn try_lower(
         //
         // NaN must NOT take this path (`slice(0, NaN)` is ""), so
         // the test is on the any TAG, not on the number.
-        let (tag, _, idx) = any_slot_tag_number_index(ctx, a);
+        let (tag, _, idx) = ctx.any_slot_tag_number_index(a);
         if substring_len_op.is_none() {
             let len = ctx.f.append_inst(
                 ctx.cur_block,
@@ -90,8 +90,7 @@ pub(crate) fn try_lower(
             );
             *substring_len_op = Some(Operand::Value(len));
         }
-        let sel = select_on_undef_tag(
-            ctx,
+        let sel = ctx.select_on_undef_tag(
             tag,
             substring_len_op.clone().unwrap(),
             idx,
@@ -128,18 +127,15 @@ pub(crate) fn try_lower(
         // substring / substr end slot takes, and the `i64::MAX`
         // sentinel is what the static-undefined arm above
         // already hands the helper for "no limit".
-        if matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any)) {
-            let (tag, _, idx) = any_slot_tag_number_index(ctx, a);
-            let sel =
-                select_on_undef_tag(ctx, tag, Operand::ConstI64(i64::MAX), idx, "__str_pos_slot");
-            return Some(sel);
-        } else {
-            // A statically-shaped operand that is not Number is
-            // also not `undefined` — that spelling is claimed by
-            // the `undef_max_at_arg1` arm above — so there is
-            // nothing to test at run time.
-            return Some(ctx.lower_to_index_operand(a));
-        }
+        // A statically-shaped operand that is not Number is also not
+        // `undefined` — that spelling is claimed by the
+        // `undef_max_at_arg1` arm above — so only an any box owes a
+        // run-time test, which is what the shared lane decides.
+        return Some(ctx.lower_to_index_or_undef_default(
+            a,
+            Operand::ConstI64(i64::MAX),
+            "__str_pos_slot",
+        ));
     } else if method == "lastIndexOf" && i == 1 {
         // Rotation 544 — §22.1.3.10 steps 5-6 read a NaN position
         // as +∞, so `'abcabc'.lastIndexOf('a', NaN)` is 3, not
@@ -181,95 +177,6 @@ fn split_defers_to_user_splitter(ctx: &LowerCtx<'_>, method: &str, args: &[ExprI
         && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0])
 }
 
-/// Lower an `Any` slot into its three readings at once: the box TAG,
-/// the ToNumber of it, and the ToIntegerOrInfinity of that.
-///
-/// A slot whose spec default for `undefined` is not ToNumber's own
-/// `NaN` needs the tag; one whose default is what `NaN` means anyway
-/// needs only the number. A user `valueOf` can throw, so the same
-/// check `lower_to_number_operand` emits is emitted here.
-fn any_slot_tag_number_index(ctx: &mut LowerCtx<'_>, a: ExprId) -> (Operand, Operand, Operand) {
-    let raw = ctx.lower_expr(a);
-    let cur = ctx.cur_block;
-    let tag = ctx.f.append_inst(
-        cur,
-        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![raw.clone()]),
-        Type::I64,
-        None,
-    );
-    let n = ctx.f.append_inst(
-        cur,
-        InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-        Type::F64,
-        None,
-    );
-    ctx.emit_throw_check(None);
-    let idx = ctx.coerce_to_i64(Operand::Value(n));
-    (Operand::Value(tag), Operand::Value(n), idx)
-}
-
-/// `cond ? when_true : when_false` over two i64 operands, as a slot
-/// plus a branch rather than `InstKind::Select` — that one is
-/// introduced only after the egraph pass and its elaborator rejects an
-/// early one loudly. Both operands are computed before the branch, so
-/// neither may carry a side effect the other arm must not see.
-fn select_i64(
-    ctx: &mut LowerCtx<'_>,
-    cond: Operand,
-    when_true: Operand,
-    when_false: Operand,
-    slot_name: &str,
-) -> Operand {
-    let slot = ctx.alloca(Type::I64, Some(slot_name));
-    let then_blk = ctx.f.add_block();
-    let else_blk = ctx.f.add_block();
-    let join_blk = ctx.f.add_block();
-    ctx.f.set_term(
-        ctx.cur_block,
-        Terminator::CondBr {
-            cond,
-            then_blk,
-            else_blk,
-        },
-    );
-    ctx.cur_block = then_blk;
-    ctx.f.append_void(
-        then_blk,
-        InstKind::Store(when_true, Operand::Value(slot), 0),
-    );
-    ctx.f.set_term(then_blk, Terminator::Br(join_blk));
-    ctx.cur_block = else_blk;
-    ctx.f.append_void(
-        else_blk,
-        InstKind::Store(when_false, Operand::Value(slot), 0),
-    );
-    ctx.f.set_term(else_blk, Terminator::Br(join_blk));
-    ctx.cur_block = join_blk;
-    Operand::Value(ctx.f.append_inst(
-        join_blk,
-        InstKind::Load(Type::I64, Operand::Value(slot), 0),
-        Type::I64,
-        None,
-    ))
-}
-
-/// `<tag is undefined> ? default : idx`. Tag 5 is `undefined`.
-fn select_on_undef_tag(
-    ctx: &mut LowerCtx<'_>,
-    tag: Operand,
-    default: Operand,
-    idx: Operand,
-    slot_name: &str,
-) -> Operand {
-    let is_undef = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(crate::ssa::IPred::Eq, tag, Operand::ConstI64(5)),
-        Type::Bool,
-        None,
-    );
-    select_i64(ctx, Operand::Value(is_undef), default, idx, slot_name)
-}
-
 /// The `lastIndexOf` position slot: `ToNumber(pos)` is NaN → +∞,
 /// otherwise `ToIntegerOrInfinity(pos)` (§22.1.3.10 steps 5-6). The
 /// `i64::MAX` sentinel is what the helper already takes for +∞.
@@ -293,7 +200,8 @@ fn lower_lastindexof_pos(ctx: &mut LowerCtx<'_>, a: ExprId) -> Operand {
 }
 
 /// `<n is NaN> ? default : idx`, the number-side twin of
-/// [`select_on_undef_tag`] for a slot whose spec reads NaN itself as
+/// [`crate::ssa_lower::LowerCtx::select_on_undef_tag`] for a slot
+/// whose spec reads NaN itself as
 /// the default (`Une` is the unordered `n != n`).
 fn select_on_nan(
     ctx: &mut LowerCtx<'_>,
@@ -308,5 +216,5 @@ fn select_on_nan(
         Type::Bool,
         None,
     );
-    select_i64(ctx, Operand::Value(is_nan), default, idx, slot_name)
+    ctx.select_i64(Operand::Value(is_nan), default, idx, slot_name)
 }

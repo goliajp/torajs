@@ -242,7 +242,15 @@ fn emit_numeric_radix(
     args: &[ExprId],
     is_f64: bool,
 ) -> Operand {
-    let radix = ctx.lower_expr(args[0]);
+    // §21.1.3.6 step 2 ToIntegerOrInfinity(radix) — the helper's
+    // radix param is i64, and a raw `lower_expr` handed it whatever
+    // the operand was. `undefined` is not this coercion's NaN: it
+    // means radix 10 (`(255).toString(undefined)` is "255") where
+    // `toString(NaN)` is a RangeError, so an any box is asked for its
+    // tag. The statically-undefined spelling never arrives — the
+    // `arg0_is_undef` short-circuit above routes it to the 0-arg
+    // decimal path.
+    let radix = ctx.lower_to_index_or_undef_default(args[0], Operand::ConstI64(10), "__radix_slot");
     // S294 — lower-and-drop trailing args past the 1 useful radix slot
     // (S272 idiom). check.rs S244 typecheck-and-drops args[1..].
     for &a in args.iter().skip(1) {
