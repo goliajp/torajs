@@ -110,7 +110,24 @@ pub unsafe extern "C" fn __torajs_obj_is_frozen_any(v: i64) -> bool {
     if tag != ANY_TAG_HEAP {
         return true;
     }
+    // A ShortStr reports Heap too, and unbox_value would MATERIALIZE
+    // an rc=1 Str this probe then abandons (546-02 M1 family) — and
+    // a string primitive is §20.1.2.14 step-1 frozen by definition
+    // (the materialized cell's unset FROZEN bit answered false).
+    if !crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return true;
+    }
     let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
+    // A heap-shaped PRIMITIVE (Str / Symbol / BigInt cell) is step-1
+    // frozen too — pre-fix its header's unset FROZEN bit answered
+    // false (a static-literal Str happened to answer true through
+    // the rodata arm, which is why only the runtime-built shapes
+    // showed).
+    let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
+    if matches!(type_tag, t if t == crate::Tag::Str as u16 || t == crate::Tag::Symbol as u16 || t == crate::Tag::BigInt as u16)
+    {
+        return true;
+    }
     unsafe { __torajs_obj_is_frozen(ptr) }
 }
 
@@ -127,9 +144,22 @@ pub unsafe extern "C" fn __torajs_obj_is_frozen_any(v: i64) -> bool {
 pub unsafe extern "C" fn __torajs_obj_freeze_any(v: i64) -> i64 {
     const ANY_TAG_HEAP: i64 = 4;
     let tag = unsafe { __torajs_anyv_unbox_tag(v) };
-    if tag == ANY_TAG_HEAP {
+    // The cell-likeness test keeps a ShortStr out: §19.1.2.6 step 1
+    // returns a primitive unchanged, and the old unbox MATERIALIZED
+    // an rc=1 Str, stamped FROZEN into its throwaway header, and
+    // leaked it (546-02 M1 family).
+    if tag == ANY_TAG_HEAP && crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
         let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *mut c_void;
-        unsafe { __torajs_obj_freeze(ptr) };
+        // Heap-shaped primitives return unchanged too (step 1) — a
+        // freeze must not stamp flags into a Str / Symbol / BigInt
+        // cell's header (mirror of the is_frozen_any arm).
+        let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
+        if !(type_tag == crate::Tag::Str as u16
+            || type_tag == crate::Tag::Symbol as u16
+            || type_tag == crate::Tag::BigInt as u16)
+        {
+            unsafe { __torajs_obj_freeze(ptr) };
+        }
     }
     v
 }

@@ -64,6 +64,14 @@ pub unsafe extern "C" fn __torajs_instanceof_object_any(v: i64) -> bool {
     if tag != ANY_TAG_HEAP {
         return false;
     }
+    // A ShortStr reports Heap too, and unbox_value would MATERIALIZE
+    // an rc=1 Str this probe then abandons (546-02 M1 family) — the
+    // cell-likeness bit test answers first: a string primitive is
+    // never an Object instance. Real cells pass and unbox to the raw
+    // pointer with no materialization.
+    if !crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return false;
+    }
     let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
     if ptr.is_null() {
         return false;
@@ -124,6 +132,12 @@ pub unsafe extern "C" fn __torajs_instanceof_builtin_any_tag(
     if tag != ANY_TAG_HEAP {
         return false;
     }
+    // ShortStr guard — see `__torajs_instanceof_object_any` (546-02):
+    // a primitive is never an instance, and unboxing it would leak a
+    // materialized Str per tag in the ssa-lower OR-chain.
+    if !crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return false;
+    }
     let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
     if ptr.is_null() {
         return false;
@@ -161,6 +175,10 @@ pub unsafe extern "C" fn __torajs_instanceof_class_any_tag(v: i64, expected_tag:
     // provides them for cargo-test builds in this crate.
     let tag = unsafe { __torajs_anyv_unbox_tag(v) };
     if tag != ANY_TAG_HEAP {
+        return false;
+    }
+    // ShortStr guard — see `__torajs_instanceof_object_any` (546-02).
+    if !crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
         return false;
     }
     let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
@@ -229,15 +247,21 @@ unsafe fn __torajs_instanceof_proto_chain_any_tag(_v: u64, _expected_tag: i64) -
 // logic in isolation.
 #[cfg(test)]
 unsafe fn __torajs_anyv_unbox_tag(v: i64) -> i64 {
-    // Mirror the torajs-anyvalue scheme: high 16 bits = tag,
-    // low 48 bits = value payload. (This is only the test stub —
-    // the real NaN-box scheme is more elaborate; tests just need a
-    // consistent inverse for unbox_value below.)
+    // Faithful to the real encoding for the cell shape: a heap box
+    // IS the raw pointer (top16 zero), so the kernel's
+    // `nan_box_is_cell_like` gate runs against test values. Non-cell
+    // mock shapes keep the legacy `tag << 48` spelling.
+    if crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return ANY_TAG_HEAP;
+    }
     ((v as u64 >> 48) & 0xFFFF) as i64
 }
 
 #[cfg(test)]
 unsafe fn __torajs_anyv_unbox_value(v: i64) -> i64 {
+    if crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return v;
+    }
     (v as u64 & 0x0000_FFFF_FFFF_FFFF) as i64
 }
 
@@ -263,16 +287,14 @@ mod tests {
     #[test]
     fn matching_class_tag_returns_true() {
         let block = make_test_block(42);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(unsafe { __torajs_instanceof_class_any_tag(boxed, 42) });
     }
 
     #[test]
     fn mismatched_class_tag_returns_false() {
         let block = make_test_block(42);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(!unsafe { __torajs_instanceof_class_any_tag(boxed, 99) });
     }
 
@@ -307,8 +329,7 @@ mod tests {
     fn builtin_matching_type_tag_returns_true() {
         // Tag::Arr = 2 — pretend this heap cell is an Array.
         let block = make_test_heap_block(2);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(unsafe { __torajs_instanceof_builtin_any_tag(boxed, 2) });
     }
 
@@ -316,8 +337,7 @@ mod tests {
     fn builtin_mismatched_type_tag_returns_false() {
         // Heap is Tag::Arr=2 but we ask "instanceof Date" (Tag::Date=5).
         let block = make_test_heap_block(2);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(!unsafe { __torajs_instanceof_builtin_any_tag(boxed, 5) });
     }
 
@@ -337,8 +357,7 @@ mod tests {
     fn object_arr_heap_returns_true() {
         // Tag::Arr=2 — Array is an Object.
         let block = make_test_heap_block(2);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(unsafe { __torajs_instanceof_object_any(boxed) });
     }
 
@@ -346,8 +365,7 @@ mod tests {
     fn object_str_heap_returns_false() {
         // Tag::Str=0 — primitive string, NOT an object per spec.
         let block = make_test_heap_block(0);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
     }
 
@@ -355,8 +373,7 @@ mod tests {
     fn object_symbol_heap_returns_false() {
         // Tag::Symbol=7 — primitive Symbol.
         let block = make_test_heap_block(7);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
     }
 
@@ -364,8 +381,7 @@ mod tests {
     fn object_bigint_heap_returns_false() {
         // Tag::BigInt=10 — primitive BigInt.
         let block = make_test_heap_block(10);
-        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
-        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let boxed = block.as_ptr() as i64;
         assert!(!unsafe { __torajs_instanceof_object_any(boxed) });
     }
 

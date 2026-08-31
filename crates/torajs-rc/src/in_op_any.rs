@@ -164,6 +164,13 @@ pub unsafe fn require_object_rhs(v: i64) -> Option<(*const c_void, u16)> {
     if unsafe { __torajs_anyv_unbox_tag(v) } != ANY_TAG_HEAP {
         return reject();
     }
+    // A ShortStr reports Heap too, and unbox_value would MATERIALIZE
+    // an rc=1 Str the reject path then abandons (546-02 M1 family) —
+    // a string primitive rhs is the same §13.10.1 TypeError, decided
+    // on the bit test with no materialization.
+    if !crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return reject();
+    }
     let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
     if ptr.is_null() {
         return reject();
@@ -360,11 +367,21 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
 // home crates' tests + the conformance fixtures.
 #[cfg(test)]
 unsafe fn __torajs_anyv_unbox_tag(v: i64) -> i64 {
+    // Faithful to the real encoding for the cell shape: a heap box
+    // IS the raw pointer (top16 zero), which is what lets the
+    // kernel's `nan_box_is_cell_like` gate run against test values.
+    // Non-cell mock shapes keep the legacy `tag << 48` spelling.
+    if crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return ANY_TAG_HEAP;
+    }
     ((v as u64 >> 48) & 0xFFFF) as i64
 }
 
 #[cfg(test)]
 unsafe fn __torajs_anyv_unbox_value(v: i64) -> i64 {
+    if crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
+        return v;
+    }
     (v as u64 & 0x0000_FFFF_FFFF_FFFF) as i64
 }
 
@@ -477,7 +494,10 @@ mod tests {
     }
 
     fn boxed_cell(block: &[u8]) -> i64 {
-        nan_box(ANY_TAG_HEAP, block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF)
+        // Real encoding: a heap box IS the raw pointer (the mock's
+        // stack address has top16 zero and 8-alignment on every
+        // supported target), so the cell-likeness gate passes.
+        block.as_ptr() as i64
     }
 
     fn set_faces(own: i64, chain: i64) {
