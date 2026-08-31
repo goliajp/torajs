@@ -35,6 +35,16 @@
 //! inside a loop a read lowers before the assignment that taints it,
 //! and would be answered with the previous iteration's ignorance.
 //!
+//! Declarations are collected here too, even though
+//! [`crate::ssa_lower_stmt_let_decl_general`] already records one at
+//! its own lowering. That record is in time for a later read of the
+//! binding itself and too late for everything the fixpoint below
+//! decides, which runs first: `const u = zs[9]; r.v = u` left `v`
+//! out of the field set, because when the set was built `u` was not
+//! yet known to be a source, and `r.v` therefore answered `NaN`.
+//! `let` and `const` are statements, so they are invisible to the
+//! two collectors that scan the expression arena — hence the walk.
+//!
 //! The two feed each other (`const u = zs[9]; r.v = u` needs `u`
 //! first; `a = r.v` needs the field first), so they run together to
 //! a fixpoint rather than once each. Both sets only grow and the
@@ -54,7 +64,8 @@ use std::collections::HashSet;
 pub(crate) fn prime(ctx: &mut LowerCtx<'_>) {
     loop {
         let fields = collect(ctx);
-        let lets = collect_assigned_idents(ctx);
+        let mut lets = collect_assigned_idents(ctx);
+        lets.extend(collect_declared_idents(ctx));
         let grew = !fields.is_subset(&ctx.undefable_f64_fields)
             || !lets.is_subset(&ctx.undefable_f64_lets);
         ctx.undefable_f64_fields.extend(fields);
@@ -79,6 +90,21 @@ fn collect_assigned_idents(ctx: &LowerCtx<'_>) -> HashSet<String> {
             out.insert(name.clone());
         }
     }
+    out
+}
+
+/// Binding names some `let` / `const` initialises with a value the
+/// sentinel gate recognises. Statement order, so the result does not
+/// depend on how anything is hashed.
+fn collect_declared_idents(ctx: &LowerCtx<'_>) -> HashSet<String> {
+    let mut out = HashSet::new();
+    crate::ast::walk_stmts(&ctx.ast.stmts, &mut |s| {
+        if let crate::ast::Stmt::LetDecl { name, init, .. } = s
+            && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, *init)
+        {
+            out.insert(name.clone());
+        }
+    });
     out
 }
 

@@ -265,6 +265,7 @@ pub use nested_fns::desugar_nested_fns;
 pub use nested_fns_capture::desugar_capturing_nested_fns;
 pub(crate) use nested_fns_idents::rename_fn_self_refs;
 pub use ns_alias::desugar_ns_alias_members;
+pub(crate) use ns_alias::walk_stmts;
 pub use optchain_call::desugar_optchain_calls;
 pub use prop_key::{literal_prop_key, number_prop_key};
 pub use prototype_call::desugar_prototype_call;
