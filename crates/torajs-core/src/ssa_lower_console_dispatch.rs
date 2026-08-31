@@ -70,6 +70,22 @@ impl<'a> LowerCtx<'a> {
             // T-13.a — Type::Symbol prints `Symbol(<desc>)` via the
             // dedicated runtime helper.
             Type::Symbol => self.intrinsics.symbol_print,
+            // Rotation 542 — Type::BigInt joins the tag-aware
+            // `print_anyv` family, whose `Tag::BigInt` arm emits
+            // `<decimal>n` (the bun form) via
+            // `__torajs_bigint_print_inline`. Without an arm here a
+            // BigInt fell into the `print_i64` catch-all below and
+            // printed the raw cell pointer as a decimal — the exact
+            // failure the Substr and Commit-4 arms above were added
+            // for, and SILENT: `function f() { console.log(2n) }`
+            // printed `4312514640` while the same statement at top
+            // level printed `2n`, because `lower_top_stmt` carries
+            // its own BigInt arm and this shared target table did
+            // not. Every neighbouring lane already had it — the
+            // multi-arg joiner coerces through `coerce_to_str`, a
+            // boxed `any` prints through this same tag walker, and
+            // `bigint[]` reaches it through the Arr arm's `_`.
+            Type::BigInt => self.intrinsics.print_any,
             // V3-18 m1.h.12 — `console.log(arr)` array pretty-print.
             // Per element type: I64 / F64 / Bool / Str / Substr; any
             // other elem type (Any / Arr<...> / Obj / Map / Set /
