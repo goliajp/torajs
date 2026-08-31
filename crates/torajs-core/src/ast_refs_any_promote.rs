@@ -14,8 +14,8 @@
 //! dispatches on uniformly (the chunk-809 Any-global machinery
 //! boxes the init and settles ownership; reads ride the
 //! any-member/any-call lanes). Any-slot-safe ObjectLits promote
-//! too; the method-carrying half is deferred — see the verdict fn's
-//! doc.
+//! too — including closure/method-carrying shapes since rotation
+//! 546; see the verdict fn's doc.
 //!
 //! Consumed by BOTH the checker (`check_pipeline::pass_2` register +
 //! `check_stmt_let_decl` main-binding widen via the recorded eid
@@ -25,18 +25,16 @@
 //! set themselves; this fn judges the init SHAPE only.
 
 use crate::ast::{Ast, Expr, ExprId};
+use crate::ast_refs::lifted_closure_fn_canon;
 
 /// True iff `init` is a shape the toplevel whitelist promotes as an
 /// `Any` slot — a call result, or an any-slot-safe object literal.
-/// Method-carrying ObjectLits (`let iter = { next() {…} }`) are NOT
-/// admitted here yet: their deferral dates to probe tb2 (rotation
-/// 238, `next()` answered box bits as a number and the main-side
-/// `count` read a stale 0), and while the objlit-anylane method
-/// substrate has since closed that hole for EXPLICITLY-`any`
-/// bindings (rotation 546 probes: method + `this` state, runtime
-/// closure fields, `this`-through-any-member-call all bun-equal),
-/// putting the promoted-binding half back is its own cut with its
-/// own gate.
+/// The tb2 deferral (rotation 238: method-carrying literals whose
+/// `this`-home didn't round-trip) is mostly retired as of rotation
+/// 546: the all-shaped method literal rides the `__inlobj` + `__mth`
+/// typed lane, and receiver-less closure members admit here. What
+/// remains out is a METHOD member in an `__inlobj`-refused mix —
+/// see the closure arm's comment for the proven `this`-chain hole.
 ///
 /// The admitted literal (`var obj = {};` / `{ a: null }` /
 /// `{ p: { q: 1 + 1 } }` / `{ v: mk() }` — the test262
@@ -87,7 +85,7 @@ pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
 /// out, mirroring `any_promote_init`'s class refusal: instances
 /// carry nominal identity the typed lanes dispatch on, and the
 /// boxed spelling has no probe coverage. Closure-valued members
-/// stay out too — they are the method-carrying half, its own cut.
+/// admit since the same rotation's face ② — see that arm's comment.
 pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
     match ast.get_expr(e) {
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::BigInt { .. } | Expr::Null => {
@@ -115,6 +113,23 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         // see the fn doc.
         Expr::Call { callee, .. } => {
             !matches!(ast.get_expr(*callee), Expr::Ident(n) if n.starts_with("__new_"))
+        }
+        // Rotation 546 face ② — a closure-valued member admits when
+        // it carries NO receiver (`fnexpr_recv_fns` = the lifted fn
+        // took a hidden `__this`): probes cover the receiver-less
+        // face end to end (closure+null mix, top-level captures with
+        // mutation observed across named fns). A METHOD member stays
+        // out of this fallback: the promoted dynobj's `this`-chain
+        // read has a proven hole (`{ box: { d: 1 }, read() { return
+        // this.box.d + 10 } }` answered the I64 box BITS through a
+        // named fn — while the explicit-`any` spelling of the same
+        // program is bun-equal), so admitting it would trade today's
+        // loud unknown-identifier for a silent wrong. All-shaped
+        // method literals never reach here — the `__inlobj` + `__mth`
+        // arm carries them. Variadic sigs stay out — their boxed-dual
+        // routing is a fn-local table.
+        Expr::Closure { fn_name, .. } if !ast.fnexpr_recv_fns.contains(fn_name) => {
+            lifted_closure_fn_canon(ast, fn_name).is_some_and(|c| !c.contains("__rest("))
         }
         // Statically-shaped expressions (operator results, top-level
         // aliases, `Symbol()`) are certainly non-callable — the
