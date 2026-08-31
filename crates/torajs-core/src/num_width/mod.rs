@@ -343,10 +343,11 @@ pub(crate) fn analyze(
     // body hands the sentinel back, and returning a parameter that a
     // call site tainted is one of the ways it can. The two answers
     // feed each other, so they are closed together first.
-    let (undef_sentinel_params, mut fallthrough_fns) = close_sentinel_tables(&a, &ast.stmts);
+    let tables = close_sentinel_tables(&a, &ast.stmts);
+    let mut fallthrough_fns: HashSet<String> = tables.fns.clone();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { .. } = stmt {
-            seed_and_walk_fn(&mut a, stmt, &undef_sentinel_params, &mut fallthrough_fns);
+            seed_and_walk_fn(&mut a, stmt, &tables, &mut fallthrough_fns);
         } else {
             a.walk_stmt(stmt, &top_scope);
         }
@@ -437,7 +438,7 @@ pub(crate) fn analyze(
         a.container_poison,
         a.nominal_aliases,
         fallthrough_fns,
-        undef_sentinel_params,
+        tables.params,
         objlit_shape_f64,
         a.proven_reads,
     )
