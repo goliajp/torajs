@@ -56,4 +56,22 @@ impl<'a> LowerCtx<'a> {
             }
         }
     }
+
+    /// Lower `eid` and bring it to an i64 INDEX operand per ES
+    /// §7.1.5 `ToIntegerOrInfinity` — [`Self::lower_to_number_operand`]
+    /// followed by [`Self::coerce_to_i64`], which is where `NaN → 0`
+    /// and `±∞ → i64::{MAX,MIN}` are settled.
+    ///
+    /// Every builtin slot whose spec step is `ToIntegerOrInfinity`
+    /// wants exactly this, and a lane that reaches for `lower_expr`
+    /// instead is silently generating an 8-byte scalar contract over
+    /// whatever the operand actually is: `a.splice(i, 1)` for an
+    /// `i: any` spliced at the wrong position, no diagnostic, wrong
+    /// array. Naming the pair once means a lane widens by deleting
+    /// its shape gate and calling this, rather than by growing one
+    /// more `Any` admission arm beside the `Number` one.
+    pub(crate) fn lower_to_index_operand(&mut self, eid: ExprId) -> Operand {
+        let n = self.lower_to_number_operand(eid);
+        self.coerce_to_i64(n)
+    }
 }

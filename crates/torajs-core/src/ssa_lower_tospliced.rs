@@ -220,7 +220,9 @@ fn emit_clone_splice_return(
     let start = if args.is_empty() {
         Operand::ConstI64(0)
     } else {
-        ctx.lower_expr(args[0])
+        // §23.1.3.42 step 3 ToIntegerOrInfinity(start) — same i64
+        // helper ABI, same hazard, as the mutating sibling.
+        ctx.lower_to_index_operand(args[0])
     };
     // S237 — `arr.toSpliced(start, undefined)` mirrors splice undef
     // handling per ES §23.1.3.42 step 7: ToIntegerOrInfinity(undef)=0,
@@ -236,7 +238,7 @@ fn emit_clone_splice_return(
             ) {
                 Operand::ConstI64(0)
             } else {
-                ctx.lower_expr(args[1])
+                ctx.lower_to_index_operand(args[1])
             }
         }
     };

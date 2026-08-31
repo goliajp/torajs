@@ -160,7 +160,11 @@ fn emit_splice_return(
     let start = if args.is_empty() {
         Operand::ConstI64(0)
     } else {
-        ctx.lower_expr(args[0])
+        // §23.1.3.31 step 3 ToIntegerOrInfinity(start). The helper's
+        // params are i64, so a raw `lower_expr` handed an `any` its
+        // box bits as a position — `a.splice(i, 1)` for an `i: any`
+        // removed the wrong element and said nothing.
+        ctx.lower_to_index_operand(args[0])
     };
     // S237 — `arr.splice(start, undefined)` per ES §23.1.3.31 step 7:
     // ToIntegerOrInfinity(undefined) = 0, so an explicit-undefined
@@ -178,7 +182,7 @@ fn emit_splice_return(
             ) {
                 Operand::ConstI64(0)
             } else {
-                ctx.lower_expr(args[1])
+                ctx.lower_to_index_operand(args[1])
             }
         }
     };
