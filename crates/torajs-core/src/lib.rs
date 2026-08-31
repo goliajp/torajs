@@ -604,6 +604,7 @@ pub(crate) mod ssa_lower_str_html;
 pub(crate) mod ssa_lower_str_replace_fn;
 pub(crate) mod ssa_lower_str_short_circuits;
 pub(crate) mod ssa_lower_str_str_argv;
+mod ssa_lower_str_str_argv_numslot;
 pub(crate) mod ssa_lower_str_str_defaults;
 pub(crate) mod ssa_lower_str_str_dispatch;
 pub(crate) mod ssa_lower_str_str_intrinsic;
