@@ -2,7 +2,7 @@
 //! `GlobalSlotShape` and its initializer walkers, split from
 //! `ast_refs.rs` at the 500-line boundary (r290).
 
-use crate::ast::{Ast, Expr, ExprId, Stmt, UnaryOp};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
 
 /// Slot type for an un-annotated top-level declaration, recovered from
 /// initializer shapes whose runtime type is statically certain. Number
@@ -88,6 +88,29 @@ fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotSha
             op: UnaryOp::Neg,
             expr,
         } => infer_slot_shape(ast, *expr, depth + 1),
+        // A concatenation of two strings is a string, and string has
+        // no width question — so the slot's runtime type is as
+        // certain here as it is for a literal. Registered as 468-01:
+        // `const src = "a b" + "!"` stayed a main-fn local, so
+        // `function f() { return src.split(" ").length }` answered
+        // "unknown identifier" and threw at runtime, while the same
+        // program with the halves already joined compiled.
+        //
+        // One side is enough: §13.15.3 concatenates whenever EITHER
+        // primitive is a String, so `"n" + count` is as certainly a
+        // string as `"a" + "b"`. (A Symbol on the other side throws
+        // in ToString, and a binding that never gets a value has no
+        // slot to be wrong about.) `&&` / `||` / `??` yield an
+        // operand rather than a fresh string, and are not additions.
+        Expr::BinOp {
+            op: BinOp::Add,
+            left,
+            right,
+        } if infer_slot_shape(ast, *left, depth + 1) == Some(GlobalSlotShape::Str)
+            || infer_slot_shape(ast, *right, depth + 1) == Some(GlobalSlotShape::Str) =>
+        {
+            Some(GlobalSlotShape::Str)
+        }
         // Call to a top-level named fn: the return annotation is the
         // same ground truth lowering uses for the callee's ret slot.
         Expr::Call { callee, .. } => {
