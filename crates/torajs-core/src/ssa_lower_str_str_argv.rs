@@ -35,7 +35,7 @@
 //! - **fallback** — `argv.push(ctx.lower_expr(a))`.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Walk `args` and append each lowered (or spec-substituted) operand
@@ -156,7 +156,7 @@ pub(crate) fn populate_argv(
             if substring_len_op.is_none() {
                 let len = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Load(Type::I64, recv_op, 8),
+                    InstKind::Load(Type::I64, recv_op.clone(), 8),
                     Type::I64,
                     None,
                 );
@@ -178,6 +178,97 @@ pub(crate) fn populate_argv(
             // the matching shape gate, so `'abc'.charCodeAt('1')` is
             // 98 rather than a compile-time refusal.
             argv.push(any_arg_to_i64(ctx, a));
+        } else if matches!(method, "slice" | "substring" | "substr")
+            && i == 1
+            && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
+        {
+            // Rotation 543 — §22.1.3.{23,24} step 4 and §B.2.2.1
+            // step 5 both read an `undefined` second slot as "to the
+            // end of the string", NOT as ToIntegerOrInfinity's 0. The
+            // STATIC spelling already answers that (`slice_subs_2arg`
+            // above loads the receiver's length); a value that only
+            // turns out to be undefined at RUN time fell through to
+            // the plain coercion and answered "".
+            //
+            // Found because rotation 543's mixed-element-type fix made
+            // `[...numbers, undefined]` actually hold `undefined`
+            // instead of `0`. test262's substr coverage builds its
+            // argument matrix out of exactly that array and had been
+            // passing only because its own reference implementation
+            // read the same wrong `0` — both sides wrong, agreeing.
+            //
+            // NaN must NOT take this path (`slice(0, NaN)` is ""), so
+            // the test is on the any TAG, not on the number.
+            let raw = ctx.lower_expr(a);
+            let cur = ctx.cur_block;
+            let tag = ctx.f.append_inst(
+                cur,
+                InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![raw.clone()]),
+                Type::I64,
+                None,
+            );
+            let n = ctx.f.append_inst(
+                cur,
+                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
+                Type::F64,
+                None,
+            );
+            // A user `valueOf` on the slot can throw — same check the
+            // shared `lower_to_number_operand` emits.
+            ctx.emit_throw_check(None);
+            let idx = ctx.coerce_to_i64(Operand::Value(n));
+            if substring_len_op.is_none() {
+                let len = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Load(Type::I64, recv_op.clone(), 8),
+                    Type::I64,
+                    None,
+                );
+                substring_len_op = Some(Operand::Value(len));
+            }
+            let is_undef = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(
+                    crate::ssa::IPred::Eq,
+                    Operand::Value(tag),
+                    Operand::ConstI64(5),
+                ),
+                Type::Bool,
+                None,
+            );
+            // A slot plus a branch, not `InstKind::Select` — that one
+            // is introduced only after the egraph pass and its
+            // elaborator rejects an early one loudly.
+            let slot = ctx.alloca(Type::I64, Some("__str_end_slot"));
+            let then_blk = ctx.f.add_block();
+            let else_blk = ctx.f.add_block();
+            let join_blk = ctx.f.add_block();
+            ctx.f.set_term(
+                ctx.cur_block,
+                Terminator::CondBr {
+                    cond: Operand::Value(is_undef),
+                    then_blk,
+                    else_blk,
+                },
+            );
+            ctx.cur_block = then_blk;
+            ctx.f.append_void(
+                then_blk,
+                InstKind::Store(substring_len_op.clone().unwrap(), Operand::Value(slot), 0),
+            );
+            ctx.f.set_term(then_blk, Terminator::Br(join_blk));
+            ctx.cur_block = else_blk;
+            ctx.f
+                .append_void(else_blk, InstKind::Store(idx, Operand::Value(slot), 0));
+            ctx.f.set_term(else_blk, Terminator::Br(join_blk));
+            ctx.cur_block = join_blk;
+            let sel = ctx.f.append_inst(
+                join_blk,
+                InstKind::Load(Type::I64, Operand::Value(slot), 0),
+                Type::I64,
+                None,
+            );
+            argv.push(Operand::Value(sel));
         } else if matches!(method, "slice" | "substring" | "substr")
             && i < 2
             && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
