@@ -111,6 +111,72 @@ fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotSha
         {
             Some(GlobalSlotShape::Str)
         }
+        // The comparisons and `!` answer a boolean whatever they are
+        // handed (§13.10, §13.11, §13.5.7), so no operand needs to be
+        // known at all.
+        Expr::BinOp { op, .. }
+            if matches!(
+                op,
+                BinOp::Lt
+                    | BinOp::Gt
+                    | BinOp::Le
+                    | BinOp::Ge
+                    | BinOp::Eq
+                    | BinOp::Neq
+                    | BinOp::LooseEq
+                    | BinOp::LooseNeq
+            ) =>
+        {
+            Some(GlobalSlotShape::Bool)
+        }
+        Expr::Unary {
+            op: UnaryOp::Not, ..
+        } => Some(GlobalSlotShape::Bool),
+        // The bitwise operators and shifts run ToInt32 / ToUint32 on
+        // both sides (§13.12, §13.9), so the answer is an integer
+        // whatever they are handed — `"3" & 1` included.
+        Expr::BinOp { op, .. }
+            if matches!(
+                op,
+                BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Shl
+                    | BinOp::Shr
+                    | BinOp::UShr
+            ) =>
+        {
+            Some(GlobalSlotShape::I64)
+        }
+        // The remaining arithmetic answers a number: `-` `*` `/` `%`
+        // `**` coerce both sides with ToNumber, and `+` does too once
+        // neither side is a string — which the arm above has already
+        // established by declining. Both operands must have a known
+        // shape, which is what keeps BigInt out: a BigInt init answers
+        // None above, so `1n * 2n` declines here rather than claiming
+        // a number slot for a BigInt cell.
+        //
+        // WIDTH is not decided here. The arm answers I64 and the
+        // lowerer corrects it to F64 when `num_width` marked this
+        // global's slot fractional — the same correction the written
+        // `: number` lane rides, and top-level lets are keyed as
+        // globals in that analysis whether or not they promote.
+        Expr::BinOp { op, left, right }
+            if matches!(
+                op,
+                BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow
+            ) && is_known_non_bigint(ast, *left, depth)
+                && is_known_non_bigint(ast, *right, depth) =>
+        {
+            Some(GlobalSlotShape::I64)
+        }
+        Expr::BinOp {
+            op: BinOp::Add,
+            left,
+            right,
+        } if is_known_number_ish(ast, *left, depth) && is_known_number_ish(ast, *right, depth) => {
+            Some(GlobalSlotShape::I64)
+        }
         // Call to a top-level named fn: the return annotation is the
         // same ground truth lowering uses for the callee's ret slot.
         Expr::Call { callee, .. } => {
@@ -139,6 +205,30 @@ fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotSha
         }
         _ => None,
     }
+}
+
+/// A shape that is certainly not a BigInt cell — every arithmetic
+/// operator ToNumbers such an operand rather than staying in the
+/// BigInt world.
+fn is_known_non_bigint(ast: &Ast, e: ExprId, depth: u32) -> bool {
+    matches!(
+        infer_slot_shape(ast, e, depth + 1),
+        Some(
+            GlobalSlotShape::I64
+                | GlobalSlotShape::F64
+                | GlobalSlotShape::Bool
+                | GlobalSlotShape::Str
+        )
+    )
+}
+
+/// The same, minus `Str` — `+` concatenates rather than adds when
+/// either side is one, which the string arm answers first.
+fn is_known_number_ish(ast: &Ast, e: ExprId, depth: u32) -> bool {
+    matches!(
+        infer_slot_shape(ast, e, depth + 1),
+        Some(GlobalSlotShape::I64 | GlobalSlotShape::F64 | GlobalSlotShape::Bool)
+    )
 }
 
 /// RFC 20260709-closure-global chunk 2 — the canonical `__fn(P|..)->R`
