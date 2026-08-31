@@ -41,7 +41,17 @@ pub(crate) fn try_lower(
     let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if name != "next" || !args.is_empty() {
+    // Rotation 545 — args are lowered-and-dropped, not a miss:
+    // %MapIteratorPrototype%.next / %ArrayIteratorPrototype%.next
+    // take no parameters and ignore extras (eval-then-discard, the
+    // S272 trailing idiom). The load-bearing case is not even a user
+    // spelling: a module containing any generator registers a 1-param
+    // `next` in `apply_default_args`' name-keyed table, which pads
+    // `m.next()` on an unresolvable receiver to `m.next(<default>)` —
+    // the old `!args.is_empty()` bail then dropped the whole claim
+    // and the cascade's terminal panicked on a call the compiler
+    // wrote itself.
+    if name != "next" {
         return None;
     }
     // Prefer the checker's inferred type on the receiver expression so
@@ -67,6 +77,12 @@ pub(crate) fn try_lower(
     let recv_id = *obj;
     let recv_op = ctx.lower_expr(recv_id);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
+    // Eval-then-discard the ignored arguments (spec order: after the
+    // receiver; they evaluate even though the built-in next never
+    // reads them).
+    for &a in args {
+        let _ = ctx.lower_expr(a);
+    }
     let tag_slot = ctx.alloca(Type::I64, Some("__iter_tag"));
     let val_slot = ctx.alloca(Type::I64, Some("__iter_val"));
     let cur_block = ctx.cur_block;
@@ -150,11 +166,17 @@ pub(crate) fn try_lower(
         None,
     );
     ctx.emit_obj_header_init(Operand::Value(obj_ptr));
-    // Class tag = 0 (anonymous struct, no class).
+    // Rotation 545 — anon-stamp the synthesized IteratorResult.
+    // The old `class_tag = 0` stamp fell out of every reflection
+    // consumer: `struct_layout_lookup(0)` is NULL, so the Tag::Obj
+    // print walker answered `{}` for `console.log(it.next())` where
+    // bun prints `{ value: …, done: … }` (the exact fall-through
+    // `ssa_lower_anon_stamp`'s module doc names).
+    let class_tag = ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid);
     ctx.f.append_void(
         cur_block,
         InstKind::Store(
-            Operand::ConstI64(0),
+            Operand::ConstI64(i64::from(class_tag)),
             Operand::Value(obj_ptr),
             OBJ_CLASS_TAG_OFF,
         ),
