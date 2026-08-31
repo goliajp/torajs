@@ -65,28 +65,21 @@ pub(crate) fn try_match(
     if !matches!(src_ty, Type::String) {
         return None;
     }
-    let aty0 = match checker.type_of(ast, args[0]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    let arg0_ok = match m_name.as_str() {
-        "slice" | "substring" => matches!(aty0, Type::Number | Type::Undefined),
-        "substr" => matches!(aty0, Type::Number),
-        "padStart" | "padEnd" => matches!(aty0, Type::Number | Type::Undefined),
-        _ => false,
-    };
-    if !arg0_ok {
-        return Some(Err(format!(
-            "String.{m_name} arg 0 must be number, got {aty0:?}"
-        )));
+    // Rotation 545 — the numeric slots (arg 0 everywhere, arg 1 for
+    // the slice family) run ToIntegerOrInfinity / ToLength: coerced,
+    // not shape-checked, so the checker only typechecks and the
+    // numslot lowering owns the shape dispatch (rotation 463
+    // charCodeAt precedent). The pad fill slot stays gated — it is a
+    // ToString slot, a different family.
+    if let Err(e) = checker.type_of(ast, args[0]) {
+        return Some(Err(e));
     }
     let aty1 = match checker.type_of(ast, args[1]) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
     let arg1_ok = match m_name.as_str() {
-        "slice" | "substring" => matches!(aty1, Type::Number | Type::Undefined),
-        "substr" => matches!(aty1, Type::Number),
+        "slice" | "substring" | "substr" => true,
         "padStart" | "padEnd" => matches!(aty1, Type::String | Type::Undefined),
         _ => false,
     };

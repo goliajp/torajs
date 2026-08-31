@@ -107,7 +107,11 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if !matches!(from_ty, Type::Number | Type::Undefined) {
+        // Rotation 545 — the trailing spelling carried a narrower
+        // gate than its 2-arg siblings (`array_index_2arg` /
+        // `index_search_any` both admit Any); the lowering is shared,
+        // so the two spellings must agree.
+        if !matches!(from_ty, Type::Number | Type::Undefined | Type::Any) {
             return Some(Err(format!(
                 "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
             )));

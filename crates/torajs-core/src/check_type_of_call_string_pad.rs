@@ -73,14 +73,13 @@ pub(crate) fn try_match(
         return None;
     }
     if let Some(arg0) = args.first() {
-        let aty = match checker.type_of(ast, *arg0) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if !matches!(aty, Type::Number | Type::Undefined | Type::Any) {
-            return Some(Err(format!(
-                "String.{m_name} arg 0 must be number, got {aty:?}"
-            )));
+        // Rotation 545 — maxLength runs ToLength (§22.1.3.16.1
+        // step 3): coerced, not shape-checked; the numslot lowering
+        // owns the shape dispatch (rotation 463 charCodeAt
+        // precedent). The fill slot below stays gated — ToString,
+        // a different family.
+        if let Err(e) = checker.type_of(ast, *arg0) {
+            return Some(Err(e));
         }
     }
     if let Some(arg1) = args.get(1) {

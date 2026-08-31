@@ -99,18 +99,26 @@ pub(crate) fn try_lower(
         return Some(sel);
     } else if matches!(method, "slice" | "substring" | "substr")
         && i < 2
-        && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
+        && !matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Number))
     {
-        // S333 — `s.{slice,substring,substr}(Any, Any)`
-        // ToIntegerOrInfinity accepts arbitrary-typed input on
-        // both positional slots.
+        // S333 — `s.{slice,substring,substr}` positional slots:
+        // ToIntegerOrInfinity COERCES, so every shape but Number
+        // routes through the runtime's own ToNumber
+        // (`'abcdef'.slice(0, '2')` is "ab"). Rotation 545 widened
+        // this from an `Any`-only admission, mirroring the checker
+        // gate drop (rotation 463 charCodeAt precedent). An any box
+        // at the END slot is claimed by the tag-test arm above; a
+        // STATIC undefined never reaches here — the parent's
+        // substitution arms claim it first.
         return Some(ctx.lower_to_index_operand(a));
     } else if matches!(method, "padStart" | "padEnd")
         && i == 0
-        && matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Any))
+        && !matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Number))
     {
-        // S338 — `s.{padStart,padEnd}(Any [, fillStr])`
-        // ToLength accepts arbitrary-typed input.
+        // S338 — `s.{padStart,padEnd}(maxLength [, fillStr])`
+        // ToLength COERCES; same rotation-545 widening as the slice
+        // arm above (static undefined is claimed by the parent's
+        // `undef_zero_at_arg0_pad` substitution first).
         return Some(ctx.lower_to_index_operand(a));
     } else if matches!(method, "endsWith" | "split")
         && i == 1

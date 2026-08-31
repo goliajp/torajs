@@ -66,16 +66,13 @@ pub(crate) fn try_match(
     if !matches!(src_ty, Type::String) {
         return None;
     }
-    let allow_undef = m_name == "slice" || m_name == "substring";
+    // Rotation 545 — ToIntegerOrInfinity COERCES the slot
+    // (§22.1.3.23/.24, §B.2.2.1), so the checker only typechecks;
+    // the numslot lowering owns the shape dispatch. Same widening
+    // as rotation 463's charCodeAt precedent.
     for &aid in args {
-        let aty = match checker.type_of(ast, aid) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if aty != Type::Number && !(allow_undef && aty == Type::Undefined) && aty != Type::Any {
-            return Some(Err(format!(
-                "String.{m_name} arg must be number, got {aty:?}"
-            )));
+        if let Err(e) = checker.type_of(ast, aid) {
+            return Some(Err(e));
         }
     }
     Some(Ok(Type::String))

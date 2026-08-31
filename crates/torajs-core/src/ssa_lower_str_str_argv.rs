@@ -87,11 +87,16 @@ pub(crate) fn populate_argv(
     // clamp picks len.
     let undef_max_at_arg1 =
         matches!(method, "split" | "lastIndexOf" | "endsWith") && args.len() == 2;
-    // S221 / S232 / S241 — slice / substring 2-3 arg undef slot
-    // substitution; recv.length emitted lazily only when arg[1] is
-    // actually undef.
+    // S221 / S232 / S241 — slice / substring / substr 2-3 arg undef
+    // slot substitution; recv.length emitted lazily only when arg[1]
+    // is actually undef. substr joined in rotation 545 when its
+    // checker gate stopped excluding static undefined: §B.2.2.1
+    // step 5 reads an undefined length as "to the end", and
+    // recv.length is the same value the any lane's runtime tag test
+    // hands the helper (clamped downstream), so the static spelling
+    // substitutes what the dynamic one selects.
     let slice_subs_2arg =
-        matches!(method, "substring" | "slice") && (args.len() == 2 || args.len() == 3);
+        matches!(method, "substring" | "slice" | "substr") && (args.len() == 2 || args.len() == 3);
     let mut substring_len_op: Option<Operand> = None;
     let slice_subs_1arg_undef = matches!(method, "substring" | "slice") && args.len() == 1;
     // S222 — at/charAt/charCodeAt/codePointAt 1-arg undef →
