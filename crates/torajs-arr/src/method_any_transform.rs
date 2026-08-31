@@ -97,6 +97,22 @@ pub unsafe extern "C" fn __torajs_arr_any_concat(
     }
 }
 
+/// One Any-typed concat argument for the typed-tier lowering's
+/// `Arr<Any>` assembly fold (rotation 546) — §23.1.3.1 steps 5.b/5.c
+/// need a runtime is-array test to know whether the value spreads or
+/// appends, and the static lanes have none. Same subset as the
+/// sibling entries: a `Tag::Arr` heap value spreads, everything else
+/// appends as one element (no `@@isConcatSpreadable` surface).
+///
+/// # Safety
+/// `dst` is a valid `FLAG_ARR_ANY` Array<Any> heap pointer (the
+/// fold's accumulator); `av` is a BORROWED NaN-box AnyValue. Caller
+/// MUST capture the return value (dst may have moved).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_concat_any_arg(dst: *mut u8, av: u64) -> *mut u8 {
+    unsafe { concat_extend_args(dst, &raw const av, 1) }
+}
+
 /// The §23.1.3.1 per-argument loop shared by both concat entries:
 /// a `Tag::Arr` heap argument spreads, everything else appends as
 /// one element.
@@ -104,23 +120,25 @@ unsafe fn concat_extend_args(mut dst: *mut u8, argv: *const u64, argc: i64) -> *
     unsafe {
         for k in 0..argc {
             let av = *argv.add(k as usize);
-            let tag = __torajs_anyv_unbox_tag(av) as u64;
-            if tag == ANY_HEAP {
-                let inner = __torajs_anyv_unbox_value(av) as *const u8;
-                if !inner.is_null() && *(inner.add(4) as *const u16) == TAG_ARR {
+            // §23.1.3.1 spread test — the cell bit-test runs BEFORE
+            // any unbox: a ShortStr reports tag Heap, and
+            // unbox_value materializes it into an owned Str this
+            // probe then abandons (one Str leaked per appended
+            // argument — the rotation-546 leak, present since this
+            // loop was written). A real cell's encoding IS the
+            // pointer, so no unbox is needed on that side either.
+            if torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
+                let inner = av as *const u8;
+                if *(inner.add(4) as *const u16) == TAG_ARR {
                     dst = crate::any::__torajs_arr_extend_any(dst, inner);
                     continue;
                 }
             }
-            // Non-array argument appends as one element. push_any
-            // takes ownership of heap cells; argv is borrowed → +1
-            // first (mirrors flat_any's carry-through).
-            __torajs_rc_inc(av as *mut c_void);
-            dst = crate::any::__torajs_arr_push_any(
-                dst as *mut c_void,
-                tag,
-                __torajs_anyv_unbox_value(av) as u64,
-            );
+            // Non-array argument appends as one element. The boxed
+            // push stores the AnyValue bits directly and takes its
+            // own +1 — the pair spelling's unbox/rebox would
+            // materialize a ShortStr the same way.
+            dst = crate::any::__torajs_arr_push_any_boxed(dst, av);
         }
         dst
     }

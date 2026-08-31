@@ -19,10 +19,10 @@ use core::ffi::c_void;
 
 #[cfg(not(test))]
 unsafe extern "C" {
-    /// torajs-anyvalue — NaN-box accessors (the same pair
-    /// `in_op_any` externs).
+    /// torajs-anyvalue — NaN-box tag accessor (the same
+    /// `in_op_any` extern). The VALUE accessor is deliberately
+    /// absent — see [`heap_cell_ptr`].
     fn __torajs_anyv_unbox_tag(v: i64) -> i64;
-    fn __torajs_anyv_unbox_value(v: i64) -> i64;
     fn __torajs_throw_type_error(msg: *const u8);
 }
 
@@ -57,10 +57,9 @@ pub unsafe fn is_array_spec(v: i64) -> Result<bool, ()> {
         if unsafe { __torajs_anyv_unbox_tag(cur) } != ANY_TAG_HEAP {
             return Ok(false);
         }
-        let ptr = unsafe { __torajs_anyv_unbox_value(cur) } as *const c_void;
-        if ptr.is_null() {
+        let Some(ptr) = (unsafe { heap_cell_ptr(cur) }) else {
             return Ok(false);
-        }
+        };
         let type_tag = unsafe { *((ptr as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) };
         if type_tag != TAG_PROXY {
             // RECORDED GAP (517-06): an arguments object is NOT an
@@ -117,17 +116,34 @@ pub unsafe extern "C" fn __torajs_any_is_arr(v: i64) -> bool {
     matches!(unsafe { is_array_spec(v) }, Ok(true))
 }
 
+/// The heap pointer behind a tag-Heap AnyValue, or `None` when the
+/// bit pattern carries no cell. Rotation 546: this test must NOT go
+/// through `__torajs_anyv_unbox_value` — a ShortStr reports tag Heap
+/// and unbox_value materializes it into an owned Str the probe then
+/// abandons (one leaked Str per ask; the any-concat spread test
+/// leaked exactly this way). In the real NaN-box encoding a cell IS
+/// the raw pointer, so the bit test suffices with no unbox at all.
+#[cfg(not(test))]
+#[inline]
+unsafe fn heap_cell_ptr(cur: i64) -> Option<*const c_void> {
+    crate::ffi::nan_box_is_cell_like(cur as *mut c_void).then_some(cur as *const c_void)
+}
+
+/// Test twin — the unit tests build pair-shaped `(tag << 48) | ptr`
+/// values (see `nan_box` below), where the cell-bit test is
+/// meaningless and the ptr must be masked out.
+#[cfg(test)]
+unsafe fn heap_cell_ptr(cur: i64) -> Option<*const c_void> {
+    let p = (cur as u64 & 0x0000_FFFF_FFFF_FFFF) as *const c_void;
+    (!p.is_null()).then_some(p)
+}
+
 // Cargo-test stubs for the NaN-box / throw externs — the real
 // symbols live in torajs-anyvalue and torajs-throw. Same arrangement
 // `in_op_any` uses for its own dispatch tests.
 #[cfg(test)]
 unsafe fn __torajs_anyv_unbox_tag(v: i64) -> i64 {
     ((v as u64 >> 48) & 0xFFFF) as i64
-}
-
-#[cfg(test)]
-unsafe fn __torajs_anyv_unbox_value(v: i64) -> i64 {
-    (v as u64 & 0x0000_FFFF_FFFF_FFFF) as i64
 }
 
 #[cfg(test)]

@@ -119,6 +119,55 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
     }
 }
 
+/// Append one BORROWED NaN-box AnyValue, storing the box bits
+/// directly — never unboxing. The pair-shaped sibling above forces
+/// callers holding a box through unbox/rebox, and `unbox_value`
+/// materializes a ShortStr into a fresh heap Str the rebox then
+/// abandons (rotation 546: the any-concat append leaked one Str per
+/// round exactly this way; same rule as `arr_new_from_any`'s element
+/// path). The slot takes its own +1 via the NaN-box-safe rc_inc.
+/// Returns the (possibly-realloc'd) array pointer; caller stores it
+/// back.
+///
+/// # Safety
+/// `arr` must be a valid Array heap pointer; `av` carries a valid
+/// AnyValue bit pattern, borrowed from the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_push_any_boxed(arr: *mut u8, av: u64) -> *mut u8 {
+    unsafe {
+        if crate::sparse_gate::sparse_tail_rejects(
+            arr as *const c_void,
+            b"sparse array tail is not yet supported in Array.prototype.push\0".as_ptr(),
+        ) {
+            return arr;
+        }
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
+            // Typed block behind a static Arr<Any> view: raw slots,
+            // so the pair spelling is the storage format anyway — a
+            // materialized ShortStr is adopted by the slot, not
+            // abandoned. typed_push_pair ADOPTS, this entry BORROWS:
+            // a heap cell needs its stake handed over (+1); a
+            // materialized ShortStr already carries a fresh one.
+            let tag = __torajs_anyv_unbox_tag(av) as u64;
+            let value = __torajs_anyv_unbox_value(av) as u64;
+            if tag == ANY_HEAP {
+                __torajs_rc_inc(value as *mut c_void);
+            }
+            return crate::any_typed_bridge::typed_push_pair(arr, tag, value);
+        }
+        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32);
+        if (len as u32) == cap {
+            let new_cap: u32 = if cap == 0 { 4 } else { cap * 2 };
+            grow_data_buffer(arr, new_cap as u64);
+        }
+        __torajs_rc_inc(av as *mut c_void);
+        *slot_anyvalue_ptr(arr, len) = av;
+        *(arr.add(ARR_LEN_OFF) as *mut u64) = len + 1;
+        arr
+    }
+}
+
 /// Extend `dst` with `src`'s tagged slots. Both are Array<Any>
 /// (8-byte AnyValue slots). Each appended cell-tagged slot gets its
 /// refcount bumped so dst shares ownership; src retains its own.

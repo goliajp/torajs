@@ -52,8 +52,14 @@ pub unsafe extern "C" fn __torajs_rc_inc(p: *mut c_void) {
 /// / Bool sentinels), so this check cleanly distinguishes the
 /// two without depending on torajs-anyvalue. Mirrors the
 /// `is_cell` predicate in `torajs-anyvalue::nanbox`.
+///
+/// `pub` since rotation 546: any is-this-cell-an-X probe must run
+/// this test BEFORE `__torajs_anyv_unbox_value` — a ShortStr
+/// reports tag Heap and unbox_value materializes it into an owned
+/// Str a probe then abandons (one leaked Str per probe; the
+/// any-concat spread test leaked exactly this way).
 #[inline]
-fn nan_box_is_cell_like(p: *mut c_void) -> bool {
+pub fn nan_box_is_cell_like(p: *mut c_void) -> bool {
     // Step 8b-B: tighten weak `(v & TAG_TYPE_NUMBER) == 0` to strict
     // `(v & TOP_16_MASK) == 0` so ShortStr (top16 = 0x0001) values
     // are correctly classified as non-cell. Mirrors the same tighten

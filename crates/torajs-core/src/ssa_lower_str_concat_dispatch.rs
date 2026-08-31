@@ -201,6 +201,18 @@ fn extend_any_acc_with_args(
                     )
                 }
             }
+            // Rotation 546 — an Any argument's §23.1.3.1
+            // spread-vs-append question is a runtime is-array test;
+            // the kernel borrows the box and takes its own stakes
+            // per slot. This arm previously fell to the packed
+            // single-element append below — a silent wrong for an
+            // Any holding an array.
+            Type::Any => ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_concat_any_arg, vec![acc, other.clone()]),
+                Type::Arr(arr_id),
+                None,
+            ),
             _ => {
                 // ES §23.1.3.2 — non-array arg appends as a single
                 // element. pack_any_elem incs refcounted values /

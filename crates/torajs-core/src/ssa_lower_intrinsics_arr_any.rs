@@ -49,6 +49,9 @@ pub(crate) struct ArrAnyIds {
     pub arr_unshift_any: FuncId,
     pub arr_fill_any: FuncId,
     pub arr_extend_any: FuncId,
+    /// Rotation 546 — one Any-typed concat argument: runtime
+    /// §23.1.3.1 is-array test (spread vs append) inside the kernel.
+    pub arr_concat_any_arg: FuncId,
     pub arr_any_slice: FuncId,
     pub arr_any_to_reversed: FuncId,
     pub arr_has_index: FuncId,
@@ -123,6 +126,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_unshift_any: decl!("__torajs_arr_unshift_any", [Ptr, I64, I64], Ptr),
         arr_fill_any: decl!("__torajs_arr_fill_any", [Ptr, I64, I64, I64, I64], Ptr),
         arr_extend_any: decl!("__torajs_arr_extend_any", [Ptr, Ptr], Ptr),
+        arr_concat_any_arg: decl!("__torajs_arr_concat_any_arg", [Ptr, Any], Ptr),
         // Flag-aware slice (concat's fresh-copy seed): FLAG_ARR_ANY
         // propagates onto the fresh header + per-slot NaN-box-safe
         // rc_inc — unlike raw arr_slice, whose product is flag-blind

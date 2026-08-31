@@ -72,13 +72,14 @@ pub(crate) fn try_match(
         if recv_any {
             continue;
         }
-        // Rotation 545 — an Any-typed argument stays unclaimed
-        // (falls to the cascade's loud reject): §23.1.3.1's
-        // IsConcatSpreadable would need a runtime is-array test to
-        // know whether it spreads or appends, and neither lane has
-        // one. A follow-up face, not a silent single-element guess.
+        // Rotation 546 — an Any-typed argument makes the result
+        // element set statically unknowable, so the answer is
+        // Array<Any> and §23.1.3.1's spread-vs-append question moves
+        // to runtime: the mixed lane routes it through the
+        // is-array-testing kernel (`arr_concat_any_arg`).
         if matches!(a_ty, Type::Any) {
-            return None;
+            mixed = true;
+            continue;
         }
         let is_arr_t = a_ty == Type::Array(Box::new(expected.clone()));
         let is_scalar_t = a_ty == expected;
