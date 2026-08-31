@@ -198,7 +198,7 @@ pub(crate) fn lower_fn(
     ctx.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ctx.ast);
     // RFC 20260804-mutable-let-widen — same shared-set contract.
     ctx.cross_type_widened = crate::let_widen::collect_cross_type_widen_inits(ctx.ast);
-    ctx.undefable_f64_fields = crate::undef_f64_fields::collect(&ctx);
+    crate::undef_f64_fields::prime(&mut ctx);
     ctx.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ctx.ast);
 
     ctx.materialize_fn_params(name, param_setup, &assigned_in_body);

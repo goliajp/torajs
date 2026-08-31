@@ -143,7 +143,7 @@ pub(crate) fn synthesize_main(
             owned_member_reads: std::collections::HashSet::new(),
             compound_key_memo: None,
         };
-        ctx.undefable_f64_fields = crate::undef_f64_fields::collect(&ctx);
+        crate::undef_f64_fields::prime(&mut ctx);
         // T-15.g.5 — prime the binding sets BEFORE lowering any
         // top-level let-decl (an unprimed escape-captured `let`
         // stack-allocs and SIGABRTs at env_drop; see the helper doc).
