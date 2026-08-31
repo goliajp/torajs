@@ -102,6 +102,10 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // operands; keeps the fractional/NaN/Infinity bits the i64
     // coercion erases so the ToUint32(len) != len RangeError fires.
     let _ = decl!("__torajs_arr_alloc_any_filled_f64", [F64], Ptr);
+    // §23.1.1.1 step 4 — `new Array(x)` with an Any operand is a
+    // runtime type test (a Number is a length, anything else is the
+    // single element), so the whole dispatch is one kernel.
+    let _ = decl!("__torajs_arr_new_from_any", [Any], Ptr);
     // Chunk 698 `__torajs_arr_any_to_typed` — fn_table-only (the
     // let-decl assign-boundary conversion resolves it by name).
     let _ = decl!("__torajs_arr_any_to_typed", [Ptr, I64], Ptr);

@@ -21,7 +21,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_ANY, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader};
+use torajs_rc::{AnySlotTag, FLAG_ARR_ANY, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::any::{ANY_SLOT_BYTES, ANY_UNDEF, slot_anyvalue_ptr};
 use crate::layout::{
@@ -169,6 +169,16 @@ pub unsafe extern "C" fn __torajs_arr_free(p: *mut c_void) {
 unsafe extern "C" {
     /// Cross-tier — torajs-anyvalue NaN-box pack (undefined fill).
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    /// Cross-tier — torajs-anyvalue NaN-box tag probe (I64/F64
+    /// dispatch for the `new Array(any)` runtime type test).
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    /// Cross-tier — legacy raw-value decode. Only called on the
+    /// number tags here (ShortStr materializes under it — the
+    /// element path stores the AnyValue bits untouched instead).
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// Cross-tier — torajs-rc. NaN-box-safe: no-op for immediates,
+    /// bumps the wrapped heap pointer's refcount for cells.
+    fn __torajs_rc_inc(p: *mut c_void);
     /// Cross-tier — torajs-throw catchable RangeError.
     fn __torajs_throw_range_error(msg: *const u8);
 }
@@ -261,4 +271,35 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled_f64(len: f64) -> *mut u8 
         return core::ptr::null_mut();
     }
     unsafe { __torajs_arr_alloc_any_filled(len as u64) }
+}
+
+/// `__torajs_arr_new_from_any(v)` — `new Array(len)` for an Any
+/// operand. §23.1.1.1 step 4 branches on whether the argument IS a
+/// Number, not on coercing it to one: `new Array('3')` is `['3']`
+/// (length 1) while `new Array(3)` is length 3, so the Any lane is
+/// a runtime type test. Number tags reuse the validated length
+/// entries above (a negative i64 arrives as an out-of-range u64;
+/// the f64 entry keeps the NaN / ±Infinity / fractional bits the
+/// step-4.b RangeError needs). Every other tag allocates a
+/// length-1 Array<Any> holding the value. The box is borrowed:
+/// the slot takes its own +1 via the NaN-box-safe rc_inc (no-op
+/// for immediates), and `unbox_value` is never called on this
+/// path — ShortStr stays inline instead of materializing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_new_from_any(v: u64) -> *mut u8 {
+    unsafe {
+        let tag = __torajs_anyv_unbox_tag(v);
+        if tag == AnySlotTag::I64 as i64 {
+            return __torajs_arr_alloc_any_filled(__torajs_anyv_unbox_value(v) as u64);
+        }
+        if tag == AnySlotTag::F64 as i64 {
+            return __torajs_arr_alloc_any_filled_f64(f64::from_bits(
+                __torajs_anyv_unbox_value(v) as u64
+            ));
+        }
+        let p = __torajs_arr_alloc_any_filled(1);
+        *slot_anyvalue_ptr(p, 0) = v;
+        __torajs_rc_inc(v as *mut c_void);
+        p
+    }
 }

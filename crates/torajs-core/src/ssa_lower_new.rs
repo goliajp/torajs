@@ -14,10 +14,13 @@
 //!   `ssa_lower_new_collection`, which also owns the shared
 //!   iterable walk the weak pair reaches through
 //!   `lower_simple_create`.
-//! - **Array(n)** 1-arg numeric form — `__torajs_arr_alloc_any_filled(n)`
+//! - **Array(n)** 1-arg form — `__torajs_arr_alloc_any_filled(n)`
 //!   via fn_table lookup (intrinsic not in Intrinsics struct);
 //!   F64 operands route to `__torajs_arr_alloc_any_filled_f64` so the
-//!   §23.1.2.1 ToUint32(len) != len RangeError sees the raw bits.
+//!   §23.1.2.1 ToUint32(len) != len RangeError sees the raw bits;
+//!   Any operands route to `__torajs_arr_new_from_any` (§23.1.1.1
+//!   step 4 — a Number is a length, anything else is the single
+//!   element, so the Any lane is a runtime tag test).
 //!   Allocates `Array<Any>` of length n with ANY_NULL slots.
 //!   0-arg + ≥2-arg forms are rewritten to array literals by
 //!   `desugar_builtin_new` and never reach here.
@@ -348,11 +351,22 @@ fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // a RangeError. F64 operands go to the f64 alloc entry with the
     // fractional/NaN/Infinity bits intact (the i64 coercion folds
     // NaN → 0 / 4.5 → 4 and the check becomes unfireable);
-    // integer-provable operands stay on the hot i64 lane.
-    let (alloc_name, alloc_arg) = if matches!(ctx.operand_ty(&arg_val), Type::F64) {
-        ("__torajs_arr_alloc_any_filled_f64", arg_val)
+    // integer-provable operands stay on the hot i64 lane. An Any
+    // operand is not a coercion at all — §23.1.1.1 step 4 branches
+    // on whether the argument IS a Number (`new Array('3')` is
+    // `['3']`, length 1), so the whole dispatch is one borrowing
+    // kernel doing the runtime tag test.
+    let arg_ty = ctx.operand_ty(&arg_val);
+    let is_any = matches!(arg_ty, Type::Any);
+    let (alloc_name, alloc_arg) = if is_any {
+        ("__torajs_arr_new_from_any", arg_val.clone())
+    } else if matches!(arg_ty, Type::F64) {
+        ("__torajs_arr_alloc_any_filled_f64", arg_val.clone())
     } else {
-        ("__torajs_arr_alloc_any_filled", ctx.coerce_to_i64(arg_val))
+        (
+            "__torajs_arr_alloc_any_filled",
+            ctx.coerce_to_i64(arg_val.clone()),
+        )
     };
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let fid = *ctx
@@ -366,6 +380,12 @@ fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::Arr(arr_id),
         None,
     );
+    // The kernel borrows the box (the element store takes its own
+    // +1), so an owned Any temp is settled here — before the throw
+    // check so the RangeError propagate path doesn't leak it.
+    if is_any {
+        ctx.release_owned_temp(args[0], &arg_val);
+    }
     // RC-4 F5 — the alloc arms a RangeError for lengths outside
     // [0, 2^32-1] and returns NULL; divert before the NULL is used.
     ctx.emit_throw_check(None);

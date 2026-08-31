@@ -51,14 +51,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Set sibling miss");
         }
-        // P0.10 — `new Array(n)` 1-arg numeric form. Allocates
-        // an Array<Any> of length n with all slots set to
-        // ANY_NULL. The 0-arg and ≥2-arg forms are rewritten to
-        // array literals by desugar_builtin_new and never reach
-        // here as Expr::New. check.rs typechecks the arg as
-        // Number; we lower it, coerce to i64 (the runtime helper
-        // expects u64-shaped i64), and intern the Array<Any>
-        // layout to type the call's return.
+        // P0.10 — `new Array(n)` 1-arg form. Allocates an
+        // Array<Any> of length n with all slots set to ANY_NULL
+        // when the arg is a Number; an Any arg goes through a
+        // runtime tag test instead (§23.1.1.1 step 4 — a
+        // non-Number is the single element, not a length). The
+        // 0-arg and ≥2-arg forms are rewritten to array literals
+        // by desugar_builtin_new and never reach here as
+        // Expr::New.
         Expr::New {
             class_name, args, ..
         } if class_name == "Array" && args.len() == 1 => {
