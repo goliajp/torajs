@@ -3,16 +3,25 @@
 //! (chunk 240 — thirty-third sub-batch of
 //! check_type_of_call.rs per-shape decomposition).
 //!
-//! S225 — typed `Array<T>.at(undefined)` per ES §23.1.3.1
-//! step 2-3: `ToIntegerOrInfinity(undefined) = 0`, returns
-//! `arr[0]`. Accept `Undefined` alongside `Number`; ssa_lower
-//! mirror short-circuits `idx = undefined` to `ConstI64(0)`
-//! before `coerce_to_i64` (matches S222 charAt early-
-//! intercept idiom).
+//! S225 / rotation 544 — ES §23.1.3.1 step 2 is
+//! `ToIntegerOrInfinity(index)`, which reaches every value.
+//! This lane used to grow one admission wedge per operand
+//! shape (`Number`, then `Undefined`) and refuse the rest by
+//! name; the String siblings were turned into the coercion
+//! the spec step actually is by rotation 463, and this is the
+//! Array half of that. `[9, 8, 7].at('1')` is 8, `.at({})` is
+//! 9, and `.at(anyIdx)` is whatever the box holds — none of
+//! them a type error. ssa_lower mirrors it through
+//! [`crate::ssa_lower::LowerCtx::lower_to_index_operand`],
+//! whose `lower_to_number_operand` half passes a Number
+//! straight through, so the typed tier still never boxes.
+//! The explicit-`undefined` short-circuit to `ConstI64(0)`
+//! stays there: same answer, one fewer instruction.
 //!
 //! Returns `Type::Array` element type on match;
-//! `Some(Err(_))` on bad idx type; `None` for non-Array
-//! receiver, non-`at`, or arity ≠ 1.
+//! `Some(Err(_))` when the index expression itself fails to
+//! type; `None` for non-Array receiver, non-`at`, or
+//! arity ≠ 1.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -40,14 +49,16 @@ pub(crate) fn try_match(
     let Type::Array(elem) = &src_ty else {
         return None;
     };
-    let idx_ty = match checker.type_of(ast, args[0]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(idx_ty, Type::Number | Type::Undefined) {
-        return Some(Err(format!(
-            "Array.at arg 0 must be number, got {idx_ty:?}"
-        )));
+    // §23.1.3.1 step 2 is ToIntegerOrInfinity, which reaches every
+    // value — `[9, 8, 7].at('1')` is 8 and `.at({})` is 9, neither a
+    // type error. The shape gate that used to stand here admitted
+    // Number and Undefined and refused the rest, so the sibling
+    // `Array<Any>` element that rotation 544 stopped mistyping
+    // arrived here and was refused by name. `type_of` still runs:
+    // it records the operand's type and propagates its errors.
+    // ssa_lower mirrors this through `lower_to_index_operand`.
+    if let Err(e) = checker.type_of(ast, args[0]) {
+        return Some(Err(e));
     }
     Some(Ok((**elem).clone()))
 }

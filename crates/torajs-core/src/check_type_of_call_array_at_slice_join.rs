@@ -63,12 +63,10 @@ pub(crate) fn try_match(
         return None;
     };
     if m_name == "at" && args.len() >= 2 {
-        let aty0 = match checker.type_of(ast, args[0]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if !matches!(aty0, Type::Number | Type::Undefined) {
-            return Some(Err(format!("Array.at arg 0 must be number, got {aty0:?}")));
+        // §23.1.3.1 step 2 ToIntegerOrInfinity — see the 1-arg
+        // sibling; the trailing-arg spelling took the same gate.
+        if let Err(e) = checker.type_of(ast, args[0]) {
+            return Some(Err(e));
         }
         for &a in args.iter().skip(1) {
             if let Err(e) = checker.type_of(ast, a) {

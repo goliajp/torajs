@@ -66,8 +66,7 @@ pub(crate) fn try_dispatch(
         ) {
             Operand::ConstI64(0)
         } else {
-            let raw = ctx.lower_expr(args[0]);
-            ctx.coerce_to_i64(raw)
+            ctx.lower_to_index_operand(args[0])
         };
         let len = ctx.f.append_inst(
             ctx.cur_block,
