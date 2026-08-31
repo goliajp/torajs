@@ -138,6 +138,13 @@ pub(crate) fn try_lower(
 /// `isFrozen` keeps the header-only fast path.
 fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId]) -> Operand {
     let arg_op = ctx.lower_expr(args[0]);
+    // Rotation 543 — every arm below reads the receiver, and the ones
+    // that answer it give the RESULT its own ref via
+    // `emit_owned_result_inc`. So an owned argument temp's original
+    // stake belongs to nobody once the call returns: 200k of
+    // `Object.freeze({a: 1})` peaked at 14.42 MB RSS against 1.51 MB
+    // flat. Snapshot before the any box, which is rc-neutral.
+    let arg_raw = arg_op.clone();
     let arg_ty = ctx.operand_ty(&arg_op);
     let is_primitive = matches!(arg_ty, Type::I64 | Type::F64 | Type::Bool);
     if is_primitive {
@@ -173,6 +180,7 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
             // the receiver through un-inc'd; the result carries its
             // own ref.
             ctx.emit_owned_result_inc(Operand::Value(v), arg_ty);
+            ctx.release_owned_temp(args[0], &arg_raw);
             return Operand::Value(v);
         }
         // Any-box first (parity with `Object.seal` — the anyv helper
@@ -196,6 +204,7 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
         // RFC 20260705 owned-result invariant: anyv_freeze answers the
         // receiver box un-inc'd; the result carries its own ref.
         ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Operand::Value(v);
     }
     for &a in args.iter().skip(1) {
@@ -210,6 +219,7 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
     let v = ctx
         .f
         .append_inst(cur_block, InstKind::Call(fid, vec![arg_op]), ret_ty, None);
+    ctx.release_owned_temp(args[0], &arg_raw);
     Operand::Value(v)
 }
 
@@ -228,6 +238,20 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
 /// 内 §10.1.6.3 non-extensible new-key gate 命中 → bun-parity
 /// "Attempting to define property on object that is not extensible."。
 fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    // Rotation 543 — the owned argument temp's stake, as in the
+    // freeze / seal siblings, and the heavier of the two leaks here:
+    // 59.65 MB over 200k churn for the ObjectLit spelling against
+    // 1.74 MB for a lowered one, because the whole dynobj and every
+    // entry is stranded rather than one struct block.
+    //
+    // The two branches need different releases. A lowered expression
+    // hands back an operand `release_owned_temp` can judge. The
+    // ObjectLit branch mints the dynobj itself, and that operand is a
+    // `Type::Ptr` — Copy, which the release drops out of before it
+    // emits anything (measured: the release was there and the 59.65
+    // MB did not move). Its box is the same cell with a type whose
+    // drop is tag-aware, so release that instead.
+    let mut lowered_raw: Option<Operand> = None;
     let any_op = if matches!(ctx.ast.get_expr(args[0]), Expr::ObjectLit { .. }) {
         let d = ctx.lower_dynobj_init(args[0]);
         let boxed = ctx.f.append_inst(
@@ -242,6 +266,7 @@ fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand 
         Operand::Value(boxed)
     } else {
         let obj_op = ctx.lower_expr(args[0]);
+        lowered_raw = Some(obj_op.clone());
         let obj_ty = ctx.operand_ty(&obj_op);
         if matches!(obj_ty, Type::Any) {
             obj_op
@@ -249,6 +274,7 @@ fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand 
             ctx.box_to_any_from_expr(args[0], obj_op)
         }
     };
+    let any_for_drop = any_op.clone();
     for a in args.iter().skip(1) {
         let _ = ctx.lower_expr(*a);
     }
@@ -270,6 +296,10 @@ fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand 
     // both of which are catchable TypeErrors (RFC 20260823 刀 5).
     ctx.emit_throw_check(None);
     ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
+    match lowered_raw {
+        Some(r) => ctx.release_owned_temp(args[0], &r),
+        None => ctx.emit_drop_value(any_for_drop, Type::Any),
+    }
     Operand::Value(v)
 }
 
@@ -277,6 +307,7 @@ fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand 
 /// route through Any → helper returns `false` per spec.
 fn lower_is_extensible(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let obj_op = ctx.lower_expr(args[0]);
+    let obj_raw = obj_op.clone();
     let obj_ty = ctx.operand_ty(&obj_op);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
@@ -296,6 +327,7 @@ fn lower_is_extensible(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // §10.5.3 step 8 — a Proxy trap that disagrees with its target
     // throws (RFC 20260823 刀 5).
     ctx.emit_throw_check(None);
+    ctx.release_owned_temp(args[0], &obj_raw);
     Operand::Value(v)
 }
 
@@ -303,6 +335,7 @@ fn lower_is_extensible(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 /// clear `configurable` on every DynObj entry. Returns Any-boxed obj.
 fn lower_seal(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let obj_op = ctx.lower_expr(args[0]);
+    let obj_raw = obj_op.clone();
     let obj_ty = ctx.operand_ty(&obj_op);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
@@ -322,6 +355,7 @@ fn lower_seal(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // RFC 20260705 owned-result invariant: anyv_seal answers the
     // receiver box un-inc'd; the result carries its own ref.
     ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
+    ctx.release_owned_temp(args[0], &obj_raw);
     Operand::Value(v)
 }
 
@@ -329,6 +363,7 @@ fn lower_seal(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 /// non-configurable. Primitives box to Any → helper returns `true`.
 fn lower_is_sealed(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let obj_op = ctx.lower_expr(args[0]);
+    let obj_raw = obj_op.clone();
     let obj_ty = ctx.operand_ty(&obj_op);
     let any_op = if matches!(obj_ty, Type::Any) {
         obj_op
@@ -345,6 +380,7 @@ fn lower_is_sealed(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::Bool,
         None,
     );
+    ctx.release_owned_temp(args[0], &obj_raw);
     Operand::Value(v)
 }
 
@@ -442,5 +478,8 @@ fn lower_noop(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // 542 gate over-release came from the opposite assumption.
     let obj_ty = ctx.operand_ty(&obj_op);
     ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
+    // Rotation 543 — the pass-through result took its own ref just
+    // above, so an owned argument temp's stake is now unowned.
+    ctx.release_owned_temp(args[0], &obj_op);
     obj_op
 }
