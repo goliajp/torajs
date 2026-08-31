@@ -23,6 +23,7 @@ use std::collections::HashSet;
 // r290 file-size split — the slot-shape inference half; `pub use`
 // keeps every `crate::ast_refs::*` consumer path unchanged.
 mod shape;
+mod shape_operator;
 pub use shape::{
     GlobalSlotShape, infer_toplevel_slot_shape, lifted_closure_fn_canon, new_class_ann,
     objlit_literal_inlobj_ann,
