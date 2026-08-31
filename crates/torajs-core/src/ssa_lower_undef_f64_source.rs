@@ -81,6 +81,25 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // would instead arm the ToNumber step on arithmetic that can
         // never see a sentinel.
         Expr::Member { name, .. } => ctx.undefable_f64_fields.contains(name),
+        // The value-transparent wrappers — the same set the 11-A1
+        // escape visitor names in `collect_value_flow_idents`. What
+        // comes out is what went in, so the question passes straight
+        // through, and only the cast was being asked. `true ? xs[9] :
+        // 0` printed NaN, `typeof` of it answered "number", and
+        // `(0, xs[9]) === undefined` answered false — all five shapes
+        // silently, because a sentinel that is not recognised is just
+        // a NaN.
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => is_undef_f64_source(ctx, *then_branch) || is_undef_f64_source(ctx, *else_branch),
+        // Only the right arm: `a ?? b` yields `a` exactly when `a` is
+        // neither null nor undefined, and a sentinel-carrying `a` IS
+        // undefined, so it can never be what comes out.
+        Expr::Nullish { rhs, .. } => is_undef_f64_source(ctx, *rhs),
+        Expr::Sequence { right, .. } => is_undef_f64_source(ctx, *right),
+        Expr::Assign { value, .. } => is_undef_f64_source(ctx, *value),
         Expr::As { expr, .. } => is_undef_f64_source(ctx, *expr),
         _ => false,
     }
