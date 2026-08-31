@@ -32,16 +32,16 @@
 //!
 //! Helper inputs (all `pub(crate)` in ast.rs):
 //! `binds_to_params`, `infer_expr_ann_with`, `body_has_value_return`,
-//! `infer_return_ann`, `infer_return_ann_seeded`, `AstExprsView`.
+//! `infer_return_ann`, `AstExprsView`.
 
 use std::collections::HashSet;
 
 use crate::ast::{
     Ast, AstExprsView, Param, Stmt, binds_to_params, body_has_value_return, collect_outer_binds,
-    infer_expr_ann_with, infer_return_ann, infer_return_ann_seeded,
+    infer_expr_ann_with, infer_return_ann,
 };
 use crate::ast_desugar_implicit_generics_closure::{
-    desugar_closure_shape_fn, desugar_lifted_closure_fn, receiver_field_rows, seeded_binds_for,
+    desugar_closure_shape_fn, desugar_lifted_closure_fn, preinfer_closure_sigs, receiver_field_rows,
 };
 
 pub(crate) fn run(ast: &mut Ast) {
@@ -168,25 +168,7 @@ pub(crate) fn run(ast: &mut Ast) {
         expr_spans,
     );
     let ast_exprs_view: AstExprsView = &*exprs;
-    // Second pass over top-level lets — a `const h = <closure>`
-    // binding could not resolve before the closure sigs existed.
-    for s in stmts.iter() {
-        if let Stmt::LetDecl {
-            name,
-            type_ann: None,
-            init,
-            ..
-        } = s
-            && !outer_binds.contains_key(name)
-        {
-            let bs: Vec<Param> = binds_to_params(&outer_binds);
-            if let Some(ann) =
-                infer_expr_ann_with(ast_exprs_view, *init, &bs, &outer_binds, &fn_sigs)
-            {
-                outer_binds.insert(name.clone(), ann);
-            }
-        }
-    }
+    backfill_closure_typed_lets(stmts, ast_exprs_view, &mut outer_binds, &fn_sigs);
 
     let receiver_fields = receiver_field_rows(stmts);
 
@@ -241,6 +223,33 @@ pub(crate) fn run(ast: &mut Ast) {
             ast_exprs_view,
             &mut fn_sigs,
         );
+    }
+}
+
+/// Second pass over top-level lets — a `const h = <closure>` binding
+/// could not resolve before the closure sigs existed
+/// (`preinfer_closure_sigs` publishes them just before this runs).
+fn backfill_closure_typed_lets(
+    stmts: &[Stmt],
+    ast_exprs_view: AstExprsView,
+    outer_binds: &mut std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
+) {
+    for s in stmts.iter() {
+        if let Stmt::LetDecl {
+            name,
+            type_ann: None,
+            init,
+            ..
+        } = s
+            && !outer_binds.contains_key(name)
+        {
+            let bs: Vec<Param> = binds_to_params(outer_binds);
+            if let Some(ann) = infer_expr_ann_with(ast_exprs_view, *init, &bs, outer_binds, fn_sigs)
+            {
+                outer_binds.insert(name.clone(), ann);
+            }
+        }
     }
 }
 
@@ -385,98 +394,4 @@ pub(crate) fn is_synth_closure_name(name: &str) -> bool {
         // Receiver-first callback forwarders (ast/namedfn_recv_cb) —
         // same closure-shaped synth namespace, same full-ann read.
         || name.starts_with("__fwdrecv_")
-}
-
-fn preinfer_closure_sigs(
-    stmts: &mut [Stmt],
-    exprs: AstExprsView,
-    outer_binds: &std::collections::HashMap<String, String>,
-    cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
-    argv_fns: &std::collections::HashSet<String>,
-    fn_sigs: &mut std::collections::HashMap<String, String>,
-) {
-    for stmt in stmts.iter_mut() {
-        let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            body,
-            ..
-        } = stmt
-        else {
-            continue;
-        };
-        if !name.starts_with("__closure_") {
-            continue;
-        }
-        for p in params.iter_mut() {
-            if p.type_ann.is_none() && p.name != "__env" && p.name != "__this" {
-                p.type_ann = Some("any".to_string());
-            }
-        }
-        if return_type.is_none() && body_has_value_return(body) {
-            let has_env = params.first().is_some_and(|p| p.name == "__env");
-            let inferred = if has_env {
-                let seeded = seeded_binds_for(name, outer_binds, cap_anns);
-                infer_return_ann_seeded(exprs, body, params, &seeded, fn_sigs)
-            } else {
-                infer_return_ann(exprs, body, params, fn_sigs)
-            };
-            if let Some(ann) = inferred {
-                *return_type = Some(ann);
-            } else {
-                // RC-4 — un-typeable value return falls back to `any`
-                // instead of Void (dropped return, every call read 0).
-                *return_type = Some("any".to_string());
-            }
-        }
-    }
-    for stmt in stmts.iter() {
-        let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            body,
-            ..
-        } = stmt
-        else {
-            continue;
-        };
-        if !is_synth_closure_name(name) {
-            continue;
-        }
-        let ret = match return_type {
-            Some(rt) => rt.clone(),
-            None if !body_has_value_return(body) => "void".to_string(),
-            None => continue,
-        };
-        // r454 — an argv-face member's real head is the boxed
-        // `[__torajs_argv, …]` shape; walking its params would stamp
-        // the opaque `__argvptr()` into every inferred ann that
-        // carries this sig (an enclosing fn returning the closure
-        // most of all). Publish the same rest-tail spelling the
-        // checker gives the closure VALUE, so consumers route the
-        // variadic boxed lane.
-        if argv_fns.contains(name) {
-            fn_sigs.insert(name.clone(), format!("__fn(__rest(any[]))->{ret}"));
-            continue;
-        }
-        let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
-        let mut complete = true;
-        for p in params.iter().filter(|p| p.name != "__env") {
-            match &p.type_ann {
-                Some(a) => param_anns.push(a.clone()),
-                None => {
-                    complete = false;
-                    break;
-                }
-            }
-        }
-        if complete {
-            fn_sigs.insert(
-                name.clone(),
-                format!("__fn({})->{}", param_anns.join("|"), ret),
-            );
-        }
-    }
 }
