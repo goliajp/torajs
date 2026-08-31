@@ -114,21 +114,22 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         Expr::Call { callee, .. } => {
             !matches!(ast.get_expr(*callee), Expr::Ident(n) if n.starts_with("__new_"))
         }
-        // Rotation 546 face ② — a closure-valued member admits when
-        // it carries NO receiver (`fnexpr_recv_fns` = the lifted fn
-        // took a hidden `__this`): probes cover the receiver-less
-        // face end to end (closure+null mix, top-level captures with
-        // mutation observed across named fns). A METHOD member stays
-        // out of this fallback: the promoted dynobj's `this`-chain
-        // read has a proven hole (`{ box: { d: 1 }, read() { return
-        // this.box.d + 10 } }` answered the I64 box BITS through a
-        // named fn — while the explicit-`any` spelling of the same
-        // program is bun-equal), so admitting it would trade today's
-        // loud unknown-identifier for a silent wrong. All-shaped
-        // method literals never reach here — the `__inlobj` + `__mth`
-        // arm carries them. Variadic sigs stay out — their boxed-dual
-        // routing is a fn-local table.
-        Expr::Closure { fn_name, .. } if !ast.fnexpr_recv_fns.contains(fn_name) => {
+        // Rotation 546 face ② admitted receiver-less closure members;
+        // rotation 547 admits METHOD (recv-first) members too. The
+        // 546-03 hole that kept them out — the promoted dynobj's
+        // `this`-chain read answered I64 box BITS (`{ box: { d: 1 },
+        // read() { return this.box.d + 10 } }` through a named fn) —
+        // was the desugar phase stamping these bodies nominal
+        // (`__this: __ObjLit_n`, struct-offset reads) while the
+        // runtime receiver is the promoted dynobj. The (k) leg
+        // [`promoted_method_objlits`] closes it: `objlit_nominal`
+        // now marks exactly these literals anylane, so their
+        // this-using methods take the `__this: any` receiver-first
+        // shape and body reads dispatch through the any lane.
+        // All-shaped method literals never reach here — the
+        // `__inlobj` + `__mth` arm carries them. Variadic sigs stay
+        // out — their boxed-dual routing is a fn-local table.
+        Expr::Closure { fn_name, .. } => {
             lifted_closure_fn_canon(ast, fn_name).is_some_and(|c| !c.contains("__rest("))
         }
         // Statically-shaped expressions (operator results, top-level
@@ -136,4 +137,56 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         // shape table only answers primitives.
         _ => crate::ast_refs::infer_toplevel_slot_shape(ast, e).is_some(),
     }
+}
+
+/// The (k) leg of `objlit_nominal_anylane` — method-bearing top-level
+/// literals THIS verdict family will promote to an Any slot, computed
+/// against the pre-`objlit_nominal` snapshot so their this-using
+/// methods take the `__this: any` receiver-first stamp instead of the
+/// nominal `__this: __ObjLit_n` one (whose struct-offset body reads
+/// against the promoted dynobj receiver answered raw entry bytes —
+/// the 546-03 box-bits silent-wrong).
+///
+/// The gate MIRRORS the pass_2 / `inferred_slot_ty` fallback
+/// position, restricted to the ObjectLit case: a flat-walked
+/// (`toplevel_stmts_flat`) un-annotated non-`var` let whose name a
+/// named fn reads, whose literal `objlit_literal_inlobj_ann` refuses
+/// (an all-shaped literal rides the `__inlobj` + `__mth` typed lane
+/// and must NOT be marked anylane), and whose shape
+/// [`any_slot_safe_value`] admits — the same verdict fn both
+/// consumers call, so the three sites cannot drift. The degraded
+/// direction is the (i) leg's job; literals both legs catch mark
+/// once (set semantics). Mirrors the (i) leg's timing caveat: this
+/// runs on the desugar-phase snapshot of a set the checker recomputes
+/// post-desugar, and the conformance gate is the drift detector.
+pub(crate) fn promoted_method_objlits(ast: &Ast) -> std::collections::HashSet<u32> {
+    let refs = crate::ast_refs::toplevel_binding_refs(ast);
+    let mut out = std::collections::HashSet::new();
+    for s in crate::ast::toplevel_stmts_flat(ast) {
+        let crate::ast::Stmt::LetDecl {
+            name,
+            init,
+            type_ann: None,
+            is_var: false,
+            ..
+        } = s
+        else {
+            continue;
+        };
+        if !refs.named_fn_refs.contains(name) {
+            continue;
+        }
+        let Expr::ObjectLit { fields } = ast.get_expr(*init) else {
+            continue;
+        };
+        if fields
+            .iter()
+            .any(|(_, fe)| ast.objlit_method_exprs.contains(fe))
+            && crate::ast_refs::objlit_literal_inlobj_ann(ast, *init).is_none()
+            && any_slot_safe_value(ast, *init)
+        {
+            out.insert(init.0);
+        }
+    }
+    out
 }

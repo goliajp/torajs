@@ -55,6 +55,9 @@ pub(crate) fn run(ast: &mut Ast) {
     // instead (rotation 409; the demand predicate is the same one
     // that arms the adapter synthesis).
     let factories_stay_any = crate::ssa_lower_boxed_entry::program_constructs_from_value(ast);
+    // (k) leg — needs the whole `&Ast` (named-fn refs + the shared
+    // promote verdict), so it runs before the borrow split below.
+    let promoted_objlits = crate::ast_refs_any_promote::promoted_method_objlits(ast);
     let Ast {
         stmts,
         exprs,
@@ -143,6 +146,7 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_fns,
         objlit_computed_keys,
         objlit_computed_accessors,
+        &promoted_objlits,
     );
     // RFC 20260717-fnexpr-this-channel knife 1 — same slot rationale as
     // objlit_nominal above: the lifted closures exist and

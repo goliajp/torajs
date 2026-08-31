@@ -72,6 +72,7 @@ pub(crate) fn run(
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
     objlit_computed_keys: &HashMap<ExprId, ExprId>,
     objlit_computed_accessors: &HashMap<ExprId, bool>,
+    promoted_objlits: &std::collections::HashSet<u32>,
 ) {
     if objlit_method_exprs.is_empty() {
         return;
@@ -83,7 +84,7 @@ pub(crate) fn run(
     // can meet a foreign receiver: the program installs the literal
     // as somebody's [[Prototype]].
     super::objlit_nominal_proto_source::widen_prototype_source_objlits(stmts, exprs);
-    let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(
+    let mut anylane = super::objlit_nominal_anylane::collect_anylane_objlits(
         stmts,
         exprs,
         objlit_method_exprs,
@@ -91,6 +92,11 @@ pub(crate) fn run(
         objlit_computed_keys,
         objlit_computed_accessors,
     );
+    // (k) leg — literals the any-promote verdict will box into an Any
+    // slot (`ast_refs_any_promote::promoted_method_objlits`, computed
+    // pre-split by the caller): their runtime receiver is the
+    // promoted dynobj, so this-using methods need the anylane stamp.
+    anylane.extend(promoted_objlits.iter().copied());
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
     let mut any_patches: Vec<(ExprId, String)> = Vec::new();
