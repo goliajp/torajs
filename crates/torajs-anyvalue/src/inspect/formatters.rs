@@ -81,10 +81,7 @@ unsafe extern "C" {
     // ISO-8601 form. The Tag::Date branch prints the payload then
     // drops the temporary Str to balance the allocation.
     pub(super) fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *mut u8;
-    // torajs-str — release a Str stake AND free the block at zero.
-    // `__torajs_rc_dec` only decrements and reports whether the
-    // caller should free; it never frees, which is why the Date arm
-    // below used to strand its ISO string.
+    // torajs-str — unlike `rc_dec`, decrements AND frees at zero.
     pub(super) fn __torajs_str_drop(s: *mut c_void);
     // Commit 6 — RegExp wire. Emits `/source/flags` directly via
     // the shared stdout writer (no fresh-Str alloc, no rc_dec
@@ -160,9 +157,6 @@ pub(super) unsafe fn put_date_inline(child: *const c_void) {
     let iso = unsafe { __torajs_date_to_iso_string(child) };
     if !iso.is_null() {
         unsafe { put_str_cell_inline(iso as *const c_void) };
-        // Rotation 542 — was `__torajs_rc_dec`, which decrements
-        // without freeing: 200k prints of one BOUND Date peaked at
-        // 14.7 MB against 1.44 MB flat.
         unsafe { __torajs_str_drop(iso as *mut c_void) };
     }
 }
