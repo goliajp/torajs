@@ -1624,7 +1624,15 @@ snapshot stamped `@ a33f6cb50`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about).
 
-**Latest @ `f64638442`** (2026-09-01, rotation 544 — the slots that
+**Latest @ `e620e0edc`** (2026-09-01, rotation 545 — the by-shape
+refusals around the 544 family: heterogeneous concat / Object.values,
+the slice-family static slots, the IteratorResult stamp). Gate
+predicate: **148** clusters of ≥ 4 holding **1153** cases, register
+2 · 251, residue 470 · 630 (31.0%), core **2034**. Against rotation
+544: clusters 149 → **148 (−1)**, cases 1162 → **1153 (−9)**, core
+2056 → **2034 (−22)**.
+
+**Prior @ `f64638442`** (2026-09-01, rotation 544 — the slots that
 refused by name). Gate predicate: **149** clusters of ≥ 4 holding
 **1162** cases, register 2 · 251, residue 482 · 643 (31.3%), core
 **2056**. Against rotation 543: clusters 149 → **149 (=)**, cases
@@ -7554,8 +7562,8 @@ and added 轴 E): **P0–P13 closed ✓ *and* P-SURF closed *and* 轴 B at
 target *and* 轴 E through E4**. The axes, with what each still owes —
 
 - **轴 A (spec)** — P13 close ✓, **P-SURF open** ← S7.2's predicate:
-  unattributed ≥ 4 clusters **149** (drives to 0), holding 1163 cases,
-  register 2 · 251. Sweep @ `45121d4ff`.
+  unattributed ≥ 4 clusters **148** (drives to 0), holding 1153 cases,
+  register 2 · 251. Sweep @ `e620e0edc`.
 - **轴 B (perf)** — **target raised 2026-08-24**: no longer "0
   regression" (that lower bound was met at r470 and is now table
   stakes) but **bench-tr full-matrix median tr/bun-aot ≤ 0.33 (3×),

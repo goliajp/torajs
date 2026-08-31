@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T15:26:11.119Z",
+  "generatedAt": "2026-08-31T17:20:26.938Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-31T15:07:41Z",
-    "headSha": "f64638442",
-    "elapsedSec": 377.1,
+    "ranAt": "2026-08-31T16:59:41Z",
+    "headSha": "e620e0edc",
+    "elapsedSec": 721.21,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30114,
+    "pass": 30133,
     "passNoOracle": 1026,
     "passNegative": 4147,
-    "passTotal": 35287,
-    "bug": 12479,
-    "incompatible": 5408,
+    "passTotal": 35306,
+    "bug": 12482,
+    "incompatible": 5386,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47766,
-    "passRateInScope": 66.36,
-    "passRateTrAccepted": 73.87
+    "trAccepted": 47788,
+    "passRateInScope": 66.4,
+    "passRateTrAccepted": 73.88
   },
   "torajs": {
-    "commit": "f64638442",
-    "commitSubject": "fix: Math.hypot and the toString radix were the last two shape gates",
+    "commit": "e620e0edc",
+    "commitSubject": "fix: the synthesized IteratorResult gets an anon stamp and next() ignores padded args",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "e620e0edc",
+      "subject": "fix: the synthesized IteratorResult gets an anon stamp and next() ignores padded args"
+    },
+    {
+      "hash": "7eb8d4853",
+      "subject": "fix: Object.values on a heterogeneous or empty struct answers Array<Any>"
+    },
+    {
+      "hash": "d2f3b9f52",
+      "subject": "feat: heterogeneous Array.concat answers Array<Any> through the any assembler"
+    },
+    {
+      "hash": "82d5bd7a9",
+      "subject": "fix: the slice-family numeric slots and the trailing fromIndex drop their shape gates"
+    },
+    {
+      "hash": "c0ae60ed4",
+      "subject": "feat: new Array with an any operand branches on is-number at runtime"
+    },
+    {
+      "hash": "f92cd20d2",
+      "subject": "chore: rotation 544 test262 sweep ingest, bench run and dashboard snapshot"
+    },
+    {
       "hash": "f64638442",
       "subject": "fix: Math.hypot and the toString radix were the last two shape gates"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "13dfa5ba3",
       "subject": "fix: splice took an any position operand as its box bits and said nothing"
-    },
-    {
-      "hash": "ba1638627",
-      "subject": "fix: an array literal's anchor and an any element disagreed and nobody asked"
-    },
-    {
-      "hash": "6ec8a9583",
-      "subject": "chore: rotation 543 test262 sweep ingest, bench run and dashboard snapshot"
-    },
-    {
-      "hash": "11011ae69",
-      "subject": "fix: an end slot that only turns out to be undefined at run time read as 0"
-    },
-    {
-      "hash": "c75f3dc2c",
-      "subject": "fix: both any-lane next() arms inc'd a payload the step had already owned"
-    },
-    {
-      "hash": "4de6f2057",
-      "subject": "fix: xs.keys() skipped the element-kind mark, and the DROP needs it too"
-    },
-    {
-      "hash": "4e0141731",
-      "subject": "fix: the Map / Set literal initializer never released its element temps"
     }
   ],
-  "headSha": "f64638442",
+  "headSha": "e620e0edc",
   "autorun": {
-    "total": 847,
+    "total": 848,
     "baselineTarget": 10,
-    "bySelf": 842,
+    "bySelf": 843,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788178745-3d59",
-      "at": "2026-08-31T12:19:05Z",
-      "ts": 1788178745,
+      "rotationId": "r-1788190034-243e",
+      "at": "2026-08-31T15:27:14Z",
+      "ts": 1788190034,
       "trigger": "self",
-      "prevHead": "6ec8a9583",
-      "handoffSha": "sha256:0fe398683428a4b23a81e2ea345134c7bdf5c1063ae78b871070a3bcde06c57c",
-      "handoffAgeSec": 23,
+      "prevHead": "f92cd20d2",
+      "handoffSha": "sha256:d891ed49b145248a4dd09c11ebbea7a3bb211e0d2974e24ed488377f4c2be86a",
+      "handoffAgeSec": 57,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788190034-243e",
+        "at": "2026-08-31T15:27:14Z",
+        "ts": 1788190034,
+        "trigger": "self",
+        "prevHead": "f92cd20d2",
+        "handoffSha": "sha256:d891ed49b145248a4dd09c11ebbea7a3bb211e0d2974e24ed488377f4c2be86a",
+        "handoffAgeSec": 57,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788178745-3d59",
         "at": "2026-08-31T12:19:05Z",
@@ -884,17 +895,6 @@
         "prevHead": "3763f4d81",
         "handoffSha": "sha256:89068215324ae103ae4d0f4301c27867f55576e2bfec9a6fb5ed87e2812d9d35",
         "handoffAgeSec": 18,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788075295-6cb9",
-        "at": "2026-08-30T07:34:55Z",
-        "ts": 1788075295,
-        "trigger": "self",
-        "prevHead": "fa6058fa6",
-        "handoffSha": "sha256:38b316f21913c39c9733cdaeed82c7ed983fe4e7ef6fd7ec2bc48b0f5e5e93cc",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
