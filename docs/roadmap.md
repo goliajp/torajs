@@ -1624,7 +1624,17 @@ snapshot stamped `@ a33f6cb50`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about).
 
-**Latest @ `e620e0edc`** (2026-09-01, rotation 545 — the by-shape
+**Latest @ `dac9f6bf6`** (2026-09-01, rotation 546 — the any-slot
+promotion admits runtime-expression and receiver-less-closure
+members now that tb2 is closed, promoted method fields carry the
+`__mth` spelling, concat takes an Any argument through a runtime
+is-array test, and the bitwise family accepts String operands). Gate
+predicate: **144** clusters of ≥ 4 holding **1132** cases, register
+2 · 251, residue 465 · 624 (31.1%), core **2007**. Against rotation
+545: clusters 148 → **144 (−4)**, cases 1153 → **1132 (−21)**, core
+2034 → **2007 (−27)**.
+
+**Prior @ `e620e0edc`** (2026-09-01, rotation 545 — the by-shape
 refusals around the 544 family: heterogeneous concat / Object.values,
 the slice-family static slots, the IteratorResult stamp). Gate
 predicate: **148** clusters of ≥ 4 holding **1153** cases, register

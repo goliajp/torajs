@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T17:20:26.938Z",
+  "generatedAt": "2026-08-31T20:01:11.863Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-31T16:59:41Z",
-    "headSha": "e620e0edc",
-    "elapsedSec": 721.21,
+    "ranAt": "2026-08-31T19:56:03Z",
+    "headSha": "dac9f6bf6",
+    "elapsedSec": 650.79,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30133,
+    "pass": 30186,
     "passNoOracle": 1026,
     "passNegative": 4147,
-    "passTotal": 35306,
-    "bug": 12482,
-    "incompatible": 5386,
+    "passTotal": 35359,
+    "bug": 12456,
+    "incompatible": 5359,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47788,
-    "passRateInScope": 66.4,
-    "passRateTrAccepted": 73.88
+    "trAccepted": 47815,
+    "passRateInScope": 66.5,
+    "passRateTrAccepted": 73.95
   },
   "torajs": {
-    "commit": "e620e0edc",
-    "commitSubject": "fix: the synthesized IteratorResult gets an anon stamp and next() ignores padded args",
+    "commit": "dac9f6bf6",
+    "commitSubject": "feat: receiver-less closure members admit into the any-slot promotion",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "dac9f6bf6",
+      "subject": "feat: receiver-less closure members admit into the any-slot promotion"
+    },
+    {
+      "hash": "9db94e6f8",
+      "subject": "fix: promoted method fields carry the receiver-less mth spelling"
+    },
+    {
+      "hash": "352e8b880",
+      "subject": "feat: bitwise family accepts string operands through the any lane"
+    },
+    {
+      "hash": "32f9761e1",
+      "subject": "feat: concat any argument decides spread vs append at runtime"
+    },
+    {
+      "hash": "e855c27ee",
+      "subject": "feat: any-slot promotion admits runtime-expression members now that tb2 is closed"
+    },
+    {
+      "hash": "79a123eaa",
+      "subject": "chore: rotation 545 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "e620e0edc",
       "subject": "fix: the synthesized IteratorResult gets an anon stamp and next() ignores padded args"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "f92cd20d2",
       "subject": "chore: rotation 544 test262 sweep ingest, bench run and dashboard snapshot"
-    },
-    {
-      "hash": "f64638442",
-      "subject": "fix: Math.hypot and the toString radix were the last two shape gates"
-    },
-    {
-      "hash": "24717269a",
-      "subject": "refactor: split the numeric slots out of the Str argv cascade"
-    },
-    {
-      "hash": "127b7fb28",
-      "subject": "fix: split's limit was coerced before the step that hands it over raw"
-    },
-    {
-      "hash": "f719f9b84",
-      "subject": "fix: the second slot of a String search refused every shape but Number"
-    },
-    {
-      "hash": "186246b5b",
-      "subject": "fix: Array.at admitted two operand shapes by name and refused the rest"
-    },
-    {
-      "hash": "13dfa5ba3",
-      "subject": "fix: splice took an any position operand as its box bits and said nothing"
     }
   ],
-  "headSha": "e620e0edc",
+  "headSha": "dac9f6bf6",
   "autorun": {
-    "total": 848,
+    "total": 849,
     "baselineTarget": 10,
-    "bySelf": 843,
+    "bySelf": 844,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788190034-243e",
-      "at": "2026-08-31T15:27:14Z",
-      "ts": 1788190034,
+      "rotationId": "r-1788196869-7c10",
+      "at": "2026-08-31T17:21:09Z",
+      "ts": 1788196869,
       "trigger": "self",
-      "prevHead": "f92cd20d2",
-      "handoffSha": "sha256:d891ed49b145248a4dd09c11ebbea7a3bb211e0d2974e24ed488377f4c2be86a",
-      "handoffAgeSec": 57,
+      "prevHead": "79a123eaa",
+      "handoffSha": "sha256:6272ea92d44c3f5e8e6ae53d06de23163a741ca0729c9e7d6b4e815646ad413a",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788196869-7c10",
+        "at": "2026-08-31T17:21:09Z",
+        "ts": 1788196869,
+        "trigger": "self",
+        "prevHead": "79a123eaa",
+        "handoffSha": "sha256:6272ea92d44c3f5e8e6ae53d06de23163a741ca0729c9e7d6b4e815646ad413a",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788190034-243e",
         "at": "2026-08-31T15:27:14Z",
@@ -884,17 +895,6 @@
         "prevHead": "f9692bb71",
         "handoffSha": "sha256:49e5fcef8e414fc49fb05a49906236287427fc98ab690f84498dcd5c3885019e",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788084737-3716",
-        "at": "2026-08-30T10:12:17Z",
-        "ts": 1788084737,
-        "trigger": "self",
-        "prevHead": "3763f4d81",
-        "handoffSha": "sha256:89068215324ae103ae4d0f4301c27867f55576e2bfec9a6fb5ed87e2812d9d35",
-        "handoffAgeSec": 18,
         "conformanceBefore": null,
         "commitsInSession": null
       }
