@@ -17,6 +17,7 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 /// handled; `None` otherwise.
 pub(crate) fn try_dispatch(
     ctx: &mut LowerCtx<'_>,
+    call_eid: ExprId,
     method: &str,
     args: &[ExprId],
     recv_op: Operand,
@@ -110,7 +111,7 @@ pub(crate) fn try_dispatch(
     if let Type::Arr(arr_id) = recv_ty
         && method == "concat"
     {
-        return Some(lower_arr_concat(ctx, recv_op, arr_id, args));
+        return Some(lower_arr_concat(ctx, call_eid, recv_op, arr_id, args));
     }
     None
 }
@@ -152,7 +153,20 @@ fn lower_concat_any_recv(
         Type::Arr(arr_id),
         None,
     );
-    let mut acc = Operand::Value(seed);
+    extend_any_acc_with_args(ctx, arr_id, Operand::Value(seed), args)
+}
+
+/// The §23.1.3.2 per-argument fold shared by the two lanes that
+/// build an `Arr<Any>` result (`Arr<Any>` receiver above, mixed
+/// typed receiver below): an `Arr<Any>` arg extends NaN-box slots,
+/// a typed array boxes per elem tag, anything else appends as one
+/// packed element. Every step incs the slots it writes itself.
+fn extend_any_acc_with_args(
+    ctx: &mut LowerCtx<'_>,
+    arr_id: crate::ssa::ArrId,
+    mut acc: Operand,
+    args: &[ExprId],
+) -> Operand {
     for &a in args {
         let other = ctx.lower_expr(a);
         let other_ty = ctx.operand_ty(&other);
@@ -168,15 +182,14 @@ fn lower_concat_any_recv(
                         None,
                     )
                 } else {
-                    let elem_tag = match oet {
-                        Type::Bool => 1,
-                        Type::I64 | Type::I32 => 2,
-                        Type::F64 => 3,
-                        t if t.is_refcounted() => 4,
-                        other => panic!(
-                            "ssa-lower: Array<Any>.concat typed-arg elem {other:?} not supported"
-                        ),
-                    };
+                    // Rotation 545 — a typed arg's elements cross
+                    // into the any world here; when they are
+                    // themselves arrays, the nested cells must be
+                    // kind-marked or every kind-aware reader answers
+                    // null (`[1].concat([[2]])` printed `[1,[null]]`).
+                    // Self-gates: chain 0 for scalar elems.
+                    ctx.emit_arr_mark_kind(&other);
+                    let elem_tag = any_elem_tag(oet);
                     ctx.f.append_inst(
                         ctx.cur_block,
                         InstKind::Call(
@@ -211,6 +224,59 @@ fn lower_concat_any_recv(
     acc
 }
 
+/// NaN-box elem tag for a typed array's element type — the scheme
+/// `__torajs_arr_extend_typed_into_any` boxes by.
+fn any_elem_tag(t: Type) -> i64 {
+    match t {
+        Type::Bool => 1,
+        Type::I64 | Type::I32 => 2,
+        Type::F64 => 3,
+        t if t.is_refcounted() => 4,
+        other => panic!("ssa-lower: Array<Any>.concat typed-arg elem {other:?} not supported"),
+    }
+}
+
+/// Rotation 545 — `<Arr<T>>.concat(...)` whose checked result is
+/// `Array<Any>`: §23.1.3.1 answers a heterogeneous element set when
+/// a statically-shaped argument diverges from T. Seed an `Arr<Any>`
+/// with the receiver's elements boxed per tag (the kernel
+/// materializes inline Substr views — rotation 468), then run the
+/// same per-argument fold the `Arr<Any>` receiver takes.
+fn lower_concat_mixed(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    recv_elem: Type,
+    args: &[ExprId],
+) -> Operand {
+    let any_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let seed = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_alloc_any, vec![Operand::Value(len)]),
+        Type::Arr(any_id),
+        None,
+    );
+    // Nested receiver elements cross into the any world — kind-mark
+    // them (self-gates; chain 0 for scalar elems).
+    ctx.emit_arr_mark_kind(&recv_op);
+    let elem_tag = any_elem_tag(recv_elem);
+    let seeded = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_extend_typed_into_any,
+            vec![Operand::Value(seed), recv_op, Operand::ConstI64(elem_tag)],
+        ),
+        Type::Arr(any_id),
+        None,
+    );
+    extend_any_acc_with_args(ctx, any_id, Operand::Value(seeded), args)
+}
+
 /// `<Arr>.concat(...)` — ES §23.1.3.2: every argument is either an array
 /// (spread into the result) or a single element (appended); multi-arg
 /// folds the single-arg kernel left to right. The result owns its
@@ -219,6 +285,7 @@ fn lower_concat_any_recv(
 /// the 200-line function limit (rotation 468).
 fn lower_arr_concat(
     ctx: &mut LowerCtx<'_>,
+    call_eid: ExprId,
     recv_op: Operand,
     arr_id: crate::ssa::ArrId,
     args: &[ExprId],
@@ -232,6 +299,18 @@ fn lower_arr_concat(
     // lane below.
     if matches!(ctx.arr_layouts[arr_id.0 as usize], Type::Any) {
         return lower_concat_any_recv(ctx, recv_op, arr_id, args);
+    }
+    // Rotation 545 — the checker types a heterogeneous concat
+    // `Array<Any>` (§23.1.3.1); this lane reads that verdict back
+    // rather than re-deriving it, so the two faces cannot disagree
+    // (rotation 544's mixed-anchor lesson). Typed receiver + Any
+    // call type has exactly one source: the mixed arm.
+    if matches!(
+        ctx.expr_types.get(&call_eid),
+        Some(crate::check::Type::Array(e)) if matches!(**e, crate::check::Type::Any)
+    ) {
+        let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
+        return lower_concat_mixed(ctx, recv_op, recv_elem, args);
     }
     // 0-arg form ≡ shallow copy. Lower as
     // `arr_slice(recv, 0, len)` — the refcount-inc

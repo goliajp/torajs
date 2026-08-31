@@ -433,7 +433,7 @@ fn try_dispatch_d(
         return Some(op);
     }
     // M6.1 — `<recv>.<method>(args)` for String / Substr / Array stdlib slice (ssa_lower_str sidekick).
-    if let Some(v) = crate::ssa_lower_str::try_lower_method_call(ctx, callee, args) {
+    if let Some(v) = crate::ssa_lower_str::try_lower_method_call(ctx, eid, callee, args) {
         return Some(v);
     }
     // `xs.findIndex|findLastIndex|find|findLast|some|every(p)` short-circuit predicate iteration.

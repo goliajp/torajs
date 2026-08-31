@@ -1,0 +1,17 @@
+console.log(JSON.stringify([1,2].concat(["a"])));
+console.log(JSON.stringify([1,2].concat("a")));
+console.log(JSON.stringify([1,2].concat(["a"], [3], "b", true, null, undefined)));
+console.log(JSON.stringify(["x"].concat([1,2])));
+console.log(JSON.stringify([1.5].concat(["a"])));
+console.log(JSON.stringify([true].concat([1])));
+console.log(JSON.stringify("a,b".split(",").concat([1])));
+console.log(JSON.stringify([1].concat([[2]])));
+console.log(JSON.stringify([1,2].concat([3])));
+console.log(JSON.stringify([1,2].concat()));
+const m = [1,2].concat(["a"]);
+console.log(m.length, m[0], m[2], typeof m[2]);
+const s = ["x"].concat([1]).concat(["y", 2]);
+console.log(JSON.stringify(s), s.length);
+console.log(JSON.stringify([[7]].concat(["z"])));
+const anyRecvNested: any[] = [1];
+console.log(JSON.stringify(anyRecvNested.concat([[2]])));

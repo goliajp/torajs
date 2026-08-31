@@ -63,6 +63,7 @@ pub(crate) fn try_match(
     // accepts every value / array shape (the Any concat lane
     // NaN-boxes per slot), so no narrowing applies there.
     let recv_any = matches!(expected, Type::Any);
+    let mut mixed = false;
     for a in args {
         let a_ty = match checker.type_of(ast, *a) {
             Ok(t) => t,
@@ -71,11 +72,28 @@ pub(crate) fn try_match(
         if recv_any {
             continue;
         }
+        // Rotation 545 — an Any-typed argument stays unclaimed
+        // (falls to the cascade's loud reject): §23.1.3.1's
+        // IsConcatSpreadable would need a runtime is-array test to
+        // know whether it spreads or appends, and neither lane has
+        // one. A follow-up face, not a silent single-element guess.
+        if matches!(a_ty, Type::Any) {
+            return None;
+        }
         let is_arr_t = a_ty == Type::Array(Box::new(expected.clone()));
         let is_scalar_t = a_ty == expected;
         if !is_arr_t && !is_scalar_t {
-            return None;
+            mixed = true;
         }
+    }
+    if mixed {
+        // Rotation 545 — §23.1.3.1: a statically-shaped argument
+        // that diverges from the receiver's element type makes the
+        // result element set heterogeneous, so the answer is
+        // Array<Any>, not a refusal. The lowering reads this call
+        // type back and routes the mixed lane (checker is the single
+        // decision point — rotation 544's mixed-anchor lesson).
+        return Some(Ok(Type::Array(Box::new(Type::Any))));
     }
     Some(Ok(Type::Array(Box::new(expected))))
 }

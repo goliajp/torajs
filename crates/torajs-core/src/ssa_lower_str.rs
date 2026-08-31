@@ -131,6 +131,7 @@ pub(crate) fn load_str_or_substr_length(ctx: &mut LowerCtx, op: Operand, ty: Typ
 ///    fall-through at the end yields `None`.
 pub(crate) fn try_lower_method_call(
     ctx: &mut LowerCtx,
+    call_eid: ExprId,
     callee_eid: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -209,7 +210,7 @@ pub(crate) fn try_lower_method_call(
     let recv_op = ctx.lower_expr(obj_eid);
     let recv_ty = ctx.operand_ty(&recv_op);
     let method = name.clone();
-    let Some(result) = dispatch_method(ctx, &method, args, recv_op, recv_ty) else {
+    let Some(result) = dispatch_method(ctx, call_eid, &method, args, recv_op, recv_ty) else {
         // RFC 20260705 chunk 555 — the receiver is already lowered;
         // park the operand so the next cascade arm's `lower_expr` of
         // the same eid reuses it instead of re-emitting (a
@@ -232,6 +233,7 @@ pub(crate) fn try_lower_method_call(
 /// a single `Some` exit instead of thirteen.
 fn dispatch_method(
     ctx: &mut LowerCtx,
+    call_eid: ExprId,
     method: &str,
     args: &[ExprId],
     recv_op: Operand,
@@ -297,9 +299,9 @@ fn dispatch_method(
     {
         return Some(v);
     }
-    if let Some(v) =
-        crate::ssa_lower_str_concat_dispatch::try_dispatch(ctx, method, args, recv_op, recv_ty)
-    {
+    if let Some(v) = crate::ssa_lower_str_concat_dispatch::try_dispatch(
+        ctx, call_eid, method, args, recv_op, recv_ty,
+    ) {
         return Some(v);
     }
     if let Some(v) = crate::ssa_lower_str_arr_at::try_dispatch(ctx, method, args, recv_op, recv_ty)
