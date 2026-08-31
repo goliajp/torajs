@@ -79,9 +79,13 @@ unsafe extern "C" {
     pub(super) fn __torajs_obj_print_any_at(obj: *const c_void, indent: u32);
     // Commit 5 — Date wire. Returns a fresh rc=1 Str holding the
     // ISO-8601 form. The Tag::Date branch prints the payload then
-    // rc_dec's the temporary Str to balance allocation.
+    // drops the temporary Str to balance the allocation.
     pub(super) fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *mut u8;
-    pub(super) fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    // torajs-str — release a Str stake AND free the block at zero.
+    // `__torajs_rc_dec` only decrements and reports whether the
+    // caller should free; it never frees, which is why the Date arm
+    // below used to strand its ISO string.
+    pub(super) fn __torajs_str_drop(s: *mut c_void);
     // Commit 6 — RegExp wire. Emits `/source/flags` directly via
     // the shared stdout writer (no fresh-Str alloc, no rc_dec
     // dance). Same put_byte family this module uses.
@@ -156,7 +160,10 @@ pub(super) unsafe fn put_date_inline(child: *const c_void) {
     let iso = unsafe { __torajs_date_to_iso_string(child) };
     if !iso.is_null() {
         unsafe { put_str_cell_inline(iso as *const c_void) };
-        unsafe { __torajs_rc_dec(iso as *mut c_void) };
+        // Rotation 542 — was `__torajs_rc_dec`, which decrements
+        // without freeing: 200k prints of one BOUND Date peaked at
+        // 14.7 MB against 1.44 MB flat.
+        unsafe { __torajs_str_drop(iso as *mut c_void) };
     }
 }
 

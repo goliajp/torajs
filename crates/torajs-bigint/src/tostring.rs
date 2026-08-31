@@ -241,6 +241,10 @@ unsafe extern "C" {
     fn __torajs_io_write_out(buf: *const u8, len: u64);
     fn __torajs_io_putc_out(c: i32) -> i32;
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    // torajs-str — release a Str stake AND free the block when the
+    // count reaches zero. `__torajs_rc_dec` only decrements and
+    // reports whether the caller should free; it never frees.
+    fn __torajs_str_drop(s: *mut c_void);
     // torajs-throw — record a pending catchable RangeError (§6.1.6.2.13
     // radix gate). NUL-terminated message.
     fn __torajs_throw_range_error(msg: *const u8);
@@ -266,6 +270,8 @@ unsafe extern "C" fn __torajs_io_putc_out(_c: i32) -> i32 {
 unsafe extern "C" fn __torajs_rc_dec(_p: *mut c_void) -> i32 {
     1
 }
+#[cfg(test)]
+unsafe extern "C" fn __torajs_str_drop(_s: *mut c_void) {}
 
 /// `console.log(<bigint>)` nested-context inline-print —
 /// emits `"<decimal>n"` with **no trailing '\n'**. Used by the
@@ -291,7 +297,12 @@ pub unsafe extern "C" fn __torajs_bigint_print_inline(a_: *const c_void) {
         if len > 0 {
             unsafe { __torajs_io_write_out((s as *const u8).add(16), len) };
         }
-        unsafe { __torajs_rc_dec(s as *mut c_void) };
+        // Rotation 542 — this was `__torajs_rc_dec`, which only
+        // decrements: the count reached zero and the block was never
+        // returned, so every `console.log(<bigint>)` stranded one
+        // decimal Str. 200k prints of one BOUND bigint (no temp of
+        // any kind in play) peaked at 8.45 MB against 1.44 MB flat.
+        unsafe { __torajs_str_drop(s as *mut c_void) };
     }
     // BigInt literal suffix.
     unsafe { __torajs_io_putc_out(b'n' as i32) };
