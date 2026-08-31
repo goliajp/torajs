@@ -57,11 +57,20 @@ pub(crate) fn try_lower(
     // typed (8B-slot) Array<T> per its recorded elem kind. A typed
     // literal is ARR_KIND_UNSET until a coercion site marks it, so this
     // Arr<T> → Arr<Any> read site marks it here (idempotent; a no-op on
-    // Array<Any> and on already-marked blocks). `.keys()` yields indices
-    // only and never reads a slot, so it needs no mark.
-    if matches!(method.as_str(), "values" | "entries") {
-        ctx.emit_arr_mark_kind(&recv_op);
-    }
+    // Array<Any> and on already-marked blocks).
+    //
+    // Rotation 543 — `.keys()` used to be excluded, on the true
+    // observation that it yields indices and never reads a slot. But
+    // the STEP is not the only consumer of the mark: the iterator
+    // holds the last strong ref to the source in
+    // `const t = xs.keys()`, so the array dies inside
+    // `__torajs_arr_iter_drop` -> `__torajs_value_drop_heap`, and
+    // THAT reads the recorded elem kind to decide whether the slots
+    // hold cells. Unmarked, it dropped the block and left every
+    // element behind: `const zs = ["a" + i]; zs.keys();` peaked at
+    // 8.00 MB RSS over 200k churn against 1.61 MB for the same loop
+    // over `[1, 2]`, whose slots have nothing to drop.
+    ctx.emit_arr_mark_kind(&recv_op);
     let target = match method.as_str() {
         "keys" => ctx.intrinsics.arr_iter_create_keys,
         "values" => ctx.intrinsics.arr_iter_create_values,
