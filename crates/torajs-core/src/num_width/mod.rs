@@ -41,6 +41,7 @@ mod fnsig;
 mod json_seed;
 mod let_names;
 mod mono;
+mod sentinel_tables;
 mod slot_abi;
 mod walk;
 mod width;
@@ -50,7 +51,8 @@ pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 
 use crate::ast::{Ast, ExprId, Stmt};
-use fallthrough::{alias_fallthrough_closures, close_sentinel_tables, seed_and_walk_fn};
+use fallthrough::{alias_fallthrough_closures, seed_and_walk_fn};
+use sentinel_tables::close_sentinel_tables;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Identity of a number-typed storage slot, module-wide.
