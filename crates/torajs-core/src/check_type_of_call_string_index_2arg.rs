@@ -55,14 +55,14 @@ pub(crate) fn try_match(
             "String.{m_name} arg 0 must be string, got {needle_ty:?}"
         )));
     }
-    let from_ty = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if from_ty != Type::Number && !matches!(from_ty, Type::Undefined) {
-        return Some(Err(format!(
-            "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-        )));
+    if let Err(e) = checker.type_of(ast, args[1]) {
+        return Some(Err(e));
     }
+    // Rotation 544 — §22.1.3.8 step 4 / §22.1.3.10 step 5 coerce
+    // this slot, so every shape reaches it: `'abc'.indexOf('c', '1')`
+    // is 2 and `'abcabc'.lastIndexOf('a', 'zz')` is 3 (ToNumber of it
+    // is NaN, which lastIndexOf reads as +∞). The gate that stood
+    // here admitted Number and Undefined and refused the rest by
+    // name. ssa_lower carries the per-method NaN reading.
     Some(Ok(Type::Number))
 }

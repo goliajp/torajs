@@ -46,14 +46,13 @@ pub(crate) fn try_match(
     if let Err(e) = checker.type_of(ast, args[0]) {
         return Some(Err(e));
     }
-    let limit_ty = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if limit_ty != Type::Number && limit_ty != Type::Undefined {
-        return Some(Err(format!(
-            "String.split arg 1 (limit) must be number, got {limit_ty:?}"
-        )));
+    if let Err(e) = checker.type_of(ast, args[1]) {
+        return Some(Err(e));
     }
+    // Rotation 544 — §22.1.3.23 step 3 is
+    // `limit === undefined ? 2^32-1 : ToUint32(limit)`, so a
+    // non-Number limit is coerced, not refused:
+    // `'a,b,c'.split(',', '2')` is `['a','b']`. The undefined-vs-NaN
+    // distinction that step draws is carried in ssa_lower.
     Some(Ok(Type::Array(Box::new(Type::String))))
 }

@@ -71,14 +71,11 @@ pub(crate) fn try_match(
                 "String.{m_name} arg 0 must be string, got {needle_ty:?}"
             )));
         }
-        let from_ty = match checker.type_of(ast, args[1]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if !matches!(from_ty, Type::Number | Type::Undefined) {
-            return Some(Err(format!(
-                "String.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-            )));
+        // Rotation 544 — the trailing-arg spelling carried its own
+        // copy of the 2-arg gate; see the siblings for the spec
+        // steps that coerce this slot.
+        if let Err(e) = checker.type_of(ast, args[1]) {
+            return Some(Err(e));
         }
         for &a in args.iter().skip(2) {
             if let Err(e) = checker.type_of(ast, a) {

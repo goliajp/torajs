@@ -55,14 +55,12 @@ pub(crate) fn try_match(
             "String.{m_name} arg 0 must be string, got {needle_ty:?}"
         )));
     }
-    let from_ty = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(from_ty, Type::Number | Type::Undefined) {
-        return Some(Err(format!(
-            "String.{m_name} arg 1 must be number, got {from_ty:?}"
-        )));
+    if let Err(e) = checker.type_of(ast, args[1]) {
+        return Some(Err(e));
     }
+    // Rotation 544 — §22.1.3.{22,7,14} coerce this slot. `endsWith`
+    // is the one that reads `undefined` and NaN differently (its
+    // step 5 tests the slot itself), which ssa_lower carries; the
+    // typecheck owes only the admission.
     Some(Ok(Type::Boolean))
 }
