@@ -227,20 +227,32 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
                 // it through an env-first indirect call is a SIGBUS.
                 crate::ast::retag_field_fn_ann(&canon)
             }
-            // A computed field whose shape has no width question:
-            // `{ msg: "a" + b }` and `{ ok: x > y }` are as certainly
-            // a string and a boolean as the literal arms above, and
-            // without this one such field kept the whole binding
-            // main-local — so a named fn reading ANY field of it got
-            // "unknown identifier". The numeric shapes stay out on
-            // purpose: at the binding level their width is settled by
-            // `num_width`'s global slot, and a struct FIELD is a
-            // different key, so claiming `number` here could park f64
-            // bits in an i64 field — silent garbage rather than the
-            // loud failure it is today.
+            // A computed field, typed by the same shape inference the
+            // binding level uses: `{ msg: "a" + b }` is as certainly
+            // a string as the literal arms above, and without this
+            // one such field kept the WHOLE binding main-local — so a
+            // named fn reading ANY field of it got "unknown
+            // identifier".
+            //
+            // The numeric shapes used to stay out here, on the worry
+            // that a struct FIELD is a different `num_width` key from
+            // the binding, so answering `number` could park f64 bits
+            // in an i64 field. It cannot: `widen_struct_fields` asks
+            // `field_is_f64(key, fname)` for every field of the
+            // resolved layout, and `num_width`'s ObjectLit walk seeds
+            // that key with `width_of` of the field's INITIALIZER —
+            // any expression, not just a literal. The literal number
+            // arm above has ridden that correction all along. Probe
+            // `{ v: 1 / 2 }`: the shape answers I64 (width is never
+            // decided by shape), the ann spells `number`, and the
+            // widen re-interns the field as F64 — `0.5`, where a
+            // missing correction would print `0`.
             _ => match infer_slot_shape(ast, *val, 0) {
                 Some(GlobalSlotShape::Str) => "string".to_string(),
                 Some(GlobalSlotShape::Bool) => "boolean".to_string(),
+                Some(GlobalSlotShape::I64) => "number".to_string(),
+                Some(GlobalSlotShape::F64) => "f64".to_string(),
+                Some(GlobalSlotShape::BigInt) => "bigint".to_string(),
                 _ => return None,
             },
         };
