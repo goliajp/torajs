@@ -72,6 +72,13 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
+    // Rotation 543 — an owned argument temp (`Object.values({a: 1})`,
+    // a call result, an `as` cast) has no other release site: every
+    // arm below reads the receiver without consuming it. Mirror of the
+    // `Object.keys` lane's `arg_raw` snapshot, taken before the
+    // Closure / Error box because that box is rc-neutral and the
+    // release wants the receiver's own type.
+    let arg_raw = arg_op.clone();
     // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
     // boxes to any and rides the runtime own-values walk (the
     // `anyv_own_values` TAG_CLOSURE_CELL arm answers the expando
@@ -127,6 +134,7 @@ pub(crate) fn try_lower(
                 Operand::Value(cloned_len),
             );
         }
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(cloned));
     }
 
@@ -142,6 +150,7 @@ pub(crate) fn try_lower(
             Type::Arr(arr_id),
             None,
         );
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -159,6 +168,7 @@ pub(crate) fn try_lower(
             None,
         );
         ctx.emit_throw_check(None);
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -193,6 +203,7 @@ pub(crate) fn try_lower(
             None,
         );
         ctx.emit_throw_check(None);
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -207,7 +218,7 @@ pub(crate) fn try_lower(
     // instead, asking per member whether it is hidden right now.
     let layout_hidden = layout.clone();
     let arg_hidden = arg_op.clone();
-    Some(crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
+    let out = crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
         ctx,
         &arg_op.clone(),
         Type::Arr(arr_id),
@@ -219,7 +230,11 @@ pub(crate) fn try_lower(
             let props = crate::ssa_lower_struct_own_props::own_props(&layout, ctx.fn_sigs);
             emit_values_unfold(ctx, &arg_op, &props, arr_id, false)
         },
-    ))
+    );
+    // The gate joins both arms before this point, so one release in
+    // the join block covers them both.
+    ctx.release_owned_temp(args[0], &arg_raw);
+    Some(out)
 }
 
 /// The static unfold: one array slot per own property, in declaration

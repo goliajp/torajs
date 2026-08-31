@@ -88,6 +88,13 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
+    // Rotation 543 — an owned argument temp (`Object.entries({a: 1})`,
+    // a call result, an `as` cast) has no other release site: every
+    // arm below reads the receiver without consuming it. This is the
+    // `Object.keys` lane's `arg_raw` snapshot, taken here for the same
+    // reason — before the Closure / Error box, because that box is
+    // rc-neutral and the release wants the receiver's own type.
+    let arg_raw = arg_op.clone();
     // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
     // boxes to any and rides the runtime own-entries walk (mirror of
     // the keys / values arms; a plain fn answers []). Borrow-shaped
@@ -124,6 +131,7 @@ pub(crate) fn try_lower(
             Type::Arr(outer_arr_id),
             None,
         );
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -138,6 +146,7 @@ pub(crate) fn try_lower(
             Type::Arr(outer_arr_id),
             None,
         );
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -153,6 +162,7 @@ pub(crate) fn try_lower(
             None,
         );
         ctx.emit_throw_check(None);
+        ctx.release_owned_temp(args[0], &arg_raw);
         return Some(Operand::Value(v));
     }
 
@@ -170,7 +180,7 @@ pub(crate) fn try_lower(
     let outer_ty = Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_arr_id)));
     let walk_arg = arg_op.clone();
     let walk_ty = outer_ty.clone();
-    Some(crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
+    let out = crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate(
         ctx,
         &arg_op.clone(),
         outer_ty,
@@ -186,7 +196,11 @@ pub(crate) fn try_lower(
             Operand::Value(v)
         },
         move |ctx| emit_struct_entries_unfold(ctx, arg_op, &layout),
-    ))
+    );
+    // The gate joins both arms before this point, so one release in
+    // the join block covers them both.
+    ctx.release_owned_temp(args[0], &arg_raw);
+    Some(out)
 }
 
 /// Compile-time unfold of `Object.entries(obj)` against a known
