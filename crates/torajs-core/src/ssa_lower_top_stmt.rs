@@ -136,8 +136,17 @@ impl<'a> LowerCtx<'a> {
             }
             self.emit_console_print(method, target, arg.clone());
             crate::ssa_lower_call_console::close_console_sentinel_branch(self, sentinel_join);
-            if is_str && !is_borrow {
-                self.emit_drop_value(arg, Type::Str);
+            if !is_borrow {
+                if is_str {
+                    self.emit_drop_value(arg, Type::Str);
+                } else if arg_ty.is_refcounted() && self.expr_owned_shape(args[0]) {
+                    // Rotation 542 — same release the in-fn lane
+                    // takes; without it a top-level
+                    // `console.log(new Date())` stranded its temp.
+                    // The two lanes had drifted on the drop the way
+                    // they had on the BigInt print target.
+                    self.emit_drop_value(arg, arg_ty);
+                }
             }
             return;
         }

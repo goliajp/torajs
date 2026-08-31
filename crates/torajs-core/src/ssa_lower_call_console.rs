@@ -142,7 +142,7 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     if !is_borrow {
         if is_str {
             ctx.emit_drop_value(arg, Type::Str);
-        } else if arg_ty == Type::Any && ctx.expr_owned_shape(arg_id) {
+        } else if arg_ty.is_refcounted() && ctx.expr_owned_shape(arg_id) {
             // Chunk 717 — an owned any-member read printed directly
             // (`console.log(re.source)`): print_any borrows, so the
             // read's stake releases here. Chunk 721 widened the gate
@@ -152,7 +152,18 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
             // box per call (probe c721a 24.2MB vs 6.4MB flat).
             // Ternary / Nullish over owned temps stay on the L3b
             // ledger (they answer borrows of their branch results).
-            ctx.emit_drop_value(arg, Type::Any);
+            //
+            // Rotation 542 — the gate used to name Type::Any alone,
+            // which left every OTHER refcounted temp printed here
+            // with no release site at all. 200k churn, AOT product
+            // RSS against 1.44MB flat: `console.log([1,2])` 27.2MB,
+            // `console.log(new Date(0))` 21.1MB, `console.log({a:1})`
+            // 14.4MB, `console.log(2n)` 21.3MB. Str keeps its own
+            // arm above (a wider `!is_borrow` gate, unchanged); a
+            // possibly-sentinel operand is safe here because the
+            // generic undefined cell carries FLAG_STATIC_LITERAL,
+            // which short-circuits inc / dec / drop.
+            ctx.emit_drop_value(arg, arg_ty);
         }
     }
     Operand::ConstI64(0)
