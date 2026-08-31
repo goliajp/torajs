@@ -51,3 +51,21 @@ console.log("abcabc".indexOf("a", 1), "abc".startsWith("b", 1), "abc".endsWith("
 console.log(JSON.stringify("a,b,c".split(",", 2)), JSON.stringify("a,b,c".split(",")));
 console.log("abc".indexOf("a", undefined), "abc".lastIndexOf("a", undefined), "abc".endsWith("c", undefined));
 console.log("abc".slice(0, 2), "abc".substring(0, 2), "abc".substr(0, 2), "ab".repeat(2), "abc".at(1));
+
+// §22.1.3.23 step 2 dispatches a user @@split BEFORE step 3 coerces
+// the limit, and passes it raw — so the limit's coercion has to stand
+// down when the separator may carry one, or a `valueOf` the spec
+// never runs fires and the splitter sees a number where it was given
+// an object.
+const probed: string[] = [];
+const rawLimit: any = {
+  valueOf: function (): number {
+    probed.push("valueOf");
+    return 2;
+  },
+};
+const splitter: any = {};
+splitter[Symbol.split] = function (_s: any, l: any) {
+  return l === rawLimit;
+};
+console.log("abc".split(splitter, rawLimit), probed.length);

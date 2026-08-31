@@ -235,6 +235,7 @@ pub(crate) fn populate_argv(
         } else if matches!(method, "endsWith" | "split")
             && i == 1
             && !matches!(ctx.expr_types.get(&a), Some(crate::check::Type::Number))
+            && !split_defers_to_user_splitter(ctx, method, args)
         {
             // Rotation 544 — §22.1.3.7 step 5 and §22.1.3.23 step 3
             // both test the slot for `undefined` ITSELF, not for the
@@ -327,6 +328,24 @@ pub(crate) fn populate_argv(
 /// with no primitive conversion records a pending TypeError
 /// (§7.1.1 OrdinaryToPrimitive) — propagate it before the NaN
 /// placeholder flows into the position slot.
+/// Whether this `split` call will hand its arguments to a user
+/// `@@split` instead of the kernel — the same question
+/// [`crate::ssa_lower_str_str_split::lower_split`] asks, asked one
+/// step earlier.
+///
+/// §22.1.3.23 step 2 dispatches on the separator BEFORE step 3
+/// coerces the limit, and passes «O, limit» raw. Coercing here would
+/// run a user `valueOf` on the limit that the spec never runs, and
+/// hand the splitter a number where it must see the object it was
+/// given. `endsWith` has no such step, so it never defers.
+fn split_defers_to_user_splitter(ctx: &LowerCtx<'_>, method: &str, args: &[ExprId]) -> bool {
+    method == "split"
+        && args
+            .first()
+            .is_some_and(|a| matches!(ctx.expr_types.get(a), Some(crate::check::Type::Any)))
+        && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0])
+}
+
 /// Lower an `Any` slot into its three readings at once: the box TAG,
 /// the ToNumber of it, and the ToIntegerOrInfinity of that.
 ///
