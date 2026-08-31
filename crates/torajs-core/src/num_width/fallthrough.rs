@@ -182,6 +182,22 @@ pub(super) fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> b
             Expr::Member { name, .. }
                 if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
         ),
+        // The value-transparent wrappers, the set the 11-A1 escape
+        // visitor names: what comes out is what went in. Without them
+        // `return true ? xs[9] : 0` handed the sentinel back as an
+        // ordinary value and the caller printed NaN, while `return
+        // xs[9]` one line above answered `undefined`. The `??` yields
+        // its left arm only when that arm is neither null nor
+        // undefined, so a sentinel there can never be the result.
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => is_sentinel_source(a, *then_branch) || is_sentinel_source(a, *else_branch),
+        Expr::Nullish { rhs, .. } => is_sentinel_source(a, *rhs),
+        Expr::Sequence { right, .. } => is_sentinel_source(a, *right),
+        Expr::Assign { value, .. } => is_sentinel_source(a, *value),
+        Expr::As { expr, .. } => is_sentinel_source(a, *expr),
         _ => false,
     }
 }
