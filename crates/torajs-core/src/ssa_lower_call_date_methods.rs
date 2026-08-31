@@ -107,6 +107,14 @@ pub(crate) fn try_lower(
     }
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
 
+    // Rotation 543 — every kernel below READS [[DateValue]] off the
+    // receiver; none consumes it. An owned receiver temp
+    // (`new Date(0).getTime()`, a call result, an `as` cast) therefore
+    // had no release site in this file at all — 200k churn peaked at
+    // 14.37 MB RSS against 1.52 MB for the same loop over a bound
+    // receiver. Snapshot before `build_arg_ops` takes the operand.
+    let recv_raw = recv_op.clone();
+
     let arg_ops = build_arg_ops(ctx, &method, recv_op, args);
     let (target, ret_ty) = resolve_intrinsic(ctx, &method);
     let cur_block = ctx.cur_block;
@@ -120,6 +128,7 @@ pub(crate) fn try_lower(
         // non-finite time value (the kernel returns Str-slot NULL).
         ctx.emit_throw_check(None);
     }
+    ctx.release_owned_temp(recv_id, &recv_raw);
     Some(Operand::Value(v))
 }
 
