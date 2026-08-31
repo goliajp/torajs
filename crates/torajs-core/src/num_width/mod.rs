@@ -50,7 +50,7 @@ pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 
 use crate::ast::{Ast, ExprId, Stmt};
-use fallthrough::{alias_fallthrough_closures, collect_undef_sentinel_params, seed_and_walk_fn};
+use fallthrough::{alias_fallthrough_closures, close_sentinel_tables, seed_and_walk_fn};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Identity of a number-typed storage slot, module-wide.
@@ -341,9 +341,9 @@ pub(crate) fn analyze(
     };
     // Ahead of the walk: the fall-through table below asks whether a
     // body hands the sentinel back, and returning a parameter that a
-    // call site tainted is one of the ways it can.
-    let undef_sentinel_params = collect_undef_sentinel_params(&a);
-    let mut fallthrough_fns: HashSet<String> = HashSet::new();
+    // call site tainted is one of the ways it can. The two answers
+    // feed each other, so they are closed together first.
+    let (undef_sentinel_params, mut fallthrough_fns) = close_sentinel_tables(&a, &ast.stmts);
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { .. } = stmt {
             seed_and_walk_fn(&mut a, stmt, &undef_sentinel_params, &mut fallthrough_fns);

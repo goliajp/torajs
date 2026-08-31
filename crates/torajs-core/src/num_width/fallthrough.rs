@@ -59,6 +59,59 @@ pub(super) fn seed_and_walk_fn(
     }
 }
 
+/// Close the fall-through table and its tainted-parameter mirror
+/// together, before anything reads either.
+///
+/// The two feed each other and each used to be computed once, in one
+/// order: a call site taints a parameter only when the argument
+/// answers the sentinel, and one of the ways an argument can is by
+/// being a call to a function already on the table — which in turn
+/// may be on the table because it hands a tainted parameter back. So
+/// the table did not compose even one hop. `function g(): number {
+/// return zs[9] }` read `undefined` and `function f(): number {
+/// return g() }` printed NaN, and a fall-through returned through
+/// another fall-through did the same.
+///
+/// The admission rule is the one [`seed_and_walk_fn`] applies, so the
+/// walk that follows re-derives these same names and its width
+/// seeding is untouched — this only gets there first, with the whole
+/// answer instead of a prefix of it. Both sets only grow and the
+/// names are finite, so it terminates.
+pub(super) fn close_sentinel_tables(
+    a: &Analysis<'_>,
+    stmts: &[Stmt],
+) -> (HashSet<(String, String)>, HashSet<String>) {
+    let mut fns: HashSet<String> = HashSet::new();
+    let mut params: HashSet<(String, String)> = HashSet::new();
+    loop {
+        let (n_fns, n_params) = (fns.len(), params.len());
+        params.extend(collect_undef_sentinel_params(a, &fns));
+        for stmt in stmts {
+            let Stmt::FnDecl {
+                name,
+                body,
+                return_type: Some(ret),
+                ..
+            } = stmt
+            else {
+                continue;
+            };
+            if ret == "void" || fns.contains(name) {
+                continue;
+            }
+            if !crate::ast::body_always_terminates(body)
+                || body_returns_sentinel(a, name, body, &params, &fns)
+            {
+                fns.insert(name.clone());
+            }
+        }
+        alias_fallthrough_closures(a.ast, &mut fns);
+        if fns.len() == n_fns && params.len() == n_params {
+            return (params, fns);
+        }
+    }
+}
+
 /// RFC 20260725-fallthrough-return knife 4 — an arrow function is
 /// lifted to a `__closure_N` FnDecl before this analysis runs, so it
 /// lands on the table under that synthetic name. The call site spells
@@ -136,7 +189,7 @@ pub(super) fn seed_fallthrough_return(
         return;
     }
     let falls_through = !crate::ast::body_always_terminates(body);
-    if !falls_through && !body_returns_sentinel(a, fn_name, body, tainted_params) {
+    if !falls_through && !body_returns_sentinel(a, fn_name, body, tainted_params, &*out) {
         return;
     }
     out.insert(fn_name.to_string());
@@ -152,7 +205,16 @@ pub(super) fn seed_fallthrough_return(
 ///
 /// Receiver-type-agnostic on purpose — the shape alone is the gate, and
 /// being on a table only costs one predictable compare at the consumer.
-pub(super) fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> bool {
+///
+/// `fns` is the table as far as it is known. A call to a function on
+/// it answers the sentinel one hop further out, which is how the table
+/// composes; see [`close_sentinel_tables`] for why it has to be closed
+/// before anything reads it.
+pub(super) fn is_sentinel_source(
+    a: &Analysis<'_>,
+    eid: crate::ast::ExprId,
+    fns: &HashSet<String>,
+) -> bool {
     match a.ast.get_expr(eid) {
         // Reading past the end answers `undefined` (ES §10.4.2.1)
         // exactly as a miss does, and `xs.at(i)` is on the list right
@@ -162,11 +224,20 @@ pub(super) fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> b
         // while the identical read read in place has always answered
         // `undefined`.
         Expr::Index { .. } | Expr::OptIndex { .. } => true,
-        Expr::Call { callee, .. } => matches!(
-            a.ast.get_expr(*callee),
-            Expr::Member { name, .. }
-                if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
-        ),
+        // Either spelling of "someone else already answered it": a
+        // builtin miss, or a user function that is itself on the
+        // table — because its body hands one back, or because it can
+        // run off its end. Without the second the table did not
+        // compose one hop: `function g(): number { return zs[9] }`
+        // read right and `function f(): number { return g() }`
+        // printed NaN.
+        Expr::Call { callee, .. } => match a.ast.get_expr(*callee) {
+            Expr::Member { name, .. } => {
+                matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
+            }
+            Expr::Ident(f) => fns.contains(f),
+            _ => false,
+        },
         // The value-transparent wrappers, the set the 11-A1 escape
         // visitor names: what comes out is what went in. Without them
         // `return true ? xs[9] : 0` handed the sentinel back as an
@@ -178,11 +249,11 @@ pub(super) fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> b
             then_branch,
             else_branch,
             ..
-        } => is_sentinel_source(a, *then_branch) || is_sentinel_source(a, *else_branch),
-        Expr::Nullish { rhs, .. } => is_sentinel_source(a, *rhs),
-        Expr::Sequence { right, .. } => is_sentinel_source(a, *right),
-        Expr::Assign { value, .. } => is_sentinel_source(a, *value),
-        Expr::As { expr, .. } => is_sentinel_source(a, *expr),
+        } => is_sentinel_source(a, *then_branch, fns) || is_sentinel_source(a, *else_branch, fns),
+        Expr::Nullish { rhs, .. } => is_sentinel_source(a, *rhs, fns),
+        Expr::Sequence { right, .. } => is_sentinel_source(a, *right, fns),
+        Expr::Assign { value, .. } => is_sentinel_source(a, *value, fns),
+        Expr::As { expr, .. } => is_sentinel_source(a, *expr, fns),
         _ => false,
     }
 }
@@ -205,7 +276,10 @@ pub(super) fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> b
 /// every call of that function to take the sentinel-aware branch,
 /// which is the safe direction — the same conservative merge the
 /// fall-through table makes for same-named bindings.
-pub(super) fn collect_undef_sentinel_params(a: &Analysis<'_>) -> HashSet<(String, String)> {
+fn collect_undef_sentinel_params(
+    a: &Analysis<'_>,
+    fns: &HashSet<String>,
+) -> HashSet<(String, String)> {
     let lifted = lifted_closure_names(a.ast);
     let mut out = HashSet::new();
     for eid in 0..a.ast.exprs.len() {
@@ -226,7 +300,7 @@ pub(super) fn collect_undef_sentinel_params(a: &Analysis<'_>) -> HashSet<(String
         let params = a.user_params(f);
         for (i, arg) in args.iter().enumerate() {
             if let Some(p) = params.get(i)
-                && is_sentinel_source(a, *arg)
+                && is_sentinel_source(a, *arg, fns)
             {
                 out.insert((f.clone(), p.clone()));
             }
@@ -297,6 +371,7 @@ fn body_returns_sentinel(
     fn_name: &str,
     body: &[Stmt],
     tainted_params: &HashSet<(String, String)>,
+    fns: &HashSet<String>,
 ) -> bool {
     // Handing back a parameter a call site tainted passes the sentinel
     // straight through, the same way handing back the read itself does.
@@ -308,45 +383,52 @@ fn body_returns_sentinel(
         .filter(|p| tainted_params.contains(&(fn_name.to_string(), (*p).clone())))
         .cloned()
         .collect();
-    fn walk(a: &Analysis<'_>, stmts: &[Stmt], lets: &mut HashSet<String>) -> bool {
+    fn walk(
+        a: &Analysis<'_>,
+        stmts: &[Stmt],
+        lets: &mut HashSet<String>,
+        fns: &HashSet<String>,
+    ) -> bool {
         stmts.iter().any(|s| match s {
             Stmt::LetDecl { name, init, .. } => {
-                if is_sentinel_source(a, *init) {
+                if is_sentinel_source(a, *init, fns) {
                     lets.insert(name.clone());
                 }
                 false
             }
             Stmt::Return(Some(eid)) => {
-                is_sentinel_source(a, *eid)
+                is_sentinel_source(a, *eid, fns)
                     || matches!(a.ast.get_expr(*eid), Expr::Ident(n) if lets.contains(n))
             }
-            Stmt::Block(inner) | Stmt::Multi(inner) => walk(a, inner, lets),
+            Stmt::Block(inner) | Stmt::Multi(inner) => walk(a, inner, lets, fns),
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                walk(a, std::slice::from_ref(then_branch), lets)
+                walk(a, std::slice::from_ref(then_branch), lets, fns)
                     || else_branch
                         .as_deref()
-                        .is_some_and(|e| walk(a, std::slice::from_ref(e), lets))
+                        .is_some_and(|e| walk(a, std::slice::from_ref(e), lets, fns))
             }
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::For { body, .. }
-            | Stmt::Labeled { body, .. } => walk(a, std::slice::from_ref(body), lets),
+            | Stmt::Labeled { body, .. } => walk(a, std::slice::from_ref(body), lets, fns),
             Stmt::Try {
                 body,
                 catch_body,
                 finally_body,
                 ..
             } => {
-                walk(a, body, lets)
-                    || walk(a, catch_body, lets)
-                    || finally_body.as_deref().is_some_and(|f| walk(a, f, lets))
+                walk(a, body, lets, fns)
+                    || walk(a, catch_body, lets, fns)
+                    || finally_body
+                        .as_deref()
+                        .is_some_and(|f| walk(a, f, lets, fns))
             }
             _ => false,
         })
     }
-    walk(a, body, &mut lets)
+    walk(a, body, &mut lets, fns)
 }
