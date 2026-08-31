@@ -138,6 +138,13 @@ unsafe fn step_numeric(cur: AnyValue, is_inc: i64) -> Option<(AnyValue, AnyValue
         None => {
             // SAFETY: tag / value came out of a live AnyValue.
             let old = unsafe { any_arith(OP_SUB, tag, value, AnySlotTag::I64 as i64, 0) };
+            // any_arith only borrows; a ShortStr operand materialized
+            // an owned rc=1 Str in the unbox above (546-02 M1 family
+            // — `let s = "1"; s++` leaked one per step).
+            if crate::nanbox::is_short_str(cur) && value != 0 {
+                // SAFETY: the materialization is ours to release.
+                unsafe { crate::__torajs_value_drop_heap(value as *mut c_void) };
+            }
             let step: i64 = if is_inc != 0 { -1 } else { 1 };
             let old_tag = __torajs_anyv_unbox_tag(old);
             let old_value = __torajs_anyv_unbox_value(old);

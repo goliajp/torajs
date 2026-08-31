@@ -30,6 +30,7 @@ unsafe extern "C" {
     /// torajs-regex — boxed-form lastIndex peek (BORROW; 0 = numeric
     /// form) + the numeric f64 getter.
     fn __torajs_regex_last_index_raw(re: *const c_void) -> u64;
+    fn __torajs_regex_last_index_store_boxed(re: *mut c_void, v: u64);
     fn __torajs_regex_get_last_index(re: *const c_void) -> f64;
 }
 
@@ -419,6 +420,21 @@ unsafe fn regexp_arm_value(ptr: *mut c_void, key: *const c_void, recv: AnyValue)
         if crate::prop_has::key_is(key, b"lastIndex") {
             let raw = __torajs_regex_last_index_raw(ptr);
             if raw != 0 {
+                // A ShortStr box normalizes IN the cell's slot to its
+                // materialized heap Str first (546-02 M1 family): this
+                // is a borrow channel, and a materialization minted
+                // per read has no owner. The transfer-shaped store
+                // releases the old immediate (a no-op) and adopts the
+                // rc=1 cell; the two spellings are the same string
+                // value to every lastIndex consumer.
+                if crate::nanbox::is_short_str(raw) {
+                    let mat = crate::__torajs_anyv_unbox_value(raw);
+                    __torajs_regex_last_index_store_boxed(
+                        ptr,
+                        crate::nanbox::box_void_ptr(mat as *mut c_void),
+                    );
+                    return mat as u64;
+                }
                 return crate::__torajs_anyv_unbox_value(raw) as u64;
             }
             return __torajs_regex_get_last_index(ptr).to_bits();

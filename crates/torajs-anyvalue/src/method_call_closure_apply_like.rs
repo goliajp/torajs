@@ -54,6 +54,12 @@ pub(crate) unsafe fn apply_array_like(
             crate::__torajs_anyv_unbox_value(len_v),
         );
         let n_f = crate::coerce::any_to_number(t, p);
+        // any_to_number only borrows and anyv_rc_dec no-ops on the
+        // ShortStr immediate — release the materialized rc=1 Str
+        // (546-02 M1 family; `f.apply(null, {length:"2"})` leaked).
+        if crate::nanbox::is_short_str(len_v) && p != 0 {
+            crate::__torajs_value_drop_heap(p as *mut c_void);
+        }
         __torajs_anyv_rc_dec(len_v);
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;

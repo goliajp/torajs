@@ -38,6 +38,12 @@ pub(crate) unsafe fn species_ctor_len(
         }
         let v = crate::nanbox_encode::__torajs_anyv_unbox_value(av);
         let n = unsafe { crate::coerce::any_to_number(t, v) };
+        // any_to_number only borrows; a ShortStr argument
+        // materialized an owned rc=1 Str in the unbox above (546-02
+        // M1 family) — release it or every `slice("1")` leaks.
+        if crate::nanbox::is_short_str(av) && v != 0 {
+            unsafe { crate::__torajs_value_drop_heap(v as *mut c_void) };
+        }
         if n.is_nan() {
             0
         } else {

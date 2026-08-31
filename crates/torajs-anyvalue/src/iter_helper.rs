@@ -126,6 +126,13 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
             crate::__torajs_anyv_unbox_value(fn_av),
         );
         let n = unsafe { crate::coerce::any_to_number(t, p) };
+        // any_to_number only borrows; a ShortStr count materialized
+        // an owned rc=1 Str in the unbox above (546-02 M1 family) —
+        // release it on every exit (`it.take("2")` leaked one per
+        // call).
+        if crate::nanbox::is_short_str(fn_av) && p != 0 {
+            unsafe { crate::__torajs_value_drop_heap(p as *mut c_void) };
+        }
         if unsafe { __torajs_throw_check() } != 0 {
             // ToNumber itself threw (a valueOf poison) — close and
             // let the poison's throw win (§7.4.9 step 5).

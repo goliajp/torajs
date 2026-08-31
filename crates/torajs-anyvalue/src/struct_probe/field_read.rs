@@ -37,13 +37,30 @@ pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> 
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer.
 pub(crate) unsafe fn struct_field_pair_bytes(ptr: *mut c_void, name: &[u8]) -> Option<(u64, u64)> {
-    let (type_tag, raw) = unsafe { struct_field_raw(ptr, name) }?;
+    let (type_tag, raw, slot) = unsafe { struct_field_raw(ptr, name) }?;
     Some(match type_tag {
-        // Any-typed field: the slot is a NaN-box — decode it.
-        0 => (
-            crate::nanbox_encode::__torajs_anyv_unbox_tag(raw) as u64,
-            crate::nanbox_encode::__torajs_anyv_unbox_value(raw) as u64,
-        ),
+        // Any-typed field: the slot is a NaN-box — decode it. A
+        // ShortStr box first normalizes IN the slot to its
+        // materialized heap Str (546-02 M1 family): this pair is
+        // borrow-shaped — the struct keeps the stake — and a
+        // materialization minted per probe has no owner (one leaked
+        // Str per `any`-receiver read of a short-string field, twice
+        // per member get since tag and value channel each probe).
+        // After the write-back the slot owns the rc=1 cell and every
+        // later read rides the plain Heap arm; the two spellings are
+        // the same string value to every Any-slot consumer.
+        0 => {
+            if crate::nanbox::is_short_str(raw) {
+                let mat = crate::nanbox_encode::__torajs_anyv_unbox_value(raw);
+                let boxed = crate::nanbox::box_void_ptr(mat as *mut c_void);
+                unsafe { slot.write(boxed) };
+                return Some((AnySlotTag::Heap as u64, mat as u64));
+            }
+            (
+                crate::nanbox_encode::__torajs_anyv_unbox_tag(raw) as u64,
+                crate::nanbox_encode::__torajs_anyv_unbox_value(raw) as u64,
+            )
+        }
         1 => (AnySlotTag::I64 as u64, raw),
         2 => (AnySlotTag::F64 as u64, raw),
         3 => (AnySlotTag::Bool as u64, raw),
@@ -74,13 +91,14 @@ unsafe extern "C" {
 }
 
 /// Layout-resolved raw slot read shared by the pair / anyv decode
-/// shapes: `(layout type_tag, raw 8-byte slot bits)` for a hit,
-/// `None` for a missing layout / absent field / accessor-slot
-/// spelling.
+/// shapes: `(layout type_tag, raw 8-byte slot bits, slot address)`
+/// for a hit, `None` for a missing layout / absent field /
+/// accessor-slot spelling. The slot address feeds the pair shape's
+/// in-slot ShortStr normalization; the anyv shape ignores it.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer.
-unsafe fn struct_field_raw(ptr: *mut c_void, name: &[u8]) -> Option<(u8, u64)> {
+unsafe fn struct_field_raw(ptr: *mut c_void, name: &[u8]) -> Option<(u8, u64, *mut u64)> {
     // RFC 20260714-objlit-accessor blade 5 — the accessor SLOT spelling
     // is not a property. `find_field` resolves `__getter_v` (the layout
     // really does carry that field), so without this guard an `any` read
@@ -99,13 +117,13 @@ unsafe fn struct_field_raw(ptr: *mut c_void, name: &[u8]) -> Option<(u8, u64)> {
         return None;
     }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
-    let raw = unsafe {
+    let slot = unsafe {
         ptr.cast::<u8>()
             .add(info.field_byte_offset as usize)
             .cast::<u64>()
-            .read()
     };
-    Some((info.type_tag, raw))
+    let raw = unsafe { slot.read() };
+    Some((info.type_tag, raw, slot))
 }
 
 /// C ABI shell over [`struct_field_raw`] for sibling runtime crates
@@ -126,7 +144,7 @@ pub unsafe extern "C" fn __torajs_struct_field_read_anyv(
     out_anyv: *mut u64,
 ) -> i64 {
     let bytes = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
-    let Some((type_tag, raw)) = (unsafe { struct_field_raw(obj, bytes) }) else {
+    let Some((type_tag, raw, _)) = (unsafe { struct_field_raw(obj, bytes) }) else {
         return 0;
     };
     let anyv = if type_tag == 0 {

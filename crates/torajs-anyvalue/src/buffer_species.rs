@@ -141,6 +141,13 @@ unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> SpeciesRe
                 let gtag = crate::nanbox_encode::__torajs_anyv_unbox_tag(got);
                 let gval = crate::nanbox_encode::__torajs_anyv_unbox_value(got);
                 let verdict = classify_ctor_entry(recv, gtag as u64, gval as u64);
+                // A ShortStr answer materialized an owned rc=1 Str in
+                // the unbox above; the recursion only probes it and
+                // the box-level drop below no-ops on the immediate —
+                // release the materialization (546-02 M1 family).
+                if crate::nanbox::is_short_str(got) && gval != 0 {
+                    __torajs_value_drop_heap(gval as *mut c_void);
+                }
                 __torajs_value_drop_heap(as_void_ptr(got));
                 verdict
             }
@@ -212,6 +219,12 @@ unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> Spe
                 let verdict = classify_species_entry(ctor_av, gtag as u64, gval as u64);
                 // A Ctor verdict keeps its own stake (the recursion
                 // inc'd it) — the getter's answer releases either way.
+                // A ShortStr answer additionally materialized an
+                // owned rc=1 Str in the unbox above that the
+                // box-level drop below cannot see (546-02 M1 family).
+                if crate::nanbox::is_short_str(got) && gval != 0 {
+                    __torajs_value_drop_heap(gval as *mut c_void);
+                }
                 __torajs_value_drop_heap(as_void_ptr(got));
                 verdict
             }

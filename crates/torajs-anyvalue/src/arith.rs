@@ -334,6 +334,15 @@ unsafe fn add_operand_to_primitive(tag: i64, value: i64) -> (i64, i64, Option<An
         Some(prim) => {
             let pt = crate::nanbox_encode::__torajs_anyv_unbox_tag(prim);
             let pv = crate::nanbox_encode::__torajs_anyv_unbox_value(prim);
+            // A ShortStr prim materialized an owned rc=1 Str in the
+            // unbox above, and the caller's release (anyv_rc_dec)
+            // no-ops on the immediate — hand back the re-boxed
+            // materialization as the owner instead, so the release
+            // frees it (546-02 M1 family; `({toString:()=>"ab"}) + 1`
+            // leaked one Str per add).
+            if crate::nanbox::is_short_str(prim) && pv != 0 {
+                return (pt, pv, Some(crate::nanbox::box_void_ptr(pv as *mut c_void)));
+            }
             (pt, pv, Some(prim))
         }
         None => (i64::MIN, 0, None),
