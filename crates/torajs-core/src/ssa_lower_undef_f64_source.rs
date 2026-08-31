@@ -43,7 +43,14 @@ pub(crate) const F64_UNDEF_SENTINEL_BITS: u64 = 0x7FFC_0000_0000_000A;
 pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     match ctx.ast.get_expr(eid) {
         Expr::Ident(n) => ctx.undefable_f64_lets.contains(n),
-        Expr::Index { obj, .. } => {
+        // `xs?.[i]` takes the same checked-index exit as `xs[i]` — the
+        // `?.` only guards the receiver — so it answers the same
+        // sentinel. The sibling predicate in
+        // `crate::num_width::fallthrough` has always spelled the two
+        // together; here only the plain one was listed, so `const a =
+        // zs?.[9]` printed NaN and answered `typeof` "number" while
+        // `zs[9]` one line above answered `undefined`.
+        Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => {
             matches!(
                 ctx.expr_types.get(obj),
                 Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number

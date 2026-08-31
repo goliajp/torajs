@@ -145,21 +145,6 @@ pub(super) fn seed_fallthrough_return(
     }
 }
 
-/// True when some `return` in `body` hands back a value that may be
-/// the `undefined` answer: an index read past the end, a `find` /
-/// `findLast` / `at` miss, or a `pop` / `shift` on an empty array.
-/// Those already put their width's sentinel in the slot; without this
-/// the caller reads it as a plain value and prints NaN (or answers
-/// `typeof` "string" for the immortal cell).
-///
-/// A value parked in a local first (`const m = xs.find(...); return m`)
-/// counts too — the binding is recorded on the way past, mirroring how
-/// the in-function consumers track the same shape through
-/// `undefable_f64_lets` / `nullable_str_lets`.
-///
-/// Receiver-type-agnostic on purpose — the shape alone is the gate, and
-/// being on the table only costs one predictable compare at the call
-/// site.
 /// True when this expression is one of the shapes that answers the
 /// `undefined` sentinel rather than an ordinary value: a read past the
 /// end of an array, a `find` / `findLast` / `at` miss, or a `pop` /
@@ -296,6 +281,17 @@ fn lifted_closure_names(ast: &Ast) -> std::collections::HashMap<String, String> 
     out
 }
 
+/// True when some `return` in `body` hands back a value that may be
+/// the `undefined` answer: an index read past the end, a `find` /
+/// `findLast` / `at` miss, or a `pop` / `shift` on an empty array.
+/// Those already put their width's sentinel in the slot; without this
+/// the caller reads it as a plain value and prints NaN (or answers
+/// `typeof` "string" for the immortal cell).
+///
+/// A value parked in a local first (`const m = xs.find(...); return m`)
+/// counts too — the binding is recorded on the way past, mirroring how
+/// the in-function consumers track the same shape through
+/// `undefable_f64_lets` / `nullable_str_lets`.
 fn body_returns_sentinel(
     a: &Analysis<'_>,
     fn_name: &str,

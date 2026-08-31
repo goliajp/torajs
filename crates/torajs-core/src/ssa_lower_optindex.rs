@@ -76,7 +76,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
         match ctx.operand_ty(&v) {
             Type::Any => v,
             vt => {
-                let boxed = ctx.box_to_any(v.clone());
+                // The eid-aware encoder, not the plain one: the
+                // element may be an OOB read's `undefined` sentinel
+                // (F64 bits, or the generic cell for the heap
+                // shapes), and only this entry asks. `zs?.[9]`
+                // printed NaN while `zs[9]` one line above printed
+                // `undefined` — the box was where the answer was
+                // lost, not the predicate, which names OptIndex.
+                let boxed = ctx.box_to_any_from_expr(eid, v.clone());
                 // Chunk 726 — a Str/Substr receiver's index read is
                 // a FRESH view (owned, rc=1): record the eid owned so
                 // the consumer's release balances (probe q726b:
