@@ -157,6 +157,17 @@ impl<'a> LowerCtx<'a> {
             // field store) added their own inc on top of the
             // stranded +1.
             Expr::Array(_) | Expr::ObjectLit { .. } => true,
+            // Rotation 542 — a BigInt literal is a fresh heap block
+            // exactly like the two above: `lower_bigint` calls
+            // `bigint_from_decimal` / `_from_hex`, which answer rc=1.
+            // Off this predicate it had no release site anywhere and
+            // owning consumers added their own inc on top of the
+            // stranded +1 — the chunk-640 failure, one literal shape
+            // later. 200k churn against the array literal as control,
+            // same three positions: `take(2n)` 14.3MB vs `take([1,2])`
+            // 1.49MB, `const a: any = 2n` 14.4MB vs 1.56MB,
+            // `xs.push(2n)` 14.4MB, against 1.44MB flat.
+            Expr::BigInt { .. } => true,
             // An update expression over an `any` slot answers the
             // runtime step's own coerced value, owned. The typed lanes
             // answer a bare number, which `release_owned_temp`'s copy
