@@ -22,6 +22,15 @@ pub enum GlobalSlotShape {
     /// shapes above (test262's forbidden-ext family reads such a
     /// binding from class-method bodies).
     Symbol,
+    /// 468-01 remainder (rotation 542) — a BigInt literal or a
+    /// BigInt-only arithmetic result. Its runtime type is as certain
+    /// as `Str`'s and carries no width question, and the slot
+    /// machinery already admits it (`slot_type_supported` takes every
+    /// refcounted type since rotation 514, `emit_drop_value` has a
+    /// `bigint_drop_rc` arm). Absent this variant `const b = 2n` plus
+    /// `function f() { return b }` answered "unknown identifier" and
+    /// threw at runtime.
+    BigInt,
 }
 
 pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotShape> {
@@ -44,6 +53,7 @@ fn shape_of_simple_ann(ann: &str) -> Option<GlobalSlotShape> {
         "f64" => Some(GlobalSlotShape::F64),
         "string" => Some(GlobalSlotShape::Str),
         "boolean" => Some(GlobalSlotShape::Bool),
+        "bigint" => Some(GlobalSlotShape::BigInt),
         _ => None,
     }
 }
@@ -62,6 +72,7 @@ fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotSha
         }),
         Expr::String(_) => Some(GlobalSlotShape::Str),
         Expr::Bool(_) => Some(GlobalSlotShape::Bool),
+        Expr::BigInt { .. } => Some(GlobalSlotShape::BigInt),
         Expr::Ident(n) if n == "NaN" || n == "Infinity" => Some(GlobalSlotShape::F64),
         // Alias of another top-level binding: same shape as the
         // binding it copies. An annotated upstream maps through the
@@ -132,29 +143,71 @@ fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotSha
         Expr::Unary {
             op: UnaryOp::Not, ..
         } => Some(GlobalSlotShape::Bool),
-        // The bitwise operators and shifts run ToInt32 / ToUint32 on
-        // both sides (§13.12, §13.9), so the answer is an integer
-        // whatever they are handed — `"3" & 1` included.
-        Expr::BinOp { op, .. }
+        // `>>>` has no BigInt leg at all (§13.9.3.1 throws a
+        // TypeError on either operand), so ToUint32 runs on whatever
+        // it is handed and the answer is an integer.
+        Expr::BinOp {
+            op: BinOp::UShr, ..
+        } => Some(GlobalSlotShape::I64),
+        // The remaining bitwise operators and shifts dispatch on the
+        // operand TYPE (§13.12 / §13.9 both go through
+        // ApplyStringOrNumericBinaryOperator): two BigInts stay in
+        // the BigInt world, two Numbers run ToInt32 / ToUint32, and a
+        // mixed pair throws. Rotation 542 — the arm used to answer
+        // I64 unconditionally, which was a SILENT wrong for the
+        // BigInt leg: `const b = 6n & 3n` plus a named-fn read
+        // promoted a BigInt CELL into an i64 slot and every read
+        // printed the pointer as a decimal (`4372201680` where bun
+        // says `2n`), while the same program without the named fn
+        // was correct.
+        Expr::BinOp { op, left, right }
             if matches!(
                 op,
-                BinOp::BitAnd
-                    | BinOp::BitOr
-                    | BinOp::BitXor
-                    | BinOp::Shl
-                    | BinOp::Shr
-                    | BinOp::UShr
-            ) =>
+                BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr
+            ) && is_known_bigint(ast, *left, depth)
+                && is_known_bigint(ast, *right, depth) =>
+        {
+            Some(GlobalSlotShape::BigInt)
+        }
+        // One known non-BigInt side is enough for the integer answer:
+        // the other side either ToInt32s alongside it or makes the
+        // whole operator throw, and a binding that never gets a value
+        // has no slot to be wrong about. Two UNKNOWN sides could be
+        // a BigInt pair, so they decline — the same certainty bar the
+        // arithmetic arm below already holds itself to. (This arm
+        // used to be unconditional; it never saw a String operand
+        // either way, since the checker refuses `"3" & 1` outright.)
+        Expr::BinOp { op, left, right }
+            if matches!(
+                op,
+                BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr
+            ) && (is_known_non_bigint(ast, *left, depth)
+                || is_known_non_bigint(ast, *right, depth)) =>
         {
             Some(GlobalSlotShape::I64)
+        }
+        // Two BigInts stay in the BigInt world for every arithmetic
+        // operator (`+` included — the string arm above has already
+        // declined, and BigInt + BigInt is addition, not
+        // concatenation). Div / Mod / Pow can throw a RangeError,
+        // which is the harmless direction: a binding that never gets
+        // a value has no slot to be wrong about.
+        Expr::BinOp { op, left, right }
+            if matches!(
+                op,
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow
+            ) && is_known_bigint(ast, *left, depth)
+                && is_known_bigint(ast, *right, depth) =>
+        {
+            Some(GlobalSlotShape::BigInt)
         }
         // The remaining arithmetic answers a number: `-` `*` `/` `%`
         // `**` coerce both sides with ToNumber, and `+` does too once
         // neither side is a string — which the arm above has already
         // established by declining. Both operands must have a known
-        // shape, which is what keeps BigInt out: a BigInt init answers
-        // None above, so `1n * 2n` declines here rather than claiming
-        // a number slot for a BigInt cell.
+        // shape, which is what keeps BigInt out: `is_known_non_bigint`
+        // excludes it by name, so `1n * 2n` is answered by the arm
+        // above rather than claiming a number slot for a BigInt cell.
         //
         // WIDTH is not decided here. The arm answers I64 and the
         // lowerer corrects it to F64 when `num_width` marked this
@@ -220,6 +273,12 @@ fn is_known_non_bigint(ast: &Ast, e: ExprId, depth: u32) -> bool {
                 | GlobalSlotShape::Str
         )
     )
+}
+
+/// A shape that is certainly a BigInt cell — the operand side of the
+/// arms that stay in the BigInt world rather than coercing out of it.
+fn is_known_bigint(ast: &Ast, e: ExprId, depth: u32) -> bool {
+    infer_slot_shape(ast, e, depth + 1) == Some(GlobalSlotShape::BigInt)
 }
 
 /// The same, minus `Str` — `+` concatenates rather than adds when

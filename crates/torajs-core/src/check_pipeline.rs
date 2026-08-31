@@ -366,6 +366,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                                     crate::ast_refs::GlobalSlotShape::Str => Type::String,
                                     crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
                                     crate::ast_refs::GlobalSlotShape::Symbol => Type::Symbol,
+                                    crate::ast_refs::GlobalSlotShape::BigInt => Type::BigInt,
                                 });
                             // S2.35 — a call-result init the shape
                             // inference can't type (the test262
