@@ -180,20 +180,19 @@ pub(crate) fn try_lower(
     // layout slots: an accessor is one property whose value comes from
     // its getter ([[Get]]), and a get/set pair is not two of them.
     let props = crate::ssa_lower_struct_own_props::own_props(&layout, ctx.fn_sigs);
-    let elem_ty = props[0].ty();
-    // S132 — heterogeneous-via-`as any` guard. check.rs enforces
-    // homogeneous fields when arg type is Struct (5172 reject-loud),
-    // but `<typed> as any` makes check see Type::Any (走 Array<Any> arm)
-    // while ssa-lower still sees Type::Obj(sid) because `lower_as_cast`
-    // is a no-op for refcounted inner types. Falling through the
-    // homogeneous fast path (`elem_ty = layout[0].1`) emits a wrong-
-    // type Load for every field — `Object.values(mx as any)` where
-    // `class Mixed { n: number; s: string }` reads the str ptr through
-    // layout[0]=I64 and returns the raw VA as a Number. Detect the
-    // mismatch + box the typed operand + route through the W-J walker
+    // S132 — heterogeneous fields route the boxed runtime own-walk
     // (the same Any-arm above), which per-field decodes via the
-    // field_metadata's type_tag — the correct heterogeneous path.
-    if !props.iter().all(|p| p.ty() == elem_ty) {
+    // field_metadata's type_tag. Two ways here: the checker's
+    // rotation-545 `Array<Any>` verdict for a plain heterogeneous
+    // (or empty) struct, and the older `<typed> as any` spelling
+    // where check sees Type::Any but ssa-lower still sees
+    // Type::Obj(sid) (`lower_as_cast` is a no-op for refcounted
+    // inner types). Falling through the homogeneous fast path
+    // instead would emit a wrong-type Load for every field — the
+    // str ptr read through layout[0]=I64 returns the raw VA as a
+    // Number. An empty struct has no elem type to narrow to and the
+    // walker answers its [] directly.
+    if props.is_empty() || !props.iter().all(|p| p.ty() == props[0].ty()) {
         let boxed = ctx.box_to_any(arg_op);
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let v = ctx.f.append_inst(
@@ -207,6 +206,7 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
 
+    let elem_ty = props[0].ty();
     let arr_id = intern_arr_layout(ctx.arr_layouts, elem_ty);
     // §20.1.2.22 walks EnumerableOwnProperties, and a `defineProperty`
     // moves that set at run time — so the unfold stands behind the

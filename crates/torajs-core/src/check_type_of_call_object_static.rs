@@ -206,20 +206,15 @@ pub(crate) fn try_match(
         // was rejected outright: the `__getter_v` slot is a Function and
         // "earlier fields are Number" (bun answers `[1, 2]`).
         let props = own_property_types(fields);
-        if props.is_empty() {
-            return Some(Err(
-                "Object.values on an empty struct can't infer element type".into(),
-            ));
+        // Rotation 545 — §20.1.2.22 has no homogeneity precondition:
+        // a heterogeneous (or empty) struct answers `Array<Any>` and
+        // the lowering routes the same boxed runtime own-walk the
+        // `as any` guard already rides. Only the all-same-type case
+        // keeps the narrowed `Array<T>`.
+        if props.is_empty() || props.iter().skip(1).any(|(_, t)| t != &props[0].1) {
+            return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
-        let first = &props[0].1;
-        for (n, t) in props.iter().skip(1) {
-            if t != first {
-                return Some(Err(format!(
-                    "Object.values requires homogeneous struct fields; field `{n}` is {t:?} but earlier fields are {first:?}"
-                )));
-            }
-        }
-        return Some(Ok(Type::Array(Box::new(first.clone()))));
+        return Some(Ok(Type::Array(Box::new(props[0].1.clone()))));
     }
     None
 }
