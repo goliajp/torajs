@@ -297,11 +297,19 @@ pub(crate) unsafe fn map_set_method(
 
 /// `Tag::MapIter` arm — the iterator-protocol surface for the mints
 /// above. `next()` answers a fresh IteratorResult `{ value, done }`
-/// dynobj (ES §27.1.3): the step kernel's borrowed payload rc-bumps
-/// into an owned ref (the ENTRIES pair array arrives pre-decremented
-/// to 0 exactly so this inc lands it at 1) and transfers into the
-/// dynobj value slot; exhaustion answers `{ value: undefined,
-/// done: true }` forever after.
+/// dynobj (ES §27.1.3); exhaustion answers
+/// `{ value: undefined, done: true }` forever after.
+///
+/// Rotation 543 — this used to `payload_rc_inc` the step's payload,
+/// citing a borrowed-payload contract. `__torajs_map_iter_step`'s
+/// BODY says the opposite in as many words ("a heap one leaves here
+/// already +1'd — the entry keeps its own stake", rotation 323), and
+/// its ENTRIES arms hand back a `make_pair_arr` at refcount 1. Only
+/// the function's header doc still carried the old contract, which is
+/// what this arm was written against. `__torajs_dynobj_set` incs the
+/// KEY and nothing else, so the value slot adopts what it is handed —
+/// meaning the inc was one too many and stranded a reference on every
+/// yielded heap value.
 pub(crate) unsafe fn map_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
     if mid != ANY_METHOD_NEXT {
         return unsafe { method_no_such() };
@@ -309,9 +317,6 @@ pub(crate) unsafe fn map_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
     unsafe {
         let (mut tag, mut payload): (i64, i64) = (5, 0);
         let hit = __torajs_map_iter_step(it, &mut tag, &mut payload);
-        if hit != 0 {
-            crate::payload_rc_inc(tag, payload);
-        }
         let mut obj = __torajs_dynobj_alloc();
         let k_value = __torajs_str_alloc(c"value".as_ptr() as *const u8, 5);
         __torajs_dynobj_set(&mut obj, k_value as *mut c_void, tag as u64, payload as u64);
@@ -325,11 +330,22 @@ pub(crate) unsafe fn map_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
 
 /// `Tag::ArrIter` arm — mirror of `map_iter_method` for
 /// `Array.prototype.{keys,values,entries}` iterators reached through
-/// the any-lane dispatch. Same `{ value, done }` IteratorResult shape;
-/// `__torajs_arr_iter_step` returns borrowed payloads that need
-/// `payload_rc_inc` before entering the dynobj slot (ENTRIES pair
-/// arrives pre-decremented to land at 1 after the inc — same contract
-/// as MapIter's ENTRIES).
+/// the any-lane dispatch. Same `{ value, done }` IteratorResult shape.
+///
+/// Rotation 543 — this used to `payload_rc_inc` the way its MapIter
+/// twin does, on the stated belief that the step hands back a
+/// borrow. `__torajs_arr_iter_step` does the opposite, and says so on
+/// every arm: KEYS yields a primitive, VALUES "+1s the slot payload
+/// it forwards", and ENTRIES "yield[s] `[index, value]` Array<Any> at
+/// refcount 1 — that one reference is what the caller transfers into
+/// the `.value` box". So the inc was one too many and stranded a
+/// reference per yielded heap value.
+///
+/// The typed lowering is the third witness: `ssa_lower_call_iter_next`
+/// calls the same step and boxes the payload with no inc at all,
+/// which is why `xs.values().next()` was flat while
+/// `xs[Symbol.iterator]().next()` — the same iterator reached through
+/// this arm — leaked 6.46 MB over 200k churn.
 pub(crate) unsafe fn arr_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
     if mid != ANY_METHOD_NEXT {
         return unsafe { method_no_such() };
@@ -337,9 +353,6 @@ pub(crate) unsafe fn arr_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
     unsafe {
         let (mut tag, mut payload): (i64, i64) = (5, 0);
         let hit = __torajs_arr_iter_step(it, &mut tag, &mut payload);
-        if hit != 0 {
-            crate::payload_rc_inc(tag, payload);
-        }
         let mut obj = __torajs_dynobj_alloc();
         let k_value = __torajs_str_alloc(c"value".as_ptr() as *const u8, 5);
         __torajs_dynobj_set(&mut obj, k_value as *mut c_void, tag as u64, payload as u64);

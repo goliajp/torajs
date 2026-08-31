@@ -226,8 +226,15 @@ unsafe fn make_pair_arr(t1: u8, p1: u64, t2: u8, p2: u64) -> *mut c_void {
 /// `__torajs_map_iter_step(iter, *out_tag, *out_payload)` — advance
 /// the cursor + fill out-params with the next yielded (tag, payload)
 /// per the iter's kind. Returns 1 on hit, 0 when cursor runs past
-/// `n_used`. Heap payloads come WITHOUT rc_inc — caller's
-/// `__torajs_any_box` wrap rc_incs.
+/// `n_used`.
+///
+/// Heap payloads leave here OWNED: the KEYS / VALUES arms rc_inc the
+/// entry's slot (rotation 323 — see the note inside), and the ENTRIES
+/// arms answer a `make_pair_arr` at refcount 1. The consumer adopts
+/// that reference and must not add one of its own. This header said
+/// the opposite until rotation 543, and `map_iter_method` was written
+/// against the header rather than the body — one stranded reference
+/// per yielded heap value.
 ///
 /// # Safety
 /// `iter_p` is null or a live MapIter. `out_*` are writable.
