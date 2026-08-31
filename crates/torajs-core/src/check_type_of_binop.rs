@@ -148,6 +148,20 @@ fn objectish_numeric_pair(l: &Type, r: &Type) -> bool {
         && (objectish(r) || *r == Type::Number)
 }
 
+/// One side is a String and both sides are §13.12-safe primitives —
+/// the bitwise family runs ToNumeric on each operand, and ToNumeric
+/// on a String is ToNumber (never BigInt), so `"3" & 1` is `1` and
+/// `"abc" | 0` is `0`, not a compile-time refusal (rotation 542's
+/// ledger: the `"3" & 1` doc example in shape.rs could never run).
+/// BigInt on the other side stays out — §13.12 step 3's mixed-types
+/// TypeError is a runtime story the static lane doesn't carry.
+/// Bitwise ONLY: `+` keeps its concat arms, ordering keeps §13.10's
+/// string-comparison branch as its own open question.
+fn string_bitwise_pair(l: &Type, r: &Type) -> bool {
+    let ok = |t: &Type| matches!(t, Type::String | Type::Number | Type::Boolean | Type::Null);
+    (*l == Type::String || *r == Type::String) && ok(l) && ok(r)
+}
+
 fn check_arith(l: Type, r: Type) -> Result<Type, String> {
     if l == Type::Number && r == Type::Number {
         return Ok(Type::Number);
@@ -224,6 +238,10 @@ fn check_bitwise(l: Type, r: Type) -> Result<Type, String> {
     if objectish_numeric_pair(&l, &r) {
         return Ok(Type::Any);
     }
+    // §13.12 — a String side is ToNumber'd; same any_bitwise route.
+    if string_bitwise_pair(&l, &r) {
+        return Ok(Type::Any);
+    }
     Err(format!(
         "bitwise op requires matching number or bigint operands, got {l:?} and {r:?}"
     ))
@@ -247,6 +265,10 @@ fn check_ushr(l: Type, r: Type) -> Result<Type, String> {
     }
     // §13.12 op 5 — same ToUint32 walk, same kernel.
     if objectish_numeric_pair(&l, &r) {
+        return Ok(Type::Any);
+    }
+    // §13.12 — a String side is ToNumber'd; same any_bitwise route.
+    if string_bitwise_pair(&l, &r) {
         return Ok(Type::Any);
     }
     Err(format!(

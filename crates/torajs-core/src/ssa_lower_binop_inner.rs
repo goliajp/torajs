@@ -210,10 +210,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
 /// (`objectish_numeric_pair` in `check_type_of_binop`), so the value
 /// the kernel answers with is the one the surrounding code expects.
 ///
-/// A String on the other side is left alone: `Str + obj` has its own
-/// concat lane that the checker types String, and boxing here would
-/// answer Any instead. The ordering operators never reach this with a
-/// String either — the checker refuses that pair outright.
+/// A String on the other side is left alone — EXCEPT under the
+/// bitwise family, where §13.12 ToNumber's it and the String side
+/// itself boxes (rotation 546): `Str + obj` has its own concat lane
+/// that the checker types String, and boxing here would answer Any
+/// instead. The ordering operators never reach this with a String
+/// either — the checker refuses that pair outright.
 fn box_object_operands_for_any_lane(
     ctx: &mut LowerCtx,
     op: AstBinOp,
@@ -237,14 +239,32 @@ fn box_object_operands_for_any_lane(
     ) {
         return (a, b);
     }
-    let a_obj = crate::ssa_lower_unary::is_number_coercible_obj(ctx.operand_ty(&a));
-    let b_obj = crate::ssa_lower_unary::is_number_coercible_obj(ctx.operand_ty(&b));
+    // §13.12 — the bitwise family ToNumber's a String operand like
+    // any object side (`"3" & 1` is `1`), so a Str/Substr side boxes
+    // into the any lane too (rotation 546, the 542-02 ledger entry).
+    // Everywhere else a Str side must NOT box: `+` has its concat
+    // lanes and the ordering operators own §13.10's string branch —
+    // that is what the escape below protects.
+    let bitwise = matches!(
+        op,
+        AstBinOp::BitAnd
+            | AstBinOp::BitOr
+            | AstBinOp::BitXor
+            | AstBinOp::Shl
+            | AstBinOp::Shr
+            | AstBinOp::UShr
+    );
+    let stringish = |t: &Type| matches!(t, Type::Str | Type::Substr);
+    let coercible = |ctx: &mut LowerCtx, v: &Operand| {
+        let t = ctx.operand_ty(v);
+        crate::ssa_lower_unary::is_number_coercible_obj(t) || (bitwise && stringish(&t))
+    };
+    let a_obj = coercible(ctx, &a);
+    let b_obj = coercible(ctx, &b);
     if !a_obj && !b_obj {
         return (a, b);
     }
-    if matches!(ctx.operand_ty(&a), Type::Str | Type::Substr)
-        || matches!(ctx.operand_ty(&b), Type::Str | Type::Substr)
-    {
+    if !bitwise && (stringish(&ctx.operand_ty(&a)) || stringish(&ctx.operand_ty(&b))) {
         return (a, b);
     }
     let a = if a_obj { ctx.box_to_any(a) } else { a };
