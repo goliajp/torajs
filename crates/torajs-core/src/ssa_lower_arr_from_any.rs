@@ -215,7 +215,11 @@ pub(crate) fn assemble_any_spread(
                 Type::Arr(arr_id),
                 None,
             );
-            if li.was_any {
+            // Rotation 543 — `minted` reaches here too: a Set source
+            // walks into a fresh `Arr<Any>`, which makes the literal
+            // Any-typed and routes it through this assembler rather
+            // than the typed one. It has no other owner either.
+            if li.was_any || li.minted {
                 let src_ty = ctx.operand_ty(&li.op);
                 ctx.emit_drop_value(li.op, src_ty);
             }

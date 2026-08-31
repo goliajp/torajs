@@ -24,6 +24,13 @@ pub(crate) struct LoweredItem {
     /// (`ssa_lower_arr_from_any::assemble_any_spread`) drops it after
     /// the extend.
     pub(crate) was_any: bool,
+    /// Rotation 543 — `op` is an array THIS lane minted (a string, a
+    /// Substr or a Set walked into a fresh `Arr`), not a value the
+    /// program can still name. It has no other owner, so the
+    /// assembler owes it an unconditional drop; `release_owned_temp`
+    /// cannot serve here because the source ExprId describes the
+    /// string, not the array that replaced it.
+    pub(crate) minted: bool,
 }
 
 pub(crate) fn lower_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
@@ -55,7 +62,33 @@ pub(crate) fn lower_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: 
         None,
     );
     fill_arr_from_items(ctx, arr_ptr, items, elem_ty, elem_is_refcounted);
+    release_spread_sources(ctx, &lowered);
     Operand::Value(arr_ptr)
+}
+
+/// Rotation 543 — the typed assembler copies out of each spread
+/// source and never gave any of them back. `arr_extend_unchecked`
+/// reads the source's slots and `emit_adopt_copied_range` takes its
+/// own +1 per copied element, so the source's stake is entirely the
+/// caller's to settle — and nothing did.
+///
+/// Two shapes, and they cannot share one call: a MINTED array (the
+/// string / Substr / Set walks) has no other owner and is dropped
+/// unconditionally, while a source the program still names is
+/// released only when the expression was an owned temp. The any
+/// assembler already does the same accounting behind `was_any`.
+fn release_spread_sources(ctx: &mut LowerCtx<'_>, lowered: &[LoweredItem]) {
+    for li in lowered {
+        if !li.is_spread || li.was_any {
+            continue;
+        }
+        let ty = ctx.operand_ty(&li.op);
+        if li.minted {
+            ctx.emit_drop_value(li.op.clone(), ty);
+        } else {
+            ctx.release_owned_temp(li.src_eid, &li.op);
+        }
+    }
 }
 
 fn lower_spread_elements(
@@ -68,7 +101,7 @@ fn lower_spread_elements(
     for eid in element_ids {
         if let Expr::Spread { expr } = ctx.ast.get_expr(*eid) {
             let inner = *expr;
-            let (op, v_ty, was_any) = lower_spread_source(ctx, inner);
+            let (op, v_ty, was_any, minted) = lower_spread_source(ctx, inner);
             if was_any {
                 // Materialized Arr<Any> — force the Any assembly path
                 // regardless of what earlier items anchored.
@@ -88,6 +121,7 @@ fn lower_spread_elements(
                 src_eid: inner,
                 is_spread: true,
                 was_any,
+                minted,
             });
         } else {
             let v = ctx.lower_expr(*eid);
@@ -120,15 +154,19 @@ fn lower_spread_elements(
                 src_eid: *eid,
                 is_spread: false,
                 was_any: false,
+                minted: false,
             });
         }
     }
     (lowered, elem_ty, literal_count)
 }
 
-fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type, bool) {
+fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type, bool, bool) {
     let mut v = ctx.lower_expr(inner);
     let mut v_ty = ctx.operand_ty(&v);
+    // Set once a walk replaces the user's value with a fresh array —
+    // see `LoweredItem::minted`.
+    let mut minted = false;
     // String spread `[...str]` unfolds per Unicode **code point**, not
     // per code unit: §13.2.4.1 runs the spread through GetIterator, and
     // the String iterator (§22.1.5) yields code points, so `[..."👋a"]`
@@ -145,12 +183,16 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         let cur_block = ctx.cur_block;
         let owned = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v.clone()]),
             Type::Str,
             None,
         );
+        // Same rule as the non-spread element arm: a fresh-mint view
+        // is released here, a borrow stays with its owner.
+        ctx.release_owned_temp(inner, &v);
         v = Operand::Value(owned);
         v_ty = Type::Str;
+        minted = true;
     }
     if matches!(v_ty, Type::Str) {
         // The same intrinsic `Array.from(str)` lowers to — one
@@ -160,17 +202,29 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         let cur_block = ctx.cur_block;
         let arr = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.arr_from_string, vec![v]),
+            InstKind::Call(ctx.intrinsics.arr_from_string, vec![v.clone()]),
             Type::Arr(str_arr_id),
             None,
         );
+        // The walk reads the string and answers a fresh array, so the
+        // string's own stake is still ours: an owned source temp (or
+        // the Str the Substr arm just minted) is released here.
+        if minted {
+            ctx.emit_drop_value(v, Type::Str);
+        } else {
+            ctx.release_owned_temp(inner, &v);
+        }
         v = Operand::Value(arr);
         v_ty = Type::Arr(str_arr_id);
+        minted = true;
     }
     if matches!(v_ty, Type::Set) {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+        let src = v.clone();
         v = crate::ssa_lower_arr_from_set::emit(ctx, v);
+        ctx.release_owned_temp(inner, &src);
         v_ty = Type::Arr(arr_any_id);
+        minted = true;
     }
     // `[...map]` / `[...m.keys()/.values()/.entries()]` /
     // `[...set.values()]` — a statically-typed Map or iterator cell.
@@ -188,7 +242,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         ctx.release_owned_temp(inner, &v);
         v = materialized;
         v_ty = Type::Arr(arr_any_id);
-        return (v, v_ty, true);
+        return (v, v_ty, true, minted);
     }
     // RFC 20260725-getiterator-getmethod knife 5 — a class instance
     // (a generator object, a class declaring `[Symbol.iterator]`)
@@ -202,7 +256,7 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         ctx.release_owned_temp(inner, &v);
         v = materialized;
         v_ty = Type::Arr(arr_any_id);
-        return (v, v_ty, true);
+        return (v, v_ty, true, minted);
     }
     // RFC 20260704 S5+ — `any` spread source: materialize through the
     // unified runtime iteration protocol into an owned Arr<Any> temp
@@ -218,9 +272,9 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         ctx.release_owned_temp(inner, &v);
         v = materialized;
         v_ty = Type::Arr(arr_any_id);
-        return (v, v_ty, true);
+        return (v, v_ty, true, minted);
     }
-    (v, v_ty, false)
+    (v, v_ty, false, minted)
 }
 
 fn build_items(lowered: &[LoweredItem]) -> Vec<Item> {
