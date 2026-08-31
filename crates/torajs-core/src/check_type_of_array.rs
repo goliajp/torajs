@@ -85,12 +85,26 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
 /// machine contract. Two such disagreements exist, and both are
 /// invisible to `is_assignable_to_resolved`:
 ///
-/// - **Any-ness of a container element** (Hole X, rotation 231):
-///   `Array<Any>` is assignable to `Array<Number>` (the M6.3 Any
-///   hole), but the two carry different slot layouts — 16-byte tagged
-///   vs 8-byte scalar. `[[1], [undefined, 2]]` unified to
-///   `Array<Array<Number>>` and the mixed inner array's slots read
-///   back as garbage bits (5e-323).
+/// - **Any-ness** (Hole X, rotation 231): `Any` is assignable to
+///   `Number` (the M6.3 Any hole), but the two carry different slot
+///   layouts — 16-byte tagged vs 8-byte scalar. `[[1], [undefined,
+///   2]]` unified to `Array<Array<Number>>` and the mixed inner
+///   array's slots read back as garbage bits (5e-323).
+///
+///   Rotation 231 asked this about a container's ELEMENT only, so the
+///   plainest spelling of the same disagreement — an anchor and an
+///   element differing in any-ness at depth 0 — went unasked, and
+///   `[1, x]` for an `x: any` typed as `Array<Number>`. Lowering has
+///   always built that literal in the any lane (`elem_types_agree` in
+///   `crate::ssa_lower_array_spread` settles it there), so the type
+///   was fiction and every consumer generated against it read a
+///   16-byte tagged slot through an 8-byte scalar contract:
+///   `"ab".repeat(a[1])` threw RangeError, `"abc".at(a[1])` answered
+///   `undefined`, `"ab".substr(v, 1)` answered the wrong character,
+///   and `[9, 8, 7].at(a[1])` / `z[a[1]]` were loud
+///   "cannot coerce Any to i64" rejects. Rotation 544 asks it at
+///   depth 0 first, which is also what the recursion below needed —
+///   the Array arm's own element test IS this question one level in.
 ///
 /// - **A callable's native ABI**: `(any) => boolean` is assignable to
 ///   `(any) => any` by return covariance, but the two bodies return
@@ -114,11 +128,11 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
 /// the top (both `Array<Function>`, neither `Any`) and crashes on the
 /// inner call.
 fn repr_disagrees(first: &Type, ty: &Type) -> bool {
+    if (*first == Type::Any) != (*ty == Type::Any) {
+        return true;
+    }
     match (first, ty) {
-        (Type::Array(first_in), Type::Array(elem_in)) => {
-            ((**elem_in == Type::Any) != (**first_in == Type::Any))
-                || repr_disagrees(first_in, elem_in)
-        }
+        (Type::Array(first_in), Type::Array(elem_in)) => repr_disagrees(first_in, elem_in),
         (Type::Function(..), _) => first != ty,
         _ => false,
     }
