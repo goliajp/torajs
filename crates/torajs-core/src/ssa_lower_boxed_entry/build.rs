@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::intern_fn_sig;
 
-use super::unbox::{BoxedCoerceIntrinsics, drop_obj_temps, drop_str_temps, unbox_args};
+use super::unbox::{
+    BoxedCoerceIntrinsics, drop_obj_temps, drop_settle_temps, drop_str_temps, unbox_args,
+};
 use super::{BoxedEntryIntrinsics, DfltLit};
 
 /// One adapter — see module doc for the ABI.
@@ -55,6 +57,10 @@ pub(super) fn build_boxed_entry(
     // dynobjs) released after the body call via anyv_rc_dec (no-op
     // on immediates).
     let mut obj_temps: Vec<ssa::ValueId> = Vec::new();
+    // 546-02 Class B leg — (box, raw) pairs whose borrow-shaped
+    // unbox may have materialized a ShortStr; settled after the
+    // body call.
+    let mut settle_temps: Vec<(ssa::ValueId, ssa::ValueId)> = Vec::new();
     // A static-method body (`__sm_`) has no env slot — the adapter
     // drops its env argument (knife B cut 2).
     if feeds_env {
@@ -109,6 +115,7 @@ pub(super) fn build_boxed_entry(
         &mut args,
         &mut str_temps,
         &mut obj_temps,
+        &mut settle_temps,
         &dflt_lits[..n_fixed.min(dflt_lits.len())],
     );
     if rest {
@@ -133,6 +140,7 @@ pub(super) fn build_boxed_entry(
         f.append_void(entry, InstKind::Call(body_fid, args));
         drop_str_temps(&mut f, entry, intr, &str_temps);
         drop_obj_temps(&mut f, entry, coerce.anyv_rc_dec, &obj_temps);
+        drop_settle_temps(&mut f, entry, intr.any_unbox_settle, &settle_temps);
         // undefined — tag 5.
         f.append_inst(
             entry,
@@ -147,6 +155,7 @@ pub(super) fn build_boxed_entry(
         let r = f.append_inst(entry, InstKind::Call(body_fid, args), ret_ty, None);
         drop_str_temps(&mut f, entry, intr, &str_temps);
         drop_obj_temps(&mut f, entry, coerce.anyv_rc_dec, &obj_temps);
+        drop_settle_temps(&mut f, entry, intr.any_unbox_settle, &settle_temps);
         box_return(&mut f, entry, r, ret_ty, intr, ret_arr_kind)
     };
     f.set_term(entry, Terminator::Ret(Some(Operand::Value(boxed))));

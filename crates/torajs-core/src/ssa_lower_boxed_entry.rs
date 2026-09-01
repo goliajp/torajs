@@ -51,6 +51,11 @@ pub(crate) struct BoxedEntryIntrinsics {
     pub(crate) any_to_bool: FuncId,
     /// `__torajs_anyv_unbox_value(v) -> i64` (cell ptr bits).
     pub(crate) any_unbox_value: FuncId,
+    /// `__torajs_anyv_unbox_settle(v, raw)` — reclaims the ShortStr
+    /// materialization a borrow-shaped `any_unbox_value` minted
+    /// (no-op otherwise); the heap/ptr param legs emit it after the
+    /// body call so the borrow stays live across it.
+    pub(crate) any_unbox_settle: FuncId,
     /// `__torajs_str_drop(s)` — releases the Str-param ToString
     /// temps (see `anyv_to_str` below, declared lazily — the
     /// intrinsics table only carries the pair-ABI

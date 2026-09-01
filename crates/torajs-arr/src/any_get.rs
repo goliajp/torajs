@@ -159,6 +159,15 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
 /// sparse-array reads). A typed block behind the static `Arr<Any>`
 /// view reboxes per elem kind (chunk 621); the heap-kind arm stays
 /// a borrow, same as the FLAG_ARR_ANY path.
+///
+/// ShortStr slots NORMALIZE in place (546-02, the struct-Any-slot /
+/// regex-lastIndex third shape): this pair API is a borrow with no
+/// owner seat for the materialization `unbox_value` would mint per
+/// read, so the slot's ShortStr box is replaced ONCE by its
+/// materialized heap Str with the slot as owner — every pair caller
+/// (fromEntries / gOPD / LoadDyn) then borrows a plain cell. The
+/// paired `get_any_tag` already reported Heap for the ShortStr, so
+/// the pair stays coherent across the swap.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64 {
     if arr.is_null() {
@@ -181,7 +190,16 @@ pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) 
                 arr_u8, i,
             )) as u64;
         }
-        let av = *slot_anyvalue_ptr(arr_u8 as *mut u8, i);
+        let slot = slot_anyvalue_ptr(arr_u8 as *mut u8, i);
+        let av = *slot;
+        if (av >> 48) == 0x0001 {
+            // ShortStr (top16 marker) — normalize in the slot: the
+            // materialization becomes the slot's own value (owner),
+            // and this borrow answers the plain cell pointer.
+            let m = __torajs_anyv_unbox_value(av) as u64;
+            *slot = m;
+            return m;
+        }
         __torajs_anyv_unbox_value(av) as u64
     }
 }

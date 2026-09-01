@@ -255,13 +255,23 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
         unsafe {
             match param_kind {
                 ACC_KIND_F64 => {
-                    let v = f64::from_bits(__torajs_anyv_unbox_value(value_anyv) as u64);
+                    let raw = __torajs_anyv_unbox_value(value_anyv);
                     let f: unsafe extern "C" fn(f64) = core::mem::transmute(fn_addr);
-                    f(v);
+                    f(f64::from_bits(raw as u64));
+                    // Scalar faces never consume a Heap payload — a
+                    // ShortStr materialization is reclaimed (the lane
+                    // reads only its bits; same for the arms below).
+                    if value_is_short_str(value_anyv) {
+                        __torajs_value_drop_heap(raw as *mut c_void);
+                    }
                 }
                 ACC_KIND_BOOL | ACC_KIND_I64 => {
+                    let raw = __torajs_anyv_unbox_value(value_anyv);
                     let f: unsafe extern "C" fn(i64) = core::mem::transmute(fn_addr);
-                    f(__torajs_anyv_unbox_value(value_anyv));
+                    f(raw);
+                    if value_is_short_str(value_anyv) {
+                        __torajs_value_drop_heap(raw as *mut c_void);
+                    }
                 }
                 ACC_KIND_PTR => {
                     let raw = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;
@@ -299,14 +309,21 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     unsafe {
         match param_kind {
             ACC_KIND_F64 => {
-                let v = f64::from_bits(__torajs_anyv_unbox_value(value_anyv) as u64);
+                let raw = __torajs_anyv_unbox_value(value_anyv);
                 let f: unsafe extern "C" fn(*mut c_void, i64, f64) = core::mem::transmute(fn_addr);
-                f(setter, 1, v);
+                f(setter, 1, f64::from_bits(raw as u64));
+                // Same scalar-face reclaim as the naked twin above.
+                if value_is_short_str(value_anyv) {
+                    __torajs_value_drop_heap(raw as *mut c_void);
+                }
             }
             ACC_KIND_BOOL | ACC_KIND_I64 => {
-                let v = __torajs_anyv_unbox_value(value_anyv);
+                let raw = __torajs_anyv_unbox_value(value_anyv);
                 let f: unsafe extern "C" fn(*mut c_void, i64, i64) = core::mem::transmute(fn_addr);
-                f(setter, 1, v);
+                f(setter, 1, raw);
+                if value_is_short_str(value_anyv) {
+                    __torajs_value_drop_heap(raw as *mut c_void);
+                }
             }
             ACC_KIND_PTR => {
                 let v = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;

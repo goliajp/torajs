@@ -85,10 +85,16 @@ pub unsafe extern "C" fn __torajs_promise_subclass_alloc(class_tag: i64) -> u64 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_subclass_super(this_av: u64, ex_av: u64) -> u64 {
     unsafe {
-        let p = crate::__torajs_anyv_unbox_value(this_av) as *mut c_void;
-        if p.is_null() {
+        // Cell test on the box itself (546-02): the doc's "any
+        // non-cell box answered back unchanged" arm used to run
+        // through unbox_value, which materializes a ShortStr into an
+        // owned Str this function then treated as the instance cell
+        // (resolvers minted over a Str block). A cell's box IS the
+        // pointer.
+        if !is_cell(this_av) {
             return this_av;
         }
+        let p = this_av as *mut c_void;
         // §27.2.3.1 step 2 — IsCallable(executor).
         let target = if is_cell(ex_av) {
             crate::method_call_closure_dispatch::closure_cell_entry(as_void_ptr(ex_av))

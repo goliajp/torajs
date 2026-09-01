@@ -38,6 +38,7 @@ pub(super) fn unbox_args(
     args: &mut Vec<Operand>,
     str_temps: &mut Vec<ssa::ValueId>,
     obj_temps: &mut Vec<ssa::ValueId>,
+    settle_temps: &mut Vec<(ssa::ValueId, ssa::ValueId)>,
     dflt_lits: &[Option<super::DfltLit>],
 ) {
     for (i, pty) in user_tys.iter().enumerate() {
@@ -167,14 +168,20 @@ pub(super) fn unbox_args(
             }
             // Other heap-typed / raw-ptr params: the cell's NaN-box
             // encoding is its pointer bits (borrow — the argv slot
-            // keeps the reference alive across the call).
+            // keeps the reference alive across the call). A ShortStr
+            // materialization minted by the unbox is only borrowed by
+            // the body: the (box, raw) pair records for the
+            // post-call settle (546-02 Class B leg).
             _ => {
                 let raw = f.append_inst(
                     entry,
-                    InstKind::Call(intr.any_unbox_value, vec![av]),
+                    InstKind::Call(intr.any_unbox_value, vec![av.clone()]),
                     Type::I64,
                     None,
                 );
+                if let Operand::Value(av_id) = av {
+                    settle_temps.push((av_id, raw));
+                }
                 Operand::Value(f.append_inst(
                     entry,
                     InstKind::IntToPtr(Operand::Value(raw)),
@@ -184,6 +191,27 @@ pub(super) fn unbox_args(
             }
         };
         args.push(arg);
+    }
+}
+
+/// 546-02 Class B leg — reclaim ShortStr materializations the
+/// heap/ptr param legs minted (each `__torajs_anyv_unbox_settle`
+/// no-ops unless its box was a ShortStr), after the body call so
+/// the borrow stayed live across it.
+pub(super) fn drop_settle_temps(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    any_unbox_settle: FuncId,
+    temps: &[(ssa::ValueId, ssa::ValueId)],
+) {
+    for &(av, raw) in temps {
+        f.append_void(
+            entry,
+            InstKind::Call(
+                any_unbox_settle,
+                vec![Operand::Value(av), Operand::Value(raw)],
+            ),
+        );
     }
 }
 

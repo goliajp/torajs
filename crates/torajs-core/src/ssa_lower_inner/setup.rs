@@ -58,6 +58,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
             any_to_number: intrinsics.any_to_number,
             any_to_bool: intrinsics.any_to_bool,
             any_unbox_value: intrinsics.any_unbox_value,
+            any_unbox_settle: intrinsics.any_unbox_settle,
             str_drop: intrinsics.str_drop,
             arr_alloc_any: intrinsics.arr_alloc_any,
             arr_any_push: intrinsics.arr_any_push,
