@@ -92,6 +92,11 @@ impl<'a> LowerCtx<'a> {
         ) {
             return self.owned_member_reads.contains(&eid);
         }
+        // The template object is a borrow of its site cache (doc on
+        // `is_template_object_call`).
+        if crate::ssa_lower_call_template_object::is_template_object_call(self.ast, eid) {
+            return false;
+        }
         !matches!(
             self.ast.get_expr(eid),
             Expr::Ident(_) | Expr::This | Expr::String(_)

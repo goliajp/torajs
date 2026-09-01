@@ -11,9 +11,23 @@
 //! reference and a template object is immortal (frozen, alive for
 //! the program), so consumers take no stake and drop nothing.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Ast, Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+
+/// Is `eid` the synthetic GetTemplateObject call? Its answer is a
+/// BORROW of the per-site cache (the cache holds the one owning
+/// reference; the object is immortal), so no consumer may release
+/// it: an argv lane that took it for a fresh call result dropped the
+/// cached cell after the first call, and every later evaluation of
+/// the same site handed the tag function freed memory (`tag`…`` in
+/// a loop through a rest-taking closure printed the substitutions
+/// where the strings belonged).
+pub(crate) fn is_template_object_call(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Call { callee, .. }
+        if matches!(ast.get_expr(*callee), Expr::Ident(n)
+            if n == crate::parser::tagged_template::TEMPLATE_OBJECT_CALLEE))
+}
 
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     let site = match ctx.ast.get_expr(*args.first()?) {

@@ -129,6 +129,11 @@ impl<'a> LowerCtx<'a> {
     /// a borrow — except the minted-closure Ident caught by
     /// [`Self::release_owned_temp`]'s operand-type check.
     pub(crate) fn expr_owned_shape(&self, eid: ExprId) -> bool {
+        // The template object is a borrow of its site cache (doc on
+        // `is_template_object_call`) — the one Call that is not owned.
+        if crate::ssa_lower_call_template_object::is_template_object_call(self.ast, eid) {
+            return false;
+        }
         match self.ast.get_expr(eid) {
             // Chunk 721 — OptCall answers a fresh owned Any box on
             // both arms (hit = the call's owned result, miss = an
