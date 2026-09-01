@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T21:46:45.467Z",
+  "generatedAt": "2026-09-01T01:37:58.068Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-31T21:40:41Z",
-    "headSha": "886522cba",
-    "elapsedSec": 598.66,
+    "ranAt": "2026-09-01T01:25:57Z",
+    "headSha": "19904b729",
+    "elapsedSec": 645.57,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30185,
+    "pass": 30186,
     "passNoOracle": 1026,
     "passNegative": 4147,
-    "passTotal": 35358,
+    "passTotal": 35359,
     "bug": 12456,
-    "incompatible": 5360,
+    "incompatible": 5359,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47814,
-    "passRateInScope": 66.49,
+    "trAccepted": 47815,
+    "passRateInScope": 66.5,
     "passRateTrAccepted": 73.95
   },
   "torajs": {
-    "commit": "886522cba",
-    "commitSubject": "fix: any-lane object probes in torajs-rc leak ShortStr materializations, isFrozen answers primitives wrong",
+    "commit": "19904b729",
+    "commitSubject": "fix: any-lane iterator steps double-stake every yielded heap value",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "19904b729",
+      "subject": "fix: any-lane iterator steps double-stake every yielded heap value"
+    },
+    {
+      "hash": "92d031c4c",
+      "subject": "fix: Class B any-lane sites mishandle ShortStr boxes"
+    },
+    {
+      "hash": "9bc71981b",
+      "subject": "fix: emit-side any lanes abandon or double-stake ShortStr materializations"
+    },
+    {
+      "hash": "8c7cdb380",
+      "subject": "fix: misc any-lane probe/transfer leaks, Map.groupBy runtime keys broken"
+    },
+    {
+      "hash": "ec8ae46cf",
+      "subject": "fix: array any-lane mutators and iterators leak ShortStr materializations"
+    },
+    {
+      "hash": "009f7f157",
+      "subject": "chore: rotation 547 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "886522cba",
       "subject": "fix: any-lane object probes in torajs-rc leak ShortStr materializations, isFrozen answers primitives wrong"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "f28bf36d6",
       "subject": "chore: rotation 546 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "dac9f6bf6",
-      "subject": "feat: receiver-less closure members admit into the any-slot promotion"
-    },
-    {
-      "hash": "9db94e6f8",
-      "subject": "fix: promoted method fields carry the receiver-less mth spelling"
-    },
-    {
-      "hash": "352e8b880",
-      "subject": "feat: bitwise family accepts string operands through the any lane"
-    },
-    {
-      "hash": "32f9761e1",
-      "subject": "feat: concat any argument decides spread vs append at runtime"
-    },
-    {
-      "hash": "e855c27ee",
-      "subject": "feat: any-slot promotion admits runtime-expression members now that tb2 is closed"
-    },
-    {
-      "hash": "79a123eaa",
-      "subject": "chore: rotation 545 test262 sweep ingest and dashboard snapshot"
     }
   ],
-  "headSha": "886522cba",
+  "headSha": "19904b729",
   "autorun": {
-    "total": 850,
+    "total": 851,
     "baselineTarget": 10,
-    "bySelf": 845,
+    "bySelf": 846,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788206973-5272",
-      "at": "2026-08-31T20:09:33Z",
-      "ts": 1788206973,
+      "rotationId": "r-1788213205-19e0",
+      "at": "2026-08-31T21:53:25Z",
+      "ts": 1788213205,
       "trigger": "self",
-      "prevHead": "f28bf36d6",
-      "handoffSha": "sha256:270c65145174d2e1bcd7e8e56cc0a2bdebc898f13e97bb384cbd73ee72e5e413",
-      "handoffAgeSec": 4,
+      "prevHead": "009f7f157",
+      "handoffSha": "sha256:fcef45bf6a6387c9b6b7deedb429889e182fb08b9df38a75b3c574e1bd6f7daf",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788213205-19e0",
+        "at": "2026-08-31T21:53:25Z",
+        "ts": 1788213205,
+        "trigger": "self",
+        "prevHead": "009f7f157",
+        "handoffSha": "sha256:fcef45bf6a6387c9b6b7deedb429889e182fb08b9df38a75b3c574e1bd6f7daf",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788206973-5272",
         "at": "2026-08-31T20:09:33Z",
@@ -884,17 +895,6 @@
         "prevHead": "9a28b403f",
         "handoffSha": "sha256:ab558b299115f3f43e2bbdb2ea5dfa9a7dfd8d22712f189ccbf86b1e5448d3d5",
         "handoffAgeSec": 36,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788115593-6704",
-        "at": "2026-08-30T18:46:33Z",
-        "ts": 1788115593,
-        "trigger": "self",
-        "prevHead": "9db52cd3f",
-        "handoffSha": "sha256:7fbc46b58e0bdc7ca422566b4dd33584a85cb986fde99248c071e0a77cd6a535",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
