@@ -28,6 +28,7 @@ use torajs_rc::any_method_id;
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_any_argv::AnyArgv;
 
 /// Try to lower `callee(args…)` as an any-receiver method call.
 /// Returns `None` unless the callee is a Member read off an
@@ -82,6 +83,10 @@ pub(crate) fn try_lower(
     } else {
         ctx.box_to_any(recv)
     };
+    // Rotation 550 — an owned receiver (`mk(i).toString(boom())`) is
+    // live across every argument's lower; park it so an arg's throw
+    // path releases it (40MB / 600k caught throws before).
+    let recv_tok = ctx.park_owned_temp(obj, &recv);
     // Ident receivers ride their variable slot along so
     // growth-relocating methods write the fresh pointer back —
     // local alloca or K.3 top-level global slot (the same two
@@ -102,7 +107,8 @@ pub(crate) fn try_lower(
         Operand::ConstPtrNull
     };
 
-    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    let packed = pack_any_argv(ctx, args);
+    let argv = packed.argv;
     let argc = args.len();
 
     let result = ctx.f.append_inst(
@@ -126,9 +132,8 @@ pub(crate) fn try_lower(
     // runtime has returned — argv is dead either way, and the
     // throw-propagate branch must not leak the boxes). The runtime
     // borrowed argv; per-method glue inc'd whatever it stored.
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
+    ctx.unpark_owned_temp(recv_tok);
     // A Call-shaped receiver (`s.bold().italics()`) is an owned Any
     // temp the runtime only borrowed — release it or every chained
     // hop leaks its intermediate (the optcall sibling already keeps
@@ -250,11 +255,10 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
 /// three-shape ledger (see module doc) — shared by the method-call
 /// arm above and the bare any-call arm
 /// ([`crate::ssa_lower_any_call`]). Returns the argv alloca plus
-/// the slots WE boxed (the caller rc-decs each one after the call).
-pub(crate) fn pack_any_argv(
-    ctx: &mut LowerCtx<'_>,
-    args: &[ExprId],
-) -> (crate::ssa::ValueId, Vec<Option<Operand>>) {
+/// the slots WE boxed, each parked for the throw edges of the later
+/// args' lowers; the caller's [`AnyArgv::release`] drops them after
+/// the call (rotation 550).
+pub(crate) fn pack_any_argv(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> AnyArgv {
     let argc = args.len();
     let argv = ctx.f.append_inst(
         crate::ssa::BlockId(0),
@@ -262,7 +266,7 @@ pub(crate) fn pack_any_argv(
         Type::Ptr,
         Some("__amc_argv"),
     );
-    let mut boxed_slots: Vec<Option<Operand>> = Vec::with_capacity(argc);
+    let mut packed = AnyArgv::new(argv, argc);
     for (i, &aid) in args.iter().enumerate() {
         // A regex literal is a BORROW, not a temp — `lower_expr`
         // answers the fn-scope LICM-cached RegExp (hoisted compile,
@@ -298,7 +302,7 @@ pub(crate) fn pack_any_argv(
                 ctx.cur_block,
                 InstKind::Store(slot_val.clone(), Operand::Value(argv), (i * 8) as u64),
             );
-            boxed_slots.push(Some(slot_val));
+            packed.push_slot(ctx, Some(slot_val));
             continue;
         }
         let raw = ctx.lower_expr(aid);
@@ -331,7 +335,7 @@ pub(crate) fn pack_any_argv(
             ctx.cur_block,
             InstKind::Store(slot_val.clone(), Operand::Value(argv), (i * 8) as u64),
         );
-        boxed_slots.push(if we_boxed { Some(slot_val) } else { None });
+        packed.push_slot(ctx, if we_boxed { Some(slot_val) } else { None });
     }
-    (argv, boxed_slots)
+    packed
 }

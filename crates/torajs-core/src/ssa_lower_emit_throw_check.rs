@@ -239,4 +239,19 @@ impl<'a> LowerCtx<'a> {
         }
         Some((op.clone(), ty))
     }
+
+    /// Park `eid`'s lowered value iff it is an owned temp (per
+    /// [`Self::throw_temp_of`]) — the receiver / callee a consumer
+    /// holds while it lowers the arguments. Pairs with
+    /// [`Self::unpark_owned_temp`] right after the consuming call.
+    pub(crate) fn park_owned_temp(&mut self, eid: ExprId, op: &Operand) -> Option<usize> {
+        self.throw_temp_of(eid, op)
+            .map(|(op, ty)| self.push_throw_temp(op, ty))
+    }
+
+    pub(crate) fn unpark_owned_temp(&mut self, token: Option<usize>) {
+        if let Some(t) = token {
+            self.pop_throw_temp(t);
+        }
+    }
 }

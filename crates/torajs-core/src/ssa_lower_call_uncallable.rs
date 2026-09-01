@@ -42,7 +42,11 @@ pub(crate) fn try_lower(
         ctx.emit_rc_inc(raw.clone());
     }
     let recv = ctx.box_to_any_from_expr(callee, raw);
-    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    // Rotation 550 — the box is ours; park it across the arguments'
+    // lowers so their throw paths release it.
+    let recv_tok = ctx.push_throw_temp(recv.clone(), SsaType::Any);
+    let packed = pack_any_argv(ctx, args);
+    let argv = packed.argv;
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -56,9 +60,8 @@ pub(crate) fn try_lower(
         SsaType::Any,
         None,
     );
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, SsaType::Any);
-    }
+    packed.release(ctx);
+    ctx.pop_throw_temp(recv_tok);
     // The boxed callee is ours (the borrow case took its own
     // reference above; a fresh temp moved its stake into the box).
     ctx.emit_drop_value(recv, SsaType::Any);

@@ -84,14 +84,30 @@ pub(crate) fn lower(
         ctx.lower_expr(eid)
     };
     let a = lower_operand(ctx, left);
+    // Rotation 550 — a fresh-owned left operand is live across the
+    // right operand's lower and the kernel (any_add's ToPrimitive
+    // walk, the bigint helpers, an Any→number coerce all have throw
+    // edges); park both operands on `temps.throw_live` until the
+    // post-kernel drops below take over. Pre-550 `mk(i) + boom()`
+    // stranded the object per caught throw (40MB / 600k against a
+    // 2MB flat band; `s(i) + boom()` 21MB) — and a template literal
+    // is this chain (`String(a) + "b" + String(boom())`).
+    let a_ty = ctx.operand_ty(&a);
+    let a_owned = a_ty.is_refcounted() && ctx.expr_is_fresh_owned(left);
+    let a_tok = a_owned.then(|| ctx.push_throw_temp(a.clone(), a_ty.clone()));
     let b = lower_operand(ctx, right);
+    let b_ty = ctx.operand_ty(&b);
+    let b_owned = b_ty.is_refcounted() && ctx.expr_is_fresh_owned(right);
+    let b_tok = b_owned.then(|| ctx.push_throw_temp(b.clone(), b_ty.clone()));
     // TS-shape: `a + b` (string concat) does NOT consume the
     // operands — both `a` and `b` keep their heaps and remain
     // readable + droppable afterwards. The concat runtime produces
     // a fresh allocation without freeing inputs.
     // P1.5/P1.8 — pass the operand ExprIds so the Eq/Neq Any-side
     // packing can pick ANY_UNDEF=5 vs ANY_NULL=0.
-    let result = ctx.lower_binop_with_ids(op, a, b, Some(left), Some(right));
+    let result = ctx.lower_binop_with_ids(op, a.clone(), b.clone(), Some(left), Some(right));
+    ctx.unpark_owned_temp(b_tok);
+    ctx.unpark_owned_temp(a_tok);
     // Drop fresh-owned refcounted operands left over from BinOp on
     // Str / Substr (Eq / Neq / Add). lower_binop doesn't consume —
     // every concat / str_eq path keeps the inputs live. If the
@@ -99,12 +115,10 @@ pub(crate) fn lower(
     // own the heap (the binding does), so leave it alone. Anything
     // else (`String` literal, `Call` returning Str, sub-BinOp concat
     // result, etc.) was a fresh alloc whose ownership ends here.
-    let a_ty = ctx.operand_ty(&a);
-    if a_ty.is_refcounted() && ctx.expr_is_fresh_owned(left) {
+    if a_owned {
         ctx.emit_drop_value(a, a_ty);
     }
-    let b_ty = ctx.operand_ty(&b);
-    if b_ty.is_refcounted() && ctx.expr_is_fresh_owned(right) {
+    if b_owned {
         ctx.emit_drop_value(b, b_ty);
     }
     // P7.4-a-b — a bigint Div/Mod/Pow/Shl/Shr helper may have called

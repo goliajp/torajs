@@ -49,7 +49,15 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
         (ctx.box_to_any_from_expr(callee, raw), true)
     };
 
-    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    // Rotation 550 — the target we hold (our box, or an owned temp
+    // released below) is live across the arguments' lowers; park it.
+    let target_tok = if target_boxed {
+        Some(ctx.push_throw_temp(target.clone(), Type::Any))
+    } else {
+        ctx.park_owned_temp(callee, &target)
+    };
+    let packed = pack_any_argv(ctx, args);
+    let argv = packed.argv;
     let cur_block = ctx.cur_block;
     let construct = ctx.intrinsics.construct;
     let result = ctx.f.append_inst(
@@ -66,9 +74,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
         None,
     );
 
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
+    ctx.unpark_owned_temp(target_tok);
     if target_boxed {
         ctx.emit_drop_value(target, Type::Any);
     } else {

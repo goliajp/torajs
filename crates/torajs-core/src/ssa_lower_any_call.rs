@@ -54,7 +54,11 @@ pub(crate) fn try_lower(
         return None;
     }
     let recv = ctx.lower_expr(callee);
-    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    // Rotation 550 — an owned callee temp (`f(1)(boom())`) is live
+    // across the arguments' lowers; park it for their throw paths.
+    let recv_tok = ctx.park_owned_temp(callee, &recv);
+    let packed = pack_any_argv(ctx, args);
+    let argv = packed.argv;
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -68,9 +72,8 @@ pub(crate) fn try_lower(
         Type::Any,
         None,
     );
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
+    ctx.unpark_owned_temp(recv_tok);
     // A Call-shaped callee (`f(1)(2)` — the inner call's owned Any
     // temp) is only borrowed by the runtime; release it here or the
     // curried hop leaks (mirrors the method-call arm's receiver

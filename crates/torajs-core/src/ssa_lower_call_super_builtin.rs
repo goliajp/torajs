@@ -61,7 +61,8 @@ pub(crate) fn try_lower(
         ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
         return Some(Operand::Value(result));
     }
-    let (argv, boxed_slots) = crate::ssa_lower_any_method_call::pack_any_argv(ctx, &args[1..]);
+    let packed = crate::ssa_lower_any_method_call::pack_any_argv(ctx, &args[1..]);
+    let argv = packed.argv;
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -78,9 +79,7 @@ pub(crate) fn try_lower(
     );
     // Release the argv boxes before the throw check (any_method_call
     // mirror — the runtime borrowed argv).
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
     ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     Some(Operand::Value(result))
 }

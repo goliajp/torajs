@@ -69,6 +69,10 @@ pub(crate) fn try_lower(
     } else {
         ctx.box_to_any(recv)
     };
+    // Rotation 550 — an owned receiver is live across the key's and
+    // every argument's lower; park it for their throw paths (the
+    // named-form arm's account).
+    let recv_tok = ctx.park_owned_temp(obj, &recv);
     // Ident receivers ride their variable slot along so
     // growth-relocating methods (push) write the fresh block pointer
     // back — same two shapes as the named-form arm.
@@ -106,8 +110,16 @@ pub(crate) fn try_lower(
         }
         (ctx.box_to_any_from_expr(index, key_raw), true)
     };
+    // The key is ours too (a box we minted, or an owned already-Any
+    // temp the release below covers) — park it across the args.
+    let key_tok = if key_boxed {
+        Some(ctx.push_throw_temp(key.clone(), Type::Any))
+    } else {
+        ctx.park_owned_temp(index, &key)
+    };
 
-    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    let packed = pack_any_argv(ctx, args);
+    let argv = packed.argv;
 
     let result = ctx.f.append_inst(
         ctx.cur_block,
@@ -127,9 +139,9 @@ pub(crate) fn try_lower(
     // Release the boxes' references BEFORE the throw check — the
     // runtime borrowed argv and the key; per-method glue inc'd
     // whatever it stored.
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
+    ctx.unpark_owned_temp(key_tok);
+    ctx.unpark_owned_temp(recv_tok);
     if key_boxed {
         ctx.emit_drop_value(key, Type::Any);
     } else {

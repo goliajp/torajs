@@ -79,6 +79,10 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
     let mid = torajs_rc::any_method_id(name);
     let name_str = ctx.intern_string_literal(name);
     let recv = ctx.lower_expr(obj);
+    // Rotation 550 — an owned receiver is live across the probe's
+    // throw edge, the hit path's argument lowers and the dispatch;
+    // park it until its release at the join.
+    let recv_tok = ctx.park_owned_temp(obj, &recv);
     let res_slot = ctx.alloca_in_entry(Type::Any, Some("__optcall_m"));
     let exists = ctx.f.append_inst(
         ctx.cur_block,
@@ -146,7 +150,8 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
     } else {
         Operand::ConstPtrNull
     };
-    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    let packed = pack_any_argv(ctx, args);
+    let argv = packed.argv;
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -163,9 +168,7 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
         Type::Any,
         None,
     );
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
     // result is an OWNED Any already in hand — the throw path must
     // release it (mirrors the plain method-call arm).
     ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
@@ -176,6 +179,7 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
     let hb = ctx.cur_block;
     ctx.f.set_term(hb, Terminator::Br(after));
     ctx.cur_block = after;
+    ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv);
     let r = ctx.f.append_inst(
         after,
@@ -230,7 +234,16 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
         }
         (ctx.box_to_any(v.clone()), true)
     };
-    let (argv, boxed_slots) = pack_any_argv(ctx, args);
+    // Rotation 550 — the callee we hold (the box we minted, or an
+    // owned already-Any temp released at the join) is live across
+    // the arguments' lowers; park it for their throw paths.
+    let callee_tok = if we_boxed {
+        Some(ctx.push_throw_temp(callee_av.clone(), Type::Any))
+    } else {
+        ctx.park_owned_temp(callee, &v)
+    };
+    let packed = pack_any_argv(ctx, args);
+    let argv = packed.argv;
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -244,9 +257,8 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
         Type::Any,
         None,
     );
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
+    ctx.unpark_owned_temp(callee_tok);
     if we_boxed {
         ctx.emit_drop_value(callee_av, Type::Any);
     }

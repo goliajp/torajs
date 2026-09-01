@@ -96,9 +96,8 @@ pub(crate) fn emit_argv_face_call(
     let r = crate::ssa_lower_call_closure_local::emit_variadic_call_conv(
         ctx,
         fn_val.clone(),
-        argv,
+        crate::ssa_lower_any_argv::AnyArgv::borrowed(argv),
         spec_argc,
-        Vec::new(),
         user_sig_id,
     );
     match r {

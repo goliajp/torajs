@@ -56,7 +56,15 @@ pub(crate) fn try_lower(
     // Subs — pack via the shared any-method-call helper so a borrow
     // slot takes its own +1 and an owned temp transfers, exactly the
     // ledger the variadic-boxed-call path already carries.
-    let (subs_argv, boxed_slots) = crate::ssa_lower_any_method_call::pack_any_argv(ctx, &args[1..]);
+    // Rotation 550 — the template we hold (our box, or an owned temp
+    // released below) is live across the subs' lowers; park it.
+    let tmpl_tok = if we_boxed_tmpl {
+        Some(ctx.push_throw_temp(tmpl_op.clone(), Type::Any))
+    } else {
+        ctx.park_owned_temp(tmpl_eid, &tmpl_op)
+    };
+    let packed = crate::ssa_lower_any_method_call::pack_any_argv(ctx, &args[1..]);
+    let subs_argv = packed.argv;
     let subs_argc = (args.len() - 1) as i64;
     let result = ctx.f.append_inst(
         ctx.cur_block,
@@ -74,9 +82,8 @@ pub(crate) fn try_lower(
     // Post-call release — kernel only borrows subs boxes; each slot
     // WE boxed drops here. Sibling variadic-call path drops the same
     // way.
-    for slot in boxed_slots.into_iter().flatten() {
-        ctx.emit_drop_value(slot, Type::Any);
-    }
+    packed.release(ctx);
+    ctx.unpark_owned_temp(tmpl_tok);
     // Template we boxed vs template already Any — the boxed one is
     // ours to release; a borrow-shape original stays owned by its
     // binding and released elsewhere.
