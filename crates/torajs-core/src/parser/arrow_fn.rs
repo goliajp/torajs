@@ -17,6 +17,98 @@ impl<'a> Parser<'a> {
         // arrow. Gates the body's `await` legality below.
         let was_async_prefixed = std::mem::take(&mut self.pending_async_fn_expr);
         self.pos += 1;
+        let (params, param_destr_lets) = self.parse_arrow_param_list()?;
+        let return_type = if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            // 552-03 — the annotation between here and the body `=>`
+            // is the one place a parenthesized composite type must
+            // not greedily read as a fn-type parameter list (the
+            // arrow's own `=>` sits right behind it).
+            let saved = std::mem::replace(&mut self.in_arrow_ret_ann, true);
+            let ann = self.parse_type_ann();
+            self.in_arrow_ret_ann = saved;
+            Some(ann?)
+        } else {
+            None
+        };
+        match self.peek() {
+            Token::FatArrow => self.pos += 1,
+            t => return Err(format!("expected `=>`, got {t:?} at {}", self.at())),
+        }
+        // ES §15.1.1 duplicate-parameter check, deliberately placed
+        // *after* the `=>` rather than after the `)`: until that token
+        // is seen the same text may still be a parenthesized sequence
+        // expression, and `(x, x)` is perfectly legal as one. Refusing
+        // at the `)` would reject the comma operator.
+        self.reject_duplicate_params(&params, true)?;
+        let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
+        let strict_outer = self.in_strict_fn;
+        let body_result = if matches!(self.peek(), Token::LBrace) {
+            self.parse_arrow_block_body()
+        } else {
+            // expression body — desugar to single Return. No stmt
+            // boundary of its own exists here, so a hoisted yield
+            // would drain OUTSIDE the arrow — and an arrow body is
+            // not a yield position anyway (§15.5.5: arrows are not
+            // generators): reject via the disallow guard.
+            //
+            // A class expression minted while the body parsed must
+            // land INSIDE this body (watermark drain, same protocol
+            // as the parse_stmt wrapper) — an expression body has no
+            // statement boundary of its own, so without the drain the
+            // synth ClassDecl would surface in front of the ENCLOSING
+            // statement, where the arrow's parameters are not in
+            // scope (406-01). The body then converges on the
+            // block-bodied shape `{ class …; return … }`, which the
+            // nested-class machinery already handles.
+            let synth_mark = self.synth_classes_local.len();
+            self.with_yield_hoist_disallowed(|p| p.parse_expr())
+                .map(|e| {
+                    let mut v = self.synth_classes_local.split_off(synth_mark);
+                    v.push(Stmt::Return(Some(e)));
+                    v
+                })
+        };
+        self.await_allowed = saved_await;
+        let body = body_result?;
+        self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
+        self.reject_use_strict_with_non_simple_params(&params, &body)?;
+        // Restore only — an arrow takes the LEXICAL `this` (§15.3), so
+        // no receiver decision downstream ever asks this body whether
+        // it is strict; the enclosing function already answered. It
+        // still had to ARM the bit above, because `() => { "use
+        // strict"; function f() {} }` makes `f` strict. Writing the
+        // directive in here would also cost real ground: an
+        // expression-bodied arrow is `[Stmt::Return]` (plus any
+        // drained class synths in front — the Return still closes the
+        // body), a shape the formatter probes for.
+        self.restore_fn_strict(strict_outer, &params)?;
+        // V3-18 wedge — prepend destr-param lets to the body, matching
+        // the parse_fn wedge.
+        let body = if param_destr_lets.is_empty() {
+            body
+        } else {
+            let mut full = param_destr_lets;
+            full.extend(body);
+            full
+        };
+        Ok(self.add_expr_at(
+            start_pos,
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            },
+        ))
+    }
+
+    /// The parenthesized parameter list — enters just past the `(`,
+    /// leaves past the `)`. Answers the params and any destructuring
+    /// prelude lets the body must open with. Extracted from
+    /// `parse_arrow_fn` (200-line function limit; the audit's brace
+    /// counter had been fooled by a `}}` inside an error string, so
+    /// the overage predates 552-03's context flag).
+    fn parse_arrow_param_list(&mut self) -> Result<(Vec<Param>, Vec<Stmt>), String> {
         let mut params = Vec::new();
         // V3-18 wedge — destructuring patterns in arrow-fn params,
         // mirror of the parse_fn wedge. `xs.map(([a, b]) => a + b)`
@@ -161,113 +253,40 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        let return_type = if matches!(self.peek(), Token::Colon) {
-            self.pos += 1;
-            // 552-03 — the annotation between here and the body `=>`
-            // is the one place a parenthesized composite type must
-            // not greedily read as a fn-type parameter list (the
-            // arrow's own `=>` sits right behind it).
-            let saved = std::mem::replace(&mut self.in_arrow_ret_ann, true);
-            let ann = self.parse_type_ann();
-            self.in_arrow_ret_ann = saved;
-            Some(ann?)
-        } else {
-            None
-        };
-        match self.peek() {
-            Token::FatArrow => self.pos += 1,
-            t => return Err(format!("expected `=>`, got {t:?} at {}", self.at())),
+        Ok((params, param_destr_lets))
+    }
+
+    /// A `{ … }` arrow body's statement list — enters on the `{`,
+    /// leaves past the `}`. Extracted from `parse_arrow_fn` when the
+    /// 552-03 return-annotation context flag pushed it over the
+    /// 200-line function limit.
+    fn parse_arrow_block_body(&mut self) -> Result<Vec<Stmt>, String> {
+        self.pos += 1;
+        let mut stmts = Vec::new();
+        let mut err = None;
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            match self.parse_stmt() {
+                Ok(s) => {
+                    self.arm_strict_directive(&s, &stmts);
+                    stmts.push(s);
+                }
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            }
         }
-        // ES §15.1.1 duplicate-parameter check, deliberately placed
-        // *after* the `=>` rather than after the `)`: until that token
-        // is seen the same text may still be a parenthesized sequence
-        // expression, and `(x, x)` is perfectly legal as one. Refusing
-        // at the `)` would reject the comma operator.
-        self.reject_duplicate_params(&params, true)?;
-        let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
-        let strict_outer = self.in_strict_fn;
-        let body_result = if matches!(self.peek(), Token::LBrace) {
-            self.pos += 1;
-            let mut stmts = Vec::new();
-            let mut err = None;
-            while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                match self.parse_stmt() {
-                    Ok(s) => {
-                        self.arm_strict_directive(&s, &stmts);
-                        stmts.push(s);
-                    }
-                    Err(e) => {
-                        err = Some(e);
-                        break;
-                    }
-                }
+        match (err, self.peek()) {
+            (Some(e), _) => Err(e),
+            (None, Token::RBrace) => {
+                self.pos += 1;
+                Ok(stmts)
             }
-            match (err, self.peek()) {
-                (Some(e), _) => Err(e),
-                (None, Token::RBrace) => {
-                    self.pos += 1;
-                    Ok(stmts)
-                }
-                (None, t) => Err(format!(
-                    "expected `}}` after arrow fn body, got {t:?} at {}",
-                    self.at()
-                )),
-            }
-        } else {
-            // expression body — desugar to single Return. No stmt
-            // boundary of its own exists here, so a hoisted yield
-            // would drain OUTSIDE the arrow — and an arrow body is
-            // not a yield position anyway (§15.5.5: arrows are not
-            // generators): reject via the disallow guard.
-            //
-            // A class expression minted while the body parsed must
-            // land INSIDE this body (watermark drain, same protocol
-            // as the parse_stmt wrapper) — an expression body has no
-            // statement boundary of its own, so without the drain the
-            // synth ClassDecl would surface in front of the ENCLOSING
-            // statement, where the arrow's parameters are not in
-            // scope (406-01). The body then converges on the
-            // block-bodied shape `{ class …; return … }`, which the
-            // nested-class machinery already handles.
-            let synth_mark = self.synth_classes_local.len();
-            self.with_yield_hoist_disallowed(|p| p.parse_expr())
-                .map(|e| {
-                    let mut v = self.synth_classes_local.split_off(synth_mark);
-                    v.push(Stmt::Return(Some(e)));
-                    v
-                })
-        };
-        self.await_allowed = saved_await;
-        let body = body_result?;
-        self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
-        self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        // Restore only — an arrow takes the LEXICAL `this` (§15.3), so
-        // no receiver decision downstream ever asks this body whether
-        // it is strict; the enclosing function already answered. It
-        // still had to ARM the bit above, because `() => { "use
-        // strict"; function f() {} }` makes `f` strict. Writing the
-        // directive in here would also cost real ground: an
-        // expression-bodied arrow is `[Stmt::Return]` (plus any
-        // drained class synths in front — the Return still closes the
-        // body), a shape the formatter probes for.
-        self.restore_fn_strict(strict_outer, &params)?;
-        // V3-18 wedge — prepend destr-param lets to the body, matching
-        // the parse_fn wedge.
-        let body = if param_destr_lets.is_empty() {
-            body
-        } else {
-            let mut full = param_destr_lets;
-            full.extend(body);
-            full
-        };
-        Ok(self.add_expr_at(
-            start_pos,
-            Expr::ArrowFn {
-                params,
-                return_type,
-                body,
-            },
-        ))
+            (None, t) => Err(format!(
+                "expected `}}` after arrow fn body, got {t:?} at {}",
+                self.at()
+            )),
+        }
     }
 
     /// Per-param-name admission for the arrow list — Ident, the
