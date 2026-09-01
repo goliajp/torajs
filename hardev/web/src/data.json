@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T20:58:32.529Z",
+  "generatedAt": "2026-09-01T22:45:01.586Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T20:56:56Z",
-    "headSha": "7cf52c2f6",
-    "elapsedSec": 874.62,
+    "ranAt": "2026-09-01T22:41:54Z",
+    "headSha": "24ebb3cf6",
+    "elapsedSec": 954.92,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30190,
-    "passNoOracle": 1026,
+    "pass": 30202,
+    "passNoOracle": 1027,
     "passNegative": 4147,
-    "passTotal": 35363,
-    "bug": 12454,
+    "passTotal": 35376,
+    "bug": 12441,
     "incompatible": 5357,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47817,
-    "passRateInScope": 66.5,
-    "passRateTrAccepted": 73.95
+    "passRateInScope": 66.53,
+    "passRateTrAccepted": 73.98
   },
   "torajs": {
-    "commit": "7cf52c2f6",
-    "commitSubject": "fix: loads and stores past the scaled-imm12 range ride a register index",
+    "commit": "24ebb3cf6",
+    "commitSubject": "fix: a template literal cooks \\xNN / \\uNNNN / \\u{…} like a string literal",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,26 @@
   },
   "commits": [
     {
+      "hash": "24ebb3cf6",
+      "subject": "fix: a template literal cooks \\xNN / \\uNNNN / \\u{…} like a string literal"
+    },
+    {
+      "hash": "ffa5aa63b",
+      "subject": "feat: case-mapping and normalization tables move to UCD 17.0.0"
+    },
+    {
+      "hash": "ccf15d8b0",
+      "subject": "test: torajs-arr unit tests link again — stubs for the dynobj and weakref seam symbols"
+    },
+    {
+      "hash": "cdb3a459e",
+      "subject": "feat: a string literal's value is WTF-8, so a lone surrogate survives to .rodata"
+    },
+    {
+      "hash": "4fde928f0",
+      "subject": "chore: rotation 556 sweep on 7cf52c2f6, one verdict move (case-mapping table now compiles)"
+    },
+    {
       "hash": "7cf52c2f6",
       "subject": "fix: loads and stores past the scaled-imm12 range ride a register index"
     },
@@ -747,47 +767,38 @@
     {
       "hash": "9752eed78",
       "subject": "chore: rotation 555 final sweep on 51a569ec0, zero verdict movement"
-    },
-    {
-      "hash": "51a569ec0",
-      "subject": "fix: the any-widen lane admits a tag function's template object"
-    },
-    {
-      "hash": "72dc32289",
-      "subject": "chore: rotation 555 test262 sweep ingest, P-SURF snapshot and dashboard"
-    },
-    {
-      "hash": "7bedef183",
-      "subject": "chore: bench results for 299b347 (runs=3, full 4-runner matrix)"
-    },
-    {
-      "hash": "7552b8526",
-      "subject": "fix: a nullable fn-typed param takes the closure repr like any other"
-    },
-    {
-      "hash": "41b25adb3",
-      "subject": "refactor: the closure-repr retag moves to its own sibling"
     }
   ],
-  "headSha": "7cf52c2f6",
+  "headSha": "24ebb3cf6",
   "autorun": {
-    "total": 859,
+    "total": 860,
     "baselineTarget": 10,
-    "bySelf": 854,
+    "bySelf": 855,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788287993-6526",
-      "at": "2026-09-01T18:39:53Z",
-      "ts": 1788287993,
+      "rotationId": "r-1788297572-579f",
+      "at": "2026-09-01T21:19:32Z",
+      "ts": 1788297572,
       "trigger": "self",
-      "prevHead": "9752eed78",
-      "handoffSha": "sha256:9df53432c4cee86f0c1f56eb45e9dabccaec51a48b6980c9e9c7417f5e381dfb",
-      "handoffAgeSec": 3,
+      "prevHead": "4fde928f0",
+      "handoffSha": "sha256:741adf22d104b75976c79de5bd9921424ba8141e1ed8ccb820ba1d87ba9b5692",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788297572-579f",
+        "at": "2026-09-01T21:19:32Z",
+        "ts": 1788297572,
+        "trigger": "self",
+        "prevHead": "4fde928f0",
+        "handoffSha": "sha256:741adf22d104b75976c79de5bd9921424ba8141e1ed8ccb820ba1d87ba9b5692",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788287993-6526",
         "at": "2026-09-01T18:39:53Z",
@@ -884,17 +895,6 @@
         "prevHead": "009f7f157",
         "handoffSha": "sha256:fcef45bf6a6387c9b6b7deedb429889e182fb08b9df38a75b3c574e1bd6f7daf",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788206973-5272",
-        "at": "2026-08-31T20:09:33Z",
-        "ts": 1788206973,
-        "trigger": "self",
-        "prevHead": "f28bf36d6",
-        "handoffSha": "sha256:270c65145174d2e1bcd7e8e56cc0a2bdebc898f13e97bb384cbd73ee72e5e413",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
