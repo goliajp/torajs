@@ -51,7 +51,15 @@ separate trunk item).
 import sys
 import os
 
-UCD_VERSION = "16.0.0"
+def ucd_version_of(dnp_path):
+    """The DerivedNormalizationProps.txt header names its UCD version
+    (`# DerivedNormalizationProps-17.0.0.txt`)."""
+    with open(dnp_path) as f:
+        first = f.readline().strip()
+    return first.split("DerivedNormalizationProps-")[1].split(".txt")[0]
+
+
+UCD_VERSION = "unknown"
 
 # Hangul algorithmic constants per UAX #15 D118-D119.
 SBASE = 0xAC00
@@ -346,6 +354,8 @@ def main(argv):
     ucd = argv[1]
     ud_path = os.path.join(ucd, "UnicodeData.txt")
     dnp_path = os.path.join(ucd, "DerivedNormalizationProps.txt")
+    global UCD_VERSION
+    UCD_VERSION = ucd_version_of(dnp_path)
     for p in (ud_path, dnp_path):
         if not os.path.exists(p):
             sys.stderr.write(f"missing UCD file: {p}\n")
