@@ -146,13 +146,15 @@ pub unsafe extern "C" fn __torajs_arr_push_any_boxed(arr: *mut u8, av: u64) -> *
             // so the pair spelling is the storage format anyway — a
             // materialized ShortStr is adopted by the slot, not
             // abandoned. typed_push_pair ADOPTS, this entry BORROWS:
-            // a heap cell needs its stake handed over (+1); a
-            // materialized ShortStr already carries a fresh one.
+            // a REAL heap cell needs its stake handed over (+1); a
+            // materialized ShortStr already carries a fresh one, so
+            // the inc gates on cell-likeness, not the lying tag
+            // (which double-staked and leaked the materialization).
             let tag = __torajs_anyv_unbox_tag(av) as u64;
-            let value = __torajs_anyv_unbox_value(av) as u64;
-            if tag == ANY_HEAP {
-                __torajs_rc_inc(value as *mut c_void);
+            if torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
+                __torajs_rc_inc(av as *mut c_void);
             }
+            let value = __torajs_anyv_unbox_value(av) as u64;
             return crate::any_typed_bridge::typed_push_pair(arr, tag, value);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);

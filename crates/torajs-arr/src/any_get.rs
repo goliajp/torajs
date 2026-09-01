@@ -72,10 +72,14 @@ pub unsafe extern "C" fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_get_any_owned(arr: *const c_void, i: u64) -> u64 {
     let av = unsafe { __torajs_arr_get_any_boxed(arr, i) };
-    let tag = unsafe { __torajs_anyv_unbox_tag(av) } as u64;
-    if tag == ANY_HEAP {
-        let p = unsafe { __torajs_anyv_unbox_value(av) } as *const u8;
-        if !p.is_null() && unsafe { crate::substr_materialize::is_inline_view(p) } {
+    // Cell-likeness first (rotation 546 form): a ShortStr reports tag
+    // Heap and `unbox_value` would materialize an owned Str this probe
+    // then abandons. A real cell's box IS the raw pointer, so the
+    // inline-view test needs no unbox at all; every immediate (ShortStr
+    // included) rides the NaN-box-safe rc_inc no-op below.
+    if torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
+        let p = av as *const u8;
+        if unsafe { crate::substr_materialize::is_inline_view(p) } {
             let owned = unsafe { crate::substr_materialize::view_to_owned(p) };
             return unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, owned as i64) };
         }

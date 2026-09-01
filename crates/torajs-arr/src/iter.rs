@@ -289,13 +289,14 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
     // the +1 the VALUES / ENTRIES arms below apply would be one too
     // many — `owned_read` tracks which it was.
     //
-    // KEYS yields the index alone. Over an array the slot read is a
-    // borrow and costs nothing, but a typed one MINTS (a BigInt
-    // element is a fresh cell), so `keys()` would allocate and free
-    // one per step for a value it never looks at. §23.2.5.1's `key`
-    // kind does not read the element either.
+    // KEYS yields the index alone and reads no element at all
+    // (§23.2.5.1's `key` kind does not either): a typed read MINTS
+    // (a BigInt element is a fresh cell), and even the array borrow
+    // feeds the unconditional unbox below, which materializes a
+    // ShortStr slot into an owned Str no arm would consume
+    // (rotation 546 — one leaked Str per `keys()` step).
     let kind = unsafe { (*it).kind };
-    let read = !(typed && kind == ARR_ITER_KEYS);
+    let read = kind != ARR_ITER_KEYS;
     let (slot_av, owned_read) = if !read {
         (0u64, false)
     } else if typed {
@@ -332,8 +333,14 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
             // here. Without it `arr.values().next().value` handed out
             // the element's only stake and the element died under the
             // array — `arr[0][0]` answered undefined after five steps
-            // (rotation 323).
-            if !owned_read && (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
+            // (rotation 323). The inc gates on cell-likeness, not the
+            // tag: a ShortStr reports Heap but `slot_val` is then the
+            // materialization, whose fresh rc=1 stake transfers as-is
+            // (rotation 546 — inc'ing it double-staked and leaked).
+            if !owned_read
+                && (slot_tag & 0xff) == ANY_HEAP as u64
+                && torajs_rc::ffi::nan_box_is_cell_like(slot_av as *mut c_void)
+            {
                 unsafe { __torajs_rc_inc(slot_val as *mut c_void) };
             }
             (slot_tag as i64, slot_val as i64)
@@ -347,8 +354,13 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
                 let mut out_arr = __torajs_arr_alloc_any(2);
                 // Index — primitive i64, no rc_inc.
                 out_arr = __torajs_arr_push_any(out_arr, ANY_I64 as u64, i as u64);
-                // Value — heap payload needs rc_inc before push.
-                if !owned_read && (slot_tag & 0xff) == ANY_HEAP as u64 && slot_val != 0 {
+                // Value — a borrowed CELL payload needs rc_inc before
+                // the push adopts it; a ShortStr materialization's
+                // fresh stake transfers as-is (same gate as VALUES).
+                if !owned_read
+                    && (slot_tag & 0xff) == ANY_HEAP as u64
+                    && torajs_rc::ffi::nan_box_is_cell_like(slot_av as *mut c_void)
+                {
                     __torajs_rc_inc(slot_val as *mut c_void);
                 }
                 out_arr = __torajs_arr_push_any(out_arr, slot_tag, slot_val);

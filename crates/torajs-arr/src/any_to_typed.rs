@@ -82,14 +82,21 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
         return cloned;
     }
     // Pass 1 — validate every slot coerces BEFORE any allocation,
-    // so the throw path leaves nothing half-built.
+    // so the throw path leaves nothing half-built. No `unbox_value`
+    // here (rotation 546 form): a ShortStr reports tag Heap and
+    // unbox_value would leak one materialized Str per validated slot.
+    // Tag alone decides — a HEAP tag is either a real cell (whose box
+    // is a non-null pointer) or a ShortStr (materializable in pass 2),
+    // and `coerce_raw_scalar` answers None for every HEAP tag anyway.
     for k in 0..len {
         let av = unsafe { *slot_anyvalue_ptr(arr, k) };
         let tag = unsafe { __torajs_anyv_unbox_tag(av) };
-        let val = unsafe { __torajs_anyv_unbox_value(av) };
         let ok = if want == ARR_KIND_HEAP {
-            tag == TAG_HEAP && val != 0
+            tag == TAG_HEAP && av != 0
+        } else if tag == TAG_HEAP {
+            false
         } else {
+            let val = unsafe { __torajs_anyv_unbox_value(av) };
             coerce_raw_scalar(want, tag as u64, val as u64).is_some()
         };
         if !ok {
@@ -107,14 +114,22 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
     }
     for k in 0..len {
         let av = unsafe { *slot_anyvalue_ptr(arr, k) };
-        let tag = unsafe { __torajs_anyv_unbox_tag(av) };
-        let val = unsafe { __torajs_anyv_unbox_value(av) };
         let raw = if want == ARR_KIND_HEAP {
-            // The new block owns its share.
-            unsafe { __torajs_rc_inc(val as *mut c_void) };
-            val as u64
+            if torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
+                // A cell's box IS the pointer; the new block owns its
+                // own share.
+                unsafe { __torajs_rc_inc(av as *mut c_void) };
+                av
+            } else {
+                // ShortStr — the materialization carries a fresh rc=1
+                // stake the slot adopts (an inc here double-stakes).
+                unsafe { __torajs_anyv_unbox_value(av) as u64 }
+            }
         } else {
-            // Pass 1 proved the coercion holds.
+            // Pass 1 proved the coercion holds (and ruled out HEAP
+            // tags, so this unbox never materializes).
+            let tag = unsafe { __torajs_anyv_unbox_tag(av) };
+            let val = unsafe { __torajs_anyv_unbox_value(av) };
             coerce_raw_scalar(want, tag as u64, val as u64).unwrap()
         };
         unsafe { *(arr_data(dst).add((k as usize) * 8) as *mut u64) = raw };

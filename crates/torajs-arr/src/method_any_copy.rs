@@ -12,7 +12,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_ARR_ANY, HeapHeader};
 
-use crate::any::{ANY_HEAP, slot_anyvalue_ptr};
+use crate::any::slot_anyvalue_ptr;
 use crate::layout::{ARR_LEN_OFF, TAG_ARR};
 
 unsafe extern "C" {
@@ -20,9 +20,6 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     /// Cross-tier — universal NaN-box-safe heap-value release.
     fn __torajs_value_drop_heap(p: *mut c_void);
-    /// Cross-tier — torajs-anyvalue NaN-box unpack.
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     /// Cross-tier — torajs-throw catchable RangeError.
     fn __torajs_throw_range_error(msg: *const u8);
 }
@@ -59,12 +56,15 @@ unsafe fn has_nested_arr(arr: *const u8) -> bool {
     unsafe {
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
         for i in 0..len {
+            // Cell-likeness first (rotation 546 form) — a ShortStr
+            // reports tag Heap and `unbox_value` would leak one
+            // materialized Str per probe. A cell's box IS the pointer.
             let av = *slot_anyvalue_ptr(arr as *mut u8, i);
-            if __torajs_anyv_unbox_tag(av) as u64 != ANY_HEAP {
+            if !torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
                 continue;
             }
-            let cell = __torajs_anyv_unbox_value(av) as *const u8;
-            if !cell.is_null() && *(cell.add(4) as *const u16) == TAG_ARR {
+            let cell = av as *const u8;
+            if *(cell.add(4) as *const u16) == TAG_ARR {
                 return true;
             }
         }

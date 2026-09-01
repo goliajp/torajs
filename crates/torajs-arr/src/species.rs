@@ -112,6 +112,16 @@ unsafe fn classify_ctor_pair_entry(arr: *const u8, dtag: u64, dval: u64) -> i64 
                     return 1;
                 }
                 let gtag = __torajs_anyv_unbox_tag(got);
+                if gtag == 4 && !torajs_rc::ffi::nan_box_is_cell_like(got as *mut c_void) {
+                    // ShortStr — a heap-shaped primitive, step 7
+                    // non-constructor. Deciding here keeps unbox_value
+                    // from leaking a materialization the tag-4 arm's
+                    // header read would abandon (rotation 546 form).
+                    __torajs_throw_type_error(
+                        c"array species constructor is not a constructor".as_ptr(),
+                    );
+                    return 1;
+                }
                 let gval = __torajs_anyv_unbox_value(got);
                 let verdict = classify_ctor_pair_entry(arr, gtag as u64, gval as u64);
                 __torajs_value_drop_heap(got as *mut c_void);

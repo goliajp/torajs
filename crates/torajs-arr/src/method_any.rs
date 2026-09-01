@@ -85,21 +85,16 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
         for i in 0..argc {
             let av = *argv.add(i as usize);
             let header = &*(cur as *const HeapHeader);
-            let tag = __torajs_anyv_unbox_tag(av);
-            let value = __torajs_anyv_unbox_value(av);
             if header.flags & FLAG_ARR_ANY != 0 {
-                // Arr<Any> native ledger — the (tag, value) pair ABI
-                // transfers one rc for tag 4, so inc the borrowed
-                // cell first.
-                if tag == 4 && value != 0 {
-                    __torajs_rc_inc(value as *mut c_void);
-                }
-                cur =
-                    crate::any::__torajs_arr_push_any(cur as *mut c_void, tag as u64, value as u64);
+                // Arr<Any> native ledger — store the box bits directly
+                // (rotation 546 form: the pair spelling forced an
+                // unbox that leaked one materialized Str per ShortStr
+                // arg). The boxed entry takes its own +1 for cells.
+                cur = crate::any::__torajs_arr_push_any_boxed(cur, av);
             } else {
                 // Typed tier — same kind-coercion table as the
                 // S3-set index write (`__torajs_arr_index_set`).
-                let Some(raw) = coerce_typed_slot(header.arr_elem_kind(), tag, value) else {
+                let Some(raw) = coerce_typed_slot(header.arr_elem_kind(), av) else {
                     return kind_mismatch_threw(
                         c"push through an any array receiver would change the array's element kind",
                     );
@@ -114,12 +109,27 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
     }
 }
 
-/// Typed-tier `(kind, anyv tag) → raw slot repr` coercion — the
-/// S3-set table shared by push / unshift. `None` = the value can't
-/// store without changing the array's element kind (caller raises
-/// the TypeError). A `Some` for a HEAP slot has already inc'd the
-/// stored reference.
-unsafe fn coerce_typed_slot(kind: u16, tag: i64, value: i64) -> Option<u64> {
+/// Typed-tier `(kind, boxed AnyValue) → raw slot repr` coercion —
+/// the S3-set table shared by push / unshift, taking the whole box
+/// so the HEAP arm can tell a real cell (inc the pointer the box IS)
+/// from a ShortStr (whose materialization carries the fresh rc=1
+/// stake the slot adopts — rotation 546: the pair spelling
+/// double-staked those). `None` = the value can't store without
+/// changing the array's element kind (caller raises the TypeError);
+/// a `Some` for a HEAP slot carries exactly one stored reference.
+unsafe fn coerce_typed_slot(kind: u16, av: u64) -> Option<u64> {
+    let tag = unsafe { __torajs_anyv_unbox_tag(av) };
+    if tag == 4 {
+        if kind != ARR_KIND_HEAP {
+            return None;
+        }
+        if torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
+            unsafe { __torajs_rc_inc(av as *mut c_void) };
+            return Some(av);
+        }
+        return Some(unsafe { __torajs_anyv_unbox_value(av) } as u64);
+    }
+    let value = unsafe { __torajs_anyv_unbox_value(av) };
     match (kind, tag) {
         (ARR_KIND_I64, 2) => Some(value as u64),
         (ARR_KIND_I64, 3) => {
@@ -132,10 +142,6 @@ unsafe fn coerce_typed_slot(kind: u16, tag: i64, value: i64) -> Option<u64> {
         (ARR_KIND_F64, 3) => Some(value as u64),
         (ARR_KIND_F64, 2) => Some((value as f64).to_bits()),
         (ARR_KIND_BOOL, 1) => Some(value as u64),
-        (ARR_KIND_HEAP, 4) => {
-            unsafe { __torajs_rc_inc(value as *mut c_void) };
-            Some(value as u64)
-        }
         _ => None,
     }
 }
@@ -281,9 +287,7 @@ pub unsafe extern "C" fn __torajs_arr_any_unshift(
             if header.flags & FLAG_ARR_ANY != 0 {
                 cur = any_unshift_one(cur, av);
             } else {
-                let tag = __torajs_anyv_unbox_tag(av);
-                let value = __torajs_anyv_unbox_value(av);
-                let Some(raw) = coerce_typed_slot(header.arr_elem_kind(), tag, value) else {
+                let Some(raw) = coerce_typed_slot(header.arr_elem_kind(), av) else {
                     return kind_mismatch_threw(
                         c"unshift through an any array receiver would change the array's element kind",
                     );
@@ -303,12 +307,12 @@ pub unsafe extern "C" fn __torajs_arr_any_unshift(
 /// copy takes its own reference for cells.
 unsafe fn any_unshift_one(p: *mut u8, av: u64) -> *mut u8 {
     unsafe {
-        if __torajs_anyv_unbox_tag(av) == 4 {
-            let v = __torajs_anyv_unbox_value(av);
-            if v != 0 {
-                __torajs_rc_inc(v as *mut c_void);
-            }
-        }
+        // NaN-box-safe inc on the box bits directly (rotation 546
+        // form): a cell's box IS the pointer, immediates no-op. The
+        // old unbox spelling materialized a ShortStr into an owned
+        // Str, inc'd THAT, then adopted the original box — the
+        // double-staked materialization leaked whole.
+        __torajs_rc_inc(av as *mut c_void);
         any_unshift_adopt(p, av)
     }
 }

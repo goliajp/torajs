@@ -306,6 +306,11 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                 let tag = __torajs_anyv_unbox_tag(av) as u64;
                 let ok = if kind == ARR_KIND_HEAP {
                     tag == ANY_HEAP || tag == ANY_UNDEF
+                } else if tag == ANY_HEAP {
+                    // `coerce_raw_scalar` answers None for every HEAP
+                    // tag; deciding on the tag alone keeps unbox_value
+                    // from leaking a ShortStr materialization per scan.
+                    false
                 } else {
                     coerce_raw_scalar(kind, tag, __torajs_anyv_unbox_value(av) as u64).is_some()
                 };
@@ -377,10 +382,17 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                 let tag = __torajs_anyv_unbox_tag(av) as u64;
                 let raw = if tag == ANY_UNDEF {
                     0
+                } else if torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
+                    // A cell's box IS the pointer; the slot takes its
+                    // own share.
+                    __torajs_rc_inc(av as *mut c_void);
+                    av
                 } else {
+                    // ShortStr — the materialization's fresh rc=1
+                    // stake is what the slot adopts (an inc here
+                    // double-stakes and leaks).
                     __torajs_anyv_unbox_value(av) as u64
                 };
-                __torajs_rc_inc(raw as *mut c_void);
                 *slot = raw;
             } else {
                 // Pre-scan guarantees Some — coerce is pure.
