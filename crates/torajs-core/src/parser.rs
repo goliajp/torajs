@@ -127,6 +127,18 @@ struct Parser<'a> {
     // parse_type_ann; only the OUTERMOST annotation records its span
     // into `ast.type_ann_spans` (inner ranges nest inside it).
     type_ann_depth: u32,
+    // 552-03 -- true while parsing an ARROW FN's return annotation
+    // (the `: T` between the param list's `)` and the body `=>`).
+    // Only there is `(composite) => ...` ambiguous: the arrow's own
+    // `=>` sits right behind the annotation, so a parenthesized
+    // composite type must NOT greedily read as a fn-type parameter
+    // list. Everywhere else (param annotations, type alias bodies)
+    // the bare-type parameter grammar makes `(X) => R` a fn-type and
+    // the greedy read is correct. Saved/restored around the
+    // annotation parse; parse_fn_type_ann consults it at depth 1
+    // only, so annotations nested inside the return type keep the
+    // greedy read.
+    in_arrow_ret_ann: bool,
     ast: Ast,
     /// Monotone counter used by parse-time desugars (for-of, destructuring,
     /// template literal interpolation) to mint collision-free temp names.

@@ -163,7 +163,14 @@ impl<'a> Parser<'a> {
         }
         let return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
-            Some(self.parse_type_ann()?)
+            // 552-03 — the annotation between here and the body `=>`
+            // is the one place a parenthesized composite type must
+            // not greedily read as a fn-type parameter list (the
+            // arrow's own `=>` sits right behind it).
+            let saved = std::mem::replace(&mut self.in_arrow_ret_ann, true);
+            let ann = self.parse_type_ann();
+            self.in_arrow_ret_ann = saved;
+            Some(ann?)
         } else {
             None
         };

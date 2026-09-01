@@ -121,6 +121,7 @@ impl<'a> Parser<'a> {
             pos: 0,
             type_close_peel: 0,
             type_ann_depth: 0,
+            in_arrow_ret_ann: false,
             ast: std::mem::take(&mut self.ast),
             desugar_id: self.desugar_id,
             generator_fns: std::mem::take(&mut self.generator_fns),

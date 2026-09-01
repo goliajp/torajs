@@ -69,6 +69,7 @@ pub fn parse_into_super_prop(
         pos: 0,
         type_close_peel: 0,
         type_ann_depth: 0,
+        in_arrow_ret_ann: false,
         ast: taken,
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),

@@ -34,7 +34,31 @@ impl Parser<'_> {
     pub(super) fn parse_fn_type_ann(&mut self) -> Result<String, String> {
         let (mut params, fn_shape_pinned) = self.parse_fn_type_param_list()?;
         match self.peek() {
-            Token::FatArrow => self.pos += 1,
+            Token::FatArrow => {
+                // 552-03 — in an ARROW FN's return annotation (and
+                // only at its top level), `(X) => …` where X cannot
+                // be a parameter name (a composite type: `(() =>
+                // any)`, `(T[])`) is TS ParenthesizedType even with a
+                // `=>` right behind it — that arrow is the enclosing
+                // arrow fn's body arrow. Everywhere else the
+                // bare-type parameter grammar makes the greedy
+                // fn-type read correct (`f: ((n: number) => number)
+                // => number` is a fn-type taking a fn), so the
+                // re-read is gated on the context flag + depth. A
+                // lone bare ident stays a fn-type parameter name
+                // (`(x) => void`, matching TS), and a `name:` label
+                // or rest param pinned the shape already.
+                if self.in_arrow_ret_ann
+                    && self.type_ann_depth == 1
+                    && params.len() == 1
+                    && !fn_shape_pinned
+                    && !params[0].chars().all(|c| c.is_alphanumeric() || c == '_')
+                {
+                    let inner = params.pop().expect("single grouped type");
+                    return self.read_type_postfix(inner);
+                }
+                self.pos += 1;
+            }
             t => {
                 // Chunk 735 — TS ParenthesizedType: `(T)` with no
                 // `=>` after the close paren is a grouped type, most

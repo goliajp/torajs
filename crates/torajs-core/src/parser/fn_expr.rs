@@ -53,22 +53,48 @@ impl<'a> Parser<'a> {
                             // parenthesized-expression path and died
                             // on the empty `()` with "expected
                             // expression, got RParen".
-                            //
-                            // Only the unparenthesized spelling. A
-                            // parameter list holds named parameters,
-                            // so a group opening with another `(` is
-                            // a parenthesized type instead — and that
-                            // spelling needs the annotation parser to
-                            // stop at the arrow's own `=>`, which is
-                            // `parse_fn_type_ann`'s pinning question,
-                            // not this lookahead's. Declining keeps
-                            // it exactly as it was.
                             if matches!(self.tokens.get(j).map(|s| &s.token), Some(Token::LParen)) {
+                                // 552-03 — a group opening with
+                                // another `(` is a parenthesized
+                                // composite type (`(() => T)`), not a
+                                // parameter list (parameters are
+                                // named): scan to the group's close,
+                                // allow `[]` suffixes, and expect the
+                                // arrow's OWN `=>` right after —
+                                // `parse_fn_type_ann`'s grouped arm
+                                // reads it the same way. A single
+                                // `(x)` stays on the fn-type path
+                                // below so a ternary's `: (b) => c`
+                                // else-arm never lookaheads as an
+                                // arrow head.
                                 if matches!(
                                     self.tokens.get(j + 1).map(|s| &s.token),
                                     Some(Token::LParen)
                                 ) {
-                                    return false;
+                                    let mut d = 1;
+                                    let mut g = j + 1;
+                                    while g < self.tokens.len() && d > 0 {
+                                        match self.tokens[g].token {
+                                            Token::LParen => d += 1,
+                                            Token::RParen => d -= 1,
+                                            Token::Eof => return false,
+                                            _ => {}
+                                        }
+                                        g += 1;
+                                    }
+                                    while matches!(
+                                        self.tokens.get(g).map(|s| &s.token),
+                                        Some(Token::LBracket)
+                                    ) && matches!(
+                                        self.tokens.get(g + 1).map(|s| &s.token),
+                                        Some(Token::RBracket)
+                                    ) {
+                                        g += 2;
+                                    }
+                                    return matches!(
+                                        self.tokens.get(g).map(|s| &s.token),
+                                        Some(Token::FatArrow)
+                                    );
                                 }
                                 let mut d = 1;
                                 j += 1;
