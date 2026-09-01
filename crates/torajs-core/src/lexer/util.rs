@@ -106,6 +106,42 @@ pub(super) fn push_codepoint(buf: &mut Vec<u8>, cp: u32) {
     torajs_wtf8::push_code_point(buf, cp);
 }
 
+/// A hex-valued escape at `bytes[i] == b'\\'` — `\xNN`, `\uNNNN` or
+/// `\u{N…N}` (§12.9.4.1 HexEscapeSequence / UnicodeEscapeSequence;
+/// the braced form takes any digit count whose value stays within
+/// U+10FFFF). Returns the code point and the escape's byte length;
+/// `None` when the digits are not there, and the caller decides
+/// between passthrough and an error. Shared by the string-literal and
+/// template scanners so both cook the same set.
+pub(super) fn scan_hex_escape(bytes: &[u8], i: u32) -> Option<(u32, u32)> {
+    let at = |k: u32| bytes.get((i + k) as usize).copied();
+    let hex = |b: u8| (b as char).to_digit(16);
+    match at(1)? {
+        b'x' => {
+            let hi = hex(at(2)?)?;
+            let lo = hex(at(3)?)?;
+            Some((hi * 16 + lo, 4))
+        }
+        b'u' if at(2) == Some(b'{') => {
+            let mut k = 3;
+            let mut cp: u32 = 0;
+            while let Some(d) = at(k).and_then(hex) {
+                cp = cp.saturating_mul(16).saturating_add(d);
+                k += 1;
+            }
+            (k > 3 && at(k) == Some(b'}') && cp <= 0x10FFFF).then_some((cp, k + 1))
+        }
+        b'u' => {
+            let mut cp: u32 = 0;
+            for k in 2..=5 {
+                cp = cp * 16 + hex(at(k)?)?;
+            }
+            Some((cp, 6))
+        }
+        _ => None,
+    }
+}
+
 pub(super) fn is_ident_start(b: u8) -> bool {
     b.is_ascii_alphabetic() || b == b'_' || b == b'$'
 }

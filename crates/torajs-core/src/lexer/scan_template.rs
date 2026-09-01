@@ -86,6 +86,16 @@ pub(super) fn scan_template(
                 *i += 4;
                 continue;
             }
+            // `\xNN` / `\uNNNN` / `\u{N…N}` cook the same as in a string
+            // literal (§12.9.6 TV); TRV keeps the spelling verbatim.
+            if matches!(esc, b'x' | b'u')
+                && let Some((cp, n)) = super::util::scan_hex_escape(bytes, *i)
+            {
+                super::util::push_codepoint(&mut buf, cp);
+                raw.extend_from_slice(&bytes[*i as usize..(*i + n) as usize]);
+                *i += n;
+                continue;
+            }
             let mapped: u8 = match esc {
                 b'n' => b'\n',
                 b't' => b'\t',
